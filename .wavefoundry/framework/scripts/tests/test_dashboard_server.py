@@ -2461,8 +2461,8 @@ class DashboardChildReapTests(unittest.TestCase):
 
     def test_index_refresh_sweeps_dashboard_children(self):
         # AC-4(b): a dashboard that died is reaped by an index-refresh sweep with NO wf_*_dashboard call.
-        with patch("index_handlers._reap_dashboard_child_pids") as reap, \
-             patch("index_handlers._background_refresh_active", return_value=True):
+        with patch("wf_server.index_handlers._reap_dashboard_child_pids") as reap, \
+             patch("wf_server.index_handlers._background_refresh_active", return_value=True):
             self.server._start_background_index_refresh(self.root, "project")
         reap.assert_called_once_with()
 

@@ -207,12 +207,18 @@ must not write wave lifecycle records directly. Imports made by an extension mod
 registry `mcp_tool_registry` and the ten `*_handlers` modules live in `scripts/wf_server/`. What a
 distribution relies on is unchanged: the entry point is still `scripts/server.py`, the
 declarations `mcp_tool_extensions.py`, `mcp_tool_roster.py` and `record_paths.py` stay in
-`scripts/`, and extension modules stay flat files there. Each moved module keeps a flat
-`scripts/<name>.py` whose whole body replaces itself in `sys.modules` with `wf_server.<name>`, so
-`import server_impl`, private helpers reached through it, and `patch.object` on the flat name all
-reach the implementation; the flat names are the public import surface. When merging a release,
-re-apply fork edits to `scripts/wf_server/<name>.py`, never over the flat alias: the package refuses
-to import when a flat alias file is not the exact alias, naming the file. `wf_server` and the twelve
+`scripts/`, and extension modules stay flat files there. `server_impl` and `dashboard_handlers`
+keep a flat `scripts/<name>.py` whose whole body replaces itself in `sys.modules` with
+`wf_server.<name>`, so `import server_impl`, private helpers reached through it, and `patch.object`
+on the flat name all reach the implementation. The other ten moved modules have no flat file (wave
+`1yxyw`): import them as `import wf_server.<name> as <name>` or `from wf_server.<name> import ...`,
+patch `wf_server.<name>.<attr>`, and never use `from wf_server import <name>` in code that must
+survive `wf_reload_mcp`. When merging a release, re-apply fork edits to
+`scripts/wf_server/<name>.py`: the package refuses to import when a retained flat alias file is not
+the exact alias, naming the file. A leftover flat file of a retired name, which only an unproven
+upgrade prune leaves, is reported in the `wf_server_info` diagnostic `retired_flat_module_leftover`
+and on stderr, never refused; delete it, because while it remains a flat import of that name loads
+the stale copy. `wf_server` and the twelve
 moved module names are reserved extension module names, and a distribution that ships its own
 top-level module named `wf_server` is shadowed by the package. After upgrading from
 1.25 or 1.26, restart the MCP host: `wf_reload_mcp` on the old runner serves the package, but

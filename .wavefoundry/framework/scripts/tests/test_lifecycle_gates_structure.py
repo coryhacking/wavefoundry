@@ -200,20 +200,33 @@ def _alias_table(source):
     raise AssertionError("Expected a module-level _FLAT_ALIASES table")
 
 
+def _retired_table(source):
+    """Flat names in the server_impl ``_RETIRED_FLAT_NAMES`` table (wave 1yxyw)."""
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "_RETIRED_FLAT_NAMES"
+                                                for t in node.targets):
+            return {n.value for n in ast.walk(node.value) if isinstance(n, ast.Constant)
+                    and isinstance(n.value, str)}
+    raise AssertionError("Expected a module-level _RETIRED_FLAT_NAMES table")
+
+
 def _purge_covered(source):
     """Names the reload purge evicts: the retained literal plus every moved
     module except server_impl, whose flat and package keys are derived from
-    the alias table."""
-    return set(_purge_entries(source)) | (_alias_table(source) - {"server_impl"})
+    the alias table and the retired-name table."""
+    return (set(_purge_entries(source)) | (_alias_table(source) - {"server_impl"})
+            | _retired_table(source))
 
 
 def _evaluated_purge_keys(source):
-    """Evaluate the ``_FLAT_ALIASES`` table and ``_PACKAGE_PURGE_KEYS`` from
-    the source alone, without importing server_impl: a purge that evicts the
-    module being reloaded crashes the import, so it must fail here instead."""
+    """Evaluate the ``_FLAT_ALIASES`` and ``_RETIRED_FLAT_NAMES`` tables and
+    ``_PACKAGE_PURGE_KEYS`` from the source alone, without importing
+    server_impl: a purge that evicts the module being reloaded crashes the
+    import, so it must fail here instead."""
     wanted = [node for node in ast.parse(source).body
               if isinstance(node, ast.Assign)
-              and any(isinstance(t, ast.Name) and t.id in {"_FLAT_ALIASES", "_PACKAGE_PURGE_KEYS"}
+              and any(isinstance(t, ast.Name)
+                      and t.id in {"_FLAT_ALIASES", "_RETIRED_FLAT_NAMES", "_PACKAGE_PURGE_KEYS"}
                       for t in node.targets)]
     namespace = {}
     exec(compile(ast.Module(body=wanted, type_ignores=[]), "<purge keys>", "exec"), namespace)
@@ -428,12 +441,18 @@ class LifecycleGateStructureTests(unittest.TestCase):
                 except Exception as exc:  # a purge gap leaves a stub and the reload raises
                     self.fail(f"reload raised {type(exc).__name__}: {exc}")
                 self.assertEqual(response["status"], "ok", response)
+                retired = _retired_table(_source("server_impl"))
+                self.assertTrue(retired and retired <= package, retired)
                 for name in names:
-                    module = sys.modules[name]
+                    module = sys.modules["wf_server." + name] if name in package else sys.modules[name]
                     self.assertFalse(hasattr(module, "stale_gate_marker"), name)
                     self.assertEqual(Path(module.__file__).resolve(), source_path(name).resolve())
-                    if name in package:
-                        self.assertIs(sys.modules["wf_server." + name], module, name)
+                    if name in retired:
+                        # Wave 1yxyw: the stale flat key an older host held is
+                        # evicted and never re-registered.
+                        self.assertNotIn(name, sys.modules, name)
+                    elif name in package:
+                        self.assertIs(sys.modules[name], module, name)
             finally:
                 runner._get_handler().close()
 
@@ -452,8 +471,9 @@ class LifecycleGateStructureTests(unittest.TestCase):
         for name in _package_modules() - {"server_impl"}:
             self.assertTrue({name, "wf_server." + name} <= purge_keys, name)
         self.assertFalse({"server_impl", "wf_server.server_impl", "wf_server"} & purge_keys)
-        dropped = source.replace('    "graph_handlers": "wf_server.graph_handlers",\n', '')
+        dropped = source.replace('"graph_handlers", ', '', 1)
         self.assertNotEqual(dropped, source)
+        self.assertNotIn("graph_handlers", _retired_table(dropped))
         self.assertEqual(_package_modules() - {"server_impl"} - _purge_covered(dropped), {"graph_handlers"})
         # The old purge-derived test silently lost coverage when an entry was
         # omitted. Derive expected modules from imports even for this mutant.
@@ -472,7 +492,11 @@ class LifecycleGateStructureTests(unittest.TestCase):
             runner = load_thin_runner()
             try:
                 runner.build_server(root)
-                old_modules = {name: sys.modules[name] for name in names}
+                # Package modules are keyed by their package name: a retired
+                # flat alias no longer exists (wave 1yxyw).
+                package = _package_modules()
+                key = {name: "wf_server." + name if name in package else name for name in names}
+                old_modules = {name: sys.modules[key[name]] for name in names}
                 for module in old_modules.values():
                     patches.enter_context(patch.object(module, "stale_reload_marker", True, create=True))
                 stale_guard = lambda *args, **kwargs: "stale-source-guard"
@@ -483,7 +507,7 @@ class LifecycleGateStructureTests(unittest.TestCase):
                     self.fail(f"reload raised {type(exc).__name__}: {exc}")
                 self.assertEqual(response["status"], "ok", response)
                 for name, old_module in old_modules.items():
-                    fresh = sys.modules[name]
+                    fresh = sys.modules[key[name]]
                     self.assertIsNot(fresh, old_module, name)
                     self.assertFalse(hasattr(fresh, "stale_reload_marker"), name)
                     self.assertEqual(Path(fresh.__file__).resolve(), source_path(name).resolve())

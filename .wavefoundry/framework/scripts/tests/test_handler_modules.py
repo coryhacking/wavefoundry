@@ -27,7 +27,7 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 ROOT = SCRIPTS.parents[2]
 from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 # Explicit aliases preserve the retired gate response names and private optimize name.
-FAMILIES = {'memory_handlers': {'memory_add': 'memory_add_response',
+FAMILIES = {'wf_server.memory_handlers': {'memory_add': 'memory_add_response',
                      'memory_propose': 'memory_propose_response',
                      'memory_backfill': 'memory_backfill_response',
                      'memory_validate': 'memory_validate_response',
@@ -37,9 +37,9 @@ FAMILIES = {'memory_handlers': {'memory_add': 'memory_add_response',
                      'memory_purge': 'memory_purge_response',
                      'memory_consolidate': 'memory_consolidate_response',
                      'wf_memory_eval': 'wf_memory_eval_response'},
- 'techdocs_handlers': {'wf_techdocs_audit': 'wf_techdocs_audit_response',
+ 'wf_server.techdocs_handlers': {'wf_techdocs_audit': 'wf_techdocs_audit_response',
                        'wf_techdocs_baseline': 'wf_techdocs_baseline_response'},
- 'codenav_handlers': {'code_list_files': 'code_list_files_response',
+ 'wf_server.codenav_handlers': {'code_list_files': 'code_list_files_response',
                       'code_read': 'code_read_response',
                       'code_keyword': 'code_keyword_response',
                       'code_lexical': 'code_lexical_response',
@@ -51,31 +51,31 @@ FAMILIES = {'memory_handlers': {'memory_add': 'memory_add_response',
                       'code_dependencies': 'code_dependencies_response',
                       'code_hover': 'code_hover_response',
                       'code_commit_provenance': 'code_commit_provenance_response'},
- 'graph_handlers': {'code_impact': 'code_impact_response',
+ 'wf_server.graph_handlers': {'code_impact': 'code_impact_response',
                     'code_callgraph': 'code_callgraph_response',
                     'code_callhierarchy': 'code_callhierarchy_response',
                     'code_graph_path': 'code_graph_path_response',
                     'code_graph_community': 'code_graph_community_response',
                     'code_risk_score': 'code_risk_score_response',
                     'wf_graph_report': 'wf_graph_report_response'},
- 'context_efficiency_handlers': {'wf_context_efficiency_eval': 'wf_context_efficiency_eval_response'},
- 'docs_handlers': {'wf_validate_docs': 'wf_validate_docs_response',
+ 'wf_server.context_efficiency_handlers': {'wf_context_efficiency_eval': 'wf_context_efficiency_eval_response'},
+ 'wf_server.docs_handlers': {'wf_validate_docs': 'wf_validate_docs_response',
                    'wf_garden_docs': 'wf_garden_docs_response',
                    'wf_sync_surfaces': 'wf_sync_surfaces_response',
                    'wf_scan_secrets': 'wf_scan_secrets_response'},
- 'dashboard_handlers': {'wf_start_dashboard': 'wf_start_dashboard_response',
+ 'wf_server.dashboard_handlers': {'wf_start_dashboard': 'wf_start_dashboard_response',
                         'wf_stop_dashboard': 'wf_stop_dashboard_response',
                         'wf_restart_dashboard': 'wf_restart_dashboard_response',
                         'wf_open_dashboard': 'wf_open_dashboard_response'},
- 'edit_gate_handlers': {'wf_open_gate': 'wave_open_gate_response',
+ 'wf_server.edit_gate_handlers': {'wf_open_gate': 'wave_open_gate_response',
                         'wf_close_gate': 'wf_close_wave_gate_response',
                         'wf_gate_status': 'wf_gate_status_response',
                         'wf_get_handoff': 'wf_get_handoff_response',
                         'wf_set_handoff': 'wf_set_handoff_response'},
- 'upgrade_handlers': {'wf_upgrade': 'wf_upgrade_response',
+ 'wf_server.upgrade_handlers': {'wf_upgrade': 'wf_upgrade_response',
                       'wf_upgrade_status': 'wf_upgrade_status_response',
                       'wf_audit_install': 'wf_audit_install_response'},
- 'index_handlers': {'index_build': 'index_build_response',
+ 'wf_server.index_handlers': {'index_build': 'index_build_response',
                     'index_build_status': 'index_build_status_response',
                     'index_health': 'index_health_response',
                     'index_optimize': '_index_optimize_response'}}
@@ -84,7 +84,7 @@ FAMILIES = {'memory_handlers': {'memory_add': 'memory_add_response',
 
 
 # Literal classified sets captured from the admitted pre-move inventory.
-SPLIT_THREE_ROSTERS = {'context_efficiency_handlers': ['_read_ce_projection_config',
+SPLIT_THREE_ROSTERS = {'wf_server.context_efficiency_handlers': ['_read_ce_projection_config',
                                  '_pending_ce_generations',
                                  '_maybe_project_context_efficiency',
                                  '_project_context_efficiency_wave',
@@ -106,14 +106,14 @@ SPLIT_THREE_ROSTERS = {'context_efficiency_handlers': ['_read_ce_projection_conf
                                  '_CE_PROJECTION_MAX_QUIET_SECONDS',
                                  '_CE_PROJECTION_POLL_SECONDS',
                                  '_STATE_SOURCE_EXTRACTORS'],
- 'docs_handlers': ['wf_validate_docs_response',
+ 'wf_server.docs_handlers': ['wf_validate_docs_response',
                    'wf_garden_docs_response',
                    'run_garden',
                    'wf_sync_surfaces_response',
                    'run_sync_surfaces',
                    'wf_scan_secrets_response',
                    '_subprocess_timeout_summary'],
- 'dashboard_handlers': ['wf_start_dashboard_response',
+ 'wf_server.dashboard_handlers': ['wf_start_dashboard_response',
                         'wf_open_dashboard_response',
                         '_dashboard_cmdline_pids',
                         '_dashboard_pid_is_live',
@@ -125,7 +125,7 @@ SPLIT_THREE_ROSTERS = {'context_efficiency_handlers': ['_read_ce_projection_conf
                         'wf_stop_dashboard_response',
                         'wf_restart_dashboard_response',
                         'DASHBOARD_START_WAIT_SECONDS'],
- 'edit_gate_handlers': ['wave_open_gate_response',
+ 'wf_server.edit_gate_handlers': ['wave_open_gate_response',
                         'wf_close_wave_gate_response',
                         'wf_gate_status_response',
                         '_force_gates_closed',
@@ -136,7 +136,7 @@ SPLIT_THREE_ROSTERS = {'context_efficiency_handlers': ['_read_ce_projection_conf
                         '_write_guard_overrides',
                         '_VALID_GATES',
                         '_EDIT_GOVERNANCE_GATE_MAP'],
- 'upgrade_handlers': ['wf_upgrade_response',
+ 'wf_server.upgrade_handlers': ['wf_upgrade_response',
                       '_bounded_upgrade_response_envelope',
                       'wf_audit_install_response',
                       '_bounded_upgrade_summary',
@@ -162,7 +162,7 @@ SPLIT_THREE_ROSTERS = {'context_efficiency_handlers': ['_read_ce_projection_conf
                       'RETIRED_MODEL_CLEANUP_KEYS',
                       '_RETIRED_MODEL_CLEANUP_ITEM_RE',
                       '_CUTOVER_RESTART_INSTRUCTION'],
- 'index_handlers': ['_index_layer_readiness',
+ 'wf_server.index_handlers': ['_index_layer_readiness',
                     '_index_readiness_overview',
                     '_audit_build_summary',
                     '_audit_index_snapshot',
@@ -247,6 +247,18 @@ def _unresolved(source, module, server):
     return failures
 
 
+def _imported_modules(imports) -> set[str]:
+    """Full module names an import list names, including ``from pkg import mod``."""
+    names = set()
+    for node in imports:
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            names.add(node.module)
+            names.update(f"{node.module}.{alias.name}" for alias in node.names)
+    return names
+
+
 class HandlerStructureTests(unittest.TestCase):
     def test_locations_import_boundaries_and_name_resolution(self):
         server = load_server()
@@ -263,10 +275,8 @@ class HandlerStructureTests(unittest.TestCase):
                     self.assertIn(response, local_defs)
                     self.assertIs(getattr(server, response), getattr(module, response))
                 imports = [n for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom))]
-                imported = {alias.name.split('.')[0] for n in imports if isinstance(n, ast.Import) for alias in n.names}
-                imported.update(n.module.split('.')[0] for n in imports if isinstance(n, ast.ImportFrom) and n.module)
-                self.assertNotIn('server_impl', imported)
-                self.assertFalse((set(FAMILIES) - {name}) & imported)
+                self.assertFalse({'server_impl', 'wf_server.server_impl'} & _imported_modules(imports))
+                self.assertFalse((set(FAMILIES) - {name}) & _imported_modules(imports))
                 self.assertEqual(_unresolved(source, module, server), set())
                 bad = source + '\ndef _contract_mutant():\n    return never_defined_handler_global\n'
                 self.assertIn('never_defined_handler_global', _unresolved(bad, module, server))
@@ -276,7 +286,7 @@ class HandlerStructureTests(unittest.TestCase):
 
     def test_memory_partition_and_reexport_identities(self):
         server = load_server()
-        memory = importlib.import_module('memory_handlers')
+        memory = importlib.import_module('wf_server.memory_handlers')
         server_tree = ast.parse(source_path("server_impl.py").read_text())
         memory_tree = ast.parse(source_path("memory_handlers.py").read_text())
         staying = {'_auto_populate_memory_for_wave', '_memory_validation_diagnostics'}
@@ -318,11 +328,8 @@ class HandlerStructureTests(unittest.TestCase):
             for name in names:
                 self.assertIs(getattr(server, name), getattr(module, name), (owner, name))
             # Include function-local imports; sibling handler imports are forbidden.
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    self.assertFalse({a.name for a in node.names} & (set(FAMILIES) - {owner}))
-                elif isinstance(node, ast.ImportFrom):
-                    self.assertNotIn(node.module, set(FAMILIES) - {owner})
+            imports = [n for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom))]
+            self.assertFalse(_imported_modules(imports) & (set(FAMILIES) - {owner}))
         self.assertTrue({'register_mcp_surface', 'ImplHandler', '_maybe_refresh_if_stale',
                          '_read_monitor_config', '_wrap_upgrade_publication_guard',
                          '_indexer_module', '_run_post_write_lint', 'wf_audit_response'} <= root_owned)
@@ -331,8 +338,8 @@ class HandlerStructureTests(unittest.TestCase):
 class HandlerResponseTests(unittest.TestCase):
     def setUp(self):
         self.server = load_server()
-        self.nav = importlib.import_module('codenav_handlers')
-        self.graph = importlib.import_module('graph_handlers')
+        self.nav = importlib.import_module('wf_server.codenav_handlers')
+        self.graph = importlib.import_module('wf_server.graph_handlers')
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name) / "repo"
@@ -373,7 +380,7 @@ class HandlerResponseTests(unittest.TestCase):
             'code_references': {'symbol_or_path_position': 'ANSWER'}, 'code_dependencies': {'path': 'visible.py'},
             'code_hover': {'path': 'visible.py', 'line': 2}, 'code_commit_provenance': {'path': 'visible.py'},
         }
-        self.assertEqual(set(calls), set(FAMILIES['codenav_handlers']))
+        self.assertEqual(set(calls), set(FAMILIES['wf_server.codenav_handlers']))
         for name, kwargs in calls.items():
             with self.subTest(tool=name):
                 result = getattr(self.nav, name + '_response')(self.root, **kwargs)
@@ -403,7 +410,7 @@ class HandlerResponseTests(unittest.TestCase):
             'code_graph_path': {'from_symbol': 'public_symbol', 'to_symbol': 'ANSWER'},
             'code_graph_community': {}, 'code_risk_score': {}, 'wf_graph_report': {},
         }
-        self.assertEqual(set(calls), set(FAMILIES['graph_handlers']))
+        self.assertEqual(set(calls), set(FAMILIES['wf_server.graph_handlers']))
         for name, kwargs in calls.items():
             with self.subTest(tool=name):
                 result = getattr(self.graph, name + '_response')(self.root, **kwargs)
@@ -414,7 +421,7 @@ class HandlerResponseTests(unittest.TestCase):
     def test_docs_responses_reach_subprocess_and_manifest_without_transport(self):
         # Boundary doubles replace external processes; real responses parse their
         # outputs and real manifest files, including a known refusal path.
-        docs = importlib.import_module('docs_handlers')
+        docs = importlib.import_module('wf_server.docs_handlers')
         def render(argv, **kwargs):
             self.assertIn('render_platform_surfaces.py', argv[1])
             Path(argv[argv.index('--manifest') + 1]).write_text(
@@ -444,15 +451,19 @@ class HandlerPackagingAndEvaluatorTests(unittest.TestCase):
             (framework / 'scripts' / 'wf_server').mkdir(parents=True)
             shutil.copy2(SCRIPTS / 'wf_server' / '__init__.py', framework / 'scripts' / 'wf_server' / '__init__.py')
             for name in FAMILIES:
-                # Wave 1yzd0: the flat alias and the package implementation both ship.
-                shutil.copy2(SCRIPTS / (name + '.py'), framework / 'scripts' / (name + '.py'))
-                shutil.copy2(source_path(name), framework / 'scripts' / 'wf_server' / (name + '.py'))
+                stem = name.rpartition('.')[2]
+                shutil.copy2(source_path(name), framework / 'scripts' / 'wf_server' / (stem + '.py'))
+                # Wave 1yxyw: only the retained flat aliases still ship.
+                if (SCRIPTS / (stem + '.py')).is_file():
+                    shutil.copy2(SCRIPTS / (stem + '.py'), framework / 'scripts' / (stem + '.py'))
             manifest = build_pack.write_manifest(framework, build_pack.collect_files(framework))
             entries = manifest.read_text().splitlines()
         self.assertIn('scripts/wf_server/__init__.py', entries)
         for name in FAMILIES:
-            self.assertIn('scripts/' + name + '.py', entries)
-            self.assertIn('scripts/wf_server/' + name + '.py', entries)
+            stem = name.rpartition('.')[2]
+            self.assertIn('scripts/wf_server/' + stem + '.py', entries)
+        self.assertEqual(sorted(e for e in entries if e.startswith('scripts/') and e.count('/') == 1),
+                         ['scripts/dashboard_handlers.py'])
 
     def test_evaluator_real_server_attributes_and_missing_alias_control(self):
         import retrieval_eval
@@ -562,7 +573,7 @@ class HandlerPackagingAndEvaluatorTests(unittest.TestCase):
         self.assertTrue(contents)
         # A valid file with the wrong content must fail the same content oracle.
         bad_content = copy.deepcopy(contents[0])
-        bad_content['path'] = '.wavefoundry/framework/scripts/mcp_tool_registry.py'
+        bad_content['path'] = '.wavefoundry/framework/scripts/wf_server/mcp_tool_registry.py'
         with self.assertRaises(AssertionError):
             self.assertIn(bad_content['anchor']['value'], (ROOT / bad_content['path']).read_text())
         mutant = copy.deepcopy(corpus)
@@ -588,7 +599,7 @@ with tempfile.TemporaryDirectory() as tmp:
     runner.build_server(root)
     try:
         old=getattr(runner.server_impl, response_name)
-        source=Path('wf_server')/(module_name+'.py')  # edit the implementation, never the alias
+        source=Path('wf_server')/(module_name.rpartition('.')[2]+'.py')  # edit the implementation
         source.write_text(source.read_text()+'\ndef '+response_name+'(root, *args, **kwargs):\n    return {"status":"ok","data":{"handler_reload_probe":True}}\n')
         result=runner.perform_mcp_reload()
         assert result['status']=='ok',result
@@ -609,16 +620,16 @@ class HandlerReloadTests(unittest.TestCase):
     def test_actual_reload_serves_modified_scratch_handlers(self):
         cases = (
             # Wave 1yzd0: every moved handler module, including code navigation.
-            ('codenav_handlers', 'code_read_response', 'code_read'),
-            ('graph_handlers', 'wf_graph_report_response', 'wf_graph_report'),
-            ('memory_handlers', 'memory_brief_response', 'memory_brief'),
-            ('techdocs_handlers', 'wf_techdocs_audit_response', 'wf_techdocs_audit'),
-            ('index_handlers', 'index_build_response', 'index_build'),
-            ('upgrade_handlers', 'wf_upgrade_response', 'wf_upgrade'),
-            ('edit_gate_handlers', 'wave_open_gate_response', 'wf_open_gate'),
-            ('dashboard_handlers', 'wf_start_dashboard_response', 'wf_start_dashboard'),
-            ('docs_handlers', 'wf_validate_docs_response', 'wf_validate_docs'),
-            ('context_efficiency_handlers', 'wf_context_efficiency_eval_response', 'wf_context_efficiency_eval'),
+            ('wf_server.codenav_handlers', 'code_read_response', 'code_read'),
+            ('wf_server.graph_handlers', 'wf_graph_report_response', 'wf_graph_report'),
+            ('wf_server.memory_handlers', 'memory_brief_response', 'memory_brief'),
+            ('wf_server.techdocs_handlers', 'wf_techdocs_audit_response', 'wf_techdocs_audit'),
+            ('wf_server.index_handlers', 'index_build_response', 'index_build'),
+            ('wf_server.upgrade_handlers', 'wf_upgrade_response', 'wf_upgrade'),
+            ('wf_server.edit_gate_handlers', 'wave_open_gate_response', 'wf_open_gate'),
+            ('wf_server.dashboard_handlers', 'wf_start_dashboard_response', 'wf_start_dashboard'),
+            ('wf_server.docs_handlers', 'wf_validate_docs_response', 'wf_validate_docs'),
+            ('wf_server.context_efficiency_handlers', 'wf_context_efficiency_eval_response', 'wf_context_efficiency_eval'),
         )
         for module, response, tool in cases:
             with self.subTest(module=module), tempfile.TemporaryDirectory() as temp:

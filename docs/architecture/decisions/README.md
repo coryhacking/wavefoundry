@@ -43,7 +43,7 @@ Copy `template.md` and fill in all sections. Link new ADRs from `docs/ARCHITECTU
 | [1yb8v-adr](1yb8v-adr%20record-layout-config-over-resolver-protocol.md) | Record roots are fork-editable constants in `record_paths.py`, neither runtime configuration nor a discovered resolver | accepted |
 | [1yb53-adr](1yb53-adr%20config-declared-phase-gates.md) | Typed configuration for required prepare/close sensors | accepted |
 | [1ye5y-adr](1ye5y-adr%20flat-sibling-tool-registry.md) | The MCP tool registry and wrapper-chain applier live in a flat, stateless sibling module | superseded by 1yx4m (placement) |
-| [1yx4m-adr](1yx4m-adr%20wf-server-package.md) | The MCP server implementation lives in the `wf_server` package, with flat `sys.modules` aliases as the public import surface | accepted |
+| [1yx4m-adr](1yx4m-adr%20wf-server-package.md) | The MCP server implementation lives in the `wf_server` package; `server_impl` and `dashboard_handlers` keep flat `sys.modules` aliases, the other ten are reached as `wf_server.<name>` (amended by wave `1yxyw`) | accepted |
 | [1yja8-adr](1yja8-adr%20persisted-storage-continuity.md) | Persisted path and available-inode continuity, with pure recovery reads | accepted |
 
 - [Index Build Source Races](1yj14-adr%20index-build-source-races.md) — automatic-writer exclusion, bounded coherent retry and verified precommit recovery.

@@ -1,0 +1,155 @@
+{
+ "after_1yzd0": {
+  "definition_owners": {
+   "server_impl": {
+    "flat": 0,
+    "package": 550
+   },
+   "mcp_tool_registry": {
+    "flat": 0,
+    "package": 11
+   },
+   "codenav_handlers": {
+    "flat": 0,
+    "package": 57
+   },
+   "graph_handlers": {
+    "flat": 0,
+    "package": 35
+   },
+   "techdocs_handlers": {
+    "flat": 0,
+    "package": 3
+   },
+   "memory_handlers": {
+    "flat": 0,
+    "package": 34
+   },
+   "index_handlers": {
+    "flat": 0,
+    "package": 53
+   },
+   "upgrade_handlers": {
+    "flat": 0,
+    "package": 14
+   },
+   "edit_gate_handlers": {
+    "flat": 0,
+    "package": 9
+   },
+   "dashboard_handlers": {
+    "flat": 0,
+    "package": 14
+   },
+   "docs_handlers": {
+    "flat": 0,
+    "package": 7
+   },
+   "context_efficiency_handlers": {
+    "flat": 0,
+    "package": 18
+   }
+  },
+  "handler_to_server_impl_calls": 248,
+  "flat_alias_files_present": [
+   "codenav_handlers",
+   "context_efficiency_handlers",
+   "dashboard_handlers",
+   "docs_handlers",
+   "edit_gate_handlers",
+   "graph_handlers",
+   "index_handlers",
+   "mcp_tool_registry",
+   "memory_handlers",
+   "server_impl",
+   "techdocs_handlers",
+   "upgrade_handlers"
+  ],
+  "package_files_present": [
+   "codenav_handlers",
+   "context_efficiency_handlers",
+   "dashboard_handlers",
+   "docs_handlers",
+   "edit_gate_handlers",
+   "graph_handlers",
+   "index_handlers",
+   "mcp_tool_registry",
+   "memory_handlers",
+   "server_impl",
+   "techdocs_handlers",
+   "upgrade_handlers"
+  ]
+ },
+ "after_1yxyw": {
+  "definition_owners": {
+   "server_impl": {
+    "flat": 0,
+    "package": 552
+   },
+   "mcp_tool_registry": {
+    "flat": 0,
+    "package": 11
+   },
+   "codenav_handlers": {
+    "flat": 0,
+    "package": 57
+   },
+   "graph_handlers": {
+    "flat": 0,
+    "package": 35
+   },
+   "techdocs_handlers": {
+    "flat": 0,
+    "package": 3
+   },
+   "memory_handlers": {
+    "flat": 0,
+    "package": 34
+   },
+   "index_handlers": {
+    "flat": 0,
+    "package": 53
+   },
+   "upgrade_handlers": {
+    "flat": 0,
+    "package": 14
+   },
+   "edit_gate_handlers": {
+    "flat": 0,
+    "package": 9
+   },
+   "dashboard_handlers": {
+    "flat": 0,
+    "package": 14
+   },
+   "docs_handlers": {
+    "flat": 0,
+    "package": 7
+   },
+   "context_efficiency_handlers": {
+    "flat": 0,
+    "package": 18
+   }
+  },
+  "handler_to_server_impl_calls": 248,
+  "flat_alias_files_present": [
+   "dashboard_handlers",
+   "server_impl"
+  ],
+  "package_files_present": [
+   "codenav_handlers",
+   "context_efficiency_handlers",
+   "dashboard_handlers",
+   "docs_handlers",
+   "edit_gate_handlers",
+   "graph_handlers",
+   "index_handlers",
+   "mcp_tool_registry",
+   "memory_handlers",
+   "server_impl",
+   "techdocs_handlers",
+   "upgrade_handlers"
+  ]
+ }
+}
+RESULT: OK

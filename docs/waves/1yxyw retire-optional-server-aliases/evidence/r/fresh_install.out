@@ -1,0 +1,22 @@
+{
+ "pack": "wavefoundry-1.27.0.r1yxyw.zip",
+ "retired_in_pack": [],
+ "retained_in_pack": [
+  "dashboard_handlers",
+  "server_impl"
+ ],
+ "manifest_lists_retired": [],
+ "dry_run": {
+  "exit": 0,
+  "stderr_warning": false,
+  "tail": [
+   "wavefoundry mcp-server --dry-run: OK (root=/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf 1yxyw fresh sr76733a/fresh install, handler=ImplHandler)"
+  ]
+ },
+ "wf_server_info": {
+  "status": "ok",
+  "diagnostic_codes": []
+ },
+ "verdict": "ok"
+}
+exit=0

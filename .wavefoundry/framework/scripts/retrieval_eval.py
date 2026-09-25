@@ -158,8 +158,9 @@ PRODUCTION_MODULE_PREFIX = ".wavefoundry/framework/scripts/"
 # ``wf_server`` package once it exists. Production identity and golden
 # relevance keep their flat logical names; each resolves to the package file
 # when that file exists, else to the flat file, so one evaluator identity
-# measures both layouts. After the move the flat file is a three-line alias, so
-# a result on the flat path never matches a relevance row for a moved module.
+# measures both layouts. After the move the flat file is a three-line alias
+# or, for the ten names wave 1yxyw retired, absent, so a result on the flat
+# path never matches a relevance row for a moved module.
 SERVER_PACKAGE_DIR = "wf_server"
 SERVER_PACKAGE_MODULES = frozenset({
     "server_impl.py", "mcp_tool_registry.py", "codenav_handlers.py", "graph_handlers.py",

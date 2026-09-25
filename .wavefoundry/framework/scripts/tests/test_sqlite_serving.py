@@ -245,8 +245,8 @@ class SQLiteServingTests(unittest.TestCase):
             with self.subTest(code=code), \
                     patch.object(self.index, "docs_health", return_value={**base, **values}), \
                     patch.object(server, "_state_store_health_summary", return_value=store), \
-                    patch("index_handlers._index_build_lock_info", return_value={"held": False}), \
-                    patch("index_handlers._background_build_status", return_value="none"):
+                    patch("wf_server.index_handlers._index_build_lock_info", return_value={"held": False}), \
+                    patch("wf_server.index_handlers._background_build_status", return_value="none"):
                 response = health()
             self.assertEqual(response["status"], "ok")
             self.assertNotIn("setup_wavefoundry.py", str(response))

@@ -733,7 +733,7 @@ os._exit(23)
             "data": {},
             "diagnostics": [{"code": "query_failed", "message": huge}],
         }
-        import memory_handlers
+        import wf_server.memory_handlers as memory_handlers
         with mock.patch.object(
             memory_handlers,
             "_memory_propose_response_locked",

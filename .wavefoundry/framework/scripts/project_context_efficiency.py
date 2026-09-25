@@ -16,7 +16,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", default=".")
     args, _unknown = parser.parse_known_args(argv)
     try:
-        import context_efficiency_handlers
+        import wf_server.context_efficiency_handlers as context_efficiency_handlers
 
         context_efficiency_handlers.project_pending_context_efficiency_root(
             Path(args.root).resolve(), automatic=True

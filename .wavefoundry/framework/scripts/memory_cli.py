@@ -6,7 +6,7 @@ import argparse
 import json
 
 import repo_root
-import memory_handlers
+import wf_server.memory_handlers as memory_handlers
 
 
 def main(argv: list[str] | None = None) -> int:

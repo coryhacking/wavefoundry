@@ -964,6 +964,40 @@ def pre_index_rebuild(ctx):
     enforce_index_guard_handoff(ctx)
 
 
+# Wave 1yxyw: the moved server modules whose flat aliases are retired. This is
+# an upgrade-mandatory module, which older runners validate against flat module
+# stems only, so it keeps its own copy instead of importing wf_server;
+# test_server_package pins it to server_impl._RETIRED_FLAT_NAMES.
+RETIRED_FLAT_SERVER_MODULES = (
+    "mcp_tool_registry", "codenav_handlers", "graph_handlers", "techdocs_handlers",
+    "memory_handlers", "index_handlers", "upgrade_handlers", "edit_gate_handlers",
+    "docs_handlers", "context_efficiency_handlers",
+)
+
+
+def post_pruning(ctx):
+    """Report retired flat server files the MANIFEST-diff prune left behind.
+
+    Report only: the prune is the sole deletion authority. A leftover means the
+    prune did not run or could not be proven. Never raises, because an older
+    runner turns a hook exception into exit 3 after pruning changed the tree.
+    """
+    try:
+        scripts = Path(ctx.root) / ".wavefoundry" / "framework" / "scripts"
+        leftovers = [f"{name}.py" for name in RETIRED_FLAT_SERVER_MODULES
+                     if (scripts / f"{name}.py").is_file()]
+        if leftovers:
+            print(
+                f"WARNING: retired flat server module file(s) remain in {scripts}: "
+                f"{', '.join(leftovers)}. Delete them: the implementations now live in "
+                "wf_server/, and while a file remains an 'import <name>' of that flat "
+                "name loads the stale copy instead of failing.",
+                flush=True,
+            )
+    except Exception as exc:  # noqa: BLE001 - reporting must never abort the upgrade
+        print(f"note: could not check for retired flat server module files: {exc}", flush=True)
+
+
 def pre_extract(ctx):
     """Snapshot lint-bound facts, then quiesce old dedicated lock carriers."""
 

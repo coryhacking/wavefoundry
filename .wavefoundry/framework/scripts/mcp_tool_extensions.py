@@ -53,8 +53,10 @@ RESERVED_MODULE_NAMES = frozenset({
     "mcp_tool_roster",
     "server",
     "wf_server",
-    # The wf_server package modules, which keep flat alias names (wave 1yzd0);
-    # test_server_package pins this set to server_impl._FLAT_ALIASES.
+    # The wf_server package modules (wave 1yzd0): the two retained flat aliases
+    # and the ten retired flat names (wave 1yxyw). test_server_package pins this
+    # set to server_impl._FLAT_ALIASES, server_impl._RETIRED_FLAT_NAMES and
+    # "wf_server".
     "server_impl",
     "mcp_tool_registry",
     "codenav_handlers",

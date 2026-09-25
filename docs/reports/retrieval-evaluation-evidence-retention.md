@@ -16,7 +16,10 @@ The operator approved consolidating historical retrieval and semantic-search out
 | [post-1wuju](retrieval-quality-post-1wuju.json) | Before-receipt consumed by the reference comparison. |
 | [post-1wybs](retrieval-quality-post-1wybs.json) | Documented reference receipt, subject to evaluator compatibility. Its fail verdict is preserved. |
 | [1yzd0-e1c](retrieval-quality-1yzd0-e1c.json) | Wave `1yzd0` E1: pre-move baseline recorded with the layout-independent E0 evaluator; the before side of the reference comparison. |
-| [1yzd0-e2b](retrieval-quality-1yzd0-e2b.json) | Wave `1yzd0` E2: current reference receipt after the `wf_server` package move; `pass` against E1. |
+| [1yzd0-e2b](retrieval-quality-1yzd0-e2b.json) | Wave `1yzd0` E2: previous reference receipt after the `wf_server` package move; `pass` against E1. |
+| [1yxyw-e1](retrieval-quality-1yxyw-e1.json) | Wave `1yxyw`: baseline on the committed evaluator step (existence resolved through the implementing path); the before side of the reference comparison. |
+| [1yxyw-e2c](retrieval-quality-1yxyw-e2c.json) | Wave `1yxyw`: the removal measurement after the ten optional flat aliases were removed; no quality violations against its baseline, operator review for latency only (sustained machine load). Not a baseline for the shipped evaluator (a later comment-only edit changed its identity). |
+| [1yxyw-e3](retrieval-quality-1yxyw-e3.json) | Wave `1yxyw`: current reference receipt, a single-run baseline on the final tree with the shipped evaluator bytes. |
 
 Keep the query fixture at `docs/evals/retrieval-quality-golden.json`, evaluator code, tests and closed-wave review records. The [evaluation policy](../contributing/review-and-evals.md) still governs baseline compatibility and when to measure again.
 

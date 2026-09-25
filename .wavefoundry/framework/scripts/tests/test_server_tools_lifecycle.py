@@ -3551,7 +3551,7 @@ class GardenDocsIndexRefreshTriggerTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _garden(self, garden_result: dict) -> tuple[dict, MagicMock]:
-        with patch("docs_handlers.run_garden", return_value=garden_result), patch.object(
+        with patch("wf_server.docs_handlers.run_garden", return_value=garden_result), patch.object(
             self.srv, "_trigger_background_index_refresh_for_paths"
         ) as trigger:
             result = self.srv.wf_garden_docs_response(self.root, mode="run")
@@ -3856,7 +3856,7 @@ class WfAuditBoundedIndexSnapshotTests(unittest.TestCase):
         _seed_store_state(self.index_dir, {"content": ["docs"], "file_hashes": {}})
         current_cv = self.srv._read_chunker_version()
         with patch.object(self.srv, "_store_has_completed_build", return_value=True), \
-             patch("index_handlers._audit_build_summary", return_value={
+             patch("wf_server.index_handlers._audit_build_summary", return_value={
                  "chunker_versions": {"docs": current_cv},
                  "file_count": 1,
              }):
@@ -3885,7 +3885,7 @@ class WfAuditBoundedIndexSnapshotTests(unittest.TestCase):
         (self.index_dir / "docs.lance").mkdir()
         idx_mod = self.srv._load_script("indexer")
         with patch.object(self.srv, "_store_has_completed_build", return_value=True), \
-             patch("index_handlers._audit_build_summary", return_value={
+             patch("wf_server.index_handlers._audit_build_summary", return_value={
                  "chunker_versions": {},
                  "file_count": 1,
              }), \
@@ -3900,7 +3900,7 @@ class WfAuditBoundedIndexSnapshotTests(unittest.TestCase):
         while freshness stays unknown."""
         (self.index_dir / "docs.lance").mkdir()
         with patch.object(self.srv, "_store_has_completed_build", return_value=True), \
-             patch("index_handlers._audit_build_summary", return_value={
+             patch("wf_server.index_handlers._audit_build_summary", return_value={
                  "chunker_versions": {"docs": "0"},
                  "file_count": 1,
              }):
@@ -9953,10 +9953,10 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         sanctioned set", so this resolves each tag to the diagnostic code it
         actually marks.
         """
-        import codenav_handlers
-        import graph_handlers
-        import techdocs_handlers
-        import docs_handlers
+        import wf_server.codenav_handlers as codenav_handlers
+        import wf_server.graph_handlers as graph_handlers
+        import wf_server.techdocs_handlers as techdocs_handlers
+        import wf_server.docs_handlers as docs_handlers
 
         module = ast.Module(body=[
             node

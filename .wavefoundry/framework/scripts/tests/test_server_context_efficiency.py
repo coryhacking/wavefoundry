@@ -25,7 +25,7 @@ import context_efficiency as ce
 import index_state_store
 import review_evidence
 import server_impl as srv
-import context_efficiency_handlers as ce_handlers
+import wf_server.context_efficiency_handlers as ce_handlers
 import score_context_efficiency_pairs as pair_scorer
 
 
@@ -3192,7 +3192,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 srv.wf_garden_docs_response(root, mode="run")
                 completed.set()
 
-            with patch("docs_handlers.run_garden", side_effect=fake_garden):
+            with patch("wf_server.docs_handlers.run_garden", side_effect=fake_garden):
                 with review_evidence.project_state_publication_lock(root):
                     thread = threading.Thread(target=invoke)
                     thread.start()

@@ -1,0 +1,244 @@
+{
+ "v1.26.0": {
+  "reload_status": "ok",
+  "served": "served",
+  "live": {
+   "mcp_tool_registry": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "codenav_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "graph_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "techdocs_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "memory_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "index_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "upgrade_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "edit_gate_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "docs_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "context_efficiency_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "server_impl": {
+    "objects": 1,
+    "flat_key": true,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "dashboard_handlers": {
+    "objects": 1,
+    "flat_key": true,
+    "package_file": true,
+    "old_flat_object_live": false
+   }
+  },
+  "verdict": "ok"
+ }
+}
+{
+ "902f7edc": {
+  "reload_status": "ok",
+  "served": "served",
+  "live": {
+   "mcp_tool_registry": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "codenav_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "graph_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "techdocs_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "memory_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "index_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "upgrade_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "edit_gate_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "docs_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "context_efficiency_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "server_impl": {
+    "objects": 1,
+    "flat_key": true,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "dashboard_handlers": {
+    "objects": 1,
+    "flat_key": true,
+    "package_file": true,
+    "old_flat_object_live": false
+   }
+  },
+  "verdict": "ok"
+ }
+}
+{
+ "599039d9": {
+  "reload_status": "ok",
+  "served": "served",
+  "live": {
+   "mcp_tool_registry": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "codenav_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "graph_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "techdocs_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "memory_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "index_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "upgrade_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "edit_gate_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "docs_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "context_efficiency_handlers": {
+    "objects": 1,
+    "flat_key": false,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "server_impl": {
+    "objects": 1,
+    "flat_key": true,
+    "package_file": true,
+    "old_flat_object_live": false
+   },
+   "dashboard_handlers": {
+    "objects": 1,
+    "flat_key": true,
+    "package_file": true,
+    "old_flat_object_live": false
+   }
+  },
+  "verdict": "ok"
+ }
+}
+exit=0

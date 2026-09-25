@@ -164,7 +164,10 @@ machine.
 through `retrieval_eval.SERVER_PACKAGE_MODULES` (wave `1yzd0` E0). Logical keys
 stay the flat module names (`server_impl.py`), and each resolves to the file
 that implements it: `wf_server/<name>.py` when the package holds it, else the
-flat file. The fixture file and its digest are never rewritten; a receipt
+flat file. Loading the corpus checks that each relevance path exists on that
+implementing path (wave `1yxyw`), because the ten retired flat files are absent;
+a package that lacks a moved module's file is refused as
+`incomplete_server_package` rather than `stale_corpus`. The fixture file and its digest are never rewritten; a receipt
 discloses the resolution in `production_identity.module_paths` and
 `relevance_path_resolution`, and a result on a flat alias path never counts as a
 relevance match.
@@ -342,7 +345,28 @@ receipt (`docs/reports/retrieval-quality-post-1wuju.json`, a single run at the
 reference receipt `docs/reports/retrieval-quality-1ymzq-after.json` (R2, recorded
 on 2026-09-22 on stable complete generation 1914 with verdict `baseline`) was a
 NEW baseline after `index_handlers.py` joined evaluator membership.
-The current reference receipt is `docs/reports/retrieval-quality-1yzd0-e2b.json`
+The current reference receipt is `docs/reports/retrieval-quality-1yxyw-e3.json`
+(wave `1yxyw`): a single-run `baseline` recorded on 2026-09-25 at stable
+complete generation 2144 on the final tree, with the shipped evaluator bytes.
+It exists because the evaluator identity is a hash of the evaluator source
+bytes: a comment-only edit to `retrieval_eval.py` (AST-identical) followed the
+removal measurement, so the receipts below cannot serve as a `--baseline` for
+the shipped evaluator and are refused as `invalid_baseline`.
+
+The removal itself is measured by `docs/reports/retrieval-quality-1yxyw-e2c.json`
+(after the ten optional flat aliases were removed), recorded at stable complete
+generation 2137 and compared against
+`docs/reports/retrieval-quality-1yxyw-e1.json` (the baseline on the committed
+evaluator step, generation 2132) with the same evaluator and fixture digest. It
+has no invalidation reasons and no fixture-level quality violations; its verdict
+is `operator_review_required` for latency only (`code_ask` and `code_search` warm
+p95 above the inherited jitter band), attributed to sustained load from other
+processes on the recording machine: `1yxyw-e3`, with the same production digest,
+measured `code_ask` 4906 ms and `code_search` 837 ms, back within the E1 bands. The evaluator-step change to
+`load_fixture_corpus` changed evaluator identity, so neither receipt is
+comparable with the `1yzd0` receipts.
+
+The previous reference receipt is `docs/reports/retrieval-quality-1yzd0-e2b.json`
 (E2, wave `1yzd0`): recorded on 2026-09-25 after the `wf_server` package move at
 stable complete generation 2106, compared against
 `docs/reports/retrieval-quality-1yzd0-e1c.json` (E1, the pre-move baseline

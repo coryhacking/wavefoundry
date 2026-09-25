@@ -4470,7 +4470,7 @@ class PreferredPythonSubprocessTests(unittest.TestCase):
         mock_proc = MagicMock(pid=12345)
         with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_python.parents[1])}), \
              patch("subprocess.Popen", return_value=mock_proc) as popen_mock, \
-             patch("index_handlers._background_refresh_active", return_value=False):
+             patch("wf_server.index_handlers._background_refresh_active", return_value=False):
             started = self.srv._start_background_index_refresh(self.root, "project")
         self.assertTrue(started)
         called_cmd = popen_mock.call_args.args[0]
@@ -5471,7 +5471,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         }
         upgrade_lib = types.SimpleNamespace(read_upgrade_lock=lambda _root: lock)
         with patch("subprocess.run", return_value=mock_proc), \
-             patch('upgrade_handlers._load_upgrade_lib', return_value=upgrade_lib), \
+             patch('wf_server.upgrade_handlers._load_upgrade_lib', return_value=upgrade_lib), \
              patch.object(self.srv, "_load_script", return_value=backfill):
             result = self.srv.wf_upgrade_response(self.root)
         self.assertEqual(result["data"]["state"], "awaiting_memory_validation")
@@ -5506,7 +5506,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         }
         upgrade_lib = types.SimpleNamespace(read_upgrade_lock=lambda _root: lock)
         with patch("subprocess.run", return_value=mock_proc), \
-             patch('upgrade_handlers._load_upgrade_lib', return_value=upgrade_lib), \
+             patch('wf_server.upgrade_handlers._load_upgrade_lib', return_value=upgrade_lib), \
              patch.object(self.srv, "_load_script", return_value=backfill):
             result = self.srv.wf_upgrade_response(self.root)
         self.assertEqual(result["status"], "ok")
@@ -5526,7 +5526,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
             read_upgrade_lock=lambda _root: {"memory_backfill_run_id": "run-2"}
         )
         with patch("subprocess.run", return_value=mock_proc), \
-             patch('upgrade_handlers._load_upgrade_lib', return_value=upgrade_lib):
+             patch('wf_server.upgrade_handlers._load_upgrade_lib', return_value=upgrade_lib):
             result = self.srv.wf_upgrade_response(self.root)
         self.assertEqual(result["status"], "error")
         self.assertNotEqual(result.get("data", {}).get("state"), "awaiting_memory_validation")
@@ -7588,7 +7588,7 @@ class UpgradePublicationWrapperContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self._checkpoint(root)
-            with patch("index_handlers._reap_background_build_pids",
+            with patch("wf_server.index_handlers._reap_background_build_pids",
                 side_effect=AssertionError("checkpoint must precede native work"),
             ), patch("subprocess.Popen") as popen:
                 self.assertFalse(

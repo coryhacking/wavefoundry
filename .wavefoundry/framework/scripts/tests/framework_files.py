@@ -1,8 +1,9 @@
 """Where tests find framework source files (wave 1yzd0).
 
-The server-owned modules live in the ``wf_server`` package. Each keeps a flat
-file beside the package whose whole body is a three-line ``sys.modules`` alias,
-so a test that reads or enumerates flat files by name would read or count the
+The server-owned modules live in the ``wf_server`` package. ``server_impl`` and
+``dashboard_handlers`` keep a flat file beside the package whose whole body is a
+three-line ``sys.modules`` alias (the other ten have none since wave 1yxyw), so
+a test that reads or enumerates flat files by name would read or count the
 alias instead of the implementation. Tests locate sources through this module;
 ``test_server_package`` refuses a flat ``glob("*.py")`` of the scripts root and
 a source read of a moved module's flat path anywhere else.
@@ -30,8 +31,12 @@ def source_path(name: str, scripts_dir: Path = SCRIPTS_DIR) -> Path:
     extensionless name is a module stem only when that module exists.
 
     The moved set is read from this checkout's package, so a ``scripts_dir``
-    other than the live one must be a copy with the same layout.
+    other than the live one must be a copy with the same layout. A package
+    module name (``wf_server.index_handlers``) resolves to its package file.
     """
+    prefix = PACKAGE_DIR.name + "."
+    if name.startswith(prefix) and "/" not in name and not name.endswith(".py"):
+        return scripts_dir / PACKAGE_DIR.name / (name[len(prefix):] + ".py")
     if name.endswith(".py"):
         stem = name[:-3]
     elif "/" in name or "." in name:

@@ -1360,7 +1360,7 @@ class MemoryToolTests(_MemoryCase):
             self.root, "mem-purge-safe-error", reason="No longer needed."
         )
         archive = self.root / self.mem.MEMORY_ARCHIVE_DIR / "mem-purge-safe-error.md"
-        import memory_handlers
+        import wf_server.memory_handlers as memory_handlers
         with patch.object(memory_handlers, "_memory_mod", return_value=self.mem) as memory_module, patch.object(
             self.mem, "rebuild_archive_manifest", side_effect=OSError("publish failed")
         ):

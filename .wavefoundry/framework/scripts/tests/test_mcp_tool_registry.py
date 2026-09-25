@@ -34,7 +34,7 @@ from pathlib import Path
 
 from unittest.mock import patch
 
-import mcp_tool_registry as reg
+import wf_server.mcp_tool_registry as reg
 from server_tools_support import load_server
 from test_tool_surface_golden import _BootedSurface
 
@@ -271,8 +271,9 @@ class ModuleBoundaryTests(unittest.TestCase):
     def test_registry_module_is_in_purge_set_and_imported_at_module_top(self):
         # A module-top public-name import is what 1y0h0's reload test proves;
         # the purge entry is what makes that import fresh after reload.
-        # Wave 1yzd0: the registry lives in wf_server; the purge keys come from
-        # the alias table, and the module-top import must be the dotted form.
+        # Wave 1yzd0: the registry lives in wf_server and the module-top import
+        # must be the dotted form. Wave 1yxyw: its flat alias is retired, so the
+        # purge keys come from the retired-name table.
         def placement(source):
             tree = ast.parse(source)
             top_level = any(
@@ -281,12 +282,13 @@ class ModuleBoundaryTests(unittest.TestCase):
                         for alias in node.names)
                 for node in tree.body
             )
-            aliases = next(
+            retired = next(
                 node.value for node in tree.body
                 if isinstance(node, ast.Assign)
-                and any(isinstance(t, ast.Name) and t.id == "_FLAT_ALIASES" for t in node.targets)
+                and any(isinstance(t, ast.Name) and t.id == "_RETIRED_FLAT_NAMES" for t in node.targets)
             )
-            present = any(isinstance(k, ast.Constant) and k.value == "mcp_tool_registry" for k in aliases.keys)
+            present = any(isinstance(k, ast.Constant) and k.value == "mcp_tool_registry"
+                          for k in ast.walk(retired))
             return top_level, present
 
         source = source_path("server_impl.py").read_text(encoding="utf-8")

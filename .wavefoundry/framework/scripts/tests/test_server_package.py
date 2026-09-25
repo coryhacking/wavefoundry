@@ -1,12 +1,14 @@
-"""Wave 1yzd0: the ``wf_server`` package boundary.
+"""Waves 1yzd0 and 1yxyw: the ``wf_server`` package boundary.
 
-Twelve server-owned modules live in ``scripts/wf_server/``. Each keeps a flat
-file whose whole body replaces itself in ``sys.modules`` with the package
-module, so the flat names stay the public import surface while there is one
-module object per implementation. These tests pin the layout, the aliases,
-module identity, scripts-root resolution, the upgrade constraint older runners
-impose, and the two test censuses that keep a test from reading or enumerating
-an alias as if it were the implementation.
+Twelve server-owned modules live in ``scripts/wf_server/``. ``server_impl`` and
+``dashboard_handlers`` keep a flat file whose whole body replaces itself in
+``sys.modules`` with the package module, because installed 1.25/1.26 upgrade
+runners resolve the upgrade-mandatory modules' imports against flat stems. The
+other ten are reached only as ``wf_server.<name>``. These tests pin the layout,
+the two aliases, module identity, the retired-name warning, scripts-root
+resolution, the upgrade constraint older runners impose, and the censuses that
+keep code from reading an alias as the implementation or naming a retired
+module by its flat name.
 """
 from __future__ import annotations
 
@@ -14,6 +16,7 @@ import ast
 import fnmatch
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -31,6 +34,7 @@ MOVED = frozenset({
     "memory_handlers", "index_handlers", "upgrade_handlers", "edit_gate_handlers",
     "dashboard_handlers", "docs_handlers", "context_efficiency_handlers",
 })
+RETAINED = frozenset({"server_impl", "dashboard_handlers"})
 ALIAS_BODY = 'import importlib\nimport sys\n\nsys.modules[__name__] = importlib.import_module("wf_server.{name}")\n'
 RETAINED_DECLARATIONS = ("mcp_tool_extensions.py", "mcp_tool_roster.py", "record_paths.py", "server.py")
 
@@ -56,14 +60,26 @@ class PackageStructureTests(unittest.TestCase):
 
     def test_flat_aliases_have_the_exact_pinned_bytes(self):
         # A downstream merge that restores a full flat file must fail here.
-        for name in sorted(MOVED):
+        for name in sorted(RETAINED):
             with self.subTest(module=name):
                 self.assertEqual((SCRIPTS / f"{name}.py").read_bytes(), ALIAS_BODY.format(name=name).encode())
+        for name in sorted(MOVED - RETAINED):
+            with self.subTest(retired=name):
+                self.assertFalse((SCRIPTS / f"{name}.py").exists(), "wave 1yxyw retired this flat alias")
 
     def test_alias_and_evaluator_tables_match_the_inventory(self):
+        import mcp_tool_extensions
         import retrieval_eval
+        import upgrade_extensions
         server = load_server()
-        self.assertEqual(server._FLAT_ALIASES, {name: f"wf_server.{name}" for name in MOVED})
+        self.assertEqual(server._FLAT_ALIASES, {name: f"wf_server.{name}" for name in RETAINED})
+        self.assertEqual(server._RETIRED_FLAT_NAMES, MOVED - RETAINED)
+        self.assertEqual(set(upgrade_extensions.RETIRED_FLAT_SERVER_MODULES), server._RETIRED_FLAT_NAMES)
+        self.assertEqual(len(upgrade_extensions.RETIRED_FLAT_SERVER_MODULES), len(server._RETIRED_FLAT_NAMES))
+        self.assertTrue(server._RETIRED_FLAT_NAMES.isdisjoint(server._FLAT_ALIASES))
+        self.assertEqual(mcp_tool_extensions.RESERVED_MODULE_NAMES
+                         & (set(server._FLAT_ALIASES) | server._RETIRED_FLAT_NAMES | {"wf_server"}),
+                         set(server._FLAT_ALIASES) | server._RETIRED_FLAT_NAMES | {"wf_server"})
         self.assertEqual(retrieval_eval.SERVER_PACKAGE_DIR, "wf_server")
         self.assertEqual(retrieval_eval.SERVER_PACKAGE_MODULES, frozenset(n + ".py" for n in MOVED))
 
@@ -94,22 +110,31 @@ class ModuleIdentityTests(unittest.TestCase):
             "import json, sys\n"
             "sys.path.insert(0, sys.argv[1])\n"
             # A consumer without the runner imports a handler first (memory_cli does).
-            "import memory_handlers\n"
+            "import wf_server.memory_handlers\n"
             "import server_impl\n"
-            f"names = {sorted(MOVED)!r}\n"
+            f"names = {sorted(RETAINED)!r}\n"
+            f"retired = {sorted(MOVED - RETAINED)!r}\n"
             # Registered by server_impl itself, before any other flat import.
             "eager = {n: sys.modules.get(n) is sys.modules.get('wf_server.' + n) is not None for n in names}\n"
+            "def flat_import_fails(n):\n"
+            "    try:\n"
+            "        __import__(n)\n"
+            "    except ModuleNotFoundError:\n"
+            "        return True\n"
+            "    return False\n"
             "print(json.dumps({\n"
             "    'eager': eager,\n"
             "    'same': {n: __import__(n) is sys.modules['wf_server.' + n] for n in names},\n"
+            "    'retired_absent': {n: n not in sys.modules and flat_import_fails(n) for n in retired},\n"
             "    'module_names': sorted({sys.modules[n].__name__ for n in names}),\n"
             "    'package_dir_on_path': any(p.rstrip('/\\\\').endswith('wf_server') for p in sys.path),\n"
             "    'scripts_dir': str(server_impl.SCRIPTS_DIR),\n"
             "}))\n"
         )
-        self.assertEqual(observed["eager"], {name: True for name in MOVED})
-        self.assertEqual(observed["same"], {name: True for name in MOVED})
-        self.assertEqual(observed["module_names"], sorted("wf_server." + name for name in MOVED))
+        self.assertEqual(observed["eager"], {name: True for name in RETAINED})
+        self.assertEqual(observed["same"], {name: True for name in RETAINED})
+        self.assertEqual(observed["retired_absent"], {name: True for name in MOVED - RETAINED})
+        self.assertEqual(observed["module_names"], sorted("wf_server." + name for name in RETAINED))
         self.assertFalse(observed["package_dir_on_path"])
         self.assertEqual(Path(observed["scripts_dir"]).resolve(), SCRIPTS.resolve())
 
@@ -138,7 +163,7 @@ class ModuleIdentityTests(unittest.TestCase):
             "spec.loader.exec_module(private)\n"
             "print(json.dumps({\n"
             "    'server_impl_is_canonical': sys.modules['server_impl'] is canonical,\n"
-            "    'handler_alias_registered': 'graph_handlers' in sys.modules,\n"
+            "    'handler_alias_registered': 'dashboard_handlers' in sys.modules,\n"
             "    'private_has_handlers': hasattr(private, 'wf_graph_report_response'),\n"
             "}))\n"
         )
@@ -194,7 +219,7 @@ class ScriptsRootTests(unittest.TestCase):
     def test_load_script_and_upgrade_sentinel_read_retained_scripts(self):
         module = self.srv._load_script("graph_cluster")
         self.assertEqual(Path(module.__file__).resolve(), (SCRIPTS / "graph_cluster.py").resolve())
-        import upgrade_handlers
+        import wf_server.upgrade_handlers as upgrade_handlers
         sentinel = upgrade_handlers._upgrade_summary_sentinel()
         upgrade = sys.modules["upgrade_wavefoundry"]
         self.assertEqual(Path(upgrade.__file__).resolve(), (SCRIPTS / "upgrade_wavefoundry.py").resolve())
@@ -461,6 +486,142 @@ class TestCensusTests(unittest.TestCase):
         self.assertIn(SCRIPTS / "server_impl.py", framework_source_files(include_aliases=True))
 
 
+# Wave 1yxyw: the ten moved modules whose flat aliases are retired. Only
+# ``server_impl`` and ``dashboard_handlers`` keep a flat name, because installed
+# 1.25/1.26 upgrade runners resolve the mandatory modules' imports against flat
+# stems.
+RETIRED = MOVED - {"server_impl", "dashboard_handlers"}
+# Evicted by the reload purge; ``from wf_server import <name>`` reads the stale
+# attribute the never-evicted parent package keeps, so it is refused outside
+# the package. ``server_impl`` is never evicted.
+_EVICTED = MOVED - {"server_impl"}
+_RETIRED_TOKEN = re.compile(
+    r"(?<![\w./])(?<!\bas )(?:" + "|".join(sorted(RETIRED)) + r")(?!\w)(?!\.py\b)")
+# Assignments and test functions that must name the retired modules by their
+# flat names: the reserved extension names, the upgrade hook's own copy
+# (upgrade-mandatory modules cannot import wf_server), the evaluator's logical
+# keys, and the tests that pin the reload purge of the retired flat keys.
+_RETIRED_NAME_TABLES = {
+    "mcp_tool_extensions.py": {"RESERVED_MODULE_NAMES"},
+    "upgrade_extensions.py": {"RETIRED_FLAT_SERVER_MODULES"},
+    "retrieval_eval.py": {"SERVER_PACKAGE_MODULES"},
+    "tests/test_mcp_tool_registry.py": {"test_registry_module_is_in_purge_set_and_imported_at_module_top"},
+    "tests/test_lifecycle_gates_structure.py": {"test_reload_picks_up_every_added_module",
+                                                "test_reload_purge_covers_direct_sibling_imports"},
+}
+# The census's own home pins those tables and holds the known-bad controls.
+_RETIRED_CENSUS_EXEMPT = {"test_server_package.py"}
+
+
+def _docstring_ids(tree: ast.AST) -> set[int]:
+    ids = set()
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if (isinstance(body, list) and body and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str)):
+            ids.add(id(body[0].value))
+    return ids
+
+
+def _retired_flat_name_sites(source: str, tables: set[str] = frozenset()) -> list[str]:
+    """Sites outside ``wf_server/`` that name a retired module by its flat name.
+
+    The predicate (change 1yxwn-ref): an import statement, or a string constant
+    (an ``import_module``/``__import__`` argument, ``sys.modules`` key,
+    ``patch`` target, or code embedded in a subprocess script) whose module
+    token is a retired name or starts with ``<name>.``; plus ``from wf_server
+    import <evicted module>``. File names (``<name>.py``) and docstrings are not
+    module tokens. Assignments and functions named in ``tables`` are allowlisted.
+    """
+    tree = ast.parse(source)
+    skipped = _docstring_ids(tree)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(isinstance(t, ast.Name) and t.id in tables for t in targets):
+                skipped |= {id(n) for n in ast.walk(node)}
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in tables:
+            skipped |= {id(n) for n in ast.walk(node)}
+    sites = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            sites += [f"{node.lineno}: import {a.name}" for a in node.names if a.name.split(".")[0] in RETIRED]
+        elif isinstance(node, ast.ImportFrom) and not node.level:
+            if (node.module or "").split(".")[0] in RETIRED:
+                sites.append(f"{node.lineno}: from {node.module} import")
+            elif node.module == "wf_server":
+                sites += [f"{node.lineno}: from wf_server import {a.name}"
+                          for a in node.names if a.name in _EVICTED]
+        elif (isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in skipped
+                and _RETIRED_TOKEN.search(node.value)):
+            sites.append(f"{node.lineno}: {node.value[:60]!r}")
+    return sites
+
+
+def _retired_census_sources():
+    for path in sorted(SCRIPTS.rglob("*.py")):
+        relative = path.relative_to(SCRIPTS)
+        if relative.parts[0] in {"wf_server", "index"} or "__pycache__" in relative.parts:
+            continue
+        if path.name in _RETIRED_CENSUS_EXEMPT:
+            continue
+        yield relative.as_posix(), path.read_text(encoding="utf-8")
+
+
+class RetiredFlatNameCensusTests(unittest.TestCase):
+    def test_no_module_outside_the_package_uses_a_retired_flat_name(self):
+        found = {}
+        for relpath, source in _retired_census_sources():
+            sites = _retired_flat_name_sites(source, _RETIRED_NAME_TABLES.get(relpath, set()))
+            if sites:
+                found[relpath] = sites
+        self.assertEqual(found, {}, "name the retired modules as wf_server.<name>")
+
+    def test_the_census_detects_every_form(self):
+        for bad in ("import memory_handlers", "import graph_handlers as g",
+                    "def f():\n    from index_handlers import _x",
+                    "from wf_server import index_handlers", "from wf_server import dashboard_handlers",
+                    "importlib.import_module('codenav_handlers')", "__import__('techdocs_handlers')",
+                    "patch('index_handlers._resolve')", "sys.modules['mcp_tool_registry']",
+                    "'graph_handlers' in sys.modules", "code = 'import docs_handlers\\n'",
+                    "RESERVED_MODULE_NAMES = {'memory_handlers'}",
+                    # The hook's allowlisted table does not cover the rest of its module.
+                    "RETIRED_FLAT_SERVER_MODULES = ('memory_handlers',)\nimport upgrade_handlers"):
+            with self.subTest(bad=bad):
+                self.assertTrue(_retired_flat_name_sites(bad, {"RETIRED_FLAT_SERVER_MODULES"}))
+        for good in ("import wf_server.memory_handlers as memory_handlers",
+                     "from wf_server.index_handlers import _x", "from wf_server import server_impl",
+                     "importlib.import_module('wf_server.codenav_handlers')",
+                     "patch('wf_server.index_handlers._resolve')", "p = 'wf_server/graph_handlers.py'",
+                     "source_path('graph_handlers.py')", "import server_impl, dashboard_handlers",
+                     "def f():\n    '''Moved from index_handlers.'''",
+                     "code = 'import wf_server.docs_handlers as docs_handlers\\n'",
+                     "RETIRED_FLAT_SERVER_MODULES = ('memory_handlers',)"):
+            with self.subTest(good=good):
+                self.assertEqual(_retired_flat_name_sites(good, {"RETIRED_FLAT_SERVER_MODULES"}), [])
+        # An allowlisted test function covers its own strings, never a sibling
+        # function or an import statement inside it.
+        pinned = "def test_pin():\n    keys = {'graph_handlers'}\n"
+        self.assertEqual(_retired_flat_name_sites(pinned, {"test_pin"}), [])
+        self.assertTrue(_retired_flat_name_sites(pinned + "def other():\n    patch('index_handlers._x')\n",
+                                                 {"test_pin"}))
+        self.assertTrue(_retired_flat_name_sites("def test_pin():\n    import graph_handlers\n", {"test_pin"}))
+
+
+class SwallowedImportTests(unittest.TestCase):
+    def test_turn_end_projection_hook_reaches_the_package_module(self):
+        # project_context_efficiency swallows every exception (a turn-end hook
+        # must never fail the host), so a broken import would pass silently.
+        # The recorded call proves the import resolved.
+        from unittest.mock import patch
+        import project_context_efficiency
+        import wf_server.context_efficiency_handlers as handlers
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+                handlers, "project_pending_context_efficiency_root") as projected:
+            self.assertEqual(project_context_efficiency.main(["--root", tmp]), 0)
+        projected.assert_called_once_with(Path(tmp).resolve(), automatic=True)
+
+
 class PackagePathDisciplineTests(unittest.TestCase):
     """Moved as-is, a lookup beside ``__file__`` resolves inside the package."""
 
@@ -498,12 +659,13 @@ class FlatAliasIntegrityTests(unittest.TestCase):
                  str(scratch)], capture_output=True, text=True, timeout=180)
 
     def test_a_restored_full_flat_copy_is_refused_loudly(self):
-        # A fork merge that kept a full pre-package flat file would run a second
-        # implementation beside the package and break in-place reload.
-        result = self._scratch_import(lambda d: (d / "graph_handlers.py").write_text(
-            "def wf_graph_report_response(*a, **k):\n    return {}\n", encoding="utf-8"))
+        # A fork merge that kept a full pre-package copy of a RETAINED flat file
+        # would run a second implementation beside the package and break reload.
+        result = self._scratch_import(lambda d: (d / "dashboard_handlers.py").write_text(
+            "def wf_start_dashboard_response(*a, **k):\n    return {}\n", encoding="utf-8"))
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("graph_handlers.py is not the three-line alias to wf_server.graph_handlers", result.stderr)
+        self.assertIn("dashboard_handlers.py is not the three-line alias to wf_server.dashboard_handlers",
+                      result.stderr)
 
     def test_crlf_checkouts_of_the_alias_are_accepted(self):
         def to_crlf(d):
@@ -520,6 +682,105 @@ class FlatAliasIntegrityTests(unittest.TestCase):
         with patch.object(mcp_tool_extensions, "EXTENSION_MODULES", ("graph_handlers",)):
             problems = mcp_tool_extensions.declaration_problems(core_tools=(), runner_tools=())
         self.assertTrue(any("graph_handlers" in p for p in problems), problems)
+
+
+_LEFTOVER_DRIVER = r'''
+import json, sys, tempfile
+from pathlib import Path
+sys.path.insert(0, str(Path.cwd() / "tests"))
+from server_tools_support import _make_repo, load_server, load_thin_runner
+with tempfile.TemporaryDirectory() as tmp:
+    root = _make_repo(Path(tmp))
+    load_server()
+    runner = load_thin_runner()
+    runner.build_server(root)
+    try:
+        impl = runner.server_impl
+        info = impl.wf_server_info_response(root)
+        codes = [d["code"] for d in info["diagnostics"]]
+        messages = [d["message"] for d in info["diagnostics"] if d["code"] == "retired_flat_module_leftover"]
+        stale = None
+        if "graph_handlers" in sys.argv[1:]:
+            import graph_handlers  # an unmigrated extension's flat import
+            stale = graph_handlers is not sys.modules["wf_server.graph_handlers"]
+        print(json.dumps({"status": info["status"], "codes": codes, "messages": messages,
+                          "leftovers": impl.retired_flat_leftovers(), "stale_binding": stale}))
+    finally:
+        runner._get_handler().close()
+'''
+
+
+class RetiredFlatLeftoverWarningTests(unittest.TestCase):
+    """Wave 1yxyw: the upgrade's MANIFEST-diff prune deletes the retired flat
+    files; one that remains is reported by the server, never refused."""
+
+    def _serve(self, *leftovers: str) -> tuple[dict, str]:
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = Path(tmp) / "scripts copy"
+            shutil.copytree(SCRIPTS, scratch, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "index"))
+            for name in leftovers:
+                # A full flat implementation copy, as an unproven prune leaves it.
+                shutil.copy2(PACKAGE_DIR / f"{name}.py", scratch / f"{name}.py")
+            result = subprocess.run(
+                [sys.executable, "-B", "-c", _LEFTOVER_DRIVER, *leftovers], cwd=scratch,
+                env={**__import__("os").environ, "PYTHONPATH": str(scratch), "PYTHONDONTWRITEBYTECODE": "1"},
+                capture_output=True, text=True, timeout=300)
+            self.assertEqual(result.returncode, 0, result.stderr[-4000:])
+            return json.loads(result.stdout.strip().splitlines()[-1]), result.stderr
+
+    def test_a_leftover_is_warned_in_server_info_and_stderr_and_the_server_serves(self):
+        observed, stderr = self._serve("graph_handlers", "memory_handlers")
+        self.assertEqual(observed["status"], "ok")
+        self.assertEqual(observed["leftovers"], ["graph_handlers.py", "memory_handlers.py"])
+        self.assertEqual(observed["codes"].count("retired_flat_module_leftover"), 1)
+        for text in (observed["messages"][0], stderr):
+            with self.subTest(channel="info" if text is not stderr else "stderr"):
+                self.assertIn("graph_handlers.py, memory_handlers.py", text)
+                self.assertIn("Delete them", text)
+        # The stated consequence: an unmigrated flat import binds to the stale copy.
+        self.assertTrue(observed["stale_binding"])
+
+    def test_no_leftover_means_no_warning(self):
+        observed, stderr = self._serve()
+        self.assertEqual(observed["leftovers"], [])
+        self.assertNotIn("retired_flat_module_leftover", observed["codes"])
+        self.assertNotIn("retired flat server module", stderr)
+
+    def test_the_upgrade_hook_reports_and_never_raises_or_deletes(self):
+        import contextlib
+        import io
+        import types
+        import upgrade_extensions
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scripts = root / ".wavefoundry" / "framework" / "scripts"
+            scripts.mkdir(parents=True)
+            (scripts / "index_handlers.py").write_text("# leftover\n", encoding="utf-8")
+            (scripts / "dashboard_handlers.py").write_text("# retained\n", encoding="utf-8")
+            ctx = types.SimpleNamespace(root=root)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                upgrade_extensions.post_pruning(ctx)
+            self.assertIn("index_handlers.py", out.getvalue())
+            self.assertNotIn("dashboard_handlers.py", out.getvalue())
+            self.assertIn("Delete them", out.getvalue())
+            self.assertTrue((scripts / "index_handlers.py").is_file(), "the hook never deletes")
+            (scripts / "index_handlers.py").unlink()
+            quiet = io.StringIO()
+            with contextlib.redirect_stdout(quiet):
+                upgrade_extensions.post_pruning(ctx)
+            self.assertEqual(quiet.getvalue(), "")
+            # An unreadable scripts directory is logged, never raised.
+            from unittest.mock import patch
+            broken = io.StringIO()
+            with patch.object(Path, "is_file", side_effect=PermissionError("denied")), \
+                    contextlib.redirect_stdout(broken):
+                try:
+                    upgrade_extensions.post_pruning(ctx)
+                except Exception as exc:  # an old runner turns this into exit 3
+                    self.fail(f"post_pruning raised {type(exc).__name__}: {exc}")
+            self.assertIn("could not check", broken.getvalue())
 
 
 if __name__ == "__main__":

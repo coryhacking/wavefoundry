@@ -28,33 +28,34 @@ from typing import Any, Callable, Iterable, Literal, Mapping, Optional, Sequence
 sys.dont_write_bytecode = True
 
 # Wave 1yzd0: the modules that live in the ``wf_server`` package, by flat
-# name. Each flat file beside the package is a three-line alias that replaces
-# itself in ``sys.modules`` with the package module, so both spellings name one
-# module object. This table is the single source for the eager aliases
-# registered after the module-top imports and for both reload purge key sets.
+# name. A retained flat file beside the package is a three-line alias that
+# replaces itself in ``sys.modules`` with the package module, so both spellings
+# name one module object. Wave 1yxyw keeps only the two aliases installed
+# 1.25/1.26 upgrade runners need: they resolve every import of the
+# upgrade-mandatory modules against flat stems, and those import these two.
 _FLAT_ALIASES = {
     "server_impl": "wf_server.server_impl",
-    "mcp_tool_registry": "wf_server.mcp_tool_registry",
-    "codenav_handlers": "wf_server.codenav_handlers",
-    "graph_handlers": "wf_server.graph_handlers",
-    "techdocs_handlers": "wf_server.techdocs_handlers",
-    "memory_handlers": "wf_server.memory_handlers",
-    "index_handlers": "wf_server.index_handlers",
-    "upgrade_handlers": "wf_server.upgrade_handlers",
-    "edit_gate_handlers": "wf_server.edit_gate_handlers",
     "dashboard_handlers": "wf_server.dashboard_handlers",
-    "docs_handlers": "wf_server.docs_handlers",
-    "context_efficiency_handlers": "wf_server.context_efficiency_handlers",
 }
-# Reload purge keys for the moved modules: the flat alias key and the package
-# key of every moved module except this one. Evicting ``wf_server`` or
+# Wave 1yxyw: moved modules whose flat aliases are retired. They are reached
+# only as ``wf_server.<name>``; the upgrade's MANIFEST-diff prune deletes the
+# old flat files, and any that remain are reported (``retired_flat_leftovers``).
+# ``upgrade_extensions.RETIRED_FLAT_SERVER_MODULES`` holds its own copy.
+_RETIRED_FLAT_NAMES = frozenset({
+    "mcp_tool_registry", "codenav_handlers", "graph_handlers", "techdocs_handlers",
+    "memory_handlers", "index_handlers", "upgrade_handlers", "edit_gate_handlers",
+    "docs_handlers", "context_efficiency_handlers",
+})
+# Reload purge keys for the moved modules: the flat key and the package key of
+# every moved module except this one, retired names included, so a flat module
+# object an older host still holds is evicted too. Evicting ``wf_server`` or
 # ``wf_server.server_impl`` (or the flat ``server_impl`` alias) during the
 # reload of this module makes ``importlib.reload`` raise ImportError.
 _PACKAGE_PURGE_KEYS = frozenset(
     key
-    for flat, canonical in _FLAT_ALIASES.items()
+    for flat in (set(_FLAT_ALIASES) | _RETIRED_FLAT_NAMES)
     if flat != "server_impl"
-    for key in (flat, canonical)
+    for key in (flat, "wf_server." + flat)
 )
 
 # Evict lifecycle-validation modules so tool handlers always pick up the
@@ -4856,9 +4857,9 @@ from public_contract import (
     SEARCH_MODES as _SEARCH_MODES,
 )
 
-# Wave 1yzd0: register the flat aliases eagerly, after the last module-top
-# import, so the flat names exist even when nothing has imported them yet (the
-# extension module-name collision check and the reload census rely on that). A
+# Wave 1yzd0: register the retained flat aliases eagerly, after the last
+# module-top import, so the flat names exist even when nothing has imported them
+# yet (the reload census relies on that). A
 # private-name load of this file (for example a test spec load) never rebinds
 # them, and a failed module-top import never leaves flat keys pointing at
 # half-initialized modules.
@@ -4883,6 +4884,34 @@ if __name__ == "wf_server.server_impl":
             )
     for _flat_name, _canonical_name in _FLAT_ALIASES.items():
         sys.modules[_flat_name] = importlib.import_module(_canonical_name)
+
+
+def retired_flat_leftovers(scripts_dir: Path | None = None) -> list[str]:
+    """Flat files of retired module names still present beside the package.
+
+    Wave 1yxyw: the upgrade's MANIFEST-diff prune deletes them; one that
+    remains means the prune did not run or could not be proven. It stays until
+    deleted by hand, and meanwhile a stale ``import <name>`` (an unmigrated
+    extension or fork) binds to it. Reported, never refused; an unreadable
+    directory reports nothing.
+    """
+    base = SCRIPTS_DIR if scripts_dir is None else scripts_dir
+    found = []
+    for name in sorted(_RETIRED_FLAT_NAMES):
+        try:
+            if (base / f"{name}.py").is_file():
+                found.append(f"{name}.py")
+        except OSError:
+            continue
+    return found
+
+
+def _retired_flat_leftover_warning(files: Sequence[str]) -> str:
+    return (
+        f"retired flat server module file(s) still present in {SCRIPTS_DIR}: {', '.join(files)}. "
+        "Delete them: the implementations now live in wf_server/, and while a file remains "
+        "an 'import <name>' of that flat name loads the stale copy instead of failing."
+    )
 (_MODE_SEMANTIC, _MODE_EXACT, _MODE_HYBRID,
  _MODE_LEXICAL_FALLBACK, _MODE_LIVE_FALLBACK) = _SEARCH_MODES
 (_REASON_INDEX_NOT_READY, _REASON_STORE_ABSENT, _REASON_QUERY_FAILED,
@@ -16452,6 +16481,9 @@ def wf_server_info_response(root: Path, *, server_runner_version: str | None = N
         diagnostics.append(
             _diagnostic("runner_stale", str(data.get("runner_stale_detail") or _runner_stale_detail()))
         )
+    leftovers = retired_flat_leftovers()
+    if leftovers:
+        diagnostics.append(_diagnostic("retired_flat_module_leftover", _retired_flat_leftover_warning(leftovers)))
     return _response(
         "ok",
         data,
@@ -21740,6 +21772,12 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             )
     except Exception:
         pass
+
+    # Wave 1yxyw: a leftover retired flat file is reported, never refused. Stderr
+    # reaches only host logs, so wf_server_info carries the same diagnostic.
+    leftovers = retired_flat_leftovers()
+    if leftovers:
+        print(f"wavefoundry: WARNING, {_retired_flat_leftover_warning(leftovers)}", file=sys.stderr)
 
 
 
