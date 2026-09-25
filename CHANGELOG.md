@@ -8,6 +8,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.27.0]
+
 ### Added
 
 - **Setup readiness at session start.** A Claude Code `SessionStart` hook runs the read-only `wf setup --check` assessment when a session starts or resumes. It is silent when setup is ready; otherwise it adds a short report to the agent's context naming the reasons and the recommended command, and the agent asks before running anything. Operator note: the committed `.claude/settings.json` gains a `SessionStart` entry (operator hook entries are preserved); nothing runs setup automatically and no Git hooks are installed. Existing targets receive the matching `AGENTS.md` sentence through the upgrade reconciliation pass. Wave `1yzcz`.
