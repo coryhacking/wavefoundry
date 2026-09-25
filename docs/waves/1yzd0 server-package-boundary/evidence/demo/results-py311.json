@@ -1,0 +1,1154 @@
+[
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "_load_script(retained_tool).__file__": "retained_tool.py",
+   "flat_graph_handlers_is_package_module": true,
+   "flat_sees_package_global_rebind": "rebound-in-package",
+   "flat_server_impl.__file__": "wavefoundry_server/server_impl.py",
+   "flat_server_impl.__name__": "wavefoundry_server.server_impl",
+   "flat_server_impl.__spec__.name": "wavefoundry_server.server_impl",
+   "flat_server_impl_is_package_module": true,
+   "inspect_getsourcefile(flat.respond)": "wavefoundry_server/server_impl.py",
+   "live_graph_handler_module_objects": [
+    "wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1"
+   ],
+   "modules": {
+    "graph_handlers": "id21840:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "server_impl": "id21040:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py",
+    "wavefoundry_server.graph_handlers": "id21840:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id21040:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "mutable_global_shared": true,
+   "package_dir_on_sys_path": false,
+   "package_sees_runner_attribute_write(read_identity)": "runner-captured",
+   "patch_object_on_flat_handler_affects_package_call": "PATCHED",
+   "patch_object_on_flat_server_impl_affects_handler": "PATCHED",
+   "private_names_via_flat": {
+    "_CACHE": true,
+    "_SETUP_LOADED_IDENTITY": true,
+    "_load_script": true,
+    "_runner_version": true,
+    "_script_cache": true
+   },
+   "purge": "both",
+   "python": "3.11.13",
+   "respond.__module__": "wavefoundry_server.server_impl",
+   "respond_via_runner": {
+    "handler_version": "v1",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v1",
+    "shared": "real-shared-helper"
+   },
+   "runner_ref_is_package_module": true,
+   "scenario": "static",
+   "strategy": "a"
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "static",
+  "scripts_dir": "root",
+  "strategy": "a"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "flat_gh_is_package_gh": false,
+   "impl_bound_graph_response_version": "v2",
+   "impl_version_after_reload": "v2",
+   "import_graph_handlers_version": "v2",
+   "live_graph_handler_module_objects": [
+    "wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v2"
+   ],
+   "modules_after": {
+    "graph_handlers": "id91776:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "server_impl": "id53280:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py",
+    "wavefoundry_server.graph_handlers": "id91776:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id53280:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "modules_before": {
+    "graph_handlers": null,
+    "server_impl": "id53280:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py",
+    "wavefoundry_server.graph_handlers": "id54080:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id53280:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "parent_attr_is_sys_modules_entry": true,
+   "parent_attr_version": "v2",
+   "purge": "both",
+   "python": "3.11.13",
+   "reload_call": "wavefoundry_server.server_impl",
+   "runner_identity_survives(read_identity)": "runner-captured",
+   "runner_ref_is_package_module": true,
+   "runner_ref_is_sys_modules_server_impl": true,
+   "runner_version_survives": "runner-v",
+   "scenario": "reload",
+   "second_reload_ok": [
+    "v3",
+    "v3"
+   ],
+   "served_after_reload": {
+    "handler_version": "v2",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v2",
+    "shared": "real-shared-helper"
+   },
+   "shared_substrate_version": "v2",
+   "strategy": "a"
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "reload",
+  "scripts_dir": "root",
+  "strategy": "a"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "flat_gh_is_package_gh": false,
+   "impl_bound_graph_response_version": "v1",
+   "impl_version_after_reload": "v2",
+   "import_graph_handlers_version": "v1",
+   "live_graph_handler_module_objects": [
+    "wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1"
+   ],
+   "modules_after": {
+    "graph_handlers": "id29312:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "server_impl": "id28512:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py",
+    "wavefoundry_server.graph_handlers": "id29312:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id28512:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "modules_before": {
+    "graph_handlers": null,
+    "server_impl": "id28512:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py",
+    "wavefoundry_server.graph_handlers": "id29312:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id28512:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "parent_attr_is_sys_modules_entry": true,
+   "parent_attr_version": "v1",
+   "purge": "flat_only",
+   "python": "3.11.13",
+   "reload_call": "wavefoundry_server.server_impl",
+   "runner_identity_survives(read_identity)": "runner-captured",
+   "runner_ref_is_package_module": true,
+   "runner_ref_is_sys_modules_server_impl": true,
+   "runner_version_survives": "runner-v",
+   "scenario": "reload",
+   "second_reload_ok": [
+    "v1",
+    "v3"
+   ],
+   "served_after_reload": {
+    "handler_version": "v1",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v2",
+    "shared": "real-shared-helper"
+   },
+   "shared_substrate_version": "v2",
+   "strategy": "a"
+  },
+  "purge": "flat_only",
+  "returncode": 0,
+  "scenario": "reload",
+  "scripts_dir": "root",
+  "strategy": "a"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "flat_gh_is_package_gh": false,
+   "live_graph_handler_module_objects": [
+    "wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v2"
+   ],
+   "modules_after": {
+    "graph_handlers": null,
+    "server_impl": "id82976:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py",
+    "wavefoundry_server.graph_handlers": "id83536:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id82976:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "purge": "both",
+   "python": "3.11.13",
+   "reload_returned_name": "wavefoundry_server.server_impl",
+   "runner_identity_after(read_identity)": "runner-captured",
+   "runner_ref_is_old_object": false,
+   "runner_ref_is_package_module": true,
+   "scenario": "old_runner",
+   "second_reload": "v3",
+   "served_after_upgrade_reload": {
+    "handler_version": "v2",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v2",
+    "shared": "real-shared-helper"
+   },
+   "served_before_upgrade": {
+    "handler_version": "v0",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v0",
+    "shared": "real-shared-helper"
+   },
+   "strategy": "a"
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "old_runner",
+  "scripts_dir": "root",
+  "strategy": "a"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "exec": "ok",
+   "purge": "both",
+   "python": "3.11.13",
+   "returned_object_has_respond": false,
+   "returned_object_is_package_module": false,
+   "scenario": "spec_load",
+   "strategy": "a",
+   "sys_modules_private_key_is_package_module": true
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "spec_load",
+  "scripts_dir": "root",
+  "strategy": "a"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "graph_response": {
+    "handler_version": "v1",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v1",
+    "shared": "real-shared-helper"
+   },
+   "import_graph_handlers": "wavefoundry_server/graph_handlers.py",
+   "package_initializer_imported_nothing_heavy": [
+    "wavefoundry_server",
+    "wavefoundry_server.graph_handlers",
+    "wavefoundry_server.server_impl"
+   ],
+   "purge": "both",
+   "python": "3.11.13",
+   "scenario": "consumer",
+   "server_impl_is_package": true,
+   "strategy": "a"
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "consumer",
+  "scripts_dir": "root",
+  "strategy": "a"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "_load_script(retained_tool).__file__": "ERROR AttributeError: module 'server_impl' has no attribute '_load_script'",
+   "flat_graph_handlers_is_package_module": false,
+   "flat_sees_package_global_rebind": "<missing>",
+   "flat_server_impl.__file__": "server_impl.py",
+   "flat_server_impl.__name__": "server_impl",
+   "flat_server_impl.__spec__.name": "server_impl",
+   "flat_server_impl_is_package_module": false,
+   "inspect_getsourcefile(flat.respond)": "wavefoundry_server/server_impl.py",
+   "live_graph_handler_module_objects": [
+    "graph_handlers@graph_handlers.py#v=v1",
+    "wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1"
+   ],
+   "modules": {
+    "graph_handlers": "id29120:graph_handlers@graph_handlers.py",
+    "server_impl": "id29600:server_impl@server_impl.py",
+    "wavefoundry_server.graph_handlers": "id31200:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id30400:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "mutable_global_shared": "ERROR AttributeError: module 'server_impl' has no attribute '_CACHE'",
+   "package_dir_on_sys_path": false,
+   "package_sees_runner_attribute_write(read_identity)": "captured-from-disk",
+   "patch_object_on_flat_handler_affects_package_call": "real-graph-helper",
+   "patch_object_on_flat_server_impl_affects_handler": "PATCHED",
+   "private_names_via_flat": {
+    "_CACHE": false,
+    "_SETUP_LOADED_IDENTITY": true,
+    "_load_script": false,
+    "_runner_version": false,
+    "_script_cache": false
+   },
+   "purge": "both",
+   "python": "3.11.13",
+   "respond.__module__": "wavefoundry_server.server_impl",
+   "respond_via_runner": {
+    "handler_version": "v1",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v1",
+    "shared": "real-shared-helper"
+   },
+   "runner_ref_is_package_module": false,
+   "scenario": "static",
+   "strategy": "b"
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "static",
+  "scripts_dir": "root",
+  "strategy": "b"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "flat_gh_is_package_gh": false,
+   "impl_bound_graph_response_version": "v1",
+   "impl_version_after_reload": "v1",
+   "import_graph_handlers_version": "v1",
+   "live_graph_handler_module_objects": [
+    "graph_handlers@graph_handlers.py#v=v1",
+    "wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1"
+   ],
+   "modules_after": {
+    "graph_handlers": "id432:graph_handlers@graph_handlers.py",
+    "server_impl": "id61376:server_impl@server_impl.py",
+    "wavefoundry_server.graph_handlers": "id62976:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id62176:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "modules_before": {
+    "graph_handlers": null,
+    "server_impl": "id61376:server_impl@server_impl.py",
+    "wavefoundry_server.graph_handlers": "id62976:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id62176:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "parent_attr_is_sys_modules_entry": true,
+   "parent_attr_version": "v1",
+   "purge": "both",
+   "python": "3.11.13",
+   "reload_call": "ERROR AttributeError: module 'server_impl' has no attribute '_script_cache'",
+   "runner_identity_survives(read_identity)": "captured-from-disk",
+   "runner_ref_is_package_module": false,
+   "runner_ref_is_sys_modules_server_impl": true,
+   "runner_version_survives": "runner-v",
+   "scenario": "reload",
+   "second_reload_ok": "ERROR AttributeError: module 'server_impl' has no attribute '_script_cache'",
+   "served_after_reload": {
+    "handler_version": "v1",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v1",
+    "shared": "real-shared-helper"
+   },
+   "shared_substrate_version": "v1",
+   "strategy": "b"
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "reload",
+  "scripts_dir": "root",
+  "strategy": "b"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "flat_gh_is_package_gh": false,
+   "impl_bound_graph_response_version": "v1",
+   "impl_version_after_reload": "v1",
+   "import_graph_handlers_version": "v1",
+   "live_graph_handler_module_objects": [
+    "graph_handlers@graph_handlers.py#v=v1",
+    "wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1"
+   ],
+   "modules_after": {
+    "graph_handlers": "id58560:graph_handlers@graph_handlers.py",
+    "server_impl": "id23536:server_impl@server_impl.py",
+    "wavefoundry_server.graph_handlers": "id25136:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id24336:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "modules_before": {
+    "graph_handlers": null,
+    "server_impl": "id23536:server_impl@server_impl.py",
+    "wavefoundry_server.graph_handlers": "id25136:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id24336:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "parent_attr_is_sys_modules_entry": true,
+   "parent_attr_version": "v1",
+   "purge": "flat_only",
+   "python": "3.11.13",
+   "reload_call": "ERROR AttributeError: module 'server_impl' has no attribute '_script_cache'",
+   "runner_identity_survives(read_identity)": "captured-from-disk",
+   "runner_ref_is_package_module": false,
+   "runner_ref_is_sys_modules_server_impl": true,
+   "runner_version_survives": "runner-v",
+   "scenario": "reload",
+   "second_reload_ok": "ERROR AttributeError: module 'server_impl' has no attribute '_script_cache'",
+   "served_after_reload": {
+    "handler_version": "v1",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v1",
+    "shared": "real-shared-helper"
+   },
+   "shared_substrate_version": "v1",
+   "strategy": "b"
+  },
+  "purge": "flat_only",
+  "returncode": 0,
+  "scenario": "reload",
+  "scripts_dir": "root",
+  "strategy": "b"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "flat_gh_is_package_gh": false,
+   "live_graph_handler_module_objects": [
+    "wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v2"
+   ],
+   "modules_after": {
+    "graph_handlers": null,
+    "server_impl": "id36112:server_impl@server_impl.py",
+    "wavefoundry_server.graph_handlers": "id41392:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id40592:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "purge": "both",
+   "python": "3.11.13",
+   "reload_returned_name": "server_impl",
+   "runner_identity_after(read_identity)": "captured-from-disk",
+   "runner_ref_is_old_object": true,
+   "runner_ref_is_package_module": false,
+   "scenario": "old_runner",
+   "second_reload": "v2",
+   "served_after_upgrade_reload": {
+    "handler_version": "v2",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v2",
+    "shared": "real-shared-helper"
+   },
+   "served_before_upgrade": {
+    "handler_version": "v0",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v0",
+    "shared": "real-shared-helper"
+   },
+   "strategy": "b"
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "old_runner",
+  "scripts_dir": "root",
+  "strategy": "b"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "exec": "ok",
+   "purge": "both",
+   "python": "3.11.13",
+   "returned_object_has_respond": true,
+   "returned_object_is_package_module": false,
+   "scenario": "spec_load",
+   "strategy": "b",
+   "sys_modules_private_key_is_package_module": false
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "spec_load",
+  "scripts_dir": "root",
+  "strategy": "b"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "graph_response": {
+    "handler_version": "v1",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v1",
+    "shared": "real-shared-helper"
+   },
+   "import_graph_handlers": "graph_handlers.py",
+   "package_initializer_imported_nothing_heavy": [
+    "wavefoundry_server",
+    "wavefoundry_server.graph_handlers",
+    "wavefoundry_server.server_impl"
+   ],
+   "purge": "both",
+   "python": "3.11.13",
+   "scenario": "consumer",
+   "server_impl_is_package": false,
+   "strategy": "b"
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "consumer",
+  "scripts_dir": "root",
+  "strategy": "b"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "_load_script(retained_tool).__file__": "retained_tool.py",
+   "flat_graph_handlers_is_package_module": false,
+   "flat_sees_package_global_rebind": "rebound-in-package",
+   "flat_server_impl.__file__": "server_impl.py",
+   "flat_server_impl.__name__": "server_impl",
+   "flat_server_impl.__spec__.name": "server_impl",
+   "flat_server_impl_is_package_module": false,
+   "inspect_getsourcefile(flat.respond)": "wavefoundry_server/server_impl.py",
+   "live_graph_handler_module_objects": [
+    "graph_handlers@graph_handlers.py#v=v1",
+    "wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1"
+   ],
+   "modules": {
+    "graph_handlers": "id73200:graph_handlers@graph_handlers.py",
+    "server_impl": "id73680:server_impl@server_impl.py",
+    "wavefoundry_server.graph_handlers": "id75280:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id74480:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "mutable_global_shared": true,
+   "package_dir_on_sys_path": false,
+   "package_sees_runner_attribute_write(read_identity)": "captured-from-disk",
+   "patch_object_on_flat_handler_affects_package_call": "real-graph-helper",
+   "patch_object_on_flat_server_impl_affects_handler": "PATCHED",
+   "private_names_via_flat": {
+    "_CACHE": true,
+    "_SETUP_LOADED_IDENTITY": true,
+    "_load_script": true,
+    "_runner_version": true,
+    "_script_cache": true
+   },
+   "purge": "both",
+   "python": "3.11.13",
+   "respond.__module__": "wavefoundry_server.server_impl",
+   "respond_via_runner": {
+    "handler_version": "v1",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v1",
+    "shared": "real-shared-helper"
+   },
+   "runner_ref_is_package_module": false,
+   "scenario": "static",
+   "strategy": "b2"
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "static",
+  "scripts_dir": "root",
+  "strategy": "b2"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "flat_gh_is_package_gh": false,
+   "impl_bound_graph_response_version": "v1",
+   "impl_version_after_reload": "v1",
+   "import_graph_handlers_version": "v1",
+   "live_graph_handler_module_objects": [
+    "graph_handlers@graph_handlers.py#v=v1",
+    "wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1"
+   ],
+   "modules_after": {
+    "graph_handlers": "id95104:graph_handlers@graph_handlers.py",
+    "server_impl": "id98240:server_impl@server_impl.py",
+    "wavefoundry_server.graph_handlers": "id99840:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id99040:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "modules_before": {
+    "graph_handlers": null,
+    "server_impl": "id98240:server_impl@server_impl.py",
+    "wavefoundry_server.graph_handlers": "id99840:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id99040:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "parent_attr_is_sys_modules_entry": true,
+   "parent_attr_version": "v1",
+   "purge": "both",
+   "python": "3.11.13",
+   "reload_call": "server_impl",
+   "runner_identity_survives(read_identity)": "captured-from-disk",
+   "runner_ref_is_package_module": false,
+   "runner_ref_is_sys_modules_server_impl": true,
+   "runner_version_survives": "runner-v",
+   "scenario": "reload",
+   "second_reload_ok": [
+    "v1",
+    "v1"
+   ],
+   "served_after_reload": {
+    "handler_version": "v1",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v1",
+    "shared": "real-shared-helper"
+   },
+   "shared_substrate_version": "v1",
+   "strategy": "b2"
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "reload",
+  "scripts_dir": "root",
+  "strategy": "b2"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "flat_gh_is_package_gh": false,
+   "impl_bound_graph_response_version": "v1",
+   "impl_version_after_reload": "v1",
+   "import_graph_handlers_version": "v1",
+   "live_graph_handler_module_objects": [
+    "graph_handlers@graph_handlers.py#v=v1",
+    "wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1"
+   ],
+   "modules_after": {
+    "graph_handlers": "id52384:graph_handlers@graph_handlers.py",
+    "server_impl": "id13408:server_impl@server_impl.py",
+    "wavefoundry_server.graph_handlers": "id15008:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id14208:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "modules_before": {
+    "graph_handlers": null,
+    "server_impl": "id13408:server_impl@server_impl.py",
+    "wavefoundry_server.graph_handlers": "id15008:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id14208:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "parent_attr_is_sys_modules_entry": true,
+   "parent_attr_version": "v1",
+   "purge": "flat_only",
+   "python": "3.11.13",
+   "reload_call": "server_impl",
+   "runner_identity_survives(read_identity)": "captured-from-disk",
+   "runner_ref_is_package_module": false,
+   "runner_ref_is_sys_modules_server_impl": true,
+   "runner_version_survives": "runner-v",
+   "scenario": "reload",
+   "second_reload_ok": [
+    "v1",
+    "v1"
+   ],
+   "served_after_reload": {
+    "handler_version": "v1",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v1",
+    "shared": "real-shared-helper"
+   },
+   "shared_substrate_version": "v1",
+   "strategy": "b2"
+  },
+  "purge": "flat_only",
+  "returncode": 0,
+  "scenario": "reload",
+  "scripts_dir": "root",
+  "strategy": "b2"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "flat_gh_is_package_gh": false,
+   "live_graph_handler_module_objects": [
+    "wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v2"
+   ],
+   "modules_after": {
+    "graph_handlers": null,
+    "server_impl": "id78592:server_impl@server_impl.py",
+    "wavefoundry_server.graph_handlers": "id31280:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id30480:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "purge": "both",
+   "python": "3.11.13",
+   "reload_returned_name": "server_impl",
+   "runner_identity_after(read_identity)": "captured-from-disk",
+   "runner_ref_is_old_object": true,
+   "runner_ref_is_package_module": false,
+   "scenario": "old_runner",
+   "second_reload": "v2",
+   "served_after_upgrade_reload": {
+    "handler_version": "v2",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v2",
+    "shared": "real-shared-helper"
+   },
+   "served_before_upgrade": {
+    "handler_version": "v0",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v0",
+    "shared": "real-shared-helper"
+   },
+   "strategy": "b2"
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "old_runner",
+  "scripts_dir": "root",
+  "strategy": "b2"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "exec": "ok",
+   "purge": "both",
+   "python": "3.11.13",
+   "returned_object_has_respond": true,
+   "returned_object_is_package_module": false,
+   "scenario": "spec_load",
+   "strategy": "b2",
+   "sys_modules_private_key_is_package_module": false
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "spec_load",
+  "scripts_dir": "root",
+  "strategy": "b2"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "graph_response": {
+    "handler_version": "v1",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v1",
+    "shared": "real-shared-helper"
+   },
+   "import_graph_handlers": "graph_handlers.py",
+   "package_initializer_imported_nothing_heavy": [
+    "wavefoundry_server",
+    "wavefoundry_server.graph_handlers",
+    "wavefoundry_server.server_impl"
+   ],
+   "purge": "both",
+   "python": "3.11.13",
+   "scenario": "consumer",
+   "server_impl_is_package": false,
+   "strategy": "b2"
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "consumer",
+  "scripts_dir": "root",
+  "strategy": "b2"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "_load_script(retained_tool).__file__": "retained_tool.py",
+   "flat_graph_handlers_is_package_module": true,
+   "flat_sees_package_global_rebind": "rebound-in-package",
+   "flat_server_impl.__file__": "wavefoundry_server/server_impl.py",
+   "flat_server_impl.__name__": "wavefoundry_server.server_impl",
+   "flat_server_impl.__spec__.name": "server_impl",
+   "flat_server_impl_is_package_module": true,
+   "inspect_getsourcefile(flat.respond)": "wavefoundry_server/server_impl.py",
+   "live_graph_handler_module_objects": [
+    "wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1"
+   ],
+   "modules": {
+    "graph_handlers": "id14080:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "server_impl": "id98448:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py",
+    "wavefoundry_server.graph_handlers": "id14080:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id98448:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "mutable_global_shared": true,
+   "package_dir_on_sys_path": false,
+   "package_sees_runner_attribute_write(read_identity)": "runner-captured",
+   "patch_object_on_flat_handler_affects_package_call": "PATCHED",
+   "patch_object_on_flat_server_impl_affects_handler": "PATCHED",
+   "private_names_via_flat": {
+    "_CACHE": true,
+    "_SETUP_LOADED_IDENTITY": true,
+    "_load_script": true,
+    "_runner_version": true,
+    "_script_cache": true
+   },
+   "purge": "both",
+   "python": "3.11.13",
+   "respond.__module__": "wavefoundry_server.server_impl",
+   "respond_via_runner": {
+    "handler_version": "v1",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v1",
+    "shared": "real-shared-helper"
+   },
+   "runner_ref_is_package_module": true,
+   "scenario": "static",
+   "strategy": "c"
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "static",
+  "scripts_dir": "root",
+  "strategy": "c"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "flat_gh_is_package_gh": false,
+   "impl_bound_graph_response_version": "v1",
+   "impl_version_after_reload": "v1",
+   "import_graph_handlers_version": "v1",
+   "live_graph_handler_module_objects": [
+    "wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1"
+   ],
+   "modules_after": {
+    "graph_handlers": "id49088:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "server_impl": "id33456:server_impl@wavefoundry_server/server_impl.py",
+    "wavefoundry_server.graph_handlers": "id49088:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id33456:server_impl@wavefoundry_server/server_impl.py"
+   },
+   "modules_before": {
+    "graph_handlers": null,
+    "server_impl": "id33456:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py",
+    "wavefoundry_server.graph_handlers": "id49088:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id33456:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "parent_attr_is_sys_modules_entry": true,
+   "parent_attr_version": "v1",
+   "purge": "both",
+   "python": "3.11.13",
+   "reload_call": "server_impl",
+   "runner_identity_survives(read_identity)": "runner-captured",
+   "runner_ref_is_package_module": true,
+   "runner_ref_is_sys_modules_server_impl": true,
+   "runner_version_survives": "runner-v",
+   "scenario": "reload",
+   "second_reload_ok": [
+    "v1",
+    "v1"
+   ],
+   "served_after_reload": {
+    "handler_version": "v1",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v1",
+    "shared": "real-shared-helper"
+   },
+   "shared_substrate_version": "v1",
+   "strategy": "c"
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "reload",
+  "scripts_dir": "root",
+  "strategy": "c"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "flat_gh_is_package_gh": false,
+   "impl_bound_graph_response_version": "v1",
+   "impl_version_after_reload": "v1",
+   "import_graph_handlers_version": "v1",
+   "live_graph_handler_module_objects": [
+    "wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1"
+   ],
+   "modules_after": {
+    "graph_handlers": "id30848:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "server_impl": "id15216:server_impl@wavefoundry_server/server_impl.py",
+    "wavefoundry_server.graph_handlers": "id30848:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id15216:server_impl@wavefoundry_server/server_impl.py"
+   },
+   "modules_before": {
+    "graph_handlers": null,
+    "server_impl": "id15216:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py",
+    "wavefoundry_server.graph_handlers": "id30848:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id15216:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "parent_attr_is_sys_modules_entry": true,
+   "parent_attr_version": "v1",
+   "purge": "flat_only",
+   "python": "3.11.13",
+   "reload_call": "server_impl",
+   "runner_identity_survives(read_identity)": "runner-captured",
+   "runner_ref_is_package_module": true,
+   "runner_ref_is_sys_modules_server_impl": true,
+   "runner_version_survives": "runner-v",
+   "scenario": "reload",
+   "second_reload_ok": [
+    "v1",
+    "v1"
+   ],
+   "served_after_reload": {
+    "handler_version": "v1",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v1",
+    "shared": "real-shared-helper"
+   },
+   "shared_substrate_version": "v1",
+   "strategy": "c"
+  },
+  "purge": "flat_only",
+  "returncode": 0,
+  "scenario": "reload",
+  "scripts_dir": "root",
+  "strategy": "c"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "flat_gh_is_package_gh": false,
+   "live_graph_handler_module_objects": [
+    "graph_handlers@graph_handlers.py#v=v0"
+   ],
+   "modules_after": {
+    "graph_handlers": "id93648:graph_handlers@graph_handlers.py",
+    "server_impl": "id93088:server_impl@server_impl.py",
+    "wavefoundry_server.graph_handlers": null,
+    "wavefoundry_server.server_impl": null
+   },
+   "purge": "both",
+   "python": "3.11.13",
+   "reload_returned_name": "ERROR ModuleNotFoundError: spec not found for the module 'server_impl'",
+   "runner_identity_after(read_identity)": "runner-captured",
+   "runner_ref_is_old_object": true,
+   "runner_ref_is_package_module": false,
+   "scenario": "old_runner",
+   "second_reload": "ERROR ModuleNotFoundError: spec not found for the module 'server_impl'",
+   "served_after_upgrade_reload": {
+    "handler_version": "v0",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v0",
+    "shared": "real-shared-helper"
+   },
+   "served_before_upgrade": {
+    "handler_version": "v0",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v0",
+    "shared": "real-shared-helper"
+   },
+   "strategy": "c"
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "old_runner",
+  "scripts_dir": "root",
+  "strategy": "c"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "exec": "ERROR FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf1yzd0-wjbarmq2/tree with space/scripts/server_impl.py'",
+   "purge": "both",
+   "python": "3.11.13",
+   "returned_object_has_respond": false,
+   "returned_object_is_package_module": false,
+   "scenario": "spec_load",
+   "strategy": "c",
+   "sys_modules_private_key_is_package_module": false
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "spec_load",
+  "scripts_dir": "root",
+  "strategy": "c"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "graph_response": "ERROR ModuleNotFoundError: No module named 'graph_handlers'",
+   "import_graph_handlers": "ERROR ModuleNotFoundError: No module named 'graph_handlers'",
+   "package_initializer_imported_nothing_heavy": [],
+   "purge": "both",
+   "python": "3.11.13",
+   "scenario": "consumer",
+   "server_impl_is_package": "ERROR ModuleNotFoundError: No module named 'server_impl'",
+   "strategy": "c"
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "consumer",
+  "scripts_dir": "root",
+  "strategy": "c"
+ },
+ {
+  "handler_import": "graph_handlers",
+  "obs": {
+   "flat_gh_is_package_gh": true,
+   "impl_bound_graph_response_version": "v1",
+   "impl_version_after_reload": "v2",
+   "import_graph_handlers_version": "v1",
+   "live_graph_handler_module_objects": [
+    "wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1"
+   ],
+   "modules_after": {
+    "graph_handlers": "id36640:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "server_impl": "id35600:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py",
+    "wavefoundry_server.graph_handlers": "id36640:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id35600:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "modules_before": {
+    "graph_handlers": "id36640:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "server_impl": "id35600:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py",
+    "wavefoundry_server.graph_handlers": "id36640:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id35600:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "parent_attr_is_sys_modules_entry": true,
+   "parent_attr_version": "v1",
+   "purge": "flat_only",
+   "python": "3.11.13",
+   "reload_call": "wavefoundry_server.server_impl",
+   "runner_identity_survives(read_identity)": "runner-captured",
+   "runner_ref_is_package_module": true,
+   "runner_ref_is_sys_modules_server_impl": true,
+   "runner_version_survives": "runner-v",
+   "scenario": "reload",
+   "second_reload_ok": [
+    "v1",
+    "v3"
+   ],
+   "served_after_reload": {
+    "handler_version": "v1",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v2",
+    "shared": "real-shared-helper"
+   },
+   "shared_substrate_version": "v2",
+   "strategy": "a"
+  },
+  "purge": "flat_only",
+  "returncode": 0,
+  "scenario": "reload",
+  "scripts_dir": "root",
+  "strategy": "a"
+ },
+ {
+  "handler_import": "graph_handlers",
+  "obs": {
+   "flat_gh_is_package_gh": true,
+   "impl_bound_graph_response_version": "v2",
+   "impl_version_after_reload": "v2",
+   "import_graph_handlers_version": "v2",
+   "live_graph_handler_module_objects": [
+    "wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v2"
+   ],
+   "modules_after": {
+    "graph_handlers": "id63776:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "server_impl": "id25120:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py",
+    "wavefoundry_server.graph_handlers": "id63776:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id25120:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "modules_before": {
+    "graph_handlers": "id26160:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "server_impl": "id25120:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py",
+    "wavefoundry_server.graph_handlers": "id26160:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id25120:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "parent_attr_is_sys_modules_entry": true,
+   "parent_attr_version": "v2",
+   "purge": "both",
+   "python": "3.11.13",
+   "reload_call": "wavefoundry_server.server_impl",
+   "runner_identity_survives(read_identity)": "runner-captured",
+   "runner_ref_is_package_module": true,
+   "runner_ref_is_sys_modules_server_impl": true,
+   "runner_version_survives": "runner-v",
+   "scenario": "reload",
+   "second_reload_ok": [
+    "v3",
+    "v3"
+   ],
+   "served_after_reload": {
+    "handler_version": "v2",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v2",
+    "shared": "real-shared-helper"
+   },
+   "shared_substrate_version": "v2",
+   "strategy": "a"
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "reload",
+  "scripts_dir": "root",
+  "strategy": "a"
+ },
+ {
+  "handler_import": "graph_handlers",
+  "obs": {
+   "_load_script(retained_tool).__file__": "ERROR FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf1yzd0-ns7wvidz/tree with space/scripts/wavefoundry_server/retained_tool.py'",
+   "flat_graph_handlers_is_package_module": false,
+   "flat_sees_package_global_rebind": "rebound-in-package",
+   "flat_server_impl.__file__": "wavefoundry_server/server_impl.py",
+   "flat_server_impl.__name__": "wavefoundry_server.server_impl",
+   "flat_server_impl.__spec__.name": "wavefoundry_server.server_impl",
+   "flat_server_impl_is_package_module": true,
+   "inspect_getsourcefile(flat.respond)": "wavefoundry_server/server_impl.py",
+   "live_graph_handler_module_objects": [
+    "graph_handlers@wavefoundry_server/graph_handlers.py#v=v1"
+   ],
+   "modules": {
+    "graph_handlers": "id80800:graph_handlers@wavefoundry_server/graph_handlers.py",
+    "server_impl": "id80320:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py",
+    "wavefoundry_server.graph_handlers": null,
+    "wavefoundry_server.server_impl": "id80320:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "mutable_global_shared": true,
+   "package_dir_on_sys_path": true,
+   "package_sees_runner_attribute_write(read_identity)": "runner-captured",
+   "patch_object_on_flat_handler_affects_package_call": "PATCHED",
+   "patch_object_on_flat_server_impl_affects_handler": "PATCHED",
+   "private_names_via_flat": {
+    "_CACHE": true,
+    "_SETUP_LOADED_IDENTITY": true,
+    "_load_script": true,
+    "_runner_version": true,
+    "_script_cache": true
+   },
+   "purge": "both",
+   "python": "3.11.13",
+   "respond.__module__": "wavefoundry_server.server_impl",
+   "respond_via_runner": {
+    "handler_version": "v1",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v1",
+    "shared": "real-shared-helper"
+   },
+   "runner_ref_is_package_module": true,
+   "scenario": "naive_root",
+   "strategy": "a"
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "naive_root",
+  "scripts_dir": "naive",
+  "strategy": "a"
+ },
+ {
+  "handler_import": "wavefoundry_server.graph_handlers",
+  "obs": {
+   "_load_script(retained_tool).__file__": "ERROR FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf1yzd0-sukrsj82/tree with space/scripts/wavefoundry_server/retained_tool.py'",
+   "flat_graph_handlers_is_package_module": false,
+   "flat_sees_package_global_rebind": "rebound-in-package",
+   "flat_server_impl.__file__": "wavefoundry_server/server_impl.py",
+   "flat_server_impl.__name__": "wavefoundry_server.server_impl",
+   "flat_server_impl.__spec__.name": "wavefoundry_server.server_impl",
+   "flat_server_impl_is_package_module": true,
+   "inspect_getsourcefile(flat.respond)": "wavefoundry_server/server_impl.py",
+   "live_graph_handler_module_objects": [
+    "graph_handlers@wavefoundry_server/graph_handlers.py#v=v1",
+    "wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1"
+   ],
+   "modules": {
+    "graph_handlers": "id17824:graph_handlers@wavefoundry_server/graph_handlers.py",
+    "server_impl": "id19104:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py",
+    "wavefoundry_server.graph_handlers": "id19824:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py",
+    "wavefoundry_server.server_impl": "id19104:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py"
+   },
+   "mutable_global_shared": true,
+   "package_dir_on_sys_path": true,
+   "package_sees_runner_attribute_write(read_identity)": "runner-captured",
+   "patch_object_on_flat_handler_affects_package_call": "real-graph-helper",
+   "patch_object_on_flat_server_impl_affects_handler": "PATCHED",
+   "private_names_via_flat": {
+    "_CACHE": true,
+    "_SETUP_LOADED_IDENTITY": true,
+    "_load_script": true,
+    "_runner_version": true,
+    "_script_cache": true
+   },
+   "purge": "both",
+   "python": "3.11.13",
+   "respond.__module__": "wavefoundry_server.server_impl",
+   "respond_via_runner": {
+    "handler_version": "v1",
+    "helper": "real-graph-helper",
+    "impl_version_seen_by_handler": "v1",
+    "shared": "real-shared-helper"
+   },
+   "runner_ref_is_package_module": true,
+   "scenario": "naive_root",
+   "strategy": "a"
+  },
+  "purge": "both",
+  "returncode": 0,
+  "scenario": "naive_root",
+  "scripts_dir": "naive",
+  "strategy": "a"
+ }
+]

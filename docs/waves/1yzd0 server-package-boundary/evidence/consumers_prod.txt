@@ -1,0 +1,37 @@
+## server_impl (13 production refs outside the moved set)
+  lifecycle_gate_support.py:789 [str/local] 'server_impl'
+  mcp_tool_extensions.py:56 [str/top] 'server_impl'
+  memory_eval.py:726 [import/local] import server_impl
+  memory_eval.py:861 [import/local] import server_impl
+  render_platform_surfaces.py:1633 [path/local] 'Merge the Wavefoundry stdio MCP entry into the Claude repo-root ``.mcp.json``.\n\n    The command remains the
+  render_platform_surfaces.py:269 [path/local] '\n        from __future__ import annotations\n\n        import json\n        import os\n        import subpro
+  retrieval_eval.py:2284 [import/local] import server_impl
+  retrieval_eval.py:144 [path/top] 'server_impl.py'
+  retrieval_eval.py:1464 [path/local] "Disclose how the served modules relate to the repository's HEAD.\n\n    Informational only (the comparison ke
+  server.py:74 [import/top] import server_impl
+  setup_readiness.py:43 [path/top] 'server_impl.py'
+  upgrade_extensions.py:342 [import/local] import server_impl
+  upgrade_wavefoundry.py:5849 [import/local] import server_impl
+## mcp_tool_registry (1 production refs outside the moved set)
+  mcp_tool_extensions.py:54 [str/top] 'mcp_tool_registry'
+## codenav_handlers (1 production refs outside the moved set)
+  retrieval_eval.py:144 [path/top] 'codenav_handlers.py'
+## graph_handlers (0 production refs outside the moved set)
+  (none)
+## techdocs_handlers (0 production refs outside the moved set)
+  (none)
+## memory_handlers (1 production refs outside the moved set)
+  memory_cli.py:9 [import/top] import memory_handlers
+## index_handlers (1 production refs outside the moved set)
+  retrieval_eval.py:147 [path/top] 'index_handlers.py'
+## upgrade_handlers (0 production refs outside the moved set)
+  (none)
+## edit_gate_handlers (0 production refs outside the moved set)
+  (none)
+## dashboard_handlers (2 production refs outside the moved set)
+  upgrade_extensions.py:339 [import/local] import dashboard_handlers
+  upgrade_wavefoundry.py:3196 [import/local] import dashboard_handlers
+## docs_handlers (0 production refs outside the moved set)
+  (none)
+## context_efficiency_handlers (1 production refs outside the moved set)
+  project_context_efficiency.py:19 [import/local] import context_efficiency_handlers

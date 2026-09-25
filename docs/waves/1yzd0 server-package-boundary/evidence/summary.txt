@@ -1,0 +1,113 @@
+_tag_utils: prod_importers=2 tests=2 other=0 :: chunker, server_impl
+accel_embedder: prod_importers=4 tests=7 other=0 :: indexer, retrieval_eval, server_impl, setup_index
+agent_surface_integrity: prod_importers=2 tests=2 other=0 :: server_impl, upgrade_wavefoundry
+ann_reference_eval: prod_importers=0 tests=1 other=0 :: 
+build_pack: prod_importers=6 tests=13 other=0 :: build_scan_allowlist, lifecycle_gates, prune_framework, reconcile_scan, render_agent_surfaces, review_policy
+build_scan_allowlist: prod_importers=1 tests=1 other=0 :: build_pack
+check_version: prod_importers=1 tests=3 other=0 :: upgrade_wavefoundry
+chunker: prod_importers=12 tests=16 other=0 :: _tag_utils, eval_chunker, graph_indexer, index_compatibility, indexer, memory_supply, retrieval_eval, server_impl, setup_readiness, upgrade_extensions, upgrade_wavefoundry, wave_lint_lib
+cli_stdio: prod_importers=18 tests=5 other=0 :: check_version, dashboard_server, docs_gardener, docs_lint, gen_codebase_map, gpu_doctor, graph_query, indexer, prune_framework, render_platform_surfaces, run_secrets_scan, server_impl, setup_index, setup_wavefoundry, techdocs_audit, techdocs_baseline, upgrade_wavefoundry, wf_cli
+codenav_handlers: prod_importers=2 tests=3 other=0 :: retrieval_eval, server_impl
+commit_provenance: prod_importers=1 tests=2 other=0 :: codenav_handlers
+context_efficiency: prod_importers=7 tests=11 other=0 :: context_efficiency_handlers, exploration_avoided, memory_supply, publication_control, render_agent_surfaces, server_impl, wave_lint_lib
+context_efficiency_handlers: prod_importers=2 tests=4 other=0 :: project_context_efficiency, server_impl
+dashboard_handlers: prod_importers=3 tests=4 other=0 :: server_impl, upgrade_extensions, upgrade_wavefoundry
+dashboard_lib: prod_importers=5 tests=11 other=0 :: dashboard_handlers, dashboard_server, run_tests, server_impl, upgrade_wavefoundry
+dashboard_server: prod_importers=5 tests=9 other=0 :: dashboard_handlers, dashboard_lib, indexer, sqlite_storage_migration, wf_cli
+design_token_build: prod_importers=0 tests=1 other=0 :: 
+docs_gardener: prod_importers=4 tests=8 other=0 :: build_pack, docs_handlers, upgrade_wavefoundry, wf_cli
+docs_handlers: prod_importers=1 tests=4 other=0 :: server_impl
+docs_lint: prod_importers=10 tests=8 other=0 :: build_pack, dashboard_lib, indexer, render_platform_surfaces, server_impl, upgrade_extensions, upgrade_wavefoundry, wave_lint_lib, wave_lint_lib, wf_cli
+edit_gate_handlers: prod_importers=1 tests=1 other=0 :: server_impl
+eval_chunker: prod_importers=0 tests=0 other=0 :: 
+exploration_avoided: prod_importers=3 tests=2 other=0 :: context_efficiency_handlers, memory_handlers, server_impl
+gardener_metadata: prod_importers=4 tests=3 other=0 :: index_state_store, lifecycle_gate_support, review_policy, server_impl
+gen_codebase_map: prod_importers=4 tests=7 other=0 :: index_handlers, server_impl, upgrade_wavefoundry, wf_cli
+gpu_doctor: prod_importers=3 tests=2 other=0 :: techdocs_audit, techdocs_baseline, wf_cli
+graph_call_census: prod_importers=0 tests=1 other=0 :: 
+graph_cluster: prod_importers=6 tests=9 other=0 :: graph_handlers, graph_quality_eval, graph_snapshot, indexer, retrieval_eval, server_impl
+graph_di_signals: prod_importers=1 tests=1 other=0 :: graph_indexer
+graph_handlers: prod_importers=1 tests=3 other=0 :: server_impl
+graph_indexer: prod_importers=14 tests=16 other=0 :: graph_cluster, graph_handlers, graph_quality_eval, graph_query, graph_snapshot, index_compatibility, indexer, retrieval_eval, server_impl, setup_readiness, sqlite_storage_migration, upgrade_extensions, upgrade_wavefoundry, wave_lint_lib
+graph_quality_eval: prod_importers=0 tests=3 other=0 :: 
+graph_query: prod_importers=4 tests=7 other=0 :: dashboard_server, graph_quality_eval, retrieval_eval, server_impl
+graph_snapshot: prod_importers=6 tests=8 other=0 :: dashboard_lib, dashboard_server, gen_codebase_map, graph_cluster, graph_query, server_impl
+graph_store: prod_importers=5 tests=6 other=0 :: graph_indexer, index_compatibility, index_state_store, setup_readiness, sqlite_storage_migration
+index_compatibility: prod_importers=12 tests=12 other=0 :: chunker, graph_indexer, graph_query, graph_snapshot, graph_store, index_handlers, index_state_store, indexer, model_bundle, setup_readiness, sqlite_vector_store, upgrade_extensions
+index_handlers: prod_importers=2 tests=11 other=0 :: retrieval_eval, server_impl
+index_paths: prod_importers=5 tests=18 other=0 :: graph_snapshot, index_state_store, setup_readiness, sqlite_storage_migration, sqlite_vector_store
+index_source_guard: prod_importers=3 tests=2 other=0 :: context_efficiency_handlers, indexer, server_impl
+index_state_store: prod_importers=26 tests=38 other=0 :: codenav_handlers, commit_provenance, dashboard_lib, dashboard_server, docs_handlers, graph_indexer, graph_snapshot, index_compatibility, index_handlers, indexer, lexical_ranking_eval, memory_backfill, memory_eval, memory_handlers, memory_records, repair_ppol_memory_staging, retrieval_eval, scan_secrets, server_impl, setup_readiness, sqlite_storage_migration, sqlite_vector_store, techdocs_audit_lib, upgrade_extensions, upgrade_wavefoundry, wave_lint_lib
+indexer: prod_importers=20 tests=34 other=1 :: accel_embedder, build_pack, dashboard_server, eval_chunker, graph_indexer, graph_quality_eval, graph_query, index_compatibility, index_handlers, render_platform_surfaces, retrieval_eval, run_tests, scan_secrets, server_impl, setup_index, setup_readiness, sqlite_storage_migration, upgrade_extensions, upgrade_wavefoundry, wave_lint_lib
+install_log_lib: prod_importers=2 tests=3 other=0 :: server_impl, upgrade_handlers
+lexical_ranking_eval: prod_importers=0 tests=1 other=0 :: 
+lifecycle_gate_support: prod_importers=10 tests=2 other=0 :: context_efficiency_handlers, dashboard_handlers, docs_handlers, edit_gate_handlers, index_handlers, lifecycle_gates, memory_handlers, server_impl, techdocs_handlers, upgrade_handlers
+lifecycle_gates: prod_importers=1 tests=4 other=0 :: server_impl
+lifecycle_id: prod_importers=8 tests=9 other=0 :: build_pack, memory_records, server_impl, upgrade_extensions, upgrade_wavefoundry, wave_lint_lib, wave_lint_lib, wf_cli
+lifecycle_lock: prod_importers=4 tests=3 other=0 :: server_impl, setup_reconciliation, upgrade_protocol, upgrade_wavefoundry
+machine_authority: prod_importers=2 tests=0 other=0 :: indexer, wave_lint_lib
+marker_namespaces: prod_importers=5 tests=2 other=0 :: chunker, codenav_handlers, index_compatibility, render_agent_surfaces, server_impl
+mcp_tool_extensions: prod_importers=2 tests=1 other=0 :: mcp_tool_roster, server_impl
+mcp_tool_registry: prod_importers=2 tests=2 other=0 :: mcp_tool_extensions, server_impl
+mcp_tool_roster: prod_importers=4 tests=5 other=0 :: mcp_tool_extensions, render_platform_surfaces, server_impl, upgrade_wavefoundry
+memory_backfill: prod_importers=10 tests=16 other=0 :: index_state_store, mcp_tool_roster, memory_handlers, publication_control, render_platform_surfaces, server_impl, setup_wavefoundry, upgrade_extensions, upgrade_handlers, upgrade_wavefoundry
+memory_cli: prod_importers=1 tests=3 other=0 :: wf_cli
+memory_eval: prod_importers=1 tests=1 other=0 :: memory_handlers
+memory_handlers: prod_importers=2 tests=5 other=0 :: memory_cli, server_impl
+memory_records: prod_importers=5 tests=7 other=0 :: memory_backfill, memory_handlers, setup_wavefoundry, upgrade_extensions, upgrade_wavefoundry
+memory_supply: prod_importers=2 tests=4 other=0 :: memory_handlers, server_impl
+model_bundle: prod_importers=7 tests=6 other=0 :: accel_embedder, build_pack, index_compatibility, indexer, setup_index, setup_readiness, upgrade_wavefoundry
+operator_identity: prod_importers=1 tests=2 other=0 :: server_impl
+path_containment: prod_importers=8 tests=1 other=0 :: context_efficiency, memory_backfill, memory_records, memory_supply, render_agent_surfaces, retrieval_eval, review_policy, server_impl
+project_context_efficiency: prod_importers=1 tests=1 other=0 :: render_platform_surfaces
+provider_policy: prod_importers=7 tests=3 other=0 :: accel_embedder, gpu_doctor, indexer, server_impl, setup_index, setup_readiness, setup_wavefoundry
+prune_framework: prod_importers=2 tests=4 other=0 :: upgrade_extensions, upgrade_wavefoundry
+public_contract: prod_importers=6 tests=4 other=0 :: index_handlers, indexer, lifecycle_gates, review_evidence, server_impl, wave_lint_lib
+publication_control: prod_importers=4 tests=8 other=0 :: index_handlers, index_state_store, server_impl, upgrade_protocol
+reconcile_scan: prod_importers=1 tests=5 other=0 :: upgrade_wavefoundry
+record_paths: prod_importers=27 tests=10 other=0 :: _tag_utils, commit_provenance, context_efficiency, context_efficiency_handlers, dashboard_lib, dashboard_server, docs_gardener, graph_indexer, index_state_store, lifecycle_gate_support, lifecycle_id, memory_backfill, memory_records, memory_supply, reconcile_scan, render_agent_surfaces, retrieval_eval, review_policy, review_policy_reconcile, review_policy_upgrade, server_impl, upgrade_extensions, upgrade_wavefoundry, wave_lint_lib, wave_lint_lib, wave_lint_lib, wave_lint_lib
+render_agent_surfaces: prod_importers=7 tests=15 other=0 :: render_platform_surfaces, setup_readiness, techdocs_audit_lib, techdocs_baseline, techdocs_handlers, upgrade_wavefoundry, wave_lint_lib
+render_platform_surfaces: prod_importers=12 tests=15 other=0 :: codenav_handlers, docs_handlers, reconcile_scan, render_agent_surfaces, server_impl, setup_readiness, setup_wavefoundry, techdocs_audit, techdocs_baseline, upgrade_extensions, upgrade_wavefoundry, wf_cli
+repair_ppol_memory_staging: prod_importers=1 tests=3 other=0 :: build_pack
+repo_root: prod_importers=7 tests=6 other=0 :: dashboard_lib, memory_backfill, memory_cli, server, server_impl, setup_readiness, techdocs_audit_lib
+retrieval_eval: prod_importers=0 tests=17 other=1 :: 
+review_evidence: prod_importers=16 tests=20 other=0 :: context_efficiency_handlers, dashboard_lib, docs_handlers, index_state_store, lifecycle_gate_support, lifecycle_gates, lifecycle_lock, machine_authority, memory_handlers, memory_supply, review_policy_upgrade, server_impl, setup_reconciliation, upgrade_extensions, upgrade_wavefoundry, wave_lint_lib
+review_policy: prod_importers=11 tests=12 other=0 :: agent_surface_integrity, lifecycle_gate_support, lifecycle_gates, render_agent_surfaces, review_evidence, review_policy_reconcile, review_policy_upgrade, server_impl, upgrade_extensions, upgrade_protocol, wave_lint_lib
+review_policy_reconcile: prod_importers=3 tests=3 other=0 :: render_agent_surfaces, review_policy_upgrade, upgrade_protocol
+review_policy_upgrade: prod_importers=2 tests=3 other=0 :: upgrade_protocol, upgrade_wavefoundry
+run_secrets_scan: prod_importers=2 tests=5 other=0 :: docs_handlers, wf_cli
+run_tests: prod_importers=10 tests=16 other=0 :: build_pack, dashboard_lib, graph_indexer, indexer, lifecycle_gate_support, lifecycle_gates, memory_supply, prune_framework, render_agent_surfaces, retrieval_eval
+runtime_advisory: prod_importers=3 tests=2 other=0 :: server, setup_readiness, wf_cli
+runtime_lock: prod_importers=9 tests=7 other=0 :: context_efficiency, dashboard_lib, gen_codebase_map, index_source_guard, indexer, lifecycle_lock, review_evidence, scanner_skips, upgrade_wavefoundry
+scan_secrets: prod_importers=2 tests=6 other=0 :: indexer, run_secrets_scan
+scanner_skips: prod_importers=2 tests=4 other=0 :: server_impl, wave_lint_lib
+score_context_efficiency_pairs: prod_importers=1 tests=5 other=0 :: context_efficiency_handlers
+sensor_runner: prod_importers=2 tests=3 other=0 :: lifecycle_gates, server_impl
+server: prod_importers=15 tests=32 other=0 :: _tag_utils, cli_stdio, dashboard_lib, graph_indexer, mcp_tool_extensions, mcp_tool_roster, render_agent_surfaces, render_platform_surfaces, server_impl, setup_index, setup_readiness, setup_wavefoundry, sqlite_storage_migration, upgrade_handlers, venv_bootstrap
+server_impl: prod_importers=19 tests=49 other=0 :: codenav_handlers, context_efficiency_handlers, dashboard_handlers, docs_handlers, edit_gate_handlers, graph_handlers, index_handlers, lifecycle_gate_support, mcp_tool_extensions, memory_eval, memory_handlers, render_platform_surfaces, retrieval_eval, server, setup_readiness, techdocs_handlers, upgrade_extensions, upgrade_handlers, upgrade_wavefoundry
+setup_index: prod_importers=12 tests=17 other=0 :: accel_embedder, gen_codebase_map, gpu_doctor, index_handlers, indexer, server_impl, setup_readiness, setup_reconciliation, setup_wavefoundry, upgrade_extensions, upgrade_wavefoundry, wf_cli
+setup_readiness: prod_importers=4 tests=10 other=0 :: server, server_impl, setup_wavefoundry, upgrade_wavefoundry
+setup_reconciliation: prod_importers=3 tests=3 other=0 :: setup_readiness, setup_wavefoundry, sqlite_storage_migration
+setup_requirements: prod_importers=2 tests=2 other=0 :: setup_index, setup_readiness
+setup_wavefoundry: prod_importers=4 tests=17 other=0 :: server_impl, setup_readiness, sqlite_storage_migration, wf_cli
+sqlite_runtime: prod_importers=9 tests=14 other=0 :: index_compatibility, index_handlers, index_state_store, retrieval_eval, server_impl, setup_index, setup_readiness, sqlite_storage_migration, sqlite_vector_store
+sqlite_storage_migration: prod_importers=9 tests=13 other=0 :: graph_snapshot, index_state_store, indexer, repair_ppol_memory_staging, setup_index, setup_reconciliation, upgrade_extensions, upgrade_handlers, upgrade_wavefoundry
+sqlite_vector_store: prod_importers=9 tests=17 other=0 :: dashboard_lib, index_compatibility, index_handlers, index_state_store, indexer, retrieval_eval, server_impl, setup_readiness, sqlite_storage_migration
+storage_identity: prod_importers=5 tests=3 other=0 :: retrieval_eval, setup_readiness, setup_reconciliation, sqlite_storage_migration, upgrade_extensions
+subprocess_util: prod_importers=29 tests=9 other=0 :: accel_embedder, build_pack, dashboard_lib, dashboard_server, docs_gardener, graph_indexer, graph_quality_eval, index_state_store, indexer, provider_policy, render_platform_surfaces, retrieval_eval, run_secrets_scan, run_tests, scan_secrets, sensor_runner, server_impl, setup_index, setup_readiness, setup_reconciliation, setup_wavefoundry, sqlite_storage_migration, techdocs_audit_lib, upgrade_bundle, upgrade_lib, upgrade_protocol, upgrade_wavefoundry, wave_lint_lib, wf_cli
+techdocs_audit: prod_importers=1 tests=1 other=0 :: wf_cli
+techdocs_audit_lib: prod_importers=2 tests=6 other=0 :: techdocs_audit, techdocs_handlers
+techdocs_baseline: prod_importers=3 tests=5 other=0 :: publication_control, techdocs_audit, wf_cli
+techdocs_handlers: prod_importers=1 tests=3 other=0 :: server_impl
+tree_sitter_cache: prod_importers=2 tests=2 other=0 :: codenav_handlers, server_impl
+upgrade_bridge_bootstrap: prod_importers=2 tests=3 other=0 :: build_pack, upgrade_bundle
+upgrade_bundle: prod_importers=1 tests=2 other=0 :: build_pack
+upgrade_extensions: prod_importers=5 tests=10 other=0 :: sqlite_storage_migration, upgrade_handlers, upgrade_lib, upgrade_protocol, upgrade_wavefoundry
+upgrade_handlers: prod_importers=1 tests=3 other=0 :: server_impl
+upgrade_lib: prod_importers=6 tests=7 other=0 :: dashboard_server, setup_reconciliation, sqlite_storage_migration, upgrade_extensions, upgrade_handlers, upgrade_wavefoundry
+upgrade_protocol: prod_importers=2 tests=3 other=0 :: build_pack, upgrade_wavefoundry
+upgrade_wavefoundry: prod_importers=13 tests=21 other=0 :: reconcile_scan, repair_ppol_memory_staging, review_policy, server_impl, setup_readiness, setup_wavefoundry, sqlite_storage_migration, upgrade_bridge_bootstrap, upgrade_bundle, upgrade_extensions, upgrade_handlers, upgrade_protocol, wf_cli
+venv_bootstrap: prod_importers=22 tests=13 other=0 :: build_pack, dashboard_server, docs_gardener, docs_lint, gpu_doctor, indexer, lifecycle_id, render_platform_surfaces, run_tests, server, server_impl, setup_index, setup_readiness, setup_reconciliation, setup_wavefoundry, sqlite_runtime, subprocess_util, techdocs_audit, techdocs_baseline, upgrade_wavefoundry, wave_gate, wf_cli
+wave_gate: prod_importers=1 tests=3 other=0 :: wf_cli
+wf_cli: prod_importers=4 tests=8 other=0 :: render_platform_surfaces, server_impl, setup_readiness, wave_gate
+wave_lint_lib: prod_importers=13 tests=25 other=0 :: build_pack, build_scan_allowlist, docs_handlers, docs_lint, indexer, machine_authority, memory_handlers, render_agent_surfaces, run_secrets_scan, scan_secrets, server, server_impl, techdocs_audit_lib

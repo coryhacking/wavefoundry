@@ -1,0 +1,91 @@
+### server_impl.py (47)
+      33 <module>                                                sys.modules
+      66 <module>                                                sys.modules
+      72 <module>                                                SCRIPTS_DIR
+      72 <module>                                                __file__
+      73 <module>                                                SCRIPTS_DIR
+      74 <module>                                                SCRIPTS_DIR
+    2022 WaveIndex._direct_artifact_owner_rows                   py-literal '.py'
+    4431 _read_chunker_version                                   __file__
+    4431 _read_chunker_version                                   py-literal 'chunker.py'
+    4483 _load_script                                            call importlib.util.spec_from_file_location(cache_key, Path(__file__).resolve().parent / f'{name}.py')
+    4484 _load_script                                            __file__
+    4484 _load_script                                            py-literal '.py'
+    4489 _load_script                                            sys.modules
+    4493 _load_script                                            sys.modules
+    4671 run_validate                                            __file__
+    4671 run_validate                                            py-literal 'docs_lint.py'
+    4744 run_validate_changed                                    __file__
+    4744 run_validate_changed                                    py-literal 'docs_lint.py'
+    8962 _audit_harness_coherence                                py-literal 'server.py'
+    8962 _audit_harness_coherence                                py-literal 'server_impl.py'
+    8963 _audit_harness_coherence                                __file__
+   12009 _default_template                                       __file__
+   12009 _default_template                                       parent.parent Path(__file__).resolve().parent.parent
+   12045 _indexer_module                                         __file__
+   12045 _indexer_module                                         py-literal 'indexer.py'
+   12046 _indexer_module                                         call importlib.util.spec_from_file_location('indexer', indexer_path)
+   12786 <module>                                                py-literal '.py'
+   12850 <module>                                                py-literal '.py'
+   13031 _get_chunker_module                                     __file__
+   13031 _get_chunker_module                                     py-literal 'chunker.py'
+   13038 _get_chunker_module                                     call importlib.util.spec_from_file_location('wf_server_chunker', chunker_path)
+   13042 _get_chunker_module                                     sys.modules
+   13070 _python_reference_call_sites                            py-literal '.py'
+   13474 <module>                                                py-literal '.py'
+   14082 <module>                                                py-literal 'setup.py'
+   14321 _direct_artifact_owner_candidate                        py-literal '.py'
+   15102 _read_framework_pack_version                            __file__
+   17066 _extension_declaration_provenance                       mcp_tool_extensions.__file__
+   17135 _load_extension_module                                  sys.modules
+   17140 _load_extension_module                                  SCRIPTS_DIR
+   17141 _load_extension_module                                  call importlib.machinery.PathFinder.find_spec(module_name, [str(scripts_dir)])
+   17143 _load_extension_module                                  py-literal '.py'
+   17157 _load_extension_module                                  module.__file__
+   17158 _load_extension_module                                  module.__spec__
+   17160 _load_extension_module                                  sys.modules
+   17164 _load_extension_module                                  sys.modules
+   21709 <module>                                                __name__
+### mcp_tool_registry.py (0)
+### codenav_handlers.py (3)
+    1708 _python_definitions                                     py-literal '.py'
+    1745 _python_references                                      py-literal '.py'
+    2707 code_dependencies_response                              py-literal '.py'
+### graph_handlers.py (6)
+     535 _match_import_to_target                                 py-literal '.py'
+     546 _match_import_to_target                                 py-literal '.py'
+     674 _code_impact_heuristic_response                         py-literal '.py'
+     887 _scan_call_sites_in_file                                py-literal '.py'
+     911 _scan_all_call_sites_in_file                            py-literal '.py'
+    1990 _wf_graph_report_response_pinned                        py-literal '.py'
+### techdocs_handlers.py (0)
+### memory_handlers.py (0)
+### index_handlers.py (11)
+     375 _index_is_up_to_date                                    server_impl.__file__
+     385 _index_is_up_to_date                                    py-literal 'indexer.py'
+     802 run_index_rebuild                                       server_impl.__file__
+     806 run_index_rebuild                                       py-literal 'setup_index.py'
+     809 run_index_rebuild                                       py-literal 'setup_index.py'
+     812 run_index_rebuild                                       py-literal 'indexer.py'
+     990 run_index_rebuild                                       call _importlib_util.spec_from_file_location('wavefoundry_indexer_for_lock_owner', Path(server_impl.__file__).resol
+     992 run_index_rebuild                                       py-literal 'indexer.py'
+     992 run_index_rebuild                                       server_impl.__file__
+    1135 _background_refresh_active                              parent.parent index_dir.parent.parent
+    1298 _start_background_index_refresh                         py-literal 'indexer.py'
+### upgrade_handlers.py (4)
+     387 _load_upgrade_lib                                       server_impl.__file__
+     401 _upgrade_summary_sentinel                               server_impl.__file__
+    1145 wf_upgrade_response                                     py-literal 'upgrade_wavefoundry.py'
+    1145 wf_upgrade_response                                     server_impl.__file__
+### edit_gate_handlers.py (0)
+### dashboard_handlers.py (2)
+     124 wf_start_dashboard_response                             server_impl.__file__
+     125 wf_start_dashboard_response                             py-literal 'dashboard_server.py'
+### docs_handlers.py (6)
+      32 run_garden                                              py-literal 'docs_gardener.py'
+      32 run_garden                                              server_impl.__file__
+      96 run_sync_surfaces                                       py-literal 'render_platform_surfaces.py'
+      96 run_sync_surfaces                                       server_impl.__file__
+     273 wf_scan_secrets_response                                server_impl.__file__
+     288 wf_scan_secrets_response                                py-literal 'run_secrets_scan.py'
+### context_efficiency_handlers.py (0)

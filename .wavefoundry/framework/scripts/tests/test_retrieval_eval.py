@@ -1485,6 +1485,96 @@ class FullRunnerTests(unittest.TestCase):
         self.assertEqual(1.0, report["run_time"]["duration_seconds"])
         self.assertEqual({}, report["anchor_resolution"])
 
+    def _layout_run(self, *, package: bool, result_path: str):
+        """Wave 1yzd0 E0: run the real runner over a tree in the flat or the
+        package layout, with every relevance row on the logical flat
+        ``server_impl.py`` path and every public result reported at
+        ``result_path``."""
+        prefix = subject.PRODUCTION_MODULE_PREFIX
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fixtures = self._tree(root)
+            scripts = root / prefix
+            scripts.mkdir(parents=True)
+            for name in subject.PRODUCTION_RETRIEVAL_MODULES:
+                (scripts / name).write_text(f"# flat {name}\n", encoding="utf-8")
+            served = scripts / "server_impl.py"
+            if package:
+                (scripts / subject.SERVER_PACKAGE_DIR).mkdir()
+                (scripts / subject.SERVER_PACKAGE_DIR / "__init__.py").write_text("", encoding="utf-8")
+                for name in ("server_impl.py", "codenav_handlers.py", "index_handlers.py"):
+                    (scripts / subject.SERVER_PACKAGE_DIR / name).write_text(
+                        f"# package {name}\n", encoding="utf-8")
+                served = scripts / subject.SERVER_PACKAGE_DIR / "server_impl.py"
+            payload = _valid_payload()
+            for fixture in payload["fixtures"]:
+                for row in fixture["relevance"]:
+                    row["path"] = prefix + "server_impl.py"
+            fixtures.write_text(json.dumps(payload), encoding="utf-8")
+            base = self.FakeServer
+
+            def repath(response):
+                data = response.get("data") or {}
+                for key in ("citations", "results"):
+                    for item in data.get(key) or []:
+                        if item.get("path") == "target.py":
+                            item["path"] = result_path
+                return response
+
+            class Server(base):
+                @staticmethod
+                def _response(index, query, tool):
+                    return repath(base._response(index, query, tool))
+
+                @staticmethod
+                def code_lexical_response(root, query="", limit=10):
+                    return repath(base.code_lexical_response(root, query=query, limit=limit))
+
+            server = Server()
+            server.WaveIndex = self.FakeIndex
+            server.__file__ = str(served)
+            indexer = SimpleNamespace(DOCS_MODEL="docs-model", CODE_MODEL="code-model",
+                                      RERANKER_MODEL="reranker-model")
+            report = subject.run_evaluation(root, fixtures, server=server,
+                                            state_store=self.FakeStateStore(), indexer=indexer)
+            return report, scripts.resolve().as_posix()
+
+    @staticmethod
+    def _scored_recalls(report):
+        return {row["recall_at_10"] for row in report["cases"]
+                if row["applicable"] and row["class"] != "abstention"}
+
+    def test_package_layout_resolves_identity_and_relevance_to_implementing_files(self):
+        prefix = subject.PRODUCTION_MODULE_PREFIX
+        package_path = prefix + subject.SERVER_PACKAGE_DIR + "/server_impl.py"
+        report, scripts = self._layout_run(package=True, result_path=package_path)
+        identity = report["production_identity"]
+        self.assertEqual(scripts, identity["scripts_directory"],
+                         "the scripts root is the package's parent, not the package")
+        self.assertEqual("wf_server/server_impl.py", identity["module_paths"]["server_impl.py"])
+        self.assertEqual("indexer.py", identity["module_paths"]["indexer.py"])
+        self.assertEqual(hashlib.sha256(b"# package server_impl.py\n").hexdigest(),
+                         identity["modules"]["server_impl.py"],
+                         "the implementation is hashed, never the flat alias")
+        self.assertEqual(hashlib.sha256(b"# flat indexer.py\n").hexdigest(), identity["modules"]["indexer.py"])
+        self.assertEqual({prefix + "server_impl.py": package_path}, report["relevance_path_resolution"])
+        self.assertEqual({1.0}, self._scored_recalls(report))
+
+    def test_package_layout_never_credits_a_result_on_the_flat_alias(self):
+        report, _ = self._layout_run(package=True,
+                                     result_path=subject.PRODUCTION_MODULE_PREFIX + "server_impl.py")
+        self.assertEqual({0.0}, self._scored_recalls(report))
+
+    def test_flat_layout_resolves_every_path_to_itself(self):
+        report, scripts = self._layout_run(package=False,
+                                           result_path=subject.PRODUCTION_MODULE_PREFIX + "server_impl.py")
+        identity = report["production_identity"]
+        self.assertEqual(scripts, identity["scripts_directory"])
+        self.assertEqual({name: name for name in subject.PRODUCTION_RETRIEVAL_MODULES},
+                         identity["module_paths"])
+        self.assertEqual({}, report["relevance_path_resolution"])
+        self.assertEqual({1.0}, self._scored_recalls(report))
+
     def _run(self, payload=None):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -2648,6 +2738,145 @@ class ConfinedReportIOTests(unittest.TestCase):
         self.assertFalse(destination.exists())
         self.assertEqual([], [name for name in os.listdir(self.reports)
                               if subject._REPORT_TEMP_RE.match(name)])
+
+
+class ServerPackageLayoutTests(unittest.TestCase):
+    """Wave 1yzd0 E0: one evaluator identity measures the flat and the package
+    layout, through an explicit table of the modules that move."""
+
+    PREFIX = subject.PRODUCTION_MODULE_PREFIX
+
+    def test_moved_module_table_is_the_frozen_inventory(self):
+        self.assertEqual("wf_server", subject.SERVER_PACKAGE_DIR)
+        self.assertEqual(frozenset({
+            "server_impl.py", "mcp_tool_registry.py", "codenav_handlers.py", "graph_handlers.py",
+            "techdocs_handlers.py", "memory_handlers.py", "index_handlers.py", "upgrade_handlers.py",
+            "edit_gate_handlers.py", "dashboard_handlers.py", "docs_handlers.py",
+            "context_efficiency_handlers.py",
+        }), subject.SERVER_PACKAGE_MODULES)
+
+    def test_production_scripts_root_in_both_layouts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            scripts = Path(temp).resolve() / "scripts"
+            self.assertEqual(scripts, subject._production_scripts_root(str(scripts / "server_impl.py")))
+            self.assertEqual(scripts, subject._production_scripts_root(
+                str(scripts / "wf_server" / "server_impl.py")))
+
+    def _write(self, root: Path, relpath: str, text: str) -> None:
+        path = root / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def test_implementing_relevance_paths_remap_only_moved_modules_with_a_package_file(self):
+        package = self.PREFIX + "wf_server/"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for relpath in (package + "__init__.py", self.PREFIX + "server_impl.py", package + "server_impl.py",
+                            self.PREFIX + "codenav_handlers.py", package + "codenav_handlers.py",
+                            # A retained module never remaps, even beside a same-named package file.
+                            self.PREFIX + "indexer.py", package + "indexer.py",
+                            self.PREFIX + "wave_lint_lib/server_impl.py", "server_impl.py"):
+                self._write(root, relpath, "# x\n")
+            fixture = _fixture("one", "known_symbol_navigational", "holdout")
+            fixture["relevance"] = [
+                {"path": path, "grade": 2, "anchor": {"type": "path", "value": path}}
+                for path in (self.PREFIX + "server_impl.py", self.PREFIX + "codenav_handlers.py",
+                             self.PREFIX + "indexer.py", self.PREFIX + "wave_lint_lib/server_impl.py",
+                             "server_impl.py")
+            ]
+            corpus = {"schema": subject.FIXTURE_SCHEMA, "fixtures": [fixture]}
+            digest = subject._fixture_digest(corpus)
+            resolved = subject.implementing_relevance_paths(root, corpus)
+        self.assertEqual({self.PREFIX + "server_impl.py": package + "server_impl.py",
+                          self.PREFIX + "codenav_handlers.py": package + "codenav_handlers.py"}, resolved)
+        self.assertEqual(digest, subject._fixture_digest(corpus), "the corpus is never rewritten")
+
+    def test_a_package_missing_a_moved_module_is_refused_not_read_through_the_alias(self):
+        with tempfile.TemporaryDirectory() as temp:
+            scripts = Path(temp)
+            (scripts / "wf_server" / "__pycache__").mkdir(parents=True)
+            (scripts / "codenav_handlers.py").write_text("# alias\n", encoding="utf-8")
+            # A leftover __pycache__ from a post-move checkout is not a package.
+            try:
+                leftover = subject._implementing_name(scripts, "codenav_handlers.py")
+            except subject.EvaluationInvalid as exc:
+                self.fail(f"a __pycache__-only directory was treated as the package: {exc}")
+            self.assertEqual("codenav_handlers.py", leftover)
+            (scripts / "wf_server" / "__init__.py").write_text("", encoding="utf-8")
+            with self.assertRaises(subject.EvaluationInvalid) as caught:
+                subject._implementing_name(scripts, "codenav_handlers.py")
+            self.assertEqual("incomplete_server_package", caught.exception.code)
+            # A retained module stays flat even beside a same-named package file.
+            (scripts / "wf_server" / "indexer.py").write_text("# stray\n", encoding="utf-8")
+            self.assertEqual("indexer.py", subject._implementing_name(scripts, "indexer.py"))
+            (scripts / "wf_server" / "__init__.py").unlink()
+            self.assertEqual("codenav_handlers.py", subject._implementing_name(scripts, "codenav_handlers.py"))
+
+    def test_digest_is_keyed_by_logical_name_so_a_pure_move_keeps_it(self):
+        with tempfile.TemporaryDirectory() as temp:
+            flat, moved = Path(temp) / "flat", Path(temp) / "moved"
+            for scripts in (flat, moved):
+                for name in subject.PRODUCTION_RETRIEVAL_MODULES:
+                    self._write(scripts, name, f"# {name}\n")
+            for name in subject.PRODUCTION_RETRIEVAL_MODULES:
+                if name in subject.SERVER_PACKAGE_MODULES:
+                    self._write(moved, "wf_server/__init__.py", "")
+                    self._write(moved, "wf_server/" + name, f"# {name}\n")
+                    self._write(moved, name, "# alias\n")
+            before = subject._production_identity(flat)
+            after = subject._production_identity(moved)
+        self.assertNotEqual(before["module_paths"], after["module_paths"])
+        self.assertEqual(before["modules"], after["modules"])
+        self.assertEqual(before["digest"], after["digest"])
+
+    def test_remapped_row_matches_only_the_implementing_file(self):
+        logical = self.PREFIX + "server_impl.py"
+        implementing = self.PREFIX + "wf_server/server_impl.py"
+        expected = {"path": logical, "grade": 2, "anchor": {"type": "path", "value": logical}}
+        resolution = {logical: implementing}
+        self.assertIsNotNone(subject._anchor_match_evidence({"path": implementing}, expected, None, resolution))
+        self.assertIsNone(subject._anchor_match_evidence({"path": logical}, expected, None, resolution))
+        self.assertIsNotNone(subject._anchor_match_evidence({"path": logical}, expected, None, {}))
+
+    def test_symbol_anchor_resolves_in_the_implementing_file_under_its_logical_key(self):
+        logical = self.PREFIX + "server_impl.py"
+        implementing = self.PREFIX + "wf_server/server_impl.py"
+        server = DeclarationResolutionTests.OutlineServer(
+            {implementing: [{"name": "run", "kind": "function", "start_line": 10, "end_line": 30}],
+             # The flat alias never declares it in production; a span here proves which file was read.
+             logical: [{"name": "run", "kind": "function", "start_line": 50, "end_line": 60}]}, [])
+        fixture = _fixture("one", "known_symbol_navigational", "holdout")
+        fixture["relevance"] = [{"path": logical, "grade": 3, "anchor": {"type": "symbol", "value": "run"}}]
+        corpus = {"schema": subject.FIXTURE_SCHEMA, "fixtures": [fixture]}
+        resolved = subject.resolve_symbol_anchors(corpus, server, Path("."), {logical: implementing})
+        self.assertEqual({f"{logical}::run"}, set(resolved))
+        self.assertEqual(10, resolved[f"{logical}::run"]["start_line"])
+        self.assertEqual([("code_outline", implementing)], server.calls)
+
+    def test_git_binding_compares_the_implementing_blob(self):
+        import subprocess as sp
+        package = self.PREFIX + "wf_server/"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+                   "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid",
+                   "HOME": temp, "PATH": os.environ.get("PATH", "")}
+            for name in subject.PRODUCTION_RETRIEVAL_MODULES:
+                self._write(root, self.PREFIX + name, f"# flat {name}\n")
+            self._write(root, package + "__init__.py", "")
+            self._write(root, package + "server_impl.py", "# package server_impl v1\n")
+            for name in ("codenav_handlers.py", "index_handlers.py"):
+                self._write(root, package + name, f"# package {name}\n")
+            for args in (["init", "-q"], ["add", "."], ["commit", "-q", "-m", "base"]):
+                sp.run(["git", "-C", str(root), *args], check=True, env=env, capture_output=True)
+            identity = subject._production_identity(root / self.PREFIX, root)
+            self.assertEqual("wf_server/server_impl.py", identity["module_paths"]["server_impl.py"])
+            self.assertTrue(identity["git"]["matches_head"]["server_impl.py"],
+                            "the served package file equals its HEAD blob")
+            self._write(root, package + "server_impl.py", "# package server_impl v2\n")
+            identity = subject._production_identity(root / self.PREFIX, root)
+            self.assertFalse(identity["git"]["matches_head"]["server_impl.py"])
+            self.assertTrue(identity["git"]["worktree_dirty"])
 
 
 if __name__ == "__main__":

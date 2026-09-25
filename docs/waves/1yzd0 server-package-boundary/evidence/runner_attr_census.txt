@@ -1,0 +1,9 @@
+v1.25.0:server.py: reads 17 attrs; missing from HEAD server_impl namespace: ['_SETUP_STARTUP_RESULT', '_SETUP_STARTUP_ROOT']
+v1.26.0:server.py: reads 17 attrs; missing from HEAD server_impl namespace: ['_SETUP_STARTUP_RESULT', '_SETUP_STARTUP_ROOT']
+HEAD:server.py: reads 17 attrs; missing from HEAD server_impl namespace: ['_SETUP_STARTUP_RESULT', '_SETUP_STARTUP_ROOT']
+v1.25.0:upgrade_wavefoundry.py: reads 2 attrs; missing from HEAD server_impl namespace: []
+v1.26.0:upgrade_wavefoundry.py: reads 1 attrs; missing from HEAD server_impl namespace: []
+v1.26.0:upgrade_extensions.py: reads 0 attrs; missing from HEAD server_impl namespace: []
+HEAD:memory_eval.py: reads 5 attrs; missing from HEAD server_impl namespace: []
+HEAD:retrieval_eval.py: reads 8 attrs; missing from HEAD server_impl namespace: []
+HEAD server_impl top-level bound names: 983

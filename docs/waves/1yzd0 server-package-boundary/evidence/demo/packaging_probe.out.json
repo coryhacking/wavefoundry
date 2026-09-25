@@ -1,0 +1,30 @@
+{
+ "collect_files_arcnames": [
+  ".wavefoundry/framework/scripts/graph_handlers.py",
+  ".wavefoundry/framework/scripts/server.py",
+  ".wavefoundry/framework/scripts/server_impl.py",
+  ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+  ".wavefoundry/framework/scripts/wavefoundry_server/__init__.py",
+  ".wavefoundry/framework/scripts/wavefoundry_server/graph_handlers.py",
+  ".wavefoundry/framework/scripts/wavefoundry_server/server_impl.py"
+ ],
+ "manifest": [
+  "MANIFEST",
+  "scripts/graph_handlers.py",
+  "scripts/server.py",
+  "scripts/server_impl.py",
+  "scripts/upgrade_wavefoundry.py",
+  "scripts/wavefoundry_server/__init__.py",
+  "scripts/wavefoundry_server/graph_handlers.py",
+  "scripts/wavefoundry_server/server_impl.py"
+ ],
+ "upgrade_protocol._pack_module_names": [
+  "graph_handlers",
+  "server",
+  "server_impl",
+  "upgrade_wavefoundry"
+ ],
+ "mandatory_module_function_local_import_server_impl(flat shim present)": "accepted",
+ "mandatory_module_import_wavefoundry_server_package": "refused: mandatory module upgrade_wavefoundry.py has unavailable import wavefoundry_server",
+ "mandatory_module_import_server_impl(flat shim ABSENT)": "refused: mandatory module upgrade_wavefoundry.py has unavailable import server_impl"
+}

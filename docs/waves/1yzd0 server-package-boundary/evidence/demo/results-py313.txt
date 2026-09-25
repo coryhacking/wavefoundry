@@ -1,0 +1,440 @@
+
+=== strategy=a scenario=static purge=both root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   _load_script(retained_tool).__file__: retained_tool.py
+   flat_graph_handlers_is_package_module: True
+   flat_sees_package_global_rebind: rebound-in-package
+   flat_server_impl.__file__: wavefoundry_server/server_impl.py
+   flat_server_impl.__name__: wavefoundry_server.server_impl
+   flat_server_impl.__spec__.name: wavefoundry_server.server_impl
+   flat_server_impl_is_package_module: True
+   inspect_getsourcefile(flat.respond): wavefoundry_server/server_impl.py
+   live_graph_handler_module_objects: ['wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1']
+   modules: {'graph_handlers': 'id32464:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'server_impl': 'id31584:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py', 'wavefoundry_server.graph_handlers': 'id32464:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id31584:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   mutable_global_shared: True
+   package_dir_on_sys_path: False
+   package_sees_runner_attribute_write(read_identity): runner-captured
+   patch_object_on_flat_handler_affects_package_call: PATCHED
+   patch_object_on_flat_server_impl_affects_handler: PATCHED
+   private_names_via_flat: {'_CACHE': True, '_SETUP_LOADED_IDENTITY': True, '_load_script': True, '_runner_version': True, '_script_cache': True}
+   python: 3.13.5
+   respond.__module__: wavefoundry_server.server_impl
+   respond_via_runner: {'handler_version': 'v1', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v1', 'shared': 'real-shared-helper'}
+   runner_ref_is_package_module: True
+
+=== strategy=a scenario=reload purge=both root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   flat_gh_is_package_gh: False
+   impl_bound_graph_response_version: v2
+   impl_version_after_reload: v2
+   import_graph_handlers_version: v2
+   live_graph_handler_module_objects: ['wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v2']
+   modules_after: {'graph_handlers': 'id17024:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'server_impl': 'id16464:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py', 'wavefoundry_server.graph_handlers': 'id17024:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id16464:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   modules_before: {'graph_handlers': None, 'server_impl': 'id16464:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py', 'wavefoundry_server.graph_handlers': 'id17344:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id16464:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   parent_attr_is_sys_modules_entry: True
+   parent_attr_version: v2
+   python: 3.13.5
+   reload_call: wavefoundry_server.server_impl
+   runner_identity_survives(read_identity): runner-captured
+   runner_ref_is_package_module: True
+   runner_ref_is_sys_modules_server_impl: True
+   runner_version_survives: runner-v
+   second_reload_ok: ['v3', 'v3']
+   served_after_reload: {'handler_version': 'v2', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v2', 'shared': 'real-shared-helper'}
+   shared_substrate_version: v2
+
+=== strategy=a scenario=reload purge=flat_only root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   flat_gh_is_package_gh: False
+   impl_bound_graph_response_version: v1
+   impl_version_after_reload: v2
+   import_graph_handlers_version: v1
+   live_graph_handler_module_objects: ['wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1']
+   modules_after: {'graph_handlers': 'id39824:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'server_impl': 'id38944:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py', 'wavefoundry_server.graph_handlers': 'id39824:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id38944:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   modules_before: {'graph_handlers': None, 'server_impl': 'id38944:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py', 'wavefoundry_server.graph_handlers': 'id39824:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id38944:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   parent_attr_is_sys_modules_entry: True
+   parent_attr_version: v1
+   python: 3.13.5
+   reload_call: wavefoundry_server.server_impl
+   runner_identity_survives(read_identity): runner-captured
+   runner_ref_is_package_module: True
+   runner_ref_is_sys_modules_server_impl: True
+   runner_version_survives: runner-v
+   second_reload_ok: ['v1', 'v3']
+   served_after_reload: {'handler_version': 'v1', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v2', 'shared': 'real-shared-helper'}
+   shared_substrate_version: v2
+
+=== strategy=a scenario=old_runner purge=both root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   flat_gh_is_package_gh: False
+   live_graph_handler_module_objects: ['wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v2']
+   modules_after: {'graph_handlers': None, 'server_impl': 'id10576:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py', 'wavefoundry_server.graph_handlers': 'id11216:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id10576:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   python: 3.13.5
+   reload_returned_name: wavefoundry_server.server_impl
+   runner_identity_after(read_identity): runner-captured
+   runner_ref_is_old_object: False
+   runner_ref_is_package_module: True
+   second_reload: v3
+   served_after_upgrade_reload: {'handler_version': 'v2', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v2', 'shared': 'real-shared-helper'}
+   served_before_upgrade: {'handler_version': 'v0', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v0', 'shared': 'real-shared-helper'}
+
+=== strategy=a scenario=spec_load purge=both root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   exec: ok
+   python: 3.13.5
+   returned_object_has_respond: False
+   returned_object_is_package_module: False
+   sys_modules_private_key_is_package_module: True
+
+=== strategy=a scenario=consumer purge=both root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   graph_response: {'handler_version': 'v1', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v1', 'shared': 'real-shared-helper'}
+   import_graph_handlers: wavefoundry_server/graph_handlers.py
+   package_initializer_imported_nothing_heavy: ['wavefoundry_server', 'wavefoundry_server.graph_handlers', 'wavefoundry_server.server_impl']
+   python: 3.13.5
+   server_impl_is_package: True
+
+=== strategy=b scenario=static purge=both root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   _load_script(retained_tool).__file__: ERROR AttributeError: module 'server_impl' has no attribute '_load_script'
+   flat_graph_handlers_is_package_module: False
+   flat_sees_package_global_rebind: <missing>
+   flat_server_impl.__file__: server_impl.py
+   flat_server_impl.__name__: server_impl
+   flat_server_impl.__spec__.name: server_impl
+   flat_server_impl_is_package_module: False
+   inspect_getsourcefile(flat.respond): wavefoundry_server/server_impl.py
+   live_graph_handler_module_objects: ['graph_handlers@graph_handlers.py#v=v1', 'wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1']
+   modules: {'graph_handlers': 'id37552:graph_handlers@graph_handlers.py', 'server_impl': 'id36112:server_impl@server_impl.py', 'wavefoundry_server.graph_handlers': 'id37152:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id36352:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   mutable_global_shared: ERROR AttributeError: module 'server_impl' has no attribute '_CACHE'
+   package_dir_on_sys_path: False
+   package_sees_runner_attribute_write(read_identity): captured-from-disk
+   patch_object_on_flat_handler_affects_package_call: real-graph-helper
+   patch_object_on_flat_server_impl_affects_handler: PATCHED
+   private_names_via_flat: {'_CACHE': False, '_SETUP_LOADED_IDENTITY': True, '_load_script': False, '_runner_version': False, '_script_cache': False}
+   python: 3.13.5
+   respond.__module__: wavefoundry_server.server_impl
+   respond_via_runner: {'handler_version': 'v1', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v1', 'shared': 'real-shared-helper'}
+   runner_ref_is_package_module: False
+
+=== strategy=b scenario=reload purge=both root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   flat_gh_is_package_gh: False
+   impl_bound_graph_response_version: v1
+   impl_version_after_reload: v1
+   import_graph_handlers_version: v1
+   live_graph_handler_module_objects: ['graph_handlers@graph_handlers.py#v=v1', 'wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1']
+   modules_after: {'graph_handlers': 'id83584:graph_handlers@graph_handlers.py', 'server_impl': 'id29680:server_impl@server_impl.py', 'wavefoundry_server.graph_handlers': 'id30720:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id29920:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   modules_before: {'graph_handlers': None, 'server_impl': 'id29680:server_impl@server_impl.py', 'wavefoundry_server.graph_handlers': 'id30720:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id29920:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   parent_attr_is_sys_modules_entry: True
+   parent_attr_version: v1
+   python: 3.13.5
+   reload_call: ERROR AttributeError: module 'server_impl' has no attribute '_script_cache'
+   runner_identity_survives(read_identity): captured-from-disk
+   runner_ref_is_package_module: False
+   runner_ref_is_sys_modules_server_impl: True
+   runner_version_survives: runner-v
+   second_reload_ok: ERROR AttributeError: module 'server_impl' has no attribute '_script_cache'
+   served_after_reload: {'handler_version': 'v1', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v1', 'shared': 'real-shared-helper'}
+   shared_substrate_version: v1
+
+=== strategy=b scenario=reload purge=flat_only root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   flat_gh_is_package_gh: False
+   impl_bound_graph_response_version: v1
+   impl_version_after_reload: v1
+   import_graph_handlers_version: v1
+   live_graph_handler_module_objects: ['graph_handlers@graph_handlers.py#v=v1', 'wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1']
+   modules_after: {'graph_handlers': 'id22496:graph_handlers@graph_handlers.py', 'server_impl': 'id68592:server_impl@server_impl.py', 'wavefoundry_server.graph_handlers': 'id69632:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id68832:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   modules_before: {'graph_handlers': None, 'server_impl': 'id68592:server_impl@server_impl.py', 'wavefoundry_server.graph_handlers': 'id69632:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id68832:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   parent_attr_is_sys_modules_entry: True
+   parent_attr_version: v1
+   python: 3.13.5
+   reload_call: ERROR AttributeError: module 'server_impl' has no attribute '_script_cache'
+   runner_identity_survives(read_identity): captured-from-disk
+   runner_ref_is_package_module: False
+   runner_ref_is_sys_modules_server_impl: True
+   runner_version_survives: runner-v
+   second_reload_ok: ERROR AttributeError: module 'server_impl' has no attribute '_script_cache'
+   served_after_reload: {'handler_version': 'v1', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v1', 'shared': 'real-shared-helper'}
+   shared_substrate_version: v1
+
+=== strategy=b scenario=old_runner purge=both root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   flat_gh_is_package_gh: False
+   live_graph_handler_module_objects: ['wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v2']
+   modules_after: {'graph_handlers': None, 'server_impl': 'id64704:server_impl@server_impl.py', 'wavefoundry_server.graph_handlers': 'id26800:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id26240:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   python: 3.13.5
+   reload_returned_name: server_impl
+   runner_identity_after(read_identity): captured-from-disk
+   runner_ref_is_old_object: True
+   runner_ref_is_package_module: False
+   second_reload: v2
+   served_after_upgrade_reload: {'handler_version': 'v2', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v2', 'shared': 'real-shared-helper'}
+   served_before_upgrade: {'handler_version': 'v0', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v0', 'shared': 'real-shared-helper'}
+
+=== strategy=b scenario=spec_load purge=both root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   exec: ok
+   python: 3.13.5
+   returned_object_has_respond: True
+   returned_object_is_package_module: False
+   sys_modules_private_key_is_package_module: False
+
+=== strategy=b scenario=consumer purge=both root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   graph_response: {'handler_version': 'v1', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v1', 'shared': 'real-shared-helper'}
+   import_graph_handlers: graph_handlers.py
+   package_initializer_imported_nothing_heavy: ['wavefoundry_server', 'wavefoundry_server.graph_handlers', 'wavefoundry_server.server_impl']
+   python: 3.13.5
+   server_impl_is_package: False
+
+=== strategy=b2 scenario=static purge=both root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   _load_script(retained_tool).__file__: retained_tool.py
+   flat_graph_handlers_is_package_module: False
+   flat_sees_package_global_rebind: rebound-in-package
+   flat_server_impl.__file__: server_impl.py
+   flat_server_impl.__name__: server_impl
+   flat_server_impl.__spec__.name: server_impl
+   flat_server_impl_is_package_module: False
+   inspect_getsourcefile(flat.respond): wavefoundry_server/server_impl.py
+   live_graph_handler_module_objects: ['graph_handlers@graph_handlers.py#v=v1', 'wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1']
+   modules: {'graph_handlers': 'id37600:graph_handlers@graph_handlers.py', 'server_impl': 'id36240:server_impl@server_impl.py', 'wavefoundry_server.graph_handlers': 'id37280:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id37040:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   mutable_global_shared: True
+   package_dir_on_sys_path: False
+   package_sees_runner_attribute_write(read_identity): captured-from-disk
+   patch_object_on_flat_handler_affects_package_call: real-graph-helper
+   patch_object_on_flat_server_impl_affects_handler: PATCHED
+   private_names_via_flat: {'_CACHE': True, '_SETUP_LOADED_IDENTITY': True, '_load_script': True, '_runner_version': True, '_script_cache': True}
+   python: 3.13.5
+   respond.__module__: wavefoundry_server.server_impl
+   respond_via_runner: {'handler_version': 'v1', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v1', 'shared': 'real-shared-helper'}
+   runner_ref_is_package_module: False
+
+=== strategy=b2 scenario=reload purge=both root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   flat_gh_is_package_gh: False
+   impl_bound_graph_response_version: v1
+   impl_version_after_reload: v1
+   import_graph_handlers_version: v1
+   live_graph_handler_module_objects: ['graph_handlers@graph_handlers.py#v=v1', 'wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1']
+   modules_after: {'graph_handlers': 'id42640:graph_handlers@graph_handlers.py', 'server_impl': 'id88736:server_impl@server_impl.py', 'wavefoundry_server.graph_handlers': 'id89776:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id89536:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   modules_before: {'graph_handlers': None, 'server_impl': 'id88736:server_impl@server_impl.py', 'wavefoundry_server.graph_handlers': 'id89776:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id89536:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   parent_attr_is_sys_modules_entry: True
+   parent_attr_version: v1
+   python: 3.13.5
+   reload_call: server_impl
+   runner_identity_survives(read_identity): captured-from-disk
+   runner_ref_is_package_module: False
+   runner_ref_is_sys_modules_server_impl: True
+   runner_version_survives: runner-v
+   second_reload_ok: ['v1', 'v1']
+   served_after_reload: {'handler_version': 'v1', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v1', 'shared': 'real-shared-helper'}
+   shared_substrate_version: v1
+
+=== strategy=b2 scenario=reload purge=flat_only root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   flat_gh_is_package_gh: False
+   impl_bound_graph_response_version: v1
+   impl_version_after_reload: v1
+   import_graph_handlers_version: v1
+   live_graph_handler_module_objects: ['graph_handlers@graph_handlers.py#v=v1', 'wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1']
+   modules_after: {'graph_handlers': 'id53536:graph_handlers@graph_handlers.py', 'server_impl': 'id99632:server_impl@server_impl.py', 'wavefoundry_server.graph_handlers': 'id672:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id432:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   modules_before: {'graph_handlers': None, 'server_impl': 'id99632:server_impl@server_impl.py', 'wavefoundry_server.graph_handlers': 'id672:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id432:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   parent_attr_is_sys_modules_entry: True
+   parent_attr_version: v1
+   python: 3.13.5
+   reload_call: server_impl
+   runner_identity_survives(read_identity): captured-from-disk
+   runner_ref_is_package_module: False
+   runner_ref_is_sys_modules_server_impl: True
+   runner_version_survives: runner-v
+   second_reload_ok: ['v1', 'v1']
+   served_after_reload: {'handler_version': 'v1', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v1', 'shared': 'real-shared-helper'}
+   shared_substrate_version: v1
+
+=== strategy=b2 scenario=old_runner purge=both root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   flat_gh_is_package_gh: False
+   live_graph_handler_module_objects: ['wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v2']
+   modules_after: {'graph_handlers': None, 'server_impl': 'id21328:server_impl@server_impl.py', 'wavefoundry_server.graph_handlers': 'id80112:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id79392:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   python: 3.13.5
+   reload_returned_name: server_impl
+   runner_identity_after(read_identity): captured-from-disk
+   runner_ref_is_old_object: True
+   runner_ref_is_package_module: False
+   second_reload: v2
+   served_after_upgrade_reload: {'handler_version': 'v2', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v2', 'shared': 'real-shared-helper'}
+   served_before_upgrade: {'handler_version': 'v0', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v0', 'shared': 'real-shared-helper'}
+
+=== strategy=b2 scenario=spec_load purge=both root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   exec: ok
+   python: 3.13.5
+   returned_object_has_respond: True
+   returned_object_is_package_module: False
+   sys_modules_private_key_is_package_module: False
+
+=== strategy=b2 scenario=consumer purge=both root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   graph_response: {'handler_version': 'v1', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v1', 'shared': 'real-shared-helper'}
+   import_graph_handlers: graph_handlers.py
+   package_initializer_imported_nothing_heavy: ['wavefoundry_server', 'wavefoundry_server.graph_handlers', 'wavefoundry_server.server_impl']
+   python: 3.13.5
+   server_impl_is_package: False
+
+=== strategy=c scenario=static purge=both root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   _load_script(retained_tool).__file__: retained_tool.py
+   flat_graph_handlers_is_package_module: True
+   flat_sees_package_global_rebind: rebound-in-package
+   flat_server_impl.__file__: wavefoundry_server/server_impl.py
+   flat_server_impl.__name__: wavefoundry_server.server_impl
+   flat_server_impl.__spec__.name: server_impl
+   flat_server_impl_is_package_module: True
+   inspect_getsourcefile(flat.respond): wavefoundry_server/server_impl.py
+   live_graph_handler_module_objects: ['wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1']
+   modules: {'graph_handlers': 'id32592:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'server_impl': 'id32032:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py', 'wavefoundry_server.graph_handlers': 'id32592:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id32032:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   mutable_global_shared: True
+   package_dir_on_sys_path: False
+   package_sees_runner_attribute_write(read_identity): runner-captured
+   patch_object_on_flat_handler_affects_package_call: PATCHED
+   patch_object_on_flat_server_impl_affects_handler: PATCHED
+   private_names_via_flat: {'_CACHE': True, '_SETUP_LOADED_IDENTITY': True, '_load_script': True, '_runner_version': True, '_script_cache': True}
+   python: 3.13.5
+   respond.__module__: wavefoundry_server.server_impl
+   respond_via_runner: {'handler_version': 'v1', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v1', 'shared': 'real-shared-helper'}
+   runner_ref_is_package_module: True
+
+=== strategy=c scenario=reload purge=both root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   flat_gh_is_package_gh: False
+   impl_bound_graph_response_version: v1
+   impl_version_after_reload: v1
+   import_graph_handlers_version: v1
+   live_graph_handler_module_objects: ['wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1']
+   modules_after: {'graph_handlers': 'id35008:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'server_impl': 'id34448:server_impl@wavefoundry_server/server_impl.py', 'wavefoundry_server.graph_handlers': 'id35008:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id34448:server_impl@wavefoundry_server/server_impl.py'}
+   modules_before: {'graph_handlers': None, 'server_impl': 'id34448:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py', 'wavefoundry_server.graph_handlers': 'id35008:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id34448:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   parent_attr_is_sys_modules_entry: True
+   parent_attr_version: v1
+   python: 3.13.5
+   reload_call: server_impl
+   runner_identity_survives(read_identity): runner-captured
+   runner_ref_is_package_module: True
+   runner_ref_is_sys_modules_server_impl: True
+   runner_version_survives: runner-v
+   second_reload_ok: ['v1', 'v1']
+   served_after_reload: {'handler_version': 'v1', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v1', 'shared': 'real-shared-helper'}
+   shared_substrate_version: v1
+
+=== strategy=c scenario=reload purge=flat_only root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   flat_gh_is_package_gh: False
+   impl_bound_graph_response_version: v1
+   impl_version_after_reload: v1
+   import_graph_handlers_version: v1
+   live_graph_handler_module_objects: ['wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1']
+   modules_after: {'graph_handlers': 'id87104:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'server_impl': 'id86544:server_impl@wavefoundry_server/server_impl.py', 'wavefoundry_server.graph_handlers': 'id87104:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id86544:server_impl@wavefoundry_server/server_impl.py'}
+   modules_before: {'graph_handlers': None, 'server_impl': 'id86544:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py', 'wavefoundry_server.graph_handlers': 'id87104:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id86544:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   parent_attr_is_sys_modules_entry: True
+   parent_attr_version: v1
+   python: 3.13.5
+   reload_call: server_impl
+   runner_identity_survives(read_identity): runner-captured
+   runner_ref_is_package_module: True
+   runner_ref_is_sys_modules_server_impl: True
+   runner_version_survives: runner-v
+   second_reload_ok: ['v1', 'v1']
+   served_after_reload: {'handler_version': 'v1', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v1', 'shared': 'real-shared-helper'}
+   shared_substrate_version: v1
+
+=== strategy=c scenario=old_runner purge=both root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   flat_gh_is_package_gh: False
+   live_graph_handler_module_objects: ['graph_handlers@graph_handlers.py#v=v0']
+   modules_after: {'graph_handlers': 'id15792:graph_handlers@graph_handlers.py', 'server_impl': 'id15552:server_impl@server_impl.py', 'wavefoundry_server.graph_handlers': None, 'wavefoundry_server.server_impl': None}
+   python: 3.13.5
+   reload_returned_name: ERROR ModuleNotFoundError: spec not found for the module 'server_impl'
+   runner_identity_after(read_identity): runner-captured
+   runner_ref_is_old_object: True
+   runner_ref_is_package_module: False
+   second_reload: ERROR ModuleNotFoundError: spec not found for the module 'server_impl'
+   served_after_upgrade_reload: {'handler_version': 'v0', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v0', 'shared': 'real-shared-helper'}
+   served_before_upgrade: {'handler_version': 'v0', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v0', 'shared': 'real-shared-helper'}
+
+=== strategy=c scenario=spec_load purge=both root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   exec: ERROR FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf1yzd0-g5lj5gsv/tree with space/scripts/server_impl.py'
+   python: 3.13.5
+   returned_object_has_respond: False
+   returned_object_is_package_module: False
+   sys_modules_private_key_is_package_module: False
+
+=== strategy=c scenario=consumer purge=both root=root internal_import=wavefoundry_server.graph_handlers rc=0
+   graph_response: ERROR ModuleNotFoundError: No module named 'graph_handlers'
+   import_graph_handlers: ERROR ModuleNotFoundError: No module named 'graph_handlers'
+   package_initializer_imported_nothing_heavy: []
+   python: 3.13.5
+   server_impl_is_package: ERROR ModuleNotFoundError: No module named 'server_impl'
+
+=== strategy=a scenario=reload purge=flat_only root=root internal_import=graph_handlers rc=0
+   flat_gh_is_package_gh: True
+   impl_bound_graph_response_version: v1
+   impl_version_after_reload: v2
+   import_graph_handlers_version: v1
+   live_graph_handler_module_objects: ['wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1']
+   modules_after: {'graph_handlers': 'id86256:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'server_impl': 'id85296:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py', 'wavefoundry_server.graph_handlers': 'id86256:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id85296:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   modules_before: {'graph_handlers': 'id86256:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'server_impl': 'id85296:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py', 'wavefoundry_server.graph_handlers': 'id86256:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id85296:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   parent_attr_is_sys_modules_entry: True
+   parent_attr_version: v1
+   python: 3.13.5
+   reload_call: wavefoundry_server.server_impl
+   runner_identity_survives(read_identity): runner-captured
+   runner_ref_is_package_module: True
+   runner_ref_is_sys_modules_server_impl: True
+   runner_version_survives: runner-v
+   second_reload_ok: ['v1', 'v3']
+   served_after_reload: {'handler_version': 'v1', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v2', 'shared': 'real-shared-helper'}
+   shared_substrate_version: v2
+
+=== strategy=a scenario=reload purge=both root=root internal_import=graph_handlers rc=0
+   flat_gh_is_package_gh: True
+   impl_bound_graph_response_version: v2
+   impl_version_after_reload: v2
+   import_graph_handlers_version: v2
+   live_graph_handler_module_objects: ['wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v2']
+   modules_after: {'graph_handlers': 'id47280:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'server_impl': 'id88816:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py', 'wavefoundry_server.graph_handlers': 'id47280:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id88816:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   modules_before: {'graph_handlers': 'id89776:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'server_impl': 'id88816:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py', 'wavefoundry_server.graph_handlers': 'id89776:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id88816:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   parent_attr_is_sys_modules_entry: True
+   parent_attr_version: v2
+   python: 3.13.5
+   reload_call: wavefoundry_server.server_impl
+   runner_identity_survives(read_identity): runner-captured
+   runner_ref_is_package_module: True
+   runner_ref_is_sys_modules_server_impl: True
+   runner_version_survives: runner-v
+   second_reload_ok: ['v3', 'v3']
+   served_after_reload: {'handler_version': 'v2', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v2', 'shared': 'real-shared-helper'}
+   shared_substrate_version: v2
+
+=== strategy=a scenario=naive_root purge=both root=naive internal_import=graph_handlers rc=0
+   _load_script(retained_tool).__file__: ERROR FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf1yzd0-g7hvjgrg/tree with space/scripts/wavefoundry_server/retained_tool.py'
+   flat_graph_handlers_is_package_module: False
+   flat_sees_package_global_rebind: rebound-in-package
+   flat_server_impl.__file__: wavefoundry_server/server_impl.py
+   flat_server_impl.__name__: wavefoundry_server.server_impl
+   flat_server_impl.__spec__.name: wavefoundry_server.server_impl
+   flat_server_impl_is_package_module: True
+   inspect_getsourcefile(flat.respond): wavefoundry_server/server_impl.py
+   live_graph_handler_module_objects: ['graph_handlers@wavefoundry_server/graph_handlers.py#v=v1']
+   modules: {'graph_handlers': 'id2464:graph_handlers@wavefoundry_server/graph_handlers.py', 'server_impl': 'id1664:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py', 'wavefoundry_server.graph_handlers': None, 'wavefoundry_server.server_impl': 'id1664:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   mutable_global_shared: True
+   package_dir_on_sys_path: True
+   package_sees_runner_attribute_write(read_identity): runner-captured
+   patch_object_on_flat_handler_affects_package_call: PATCHED
+   patch_object_on_flat_server_impl_affects_handler: PATCHED
+   private_names_via_flat: {'_CACHE': True, '_SETUP_LOADED_IDENTITY': True, '_load_script': True, '_runner_version': True, '_script_cache': True}
+   python: 3.13.5
+   respond.__module__: wavefoundry_server.server_impl
+   respond_via_runner: {'handler_version': 'v1', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v1', 'shared': 'real-shared-helper'}
+   runner_ref_is_package_module: True
+
+=== strategy=a scenario=naive_root purge=both root=naive internal_import=wavefoundry_server.graph_handlers rc=0
+   _load_script(retained_tool).__file__: ERROR FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf1yzd0-jdp2qipr/tree with space/scripts/wavefoundry_server/retained_tool.py'
+   flat_graph_handlers_is_package_module: False
+   flat_sees_package_global_rebind: rebound-in-package
+   flat_server_impl.__file__: wavefoundry_server/server_impl.py
+   flat_server_impl.__name__: wavefoundry_server.server_impl
+   flat_server_impl.__spec__.name: wavefoundry_server.server_impl
+   flat_server_impl_is_package_module: True
+   inspect_getsourcefile(flat.respond): wavefoundry_server/server_impl.py
+   live_graph_handler_module_objects: ['graph_handlers@wavefoundry_server/graph_handlers.py#v=v1', 'wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py#v=v1']
+   modules: {'graph_handlers': 'id19296:graph_handlers@wavefoundry_server/graph_handlers.py', 'server_impl': 'id18896:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py', 'wavefoundry_server.graph_handlers': 'id19776:wavefoundry_server.graph_handlers@wavefoundry_server/graph_handlers.py', 'wavefoundry_server.server_impl': 'id18896:wavefoundry_server.server_impl@wavefoundry_server/server_impl.py'}
+   mutable_global_shared: True
+   package_dir_on_sys_path: True
+   package_sees_runner_attribute_write(read_identity): runner-captured
+   patch_object_on_flat_handler_affects_package_call: real-graph-helper
+   patch_object_on_flat_server_impl_affects_handler: PATCHED
+   private_names_via_flat: {'_CACHE': True, '_SETUP_LOADED_IDENTITY': True, '_load_script': True, '_runner_version': True, '_script_cache': True}
+   python: 3.13.5
+   respond.__module__: wavefoundry_server.server_impl
+   respond_via_runner: {'handler_version': 'v1', 'helper': 'real-graph-helper', 'impl_version_seen_by_handler': 'v1', 'shared': 'real-shared-helper'}
+   runner_ref_is_package_module: True

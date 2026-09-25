@@ -1,0 +1,114 @@
+Counter({'retained shared substrate': 59, 'executable/CLI entry point': 39, 'moved': 12, 'downstream declaration': 3})
+retained shared substrate    _tag_utils                         main=0 importers=chunker,server_impl kinds=call,import,path
+retained shared substrate    accel_embedder                     main=0 importers=indexer,retrieval_eval,server_impl,setup_index kinds=import,path
+retained shared substrate    agent_surface_integrity            main=0 importers=server_impl,upgrade_wavefoundry kinds=call,import,str
+executable/CLI entry point   ann_reference_eval                 main=1 importers= kinds=
+executable/CLI entry point   build_pack                         main=1 importers=build_scan_allowlist,lifecycle_gates,prune_framework,reconcile_scan,render_agent_surfaces,review_policy kinds=import,path
+executable/CLI entry point   build_scan_allowlist               main=1 importers=build_pack kinds=path
+executable/CLI entry point   check_version                      main=1 importers=upgrade_wavefoundry kinds=import
+retained shared substrate    chunker                            main=0 importers=_tag_utils,eval_chunker,graph_indexer,index_compatibility,indexer,memory_supply,retrieval_eval,server_impl,setup_readiness,upgrade_extensions,upgrade_wavefoundry,wave_lint_lib kinds=call,import,path,str
+retained shared substrate    cli_stdio                          main=0 importers=check_version,dashboard_server,docs_gardener,docs_lint,gen_codebase_map,gpu_doctor,graph_query,indexer,prune_framework,render_platform_surfaces,run_secrets_scan,server_impl,setup_index,setup_wavefoundry,techdocs_audit,techdocs_baseline,upgrade_wavefoundry,wf_cli kinds=import
+moved                        codenav_handlers                   main=0 importers=retrieval_eval,server_impl kinds=import,path,str
+retained shared substrate    commit_provenance                  main=0 importers=codenav_handlers kinds=call [BORDERLINE: server-only importers]
+retained shared substrate    context_efficiency                 main=0 importers=context_efficiency_handlers,exploration_avoided,memory_supply,publication_control,render_agent_surfaces,server_impl,wave_lint_lib kinds=call,import,path,str
+moved                        context_efficiency_handlers        main=0 importers=project_context_efficiency,server_impl kinds=import,str
+moved                        dashboard_handlers                 main=0 importers=server_impl,upgrade_extensions,upgrade_wavefoundry kinds=import,str
+retained shared substrate    dashboard_lib                      main=0 importers=dashboard_handlers,dashboard_server,run_tests,server_impl,upgrade_wavefoundry kinds=import,path
+executable/CLI entry point   dashboard_server                   main=1 importers=dashboard_handlers,dashboard_lib,indexer,sqlite_storage_migration,wf_cli kinds=path,str
+retained shared substrate    design_token_build                 main=0 importers= kinds=
+executable/CLI entry point   docs_gardener                      main=1 importers=build_pack,docs_handlers,upgrade_wavefoundry,wf_cli kinds=path,str
+moved                        docs_handlers                      main=0 importers=server_impl kinds=import,str
+executable/CLI entry point   docs_lint                          main=1 importers=build_pack,dashboard_lib,indexer,render_platform_surfaces,server_impl,upgrade_extensions,upgrade_wavefoundry,wave_lint_lib,wf_cli kinds=call,path,str
+moved                        edit_gate_handlers                 main=0 importers=server_impl kinds=import,str
+executable/CLI entry point   eval_chunker                       main=1 importers= kinds=
+retained shared substrate    exploration_avoided                main=0 importers=context_efficiency_handlers,memory_handlers,server_impl kinds=call [BORDERLINE: server-only importers]
+retained shared substrate    gardener_metadata                  main=0 importers=index_state_store,lifecycle_gate_support,review_policy,server_impl kinds=import,str
+executable/CLI entry point   gen_codebase_map                   main=1 importers=index_handlers,server_impl,upgrade_wavefoundry,wf_cli kinds=call,path,str
+executable/CLI entry point   gpu_doctor                         main=1 importers=techdocs_audit,techdocs_baseline,wf_cli kinds=path,str
+executable/CLI entry point   graph_call_census                  main=1 importers= kinds=
+retained shared substrate    graph_cluster                      main=0 importers=graph_handlers,graph_quality_eval,graph_snapshot,indexer,retrieval_eval,server_impl kinds=call,import,path,str
+retained shared substrate    graph_di_signals                   main=0 importers=graph_indexer kinds=call,path
+moved                        graph_handlers                     main=0 importers=server_impl kinds=import,str
+retained shared substrate    graph_indexer                      main=0 importers=graph_cluster,graph_handlers,graph_quality_eval,graph_query,graph_snapshot,index_compatibility,indexer,retrieval_eval,server_impl,setup_readiness,sqlite_storage_migration,upgrade_extensions,upgrade_wavefoundry,wave_lint_lib kinds=call,import,path,str
+executable/CLI entry point   graph_quality_eval                 main=1 importers= kinds=
+retained shared substrate    graph_query                        main=0 importers=dashboard_server,graph_quality_eval,retrieval_eval,server_impl kinds=call,path
+retained shared substrate    graph_snapshot                     main=0 importers=dashboard_lib,dashboard_server,gen_codebase_map,graph_cluster,graph_query,server_impl kinds=call,import
+retained shared substrate    graph_store                        main=0 importers=graph_indexer,index_compatibility,index_state_store,setup_readiness,sqlite_storage_migration kinds=import,path,str
+retained shared substrate    index_compatibility                main=0 importers=chunker,graph_indexer,graph_query,graph_snapshot,graph_store,index_handlers,index_state_store,indexer,model_bundle,setup_readiness,sqlite_vector_store,upgrade_extensions kinds=import,path
+moved                        index_handlers                     main=0 importers=retrieval_eval,server_impl kinds=import,path,str
+retained shared substrate    index_paths                        main=0 importers=graph_snapshot,index_state_store,setup_readiness,sqlite_storage_migration,sqlite_vector_store kinds=call,import,path
+retained shared substrate    index_source_guard                 main=0 importers=context_efficiency_handlers,indexer,server_impl kinds=import,str
+retained shared substrate    index_state_store                  main=0 importers=codenav_handlers,commit_provenance,dashboard_lib,dashboard_server,docs_handlers,graph_indexer,graph_snapshot,index_compatibility,index_handlers,indexer,lexical_ranking_eval,memory_backfill,memory_eval,memory_handlers,memory_records,repair_ppol_memory_staging,retrieval_eval,scan_secrets,server_impl,setup_readiness,sqlite_storage_migration,sqlite_vector_store,techdocs_audit_lib,upgrade_extensions,upgrade_wavefoundry,wave_lint_lib kinds=call,import,path,str
+executable/CLI entry point   indexer                            main=1 importers=accel_embedder,build_pack,dashboard_server,eval_chunker,graph_indexer,graph_quality_eval,graph_query,index_compatibility,index_handlers,render_platform_surfaces,retrieval_eval,run_tests,scan_secrets,server_impl,setup_index,setup_readiness,sqlite_storage_migration,upgrade_extensions,upgrade_wavefoundry,wave_lint_lib kinds=call,import,path,str
+retained shared substrate    install_log_lib                    main=0 importers=server_impl,upgrade_handlers kinds=import [BORDERLINE: server-only importers]
+executable/CLI entry point   lexical_ranking_eval               main=1 importers= kinds=
+retained shared substrate    lifecycle_gate_support             main=0 importers=context_efficiency_handlers,dashboard_handlers,docs_handlers,edit_gate_handlers,index_handlers,lifecycle_gates,memory_handlers,server_impl,techdocs_handlers,upgrade_handlers kinds=import,str
+retained shared substrate    lifecycle_gates                    main=0 importers=server_impl kinds=import,str [BORDERLINE: server-only importers]
+executable/CLI entry point   lifecycle_id                       main=1 importers=build_pack,memory_records,server_impl,upgrade_extensions,upgrade_wavefoundry,wave_lint_lib,wf_cli kinds=call,import,path,str
+retained shared substrate    lifecycle_lock                     main=0 importers=server_impl,setup_reconciliation,upgrade_protocol,upgrade_wavefoundry kinds=import,path,str
+retained shared substrate    machine_authority                  main=0 importers=indexer,wave_lint_lib kinds=import
+retained shared substrate    marker_namespaces                  main=0 importers=chunker,codenav_handlers,index_compatibility,render_agent_surfaces,server_impl kinds=import,str
+downstream declaration       mcp_tool_extensions                main=0 importers=mcp_tool_roster,server_impl kinds=import,str
+moved                        mcp_tool_registry                  main=0 importers=mcp_tool_extensions,server_impl kinds=import,str
+downstream declaration       mcp_tool_roster                    main=0 importers=mcp_tool_extensions,render_platform_surfaces,server_impl,upgrade_wavefoundry kinds=call,import,str
+executable/CLI entry point   memory_backfill                    main=1 importers=index_state_store,mcp_tool_roster,memory_handlers,publication_control,render_platform_surfaces,server_impl,setup_wavefoundry,upgrade_extensions,upgrade_handlers,upgrade_wavefoundry kinds=call,import,str
+executable/CLI entry point   memory_cli                         main=1 importers=wf_cli kinds=path,str
+executable/CLI entry point   memory_eval                        main=1 importers=memory_handlers kinds=call [BORDERLINE: server-only importers]
+moved                        memory_handlers                    main=0 importers=memory_cli,server_impl kinds=import,str
+retained shared substrate    memory_records                     main=0 importers=memory_backfill,memory_handlers,setup_wavefoundry,upgrade_extensions,upgrade_wavefoundry kinds=call,import
+retained shared substrate    memory_supply                      main=0 importers=memory_handlers,server_impl kinds=call [BORDERLINE: server-only importers]
+retained shared substrate    model_bundle                       main=0 importers=accel_embedder,build_pack,index_compatibility,indexer,setup_index,setup_readiness,upgrade_wavefoundry kinds=import,path,str
+retained shared substrate    operator_identity                  main=0 importers=server_impl kinds=import,str [BORDERLINE: server-only importers]
+retained shared substrate    path_containment                   main=0 importers=context_efficiency,memory_backfill,memory_records,memory_supply,render_agent_surfaces,retrieval_eval,review_policy,server_impl kinds=import,path,str
+executable/CLI entry point   project_context_efficiency         main=1 importers=render_platform_surfaces kinds=path
+retained shared substrate    provider_policy                    main=0 importers=accel_embedder,gpu_doctor,indexer,server_impl,setup_index,setup_readiness,setup_wavefoundry kinds=import,path
+executable/CLI entry point   prune_framework                    main=1 importers=upgrade_extensions,upgrade_wavefoundry kinds=path
+retained shared substrate    public_contract                    main=0 importers=index_handlers,indexer,lifecycle_gates,review_evidence,server_impl,wave_lint_lib kinds=import,str
+retained shared substrate    publication_control                main=0 importers=index_handlers,index_state_store,server_impl,upgrade_protocol kinds=dotted,import,path,str
+retained shared substrate    reconcile_scan                     main=0 importers=upgrade_wavefoundry kinds=import
+downstream declaration       record_paths                       main=0 importers=_tag_utils,commit_provenance,context_efficiency,context_efficiency_handlers,dashboard_lib,dashboard_server,docs_gardener,graph_indexer,index_state_store,lifecycle_gate_support,lifecycle_id,memory_backfill,memory_records,memory_supply,reconcile_scan,render_agent_surfaces,retrieval_eval,review_policy,review_policy_reconcile,review_policy_upgrade,server_impl,upgrade_extensions,upgrade_wavefoundry,wave_lint_lib kinds=call,dotted,import,path,str
+executable/CLI entry point   render_agent_surfaces              main=1 importers=render_platform_surfaces,setup_readiness,techdocs_audit_lib,techdocs_baseline,techdocs_handlers,upgrade_wavefoundry,wave_lint_lib kinds=import,path
+executable/CLI entry point   render_platform_surfaces           main=1 importers=codenav_handlers,docs_handlers,reconcile_scan,render_agent_surfaces,server_impl,setup_readiness,setup_wavefoundry,techdocs_audit,techdocs_baseline,upgrade_extensions,upgrade_wavefoundry,wf_cli kinds=call,import,path,str
+executable/CLI entry point   repair_ppol_memory_staging         main=1 importers=build_pack kinds=path
+retained shared substrate    repo_root                          main=0 importers=dashboard_lib,memory_backfill,memory_cli,server,server_impl,setup_readiness,techdocs_audit_lib kinds=import,path,str
+executable/CLI entry point   retrieval_eval                     main=1 importers= kinds=
+retained shared substrate    review_evidence                    main=0 importers=context_efficiency_handlers,dashboard_lib,docs_handlers,index_state_store,lifecycle_gate_support,lifecycle_gates,lifecycle_lock,machine_authority,memory_handlers,memory_supply,review_policy_upgrade,server_impl,setup_reconciliation,upgrade_extensions,upgrade_wavefoundry,wave_lint_lib kinds=call,import,path,str
+retained shared substrate    review_policy                      main=0 importers=agent_surface_integrity,lifecycle_gate_support,lifecycle_gates,render_agent_surfaces,review_evidence,review_policy_reconcile,review_policy_upgrade,server_impl,upgrade_extensions,upgrade_protocol,wave_lint_lib kinds=call,import,path,str
+retained shared substrate    review_policy_reconcile            main=0 importers=render_agent_surfaces,review_policy_upgrade,upgrade_protocol kinds=import,path
+retained shared substrate    review_policy_upgrade              main=0 importers=upgrade_protocol,upgrade_wavefoundry kinds=import,path
+executable/CLI entry point   run_secrets_scan                   main=1 importers=docs_handlers,wf_cli kinds=path,str
+executable/CLI entry point   run_tests                          main=1 importers=build_pack,dashboard_lib,graph_indexer,indexer,lifecycle_gate_support,lifecycle_gates,memory_supply,prune_framework,render_agent_surfaces,retrieval_eval kinds=path
+retained shared substrate    runtime_advisory                   main=0 importers=server,setup_readiness,wf_cli kinds=import,path
+retained shared substrate    runtime_lock                       main=0 importers=context_efficiency,dashboard_lib,gen_codebase_map,index_source_guard,indexer,lifecycle_lock,review_evidence,scanner_skips,upgrade_wavefoundry kinds=call,import
+retained shared substrate    scan_secrets                       main=0 importers=indexer,run_secrets_scan kinds=call,import,path,str
+retained shared substrate    scanner_skips                      main=0 importers=server_impl,wave_lint_lib kinds=import
+executable/CLI entry point   score_context_efficiency_pairs     main=1 importers=context_efficiency_handlers kinds=call [BORDERLINE: server-only importers]
+retained shared substrate    sensor_runner                      main=0 importers=lifecycle_gates,server_impl kinds=import,str
+executable/CLI entry point   server                             main=1 importers=_tag_utils,cli_stdio,dashboard_lib,graph_indexer,mcp_tool_extensions,mcp_tool_roster,render_agent_surfaces,render_platform_surfaces,server_impl,setup_index,setup_readiness,setup_wavefoundry,sqlite_storage_migration,upgrade_handlers,venv_bootstrap kinds=import,path,str
+moved                        server_impl                        main=1 importers=codenav_handlers,context_efficiency_handlers,dashboard_handlers,docs_handlers,edit_gate_handlers,graph_handlers,index_handlers,lifecycle_gate_support,mcp_tool_extensions,memory_eval,memory_handlers,render_platform_surfaces,retrieval_eval,server,setup_readiness,techdocs_handlers,upgrade_extensions,upgrade_handlers,upgrade_wavefoundry kinds=import,path,str
+executable/CLI entry point   setup_index                        main=1 importers=accel_embedder,gen_codebase_map,gpu_doctor,index_handlers,indexer,server_impl,setup_readiness,setup_reconciliation,setup_wavefoundry,upgrade_extensions,upgrade_wavefoundry,wf_cli kinds=import,path,str
+retained shared substrate    setup_readiness                    main=0 importers=server,server_impl,setup_wavefoundry,upgrade_wavefoundry kinds=import,str
+retained shared substrate    setup_reconciliation               main=0 importers=setup_readiness,setup_wavefoundry,sqlite_storage_migration kinds=import,path
+retained shared substrate    setup_requirements                 main=0 importers=setup_index,setup_readiness kinds=import,path
+executable/CLI entry point   setup_wavefoundry                  main=1 importers=server_impl,setup_readiness,sqlite_storage_migration,wf_cli kinds=path,str
+retained shared substrate    sqlite_runtime                     main=0 importers=index_compatibility,index_handlers,index_state_store,retrieval_eval,server_impl,setup_index,setup_readiness,sqlite_storage_migration,sqlite_vector_store kinds=import,path
+executable/CLI entry point   sqlite_storage_migration           main=1 importers=graph_snapshot,index_state_store,indexer,repair_ppol_memory_staging,setup_index,setup_reconciliation,upgrade_extensions,upgrade_handlers,upgrade_wavefoundry kinds=call,import,path
+retained shared substrate    sqlite_vector_store                main=0 importers=dashboard_lib,index_compatibility,index_handlers,index_state_store,indexer,retrieval_eval,server_impl,setup_readiness,sqlite_storage_migration kinds=call,import,path,str
+retained shared substrate    storage_identity                   main=0 importers=retrieval_eval,setup_readiness,setup_reconciliation,sqlite_storage_migration,upgrade_extensions kinds=call,import,path,str
+retained shared substrate    subprocess_util                    main=0 importers=accel_embedder,build_pack,dashboard_lib,dashboard_server,docs_gardener,graph_indexer,graph_quality_eval,index_state_store,indexer,provider_policy,render_platform_surfaces,retrieval_eval,run_secrets_scan,run_tests,scan_secrets,sensor_runner,server_impl,setup_index,setup_readiness,setup_reconciliation,setup_wavefoundry,sqlite_storage_migration,techdocs_audit_lib,upgrade_bundle,upgrade_lib,upgrade_protocol,upgrade_wavefoundry,wave_lint_lib,wf_cli kinds=import,path
+executable/CLI entry point   techdocs_audit                     main=1 importers=wf_cli kinds=path,str
+executable/CLI entry point   techdocs_audit_lib                 main=1 importers=techdocs_audit,techdocs_handlers kinds=import
+executable/CLI entry point   techdocs_baseline                  main=1 importers=publication_control,techdocs_audit,wf_cli kinds=path,str
+moved                        techdocs_handlers                  main=0 importers=server_impl kinds=import,str
+retained shared substrate    tree_sitter_cache                  main=0 importers=codenav_handlers,server_impl kinds=import [BORDERLINE: server-only importers]
+executable/CLI entry point   upgrade_bridge_bootstrap           main=1 importers=build_pack,upgrade_bundle kinds=import,path
+executable/CLI entry point   upgrade_bundle                     main=1 importers=build_pack kinds=path
+retained shared substrate    upgrade_extensions                 main=0 importers=sqlite_storage_migration,upgrade_handlers,upgrade_lib,upgrade_protocol,upgrade_wavefoundry kinds=call,import,path
+moved                        upgrade_handlers                   main=0 importers=server_impl kinds=import,str
+retained shared substrate    upgrade_lib                        main=0 importers=dashboard_server,setup_reconciliation,sqlite_storage_migration,upgrade_extensions,upgrade_handlers,upgrade_wavefoundry kinds=import
+retained shared substrate    upgrade_protocol                   main=0 importers=build_pack,upgrade_wavefoundry kinds=call,import
+executable/CLI entry point   upgrade_wavefoundry                main=1 importers=reconcile_scan,repair_ppol_memory_staging,review_policy,server_impl,setup_readiness,setup_wavefoundry,sqlite_storage_migration,upgrade_bridge_bootstrap,upgrade_bundle,upgrade_extensions,upgrade_handlers,upgrade_protocol,wf_cli kinds=import,path,str
+retained shared substrate    venv_bootstrap                     main=0 importers=build_pack,dashboard_server,docs_gardener,docs_lint,gpu_doctor,indexer,lifecycle_id,render_platform_surfaces,run_tests,server,server_impl,setup_index,setup_readiness,setup_reconciliation,setup_wavefoundry,sqlite_runtime,subprocess_util,techdocs_audit,techdocs_baseline,upgrade_wavefoundry,wave_gate,wf_cli kinds=import,path
+executable/CLI entry point   wave_gate                          main=1 importers=wf_cli kinds=path,str
+executable/CLI entry point   wf_cli                             main=1 importers=render_platform_surfaces,server_impl,setup_readiness,wave_gate kinds=path,str
+retained shared substrate    wave_lint_lib                      main=0 importers=build_pack,build_scan_allowlist,docs_handlers,docs_lint,indexer,machine_authority,memory_handlers,render_agent_surfaces,run_secrets_scan,scan_secrets,server,server_impl,techdocs_audit_lib kinds=call,import,str

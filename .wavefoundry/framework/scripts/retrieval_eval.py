@@ -154,6 +154,19 @@ PRODUCTION_VERSION_CONSTANTS = {
 }
 # Repository-relative home of the production retrieval modules (for the git binding).
 PRODUCTION_MODULE_PREFIX = ".wavefoundry/framework/scripts/"
+# Wave 1yzd0 (1yxql Requirement 8, E0): the modules that live in the
+# ``wf_server`` package once it exists. Production identity and golden
+# relevance keep their flat logical names; each resolves to the package file
+# when that file exists, else to the flat file, so one evaluator identity
+# measures both layouts. After the move the flat file is a three-line alias, so
+# a result on the flat path never matches a relevance row for a moved module.
+SERVER_PACKAGE_DIR = "wf_server"
+SERVER_PACKAGE_MODULES = frozenset({
+    "server_impl.py", "mcp_tool_registry.py", "codenav_handlers.py", "graph_handlers.py",
+    "techdocs_handlers.py", "memory_handlers.py", "index_handlers.py", "upgrade_handlers.py",
+    "edit_gate_handlers.py", "dashboard_handlers.py", "docs_handlers.py",
+    "context_efficiency_handlers.py",
+})
 # Runtime kill switches read on the public retrieval paths. Byte-identical
 # production modules behave differently under these, so a receipt records their
 # effective state, a comparison refuses a pair that differs, and any active
@@ -1195,8 +1208,13 @@ def _resolve_declaration(server: Any, root: Path, path: str, symbol: str, *,
     return spans[0]
 
 
-def resolve_symbol_anchors(corpus: Mapping[str, Any], server: Any, root: Path) -> dict[str, dict[str, Any]]:
-    """Resolve every symbol anchor in the corpus once, keyed ``path::symbol``."""
+def resolve_symbol_anchors(corpus: Mapping[str, Any], server: Any, root: Path,
+                           relevance_paths: Mapping[str, str] | None = None) -> dict[str, dict[str, Any]]:
+    """Resolve every symbol anchor in the corpus once, keyed ``path::symbol``.
+
+    The key keeps the corpus's logical path; the declaration is looked up in
+    the implementing file named by ``relevance_paths`` when it names one.
+    """
     resolved: dict[str, dict[str, Any]] = {}
     for fixture in corpus["fixtures"]:
         for target in fixture["relevance"]:
@@ -1206,7 +1224,8 @@ def resolve_symbol_anchors(corpus: Mapping[str, Any], server: Any, root: Path) -
             key = _declaration_key(target["path"], anchor["value"])
             if key in resolved:
                 continue
-            resolved[key] = _resolve_declaration(server, root, target["path"], anchor["value"],
+            path = (relevance_paths or {}).get(target["path"], target["path"])
+            resolved[key] = _resolve_declaration(server, root, path, anchor["value"],
                                                  fixture_id=fixture["id"])
     return resolved
 
@@ -1249,8 +1268,10 @@ def _section_match_evidence(result: Mapping[str, Any], expected: Any) -> dict[st
 
 
 def _anchor_match_evidence(result: Mapping[str, Any], expected: Mapping[str, Any],
-                           declarations: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any] | None:
-    if _normal_path(result.get("path")) != expected["path"]:
+                           declarations: Mapping[str, Mapping[str, Any]] | None = None,
+                           relevance_paths: Mapping[str, str] | None = None) -> dict[str, Any] | None:
+    # A remapped row matches only its implementing file, never the flat alias.
+    if _normal_path(result.get("path")) != (relevance_paths or {}).get(expected["path"], expected["path"]):
         return None
     anchor = expected["anchor"]
     anchor_type = anchor["type"]
@@ -1274,8 +1295,9 @@ def _anchor_match_evidence(result: Mapping[str, Any], expected: Mapping[str, Any
 
 
 def _anchor_matches(result: Mapping[str, Any], expected: Mapping[str, Any],
-                    declarations: Mapping[str, Mapping[str, Any]] | None = None) -> bool:
-    return _anchor_match_evidence(result, expected, declarations) is not None
+                    declarations: Mapping[str, Mapping[str, Any]] | None = None,
+                    relevance_paths: Mapping[str, str] | None = None) -> bool:
+    return _anchor_match_evidence(result, expected, declarations, relevance_paths) is not None
 
 
 def _nearest_rank_p95(values: Sequence[float]) -> float | None:
@@ -1320,7 +1342,8 @@ def _dcg(grades: Sequence[float]) -> float:
 
 
 def score_response(tool: str, fixture: Mapping[str, Any], response: Mapping[str, Any],
-                   declarations: Mapping[str, Mapping[str, Any]] | None = None) -> dict[str, Any]:
+                   declarations: Mapping[str, Mapping[str, Any]] | None = None,
+                   relevance_paths: Mapping[str, str] | None = None) -> dict[str, Any]:
     results = _result_items(tool, response)[:RECALL_K]
     expected = [
         target for target in fixture["relevance"]
@@ -1331,7 +1354,7 @@ def score_response(tool: str, fixture: Mapping[str, Any], response: Mapping[str,
     first_relevant: int | None = None
     for rank, result in enumerate(results, start=1):
         matches = [
-            (idx, _anchor_match_evidence(result, expected[idx], declarations))
+            (idx, _anchor_match_evidence(result, expected[idx], declarations, relevance_paths))
             for idx in unmatched
         ]
         matches = [(idx, evidence) for idx, evidence in matches if evidence is not None]
@@ -1460,12 +1483,58 @@ def _git_output(root: Path, *args: str, binary: bool = False) -> str | bytes | N
     return completed.stdout
 
 
-def _git_binding(root: Path | None, modules: Mapping[str, str]) -> dict[str, Any]:
+def _implementing_name(scripts_dir: Path, name: str) -> str:
+    """Scripts-relative path of the file that implements logical module ``name``.
+
+    Once the package exists, a moved module without its package file is
+    refused: the flat file is then only an alias, and measuring it would
+    credit and hash the alias instead of the implementation. The package is
+    recognised by its ``__init__.py``, not the directory, so an ignored
+    ``__pycache__`` left by checking out a pre-move commit is not a package.
+    """
+    if name not in SERVER_PACKAGE_MODULES or not (scripts_dir / SERVER_PACKAGE_DIR / "__init__.py").is_file():
+        return name
+    _require((scripts_dir / SERVER_PACKAGE_DIR / name).is_file(), "incomplete_server_package",
+             f"{SERVER_PACKAGE_DIR}/ exists but does not implement {name}")
+    return f"{SERVER_PACKAGE_DIR}/{name}"
+
+
+def _production_scripts_root(server_file: str) -> Path:
+    """The scripts root for a served ``server_impl`` in either layout."""
+    parent = Path(server_file).resolve().parent
+    return parent.parent if parent.name == SERVER_PACKAGE_DIR else parent
+
+
+def implementing_relevance_paths(root: Path, corpus: Mapping[str, Any]) -> dict[str, str]:
+    """Relevance paths whose implementation lives elsewhere, logical -> implementing.
+
+    Only moved modules directly under the scripts root are remapped, and only
+    when the package file exists; every other path resolves to itself and is
+    omitted. The corpus, and so its digest, is never rewritten.
+    """
+    scripts_dir = root / PRODUCTION_MODULE_PREFIX
+    resolved: dict[str, str] = {}
+    for fixture in corpus["fixtures"]:
+        for target in fixture["relevance"]:
+            path = target["path"]
+            if not path.startswith(PRODUCTION_MODULE_PREFIX):
+                continue
+            name = path[len(PRODUCTION_MODULE_PREFIX):]
+            implementing = _implementing_name(scripts_dir, name)
+            if implementing != name:
+                resolved[path] = PRODUCTION_MODULE_PREFIX + implementing
+    return resolved
+
+
+def _git_binding(root: Path | None, modules: Mapping[str, str],
+                 paths: Mapping[str, str] | None = None) -> dict[str, Any]:
     """Disclose how the served modules relate to the repository's HEAD.
 
     Informational only (the comparison key is the module digest): a receipt
     produced from a scratch copy of HEAD's ``server_impl.py`` says so here,
     instead of being discoverable only by recomputing hashes against git.
+    ``paths`` maps a logical module name to the scripts-relative file that was
+    hashed for it; a name it omits was hashed at its flat path.
     """
     binding: dict[str, Any] = {"head": None, "matches_head": {}, "worktree_dirty": None}
     if root is None:
@@ -1475,9 +1544,10 @@ def _git_binding(root: Path | None, modules: Mapping[str, str]) -> dict[str, Any
         return binding
     binding["head"] = head.strip()
     for name, served_sha in modules.items():
+        relpath = (paths or {}).get(name, name)
         # Raw blob bytes: a CRLF checkout or a non-UTF-8 byte must not read as a
         # mismatch for an unchanged module (cycle-2 reverification, RV-4).
-        blob = _git_output(root, "show", f"HEAD:{PRODUCTION_MODULE_PREFIX}{name}", binary=True)
+        blob = _git_output(root, "show", f"HEAD:{PRODUCTION_MODULE_PREFIX}{relpath}", binary=True)
         binding["matches_head"][name] = (
             None if blob is None else hashlib.sha256(blob).hexdigest() == served_sha
         )
@@ -1489,9 +1559,10 @@ def _git_binding(root: Path | None, modules: Mapping[str, str]) -> dict[str, Any
 def _production_identity(scripts_dir: Path, root: Path | None = None) -> dict[str, Any]:
     """Bind the report to the production retrieval modules that served it."""
     modules: dict[str, str] = {}
+    paths = {name: _implementing_name(scripts_dir, name) for name in PRODUCTION_RETRIEVAL_MODULES}
     for name in PRODUCTION_RETRIEVAL_MODULES:
         try:
-            modules[name] = hashlib.sha256((scripts_dir / name).read_bytes()).hexdigest()
+            modules[name] = hashlib.sha256((scripts_dir / paths[name]).read_bytes()).hexdigest()
         except OSError as exc:
             raise EvaluationInvalid("production_unreadable",
                                     f"cannot identify production retrieval module {name}: {exc}") from exc
@@ -1505,9 +1576,10 @@ def _production_identity(scripts_dir: Path, root: Path | None = None) -> dict[st
     return {
         "scripts_directory": scripts_dir.resolve().as_posix(),
         "modules": modules,
+        "module_paths": paths,
         "digest": digest,
         "versions": versions,
-        "git": _git_binding(root, modules),
+        "git": _git_binding(root, modules, paths),
     }
 
 
@@ -2289,7 +2361,7 @@ def run_evaluation(root: Path, fixtures_path: Path, *, baseline_path: Path | Non
         server_file = getattr(server, "__file__", None)
         _require(isinstance(server_file, str) and server_file != "", "production_unidentifiable",
                  "the production retrieval module directory cannot be identified")
-        production_scripts_dir = Path(server_file).resolve().parent
+        production_scripts_dir = _production_scripts_root(server_file)
     production_identity = _production_identity(production_scripts_dir, root)
     corpus = load_fixture_corpus(fixtures_path, root=root)
     index_dir = root / ".wavefoundry" / "index"
@@ -2304,7 +2376,8 @@ def run_evaluation(root: Path, fixtures_path: Path, *, baseline_path: Path | Non
     _require(isinstance(index_health, dict) and index_health.get("semantic_ready") is True and
              index_health.get("readiness_overview") == "ready",
              "stale_index", "working tree and published semantic index are not current/ready")
-    declarations = resolve_symbol_anchors(corpus, server, root)
+    relevance_paths = implementing_relevance_paths(root, corpus)
+    declarations = resolve_symbol_anchors(corpus, server, root, relevance_paths)
     deadline = clock() + TOTAL_TIMEOUT_SECONDS
     case_rows: list[dict[str, Any]] = []
     warmups: dict[str, Any] = {}
@@ -2355,7 +2428,7 @@ def run_evaluation(root: Path, fixtures_path: Path, *, baseline_path: Path | Non
                     _require(response.get("status") == "ok", "query_failed",
                              f"{fixture['id']}:{tool} returned status {response.get('status')!r}")
                     encoded_size = len(_stable_json_bytes(response))
-                    score = score_response(tool, fixture, response, declarations)
+                    score = score_response(tool, fixture, response, declarations, relevance_paths)
                     data = response.get("data") if isinstance(response.get("data"), dict) else {}
                     repetitions.append({
                         "repetition": repetition,
@@ -2476,6 +2549,7 @@ def run_evaluation(root: Path, fixtures_path: Path, *, baseline_path: Path | Non
             "duration_seconds": round(max(0.0, finished_at - started_at), 3),
         },
         "anchor_resolution": declarations,
+        "relevance_path_resolution": relevance_paths,
         "generation": {
             "start": start_state["generation"], "end": end_state["generation"],
             "start_attempt_id": start_state["attempt_id"], "end_attempt_id": end_state["attempt_id"],

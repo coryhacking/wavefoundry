@@ -1,0 +1,43 @@
+### server_impl: global-rebound=8 mutable-module-containers=37
+   rebound via `global`: _CHUNKER_MOD, _EXTENSION_PROVENANCE, _LANGUAGE_VOCABULARY_CACHE, _MCP_INSTANCE, _TOOL_REGISTRY, _chunker_version_cache, _runner_files, _runner_version
+   mutable containers: VALID_CHANGE_KINDS@623, REOPEN_PURPOSE_STAGES@635, _RETRIEVAL_LEDGER@678, DEFINITION_BOOST_RULES@961, _GRAPH_REL_LABEL@999, _GRAPH_REL_BUCKET@1015, _TS_SYMBOL_LANG_MAP@1105, _script_cache@4459, _WAVE_CURRENT_NEXT_ACTION@5628, _REVIEW_PHASE_ALIASES@10714, _DEGRADED_LOG_STATE@12157, _DEGRADED_LOG_LOCK@12158, _FTS_SERVE_LOCK@12212, _FTS_SERVE_STATE@12213, _CONST_CHUNKER_BY_EXT@12785, _EXT_TO_LANG@12849, _LANG_TO_EXTS@12865, _LANG_TO_EXTS@12868, _LANG_CATEGORIES@12873, _TREE_SITTER_DEFINITION_LANGS@12883, _TREE_SITTER_REFERENCE_LANGS@12884, _SUPPORTED_DEFINITION_LANGS@12887, _SUPPORTED_REFERENCE_LANGS@12891, _DOC_REFERENCE_EXTS@12893, _TS_CALL_PARENT_TYPES@12896, _TS_IMPORT_PARENT_TYPES@12912, _DEFINITION_PATTERNS@12952, _TS_IDENTIFIER_NODE_TYPES@13110, _TS_DEFINITION_PARENT_TYPES@13121, _IMPORT_PARSERS@13411, _JS_TS_SUFFIXES@13419, _ATTR_LANG_BY_EXTENSION@13473, _LOW_INFORMATION_CATEGORY_QUERY_TERMS@14089, _runner_files@15124, _LIFECYCLE_CONTEXT_STAGES@15164, _ARTIFACT_EXTRACTORS@16779, _COST_FOCUS_EXTRACTORS@16800
+### mcp_tool_registry: global-rebound=0 mutable-module-containers=0
+   rebound via `global`: 
+   mutable containers: 
+### codenav_handlers: global-rebound=0 mutable-module-containers=0
+   rebound via `global`: 
+   mutable containers: 
+### graph_handlers: global-rebound=0 mutable-module-containers=0
+   rebound via `global`: 
+   mutable containers: 
+### techdocs_handlers: global-rebound=0 mutable-module-containers=0
+   rebound via `global`: 
+   mutable containers: 
+### memory_handlers: global-rebound=0 mutable-module-containers=2
+   rebound via `global`: 
+   mutable containers: _MEMORY_RECORDS_CACHE@93, _MEMORY_BETWEENNESS_CACHE@94
+### index_handlers: global-rebound=0 mutable-module-containers=3
+   rebound via `global`: 
+   mutable containers: _FRESHNESS_CACHE@238, _BACKGROUND_BUILD_PIDS@1215, _DASHBOARD_CHILD_PIDS@1242
+### upgrade_handlers: global-rebound=0 mutable-module-containers=1
+   rebound via `global`: 
+   mutable containers: UPGRADE_SUMMARY_TERMINAL_KEYS@89
+### edit_gate_handlers: global-rebound=0 mutable-module-containers=1
+   rebound via `global`: 
+   mutable containers: _VALID_GATES@72
+### dashboard_handlers: global-rebound=0 mutable-module-containers=0
+   rebound via `global`: 
+   mutable containers: 
+### docs_handlers: global-rebound=0 mutable-module-containers=0
+   rebound via `global`: 
+   mutable containers: 
+### context_efficiency_handlers: global-rebound=0 mutable-module-containers=1
+   rebound via `global`: 
+   mutable containers: _STATE_SOURCE_EXTRACTORS@797
+
+### server_impl names re-exported from moved handler modules that are mutable containers or global-rebound in the owner:
+   memory_handlers: _MEMORY_BETWEENNESS_CACHE(shared-mutable), _MEMORY_RECORDS_CACHE(shared-mutable)
+   index_handlers: _BACKGROUND_BUILD_PIDS(shared-mutable), _DASHBOARD_CHILD_PIDS(shared-mutable), _FRESHNESS_CACHE(shared-mutable)
+   upgrade_handlers: UPGRADE_SUMMARY_TERMINAL_KEYS(shared-mutable)
+   edit_gate_handlers: _VALID_GATES(shared-mutable)
+   context_efficiency_handlers: _STATE_SOURCE_EXTRACTORS(shared-mutable)
