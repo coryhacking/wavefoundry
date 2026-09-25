@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-02
+Last verified: 2026-09-25
 
 ## Default Change Path
 
@@ -46,8 +46,8 @@ the same non-local failure in a new costume.
 Two mechanisms back this up. `docs-lint` flags an acceptance criterion that
 asserts repository-wide state — an advisory sensor (a `WARNING:` line that never
 fails validation; wave `1wuju` registered it advisory in the docs-lint sensor
-polarity registry, and a flip to blocking is a later recorded change made on
-field data), reading each AC bullet whole
+polarity registry, and wave `1yzj9` recorded the decision to keep it advisory),
+reading each AC bullet whole
 including its wrapped continuation lines and any loose-list continuation
 paragraph. It is scoped by wave `Status`, so it reaches only change documents in
 a wave that is `ready`, `active`, or `implementing`, or that carries an explicit
@@ -56,7 +56,7 @@ retroactively failed. The rule is deliberately asymmetric: it recognises a finit
 list of repository-scope words between the quantifier and the noun, so an
 unlisted repository-wide adjective (`untouched`, `prior`, `upstream`) passes
 silently and is left to review, while a compliant change-local criterion is never
-blocked; for a rule meant to block one day the silent miss is the cheaper failure. Note that
+blocked; for a heuristic sensor the silent miss is the cheaper failure. Note that
 the incremental `--changed` lint the post-edit hook runs reaches the wave-owned
 AC validators only when `wave.md` itself is in the changed set, so a change-doc-only
 edit gets its sensor signal from the full validation that Prepare, Review, and

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-24
+Last verified: 2026-09-25
 
 ## Round 1 (full review)
 
@@ -14,4 +14,17 @@ The change doc Requirements through Tasks were rewritten: the clause reworded in
 
 ## Round 2 (focused verification)
 
-Pending: docs-contract confirmation of DOCS-READY-1.
+Completed in the typed ledger at receipt `review-policy-fa39d1cf2c158974fbc0`: docs-contract confirmed DOCS-READY-1 resolved; code, QA, architecture and the readiness council approved. The council recorded red-team (fixed, isolated) and docs-contract (rotating), with the remaining specialist reviews recorded separately. This paragraph reconciles the previously stale narrative; it is not a new approval.
+
+## Prepare and focused check, 2026-09-25
+
+`wf_review_wave(phase='prepare')` confirmed all four required specialist approvals current. `wf_prepare_wave(mode='ready')` succeeded with lint and gardening passed, the same receipt, and no activation. Existing typed approvals remain the readiness authority; no implementation work was performed.
+
+The coordinator checked the current registry, routing branches and public CLI test fixture. An isolated red-team follow-up found no implementation-design blocker and recommended carrying two wording qualifications into implementation:
+
+- Describe the field data as an observed decline in final-document findings after introduction, not proof that guidance and warnings caused the decline. The sample cannot observe intermediate revisions or separate their effects.
+- Scope the close-receipt reassurance to the Wavefoundry incident. The framework receipt covers framework inputs and is not applicable where the runner is absent; it is not a general consumer-repository test guarantee.
+
+Strongest challenge: a standing advisory decision is not a guarantee about future heuristic quality. Strongest alternative: keep the small registry field and conservative evidence wording; no additional validator mechanism is warranted. The existing Risks section already permits reconsideration in a later wave. A whitespace-only decision value should be treated as empty when implementing the non-empty-string contract.
+
+This follow-up reviewed the plan and current source, without executing the unimplemented tests or claiming delivery approval. The two wording qualifications are implementation notes, not a new review gate.

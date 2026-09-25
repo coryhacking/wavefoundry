@@ -335,13 +335,17 @@ def allowed_values_suffix(values, *, origin=None):
 
 # Wave 1wuju (1wujs): docs-lint sensor polarity registry. A NEW sensor ships
 # `advisory` (its findings travel the existing `WARNING:` channel and never fail
-# lint) and flips to `blocking` in a later recorded change once field data
-# exists; the release checklist lists every entry still advisory so the flip is
-# decided, not forgotten. `introduced_wave` is the durable key because the
-# shipping release is unknown at authoring. Validators that predate the registry
-# keep their blocking polarity and are not registered.
+# lint) until a recorded decision: a later change either flips it to `blocking`
+# on field data, or keeps it advisory permanently and names that wave in
+# `decided_wave` (wave 1yzj9). The release checklist lists every advisory entry
+# without a `decided_wave`, so an open decision is made, not forgotten.
+# `introduced_wave` is the durable key because the shipping release is unknown
+# at authoring. Validators that predate the registry keep their blocking
+# polarity and are not registered.
 SENSOR_POLARITIES = ("advisory", "blocking")
 SENSOR_POLARITY_REGISTRY: dict[str, dict[str, str]] = {
-    "ac_asserts_repository_state": {"polarity": "advisory", "introduced_wave": "1wur7"},
-    "inert_record_layout_config": {"polarity": "advisory", "introduced_wave": "1yyoj"},
+    "ac_asserts_repository_state": {"polarity": "advisory", "introduced_wave": "1wur7",
+                                    "decided_wave": "1yzj9"},
+    "inert_record_layout_config": {"polarity": "advisory", "introduced_wave": "1yyoj",
+                                   "decided_wave": "1yzj9"},
 }

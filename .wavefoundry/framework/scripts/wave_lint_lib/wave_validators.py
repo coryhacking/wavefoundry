@@ -331,9 +331,9 @@ _AC_REPO_SCOPE = r"(?:full|whole|entire|complete|all|every|repo(?:sitory)?[-\s]w
 # are themselves repository-scoped or a bare count. Anything else means the author
 # narrowed the subject, and the rule stays silent. The trade is deliberate and
 # asymmetric: an unlisted repo-wide adjective becomes a MISS, which costs a
-# reviewer's attention, while a false positive would be a hard stop on a
-# compliant criterion once the rule blocks. For a rule meant to block one day,
-# the silent miss is the cheaper failure.
+# reviewer's attention, while a false positive would be a stop on a compliant
+# criterion (a warning today, by the wave 1yzj9 decision). For a heuristic
+# sensor, the silent miss is the cheaper failure.
 _AC_SCOPE_GAP_WORD = (
     # `framework` is deliberately absent: `_AC_TEST_CORPUS_NOUN` already carries an
     # optional `framework` prefix, so listing it here decides no natural word order
@@ -505,9 +505,11 @@ def _check_ac_asserts_repository_state(text: str, rel: str) -> list[str]:
     """Wave 1wur7 (1wuui): flag an AC that asserts repository-wide state.
 
     Polarity is registered ``advisory`` in ``SENSOR_POLARITY_REGISTRY`` (wave
-    1wuju): findings travel the ``WARNING:`` channel and never fail lint, and the
-    flip to blocking is a later recorded change.  Guidance alone already failed
-    at scale, so the sensor is the durable half.  Scope comes
+    1wuju): findings travel the ``WARNING:`` channel and never fail lint.  Wave
+    1yzj9 recorded the decision to keep it advisory permanently; under the
+    warning the pattern's rate in change docs fell from about half to about 1%.
+    Guidance alone had already failed at scale, so the sensor is the durable
+    half.  Scope comes
     from the CALL SITE: these AC validators run only inside the wave-owned
     change-doc loop, which `_wave_requires_wave_owned_change_docs` gates to
     ready/active/implementing (or explicitly activated) waves.  Closed-wave records
@@ -1359,7 +1361,13 @@ def _route_sensor_findings(sensor_id: str, findings: list[str], failures: list[s
     unregistered sensor) is a failure as before. A caller that passes no sink
     receives blocking findings only; the CLI always passes one. An entry whose
     polarity is outside ``SENSOR_POLARITIES`` raises ``ValueError`` so a misspelled
-    registration is fixed rather than silently read as blocking."""
+    registration is fixed rather than silently read as blocking.
+
+    Wave 1yzj9: an advisory entry may carry ``decided_wave``, the wave whose
+    recorded decision keeps it advisory; its suffix says so instead of promising
+    a flip. A ``decided_wave`` that is not a non-empty string, or that is set on
+    a blocking entry, raises ``ValueError``. Both checks run before any branch on
+    findings or the sink, so a misregistration raises even with no findings."""
     entry = SENSOR_POLARITY_REGISTRY.get(sensor_id)
     if entry is None:
         failures.extend(findings)
@@ -1370,11 +1378,21 @@ def _route_sensor_findings(sensor_id: str, findings: list[str], failures: list[s
             f"sensor `{sensor_id}` is registered with unknown polarity {polarity!r}; "
             f"expected one of {SENSOR_POLARITIES}"
         )
+    decided = entry.get("decided_wave")
+    if "decided_wave" in entry:
+        if not isinstance(decided, str) or not decided.strip():
+            raise ValueError(f"sensor `{sensor_id}` has an invalid decided_wave {decided!r}; "
+                             "expected a non-empty wave id")
+        if polarity != "advisory":
+            raise ValueError(f"sensor `{sensor_id}` is blocking but names decided_wave {decided!r}; "
+                             "a recorded decision applies only to an advisory sensor")
     if polarity == "advisory":
         if warnings is not None:
             wave = entry.get("introduced_wave", "unknown")
-            warnings.extend(f"{finding} [advisory sensor `{sensor_id}`, introduced in wave `{wave}`; "
-                            "a flip to blocking is a recorded change]" for finding in findings)
+            tail = (f"advisory by recorded decision in wave `{decided}`" if decided is not None
+                    else "a flip to blocking is a recorded change")
+            warnings.extend(f"{finding} [advisory sensor `{sensor_id}`, introduced in wave `{wave}`; {tail}]"
+                            for finding in findings)
         return
     failures.extend(findings)
 

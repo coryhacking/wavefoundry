@@ -157,20 +157,21 @@ record carries an explicit `Activated at:` line (a paused wave that was once
 activated stays in scope). The sensor is registered `advisory` in the docs-lint
 sensor polarity registry: an acceptance criterion asserting whole-suite or
 whole-tree health produces a `WARNING:` line that names the offending phrase and
-supplies the replacement sentence, and validation still passes; a flip to
-`blocking` is a separate recorded change made on field data. The sensor is
-deliberately asymmetric: it recognises a finite list of repository-scope words
-between the quantifier and the noun, so an unlisted repository-wide adjective
-passes silently and is left to review, while a compliant change-local criterion
-is never blocked; for a rule meant to block one day the silent miss is the
-cheaper failure.
+supplies the replacement sentence, and validation still passes. It stays
+advisory by recorded decision (wave `1yzj9`): after it shipped, the pattern
+became rare in change documents. The sensor is deliberately asymmetric: it
+recognises a finite list of repository-scope words between the quantifier and
+the noun, so an unlisted repository-wide adjective passes silently and is left
+to review, while a compliant change-local criterion is never blocked; for a
+heuristic sensor the silent miss is the cheaper failure.
 
 **New docs-lint sensors ship advisory.** A new sensor is registered `advisory`
 in the polarity registry with the wave that introduced it, so its findings are
 `WARNING:` lines that never fail validation. It flips to `blocking` only in a
 later recorded change that cites the field data justifying the flip, and the
-release checklist lists every entry still advisory so the flip is decided, not
-forgotten.
+release checklist lists every advisory entry without a recorded decision so the
+flip is decided, not forgotten. A recorded decision may instead keep a sensor
+advisory permanently; the registry names that wave in `decided_wave`.
 
 ### Citations in change docs anchor by symbol
 

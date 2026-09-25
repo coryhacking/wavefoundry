@@ -1,0 +1,9 @@
+KILLED: decided branch dropped: FAILED (failures=2)
+KILLED: decided suffix applied unconditionally: FAILED (failures=1)
+KILLED: flip text left in the decided suffix: FAILED (failures=2)
+KILLED: empty-string validation removed: FAILED (failures=6)
+KILLED: type validation removed: FAILED (failures=6)
+KILLED: blocking validation removed: FAILED (failures=3)
+KILLED: validation moved after the findings branch: FAILED (failures=10)
+KILLED: registry decided_wave removed: FAILED (failures=2)
+exit=0

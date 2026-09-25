@@ -1,10 +1,10 @@
 # Keep the AC-Locality Sensor Advisory by Recorded Decision
 
 Change ID: `1yzj8-maint ac-locality-sensor-stays-advisory`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-09-24
+Status: active
+Last verified: 2026-09-25
 Wave: `1yzj9 sensor-advisory-decisions`
 
 ## Rationale
@@ -45,16 +45,16 @@ Two mechanisms still describe this sensor as awaiting a flip: the advisory warni
 
 ## Acceptance Criteria
 
-- [ ] AC-1: Through the real `docs_lint.py` CLI, an in-scope (readied or active) scratch wave with a repository-wide AC passes lint and its `WARNING:` line carries the exact decided suffix for wave `1yzj9`, without "a flip to blocking is a recorded change"; in-process with a patched entry lacking `decided_wave`, the existing suffix is unchanged.
-- [ ] AC-2: A `decided_wave` that is empty, not a string, or on a blocking entry raises `ValueError` even when called with no findings and no warning sink; the evidence mutants (decided branch dropped, suffix applied unconditionally, flip text left in the decided suffix, each validation removed, validation moved after the findings branch, a registry entry's `decided_wave` removed) each fail a test.
-- [ ] AC-3: Both registry entries carry `decided_wave: 1yzj9`. The release checklist, seed 170, `plan-feature.prompt.md`, `change-workflow.md`, `testing-architecture.md`, the `constants.py` comment, the sensor docstring and the changelog state the decision, pinned by `AdvisoryFirstRulePinTests` (removed clauses asserted absent, new sentences asserted present). The documents this change edits validate, and this change's own suites and new tests pass.
+- [x] AC-1: Through the real `docs_lint.py` CLI, an in-scope (readied or active) scratch wave with a repository-wide AC passes lint and its `WARNING:` line carries the exact decided suffix for wave `1yzj9`, without "a flip to blocking is a recorded change"; in-process with a patched entry lacking `decided_wave`, the existing suffix is unchanged.
+- [x] AC-2: A `decided_wave` that is empty, not a string, or on a blocking entry raises `ValueError` even when called with no findings and no warning sink; the evidence mutants (decided branch dropped, suffix applied unconditionally, flip text left in the decided suffix, each validation removed, validation moved after the findings branch, a registry entry's `decided_wave` removed) each fail a test.
+- [x] AC-3: Both registry entries carry `decided_wave: 1yzj9`. The release checklist, seed 170, `plan-feature.prompt.md`, `change-workflow.md`, `testing-architecture.md`, the `constants.py` comment, the sensor docstring and the changelog state the decision, pinned by `AdvisoryFirstRulePinTests` (removed clauses asserted absent, new sentences asserted present). The documents this change edits validate, and this change's own suites and new tests pass.
 
 ## Tasks
 
-- [ ] Add `decided_wave` validation and the decided suffix in `_route_sensor_findings`; set both registry entries; update the `constants.py` comment and the sensor docstring.
-- [ ] Update the tests that pin the advisory suffix and the guidance prose (`AdvisoryFirstRulePinTests`: seed 170, prompt surfaces and contributing docs, release checklist; `SensorPolarityRegistryTests`); add the decided-suffix CLI assertion and the validation tests; record the mutants in wave evidence.
-- [ ] Update seed 170 (gate), mirror it into `plan-feature.prompt.md`, and update the release checklist, contribution workflow, testing architecture and changelog.
-- [ ] Keep the field-data script and output in wave evidence.
+- [x] Add `decided_wave` validation and the decided suffix in `_route_sensor_findings`; set both registry entries; update the `constants.py` comment and the sensor docstring.
+- [x] Update the tests that pin the advisory suffix and the guidance prose (`AdvisoryFirstRulePinTests`: seed 170, prompt surfaces and contributing docs, release checklist; `SensorPolarityRegistryTests`); add the decided-suffix CLI assertion and the validation tests; record the mutants in wave evidence.
+- [x] Update seed 170 (gate), mirror it into `plan-feature.prompt.md`, and update the release checklist, contribution workflow, testing architecture and changelog.
+- [x] Keep the field-data script and output in wave evidence.
 
 ## Agent Execution Graph
 
@@ -90,6 +90,8 @@ Two mechanisms still describe this sensor as awaiting a flip: the advisory warni
 
 | Date | Update | Evidence |
 | --- | --- | --- |
+| 2026-09-25 | Delivery repairs. DOCS-DEL-1: `change-workflow.md` and the `_AC_SCOPE_GAP_WORD` comment no longer say the rule is meant to block one day (seed 170 wording reused, absence pinned). QA-DEL-2: the CHANGELOG pin read only the first section and would fail at the release rollover; it now checks the whole history through `_changelog_records_the_decision`, with a rollover regression test that also proves removal still fails | test_docs_lint.AdvisoryFirstRulePinTests |
+| 2026-09-25 | Implemented. `SENSOR_POLARITY_REGISTRY` entries `ac_asserts_repository_state` and `inert_record_layout_config` carry `decided_wave: 1yzj9`; `_route_sensor_findings` validates `decided_wave` (non-empty string, advisory only) before any branch on findings or the sink and emits the decided suffix; seed 170 (under the gate), `plan-feature.prompt.md`, the release checklist, `change-workflow.md`, `testing-architecture.md`, the `constants.py` comment, the sensor docstring and a CHANGELOG bullet state the decision. Readiness notes applied: shipped text describes the drop as an observed decline, not proven causation, and the CHANGELOG scopes the figures to this repository and makes no claim about consumer test health. Tests: CLI decided suffix, undecided suffix unchanged in-process, invalid `decided_wave` cases with and without findings or sink, both registry entries, prose pins; `test_docs_lint` 1117 OK. Mutation probe 8/8 killed by assertions. Full suite 9672 OK. Gapfill: the edits are a small validation branch plus prose in named files, located by the plan's exact anchors and read directly, so MCP retrieval added nothing | evidence/mutants.out |
 | 2026-09-24 | Readiness round 1: red-team, code, architecture and QA approve; docs-contract blocked on the seed 170 and plan-feature prompt clause claiming the checklist lists every advisory sensor. One repair: that clause, the prompt mirror, code comment and docstring, validation placement and empty-string rule, exact suffix text, both entries recorded under `1yzj9`, test census widened to `AdvisoryFirstRulePinTests`, superseded `1wujs` condition recorded, field-data script now prints every Rationale figure | readiness-review.md; evidence/field_data.out |
 | 2026-09-24 | Planned first as a flip to blocking; operator decided after reviewing the field data that advisory is enough, so the change records a standing advisory decision instead | evidence/field_data.py over 966 change docs |
 

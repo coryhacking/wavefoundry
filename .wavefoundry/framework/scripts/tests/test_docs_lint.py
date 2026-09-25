@@ -3195,6 +3195,10 @@ class SensorPolarityRegistryTests(unittest.TestCase):
                     if hits_w:
                         self.assertIn("advisory sensor `ac_asserts_repository_state`", hits_w[0])
                         self.assertIn("introduced in wave `1wur7`", hits_w[0])
+                        # Wave 1yzj9: an entry without decided_wave keeps today's suffix.
+                        self.assertTrue(hits_w[0].endswith(
+                            "[advisory sensor `ac_asserts_repository_state`, introduced in wave `1wur7`; "
+                            "a flip to blocking is a recorded change]"), hits_w[0])
         finally:
             shutil.rmtree(root)
 
@@ -3212,6 +3216,51 @@ class SensorPolarityRegistryTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertRegex(result.stderr, r"(?m)^WARNING: .*AC-1 asserts repository-wide state")
         self.assertNotRegex(result.stderr, r"(?m)^ERROR: .*asserts repository-wide state")
+        # Wave 1yzj9 (1yzj8 AC-1): the recorded decision replaces the flip promise.
+        line = next(l for l in result.stderr.splitlines() if "asserts repository-wide state" in l)
+        self.assertTrue(line.endswith(
+            "[advisory sensor `ac_asserts_repository_state`, introduced in wave `1wur7`; "
+            "advisory by recorded decision in wave `1yzj9`]"), line)
+        self.assertNotIn("a flip to blocking is a recorded change", line)
+
+    def test_both_advisory_sensors_carry_the_recorded_decision(self) -> None:
+        # Wave 1yzj9 (1yzj8 AC-3): removing either decided_wave fails here.
+        from wave_lint_lib.constants import SENSOR_POLARITY_REGISTRY
+        decided = {name: entry.get("decided_wave") for name, entry in SENSOR_POLARITY_REGISTRY.items()}
+        self.assertEqual({"ac_asserts_repository_state": "1yzj9", "inert_record_layout_config": "1yzj9"}, decided)
+        for name, entry in SENSOR_POLARITY_REGISTRY.items():
+            with self.subTest(sensor=name):
+                self.assertEqual("advisory", entry["polarity"])
+
+    def test_an_invalid_decided_wave_fails_loudly_even_without_findings(self) -> None:
+        # Wave 1yzj9 (1yzj8 AC-2): validation runs before any branch on findings or
+        # the sink, so a misregistration raises on every call.
+        from unittest.mock import patch
+        from wave_lint_lib import wave_validators
+        from wave_lint_lib.constants import SENSOR_POLARITY_REGISTRY
+        bad = (
+            ("empty", {"polarity": "advisory", "introduced_wave": "1wur7", "decided_wave": ""}),
+            ("blank", {"polarity": "advisory", "introduced_wave": "1wur7", "decided_wave": "   "}),
+            ("not a string", {"polarity": "advisory", "introduced_wave": "1wur7", "decided_wave": 17}),
+            ("none", {"polarity": "advisory", "introduced_wave": "1wur7", "decided_wave": None}),
+            ("blocking", {"polarity": "blocking", "introduced_wave": "1wur7", "decided_wave": "1yzj9"}),
+        )
+        for label, entry in bad:
+            for findings, sink in (([], None), (["x.md: finding"], []), ([], [])):
+                with self.subTest(case=label, findings=bool(findings), sink=sink is not None):
+                    with patch.dict(SENSOR_POLARITY_REGISTRY, {"probe_sensor": entry}, clear=True):
+                        with self.assertRaises(ValueError) as caught:
+                            wave_validators._route_sensor_findings("probe_sensor", findings, [], sink)
+                    self.assertIn("probe_sensor", str(caught.exception))
+        # A valid decided entry routes as advisory with the decided suffix.
+        good = {"probe_sensor": {"polarity": "advisory", "introduced_wave": "1wur7", "decided_wave": "1yzj9"}}
+        failures: list[str] = []
+        warnings: list[str] = []
+        with patch.dict(SENSOR_POLARITY_REGISTRY, good, clear=True):
+            wave_validators._route_sensor_findings("probe_sensor", ["x.md: finding"], failures, warnings)
+        self.assertEqual([], failures)
+        self.assertEqual(["x.md: finding [advisory sensor `probe_sensor`, introduced in wave `1wur7`; "
+                          "advisory by recorded decision in wave `1yzj9`]"], warnings)
 
     def test_an_advisory_finding_without_a_sink_is_not_a_failure(self) -> None:
         # Direct callers that pass no sink get blocking findings only; advisory
@@ -3338,6 +3387,11 @@ class ReviewCycleChurnControlPinTests(unittest.TestCase):
 
 
 
+def _changelog_records_the_decision(changelog: str) -> bool:
+    """Wave 1yzj9: the decision bullet exists in some released or unreleased section."""
+    return "**The acceptance-criteria locality check stays a warning.**" in changelog
+
+
 class AdvisoryFirstRulePinTests(unittest.TestCase):
     """Wave 1wuju (1wujs AC-3, AC-5): the advisory-first rule and the polarity of the
     first registrant are stated on every surface a planner, closer, or releaser reads."""
@@ -3349,7 +3403,13 @@ class AdvisoryFirstRulePinTests(unittest.TestCase):
         seed = (self.SEEDS_DIR / "170-plan-feature.prompt.md").read_text(encoding="utf-8")
         self.assertIn("**New docs-lint sensors ship advisory.**", seed)
         self.assertIn("The sensor is registered `advisory` in the docs-lint\nsensor polarity registry", seed)
-        self.assertIn("a flip to\n`blocking` is a separate recorded change made on field data", seed)
+        # Wave 1yzj9: the recorded decision replaces the pending flip.
+        self.assertIn("It stays\nadvisory by recorded decision (wave `1yzj9`)", seed)
+        self.assertIn("release checklist lists every advisory entry without a recorded decision", seed)
+        self.assertIn("A recorded decision may instead keep a sensor\nadvisory permanently; the registry names that wave in `decided_wave`.", seed)
+        self.assertNotIn("a flip to\n`blocking` is a separate recorded change made on field data", seed)
+        self.assertNotIn("for a rule meant to block one day", seed)
+        self.assertNotIn("lists every entry still advisory", seed)
         self.assertNotIn("enforces this as a blocking\nerror", seed)
 
     def test_seed_190_treats_advisory_findings_as_review_notes(self) -> None:
@@ -3361,19 +3421,62 @@ class AdvisoryFirstRulePinTests(unittest.TestCase):
         self.assertIn("runs an advisory sensor on change documents", plan)
         self.assertIn("new docs-lint sensors ship advisory the same way", plan)
         # Delivery review DOCS-DEL-2: the two seed-170 clauses the round-1 repair added.
-        self.assertIn("(the release checklist lists every sensor still advisory so the flip is decided, not forgotten)", plan)
+        self.assertIn("it stays advisory by recorded decision (wave `1yzj9`)", plan)
+        self.assertIn("(the release checklist lists every advisory sensor without a recorded decision so the choice is made, not forgotten)", plan)
+        self.assertNotIn("lists every sensor still advisory", plan)
         self.assertIn("The diagnostic supplies the replacement sentence: write \"the change's own suites", plan)
         close = (self.DOCS_DIR / "prompts" / "close-wave.prompt.md").read_text(encoding="utf-8")
         self.assertIn("are review notes at close, never a closure blocker", close)
         workflow = (self.DOCS_DIR / "contributing" / "change-workflow.md").read_text(encoding="utf-8")
         self.assertIn("an advisory sensor (a `WARNING:` line that never\nfails validation", workflow)
+        self.assertIn("wave `1yzj9` recorded the decision to keep it advisory", workflow)
+        self.assertIn("for a heuristic sensor the silent miss is the cheaper failure", workflow)
+        self.assertNotIn("meant to block one day", workflow)
+        self.assertNotIn("a flip to blocking is a later recorded change", workflow)
+        testing = (self.DOCS_DIR / "architecture" / "testing-architecture.md").read_text(encoding="utf-8")
+        self.assertIn("its entry names that wave in `decided_wave`", testing)
+        self.assertIn("Wave `1yzj9`\nrecorded that decision for the AC-locality sensor", testing)
+        changelog = (self.DOCS_DIR.parent / "CHANGELOG.md").read_text(encoding="utf-8")
+        # Checked across the whole history, so the release rollover that renames
+        # [Unreleased] to a version heading keeps this pin green (QA-DEL-2).
+        self.assertTrue(_changelog_records_the_decision(changelog))
         spec = (self.DOCS_DIR / "specs" / "mcp-tool-surface.md").read_text(encoding="utf-8")
         self.assertIn("Advisory findings never block Prepare, Review, or Close", spec)
 
     def test_the_release_checklist_lists_advisory_sensors(self) -> None:
         package = (self.DOCS_DIR / "prompts" / "package-wavefoundry.prompt.md").read_text(encoding="utf-8")
-        self.assertIn("list every sensor still registered `advisory`", package)
+        self.assertIn("list every sensor registered `advisory` without a `decided_wave`", package)
+        self.assertIn("Entries with a `decided_wave` are settled and are not re-raised.", package)
+        self.assertNotIn("list every sensor still registered `advisory`", package)
         self.assertIn("never a release-day edit", package)
+
+    def test_the_changelog_pin_survives_a_release_rollover(self) -> None:
+        # QA-DEL-2: rolling [Unreleased] into a versioned section must not fail the
+        # pin; removing the bullet must.
+        # A fixed fixture, not the live file: a release commit may carry no
+        # [Unreleased] heading at all (QA-DEL-2a).
+        bullet = "- **The acceptance-criteria locality check stays a warning.** Stays advisory.\n"
+        rolled = ("# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- Later work.\n\n"
+                  "## [9.9.9]\n\n### Changed\n\n" + bullet)
+        released_only = "# Changelog\n\n## [9.9.9]\n\n### Changed\n\n" + bullet
+        for label, text in (("rolled", rolled), ("released only", released_only)):
+            with self.subTest(shape=label):
+                self.assertTrue(_changelog_records_the_decision(text))
+                self.assertFalse(_changelog_records_the_decision(text.replace(bullet, "")))
+        # The shape the old first-section read got wrong: the bullet is not in it.
+        self.assertNotIn(bullet, rolled.split("\n## [", 2)[1])
+
+    def test_the_code_text_states_the_decision(self) -> None:
+        scripts = SCRIPTS_ROOT
+        constants = (scripts / "wave_lint_lib" / "constants.py").read_text(encoding="utf-8")
+        self.assertIn("keeps it advisory permanently and names that wave in\n# `decided_wave` (wave 1yzj9)", constants)
+        self.assertNotIn("the release checklist lists every entry still advisory", constants)
+        from wave_lint_lib import wave_validators
+        doc = wave_validators._check_ac_asserts_repository_state.__doc__
+        self.assertIn("recorded the decision to keep it advisory permanently", doc)
+        self.assertNotIn("the\n    flip to blocking is a later recorded change", doc)
+        validators = (scripts / "wave_lint_lib" / "wave_validators.py").read_text(encoding="utf-8")
+        self.assertNotIn("meant to block one day", validators)
 
 
 class AcRuleDiscriminationMatrixTests(unittest.TestCase):

@@ -499,7 +499,12 @@ so `docs_lint.py` exits 0 and `run_validate` returns `passed: true` with
 `warnings`; every lifecycle gate, the install audit included, renders them as
 `docs_lint_warning` diagnostics with `advisory: true`. A new sensor ships advisory and flips to `blocking` only in
 a recorded change with field data; the AC-locality sensor is the first
-registrant. Unregistered validators keep their blocking polarity.
+registrant. A recorded decision may instead keep a sensor advisory permanently:
+its entry names that wave in `decided_wave`, its warning says so instead of
+promising a flip, and the release checklist stops listing it. Wave `1yzj9`
+recorded that decision for the AC-locality sensor and for
+`inert_record_layout_config`. Unregistered validators keep their blocking
+polarity.
 
 ## Evaluator Reported Statistics (wave 1wur7)
 
