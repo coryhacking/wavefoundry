@@ -5685,7 +5685,10 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
                 "message": "Check from a fresh turn, reconnect, then restart.",
             }],
         }
+        # Wave 1z1vt: the reload reaches only a serving runner, one whose
+        # build_server has set _mcp.
         with patch("subprocess.run", return_value=mock_proc), \
+             patch.object(_server_mod, "_mcp", object()), \
              patch.object(_server_mod, "perform_mcp_reload", return_value=reload_payload) as mock_reload:
             result = self.srv.wf_upgrade_response(self.root, phase="cleanup", mode="apply")
         self.assertEqual(result["status"], "ok")

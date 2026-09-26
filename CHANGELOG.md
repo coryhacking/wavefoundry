@@ -10,6 +10,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The automatic reload after `wf_upgrade` now reaches the running server.** It used to import `server.py` a second time as a new module with no handler, so it reported `handler_not_ready` and the upgraded code was not served until `wf_reload_mcp` or a restart. It now reloads the runner that is serving, and when none is loaded it says the reload was skipped and names `wf_reload_mcp`. The upgrade that installs this fix still runs the previous code, so call `wf_reload_mcp` once afterwards (or restart the MCP host).
 - **Upgrade cleanup records the setup baseline even while the index is still updating.** Cleanup used to check setup readiness once; when the post-upgrade reindex was still writing, the check came back `indeterminate` and cleanup skipped the baseline with a misleading warning (the server recorded it at the next start). Cleanup now retries a transient result up to three more times over about 17 seconds, and still never fails the upgrade over it.
 
 ## [1.27.0]

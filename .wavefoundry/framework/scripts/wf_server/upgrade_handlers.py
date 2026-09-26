@@ -1501,21 +1501,56 @@ def wf_upgrade_response(
                 )
             )
         else:
-            try:
-                import server as _srv
-                reload_resp = _srv.perform_mcp_reload()
-                if reload_resp.get("status") == "ok":
-                    resp.setdefault("data", {})["mcp_reload"] = reload_resp.get("data", {})
-                    resp.setdefault("diagnostics", []).extend(
-                        reload_resp.get("diagnostics", [])
-                    )
-                else:
-                    resp.setdefault("diagnostics", []).extend(reload_resp.get("diagnostics", []))
-            except Exception as exc:
-                resp.setdefault("diagnostics", []).append(
-                    _diagnostic("mcp_reload_skipped", f"In-process MCP reload skipped: {exc}")
-                )
+            _reload_live_runner(resp)
     return _bounded_upgrade_response_envelope(resp)
+
+
+def _live_runner():
+    """The runner module serving this process, or None (wave 1z1vt).
+
+    In production ``server.py`` runs as ``__main__``, so ``import server`` would
+    execute it a second time as a module with no handler. Instead the loaded
+    modules are inspected, ``server`` first and then ``__main__``, and one is
+    accepted only when its own namespace (``vars``, bypassing the runner's
+    ``__getattr__`` re-export of ``server_impl``) defines ``perform_mcp_reload``
+    and holds the ``_mcp`` instance ``build_server`` sets. Nothing is imported.
+    """
+    for name in ("server", "__main__"):
+        module = sys.modules.get(name)
+        namespace = vars(module) if module is not None else {}
+        if callable(namespace.get("perform_mcp_reload")) and namespace.get("_mcp") is not None:
+            return module
+    return None
+
+
+def _reload_live_runner(resp: dict[str, Any]) -> None:
+    """Reload the serving runner after an upgrade, recording the outcome in ``resp``.
+
+    Wave 1z1vt: when no serving runner is loaded, the response says the reload
+    was skipped and names ``wf_reload_mcp`` instead of reporting a reload.
+    """
+    from wf_server import server_impl
+
+    _diagnostic = server_impl._diagnostic
+    try:
+        runner = _live_runner()
+        if runner is None:
+            resp.setdefault("diagnostics", []).append(
+                _diagnostic(
+                    "mcp_reload_skipped",
+                    "In-process MCP reload skipped: no serving runner is loaded in this "
+                    "process; call wf_reload_mcp to load the upgraded code.",
+                )
+            )
+            return
+        reload_resp = runner.perform_mcp_reload()
+        if reload_resp.get("status") == "ok":
+            resp.setdefault("data", {})["mcp_reload"] = reload_resp.get("data", {})
+        resp.setdefault("diagnostics", []).extend(reload_resp.get("diagnostics", []))
+    except Exception as exc:
+        resp.setdefault("diagnostics", []).append(
+            _diagnostic("mcp_reload_skipped", f"In-process MCP reload skipped: {exc}")
+        )
 
 
 def wf_upgrade_status_response(root: Path) -> dict[str, Any]:

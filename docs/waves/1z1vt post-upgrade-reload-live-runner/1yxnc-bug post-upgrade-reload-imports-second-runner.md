@@ -1,11 +1,11 @@
 # Post-Upgrade In-Process Reload Imports A Second Runner
 
 Change ID: `1yxnc-bug post-upgrade-reload-imports-second-runner`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
+Status: active
 Last verified: 2026-09-25
-Wave: TBD
+Wave: 1z1vt post-upgrade-reload-live-runner
 
 ## Rationale
 
@@ -35,15 +35,15 @@ The readiness inventory of wave `1yzd0` found this, and the alias demonstration 
 
 ## Acceptance Criteria
 
-- [ ] AC-1: With `server.py` running as `__main__` and a live handler, a successful `wf_upgrade` response triggers the reload on that runner (fresh handler and re-registered surface), and no second `server` module is created.
-- [ ] AC-2: With no live runner reachable, the response carries a diagnostic that the in-process reload was skipped and names `wf_reload_mcp`, and it does not claim a reload.
-- [ ] AC-3: The regression test drives the production launch shape (`server.py` as `__main__`, no `sys.modules["server"]` registration) and fails against the current `import server` code.
+- [x] AC-1: With `server.py` running as `__main__` and a live handler, a successful `wf_upgrade` response triggers the reload on that runner (fresh handler and re-registered surface), and no second `server` module is created.
+- [x] AC-2: With no live runner reachable, the response carries a diagnostic that the in-process reload was skipped and names `wf_reload_mcp`, and it does not claim a reload.
+- [x] AC-3: The regression test drives the production launch shape (`server.py` as `__main__`, no `sys.modules["server"]` registration) and fails against the current `import server` code.
 
 ## Tasks
 
-- [ ] Reproduce the second-module behavior with a `__main__`-launched runner.
-- [ ] Route the post-upgrade reload to the live runner and report the skip case.
-- [ ] Add the regression test and update the upgrade prompt or spec text if it describes the automatic reload.
+- [x] Reproduce the second-module behavior with a `__main__`-launched runner.
+- [x] Route the post-upgrade reload to the live runner and report the skip case.
+- [x] Add the regression test and update the upgrade prompt or spec text if it describes the automatic reload.
 
 ## Agent Execution Graph
 
@@ -73,12 +73,14 @@ The readiness inventory of wave `1yzd0` found this, and the alias demonstration 
 
 | Date | Update | Evidence |
 | --- | --- | --- |
+| 2026-09-25 | Implemented. `wf_upgrade_response` calls `_reload_live_runner`, which uses `_live_runner` to find the serving runner (`sys.modules` `server` then `__main__`, accepted only when `vars(module)` defines `perform_mcp_reload` and a built `_mcp`) without importing; no runner gives an `mcp_reload_skipped` diagnostic naming `wf_reload_mcp`. New `tests/test_upgrade_reload_runner.py`: lookup cases (built `__main__` beside an unbuilt `server`, built `server` preferred, `__getattr__`-forwarded attributes rejected), the skip diagnostic, and a subprocess test in the production launch shape (`server.py` code in `__main__`, no `sys.modules["server"]`) proving a fresh handler and no second `server` module. Mutants killed by assertions: the old `import server` (2 failures) and a `getattr`-based check (1 failure). The existing `test_cleanup_apply_invokes_mcp_reload` now sets `_mcp` on its runner, because a reload reaches only a built runner; the new test's embedded script aliases the handler module so the retired-name census stays clean. The upgrade prompt's "reloads automatically" wording stays accurate once this ships; the CHANGELOG states the installing-upgrade window (call `wf_reload_mcp` once) | tests/test_upgrade_reload_runner.py |
 | 2026-09-25 | Planned from wave `1yzd0` readiness finding A4 | `docs/waves/1yzd0 server-package-boundary/evidence/readiness-inventory.md` (A4) |
 
 ## Decision Log
 
 | Date | Decision | Reason | Alternatives |
 | --- | --- | --- | --- |
+| 2026-09-25 | Locate the live runner without importing: check `sys.modules["server"]` then `sys.modules["__main__"]`, and accept a module only when its own namespace (read with `vars()`, bypassing the runner's `__getattr__` re-export) defines `perform_mcp_reload` and holds a built `_mcp` | `_mcp` is set only by `build_server` in the process that serves; `vars()` avoids the module-level forwarding to `server_impl`; no import means `server.py` never runs twice | Register `sys.modules["server"]` from `server.py` when run as `__main__` (does not help an older runner already serving, and changes a runner file, which needs a restart to take effect) |
 | 2026-09-25 | Plan separately from the package move | The move adds no functional change; this defect predates it | Fix inside `1yzd0` (scope creep into an organization-only wave) |
 
 ## Risks
