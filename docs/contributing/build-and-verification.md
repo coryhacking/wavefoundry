@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-24
+Last verified: 2026-09-26
 
 ## Verification Commands
 
@@ -55,7 +55,7 @@ A golden diff is a public contract change. It must be named in the change doc th
 WF_UPDATE_TOOL_SURFACE_GOLDEN=1 python3 .wavefoundry/framework/scripts/run_tests.py --file test_tool_surface_golden.py
 ```
 
-Without the flag the test never writes. The fixture lives under the framework test tree, so it is inside the close-time receipt hash and outside the distribution pack. The same module carries the runtime roster parity test (registered set equals `mcp_tool_roster.TOOL_TIERS` in both directions; with declared extensions the registry compares against `mcp_tool_roster.all_tool_tiers()`, which adds validated `mcp_tool_extensions` tiers) and the behavioral wrapper-order test (cost innermost, lifecycle lock middle, upgrade-publication guard outermost, with the five wrong permutations as negative controls).
+Without the flag the test never writes. The fixture lives under the framework test tree, so it is inside the close-time receipt hash and outside the distribution pack. The same module carries the runtime roster parity test (registered set equals `mcp_tool_roster.TOOL_TIERS` in both directions; with declared extensions the registry compares against `mcp_tool_roster.all_tool_tiers()`, which adds validated `mcp_tool_extensions` tiers) and the behavioral wrapper-order test (cost innermost, lifecycle lock middle, upgrade-publication guard outermost of the three, with the five wrong permutations as negative controls). The setup-readiness notice wrapper added in wave `1z2mc` runs outside all three and only adds a diagnostic; `test_mcp_tool_registry` pins its label as the last `MIDDLEWARE` entry.
 
 ## Semantic Index And Offline Search
 

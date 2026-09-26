@@ -17030,8 +17030,115 @@ def _wrap_first_party_tool_costs(mcp: Any, get_handler: Any) -> None:
         pass
 
 
+_SETUP_NOTICE_MAX_CHARS = 600
+
+
+def _setup_needs_agent_notice(result: Any) -> bool:
+    """The operator must act: not ready and at least one recommended action.
+
+    An action-less ``indeterminate`` (index publication in progress, a probe
+    timeout, changed inputs) is transient and never notifies; an
+    ``indeterminate`` that still carries an action, such as the restart after
+    an upgrade, does.
+    """
+    return (
+        isinstance(result, Mapping)
+        and result.get("status") != "ready"
+        and bool(result.get("actions"))
+    )
+
+
+def setup_not_ready_diagnostic(result: Mapping[str, Any]) -> dict[str, Any]:
+    """One bounded diagnostic naming the reasons and the recommended commands."""
+    reasons = "; ".join(
+        f"{item.get('code')}: {item.get('message')}"
+        for item in (result.get("reasons") or [])
+        if isinstance(item, Mapping)
+    ) or str(result.get("status"))
+    commands = "; ".join(
+        setup_readiness.format_command(action.get("argv") or []).rstrip(".")
+        for action in (result.get("actions") or [])
+        if isinstance(action, Mapping)
+    )
+    # Only the reasons are cut: the command and the ask-first instruction are
+    # the parts the agent must always see.
+    tail = (
+        f"). Recommended: {commands}. "
+        "Report this to the operator and ask before running any command."
+    )
+    head = "Wavefoundry setup needs attention ("
+    room = max(_SETUP_NOTICE_MAX_CHARS - len(head) - len(tail), 0)
+    if len(reasons) > room:
+        reasons = reasons[: max(room - 3, 0)] + "..."
+    message = head + reasons + tail
+    return _diagnostic(
+        "setup_not_ready",
+        message,
+        recovery_tools=["index_health"],
+        recovery_usage="index_health()",
+    )
+
+
+def _wrap_setup_notice(mcp: Any, get_handler: Any) -> None:
+    """Tell the agent once per distinct result when setup needs the operator (wave 1z2mc).
+
+    Reads only the handler's cached assessment, never computes one, and never
+    changes a call's outcome. Runner-registered tools (async, and re-wrapped on
+    every reload otherwise), coroutine functions, and ``index_health`` (which
+    returns the assessment itself) are skipped.
+    """
+
+    registry = getattr(getattr(mcp, "_tool_manager", None), "_tools", None)
+    if not isinstance(registry, dict):
+        return
+    try:
+        skipped = set(_load_script("mcp_tool_roster").RUNNER_TOOLS)
+    except Exception:
+        skipped = set()
+    skipped.add("index_health")
+    for name, tool in registry.items():
+        if name in skipped:
+            continue
+        original = getattr(tool, "fn", None)
+        if (
+            original is None
+            or getattr(original, "_wf_setup_noticed", False)
+            or inspect.iscoroutinefunction(original)
+        ):
+            continue
+
+        def _make(fn: Any) -> Any:
+            @functools.wraps(fn)
+            def noticed_call(*args: Any, **kwargs: Any) -> Any:
+                result = fn(*args, **kwargs)
+                try:
+                    if isinstance(result, dict):
+                        handler = get_handler()
+                        assessment = getattr(handler, "_setup_assessment_result", None)
+                        if _setup_needs_agent_notice(assessment):
+                            key = _setup_notice_key(assessment)
+                            existing = result.get("diagnostics")
+                            if (
+                                getattr(handler, "_setup_agent_notice_key", None) != key
+                                and (existing is None or isinstance(existing, list))
+                            ):
+                                notice = setup_not_ready_diagnostic(assessment)
+                                result = dict(result)
+                                result["diagnostics"] = [*(existing or []), notice]
+                                handler._setup_agent_notice_key = key
+                except Exception:
+                    pass
+                return result
+
+            noticed_call._wf_setup_noticed = True  # type: ignore[attr-defined]
+            return noticed_call
+
+        tool.fn = _make(original)
+
+
 # Registration-time call wrappers, applied innermost first: cost, then the
-# lifecycle lock, then the upgrade-publication guard (wave 1y0h1). Each entry
+# lifecycle lock, then the upgrade-publication guard (wave 1y0h1), then the
+# setup-readiness notice (wave 1z2mc). Each entry
 # spells out its wrapper call so a module-level rebinding of the wrapper name
 # takes effect when the chain runs; the wrappers themselves stay the only
 # place a tool's callable is rebound.
@@ -17039,6 +17146,7 @@ MIDDLEWARE: tuple[tuple[str, Any], ...] = (
     ("cost", lambda mcp, get_handler: _wrap_first_party_tool_costs(mcp, get_handler)),
     ("lock", lambda mcp, get_handler: _wrap_lifecycle_mutation_lock(mcp, get_handler)),
     ("guard", lambda mcp, get_handler: _wrap_upgrade_publication_guard(mcp, get_handler)),
+    ("setup", lambda mcp, get_handler: _wrap_setup_notice(mcp, get_handler)),
 )
 
 

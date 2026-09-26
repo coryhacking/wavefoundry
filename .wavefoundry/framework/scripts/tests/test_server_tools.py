@@ -2524,6 +2524,83 @@ class RunnerIdentityTests(unittest.TestCase):
         self.assertIsNone(result["data"]["runner_stale"])
 
 
+class SetupReadinessOnStartAndReloadTests(unittest.TestCase):
+    """Wave 1z2mc: the runner hands its launch assessment to the handler, and a
+    reload assesses the new handler and reports it."""
+
+    NEEDS = {
+        "schema_version": 1, "status": "action_required", "signature": {},
+        "reasons": [{"code": "dependencies_missing", "message": "fastembed is missing"}],
+        "actions": [{"kind": "setup", "argv": ["wf", "setup"]}],
+        "startup_blocked": False, "limitations": [], "timings_ms": {},
+    }
+
+    def setUp(self):
+        self.srv = load_server()
+        self.runner = load_thin_runner()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = _make_repo(Path(self.tmp.name))
+        self._saved = (self.runner._handler, self.runner._root, self.runner._mcp,
+                       self.runner._STARTUP_ASSESSMENT, self.runner._STARTUP_ROOT)
+
+    def tearDown(self):
+        (self.runner._handler, self.runner._root, self.runner._mcp,
+         self.runner._STARTUP_ASSESSMENT, self.runner._STARTUP_ROOT) = self._saved
+        import server_impl as impl
+        impl.__dict__.pop("_SETUP_STARTUP_RESULT", None)
+        impl.__dict__.pop("_SETUP_STARTUP_ROOT", None)
+
+    def _build(self):
+        try:
+            self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+
+    def test_handler_starts_with_the_runner_launch_assessment(self):
+        launch = dict(self.NEEDS)
+        self.runner._STARTUP_ASSESSMENT = launch
+        # main() stores repo_root.discover_root(), which is always resolved.
+        self.runner._STARTUP_ROOT = self.root.resolve()
+        import setup_readiness
+        with patch.object(setup_readiness, "assess_setup", side_effect=AssertionError("second probe")):
+            self._build()
+        self.assertIs(self.runner._get_handler()._setup_assessment_result, launch)
+
+    def test_reload_assesses_and_reports_setup_that_needs_the_operator(self):
+        self._build()
+        import setup_readiness
+        with patch.object(setup_readiness, "assess_setup", return_value=dict(self.NEEDS)) as assess, \
+             patch.object(setup_readiness, "format_text", return_value=""):
+            reloaded = self.runner.perform_mcp_reload()
+        self.assertEqual(reloaded["status"], "ok", reloaded)
+        assess.assert_called()
+        self.assertEqual(reloaded["data"]["setup_readiness"]["status"], "action_required")
+        codes = [item["code"] for item in reloaded["diagnostics"]]
+        self.assertIn("setup_not_ready", codes)
+        handler = self.runner._get_handler()
+        import server_impl as impl
+        self.assertEqual(handler._setup_agent_notice_key, impl._setup_notice_key(self.NEEDS))
+        # The next wrapped tool call does not repeat it; clearing the key shows it does notify.
+        tool = self.runner._mcp._tool_manager._tools["wf_server_info"]
+
+        def notices():
+            return [d["code"] for d in tool.fn().get("diagnostics") or []].count("setup_not_ready")
+
+        self.assertEqual(notices(), 0)
+        handler._setup_agent_notice_key = None
+        self.assertEqual(notices(), 1)
+
+    def test_reload_with_ready_setup_reports_it_without_a_notice(self):
+        self._build()
+        import setup_readiness
+        ready = {**self.NEEDS, "status": "ready", "reasons": [], "actions": []}
+        with patch.object(setup_readiness, "assess_setup", return_value=ready):
+            reloaded = self.runner.perform_mcp_reload()
+        self.assertEqual(reloaded["data"]["setup_readiness"]["status"], "ready")
+        self.assertNotIn("setup_not_ready", [item["code"] for item in reloaded["diagnostics"]])
+
+
 class RunnerIdentitySetterCompatibilityTests(unittest.TestCase):
     """Wave 1u2b0 repair: a torn mid-upgrade tree (this runner + an OLDER server_impl whose
     ``set_server_runner_version`` takes only the version argument) must keep serving.

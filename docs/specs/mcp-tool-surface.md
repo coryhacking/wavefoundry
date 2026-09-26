@@ -1510,6 +1510,8 @@ not rely on `status` to signal index absence.
 
 Python runtime advice is available under `index_health().data.setup_readiness.advisories`, and as top-level `advisories` in `wf setup --check --json`. On Python 3.11/3.12, the entry has code `python_runtime_deprecated`, severity `warning`, the actual executing version, recommended minimum `3.13`, interpreter provenance and guidance. Python 3.13+ has no deprecation entry. Advice is separate from setup reasons/actions and does not alter status, startup blocking or exit codes. Independent failures retain their existing recovery actions; repeated health calls do not print another warning.
 
+**Setup readiness notices (wave `1z2mc`).** The server holds a setup assessment from launch (the runner's startup assessment, reused without a second probe), from each `wf_reload_mcp`, and from the index monitor's ticks. A `setup` wrapper, the last `MIDDLEWARE` entry, reads that cached result and never computes one. When the result is not `ready` and carries at least one action (`action_required`, or `indeterminate` with an action such as the restart after an upgrade), the next tool response carries one `setup_not_ready` diagnostic naming the reasons and the recommended command, bounded in length, and telling the agent to report it to the operator and ask before running anything. An action-less `indeterminate`, such as an index build in progress, never produces it. The notice appears once per distinct result per handler: a changed result or a reload shows it again. It is skipped for `index_health` (which returns the full result), runner-registered tools and coroutine tools, and it never changes a response's status or blocks a call. Nothing runs setup automatically.
+
 `index_build(content: str = "docs", mode: str = "update", layer: str = "project")`
 
 - Runs the semantic indexer **synchronously** for the current repo root.
@@ -1578,6 +1580,14 @@ Python runtime advice is available under `index_health().data.setup_readiness.ad
   tool's completed-send record. The rename from `queued` to
   `scheduled` does not strengthen the upgrade-path observation; the honesty
   gain is removal of the former schedule-time `sent: true` claim.
+- Setup readiness (wave `1z2mc`): the reload assesses the rebuilt handler at once
+  and returns the result as `data.setup_readiness` (the `index_health` shape). When
+  that result needs the operator, the response also carries a `setup_not_ready`
+  diagnostic (see **Setup readiness notices** above). The field and the reload
+  assessment live in the runner, so they arrive after one host restart. Until then
+  a reload's handler starts with the runner's launch-time result, which can be out
+  of date (so a notice may name something already fixed), until the index monitor's
+  next tick reassesses.
 - Transition class: changes to this tool's behavioral runner bytes in
   `server.py` are seed-160 class (c). An in-process reload cannot load them;
   fully restart every attached host before judging the new behavior. After a

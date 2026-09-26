@@ -468,6 +468,24 @@ def perform_mcp_reload(*, notify: str = "schedule") -> dict[str, Any]:
         if notify == "defer":
             payload["tool_list_changed_notification_required"] = tool_list_changed
         diagnostics = close_warnings + refresh_warnings
+        # Wave 1z2mc: assess the rebuilt handler now and report it, so a reload
+        # tells the agent when setup needs the operator.
+        try:
+            readiness = new_handler.assess_setup()
+        except Exception as exc:  # noqa: BLE001
+            readiness = None
+            diagnostics.append(
+                server_impl._diagnostic("setup_readiness_unavailable", str(exc))
+            )
+        if readiness is not None:
+            payload["setup_readiness"] = readiness
+            needs_notice = getattr(server_impl, "_setup_needs_agent_notice", None)
+            if needs_notice is not None and needs_notice(readiness):
+                try:
+                    diagnostics.append(server_impl.setup_not_ready_diagnostic(readiness))
+                    new_handler._setup_agent_notice_key = server_impl._setup_notice_key(readiness)
+                except Exception:  # noqa: BLE001
+                    pass
         # Wave 1u2b0: a reload cannot load new runner bytes, so when the runner set changed on
         # disk the reload response must say so in its own voice rather than leaving a bare
         # runner_stale flag under status ok. Same text wf_server_info attaches.
@@ -565,7 +583,7 @@ def build_server(root: Path):
         runner identity, which a reload never changes), ``runner_disk_identity``,
         ``runner_stale``, ``server_impl_version``, and ``impl_matches_disk`` so callers
         can verify an upgrade was applied in-process. ``runner_stale: true`` means the
-        un-reloadable runner files changed on disk and only a full host restart loads them, and the response then also carries a ``runner_stale`` diagnostic naming that restart. Also returns ``tools_reregistered`` (count of FastMCP tool
+        un-reloadable runner files changed on disk and only a full host restart loads them, and the response then also carries a ``runner_stale`` diagnostic naming that restart. ``setup_readiness`` is the rebuilt handler's setup assessment (the same shape ``index_health`` returns); when setup needs the operator it also carries a ``setup_not_ready`` diagnostic naming the reasons and the recommended command, which the agent reports and asks about before running anything. Also returns ``tools_reregistered`` (count of FastMCP tool
         callables refreshed against the freshly-reloaded server_impl) and three
         description-change-propagation fields (wave 131bt 131bu):
 

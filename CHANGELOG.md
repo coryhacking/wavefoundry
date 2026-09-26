@@ -8,6 +8,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The agent is told when setup needs you, after a start or a reload.** The server already ran the `wf setup --check` assessment, but a non-ready result went only to stderr and to `index_health`, so after a reload you had to ask the agent to check. Now the next tool response carries one `setup_not_ready` diagnostic naming the reason and the recommended command, and the agent is told to report it and ask before running anything. It appears once per distinct result, only when there is something to do (so not while an index build is running). `wf_reload_mcp` also assesses setup at once and returns `setup_readiness`. The reload part lives in the runner, so restart the MCP host once after upgrading. Wave `1z2mc`.
+
 ### Fixed
 
 - **`wf.cmd` no longer tells you to diagnose Python after ordinary failures.** The Windows launcher printed its "diagnose this workstation" hint after every non-zero exit, including `wf docs-lint` finding errors and `wf setup --check` reporting that setup needs attention. It now shows the hint only when `python3` itself cannot start, and passes every command's exit code through unchanged. Run **Upgrade Wavefoundry** (or `wf render-surfaces`) to re-render the launcher.

@@ -370,20 +370,20 @@ class RealSurfaceRegistryTests(_BootedSurface):
             self.assertIs(spec.callable, table[spec.name].fn, spec.name)
 
     def test_marker_records_the_wrappers_that_applied(self):
-        # AC-3: all three wrappers apply to wf_add_change; wf_prepare_wave is
-        # cost-exempt, so it carries only the lock and the guard.
+        # AC-3: all four wrappers apply to wf_add_change; wf_prepare_wave is
+        # cost-exempt, so it carries the lock, the guard and the setup notice.
         registry = self.impl._TOOL_REGISTRY
         self.assertEqual(
             getattr(registry.get("wf_add_change").callable, reg.MIDDLEWARE_MARKER),
-            ("cost", "lock", "guard"),
+            ("cost", "lock", "guard", "setup"),
         )
         self.assertEqual(
             getattr(registry.get("wf_prepare_wave").callable, reg.MIDDLEWARE_MARKER),
-            ("lock", "guard"),
+            ("lock", "guard", "setup"),
         )
 
     def test_chain_is_declared_in_application_order(self):
-        self.assertEqual([label for label, _ in self.impl.MIDDLEWARE], ["cost", "lock", "guard"])
+        self.assertEqual([label for label, _ in self.impl.MIDDLEWARE], ["cost", "lock", "guard", "setup"])
 
 
 class RosterWarningTests(unittest.TestCase):

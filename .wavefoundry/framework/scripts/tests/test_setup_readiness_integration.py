@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import types
 import unittest
 from unittest.mock import patch
 
@@ -294,6 +295,124 @@ class SharedAssessmentTests(unittest.TestCase):
             assess.return_value = {**result("indeterminate"), "reasons": [{"code": "busy", "message": "busy"}]}
             handler.assess_setup()
             self.assertEqual(stderr.getvalue().count("setup status"), notices + 1)
+
+
+
+class SetupNoticeWrapperTests(unittest.TestCase):
+    """Wave 1z2mc: tool responses tell the agent once when setup needs the operator."""
+
+    def setUp(self):
+        import server_impl
+        self.impl = server_impl
+        self.handler = types.SimpleNamespace(_setup_assessment_result=None)
+
+    def _wrap(self, **fns):
+        tools = {name: types.SimpleNamespace(fn=fn) for name, fn in fns.items()}
+        mcp = types.SimpleNamespace(_tool_manager=types.SimpleNamespace(_tools=tools))
+        self.impl._wrap_setup_notice(mcp, lambda: self.handler)
+        return tools
+
+    @staticmethod
+    def _needs(status="action_required", *, actions=None, code="dependencies_missing"):
+        return {
+            **result(status),
+            "reasons": [{"code": code, "message": "fastembed is missing"}],
+            "actions": [{"kind": "setup", "argv": ["wf", "setup"]}] if actions is None else actions,
+        }
+
+    @staticmethod
+    def _codes(response):
+        return [d["code"] for d in response.get("diagnostics") or []]
+
+    def test_notice_once_per_result_and_again_for_a_new_result_or_handler(self):
+        tools = self._wrap(code_read=lambda: {"status": "ok", "diagnostics": []})
+        self.handler._setup_assessment_result = self._needs()
+        first = tools["code_read"].fn()
+        self.assertEqual(self._codes(first), ["setup_not_ready"])
+        message = first["diagnostics"][0]["message"]
+        self.assertIn("dependencies_missing", message)
+        self.assertIn("wf setup", message)
+        self.assertIn("ask before running", message)
+        self.assertLessEqual(len(message), self.impl._SETUP_NOTICE_MAX_CHARS)
+        self.assertEqual(self._codes(tools["code_read"].fn()), [])
+        self.handler._setup_assessment_result = self._needs(code="index_missing")
+        self.assertEqual(self._codes(tools["code_read"].fn()), ["setup_not_ready"])
+        # A new handler (as after a reload) has not told the agent yet.
+        self.handler = types.SimpleNamespace(_setup_assessment_result=self._needs(code="index_missing"))
+        self.assertEqual(self._codes(tools["code_read"].fn()), ["setup_not_ready"])
+
+    def test_many_long_reasons_keep_the_command_and_the_ask_first_text(self):
+        many = {**self._needs(), "reasons": [
+            {"code": f"reason_{index}", "message": "x" * 150} for index in range(7)]}
+        message = self.impl.setup_not_ready_diagnostic(many)["message"]
+        self.assertLessEqual(len(message), self.impl._SETUP_NOTICE_MAX_CHARS)
+        self.assertIn("Recommended: wf setup", message)
+        self.assertTrue(message.endswith("ask before running any command."), message)
+
+    def test_a_failed_notice_does_not_consume_the_result(self):
+        tools = self._wrap(code_read=lambda: {"status": "ok", "diagnostics": []})
+        self.handler._setup_assessment_result = self._needs()
+        with patch.object(self.impl, "setup_not_ready_diagnostic", side_effect=ValueError("bad")):
+            self.assertEqual(self._codes(tools["code_read"].fn()), [])
+        self.assertEqual(self._codes(tools["code_read"].fn()), ["setup_not_ready"])
+
+    def test_only_results_with_an_action_notify(self):
+        tools = self._wrap(code_read=lambda: {"status": "ok", "diagnostics": []})
+        for quiet in (result("ready"), {**result("indeterminate"), "reasons": [
+                {"code": "observation_failed", "message": "index publication is in progress"}]}):
+            with self.subTest(status=quiet["status"]):
+                self.handler = types.SimpleNamespace(_setup_assessment_result=quiet)
+                self.assertEqual(self._codes(tools["code_read"].fn()), [])
+        # The post-upgrade restart assesses indeterminate but carries an action.
+        self.handler = types.SimpleNamespace(_setup_assessment_result=self._needs(
+            "indeterminate", actions=[{"kind": "restart", "argv": []}], code="loaded_code_stale"))
+        response = tools["code_read"].fn()
+        self.assertEqual(self._codes(response), ["setup_not_ready"])
+        self.assertIn("Restart", response["diagnostics"][0]["message"])
+        self.assertNotIn("..", response["diagnostics"][0]["message"])
+
+    def test_skips_runner_async_and_index_health_tools_and_never_nests(self):
+        async def wf_reload_mcp():
+            return {}
+
+        async def some_async():
+            return {}
+
+        def index_health():
+            return {"status": "ok", "diagnostics": []}
+
+        def code_read():
+            return {"status": "ok", "diagnostics": []}
+
+        tools = self._wrap(wf_reload_mcp=wf_reload_mcp, some_async=some_async,
+                           index_health=index_health, code_read=code_read)
+        self.assertIs(tools["wf_reload_mcp"].fn, wf_reload_mcp)
+        self.assertIs(tools["some_async"].fn, some_async)
+        self.assertIs(tools["index_health"].fn, index_health)
+        wrapped = tools["code_read"].fn
+        mcp = types.SimpleNamespace(_tool_manager=types.SimpleNamespace(_tools=tools))
+        self.impl._wrap_setup_notice(mcp, lambda: self.handler)  # as on a reload
+        self.assertIs(tools["code_read"].fn, wrapped)
+
+    def test_never_changes_the_call_outcome(self):
+        original = {"status": "ok", "diagnostics": [{"code": "existing"}]}
+        tools = self._wrap(
+            code_read=lambda: original,
+            code_text=lambda: "plain text",
+            code_odd=lambda: {"status": "ok", "diagnostics": "not a list"},
+        )
+        self.handler._setup_assessment_result = self._needs()
+        response = tools["code_read"].fn()
+        self.assertEqual(self._codes(response), ["existing", "setup_not_ready"])
+        self.assertEqual(original["diagnostics"], [{"code": "existing"}])  # not mutated
+        self.assertEqual(tools["code_text"].fn(), "plain text")
+        self.assertEqual(tools["code_odd"].fn()["diagnostics"], "not a list")
+        # A handler without setup state, or one that cannot be reached, is harmless.
+        self.handler = types.SimpleNamespace()
+        self.assertEqual(self._codes(tools["code_read"].fn()), ["existing"])
+        broken = self._wrap(code_read=lambda: {"status": "ok"})
+        with patch.object(self, "handler", None):
+            self.assertEqual(broken["code_read"].fn(), {"status": "ok"})
 
 
 if __name__ == "__main__":

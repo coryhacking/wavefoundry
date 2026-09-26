@@ -84,7 +84,8 @@ with tempfile.TemporaryDirectory() as tmp:
     new_handler = runner._get_handler()
     print(json.dumps({
         "reloaded": "mcp_reload" in resp["data"],
-        "codes": [d.get("code") for d in resp.get("diagnostics", [])],
+        # The scratch repo is not set up, so the reload's setup notice (wave 1z2mc) is expected.
+        "codes": [d.get("code") for d in resp.get("diagnostics", []) if d.get("code") != "setup_not_ready"],
         "fresh_handler": new_handler is not old_handler,
         "second_server_module": "server" in sys.modules,
     }))
