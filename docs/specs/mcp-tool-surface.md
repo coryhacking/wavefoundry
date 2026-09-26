@@ -379,7 +379,7 @@ Exactly 20 tools attach:
     "source_files_credited": 0,
     "source_credits_dropped": 0,
     "captured": true,
-    "persistence": "durable | duplicate | poisoned | failed",
+    "persistence": "durable | duplicate | spooled | poisoned | failed",
     "method": "utf8_bytes_div_4_phase_source_ledger"
   }
 }
@@ -446,7 +446,7 @@ versions establish file evidence, not that counterfactual.
     "invocation_id": "opaque per-invocation ID",
     "credited": false,
     "captured": true,
-    "persistence": "durable | duplicate | poisoned | failed",
+    "persistence": "durable | duplicate | spooled | poisoned | failed",
     "method": "utf8_bytes_div_4_workflow_closed_ledger",
     "limitation": "saved output and avoided loops require paired evidence"
   }
@@ -510,18 +510,35 @@ the unified estimate rather than disappearing from it.
   the sealed compact floor after disposable-store loss. This is the first
   shipped telemetry schema, so no versioned pre-release compatibility layer is
   retained.
-- A failed event transaction writes `context-efficiency.gap`; health becomes
-  `accounting_gap` and positive publication is suppressed. Precommit
-  instrumentation exceptions use the same poison-or-fatal path.
+- A failed event transaction is spooled rather than lost (wave `1z2ma`): the
+  event becomes one file under `.wavefoundry/logs/context-efficiency-spool/`
+  holding only what a commit needs (no exception text or call content) and the
+  call reports `persistence: "spooled"`, which is not fatal. Spooled events
+  replay oldest first on every Context Efficiency projection-monitor tick
+  (startup included) and at the start of every lifecycle flush, before the
+  general-bucket transfer; event-ID dedupe makes concurrent replay harmless, and
+  a replay keeps the open wave resolved when the event failed. A close that
+  still has a spooled event for the closing wave, or a wave-less one, marks the
+  wave `accounting_gap` before sealing it; a later replay into a sealed wave
+  goes to the general bucket as live events do. Health keeps its status and
+  adds `spooled_events` and `oldest_spooled_at`.
+- The gap file `context-efficiency.gap` is written only when a failure cannot
+  be spooled: the spool is full (`SPOOL_MAX_EVENTS`), the spool cannot be
+  written, or a spool file is unreadable. Health then becomes `accounting_gap`
+  and positive publication is suppressed. Precommit instrumentation exceptions,
+  which produce no event to spool, and a failed general-row transfer use the
+  poison-or-fatal path directly.
 - A busy or locked SQLite error is retried first: the event commit and the
   general-row transfer roll back and rerun the whole attempt, within one budget
   of 10 seconds per write (the store open shares it). Event-ID dedupe keeps
-  a replay exact. Other errors, and a lock that outlasts the budget, write the
-  gap. While a write waits, the stdio server waits with it.
+  a replay exact. Other errors, and a lock that outlasts the budget, spool the
+  event. While a write waits, the stdio server waits with it.
 - The gap file holds one JSON line with `recorded_at`, `operation`
-  (`event_commit`, `flush` or `instrumentation`), `error_type` and `message`,
-  never call content: `message` is kept only for SQLite errors, and is the
-  fixed reason `metric_not_captured` when a metric reported itself uncaptured. The first cause wins; later failures leave it in place.
+  (`event_commit`, `flush`, `instrumentation`, `spool_replay` or
+  `close_spool_mark`), `error_type` and `message`, never call content:
+  `message` is kept for SQLite errors, and is otherwise a fixed framework
+  reason (`metric_not_captured`; `spool_full` or `spool_unwritable` with the
+  last failure's type; or the name of an unreadable spool file). The first cause wins; later failures leave it in place.
   Health adds `gap_recorded_at`, `gap_operation`, `gap_error_type` and
   `gap_message` (null when a legacy empty file carries no reason), and its
   diagnostic names the clear command.
@@ -538,7 +555,8 @@ the unified estimate rather than disappearing from it.
   failure during the clear left a fresh gap in force. On Windows it retries a
   sharing violation on the gap file (another process reading it, or an antivirus
   scan) for up to 2 seconds; a lasting one leaves the gap in place. Waves created after the clear report normally.
-  Gap-period events are not backfilled, the general running total resumes from
+  Events that failed without being spooled are not backfilled, but events still
+  in the spool replay after the clear; the general running total resumes from
   the clear, and an absent store is never created.
 
 `index_health.data.background_monitors` reports the MCP index monitor and

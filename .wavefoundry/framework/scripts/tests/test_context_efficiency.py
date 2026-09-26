@@ -469,11 +469,13 @@ t.record_retrieval({
         self.assertEqual(stage["source_credit_count"], 1)
 
     def test_failed_transaction_poison_suppresses_positive_projection(self) -> None:
+        # Wave 1z2ma: a failure the spool cannot take (here a full spool) poisons.
         telemetry = ce.ProcessTelemetry(self.root)
         telemetry.set_focus("1wave", "implement")
         ce.store_path(self.root).unlink()
         ce.store_path(self.root).mkdir()
-        result = telemetry.record_retrieval(_metric(), event_id="failure")
+        with patch.object(ce, "SPOOL_MAX_EVENTS", 0):
+            result = telemetry.record_retrieval(_metric(), event_id="failure")
         self.assertEqual(result["persistence"], "poisoned")
         self.assertTrue(ce.gap_path(self.root).exists())
         self.assertEqual(
@@ -634,8 +636,8 @@ t.record_retrieval({
                     f"{count}-candidate warm p95 {p95:.3f}ms",
                 )
 
-    def test_competing_writer_fails_closed_at_the_retry_budget(self) -> None:
-        # Wave 1z2m4: a lock held past the busy-retry budget still poisons.
+    def test_competing_writer_spools_at_the_retry_budget(self) -> None:
+        # Wave 1z2m4 bounded the wait; wave 1z2ma keeps the event instead of poisoning.
         telemetry = ce.ProcessTelemetry(self.root)
         telemetry.set_focus("1wave", "review")
         blocker = sqlite3.connect(ce.store_path(self.root), timeout=0)
@@ -650,12 +652,13 @@ t.record_retrieval({
         finally:
             blocker.rollback()
             blocker.close()
-        self.assertEqual(public["persistence"], "poisoned")
+        self.assertEqual(public["persistence"], "spooled")
+        self.assertFalse(public.get("fatal_persistence_failure", False))
         self.assertGreaterEqual(elapsed, 0.2)
         self.assertLess(elapsed, 2.0)
-        reason = ce.read_gap_reason(self.root)
-        self.assertEqual(reason["operation"], "event_commit")
-        self.assertEqual(reason["error_type"], "OperationalError")
+        self.assertFalse(ce.gap_path(self.root).exists())
+        self.assertEqual(ce.replay_spool(self.root)["replayed"], 1)
+        self.assertEqual(ce.read_wave_snapshot(self.root, "1wave")["totals"]["calls"], 1)
 
     def test_pending_wave_census_fails_closed_on_missing_state_table(self) -> None:
         telemetry = ce.ProcessTelemetry(self.root)
@@ -1749,16 +1752,17 @@ class GapRecoveryTests(TempRootTest):
         self.assertEqual(result.persistence, "poisoned")
         self.assertEqual(ce.read_gap_reason(self.root)["operation"], "flush")
 
-    def test_non_transient_error_poisons_without_retrying(self) -> None:
+    def test_non_transient_error_spools_without_retrying(self) -> None:
         telemetry = ce.ProcessTelemetry(self.root)
         telemetry.set_focus("1wave", "implement")
         ce.store_path(self.root).unlink()
         ce.store_path(self.root).mkdir()
         with patch.object(ce.time, "sleep") as sleep:
             result = telemetry.record_retrieval(_metric(), event_id="failure")
-        self.assertEqual(result["persistence"], "poisoned")
+        self.assertEqual(result["persistence"], "spooled")
         sleep.assert_not_called()
-        self.assertEqual(ce.read_gap_reason(self.root)["operation"], "event_commit")
+        self.assertEqual(len(ce._spool_files(self.root)), 1)
+        self.assertFalse(ce.gap_path(self.root).exists())
 
     def test_flush_non_transient_error_poisons_without_retrying(self) -> None:
         general = ce.ProcessTelemetry(self.root)
@@ -2011,6 +2015,134 @@ class GapRecoveryTests(TempRootTest):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertTrue(json.loads(completed.stdout)["cleared"])
         self.assertFalse(ce.gap_path(self.root).exists())
+
+
+
+class SpoolTests(TempRootTest):
+    """Wave 1z2ma: a failed event commit is spooled and replayed, not poisoned."""
+
+    def _fail_once(self):
+        real = ce._commit_event_once
+        calls = {"n": 0}
+
+        def _flaky(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise sqlite3.DatabaseError("disk I/O error on secret-looking path")
+            return real(*args, **kwargs)
+
+        return patch.object(ce, "_commit_event_once", side_effect=_flaky)
+
+    def test_failed_commit_is_spooled_then_replayed_exactly_once(self) -> None:
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.set_focus("1wave", "implement")
+        with self._fail_once():
+            public = telemetry.record_retrieval(_metric(), event_id="evt-1")
+        self.assertEqual(public["persistence"], "spooled")
+        self.assertFalse(public.get("fatal_persistence_failure", False))
+        self.assertFalse(ce.gap_path(self.root).exists())
+        (spooled,) = ce._spool_files(self.root)
+        record = json.loads(spooled.read_text(encoding="utf-8"))
+        self.assertEqual(
+            set(record["metric"]),
+            {*ce._SPOOL_METRIC_FIELDS, "_source_credits"},
+        )
+        for credit in record["metric"]["_source_credits"]:
+            self.assertEqual(set(credit), set(ce._SPOOL_CREDIT_FIELDS))
+        self.assertNotIn("disk I/O error", spooled.read_text(encoding="utf-8"))
+        self.assertNotIn(":", spooled.name)  # valid on Windows
+        self.assertEqual(ce.replay_spool(self.root), {"replayed": 1, "kept": 0, "unreadable": 0})
+        self.assertEqual(ce._spool_files(self.root), [])
+        self.assertEqual(ce.read_wave_snapshot(self.root, "1wave")["totals"]["calls"], 1)
+        self.assertEqual(ce.replay_spool(self.root)["replayed"], 0)
+        self.assertEqual(ce.read_wave_snapshot(self.root, "1wave")["totals"]["calls"], 1)
+
+    def test_replay_keeps_the_failure_time_open_wave(self) -> None:
+        _write_wave(self.root, "1aaa first", "active")
+        ce._reset_open_wave_cache()
+        focusless = ce.ProcessTelemetry(self.root)
+        with self._fail_once():
+            self.assertEqual(
+                focusless.record_retrieval(_metric(), event_id="evt-2")["persistence"],
+                "spooled",
+            )
+        # The open wave changes before the replay, which runs in a fresh process.
+        _write_wave(self.root, "1aaa first", "closed")
+        _write_wave(self.root, "1bbb second", "active")
+        ce._reset_open_wave_cache()
+        self.assertEqual(ce.replay_spool(self.root)["replayed"], 1)
+        self.assertEqual(ce.read_wave_snapshot(self.root, "1aaa first")["totals"]["calls"], 1)
+        self.assertEqual(ce.read_wave_snapshot(self.root, "1bbb second")["totals"]["calls"], 0)
+
+    def test_concurrent_replays_of_one_event_count_it_once(self) -> None:
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.set_focus("1wave", "implement")
+        with self._fail_once():
+            telemetry.record_retrieval(_metric(), event_id="evt-3")
+        (spooled,) = ce._spool_files(self.root)
+        # A second replayer sees the same event (as two processes listing at once).
+        twin = spooled.with_name("0" + spooled.name)
+        twin.write_bytes(spooled.read_bytes())
+        result = ce.replay_spool(self.root)
+        self.assertEqual(result["replayed"], 2)
+        self.assertEqual(ce._spool_files(self.root), [])
+        self.assertEqual(ce.read_wave_snapshot(self.root, "1wave")["totals"]["calls"], 1)
+
+    def test_a_waiting_spool_keeps_health_and_publication_healthy(self) -> None:
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.set_focus("1wave", "implement")
+        telemetry.record_retrieval(_metric(), event_id="ok")
+        with self._fail_once():
+            telemetry.record_retrieval(_metric(), event_id="evt-4")
+        health = ce.read_store_health(self.root)
+        self.assertEqual(health["status"], "healthy")
+        self.assertEqual(health["spooled_events"], 1)
+        self.assertRegex(health["oldest_spooled_at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+        self.assertTrue(ce.pending_wave_ids(self.root)["ok"])
+
+    def test_a_full_spool_writes_the_gap_naming_it(self) -> None:
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.set_focus("1wave", "implement")
+        with patch.object(ce, "SPOOL_MAX_EVENTS", 0), self._fail_once():
+            public = telemetry.record_retrieval(_metric(), event_id="evt-5")
+        self.assertEqual(public["persistence"], "poisoned")
+        reason = ce.read_gap_reason(self.root)
+        self.assertIn("spool_full", reason["message"])
+        self.assertIn("DatabaseError", reason["message"])
+        self.assertEqual(ce.read_store_health(self.root)["spooled_events"], 0)
+
+    def test_an_unwritable_spool_writes_the_gap(self) -> None:
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.set_focus("1wave", "implement")
+        ce.spool_dir(self.root).parent.mkdir(parents=True, exist_ok=True)
+        ce.spool_dir(self.root).write_text("not a directory", encoding="utf-8")
+        with self._fail_once():
+            public = telemetry.record_retrieval(_metric(), event_id="evt-6")
+        self.assertEqual(public["persistence"], "poisoned")
+        reason = ce.read_gap_reason(self.root)
+        self.assertEqual(reason["operation"], "event_commit")
+        self.assertIn("spool_unwritable", reason["message"])
+        self.assertIn("DatabaseError", reason["message"])
+
+    def test_an_unreadable_spool_file_is_set_aside_and_writes_the_gap(self) -> None:
+        directory = ce.spool_dir(self.root)
+        directory.mkdir(parents=True)
+        (directory / "20260926T000000Z-000000000-bad.json").write_text("{broken", encoding="utf-8")
+        result = ce.replay_spool(self.root)
+        self.assertEqual(result["unreadable"], 1)
+        self.assertEqual(ce._spool_files(self.root), [])
+        self.assertIn("unreadable spool file", ce.read_gap_reason(self.root)["message"])
+
+    def test_a_gap_keeps_spooled_events_for_after_the_clear(self) -> None:
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.set_focus("1wave", "implement")
+        with self._fail_once():
+            telemetry.record_retrieval(_metric(), event_id="evt-7")
+        self.assertTrue(ce.poison_accounting_gap(self.root, error="x"))
+        self.assertEqual(ce.replay_spool(self.root)["kept"], 1)
+        self.assertEqual(ce.read_store_health(self.root)["spooled_events"], 1)
+        ce.clear_accounting_gap(self.root)
+        self.assertEqual(ce.replay_spool(self.root)["replayed"], 1)
 
 
 if __name__ == "__main__":

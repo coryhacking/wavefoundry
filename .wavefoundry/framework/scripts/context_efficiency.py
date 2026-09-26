@@ -667,6 +667,9 @@ __all__.extend(
         "pending_wave_ids",
         "poison_accounting_gap",
         "read_gap_reason",
+        "replay_spool",
+        "spooled_events_affecting",
+        "mark_wave_accounting_gap",
         "reconcile_checkpoint_authority",
     ]
 )
@@ -678,6 +681,17 @@ __all__.extend(
 
 STORE_SCHEMA_VERSION = 1
 GAP_RELATIVE_PATH = Path(".wavefoundry/logs/context-efficiency.gap")
+# Wave 1z2ma: a failed event commit is kept as one file here and replayed later.
+SPOOL_RELATIVE_DIR = Path(".wavefoundry/logs/context-efficiency-spool")
+SPOOL_MAX_EVENTS = 1000
+_SPOOL_SUFFIX = ".json"
+_SPOOL_METRIC_FIELDS = (
+    "estimated_request_tokens",
+    "estimated_returned_tokens",
+    "prompt_surface_tokens",
+    "derived_artifact_tokens",
+)
+_SPOOL_CREDIT_FIELDS = ("source_id", "version_id", "tokens", "credit_kind")
 MAX_PHASE_SOURCE_CREDITS = 100_000
 _PRE_RELEASE_TABLES = frozenset(
     {
@@ -1495,12 +1509,33 @@ def _commit_event(
             )
         )
     except Exception as exc:
+        # Wave 1z2ma: keep the event and replay it later; the gap is written only
+        # when the spool itself cannot take it.
+        spooled, reason = _spool_event(
+            root,
+            producer_id,
+            producer_reclaimable,
+            focus,
+            tool_name,
+            event_kind,
+            metric,
+            event_id=event_id,
+        )
+        if spooled:
+            return "spooled", 0, 0, 0
+        if reason:
+            reason = f"{reason}; last failure {type(exc).__name__}"
         return (
-            "poisoned" if _write_gap_sentinel(root, "event_commit", exc) else "failed",
+            "poisoned"
+            if _write_gap_sentinel(root, "event_commit", reason or exc)
+            else "failed",
             0,
             0,
             0,
         )
+
+
+_RESOLVE_OPEN_WAVE = object()
 
 
 def _commit_event_once(
@@ -1513,6 +1548,7 @@ def _commit_event_once(
     metric: Mapping[str, Any],
     *,
     event_id: str,
+    open_wave: Any = _RESOLVE_OPEN_WAVE,
 ) -> tuple[str, int, int, int]:
     conn: sqlite3.Connection | None = None
     try:
@@ -1536,10 +1572,18 @@ def _commit_event_once(
         ).fetchone():
             conn.commit()
             return "duplicate", 0, 0, 0
+        # A replayed spool event carries the open wave resolved when it failed,
+        # so its attribution does not drift to whatever is open at replay time.
+        if focus.wave_id:
+            open_wave_now = None
+        elif open_wave is _RESOLVE_OPEN_WAVE:
+            open_wave_now = resolve_open_wave(root)
+        else:
+            open_wave_now = open_wave
         resolution = resolve_attribution(
             focus.wave_id,
             focus.stage,
-            None if focus.wave_id else resolve_open_wave(root),
+            open_wave_now,
             _conn_sealed,
         )
         wave_id = resolution.wave_id
@@ -1678,6 +1722,232 @@ def _commit_event_once(
     finally:
         if conn is not None:
             conn.close()
+
+
+def spool_dir(root: Path) -> Path:
+    return Path(root) / SPOOL_RELATIVE_DIR
+
+
+def _spool_files(root: Path) -> list[Path]:
+    """Published spool files, oldest first (names start with a UTC timestamp)."""
+
+    directory = spool_dir(root)
+    try:
+        entries = list(directory.iterdir())
+    except OSError:
+        return []
+    return sorted(
+        entry for entry in entries
+        if entry.name.endswith(_SPOOL_SUFFIX) and not entry.name.startswith(".")
+    )
+
+
+def _spool_name(event_id: str) -> str:
+    safe = "".join(ch for ch in str(event_id) if ch.isalnum() or ch in "-_")
+    if not safe or len(safe) > 64:
+        safe = hashlib.sha256(str(event_id).encode("utf-8")).hexdigest()[:32]
+    # No ':' anywhere: it is invalid in Windows file names.
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    return f"{stamp}-{time.time_ns() % 1_000_000_000:09d}-{safe}{_SPOOL_SUFFIX}"
+
+
+def _spool_event(
+    root: Path,
+    producer_id: str,
+    producer_reclaimable: bool,
+    focus: Focus,
+    tool_name: str,
+    event_kind: str,
+    metric: Mapping[str, Any],
+    *,
+    event_id: str,
+) -> tuple[bool, Optional[str]]:
+    """Publish one failed event as a spool file; return (spooled, gap reason)."""
+
+    directory = spool_dir(root)
+    if len(_spool_files(root)) >= SPOOL_MAX_EVENTS:
+        return False, f"spool_full: {SPOOL_MAX_EVENTS} events are waiting to replay"
+    open_wave = None
+    if not focus.wave_id:
+        try:
+            resolved = resolve_open_wave(root)
+        except Exception:
+            resolved = None
+        open_wave = list(resolved) if resolved else None
+    credits = [
+        {key: raw.get(key) for key in _SPOOL_CREDIT_FIELDS}
+        for raw in metric.get("_source_credits", ()) or ()
+        if isinstance(raw, Mapping)
+    ]
+    record = {
+        "schema": 1,
+        "event_id": str(event_id),
+        "producer_id": str(producer_id),
+        "reclaimable": bool(producer_reclaimable),
+        "focus": asdict(focus),
+        "open_wave": open_wave,
+        "tool_name": str(tool_name),
+        "event_kind": str(event_kind),
+        "metric": {
+            **{key: int(metric.get(key, 0) or 0) for key in _SPOOL_METRIC_FIELDS},
+            "_source_credits": credits,
+        },
+        "spooled_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    payload = (json.dumps(record, sort_keys=True) + "\n").encode("utf-8")
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / _spool_name(event_id)
+        temp = directory / f".{path.name}.{uuid.uuid4().hex}.tmp"
+        _write_exclusive(temp, payload)
+        try:
+            try:
+                os.link(temp, path)
+            except FileExistsError:
+                pass
+            except OSError:
+                try:
+                    _write_exclusive(path, payload)
+                except FileExistsError:
+                    pass
+        finally:
+            try:
+                temp.unlink()
+            except OSError:
+                pass
+        return True, None
+    except OSError as exc:
+        return False, f"spool_unwritable: {type(exc).__name__}"
+
+
+def replay_spool(root: Path) -> dict[str, int]:
+    """Commit spooled events oldest first; never spools or poisons for a retry.
+
+    Safe to run from several processes at once: event-id deduplication turns a
+    second commit of the same event into ``duplicate``.
+    """
+
+    result = {"replayed": 0, "kept": 0, "unreadable": 0}
+    for path in _spool_files(root):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            continue
+        except OSError:
+            result["kept"] += 1
+            continue
+        try:
+            record = json.loads(text)
+            focus = Focus(**record["focus"])
+            open_wave = tuple(record["open_wave"]) if record.get("open_wave") else None
+            args = (
+                str(record["producer_id"]),
+                bool(record.get("reclaimable")),
+                focus,
+                str(record["tool_name"]),
+                str(record["event_kind"]),
+                dict(record["metric"]),
+            )
+            event_id = str(record["event_id"])
+        except (ValueError, KeyError, TypeError):
+            # Files are published whole, so this is damage, not a torn write:
+            # set it aside and fail closed.
+            try:
+                os.replace(path, path.with_name(path.name + ".unreadable"))
+            except OSError:
+                pass
+            _write_gap_sentinel(root, "spool_replay", f"unreadable spool file {path.name}")
+            result["unreadable"] += 1
+            continue
+        try:
+            status = _commit_event_once(
+                root, *args, event_id=event_id, open_wave=open_wave
+            )[0]
+        except Exception:
+            result["kept"] += 1
+            continue
+        if status in {"durable", "duplicate"}:
+            try:
+                path.unlink()
+            except OSError:
+                # Already removed, or held open by another replayer on Windows;
+                # the next pass sees a duplicate and removes it.
+                pass
+            result["replayed"] += 1
+        else:
+            result["kept"] += 1
+    return result
+
+
+def _spool_targets(record: Mapping[str, Any]) -> Optional[str]:
+    focus = record.get("focus") or {}
+    if isinstance(focus, Mapping) and focus.get("wave_id"):
+        return str(focus["wave_id"])
+    open_wave = record.get("open_wave")
+    if open_wave:
+        return str(open_wave[0])
+    return None
+
+
+def spooled_events_affecting(root: Path, wave_id: str) -> int:
+    """Spooled events for ``wave_id``, or with no wave (general-bucket work a close adopts).
+
+    An unreadable file counts, since its wave cannot be known.
+    """
+
+    count = 0
+    for path in _spool_files(root):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+            target = _spool_targets(record)
+        except FileNotFoundError:
+            continue
+        except (OSError, ValueError, TypeError, AttributeError):
+            count += 1
+            continue
+        if target is None or target == str(wave_id):
+            count += 1
+    return count
+
+
+def mark_wave_accounting_gap(root: Path, wave_id: str) -> None:
+    """Mark one wave's totals incomplete; creates its row when it has none."""
+
+    def _attempt() -> None:
+        conn = _open_write_store_once(root)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "INSERT INTO wave_state("
+                "wave_id,generation,pending,published_json,store_instance_id,"
+                "measurement_status) VALUES(?,1,1,NULL,?,'accounting_gap')"
+                " ON CONFLICT(wave_id) DO UPDATE SET "
+                "measurement_status='accounting_gap',"
+                "generation=generation+1,pending=1",
+                (str(wave_id), _store_instance_id(conn)),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    _with_busy_retry(_attempt)
+
+
+def _spool_health(root: Path) -> dict[str, Any]:
+    files = _spool_files(root)
+    oldest = None
+    if files:
+        stamp = files[0].name[:16]
+        try:
+            oldest = time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ", time.strptime(stamp, "%Y%m%dT%H%M%SZ")
+            )
+        except ValueError:
+            oldest = None
+    return {"spooled_events": len(files), "oldest_spooled_at": oldest}
 
 
 class ProcessTelemetry:
@@ -2067,7 +2337,15 @@ def _gap_health(reason: Optional[Mapping[str, str]]) -> dict[str, Optional[str]]
     return health
 
 
-def read_store_health(root: Path) -> dict[str, Optional[str]]:
+def read_store_health(root: Path) -> dict[str, Any]:
+    """Store health; spooled events are reported beside the status, never as one."""
+
+    health: dict[str, Any] = dict(_read_store_health_core(root))
+    health.update(_spool_health(root))
+    return health
+
+
+def _read_store_health_core(root: Path) -> dict[str, Optional[str]]:
     path = store_path(root)
     reason = read_gap_reason(root)
     if reason is not None:
@@ -3109,7 +3387,8 @@ def clear_accounting_gap(root: Path) -> dict[str, Any]:
     ``accounting_gap`` so its published totals never read as complete. The
     sentinel is set aside and the meta flag deleted in one write transaction;
     a failure recorded after the set-aside writes a fresh sentinel that stays.
-    Gap-period events are not backfilled, and the general running total
+    Events that failed without being spooled are not backfilled; events still
+    in the spool replay after the clear. The general running total
     resumes from the clear.
     """
 
@@ -3263,8 +3542,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
     elif result["cleared"]:
         result["note"] = (
-            "Marked waves keep an accounting_gap projection; gap-period events"
-            " are not backfilled and the general running total resumes now."
+            "Marked waves keep an accounting_gap projection; events that failed"
+            " without being spooled are not backfilled (spooled ones replay), and"
+            " the general running total resumes now."
         )
     else:
         result["note"] = "No accounting gap was present; nothing changed."

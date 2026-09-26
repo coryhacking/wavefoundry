@@ -3546,6 +3546,106 @@ if flushed is None or not flushed.success:
             handler.telemetry.close()
 
 
+class SpoolAtCloseTests(unittest.TestCase):
+    """Wave 1z2ma: a close replays the spool first and never seals an undercount as healthy."""
+
+    METRIC = {
+        "estimated_request_tokens": 1,
+        "estimated_returned_tokens": 1,
+        "estimated_source_tokens": 0,
+        "estimated_avoided_tokens": 0,
+        "source_files_counted": 0,
+        "source_files_verified": 0,
+        "source_files_estimated": 0,
+        "captured": True,
+        "persistence": "pending",
+        "method": ce.RETRIEVAL_METHOD,
+    }
+
+    def _closed_wave(self, root, wave_id):
+        _repo(root)
+        wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md.parent.mkdir(parents=True)
+        wave_md.write_text("# Wave Record\n\nStatus: closed\n", encoding="utf-8")
+        handler = SimpleNamespace(root=root, telemetry=ce.ProcessTelemetry(root))
+        handler.telemetry.set_focus(wave_id, "review", new_phase=True)
+        return handler
+
+    def _spool(self, handler, event_id, focus):
+        self.assertEqual(
+            ce._spool_event(
+                handler.root, handler.telemetry.producer_id, True, focus,
+                "code_read", "retrieval", self.METRIC, event_id=event_id,
+            ),
+            (True, None),
+        )
+
+    def test_close_replays_a_spooled_event_before_sealing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wave_id = "1aaaa spooled"
+            handler = self._closed_wave(root, wave_id)
+            handler.telemetry.record_retrieval(dict(self.METRIC), event_id="live")
+            self._spool(handler, "late", handler.telemetry.focus)
+            projection, _ = srv._flush_context_efficiency(handler, wave_id)
+            self.assertTrue(projection["sealed"])
+            snapshot = ce.read_wave_snapshot(root, wave_id)
+            self.assertEqual(snapshot["totals"]["calls"], 2)
+            self.assertEqual(snapshot["measurement_status"], "healthy")
+            self.assertEqual(ce._spool_files(root), [])
+            handler.telemetry.close()
+
+    def test_close_marks_the_wave_when_a_spooled_event_cannot_replay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wave_id = "1aaaa stuck"
+            handler = self._closed_wave(root, wave_id)
+            handler.telemetry.record_retrieval(dict(self.METRIC), event_id="live")
+            self._spool(handler, "stuck", handler.telemetry.focus)
+            with patch.object(
+                srv.context_efficiency, "_commit_event_once",
+                side_effect=sqlite3.OperationalError("disk I/O error"),
+            ):
+                projection, _ = srv._flush_context_efficiency(handler, wave_id)
+            self.assertTrue(projection["sealed"])
+            self.assertEqual(
+                ce.read_wave_snapshot(root, wave_id)["measurement_status"], "accounting_gap"
+            )
+            self.assertEqual(len(ce._spool_files(root)), 1)
+            handler.telemetry.close()
+
+    def test_a_wave_less_spooled_event_is_adopted_by_the_close(self):
+        # Replay runs before the general-bucket transfer, so the close adopts it.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wave_id = "1aaaa adopt"
+            handler = self._closed_wave(root, wave_id)
+            handler.telemetry.record_retrieval(dict(self.METRIC), event_id="live")
+            self._spool(handler, "general", ce.Focus())
+            projection, _ = srv._flush_context_efficiency(
+                handler, wave_id, transfer_general=True
+            )
+            self.assertTrue(projection["sealed"])
+            snapshot = ce.read_wave_snapshot(root, wave_id)
+            self.assertEqual(snapshot["totals"]["calls"], 2)
+            self.assertEqual(snapshot["measurement_status"], "healthy")
+            handler.telemetry.close()
+
+    def test_monitor_tick_replays_even_when_the_authority_is_unavailable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            handler = self._closed_wave(root, "1aaaa tick")
+            self._spool(handler, "tick", handler.telemetry.focus)
+            with patch.object(
+                srv.context_efficiency, "pending_wave_ids",
+                return_value={"ok": False, "status": "failed", "error": "x"},
+            ):
+                result = srv._maybe_project_context_efficiency(root, {})
+            self.assertEqual(result["reason"], "authority_unavailable")
+            self.assertEqual(ce._spool_files(root), [])
+            handler.telemetry.close()
+
+
 class LifecycleFocusReportingTests(unittest.TestCase):
     """1tmb3: stale-focus reporting, outcome classification, and the
     flush/focus asymmetry on ``ready_for_council_review``."""

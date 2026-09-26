@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-17
+Last verified: 2026-09-26
 
 Wavefoundry reports **Estimated context avoided** while its tools support a wave.
 The source component uses whole eligible file sizes as a baseline, converted with
@@ -356,8 +356,14 @@ pre-release compatibility layer is retained.
 
 ## Failure semantics
 
-An event transaction either commits atomically or writes the durable
-`.wavefoundry/logs/context-efficiency.gap` poison marker. While poisoned, the
+An event transaction either commits atomically or, when it still fails after the
+busy retry, is spooled as one file under
+`.wavefoundry/logs/context-efficiency-spool/` and replayed later (projection
+monitor ticks and lifecycle flushes, before the general-bucket transfer). A
+close that cannot replay a spooled event for the closing wave marks that wave
+`accounting_gap` before sealing it. Only a failure that cannot be spooled writes
+the durable `.wavefoundry/logs/context-efficiency.gap` poison marker (run
+`wf clear-accounting-gap` after checking its reason). While poisoned, the
 public headline is zero and new positive credit is refused. If neither the event
 nor the poison marker can be persisted, the public tool call fails with
 `telemetry_persistence_failed`; otherwise telemetry does not alter the core tool
@@ -365,6 +371,8 @@ result. Exceptions raised before the ordinary commit path use the same poison
 or fatal-failure decision; they cannot silently return an unaccounted success.
 
 Store health is explicit: `absent`, `healthy`, `accounting_gap`, or `failed`.
+It also reports `spooled_events` and `oldest_spooled_at`; waiting events never
+change the status, so they do not block projection or upgrade.
 An unreadable store never masquerades as authoritative zero.
 
 ## Saved output and avoided tool loops

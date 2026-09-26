@@ -67,6 +67,12 @@ def _maybe_project_context_efficiency(
     from wf_server import server_impl
     checked_at = time.time() if now is None else float(now)
     cfg = server_impl._read_ce_projection_config(root)
+    # Wave 1z2ma: replay failed writes on every tick (startup included), before
+    # anything below can return early on an unavailable authority.
+    try:
+        context_efficiency.replay_spool(root)
+    except Exception:
+        pass
     pending, error = _pending_ce_generations(root)
     if error:
         return {"last_checked_at": checked_at, "reason": "authority_unavailable",
@@ -264,6 +270,12 @@ def _flush_context_efficiency(
                 None,
             )
         canonical_wave = wave_md.parent.name
+        # Wave 1z2ma: replay failed writes before the general-bucket transfer
+        # below, so a close adopts every event it can.
+        try:
+            context_efficiency.replay_spool(root)
+        except Exception:
+            pass
         floor = server_impl._wave_checkpoint_floor(root, canonical_wave)
         initial_markdown, initial_read_error = _read_wave_record_text(wave_md)
         if initial_markdown is None:
@@ -306,6 +318,15 @@ def _flush_context_efficiency(
                 },
                 flushed,
             )
+        if sealed and context_efficiency.spooled_events_affecting(root, canonical_wave):
+            # An event this close could not replay would be missing from the
+            # sealed totals; mark them incomplete (store-wide gap if that fails).
+            try:
+                context_efficiency.mark_wave_accounting_gap(root, canonical_wave)
+            except Exception as exc:
+                context_efficiency.poison_accounting_gap(
+                    root, operation="close_spool_mark", error=exc
+                )
         projection = _project_context_efficiency_wave(
             root, canonical_wave, handler=handler, automatic=False
         )
