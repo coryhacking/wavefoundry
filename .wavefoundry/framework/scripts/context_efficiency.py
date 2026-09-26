@@ -993,10 +993,8 @@ def gap_path(root: Path) -> Path:
     return Path(root) / GAP_RELATIVE_PATH
 
 
-CLEAR_GAP_COMMAND = (
-    "python3 -B .wavefoundry/framework/scripts/context_efficiency.py"
-    " --root <repo> --clear-gap"
-)
+CLEAR_GAP_COMMAND = "./.wavefoundry/bin/wf clear-accounting-gap"
+CLEAR_GAP_COMMAND_WINDOWS = ".\\.wavefoundry\\bin\\wf.cmd clear-accounting-gap"
 # Busy/locked writes are retried as whole attempts within this budget before
 # the barrier is written (wave 1z2m4). Module constants so tests can shorten them.
 BUSY_RETRY_BUDGET_SECONDS = 10.0
@@ -1027,6 +1025,31 @@ def _with_busy_retry(attempt: Callable[[], Any]) -> Any:
             return attempt()
         except sqlite3.OperationalError as exc:
             if not _is_busy_error(exc):
+                raise
+            delay = next(delays, delay)
+            if time.monotonic() + delay > deadline:
+                raise
+            time.sleep(delay)
+
+
+# Windows refuses to rename a file another process has open (WinError 32: a
+# reader of the gap reason, or an antivirus scan). The clear retries that
+# briefly; it holds the store's write lock meanwhile, so the budget stays short
+# enough not to push other writers past their own busy budget.
+SHARING_RETRY_BUDGET_SECONDS = 2.0
+_SHARING_VIOLATION_RETRY = os.name == "nt"
+
+
+def _replace_with_retry(src: Path, dst: Path) -> None:
+    deadline = time.monotonic() + SHARING_RETRY_BUDGET_SECONDS
+    delays = iter(BUSY_RETRY_DELAYS)
+    delay = 0.0
+    while True:
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if not _SHARING_VIOLATION_RETRY:
                 raise
             delay = next(delays, delay)
             if time.monotonic() + delay > deadline:
@@ -1124,7 +1147,10 @@ def _gap_diagnostic(reason: Optional[Mapping[str, str]]) -> str:
         )
     else:
         text += " (reason not recorded)"
-    return f"{text}; clear it with `{CLEAR_GAP_COMMAND}`"
+    return (
+        f"{text}; clear it with `{CLEAR_GAP_COMMAND}`"
+        f" (native Windows: `{CLEAR_GAP_COMMAND_WINDOWS}`)"
+    )
 
 
 def poison_accounting_gap(
@@ -3109,7 +3135,7 @@ def clear_accounting_gap(root: Path) -> dict[str, Any]:
 
     def _set_aside(gap_in_store: bool) -> bool:
         if sentinel.exists():
-            os.replace(sentinel, aside)
+            _replace_with_retry(sentinel, aside)
             return True
         # A set-aside file with no live flag is left over from a clear that
         # already committed; it is not a gap.
@@ -3162,7 +3188,7 @@ def clear_accounting_gap(root: Path) -> dict[str, Any]:
     except Exception:
         # Put an uncleared reason back unless a newer failure already wrote one.
         if aside.exists() and not sentinel.exists():
-            os.replace(aside, sentinel)
+            _replace_with_retry(aside, sentinel)
         raise
     try:
         aside.unlink()
@@ -3200,13 +3226,23 @@ def _read_reason_file(path: Path) -> dict[str, str]:
     return {key: str(value) for key, value in record.items()}
 
 
+def _default_root() -> Path:
+    """The repository containing this framework: <repo>/.wavefoundry/framework/scripts/."""
+
+    return Path(__file__).resolve().parents[3]
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(
         description="Context-efficiency telemetry maintenance."
     )
-    parser.add_argument("--root", default=".", help="repository root")
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="repository root (default: the repository containing this framework)",
+    )
     parser.add_argument(
         "--clear-gap",
         action="store_true",
@@ -3215,7 +3251,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
-        result = clear_accounting_gap(Path(args.root).resolve())
+        root = Path(args.root) if args.root else _default_root()
+        result = clear_accounting_gap(root.resolve())
     except Exception as exc:
         print(json.dumps({"cleared": False, "error": f"{type(exc).__name__}: {exc}"}))
         return 1

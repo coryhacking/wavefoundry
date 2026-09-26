@@ -65,6 +65,12 @@ _SUBCOMMANDS: dict[str, dict] = {
     # Wave 1vqqi: the read-only publication audit over the same surface; findings are
     # data, not a gate, and the entry never writes.
     "techdocs-audit": {"module": "techdocs_audit", "script": "techdocs_audit.py"},
+    # Wave 1z2m6: lift the Context Efficiency accounting gap on purpose.
+    "clear-accounting-gap": {
+        "module": "context_efficiency",
+        "script": "context_efficiency.py",
+        "prefix": ["--clear-gap"],
+    },
     "memory-backfill": {
         "module": "memory_cli",
         "script": "memory_cli.py",
@@ -112,6 +118,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "gpu-doctor": "Embedding-provider / GPU capability diagnostic — same report as wf_gpu_doctor (gpu_doctor.py).",
         "techdocs-baseline": "Generate the missing-only Backstage catalog + TechDocs baseline: catalog-info.yaml, mkdocs.yml, docs/index.md (techdocs_baseline.py).",
         "techdocs-audit": "Audit the TechDocs publication surface read-only: nav targets, link boundary, page metadata, audience headings (techdocs_audit.py).",
+        "clear-accounting-gap": "Clear the Context Efficiency accounting gap after checking its recorded reason; waves it affected stay marked (context_efficiency.py --clear-gap).",
         "memory-backfill": "Inventory historical waves and draft one bounded memory batch.",
         "memory-validate": "Record focused agent judgment for one historical candidate.",
     }

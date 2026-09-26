@@ -35,24 +35,24 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 15024 |
-| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1287 |
-| graph | `.wavefoundry/framework/scripts` | code | 389 |
-| docs | `docs` | code | 343 |
-| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 335 |
-| scripts/run_tests | `.wavefoundry/framework/scripts` | code | 294 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 15036 |
+| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1396 |
+| graph | `.wavefoundry/framework/scripts` | code | 394 |
+| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 383 |
+| workflow-config | `.wavefoundry/framework/scripts` | code | 325 |
+| scripts/wave_lint_lib — render_agent_surfaces | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 323 |
 | chunker | `.wavefoundry/framework/scripts` | code | 283 |
-| store | `.wavefoundry/framework/scripts` | code | 261 |
+| framework index | `.wavefoundry/framework/scripts` | code | 242 |
+| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 235 |
+| scripts/run_tests | `.wavefoundry/framework/scripts` | code | 224 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 223 |
-| indexer | `.wavefoundry/framework/scripts` | code | 219 |
-| workflow-config | `.wavefoundry/framework/scripts` | code | 210 |
-| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 182 |
-| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 149 |
-| scripts/scripts/commit_provenance 1 | `.wavefoundry/framework/scripts` | code | 146 |
-| scripts/memory_records | `.wavefoundry/framework/scripts` | code | 109 |
-| memory_records | `.wavefoundry/framework/scripts` | code | 105 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 104 |
-| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 53 |
+| indexer | `.wavefoundry/framework/scripts` | code | 214 |
+| scripts/scripts/commit_provenance 1 | `.wavefoundry/framework/scripts` | code | 142 |
+| scripts/wave_lint_lib — check_hardcoded_secrets | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 104 |
+| scripts/memory_records | `.wavefoundry/framework/scripts` | code | 93 |
+| scripts/render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 79 |
+| upgrade_extensions | `.wavefoundry/framework/scripts` | code | 67 |
+| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 54 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 46 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
 | evidence | `docs/waves/1yzd0 server-package-boundary/evidence` | code | 36 |

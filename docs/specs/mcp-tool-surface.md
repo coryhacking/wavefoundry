@@ -525,15 +525,19 @@ the unified estimate rather than disappearing from it.
   Health adds `gap_recorded_at`, `gap_operation`, `gap_error_type` and
   `gap_message` (null when a legacy empty file carries no reason), and its
   diagnostic names the clear command.
-- `python3 -B .wavefoundry/framework/scripts/context_efficiency.py --root <repo>
-  --clear-gap` lifts the gap on purpose. In one write transaction it marks every
+- `wf clear-accounting-gap` (no-PATH forms `./.wavefoundry/bin/wf
+  clear-accounting-gap`, native Windows `.\.wavefoundry\bin\wf.cmd
+  clear-accounting-gap`) lifts the gap on purpose. Without `--root` it targets
+  the repository that contains the framework, from any folder. In one write transaction it marks every
   unsealed wave, and every wave folder that is not closed, `accounting_gap`, so
   a wave that lived through the gap never publishes an undercount as complete.
   The same transaction sets the gap file aside and deletes the `meta` flag. The
   command prints `found.gap_file` and `found.store_flag` (what existed before it
   opened the store for writing; a store flag with no file means the reason was
   lost), the recorded reason, the waves it marked, and `new_gap_recorded` when a
-  failure during the clear left a fresh gap in force. Waves created after the clear report normally.
+  failure during the clear left a fresh gap in force. On Windows it retries a
+  sharing violation on the gap file (another process reading it, or an antivirus
+  scan) for up to 2 seconds; a lasting one leaves the gap in place. Waves created after the clear report normally.
   Gap-period events are not backfilled, the general running total resumes from
   the clear, and an absent store is never created.
 

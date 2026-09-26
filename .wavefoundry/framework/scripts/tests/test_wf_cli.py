@@ -74,6 +74,7 @@ class WfCliDispatchTests(unittest.TestCase):
             "secrets-scan": "run_secrets_scan",
             "gpu-doctor": "gpu_doctor",
             "techdocs-baseline": "techdocs_baseline",
+            "clear-accounting-gap": "context_efficiency",
         }
         for sub, module_name in expected.items():
             with self.subTest(sub=sub):
@@ -171,6 +172,49 @@ class WfCliDispatchTests(unittest.TestCase):
         with patch("importlib.import_module", return_value=m):
             rc = self.mod.main(["codebase-map"])
         self.assertEqual(rc, 0)
+
+
+class ClearAccountingGapSubcommandTests(unittest.TestCase):
+    """Wave 1z2m6: `wf clear-accounting-gap` runs the Context Efficiency gap clear."""
+
+    def test_registered_with_the_clear_flag_prefixed(self):
+        mod = load_wf_cli()
+        spec = mod._SUBCOMMANDS["clear-accounting-gap"]
+        self.assertEqual(spec["module"], "context_efficiency")
+        self.assertEqual(spec["prefix"], ["--clear-gap"])
+
+    def test_forwards_the_clear_flag_ahead_of_operator_args(self):
+        mod = load_wf_cli()
+        rec: dict = {}
+        fake = ModuleType("context_efficiency")
+
+        def _main(argv):
+            rec["argv"] = argv
+            return 0
+
+        fake.main = _main
+        with patch("importlib.import_module", return_value=fake):
+            self.assertEqual(mod.main(["clear-accounting-gap", "--root", "/tmp/x"]), 0)
+        self.assertEqual(rec["argv"], ["--clear-gap", "--root", "/tmp/x"])
+
+    def test_clears_a_real_gap_end_to_end(self):
+        import json
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            gap = Path(tmp) / ".wavefoundry" / "logs" / "context-efficiency.gap"
+            gap.parent.mkdir(parents=True)
+            gap.write_text('{"operation": "event_commit"}\n', encoding="utf-8")
+            completed = subprocess.run(
+                [sys.executable, "-B", str(WF_CLI_PATH), "clear-accounting-gap", "--root", tmp],
+                capture_output=True, text=True, timeout=120,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            result = json.loads(completed.stdout)
+            self.assertTrue(result["cleared"])
+            self.assertEqual(result["found"], {"gap_file": True, "store_flag": False})
+            self.assertFalse(gap.exists())
 
 
 class GpuDoctorSubcommandTests(unittest.TestCase):

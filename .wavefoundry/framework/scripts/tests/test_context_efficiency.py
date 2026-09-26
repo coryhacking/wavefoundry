@@ -1820,7 +1820,7 @@ class GapRecoveryTests(TempRootTest):
         self.assertEqual(health["gap_recorded_at"], record["recorded_at"])
         self.assertEqual(health["gap_operation"], "instrumentation")
         self.assertIn("database is locked", health["diagnostic"])
-        self.assertIn("--clear-gap", health["diagnostic"])
+        self.assertIn("wf clear-accounting-gap", health["diagnostic"])
 
     def test_legacy_empty_sentinel_still_reports_the_gap(self) -> None:
         ce.gap_path(self.root).parent.mkdir(parents=True, exist_ok=True)
@@ -1830,6 +1830,9 @@ class GapRecoveryTests(TempRootTest):
         self.assertIsNone(health["gap_recorded_at"])
         self.assertIn("reason not recorded", health["diagnostic"])
         self.assertIn(ce.CLEAR_GAP_COMMAND, health["diagnostic"])
+        # Each form is its own code span so it can be copied as one piece.
+        self.assertIn(f"`{ce.CLEAR_GAP_COMMAND}`", health["diagnostic"])
+        self.assertIn(f"`{ce.CLEAR_GAP_COMMAND_WINDOWS}`", health["diagnostic"])
 
     def test_clear_keeps_gap_affected_waves_marked(self) -> None:
         _write_wave(self.root, "1aaa open-wave", "active")
@@ -1921,6 +1924,73 @@ class GapRecoveryTests(TempRootTest):
         self.assertFalse(ce.gap_path(self.root).exists())
         self.assertFalse(ce.store_path(self.root).exists())
         self.assertFalse(ce.clear_accounting_gap(self.root)["cleared"])
+
+    def _gap_with_store(self) -> None:
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.set_focus("1wave", "implement")
+        telemetry.record_retrieval(_metric(), event_id="before")
+        self.assertTrue(ce.poison_accounting_gap(self.root, error="x"))
+
+    def test_clear_retries_a_windows_sharing_violation(self) -> None:
+        # Wave 1z2m6: on Windows a reader holding the gap file open makes the
+        # rename fail with PermissionError (WinError 32) until it closes.
+        self._gap_with_store()
+        real_replace = os.replace
+        calls = []
+
+        def _replace(src, dst):
+            calls.append(src)
+            if len(calls) == 1:
+                raise PermissionError(13, "The process cannot access the file")
+            return real_replace(src, dst)
+
+        with patch.object(ce, "_SHARING_VIOLATION_RETRY", True), \
+             patch.object(ce.os, "replace", side_effect=_replace):
+            cleared = ce.clear_accounting_gap(self.root)
+        self.assertTrue(cleared["cleared"])
+        self.assertEqual(len(calls), 2)
+        self.assertFalse(ce.gap_path(self.root).exists())
+        self.assertEqual(ce.read_store_health(self.root)["status"], "healthy")
+
+    def test_a_lasting_sharing_violation_leaves_the_gap_in_place(self) -> None:
+        self._gap_with_store()
+        with patch.object(ce, "_SHARING_VIOLATION_RETRY", True), \
+             patch.object(ce, "SHARING_RETRY_BUDGET_SECONDS", 0.1), \
+             patch.object(ce.os, "replace", side_effect=PermissionError(13, "locked")):
+            with self.assertRaises(PermissionError):
+                ce.clear_accounting_gap(self.root)
+        self.assertTrue(ce.gap_path(self.root).exists())
+        self.assertEqual(ce.read_store_health(self.root)["status"], "accounting_gap")
+
+    def test_permission_error_is_not_retried_off_windows(self) -> None:
+        self._gap_with_store()
+        with patch.object(ce, "_SHARING_VIOLATION_RETRY", False), \
+             patch.object(ce.time, "sleep") as sleep, \
+             patch.object(ce.os, "replace", side_effect=PermissionError(13, "denied")):
+            with self.assertRaises(PermissionError):
+                ce.clear_accounting_gap(self.root)
+        sleep.assert_not_called()
+        self.assertTrue(ce.gap_path(self.root).exists())
+
+    def test_clear_command_defaults_to_the_containing_repository(self) -> None:
+        # Wave 1z2m6: run from a subfolder with no --root, the clear targets the
+        # repository that contains the framework, not the current directory.
+        self.assertTrue(ce.poison_accounting_gap(self.root, error="x"))
+        subdir = self.root / "src" / "deep"
+        subdir.mkdir(parents=True)
+        previous = os.getcwd()
+        os.chdir(subdir)
+        try:
+            with patch.object(ce, "_default_root", return_value=self.root), \
+                 patch("sys.stdout", new=io.StringIO()) as out:
+                self.assertEqual(ce.main(["--clear-gap"]), 0)
+        finally:
+            os.chdir(previous)
+        self.assertTrue(json.loads(out.getvalue())["cleared"])
+        self.assertFalse(ce.gap_path(self.root).exists())
+
+    def test_default_root_is_three_levels_above_the_script(self) -> None:
+        self.assertEqual(ce._default_root(), SCRIPTS_DIR.parents[2])
 
     def test_clear_command_runs_as_a_script(self) -> None:
         self.assertTrue(ce.poison_accounting_gap(self.root, error="x"))
