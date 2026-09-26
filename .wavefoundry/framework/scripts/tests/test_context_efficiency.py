@@ -634,22 +634,28 @@ t.record_retrieval({
                     f"{count}-candidate warm p95 {p95:.3f}ms",
                 )
 
-    def test_competing_writer_fails_closed_within_one_second(self) -> None:
+    def test_competing_writer_fails_closed_at_the_retry_budget(self) -> None:
+        # Wave 1z2m4: a lock held past the busy-retry budget still poisons.
         telemetry = ce.ProcessTelemetry(self.root)
         telemetry.set_focus("1wave", "review")
         blocker = sqlite3.connect(ce.store_path(self.root), timeout=0)
         blocker.execute("BEGIN IMMEDIATE")
         try:
             started = time.perf_counter()
-            public = telemetry.record_retrieval(
-                _metric(), event_id="contended"
-            )
+            with patch.object(ce, "BUSY_RETRY_BUDGET_SECONDS", 0.3):
+                public = telemetry.record_retrieval(
+                    _metric(), event_id="contended"
+                )
             elapsed = time.perf_counter() - started
         finally:
             blocker.rollback()
             blocker.close()
         self.assertEqual(public["persistence"], "poisoned")
-        self.assertLess(elapsed, 1.0)
+        self.assertGreaterEqual(elapsed, 0.2)
+        self.assertLess(elapsed, 2.0)
+        reason = ce.read_gap_reason(self.root)
+        self.assertEqual(reason["operation"], "event_commit")
+        self.assertEqual(reason["error_type"], "OperationalError")
 
     def test_pending_wave_census_fails_closed_on_missing_state_table(self) -> None:
         telemetry = ce.ProcessTelemetry(self.root)
@@ -1670,6 +1676,270 @@ class AdditiveColumnMigrationTests(TempRootTest):
         self.assertIn("derived_artifact_tokens", cols)
         self.assertEqual(row[0], "focus")
         self.assertIsNone(gap)
+        self.assertFalse(ce.gap_path(self.root).exists())
+
+
+
+def _hold_then_release(path: Path, hold_seconds: float) -> threading.Thread:
+    """Hold a write lock on ``path`` from a second connection, then release it."""
+
+    ready = threading.Event()
+
+    def _run() -> None:
+        blocker = sqlite3.connect(path, timeout=0, check_same_thread=False)
+        blocker.execute("BEGIN IMMEDIATE")
+        ready.set()
+        time.sleep(hold_seconds)
+        blocker.rollback()
+        blocker.close()
+
+    thread = threading.Thread(target=_run)
+    thread.start()
+    ready.wait()
+    return thread
+
+
+def _write_wave(root: Path, name: str, status: str) -> None:
+    wave_dir = root / "docs" / "waves" / name
+    wave_dir.mkdir(parents=True, exist_ok=True)
+    (wave_dir / "wave.md").write_text(
+        f"# Wave\n\nStatus: {status}\n", encoding="utf-8"
+    )
+
+
+class GapRecoveryTests(TempRootTest):
+    """Wave 1z2m4: retry busy writes, record why the gap began, clear it on purpose."""
+
+    def test_lock_released_during_retries_commits_durably(self) -> None:
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.set_focus("1wave", "review")
+        holder = _hold_then_release(ce.store_path(self.root), 0.4)
+        try:
+            public = telemetry.record_retrieval(_metric(), event_id="waited")
+        finally:
+            holder.join()
+        self.assertEqual(public["persistence"], "durable")
+        self.assertFalse(ce.gap_path(self.root).exists())
+        self.assertEqual(ce.read_store_health(self.root)["status"], "healthy")
+
+    def test_flush_transfer_retries_a_busy_lock(self) -> None:
+        general = ce.ProcessTelemetry(self.root)
+        general.record_retrieval(_metric(), event_id="general")
+        holder = _hold_then_release(ce.store_path(self.root), 0.4)
+        try:
+            result = general.flush(self.root, transfer_general_to="1wave")
+        finally:
+            holder.join()
+        self.assertTrue(result.success, result.error)
+        self.assertEqual(result.persistence, "durable")
+        self.assertIn("1wave", result.touched_waves)
+        self.assertFalse(ce.gap_path(self.root).exists())
+
+    def test_flush_transfer_poisons_past_the_budget_with_its_reason(self) -> None:
+        general = ce.ProcessTelemetry(self.root)
+        general.record_retrieval(_metric(), event_id="general")
+        blocker = sqlite3.connect(ce.store_path(self.root), timeout=0)
+        blocker.execute("BEGIN IMMEDIATE")
+        try:
+            with patch.object(ce, "BUSY_RETRY_BUDGET_SECONDS", 0.2):
+                result = general.flush(self.root, transfer_general_to="1wave")
+        finally:
+            blocker.rollback()
+            blocker.close()
+        self.assertEqual(result.persistence, "poisoned")
+        self.assertEqual(ce.read_gap_reason(self.root)["operation"], "flush")
+
+    def test_non_transient_error_poisons_without_retrying(self) -> None:
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.set_focus("1wave", "implement")
+        ce.store_path(self.root).unlink()
+        ce.store_path(self.root).mkdir()
+        with patch.object(ce.time, "sleep") as sleep:
+            result = telemetry.record_retrieval(_metric(), event_id="failure")
+        self.assertEqual(result["persistence"], "poisoned")
+        sleep.assert_not_called()
+        self.assertEqual(ce.read_gap_reason(self.root)["operation"], "event_commit")
+
+    def test_flush_non_transient_error_poisons_without_retrying(self) -> None:
+        general = ce.ProcessTelemetry(self.root)
+        general.record_retrieval(_metric(), event_id="general")
+        ce.store_path(self.root).unlink()
+        ce.store_path(self.root).mkdir()
+        with patch.object(ce.time, "sleep") as sleep:
+            result = general.flush(self.root, transfer_general_to="1wave")
+        self.assertEqual(result.persistence, "poisoned")
+        sleep.assert_not_called()
+        self.assertEqual(ce.read_gap_reason(self.root)["operation"], "flush")
+
+    def test_clear_ignores_a_set_aside_file_left_by_a_committed_clear(self) -> None:
+        _write_wave(self.root, "1aaa open-wave", "active")
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.set_focus("1aaa open-wave", "implement")
+        telemetry.record_retrieval(_metric(), event_id="healthy")
+        leftover = ce.gap_path(self.root).with_name(
+            ce.gap_path(self.root).name + ".clearing"
+        )
+        leftover.write_bytes(b"")
+        cleared = ce.clear_accounting_gap(self.root)
+        self.assertFalse(cleared["cleared"])
+        self.assertEqual(cleared["found"], {"gap_file": False, "store_flag": False})
+        self.assertEqual(cleared["marked_waves"], [])
+        self.assertFalse(leftover.exists())
+        self.assertEqual(
+            ce.read_wave_snapshot(self.root, "1aaa open-wave")["measurement_status"],
+            "healthy",
+        )
+
+    def test_instrumentation_exception_text_is_not_recorded(self) -> None:
+        self.assertTrue(
+            ce.poison_accounting_gap(self.root, error=ValueError("response text"))
+        )
+        reason = ce.read_gap_reason(self.root)
+        self.assertEqual(reason["error_type"], "ValueError")
+        self.assertEqual(reason["message"], "")
+
+    def test_sentinel_records_the_first_cause_and_no_call_content(self) -> None:
+        self.assertTrue(
+            ce.poison_accounting_gap(
+                self.root, error=sqlite3.OperationalError("database is locked")
+            )
+        )
+        first = ce.gap_path(self.root).read_text(encoding="utf-8")
+        record = json.loads(first)
+        self.assertEqual(
+            set(record), {"recorded_at", "operation", "error_type", "message"}
+        )
+        self.assertEqual(record["operation"], "instrumentation")
+        self.assertEqual(record["error_type"], "OperationalError")
+        self.assertEqual(record["message"], "database is locked")
+        # A later failure still counts as poisoned but keeps the original cause.
+        self.assertTrue(ce._write_gap_sentinel(self.root, "flush", RuntimeError("later")))
+        self.assertEqual(ce.gap_path(self.root).read_text(encoding="utf-8"), first)
+        health = ce.read_store_health(self.root)
+        self.assertEqual(health["status"], "accounting_gap")
+        self.assertEqual(health["gap_recorded_at"], record["recorded_at"])
+        self.assertEqual(health["gap_operation"], "instrumentation")
+        self.assertIn("database is locked", health["diagnostic"])
+        self.assertIn("--clear-gap", health["diagnostic"])
+
+    def test_legacy_empty_sentinel_still_reports_the_gap(self) -> None:
+        ce.gap_path(self.root).parent.mkdir(parents=True, exist_ok=True)
+        ce.gap_path(self.root).write_bytes(b"")
+        health = ce.read_store_health(self.root)
+        self.assertEqual(health["status"], "accounting_gap")
+        self.assertIsNone(health["gap_recorded_at"])
+        self.assertIn("reason not recorded", health["diagnostic"])
+        self.assertIn(ce.CLEAR_GAP_COMMAND, health["diagnostic"])
+
+    def test_clear_keeps_gap_affected_waves_marked(self) -> None:
+        _write_wave(self.root, "1aaa open-wave", "active")
+        _write_wave(self.root, "1bbb done-wave", "closed")
+        _write_wave(self.root, "1ccc planned-wave", "planned")
+        opened = ce.ProcessTelemetry(self.root)
+        opened.set_focus("1aaa open-wave", "implement")
+        self.assertEqual(
+            opened.record_retrieval(_metric(), event_id="before")["persistence"],
+            "durable",
+        )
+        self.assertTrue(ce.poison_accounting_gap(self.root, error="metric_not_captured"))
+        # While the gap holds, the planned wave's first event is refused, so it has no row.
+        planned = ce.ProcessTelemetry(self.root)
+        planned.set_focus("1ccc planned-wave", "plan")
+        self.assertEqual(
+            planned.record_retrieval(_metric(), event_id="during")["persistence"],
+            "poisoned",
+        )
+
+        cleared = ce.clear_accounting_gap(self.root)
+
+        self.assertTrue(cleared["cleared"])
+        # The refused event's write open had copied the file into the store flag.
+        self.assertEqual(cleared["found"], {"gap_file": True, "store_flag": True})
+        self.assertEqual(cleared["reason"]["message"], "metric_not_captured")
+        self.assertIn("1aaa open-wave", cleared["marked_waves"])
+        self.assertIn("1ccc planned-wave", cleared["marked_waves"])
+        self.assertNotIn("1bbb done-wave", cleared["marked_waves"])
+        self.assertFalse(ce.gap_path(self.root).exists())
+        self.assertEqual(ce.read_store_health(self.root)["status"], "healthy")
+        for name in ("1aaa open-wave", "1ccc planned-wave"):
+            telemetry = ce.ProcessTelemetry(self.root)
+            telemetry.set_focus(name, "implement")
+            self.assertEqual(
+                telemetry.record_retrieval(_metric(), event_id=f"after-{name}")[
+                    "persistence"
+                ],
+                "durable",
+            )
+            snapshot = ce.read_wave_snapshot(self.root, name)
+            self.assertEqual(snapshot["measurement_status"], "accounting_gap", name)
+            self.assertEqual(snapshot["totals"]["estimated_tokens_saved"], 0, name)
+        fresh = ce.ProcessTelemetry(self.root)
+        fresh.set_focus("1ddd after-clear", "implement")
+        fresh.record_retrieval(_metric(), event_id="fresh")
+        snapshot = ce.read_wave_snapshot(self.root, "1ddd after-clear")
+        self.assertEqual(snapshot["measurement_status"], "healthy")
+        self.assertGreater(snapshot["totals"]["estimated_tokens_saved"], 0)
+
+        again = ce.clear_accounting_gap(self.root)
+        self.assertFalse(again["cleared"])
+        self.assertEqual(again["marked_waves"], [])
+        self.assertEqual(
+            ce.read_wave_snapshot(self.root, "1ddd after-clear")["measurement_status"],
+            "healthy",
+        )
+
+    def test_clear_reports_a_gap_found_only_as_the_file(self) -> None:
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.set_focus("1wave", "implement")
+        telemetry.record_retrieval(_metric(), event_id="before")
+        self.assertTrue(ce.poison_accounting_gap(self.root, error="metric_not_captured"))
+        cleared = ce.clear_accounting_gap(self.root)
+        self.assertTrue(cleared["cleared"])
+        self.assertEqual(cleared["found"], {"gap_file": True, "store_flag": False})
+        self.assertEqual(cleared["reason"]["message"], "metric_not_captured")
+
+    def test_clear_reports_a_gap_found_only_in_the_store(self) -> None:
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.set_focus("1wave", "implement")
+        telemetry.record_retrieval(_metric(), event_id="before")
+        conn = sqlite3.connect(ce.store_path(self.root))
+        conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('accounting_gap','1')")
+        conn.commit()
+        conn.close()
+        cleared = ce.clear_accounting_gap(self.root)
+        self.assertTrue(cleared["cleared"])
+        self.assertEqual(cleared["found"], {"gap_file": False, "store_flag": True})
+        self.assertIsNone(cleared["reason"])
+        self.assertIn("1wave", cleared["marked_waves"])
+        self.assertEqual(ce.read_store_health(self.root)["status"], "healthy")
+
+    def test_clear_without_a_store_never_creates_one(self) -> None:
+        self.assertTrue(ce.poison_accounting_gap(self.root, error="x"))
+        cleared = ce.clear_accounting_gap(self.root)
+        self.assertTrue(cleared["cleared"])
+        self.assertEqual(cleared["found"], {"gap_file": True, "store_flag": False})
+        self.assertFalse(ce.gap_path(self.root).exists())
+        self.assertFalse(ce.store_path(self.root).exists())
+        self.assertFalse(ce.clear_accounting_gap(self.root)["cleared"])
+
+    def test_clear_command_runs_as_a_script(self) -> None:
+        self.assertTrue(ce.poison_accounting_gap(self.root, error="x"))
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                str(SCRIPTS_DIR / "context_efficiency.py"),
+                "--root",
+                str(self.root),
+                "--clear-gap",
+            ],
+            capture_output=True,
+            text=True,
+            env=self.child_env(),
+            timeout=60,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertTrue(json.loads(completed.stdout)["cleared"])
         self.assertFalse(ce.gap_path(self.root).exists())
 
 

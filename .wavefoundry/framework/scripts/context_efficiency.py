@@ -661,9 +661,12 @@ __all__ = [
 __all__.extend(
     [
         "attach_evaluation",
+        "CLEAR_GAP_COMMAND",
+        "clear_accounting_gap",
         "gap_path",
         "pending_wave_ids",
         "poison_accounting_gap",
+        "read_gap_reason",
         "reconcile_checkpoint_authority",
     ]
 )
@@ -990,26 +993,146 @@ def gap_path(root: Path) -> Path:
     return Path(root) / GAP_RELATIVE_PATH
 
 
-def _write_gap_sentinel(root: Path) -> bool:
-    """Durably poison positive publication without retaining call content."""
+CLEAR_GAP_COMMAND = (
+    "python3 -B .wavefoundry/framework/scripts/context_efficiency.py"
+    " --root <repo> --clear-gap"
+)
+# Busy/locked writes are retried as whole attempts within this budget before
+# the barrier is written (wave 1z2m4). Module constants so tests can shorten them.
+BUSY_RETRY_BUDGET_SECONDS = 10.0
+BUSY_RETRY_DELAYS = (0.01, 0.025, 0.05, 0.1, 0.2, 0.4, 0.8)
+_BUSY_CODES = frozenset(
+    {getattr(sqlite3, "SQLITE_BUSY", 5), getattr(sqlite3, "SQLITE_LOCKED", 6)}
+)
+
+
+def _is_busy_error(exc: BaseException) -> bool:
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    code = getattr(exc, "sqlite_errorcode", None)
+    if isinstance(code, int):
+        return (code & 0xFF) in _BUSY_CODES
+    message = str(exc).lower()
+    return "locked" in message or "busy" in message
+
+
+def _with_busy_retry(attempt: Callable[[], Any]) -> Any:
+    """Run ``attempt`` again after a busy/locked error until the budget ends."""
+
+    deadline = time.monotonic() + BUSY_RETRY_BUDGET_SECONDS
+    delays = iter(BUSY_RETRY_DELAYS)
+    delay = 0.0
+    while True:
+        try:
+            return attempt()
+        except sqlite3.OperationalError as exc:
+            if not _is_busy_error(exc):
+                raise
+            delay = next(delays, delay)
+            if time.monotonic() + delay > deadline:
+                raise
+            time.sleep(delay)
+
+
+def _write_exclusive(path: Path, payload: bytes) -> None:
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    try:
+        os.write(fd, payload)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _write_gap_sentinel(
+    root: Path, operation: str = "unknown", error: object = None
+) -> bool:
+    """Durably poison positive publication, recording why but no call content.
+
+    The first writer wins, so a later failure never hides the original cause;
+    an existing sentinel still means the barrier holds.
+    """
 
     path = gap_path(root)
+    if isinstance(error, BaseException):
+        error_type = type(error).__name__
+        # An instrumentation exception can echo response values; keep only
+        # SQLite messages, which never carry call content.
+        message = str(error) if isinstance(error, sqlite3.Error) else ""
+    else:
+        error_type, message = "", str(error or "")
+    record = {
+        "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "operation": str(operation),
+        "error_type": error_type,
+        "message": message[:500],
+    }
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(path, os.O_CREAT | os.O_WRONLY, 0o600)
+        if path.exists():
+            return True
+        # Write a private temp file, then link it into place: the link fails
+        # when a sentinel already exists (first writer wins) and a reader never
+        # sees a half-written reason.
+        payload = (json.dumps(record, sort_keys=True) + "\n").encode("utf-8")
+        temp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+        _write_exclusive(temp, payload)
         try:
-            os.fsync(fd)
+            try:
+                os.link(temp, path)
+            except FileExistsError:
+                pass
+            except OSError:
+                # No hard links on this filesystem: exclusive create instead.
+                try:
+                    _write_exclusive(path, payload)
+                except FileExistsError:
+                    pass
         finally:
-            os.close(fd)
+            try:
+                temp.unlink()
+            except OSError:
+                pass
         return True
     except OSError:
-        return False
+        return path.exists()
 
 
-def poison_accounting_gap(root: Path) -> bool:
+def read_gap_reason(root: Path) -> Optional[dict[str, str]]:
+    """Return the recorded gap reason, ``{}`` when unrecorded, None without a sentinel."""
+
+    path = gap_path(root)
+    if not path.exists():
+        return None
+    record = _read_reason_file(path)
+    if not record:
+        return {}
+    return {
+        key: record.get(key, "")
+        for key in ("recorded_at", "operation", "error_type", "message")
+    }
+
+
+def _gap_diagnostic(reason: Optional[Mapping[str, str]]) -> str:
+    text = "positive projection suppressed by durable accounting gap"
+    if reason and reason.get("recorded_at"):
+        cause = reason.get("error_type") or "error"
+        if reason.get("message"):
+            cause += f": {reason['message']}"
+        text += (
+            f" (recorded {reason['recorded_at']} during"
+            f" {reason.get('operation') or 'unknown'}; {cause})"
+        )
+    else:
+        text += " (reason not recorded)"
+    return f"{text}; clear it with `{CLEAR_GAP_COMMAND}`"
+
+
+def poison_accounting_gap(
+    root: Path, *, operation: str = "instrumentation", error: object = None
+) -> bool:
     """Persist the fail-closed barrier when telemetry cannot reach its event commit."""
 
-    return _write_gap_sentinel(root)
+    return _write_gap_sentinel(root, operation, error)
 
 
 def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
@@ -1030,18 +1153,7 @@ def _column_names(conn: sqlite3.Connection, table: str) -> set[str]:
 def _open_write_store(root: Path) -> sqlite3.Connection:
     """Open the current store with bounded contention recovery."""
 
-    last_error: Exception | None = None
-    for delay in (0.0, 0.01, 0.025, 0.05, 0.1, 0.2):
-        if delay:
-            time.sleep(delay)
-        try:
-            return _open_write_store_once(root)
-        except sqlite3.OperationalError as exc:
-            if "locked" not in str(exc).lower():
-                raise
-            last_error = exc
-    assert last_error is not None
-    raise last_error
+    return _with_busy_retry(lambda: _open_write_store_once(root))
 
 
 def _open_write_store_once(root: Path) -> sqlite3.Connection:
@@ -1115,10 +1227,13 @@ def _open_write_store_once(root: Path) -> sqlite3.Connection:
         if gap_path(root).exists():
             conn.execute("BEGIN IMMEDIATE")
             try:
-                conn.execute(
-                    "INSERT OR REPLACE INTO meta(key,value)"
-                    " VALUES('accounting_gap','1')"
-                )
+                # Re-check under the write lock: a clear that committed while
+                # this open waited must not have its flag copied back.
+                if gap_path(root).exists():
+                    conn.execute(
+                        "INSERT OR REPLACE INTO meta(key,value)"
+                        " VALUES('accounting_gap','1')"
+                    )
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -1339,9 +1454,43 @@ def _commit_event(
     *,
     event_id: str,
 ) -> tuple[str, int, int, int]:
+    # A rolled-back attempt is replayed whole; event_id dedupe keeps it exact.
+    try:
+        return _with_busy_retry(
+            lambda: _commit_event_once(
+                root,
+                producer_id,
+                producer_reclaimable,
+                focus,
+                tool_name,
+                event_kind,
+                metric,
+                event_id=event_id,
+            )
+        )
+    except Exception as exc:
+        return (
+            "poisoned" if _write_gap_sentinel(root, "event_commit", exc) else "failed",
+            0,
+            0,
+            0,
+        )
+
+
+def _commit_event_once(
+    root: Path,
+    producer_id: str,
+    producer_reclaimable: bool,
+    focus: Focus,
+    tool_name: str,
+    event_kind: str,
+    metric: Mapping[str, Any],
+    *,
+    event_id: str,
+) -> tuple[str, int, int, int]:
     conn: sqlite3.Connection | None = None
     try:
-        conn = _open_write_store(root)
+        conn = _open_write_store_once(root)
         conn.execute("BEGIN IMMEDIATE")
         if _accounting_gap(conn):
             conn.rollback()
@@ -1499,12 +1648,7 @@ def _commit_event(
                 conn.rollback()
             except sqlite3.Error:
                 pass
-        return (
-            "poisoned" if _write_gap_sentinel(root) else "failed",
-            0,
-            0,
-            0,
-        )
+        raise
     finally:
         if conn is not None:
             conn.close()
@@ -1779,105 +1923,107 @@ class ProcessTelemetry:
             if transfer_general_to:
                 with self._lock:
                     self._ensure_lease()
-                conn = _open_write_store(self.root)
-                orphan_leases: dict[str, Any] = {}
-                claimed_orphans: set[str] = set()
-                committed = False
-                try:
-                    for row in conn.execute(
-                        "SELECT producer_id FROM producer_state "
-                        "WHERE reclaimable=1 AND producer_id<>?",
-                        (self.producer_id,),
-                    ):
-                        candidate = str(row[0])
-                        handle, abandoned = _try_lock_lease(
-                            producer_lease_path(self.root, candidate),
-                            create=False,
-                        )
-                        if abandoned:
-                            orphan_leases[candidate] = handle
-                    conn.execute("BEGIN IMMEDIATE")
-                    target = str(transfer_general_to)
-                    moved = 0
-                    for producer_id in (
-                        self.producer_id,
-                        *sorted(orphan_leases),
-                    ):
-                        if producer_id != self.producer_id:
-                            eligible = conn.execute(
-                                "SELECT 1 FROM producer_state WHERE producer_id=? "
-                                "AND reclaimable=1",
-                                (producer_id,),
-                            ).fetchone()
-                            if eligible is None:
-                                continue
-                        general_key = f"general:{producer_id}"
-                        source_count = int(
-                            conn.execute(
-                                "SELECT COUNT(*) FROM source_credit WHERE wave_key=?",
-                                (general_key,),
-                            ).fetchone()[0]
-                        )
-                        conn.execute(
-                            "INSERT OR IGNORE INTO source_credit("
-                            "wave_key,phase_id,stage,source_id,version_id,tokens,"
-                            "credit_kind,provenance) "
-                            "SELECT ?,?,?,source_id,version_id,"
-                            "tokens,credit_kind,provenance FROM source_credit "
-                            "WHERE wave_key=?",
-                            (target, transfer_stage, transfer_stage, general_key),
-                        )
-                        conn.execute(
-                            "UPDATE source_credit SET provenance='both' "
-                            "WHERE wave_key=? AND phase_id=? AND EXISTS("
-                            "SELECT 1 FROM source_credit AS incoming "
-                            "WHERE incoming.wave_key=? "
-                            "AND incoming.source_id=source_credit.source_id "
-                            "AND incoming.version_id=source_credit.version_id "
-                            "AND incoming.credit_kind<>source_credit.credit_kind)",
-                            (target, transfer_stage, general_key),
-                        )
-                        conn.execute(
-                            "DELETE FROM source_credit WHERE wave_key=?",
-                            (general_key,),
-                        )
-                        moved += source_count
-                        moved += conn.execute(
-                            "UPDATE telemetry_event SET wave_id=?,"
-                            "phase_id=?,stage=?,attribution='adopted' "
-                            "WHERE wave_id IS NULL AND producer_id=?",
-                            (target, transfer_stage, transfer_stage, producer_id),
-                        ).rowcount
-                        if producer_id != self.producer_id:
-                            conn.execute(
-                                "DELETE FROM producer_state WHERE producer_id=?",
-                                (producer_id,),
+                def _transfer_once() -> None:
+                    conn = _open_write_store_once(self.root)
+                    orphan_leases: dict[str, Any] = {}
+                    claimed_orphans: set[str] = set()
+                    committed = False
+                    try:
+                        for row in conn.execute(
+                            "SELECT producer_id FROM producer_state "
+                            "WHERE reclaimable=1 AND producer_id<>?",
+                            (self.producer_id,),
+                        ):
+                            candidate = str(row[0])
+                            handle, abandoned = _try_lock_lease(
+                                producer_lease_path(self.root, candidate),
+                                create=False,
                             )
-                            claimed_orphans.add(producer_id)
-                    if moved:
-                        _touch_wave(conn, target)
-                        touched.add(target)
-                    conn.commit()
-                    committed = True
-                except Exception:
-                    conn.rollback()
-                    raise
-                finally:
-                    conn.close()
-                    for producer_id, handle in orphan_leases.items():
-                        _unlock_lease(handle)
-                        if committed and producer_id in claimed_orphans:
-                            try:
-                                producer_lease_path(
-                                    self.root, producer_id
-                                ).unlink()
-                            except OSError:
-                                pass
+                            if abandoned:
+                                orphan_leases[candidate] = handle
+                        conn.execute("BEGIN IMMEDIATE")
+                        target = str(transfer_general_to)
+                        moved = 0
+                        for producer_id in (
+                            self.producer_id,
+                            *sorted(orphan_leases),
+                        ):
+                            if producer_id != self.producer_id:
+                                eligible = conn.execute(
+                                    "SELECT 1 FROM producer_state WHERE producer_id=? "
+                                    "AND reclaimable=1",
+                                    (producer_id,),
+                                ).fetchone()
+                                if eligible is None:
+                                    continue
+                            general_key = f"general:{producer_id}"
+                            source_count = int(
+                                conn.execute(
+                                    "SELECT COUNT(*) FROM source_credit WHERE wave_key=?",
+                                    (general_key,),
+                                ).fetchone()[0]
+                            )
+                            conn.execute(
+                                "INSERT OR IGNORE INTO source_credit("
+                                "wave_key,phase_id,stage,source_id,version_id,tokens,"
+                                "credit_kind,provenance) "
+                                "SELECT ?,?,?,source_id,version_id,"
+                                "tokens,credit_kind,provenance FROM source_credit "
+                                "WHERE wave_key=?",
+                                (target, transfer_stage, transfer_stage, general_key),
+                            )
+                            conn.execute(
+                                "UPDATE source_credit SET provenance='both' "
+                                "WHERE wave_key=? AND phase_id=? AND EXISTS("
+                                "SELECT 1 FROM source_credit AS incoming "
+                                "WHERE incoming.wave_key=? "
+                                "AND incoming.source_id=source_credit.source_id "
+                                "AND incoming.version_id=source_credit.version_id "
+                                "AND incoming.credit_kind<>source_credit.credit_kind)",
+                                (target, transfer_stage, general_key),
+                            )
+                            conn.execute(
+                                "DELETE FROM source_credit WHERE wave_key=?",
+                                (general_key,),
+                            )
+                            moved += source_count
+                            moved += conn.execute(
+                                "UPDATE telemetry_event SET wave_id=?,"
+                                "phase_id=?,stage=?,attribution='adopted' "
+                                "WHERE wave_id IS NULL AND producer_id=?",
+                                (target, transfer_stage, transfer_stage, producer_id),
+                            ).rowcount
+                            if producer_id != self.producer_id:
+                                conn.execute(
+                                    "DELETE FROM producer_state WHERE producer_id=?",
+                                    (producer_id,),
+                                )
+                                claimed_orphans.add(producer_id)
+                        if moved:
+                            _touch_wave(conn, target)
+                            touched.add(target)
+                        conn.commit()
+                        committed = True
+                    except Exception:
+                        conn.rollback()
+                        raise
+                    finally:
+                        conn.close()
+                        for producer_id, handle in orphan_leases.items():
+                            _unlock_lease(handle)
+                            if committed and producer_id in claimed_orphans:
+                                try:
+                                    producer_lease_path(
+                                        self.root, producer_id
+                                    ).unlink()
+                                except OSError:
+                                    pass
+                _with_busy_retry(_transfer_once)
             return FlushResult(
                 True, "durable", touched_waves=frozenset(touched)
             )
         except Exception as exc:
-            poisoned = _write_gap_sentinel(Path(root))
+            poisoned = _write_gap_sentinel(Path(root), "flush", exc)
             return FlushResult(
                 False,
                 "poisoned" if poisoned else "failed",
@@ -1885,13 +2031,21 @@ class ProcessTelemetry:
             )
 
 
+def _gap_health(reason: Optional[Mapping[str, str]]) -> dict[str, Optional[str]]:
+    health: dict[str, Optional[str]] = {
+        "status": "accounting_gap",
+        "diagnostic": _gap_diagnostic(reason),
+    }
+    for key in ("recorded_at", "operation", "error_type", "message"):
+        health[f"gap_{key}"] = (reason or {}).get(key) or None
+    return health
+
+
 def read_store_health(root: Path) -> dict[str, Optional[str]]:
     path = store_path(root)
-    if gap_path(root).exists():
-        return {
-            "status": "accounting_gap",
-            "diagnostic": "positive projection suppressed by durable accounting gap",
-        }
+    reason = read_gap_reason(root)
+    if reason is not None:
+        return _gap_health(reason)
     if not path.exists():
         return {"status": "absent", "diagnostic": None}
     if not path.is_file():
@@ -1912,10 +2066,7 @@ def read_store_health(root: Path) -> dict[str, Optional[str]]:
         conn.execute("SELECT 1 FROM telemetry_event LIMIT 1")
         conn.execute("SELECT 1 FROM source_credit LIMIT 1")
         if _accounting_gap(conn):
-            return {
-                "status": "accounting_gap",
-                "diagnostic": "positive projection suppressed by durable accounting gap",
-            }
+            return _gap_health(None)
         return {"status": "healthy", "diagnostic": None}
     except sqlite3.Error as exc:
         return {
@@ -2906,3 +3057,183 @@ def attach_evaluation(
         raise
     finally:
         conn.close()
+
+
+def _non_closed_wave_ids(root: Path) -> list[str]:
+    """Wave folder names whose ``Status:`` is not closed; unreadable counts as open."""
+
+    if not record_paths.load_record_roots(Path(root)).waves.is_dir():
+        return []
+    wave_ids: list[str] = []
+    for entry in record_paths.discover_wave_dirs(Path(root)):
+        try:
+            head = (entry / "wave.md").read_text(encoding="utf-8", errors="replace")[:2048]
+        except OSError:
+            head = ""
+        if _wave_status_from_text(head) != "closed":
+            wave_ids.append(entry.name)
+    return sorted(wave_ids)
+
+
+def clear_accounting_gap(root: Path) -> dict[str, Any]:
+    """Operator action: lift the store-wide gap, keeping affected waves marked.
+
+    Every unsealed wave, and every wave folder that is not closed (its first
+    telemetry may have been refused during the gap, leaving no row), is marked
+    ``accounting_gap`` so its published totals never read as complete. The
+    sentinel is set aside and the meta flag deleted in one write transaction;
+    a failure recorded after the set-aside writes a fresh sentinel that stays.
+    Gap-period events are not backfilled, and the general running total
+    resumes from the clear.
+    """
+
+    root = Path(root)
+    sentinel = gap_path(root)
+    aside = sentinel.with_name(sentinel.name + ".clearing")
+    store = store_path(root)
+    # What was present before anything is opened for writing: a write open
+    # copies the gap file into the store flag, so it cannot tell them apart.
+    result: dict[str, Any] = {
+        "cleared": False,
+        "found": {
+            "gap_file": sentinel.exists(),
+            "store_flag": _read_store_gap_flag(root),
+        },
+        "reason": None,
+        "marked_waves": [],
+        "new_gap_recorded": False,
+    }
+    if not (sentinel.exists() or aside.exists() or store.is_file()):
+        return result
+    wave_ids = _non_closed_wave_ids(root)
+
+    def _set_aside(gap_in_store: bool) -> bool:
+        if sentinel.exists():
+            os.replace(sentinel, aside)
+            return True
+        # A set-aside file with no live flag is left over from a clear that
+        # already committed; it is not a gap.
+        return aside.exists() and gap_in_store
+
+    def _attempt() -> None:
+        if not store.is_file():
+            if _set_aside(False):
+                result["reason"] = _read_reason_file(aside)
+                result["cleared"] = True
+            return
+        conn = _open_write_store_once(root)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            flag = _accounting_gap(conn)
+            had_sentinel = _set_aside(flag)
+            if not (flag or had_sentinel):
+                conn.rollback()
+                return
+            result["reason"] = _read_reason_file(aside) if had_sentinel else None
+            for wave_id in wave_ids:
+                conn.execute(
+                    "INSERT OR IGNORE INTO wave_state("
+                    "wave_id,generation,pending,published_json,store_instance_id,"
+                    "measurement_status) VALUES(?,0,0,NULL,?,'healthy')",
+                    (wave_id, _store_instance_id(conn)),
+                )
+            marked = [
+                str(row[0])
+                for row in conn.execute(
+                    "SELECT wave_id FROM wave_state WHERE sealed=0 ORDER BY wave_id"
+                )
+            ]
+            conn.execute(
+                "UPDATE wave_state SET measurement_status='accounting_gap',"
+                "generation=generation+1,pending=1 WHERE sealed=0"
+            )
+            conn.execute("DELETE FROM meta WHERE key='accounting_gap'")
+            conn.commit()
+            result["cleared"] = True
+            result["marked_waves"] = marked
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    try:
+        _with_busy_retry(_attempt)
+    except Exception:
+        # Put an uncleared reason back unless a newer failure already wrote one.
+        if aside.exists() and not sentinel.exists():
+            os.replace(aside, sentinel)
+        raise
+    try:
+        aside.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass  # the clear committed; a leftover set-aside file is ignored later
+    # A failure recorded while the clear ran leaves a fresh gap in force.
+    result["new_gap_recorded"] = sentinel.exists()
+    return result
+
+
+def _read_store_gap_flag(root: Path) -> bool:
+    """Read the store's gap flag without the write open's sentinel copy."""
+
+    conn = _open_read_store(root)
+    if conn is None:
+        return False
+    try:
+        return _accounting_gap(conn)
+    except sqlite3.Error:
+        return False
+    finally:
+        conn.close()
+
+
+def _read_reason_file(path: Path) -> dict[str, str]:
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+        record = json.loads(text.splitlines()[0]) if text else {}
+    except (OSError, ValueError, IndexError):
+        return {}
+    if not isinstance(record, dict):
+        return {}
+    return {key: str(value) for key, value in record.items()}
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Context-efficiency telemetry maintenance."
+    )
+    parser.add_argument("--root", default=".", help="repository root")
+    parser.add_argument(
+        "--clear-gap",
+        action="store_true",
+        required=True,
+        help="clear the durable accounting gap; waves it affected stay marked",
+    )
+    args = parser.parse_args(argv)
+    try:
+        result = clear_accounting_gap(Path(args.root).resolve())
+    except Exception as exc:
+        print(json.dumps({"cleared": False, "error": f"{type(exc).__name__}: {exc}"}))
+        return 1
+    if result.get("new_gap_recorded"):
+        result["note"] = (
+            "A new accounting gap was recorded while clearing; it remains in"
+            " force. Check its reason before clearing again."
+        )
+    elif result["cleared"]:
+        result["note"] = (
+            "Marked waves keep an accounting_gap projection; gap-period events"
+            " are not backfilled and the general running total resumes now."
+        )
+    else:
+        result["note"] = "No accounting gap was present; nothing changed."
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

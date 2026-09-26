@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-09-26
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -513,6 +513,29 @@ the unified estimate rather than disappearing from it.
 - A failed event transaction writes `context-efficiency.gap`; health becomes
   `accounting_gap` and positive publication is suppressed. Precommit
   instrumentation exceptions use the same poison-or-fatal path.
+- A busy or locked SQLite error is retried first: the event commit and the
+  general-row transfer roll back and rerun the whole attempt, within one budget
+  of 10 seconds per write (the store open shares it). Event-ID dedupe keeps
+  a replay exact. Other errors, and a lock that outlasts the budget, write the
+  gap. While a write waits, the stdio server waits with it.
+- The gap file holds one JSON line with `recorded_at`, `operation`
+  (`event_commit`, `flush` or `instrumentation`), `error_type` and `message`,
+  never call content: `message` is kept only for SQLite errors, and is the
+  fixed reason `metric_not_captured` when a metric reported itself uncaptured. The first cause wins; later failures leave it in place.
+  Health adds `gap_recorded_at`, `gap_operation`, `gap_error_type` and
+  `gap_message` (null when a legacy empty file carries no reason), and its
+  diagnostic names the clear command.
+- `python3 -B .wavefoundry/framework/scripts/context_efficiency.py --root <repo>
+  --clear-gap` lifts the gap on purpose. In one write transaction it marks every
+  unsealed wave, and every wave folder that is not closed, `accounting_gap`, so
+  a wave that lived through the gap never publishes an undercount as complete.
+  The same transaction sets the gap file aside and deletes the `meta` flag. The
+  command prints `found.gap_file` and `found.store_flag` (what existed before it
+  opened the store for writing; a store flag with no file means the reason was
+  lost), the recorded reason, the waves it marked, and `new_gap_recorded` when a
+  failure during the clear left a fresh gap in force. Waves created after the clear report normally.
+  Gap-period events are not backfilled, the general running total resumes from
+  the clear, and an absent store is never created.
 
 `index_health.data.background_monitors` reports the MCP index monitor and
 Context Efficiency projection monitor. Each entry includes `configured`,

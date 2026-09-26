@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-09-26
 
 ## Repository Summary
 
@@ -35,29 +35,29 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 15005 |
-| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1292 |
-| graph | `.wavefoundry/framework/scripts` | code | 394 |
-| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 384 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 356 |
-| run_tests | `.wavefoundry/framework/scripts` | code | 306 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 15024 |
+| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1287 |
+| graph | `.wavefoundry/framework/scripts` | code | 389 |
+| docs | `docs` | code | 343 |
+| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 335 |
+| scripts/run_tests | `.wavefoundry/framework/scripts` | code | 294 |
 | chunker | `.wavefoundry/framework/scripts` | code | 283 |
-| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 266 |
-| workflow-config | `.wavefoundry/framework/scripts` | code | 264 |
-| store | `.wavefoundry/framework/scripts` | code | 250 |
+| store | `.wavefoundry/framework/scripts` | code | 261 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 223 |
-| indexer | `.wavefoundry/framework/scripts` | code | 214 |
-| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 158 |
-| scripts/memory_records | `.wavefoundry/framework/scripts` | code | 135 |
-| scripts/scripts/commit_provenance 1 | `.wavefoundry/framework/scripts` | code | 102 |
-| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 54 |
+| indexer | `.wavefoundry/framework/scripts` | code | 219 |
+| workflow-config | `.wavefoundry/framework/scripts` | code | 210 |
+| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 182 |
+| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 149 |
+| scripts/scripts/commit_provenance 1 | `.wavefoundry/framework/scripts` | code | 146 |
+| scripts/memory_records | `.wavefoundry/framework/scripts` | code | 109 |
+| memory_records | `.wavefoundry/framework/scripts` | code | 105 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 104 |
+| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 53 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 46 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
-| 1yzd0 server-package-boundary/evidence | `docs/waves/1yzd0 server-package-boundary/evidence` | code | 36 |
+| evidence | `docs/waves/1yzd0 server-package-boundary/evidence` | code | 36 |
 | m | `docs/waves/1yzd0 server-package-boundary/evidence/m` | code | 36 |
 | r | `docs/waves/1yxyw retire-optional-server-aliases/evidence/r` | code | 33 |
-| design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
-| 1tmtx test-suite-performance/evidence | `docs/waves/1tmtx test-suite-performance/evidence` | code | 25 |
 | configuration | `(root)` | config | 27 |
 <!-- wave:repo-index-modules end -->
 

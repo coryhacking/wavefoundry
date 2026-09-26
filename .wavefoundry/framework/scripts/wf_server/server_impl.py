@@ -15554,15 +15554,15 @@ def _record_retrieval_context(
         )
         if metric.get("captured") is not True:
             public = _poisoned_or_fatal_telemetry_failure(
-                handler.root, metric
+                handler.root, metric, "metric_not_captured"
             )
         else:
             public = handler.telemetry.record_retrieval(
                 metric, tool_name=tool_name
             )
-    except Exception:
+    except Exception as exc:
         public = _poisoned_or_fatal_telemetry_failure(
-            handler.root, _retrieval_failure_metric(response)
+            handler.root, _retrieval_failure_metric(response), exc
         )
     if public.get("fatal_persistence_failure") is True:
         return {
@@ -15609,12 +15609,18 @@ def _workflow_failure_metric(core_response: dict[str, Any]) -> dict[str, Any]:
 
 
 def _poisoned_or_fatal_telemetry_failure(
-    root: Path, metric: dict[str, Any]
+    root: Path, metric: dict[str, Any], error: object = None
 ) -> dict[str, Any]:
-    """Fail closed when instrumentation raises before its normal commit path."""
+    """Fail closed when instrumentation raises before its normal commit path.
+
+    ``error`` is the caught exception, or a short reason when the metric
+    reported itself uncaptured; it is recorded in the gap sentinel.
+    """
 
     payload = dict(metric)
-    if context_efficiency.poison_accounting_gap(root):
+    if context_efficiency.poison_accounting_gap(
+        root, operation="instrumentation", error=error
+    ):
         payload["persistence"] = "poisoned"
     else:
         payload["persistence"] = "failed"
@@ -15707,7 +15713,7 @@ def _record_workflow_context(
         )
         if metric.get("captured") is not True:
             public = _poisoned_or_fatal_telemetry_failure(
-                handler.root, metric
+                handler.root, metric, "metric_not_captured"
             )
         else:
             public = handler.telemetry.record_workflow(
@@ -15716,9 +15722,9 @@ def _record_workflow_context(
                 tool_name,
                 metric,
             )
-    except Exception:
+    except Exception as exc:
         public = _poisoned_or_fatal_telemetry_failure(
-            handler.root, _workflow_failure_metric(response)
+            handler.root, _workflow_failure_metric(response), exc
         )
     if public.get("fatal_persistence_failure") is True:
         return {

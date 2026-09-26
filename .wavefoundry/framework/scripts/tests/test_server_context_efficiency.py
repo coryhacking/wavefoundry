@@ -1225,6 +1225,39 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 fatal["data"]["error_code"], "telemetry_persistence_failed"
             )
 
+    def test_instrumentation_failure_records_its_reason_in_the_gap(self):
+        # Wave 1z2m4: the sentinel names why instrumentation poisoned the store.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            core = {"status": "ok", "data": {"results": []}, "diagnostics": []}
+            telemetry = SimpleNamespace(
+                record_retrieval=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                    RuntimeError("forced precommit failure")
+                )
+            )
+            handler = SimpleNamespace(root=root, telemetry=telemetry)
+            srv._record_retrieval_context(handler, "code_keyword", dict(core))
+            reason = ce.read_gap_reason(root)
+            self.assertEqual(reason["operation"], "instrumentation")
+            self.assertEqual(reason["error_type"], "RuntimeError")
+            # Instrumentation exception text can echo response values; it is dropped.
+            self.assertEqual(reason["message"], "")
+            ce.gap_path(root).unlink()
+            with patch.object(
+                srv.context_efficiency,
+                "retrieval_context_avoided",
+                return_value=srv._retrieval_failure_metric(core),
+            ):
+                srv._record_retrieval_context(
+                    SimpleNamespace(root=root, telemetry=ce.ProcessTelemetry(root)),
+                    "code_keyword",
+                    dict(core),
+                )
+            self.assertEqual(
+                ce.read_gap_reason(root)["message"], "metric_not_captured"
+            )
+
     def test_retrieval_metric_builder_failure_is_poisoned(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
