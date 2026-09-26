@@ -95,6 +95,53 @@ class RuntimeFileLockTests(unittest.TestCase):
         self.assertEqual(sentinel_path.stat().st_size, 0)
         self.assertEqual([mode for mode, _length, _fd in calls], [10, 12, 10, 12])
 
+    def _held_then_free(self, busy_attempts: int):
+        calls: list[tuple[int, int]] = []
+
+        def locking(fd, mode, length):
+            calls.append((mode, fd))
+            if mode == 10 and sum(1 for m, _ in calls if m == 10) <= busy_attempts:
+                raise OSError(errno.EACCES, "locked by another process")
+
+        return calls, types.SimpleNamespace(LK_NBLCK=10, LK_LOCK=11, LK_UNLCK=12, locking=locking)
+
+    def test_windows_blocking_lock_waits_past_ten_seconds_of_contention(self) -> None:
+        # Wave 1z2m8: LK_LOCK gave up after ten one-second tries; POSIX waits.
+        calls, fake = self._held_then_free(busy_attempts=250)
+        path = self.root / "locks" / "busy.lock"
+        with patch.object(rl.os, "name", "nt"), patch.dict(sys.modules, {"msvcrt": fake}), \
+             patch.object(rl.time, "sleep") as sleep:
+            with rl.RuntimeFileLock(path, blocking=True):
+                pass
+        modes = [mode for mode, _fd in calls]
+        self.assertNotIn(11, modes)  # never LK_LOCK
+        self.assertEqual(modes.count(10), 251)
+        self.assertEqual(sleep.call_count, 250)
+        self.assertGreater(sleep.call_count * rl._WINDOWS_LOCK_POLL_SECONDS, 10)
+
+    def test_windows_non_blocking_lock_still_fails_at_once(self) -> None:
+        calls, fake = self._held_then_free(busy_attempts=5)
+        path = self.root / "locks" / "busy.lock"
+        with patch.object(rl.os, "name", "nt"), patch.dict(sys.modules, {"msvcrt": fake}), \
+             patch.object(rl.time, "sleep") as sleep:
+            with self.assertRaises(rl.RuntimeLockBusy):
+                rl.RuntimeFileLock(path).acquire()
+        self.assertEqual([mode for mode, _fd in calls], [10])
+        sleep.assert_not_called()
+
+    def test_windows_blocking_lock_does_not_retry_a_real_error(self) -> None:
+        def fail(_fd, _mode, _length):
+            raise OSError(errno.EIO, "device failure")
+
+        fake = types.SimpleNamespace(LK_NBLCK=10, LK_LOCK=11, LK_UNLCK=12, locking=fail)
+        path = self.root / "locks" / "broken.lock"
+        with patch.object(rl.os, "name", "nt"), patch.dict(sys.modules, {"msvcrt": fake}), \
+             patch.object(rl.time, "sleep") as sleep:
+            with self.assertRaises(rl.RuntimeLockError) as raised:
+                rl.RuntimeFileLock(path, blocking=True).acquire()
+        self.assertNotIsInstance(raised.exception, rl.RuntimeLockBusy)
+        sleep.assert_not_called()
+
     def test_windows_non_contention_error_is_not_misreported_as_busy(self) -> None:
         def fail(_fd, _mode, _length):
             raise OSError(errno.EIO, "device failure")

@@ -397,6 +397,18 @@ class SetupReadinessTests(unittest.TestCase):
         self.assertEqual((self.index / 'setup-state.json').read_bytes(), before)
         self.assertEqual([p.name for p in self.index.iterdir() if p.name.startswith('.setup-state-')], [])
 
+    def test_exclusive_write_falls_back_when_hard_links_are_unsupported(self):
+        # Wave 1z2m8: exFAT, many SMB/NAS shares and VM shared folders refuse os.link.
+        import errno as _errno
+        with patch.object(readiness.os, 'link', side_effect=OSError(_errno.EPERM, 'not permitted')):
+            readiness.write_setup_stamp(self.root, provenance='adopted', exclusive=True)
+            self.assertEqual(self._stamp()['provenance'], 'adopted')
+            before = (self.index / 'setup-state.json').read_bytes()
+            with self.assertRaises(FileExistsError):
+                readiness.write_setup_stamp(self.root, provenance='adopted', exclusive=True)
+        self.assertEqual((self.index / 'setup-state.json').read_bytes(), before)
+        self.assertEqual([p.name for p in self.index.iterdir() if p.name.startswith('.setup-state-')], [])
+
     def test_adoption_writes_only_a_missing_or_unreadable_baseline(self):
         identity = readiness.capture_loaded_identity()
         self.assertFalse(readiness.adopt_setup_stamp(self.root, {'status': 'action_required'}, identity))

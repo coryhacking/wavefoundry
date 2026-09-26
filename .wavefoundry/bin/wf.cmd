@@ -7,10 +7,11 @@ where.exe python3 >nul 2>nul
 if errorlevel 1 goto python_missing
 python3 "%REPO_ROOT%\.wavefoundry\framework\scripts\wf_cli.py" %*
 set "WF_EXIT=%ERRORLEVEL%"
-if not "%WF_EXIT%"=="0" (
-  echo Wavefoundry command failed. If Python could not start, diagnose this workstation: 1>&2
-  echo powershell -NoProfile -File "%REPO_ROOT%\.wavefoundry\framework\scripts\diagnose_python.ps1" 1>&2
-)
+if "%WF_EXIT%"=="0" exit /b 0
+python3 -c "import sys" >nul 2>nul
+if "%ERRORLEVEL%"=="0" exit /b %WF_EXIT%
+echo Wavefoundry: python3 could not start. Diagnose this workstation: 1>&2
+echo powershell -NoProfile -File "%REPO_ROOT%\.wavefoundry\framework\scripts\diagnose_python.ps1" 1>&2
 exit /b %WF_EXIT%
 :python_missing
 echo Wavefoundry: required python3 command was not found on PATH. Setup was not started. 1>&2

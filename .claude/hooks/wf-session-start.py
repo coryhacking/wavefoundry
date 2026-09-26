@@ -55,6 +55,11 @@ def render(result, format_command):
 
 
 def main():
+    if sys.version_info < (3, 11):
+        # The framework modules need 3.11 (tomllib); say so instead of failing on import.
+        running = str(sys.version_info[0]) + "." + str(sys.version_info[1])
+        return [HEADER, _clean("- python_too_old: python3 is " + running
+                               + "; Wavefoundry needs Python 3.11 or newer on PATH."), ASK]
     root = Path(os.environ.get("CLAUDE_PROJECT_DIR") or _ROOT)
     if str(_SCRIPTS) not in sys.path:
         sys.path.insert(0, str(_SCRIPTS))

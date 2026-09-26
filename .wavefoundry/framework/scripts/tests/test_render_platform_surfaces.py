@@ -600,6 +600,29 @@ class RenderBinLaunchersTests(unittest.TestCase):
         # The cmd comment must be ASCII-safe on legacy Windows codepages (no em-dash).
         self.assertNotIn("—".encode("utf-8"), wf_cmd_bytes)
 
+    def test_wf_cmd_hints_only_when_python_cannot_start(self):
+        # Wave 1z2m8: ordinary non-zero exits pass through with no Python hint.
+        rps = self._load_rps()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rps.render_bin_launchers(root)
+            rendered = (root / ".wavefoundry" / "bin" / "wf.cmd").read_bytes()
+        lines = rendered.decode("utf-8").split("\r\n")
+        success = lines.index('if "%WF_EXIT%"=="0" exit /b 0')
+        probe = lines.index('python3 -c "import sys" >nul 2>nul')
+        passthrough = lines.index('if "%ERRORLEVEL%"=="0" exit /b %WF_EXIT%')
+        hint = next(i for i, line in enumerate(lines) if "could not start" in line)
+        self.assertLess(success, probe)
+        self.assertLess(probe, passthrough)
+        self.assertLess(passthrough, hint)
+        # No parenthesised block (it would expand %ERRORLEVEL% before the probe) and
+        # no `if errorlevel` for the probe (a negative NTSTATUS would pass it).
+        body = rendered.decode("utf-8").split(":python_missing")[0]
+        self.assertNotIn("(\r\n", body)
+        self.assertNotIn("EnableDelayedExpansion", body)
+        # The checked-in launcher is the rendered one.
+        self.assertEqual((PROJECT_ROOT / "bin" / "wf.cmd").read_bytes(), rendered)
+
     def test_retired_wrappers_not_rendered(self):
         # AC-2: none of the nine individual bash wrappers is written; a re-render removes any present.
         rps = self._load_rps()

@@ -249,6 +249,17 @@ class SessionStartInProcessTests(unittest.TestCase):
                 code = None
         return code, out.getvalue()
 
+    def test_older_python_reports_the_version_without_importing_the_framework(self):
+        # Wave 1z2m8: on Python below 3.11 the framework import (tomllib) would fail.
+        with patch.object(sys, 'version_info', (3, 10, 0)), \
+             patch.dict(sys.modules, {'setup_readiness': None}):
+            code, out = self.run_main()
+        self.assertIn(code, (None, 0))
+        self.assertIn('python_too_old: python3 is 3.10', out)
+        self.assertIn('Report this to the operator', out)
+        self.assertNotIn('could not be determined', out)
+        self.assertNotIn('check failed', out)
+
     def test_exceptions_including_system_exit_are_one_line_and_exit_zero(self):
         for error in (RuntimeError('boom'), SystemExit(2), KeyboardInterrupt()):
             with self.subTest(type(error).__name__), patch.object(readiness, 'assess_setup', side_effect=error):

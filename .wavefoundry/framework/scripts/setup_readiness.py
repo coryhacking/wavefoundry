@@ -771,11 +771,31 @@ def write_setup_stamp(root: Path, *, provenance: str = 'setup', identity: dict |
             json.dump(payload, stream, sort_keys=True); stream.write('\n')
             stream.flush(); os.fsync(stream.fileno())
         if exclusive:
-            os.link(temporary, path)
+            try:
+                os.link(temporary, path)
+            except FileExistsError:
+                raise
+            except OSError:
+                # Wave 1z2m8: no hard links on this filesystem (exFAT, many SMB/NAS
+                # shares, VM shared folders); create-only keeps first-writer-wins.
+                _write_stamp_exclusive(path, temporary.read_bytes())
         else:
             os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _write_stamp_exclusive(path: Path, data: bytes) -> None:
+    """Create ``path`` only if absent; remove a partial file if the write fails."""
+    with open(path, 'xb') as stream:
+        try:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        except BaseException:
+            stream.close()
+            path.unlink(missing_ok=True)
+            raise
 
 
 def adopt_setup_stamp(root: Path, assessment: dict, identity: dict) -> bool:

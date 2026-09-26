@@ -706,6 +706,11 @@ def claude_session_start_source() -> str:
 
 
         def main():
+            if sys.version_info < (3, 11):
+                # The framework modules need 3.11 (tomllib); say so instead of failing on import.
+                running = str(sys.version_info[0]) + "." + str(sys.version_info[1])
+                return [HEADER, _clean("- python_too_old: python3 is " + running
+                                       + "; Wavefoundry needs Python 3.11 or newer on PATH."), ASK]
             root = Path(os.environ.get("CLAUDE_PROJECT_DIR") or _ROOT)
             if str(_SCRIPTS) not in sys.path:
                 sys.path.insert(0, str(_SCRIPTS))
@@ -1974,10 +1979,15 @@ def render_bin_launchers(repo_root: Path) -> None:
         'if errorlevel 1 goto python_missing\r\n'
         'python3 "%REPO_ROOT%\\.wavefoundry\\framework\\scripts\\wf_cli.py" %*\r\n'
         'set "WF_EXIT=%ERRORLEVEL%"\r\n'
-        'if not "%WF_EXIT%"=="0" (\r\n'
-        '  echo Wavefoundry command failed. If Python could not start, diagnose this workstation: 1>&2\r\n'
-        '  echo powershell -NoProfile -File "%REPO_ROOT%\\.wavefoundry\\framework\\scripts\\diagnose_python.ps1" 1>&2\r\n'
-        ')\r\n'
+        # Wave 1z2m8: subcommands exit 1 or 2 for ordinary results, so only a failed
+        # python3 probe shows the diagnose hint. Flat lines with string compares: a
+        # parenthesised block would expand %ERRORLEVEL% before the probe ran, and
+        # `if errorlevel 1` misses the negative NTSTATUS of a Python that cannot load.
+        'if "%WF_EXIT%"=="0" exit /b 0\r\n'
+        'python3 -c "import sys" >nul 2>nul\r\n'
+        'if "%ERRORLEVEL%"=="0" exit /b %WF_EXIT%\r\n'
+        'echo Wavefoundry: python3 could not start. Diagnose this workstation: 1>&2\r\n'
+        'echo powershell -NoProfile -File "%REPO_ROOT%\\.wavefoundry\\framework\\scripts\\diagnose_python.ps1" 1>&2\r\n'
         'exit /b %WF_EXIT%\r\n'
         ':python_missing\r\n'
         'echo Wavefoundry: required python3 command was not found on PATH. Setup was not started. 1>&2\r\n'

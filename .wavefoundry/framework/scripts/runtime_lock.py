@@ -10,6 +10,7 @@ from __future__ import annotations
 import errno
 import json
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO, Literal, Mapping
@@ -20,6 +21,9 @@ LockStyle = Literal["flock", "record"]
 
 class RuntimeLockError(OSError):
     """Base class for runtime-lock I/O and protocol failures."""
+
+
+_WINDOWS_LOCK_POLL_SECONDS = 0.05
 
 
 class RuntimeLockBusy(RuntimeLockError):
@@ -99,21 +103,26 @@ class RuntimeFileLock:
                     handle.seek(0)
                     handle.write(b"\0")
                     handle.flush()
-            handle.seek(self.offset)
-            mode = msvcrt.LK_LOCK if self.blocking else msvcrt.LK_NBLCK
-            try:
-                msvcrt.locking(handle.fileno(), mode, self.length)
-            except OSError as exc:
-                if exc.errno in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
-                    raise RuntimeLockBusy(
-                        exc.errno or errno.EACCES,
-                        f"Runtime lock busy: {self.path}",
-                    ) from exc
-                raise RuntimeLockError(
-                    exc.errno or errno.EIO,
-                    f"Unable to acquire runtime lock {self.path}: {exc}",
-                ) from exc
-            return
+            # Wave 1z2m8: LK_LOCK gives up after ten one-second tries, where POSIX
+            # waits. A blocking lock polls LK_NBLCK until the holder releases it.
+            while True:
+                # msvcrt.locking starts at the current position; seek every attempt.
+                handle.seek(self.offset)
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, self.length)
+                    return
+                except OSError as exc:
+                    if exc.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                        raise RuntimeLockError(
+                            exc.errno or errno.EIO,
+                            f"Unable to acquire runtime lock {self.path}: {exc}",
+                        ) from exc
+                    if not self.blocking:
+                        raise RuntimeLockBusy(
+                            exc.errno or errno.EACCES,
+                            f"Runtime lock busy: {self.path}",
+                        ) from exc
+                time.sleep(_WINDOWS_LOCK_POLL_SECONDS)
 
         import fcntl
 
