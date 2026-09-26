@@ -3071,7 +3071,20 @@ def _run_retired_model_cleanup(root: Path, to_version: object) -> dict[str, Any]
     return result
 
 
-def _record_setup_baseline(root: Path) -> None:
+# Wave 1z1vs: readiness reasons that mean "try again in a moment", typically the
+# post-upgrade reindex writing the index while cleanup assesses it.
+_TRANSIENT_SETUP_REASONS = frozenset({"inputs_changed", "probe_timeout"})
+_SETUP_BASELINE_RETRY_WAITS = (2.0, 5.0, 10.0)
+
+
+def _setup_result_is_transient(result: dict) -> bool:
+    """An indeterminate result whose every reason is transient; no reasons is not."""
+    reasons = result.get("reasons") or []
+    return (result.get("status") == "indeterminate" and bool(reasons)
+            and all(isinstance(r, dict) and r.get("code") in _TRANSIENT_SETUP_REASONS for r in reasons))
+
+
+def _record_setup_baseline(root: Path, *, sleep=None) -> None:
     """Refresh the advisory setup stamp after a successful upgrade (wave 1yzcz).
 
     Runs only on phase_cleanup's success path, after the upgrade lock is removed,
@@ -3079,13 +3092,24 @@ def _record_setup_baseline(root: Path) -> None:
     when a live assessment (ignoring the old stamp) is ready, and an existing
     readable stamp is kept when its compared environment differs from the current
     one, so an operator environment change the live checks cannot see is not
-    hidden. Any failure is logged and never fails the upgrade.
+    hidden. Any failure is logged and never fails the upgrade. An indeterminate
+    result whose reasons are all transient is retried up to three more times
+    (wave 1z1vs).
     """
     try:
         import setup_readiness
+        import time
 
+        sleep = sleep or time.sleep
         identity = setup_readiness.capture_loaded_identity()
         result = setup_readiness.assess_setup(root, use_stamp=False)
+        # Wave 1z1vs: a transient result (the reindex still writing) is retried a
+        # bounded number of times; anything else is judged on the first attempt.
+        for wait in _SETUP_BASELINE_RETRY_WAITS:
+            if not _setup_result_is_transient(result):
+                break
+            sleep(wait)
+            result = setup_readiness.assess_setup(root, use_stamp=False)
         status = result.get("status")
         if status != "ready":
             command = "wf setup" if status == "action_required" else "wf setup --check"

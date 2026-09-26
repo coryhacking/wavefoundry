@@ -1434,6 +1434,56 @@ class PhaseCleanupSetupBaselineTests(unittest.TestCase):
         self.assertFalse(self.stamp.exists())
         self.assertIn("run `wf setup --check`.", out)
 
+    # Wave 1z1vs: a transient readiness result at cleanup is retried, bounded.
+    TRANSIENT = {"status": "indeterminate", "actions": [],
+                 "reasons": [{"code": "inputs_changed", "message": "retry"}]}
+
+    def _cleanup_with_assessments(self, results):
+        real = self.readiness.assess_setup
+        calls, waits = [], []
+
+        def assess(root, **kwargs):
+            calls.append(kwargs)
+            planned = results[len(calls) - 1] if len(calls) <= len(results) else None
+            return real(root, **kwargs) if planned is None else planned
+
+        with patch.object(self.readiness, "assess_setup", side_effect=assess), \
+                patch("time.sleep", side_effect=waits.append):
+            out = self._cleanup()
+        return out, calls, waits
+
+    def test_transient_indeterminate_is_retried_until_ready(self):
+        out, calls, waits = self._cleanup_with_assessments([self.TRANSIENT, self.TRANSIENT])
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(waits, [2.0, 5.0])
+        self.assertTrue(self.stamp.exists())
+        self.assertIn("Setup baseline recorded.", out)
+
+    def test_persistently_transient_stops_after_four_attempts(self):
+        out, calls, waits = self._cleanup_with_assessments([self.TRANSIENT] * 10)
+        self.assertEqual(len(calls), 4)
+        self.assertEqual(waits, [2.0, 5.0, 10.0])
+        self.assertFalse(self.stamp.exists())
+        self.assertIn("Setup baseline not recorded (setup readiness: indeterminate); run `wf setup --check`.", out)
+        self.assertIn("Upgrade complete", out)
+
+    def test_non_transient_results_are_not_retried(self):
+        unproven = {"status": "indeterminate", "actions": [],
+                    "reasons": [{"code": "assessment_unproven", "message": "x"}]}
+        mixed = {"status": "indeterminate", "actions": [],
+                 "reasons": [{"code": "inputs_changed", "message": "x"},
+                             {"code": "assessment_unproven", "message": "y"}]}
+        empty = {"status": "indeterminate", "actions": [], "reasons": []}
+        needs = {"status": "action_required", "actions": [{"kind": "setup"}],
+                 "reasons": [{"code": "probe_timeout", "message": "x"}]}
+        for label, result in (("unproven", unproven), ("mixed", mixed), ("no reasons", empty),
+                              ("action_required", needs)):
+            with self.subTest(result=label):
+                out, calls, waits = self._cleanup_with_assessments([result] * 10)
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(waits, [])
+                self.assertFalse(self.stamp.exists())
+
     def test_index_update_failure_writes_nothing(self):
         out = self._cleanup(index_update_failed=True)
         self.assertFalse(self.stamp.exists())
