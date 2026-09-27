@@ -3369,7 +3369,6 @@ class ReviewCycleChurnControlPinTests(unittest.TestCase):
         self.assertIn("Follow seed 209's **Landing rule for guards** for mutation evidence", self._doc("agents", "code-reviewer.md"))
         self.assertIn("## Landing Rule for Guards (wave 1wuju)", self._doc("architecture", "testing-architecture.md"))
         self.assertIn("A census is re-derived whenever\nits predicate moves and is quoted only with the predicate that produced it; a\nfigure carried forward from an earlier predicate is a stale claim, not evidence.", self._doc("architecture", "testing-architecture.md"))
-        self.assertIn("**Review-cycle churn controls in the seeds.**", (self.DOCS_DIR.parent / "CHANGELOG.md").read_text(encoding="utf-8"))
 
     def test_review_entry_phase_receipt_trigger_and_reprepare_contract(self) -> None:
         review = self._doc("prompts", "review-wave.prompt.md")
@@ -3385,11 +3384,6 @@ class ReviewCycleChurnControlPinTests(unittest.TestCase):
         self.assertNotIn("inline — see Wavefoundry Review Specifics", agent)
         self.assertIn("re-Prepare when `wf_review_wave` reports `review_policy_reprepare_required`", agent)
 
-
-
-def _changelog_records_the_decision(changelog: str) -> bool:
-    """Wave 1yzj9: the decision bullet exists in some released or unreleased section."""
-    return "**The acceptance-criteria locality check stays a warning.**" in changelog
 
 
 class AdvisoryFirstRulePinTests(unittest.TestCase):
@@ -3436,10 +3430,6 @@ class AdvisoryFirstRulePinTests(unittest.TestCase):
         testing = (self.DOCS_DIR / "architecture" / "testing-architecture.md").read_text(encoding="utf-8")
         self.assertIn("its entry names that wave in `decided_wave`", testing)
         self.assertIn("Wave `1yzj9`\nrecorded that decision for the AC-locality sensor", testing)
-        changelog = (self.DOCS_DIR.parent / "CHANGELOG.md").read_text(encoding="utf-8")
-        # Checked across the whole history, so the release rollover that renames
-        # [Unreleased] to a version heading keeps this pin green (QA-DEL-2).
-        self.assertTrue(_changelog_records_the_decision(changelog))
         spec = (self.DOCS_DIR / "specs" / "mcp-tool-surface.md").read_text(encoding="utf-8")
         self.assertIn("Advisory findings never block Prepare, Review, or Close", spec)
 
@@ -3449,22 +3439,6 @@ class AdvisoryFirstRulePinTests(unittest.TestCase):
         self.assertIn("Entries with a `decided_wave` are settled and are not re-raised.", package)
         self.assertNotIn("list every sensor still registered `advisory`", package)
         self.assertIn("never a release-day edit", package)
-
-    def test_the_changelog_pin_survives_a_release_rollover(self) -> None:
-        # QA-DEL-2: rolling [Unreleased] into a versioned section must not fail the
-        # pin; removing the bullet must.
-        # A fixed fixture, not the live file: a release commit may carry no
-        # [Unreleased] heading at all (QA-DEL-2a).
-        bullet = "- **The acceptance-criteria locality check stays a warning.** Stays advisory.\n"
-        rolled = ("# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- Later work.\n\n"
-                  "## [9.9.9]\n\n### Changed\n\n" + bullet)
-        released_only = "# Changelog\n\n## [9.9.9]\n\n### Changed\n\n" + bullet
-        for label, text in (("rolled", rolled), ("released only", released_only)):
-            with self.subTest(shape=label):
-                self.assertTrue(_changelog_records_the_decision(text))
-                self.assertFalse(_changelog_records_the_decision(text.replace(bullet, "")))
-        # The shape the old first-section read got wrong: the bullet is not in it.
-        self.assertNotIn(bullet, rolled.split("\n## [", 2)[1])
 
     def test_the_code_text_states_the_decision(self) -> None:
         scripts = SCRIPTS_ROOT
@@ -5411,7 +5385,7 @@ class DesignTokenSeedGrammarTests(unittest.TestCase):
 
 class EvaluatorEditBaselinePolicyPinTests(unittest.TestCase):
     """Wave 1wybs (1wybq AC-1 to AC-3): an evaluator-only edit records no close-time
-    baseline; the contributing, architecture, and CHANGELOG surfaces state one policy."""
+    baseline; the contributing and architecture surfaces state one policy."""
 
     DOCS_DIR = SCRIPTS_ROOT.parent.parent.parent / "docs"
 
@@ -5439,13 +5413,6 @@ class EvaluatorEditBaselinePolicyPinTests(unittest.TestCase):
         self.assertIn("standing baseline `docs/reports/retrieval-quality-1yxyw-e3.json`", text)
         self.assertIn("--baseline docs/reports/retrieval-quality-1yxyw-e3.json", text)
         self.assertIn("attributes corpus drift to the change under the\nzero-tolerance regression rule", text)
-
-    def test_the_1_22_0_changelog_states_one_policy(self) -> None:
-        changelog = (self.DOCS_DIR.parent / "CHANGELOG.md").read_text(encoding="utf-8")
-        release = changelog.split("## [1.22.0]", 1)[1].split("\n## [", 1)[0]
-        self.assertIn("**An evaluator-only edit records no close-time baseline.**", release)
-        self.assertIn("A cross-generation comparison attributes corpus drift", release)
-        self.assertNotIn("record a fresh baseline", release)
 
 
 class SerializationPointsTokenGrammarPinTests(unittest.TestCase):
@@ -5498,15 +5465,6 @@ class SerializationPointsTokenGrammarPinTests(unittest.TestCase):
         # Delivery review DOCS-RV1-1: the predicate clause is counted at every site too.
         self.assertEqual(3, seed.count("kept only when its last segment carries an extension or the span ends in `/`"))
         self.assertEqual(3, seed.count("recruits a lane only through a trigger token it happens to carry"))
-
-    def test_the_1_22_0_changelog_announces_the_wave(self) -> None:
-        # Delivery review DOCS-DEL-4: both 1wybs CHANGELOG bullets are pinned.
-        changelog = (self.DOCS_DIR.parent / "CHANGELOG.md").read_text(encoding="utf-8")
-        release = changelog.split("## [1.22.0]", 1)[1].split("\n## [", 1)[0]
-        self.assertIn("**Serialization Points scaffolds state the token grammar of both declaration forms.**", release)
-        self.assertIn("kept only when\n  its last segment carries an extension or the span ends in `/`", release)
-        self.assertIn("**Verdict-gap and install-audit hardening**", release)
-        self.assertIn("repr-doubled", release)
 
     def test_the_fenced_examples_are_untouched(self) -> None:
         shipped = (self.FRAMEWORK_DIR / "install" / "plan-template.md").read_text(encoding="utf-8")

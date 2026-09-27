@@ -1,14 +1,14 @@
 # Pin historical changelog assertions to their owning release
 
 Owner: Engineering
-Status: active
+Status: archived
 Last verified: 2026-09-08
 
 Memory ID: `1xgfv-mem pin-historical-changelog-assertions-to-their-owning-release`
 Kind: `failed_attempt`
 Confidence: 0.95
 Created: 2026-09-08
-Updated: 2026-09-08
+Updated: 2026-09-26
 Source exploration cost: 923641
 Source event: `finding:1xfbh:QA-DEL-VERIFY-1`
 Validation: promote
@@ -18,6 +18,9 @@ Validation rationale: The linked typed finding and independent repair controls s
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+Archived: 2026-09-26
+Archive reason: Operator directed removal of historical announcement assertions on 2026-09-26. Preserve the earlier release-rollover incident as history, not active guidance to recreate those tests.
+Archive path: `docs/agents/memory/archive/1xgfv-mem pin-historical-changelog-assertions-to-their-owning-release.md`
 
 ## Summary
 

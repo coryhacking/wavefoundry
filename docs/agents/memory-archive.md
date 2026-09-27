@@ -143,3 +143,12 @@ Searchable compact register for history-worthy retired memory. Full bodies remai
 - Archived: `2026-09-17`
 - Successor: `1y7ig-mem verify-package-contents-through-the-real-release-and-injecti`
 - Archive path: `docs/agents/memory/archive/1vkk1-mem retired-pack-members-need-an-exact-absence-assertion-on-a-re.md`
+
+## 1xgfv-mem pin-historical-changelog-assertions-to-their-owning-release
+
+- Title: `Pin historical changelog assertions to their owning release`
+- Kind: `failed_attempt`
+- Targets: `.wavefoundry/framework/scripts/tests/test_docs_lint.py`, `CHANGELOG.md`
+- Archived: `2026-09-26`
+- Successor: `none`
+- Archive path: `docs/agents/memory/archive/1xgfv-mem pin-historical-changelog-assertions-to-their-owning-release.md`
