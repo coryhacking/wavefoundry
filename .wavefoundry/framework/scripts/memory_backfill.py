@@ -18,6 +18,7 @@ import sys
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 from typing import Any, Iterable
 
 
@@ -176,9 +177,9 @@ def _contained_source_file(root: Path, wave_dir: Path, path: Path) -> bool:
 
 
 def _wave_status(root: Path, path: Path) -> tuple[str, str]:
-    wave_md = path / "wave.md"
+    wave_md = path / _vocab.RECORD_FILENAME
     if not _contained_source_file(root, path, wave_md):
-        return "unsupported", "wave.md is not an ordinary contained wave source"
+        return "unsupported", f"{_vocab.RECORD_FILENAME} is not an ordinary contained wave source"
     try:
         text = wave_md.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
@@ -186,7 +187,7 @@ def _wave_status(root: Path, path: Path) -> tuple[str, str]:
     for line in text.splitlines():
         if line.lower().startswith("status:"):
             return line.split(":", 1)[1].strip().lower(), ""
-    return "unsupported", "wave.md has no Status field"
+    return "unsupported", f"{_vocab.RECORD_FILENAME} has no Status field"
 
 
 def inventory_closed_waves(root: Path) -> tuple[dict[str, Any], ...]:
@@ -224,11 +225,11 @@ def source_fingerprint(root: Path, wave_dir: Path) -> str:
     """Hash only stable local backfill sources, in deterministic path order."""
 
     digest = hashlib.sha256()
-    paths = [wave_dir / "wave.md", wave_dir / "events.jsonl"]
+    paths = [wave_dir / _vocab.RECORD_FILENAME, wave_dir / "events.jsonl"]
     paths.extend(
         path
         for path in sorted(wave_dir.glob("*.md"))
-        if path.name != "wave.md"
+        if path.name != _vocab.RECORD_FILENAME
     )
     for path in paths:
         digest.update(path.name.encode("utf-8", errors="surrogateescape"))

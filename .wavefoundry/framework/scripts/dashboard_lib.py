@@ -13,6 +13,7 @@ import contextlib
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 from typing import Any
 
 import server
@@ -41,7 +42,7 @@ from review_evidence import (
 
 _TITLE_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 _OWNER_RE = re.compile(r"^Owner:\s+(.+)$", re.MULTILINE)
-_WAVE_RE = re.compile(r"^Wave:\s+`([^`]+)`", re.MULTILINE)
+_WAVE_RE = re.compile(rf"^{_vocab.BACKREF_LABEL_RE}:\s+`([^`]+)`", re.MULTILINE)
 _SECTION_RE = re.compile(r"^##\s+(.+)$", re.MULTILINE)
 # Wave 1p31b (1p32k): include `~` as a valid checkbox mark for intentionally-deferred
 # tasks and ACs. The dashboard renders `[~]` as a distinct third state (not done, not
@@ -172,7 +173,9 @@ def read_dashboard_config(root: Path) -> dict[str, Any]:
     cfg = read_workflow_config(root).get("dashboard", {})
     if not isinstance(cfg, dict):
         cfg = {}
-    terminology = {key: key for key in ("wave", "change", "task")}
+    # Wave 1z8mm: tier labels default to the vocabulary profile's names (lower-cased,
+    # as before); `dashboard.terminology` still overrides them for one release.
+    terminology = {"wave": _vocab.CONTAINER_NAME.lower(), "change": _vocab.ITEM_NAME.lower(), "task": "task"}
     terminology_ignored = []
     raw_terminology = cfg.get("terminology")
     if isinstance(raw_terminology, dict):
@@ -1003,7 +1006,7 @@ def _review_evidence_dashboard_state(
     projection_diagnostics: list[str] = []
     if projection_status != "current":
         projection_diagnostics.append(
-            "wave.md review evidence projection is "
+            f"{_vocab.RECORD_FILENAME} review evidence projection is "
             f"{projection_status}; current state was derived from events.jsonl"
         )
     approvals = [

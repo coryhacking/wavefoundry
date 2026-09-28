@@ -30,6 +30,9 @@ import os
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 
+# Wave 1z8mm: the record filename is vocabulary, owned by vocabulary_profile.
+import vocabulary_profile
+
 # ---------------------------------------------------------------------------
 # Fork-editable layout constants. Edit these at merge time; keep them
 # repository-relative POSIX paths. ``NESTED`` enables the bounded recursive
@@ -418,7 +421,7 @@ def _list_subdirs(directory: Path, *, guarded: bool = True) -> list[Path]:
 
 def _has_wave_md(directory: Path) -> bool:
     try:
-        return (directory / "wave.md").is_file()
+        return (directory / vocabulary_profile.RECORD_FILENAME).is_file()
     except OSError:
         return False
 
@@ -456,6 +459,52 @@ def discover_wave_dirs(root: Path, roots: RecordRoots | None = None) -> list[Pat
     root: immediate children when ``NESTED`` is false, otherwise the bounded
     walk of :func:`walk_wave_candidates`."""
     return [d for d in walk_wave_candidates(root, roots) if _has_wave_md(d)]
+
+
+def _holds_a_file(directory: Path) -> bool:
+    """Whether ``directory`` directly holds a regular file not named ``.*``.
+    An unlistable folder counts as holding none; never raises. A symlinked
+    file does not count, so a renamed record that is only a symlink leaves
+    the advisory silent (never a false report)."""
+    try:
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                try:
+                    if not entry.name.startswith(".") and entry.is_file(follow_symlinks=False):
+                        return True
+                except OSError:
+                    continue
+    except OSError:
+        return False
+    return False
+
+
+def record_discovery_mismatch(root: Path, roots: RecordRoots | None = None) -> str | None:
+    """Wave 1z8mm: a message when the waves root has candidate folders but none
+    holds the profile's record file; ``None`` otherwise.
+
+    Only candidates that directly hold a file count; a folder with no files
+    (empty, only subfolders, or only dot-files such as ``.gitkeep``) cannot
+    hold a renamed record and is ignored (wave 1z8mm, change 1z8ql), so a fresh
+    install or a root of empty grouping folders is silent. Known limits: a
+    mixed state (some folders renamed) is not detected, and a grouping or
+    helper folder that holds files but no record (a ``README.md``) counts.
+    """
+    try:
+        candidates = walk_wave_candidates(root, roots)
+    except RecordLayoutInvalid:
+        return None
+    if any(_has_wave_md(d) for d in candidates):
+        return None
+    candidates = [d for d in candidates if _holds_a_file(d)]
+    if not candidates:
+        return None
+    name = vocabulary_profile.RECORD_FILENAME
+    return (
+        f"record_file_not_found: the waves root has {len(candidates)} folder(s) but none holds "
+        f"`{name}`, the record filename in vocabulary_profile; records under another name are "
+        "not found. Check vocabulary_profile.RECORD_FILENAME against the records on disk."
+    )
 
 
 def wave_id_of(wave_dir: Path) -> str:

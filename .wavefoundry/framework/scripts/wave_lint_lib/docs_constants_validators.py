@@ -22,6 +22,7 @@ import re
 from pathlib import Path
 
 from .helpers import load_json, resolve_record_roots
+import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 
 _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 
@@ -263,7 +264,7 @@ def check_changelog_unreleased_constants(root: Path) -> list[str]:
     return check_changelog_section_constants(body, "CHANGELOG.md [Unreleased]")
 
 
-_WAVE_FIELD_RE = re.compile(r"^Wave:\s*(.+?)\s*$", re.MULTILINE)
+_WAVE_FIELD_RE = re.compile(rf"^{_vocab.BACKREF_LABEL_RE}:\s*(.+?)\s*$", re.MULTILINE)
 _SIGNOFF_LINE_RE = re.compile(r"^-\s*operator-signoff:\s*(.+?)\s*$", re.MULTILINE)
 _UNBRACKETED_PREAPPROVAL_RE = re.compile(
     r"^approved\s+(when|if|once|after)\b", re.IGNORECASE
@@ -283,7 +284,7 @@ def check_wave_scaffolding_integrity(root: Path) -> list[str]:
     import record_paths  # discovery walk (wave 1y043); sibling import as in helpers
 
     for wave_dir in record_paths.discover_wave_dirs(root, roots):
-        wave_md = wave_dir / "wave.md"
+        wave_md = wave_dir / _vocab.RECORD_FILENAME
         try:
             wave_text = wave_md.read_text(encoding="utf-8")
         except OSError:
@@ -307,7 +308,7 @@ def check_wave_scaffolding_integrity(root: Path) -> list[str]:
                 )
         # (a) admitted change docs: truthful Wave: reference.
         for doc in sorted(wave_dir.glob("*.md")):
-            if doc.name == "wave.md":
+            if doc.name == _vocab.RECORD_FILENAME:
                 continue
             try:
                 doc_text = doc.read_text(encoding="utf-8")
@@ -321,13 +322,13 @@ def check_wave_scaffolding_integrity(root: Path) -> list[str]:
             if value.upper() == "TBD":
                 line = doc_text.count("\n", 0, m.start()) + 1
                 failures.append(
-                    f"ERROR: {rel}:{line}: admitted change doc still says 'Wave: TBD' — "
+                    f"ERROR: {rel}:{line}: admitted change doc still says '{_vocab.BACKREF_LABEL}: TBD' — "
                     f"set it to `{wave_dir.name}`"
                 )
             elif value != wave_dir.name and not wave_dir.name.startswith(value):
                 line = doc_text.count("\n", 0, m.start()) + 1
                 failures.append(
-                    f"ERROR: {rel}:{line}: 'Wave: {value}' does not match the containing "
+                    f"ERROR: {rel}:{line}: '{_vocab.BACKREF_LABEL}: {value}' does not match the containing "
                     f"wave directory `{wave_dir.name}`"
                 )
     return failures

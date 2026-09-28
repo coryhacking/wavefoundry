@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-21
+Last verified: 2026-09-27
 
 Reference doc for how target repositories declare custom data sources, port preferences, terminology, and file-activity scope for the local dashboard. The dashboard is a generic Wave Framework feature; this doc defines the knobs available to any seeded repo without forking the core UI or server.
 
@@ -138,7 +138,7 @@ For example:
 }
 ```
 
-Missing keys use their Wavefoundry tier name. The reader retains non-empty string values for known keys and reports dropped keys, including invalid values, in the sorted `config.terminology_ignored` list. An absent or non-object terminology block uses the default register. When ignored keys exist, one advisory pill in the dashboard header names them; an empty list produces no pill.
+Missing keys use the tier names in `vocabulary_profile` (`CONTAINER_NAME` and `ITEM_NAME`, lowercased; `task` is fixed), which are `wave` and `change` unless a fork edited the profile (wave 1z8mm). `dashboard.terminology` is superseded by the profile's tier names: it keeps working as a display-label override for one more release, and a fork should set the tier names in `vocabulary_profile.py` instead, which also renames the record markers. The reader retains non-empty string values for known keys and reports dropped keys, including invalid values, in the sorted `config.terminology_ignored` list. An absent or non-object terminology block uses the default register. When ignored keys exist, one advisory pill in the dashboard header names them; an empty list produces no pill.
 
 The label helper lowercases values for running text and capitalizes the first letter for headings and titles, so values such as `"Set"` and `"Wave"` are accepted. Plurals append `s`; there is no irregular-plural handling or plural override (for example, `story` becomes `storys`). Labels apply to tier headings, counts, table labels, lifecycle step labels, and associated accessibility labels. They do not rename URL keys, CSS classes, internal identifiers, explanatory lifecycle paragraphs, the git activity heading "Recent changes", server messages, or seed prose.
 

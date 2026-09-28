@@ -38,6 +38,7 @@ from typing import Any, Optional
 from chunker import _EXT_TO_LANGUAGE
 from review_evidence import read_review_event_ledger, current_synthesis_heads
 import record_paths  # record roots (wave 1y0gz)
+import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 
 DEFAULT_DRAFT_LIMIT = 20
 _CANONICAL_TEST_RUNNER_ENTRIES = frozenset({"run_tests.py"})
@@ -51,7 +52,7 @@ _PATH_TOKEN_RE = re.compile(
     r"(?<![A-Za-z0-9_])((?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+"
     r"|[A-Za-z0-9_.-]+\.[A-Za-z][A-Za-z0-9]{0,8})(?::\d+(?::\d+)?)?"
 )
-_ADMITTED_CHANGE_RE = re.compile(r"(?m)^Change ID:\s*`([^`]+)`\s*$")
+_ADMITTED_CHANGE_RE = re.compile(rf"(?m)^{_vocab.MEMBER_ID_LABEL_RE}:\s*`([^`]+)`\s*$")
 _NON_IMPLEMENTATION_EXTENSIONS = {
     ".json", ".jsonc", ".yaml", ".yml", ".toml",
     ".md", ".markdown", ".xml", ".xsd", ".xsl", ".xslt", ".svg",
@@ -225,10 +226,10 @@ def _prose_targets(refs: list[str], test_runner_names: set[str]) -> list[str]:
 
 
 def _admitted_change_ids(wave_dir: Path) -> list[str]:
-    if not _contained_source_file(wave_dir, wave_dir / "wave.md"):
+    if not _contained_source_file(wave_dir, wave_dir / _vocab.RECORD_FILENAME):
         return []
     try:
-        text = (wave_dir / "wave.md").read_text(encoding="utf-8", errors="ignore")
+        text = (wave_dir / _vocab.RECORD_FILENAME).read_text(encoding="utf-8", errors="ignore")
     except OSError:
         return []
     return list(dict.fromkeys(_ADMITTED_CHANGE_RE.findall(text)))
@@ -239,7 +240,7 @@ def _admitted_change_docs(wave_dir: Path) -> list[Path]:
     for change_id in _admitted_change_ids(wave_dir):
         matches = [
             path for path in wave_dir.glob("*.md")
-            if path.name != "wave.md"
+            if path.name != _vocab.RECORD_FILENAME
             and _contained_source_file(wave_dir, path)
             and (path.stem == change_id or path.stem.startswith(change_id + " "))
         ]
@@ -352,7 +353,7 @@ def source_exploration_cost(wave_dir: Path) -> int:
             return live
     except (ImportError, OSError, ValueError, TypeError):
         pass
-    wave_md = wave_dir / "wave.md"
+    wave_md = wave_dir / _vocab.RECORD_FILENAME
     if not _contained_source_file(wave_dir, wave_md):
         return 0
     try:

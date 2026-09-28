@@ -28,6 +28,8 @@ import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+
+import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 from typing import Any, Iterable, Mapping
 from runtime_lock import RuntimeFileLock, RuntimeLockBusy, RuntimeLockError
 from review_policy import (
@@ -634,10 +636,10 @@ def review_event_path(wave_path: Path) -> Path:
     """Resolve the fixed sibling authority from a wave directory or ``wave.md``."""
 
     path = Path(wave_path)
-    if path.name == "wave.md":
+    if path.name == _vocab.RECORD_FILENAME:
         return path.parent / EVENTS_FILENAME
     if path.suffix:
-        raise ValueError("review event authority is resolved only from a wave directory or wave.md")
+        raise ValueError(f"review event authority is resolved only from a wave directory or {_vocab.RECORD_FILENAME}")
     return path / EVENTS_FILENAME
 
 
@@ -690,24 +692,36 @@ def is_canonical_wave_events_path(rel_path: str, root: Path | None = None) -> bo
     definition of the fixed wave-folder role (lint must never import the
     indexer, which activates the venv at import time). ``root`` is accepted
     for caller-signature stability and is not consulted.
+
+    Wave 1z8mm (1z8qj): the waves root and depth come from ``record_paths``
+    rather than a hard-coded root at one level, so a relocated or
+    nested layout is recognised. The layout is read from the constants with
+    ``unvalidated_record_roots`` (string handling only, never raises), so the
+    decision stays position-only and no record is read. In a nested layout a
+    grouping folder's own ``events.jsonl`` is also excluded; that
+    over-exclusion is accepted, since such a file is no retrieval content.
     """
     normalized = rel_path.replace("\\", "/")
     parts = normalized.split("/")
-    return (
-        len(parts) == 4
-        and parts[0] == "docs"
-        and parts[1] == "waves"
-        and bool(parts[2])
-        and parts[3] == "events.jsonl"
-    )
+    if not parts or parts[-1] != "events.jsonl":
+        return False
+    import record_paths
+
+    roots = record_paths.unvalidated_record_roots(Path("."))
+    waves_parts = [part for part in roots.waves_rel.split("/") if part]
+    depth_limit = roots.max_depth if roots.nested else 1
+    if not waves_parts or parts[: len(waves_parts)] != waves_parts:
+        return False
+    folders = parts[len(waves_parts):-1]
+    return 1 <= len(folders) <= depth_limit and all(folders)
 
 
 def _review_authority_path_error(wave_path: Path) -> str | None:
     """Reject symlinked/out-of-wave review authority before any read or write."""
 
     wave_md = Path(wave_path)
-    if wave_md.name != "wave.md":
-        wave_md = wave_md / "wave.md"
+    if wave_md.name != _vocab.RECORD_FILENAME:
+        wave_md = wave_md / _vocab.RECORD_FILENAME
     wave_dir = wave_md.parent
     ledger = wave_dir / EVENTS_FILENAME
     try:
@@ -715,9 +729,9 @@ def _review_authority_path_error(wave_path: Path) -> str | None:
             return "wave directory may not be a symlink"
         wave_real = wave_dir.resolve(strict=True)
         if wave_md.is_symlink():
-            return "wave.md may not be a symlink"
+            return f"{_vocab.RECORD_FILENAME} may not be a symlink"
         if wave_md.exists() and not wave_md.resolve(strict=True).is_relative_to(wave_real):
-            return "wave.md escapes its wave directory"
+            return f"{_vocab.RECORD_FILENAME} escapes its wave directory"
         if ledger.is_symlink():
             return "events.jsonl may not be a symlink"
         if ledger.exists() and not ledger.resolve(strict=True).is_relative_to(wave_real):
@@ -2296,8 +2310,8 @@ def resolve_review_authority(
     wave_md: Path | None = None
     if wave_path is not None:
         wave_md = Path(wave_path)
-        if wave_md.name != "wave.md":
-            wave_md = wave_md / "wave.md"
+        if wave_md.name != _vocab.RECORD_FILENAME:
+            wave_md = wave_md / _vocab.RECORD_FILENAME
     if wave_text is None:
         wave_text = ""
         if wave_md is not None:
@@ -4330,8 +4344,8 @@ def validate_external_review_evidence(
     """Validate one wave directly from its declaration and fixed sibling ledger."""
 
     wave_md = Path(wave_path)
-    if wave_md.name != "wave.md":
-        wave_md = wave_md / "wave.md"
+    if wave_md.name != _vocab.RECORD_FILENAME:
+        wave_md = wave_md / _vocab.RECORD_FILENAME
     path_error = _review_authority_path_error(wave_md)
     if path_error:
         authority_errors = (f"review authority path is unsafe: {path_error}",)

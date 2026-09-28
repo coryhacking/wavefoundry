@@ -68,7 +68,20 @@ class ShippedLayoutTests(_TempRoot):
                 names.update(alias.name.split(".")[0] for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module:
                 names.add(node.module.split(".")[0])
-        self.assertEqual(names, {"__future__", "os", "dataclasses", "pathlib"})
+        self.assertEqual(names, {"__future__", "os", "dataclasses", "pathlib", "vocabulary_profile"})
+
+    def test_vocabulary_profile_is_stdlib_only(self):
+        # Wave 1z8mm: record_paths' one sibling import stays stdlib-only too.
+        import ast
+
+        tree = ast.parse((SCRIPTS_DIR / "vocabulary_profile.py").read_text(encoding="utf-8"))
+        names = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names.update(alias.name.split(".")[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names.add(node.module.split(".")[0])
+        self.assertEqual(names, {"__future__", "re"})
 
     def test_layout_constants_are_read_at_call_time(self):
         before = rp.layout_constants()

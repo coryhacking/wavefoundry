@@ -21,6 +21,7 @@ from textwrap import dedent
 
 import marker_namespaces
 import record_paths  # record roots (wave 1y0gz)
+import vocabulary_profile  # record vocabulary (wave 1z8mm)
 from review_policy import (
     REVIEW_POLICY_CARRIER_REGISTRY,
     REVIEW_POLICY_SURFACE_BLOCKS,
@@ -2058,6 +2059,9 @@ def reconcile_scaffold_baselines(repo_root: Path) -> list[str]:
         template = _resolve_install_asset(repo_root, template_name)
         with template.open("r", encoding="utf-8", newline="") as handle:
             content = handle.read().replace("{{generated_at}}", today)
+        # Wave 1z8mm: the header labels follow the vocabulary profile; the
+        # identity under the default profile, so the baseline stays byte-identical.
+        content = vocabulary_profile.localize_template(content)
         _write_review_carrier_text(path, content)
         written.append(destination)
     return written

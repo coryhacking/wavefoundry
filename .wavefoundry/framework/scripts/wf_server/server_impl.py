@@ -75,6 +75,7 @@ for _wll_key in list(sys.modules):
             "operator_identity",
             "record_paths",
             "marker_namespaces",
+            "vocabulary_profile",  # wave 1z8mm: record vocabulary
             "lifecycle_gate_support",
             "lifecycle_gates",
             "sensor_runner",
@@ -106,6 +107,7 @@ import index_source_guard
 import path_containment
 import marker_namespaces
 import record_paths  # configured wave/plan roots, stdlib-only (wave 1y0gz)
+import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 
 import lifecycle_gate_support
 import sensor_runner
@@ -3555,9 +3557,9 @@ def docs_lint_hook_timeout_seconds(root: Path) -> float:
 
 
 
-_WAVE_ID_PATTERN = re.compile(r"^wave-id:\s+`([^`]+)`", re.MULTILINE)
+_WAVE_ID_PATTERN = re.compile(rf"^{_vocab.ID_KEY_RE}:\s+`([^`]+)`", re.MULTILINE)
 _STATUS_PATTERN = re.compile(r"^Status:\s+(\S+)", re.MULTILINE)
-_CHANGE_STATUS_PATTERN = re.compile(r"^(?:Change|Item) Status:\s+`([^`]+)`", re.MULTILINE)
+_CHANGE_STATUS_PATTERN = re.compile(rf"^(?:{_vocab.MEMBER_STATUS_LABEL_RE}|Item Status):\s+`([^`]+)`", re.MULTILINE)
 
 # Wave 1p31b (1p32k): close-time hard gate — every AC and task across the wave's admitted
 # changes must be `[x]` (done) or `[~]` (intentionally deferred). Silent `[ ]` items block
@@ -3639,7 +3641,7 @@ def list_waves(root: Path, wave_dirs: Optional[list[Path]] = None) -> list[dict]
         wave_dirs = record_paths.discover_wave_dirs(root)
     result = []
     for wave_dir in sorted(wave_dirs, key=lambda p: _lifecycle_sort_key(p.name)):
-        result.append(_read_wave_record(root, wave_dir / "wave.md"))
+        result.append(_read_wave_record(root, wave_dir / _vocab.RECORD_FILENAME))
     return result
 
 
@@ -3822,7 +3824,7 @@ class McpRepoCache:
         count, best_ns = 0, 0
         for directory in wave_dirs:
             try:
-                st = (directory / "wave.md").stat()
+                st = (directory / _vocab.RECORD_FILENAME).stat()
             except OSError:
                 continue
             count += 1
@@ -5692,7 +5694,7 @@ def _detect_wave_status_drift(root: Path, wave: dict) -> list[dict[str, Any]]:
         wave_md_status = change["status"]
         # Search for the change doc in the wave folder
         for p in sorted(wave_dir.rglob("*.md")):
-            if p.name == "wave.md":
+            if p.name == _vocab.RECORD_FILENAME:
                 continue
             if cid.lower() in p.stem.lower():
                 try:
@@ -5748,7 +5750,8 @@ def wf_current_wave_response(root: Path, cache: Optional[McpRepoCache] = None) -
                     "No active, planned, or paused wave found.",
                     recovery_tools=["wf_list_waves"],
                     recovery_usage="wf_list_waves()",
-                )
+                ),
+                *(_record_discovery_diagnostics(root) if not all_waves else []),
             ],
             next_tools=["wf_list_waves", "wf_list_plans"],
             usage="wf_list_waves()",
@@ -5772,11 +5775,11 @@ def wf_current_wave_response(root: Path, cache: Optional[McpRepoCache] = None) -
         try:
             drifts = _detect_wave_status_drift(root, active_entry)
             if drifts:
-                drift_summary = "; ".join(f"{d['change_id']}: wave.md={d['wave_md_status']!r} vs file={d['file_status']!r}" for d in drifts)
+                drift_summary = "; ".join(f"{d['change_id']}: {_vocab.RECORD_FILENAME}={d['wave_md_status']!r} vs file={d['file_status']!r}" for d in drifts)
                 diagnostics.append(
                     _diagnostic(
                         "change_status_drift",
-                        f"Change status drift detected — wave.md and change doc files disagree for: {drift_summary}. Update wave.md Change Status fields to match the actual change docs.",
+                        f"Change status drift detected — {_vocab.RECORD_FILENAME} and change doc files disagree for: {drift_summary}. Update {_vocab.RECORD_FILENAME} {_vocab.MEMBER_STATUS_LABEL} fields to match the actual change docs.",
                         recovery_tools=["wf_get_change", "wf_validate_docs"],
                         recovery_usage=f"wf_get_change(change_id={drifts[0]['change_id']!r})",
                     )
@@ -5811,6 +5814,17 @@ def wf_current_wave_response(root: Path, cache: Optional[McpRepoCache] = None) -
         next_tools=["wf_get_change"],
         usage=usage,
     )
+
+
+def _record_discovery_diagnostics(root: Path) -> list[dict[str, Any]]:
+    """Wave 1z8mm: advisory when wave folders exist but none holds the profile's record file."""
+    try:
+        message = record_paths.record_discovery_mismatch(root)
+    except Exception:  # noqa: BLE001 - advisory; never block the listing
+        return []
+    if not message:
+        return []
+    return [_diagnostic("record_file_not_found", message, recovery_tools=["wf_validate_docs"])]
 
 
 @_fail_closed_on_record_layout("wf_list_waves")
@@ -5872,6 +5886,7 @@ def wf_list_waves_response(root: Path, limit: int = 50, cache: Optional[McpRepoC
     ]
     if not waves:
         diagnostics.append(_diagnostic("no_waves", "No waves found."))
+        diagnostics.extend(_record_discovery_diagnostics(root))
     return _response(
         "ok",
         {"waves": waves, "wave_metrics": metrics, "total": len(all_waves), "has_more": has_more},
@@ -5981,7 +5996,7 @@ def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -
             # Prefer wave folder; fall back to docs/plans
             doc_path: Optional[Path] = None
             for p in sorted(wave_dir.rglob("*.md")):
-                if p.name != "wave.md" and cid.lower() in p.stem.lower():
+                if p.name != _vocab.RECORD_FILENAME and cid.lower() in p.stem.lower():
                     doc_path = p
                     break
             if doc_path is None:
@@ -6329,7 +6344,7 @@ def _resolve_wave_md_matches(
         wave_dirs = record_paths.discover_wave_dirs(root)
     matches: list[dict[str, Any]] = []
     unreadable: list[dict[str, Any]] = []
-    for wave_md in (d / "wave.md" for d in wave_dirs):
+    for wave_md in (d / _vocab.RECORD_FILENAME for d in wave_dirs):
         try:
             wave_md, _ = _contained_wave_review_paths(root, wave_md)
         except ValueError as exc:
@@ -6497,7 +6512,7 @@ def _resolve_change_doc_matches(root: Path, change_id_prefix: str) -> list[dict[
         if not base.exists():
             continue
         for p in base.rglob("*.md"):
-            if p.name == "wave.md":
+            if p.name == _vocab.RECORD_FILENAME:
                 continue
             try:
                 text = p.read_text(encoding="utf-8")
@@ -7080,7 +7095,7 @@ def _broken_relative_links_after_relocation(doc_text: str) -> list[str]:
 
 def _change_block_pattern(change_id: str) -> re.Pattern[str]:
     return re.compile(
-        rf"\n?Change ID:\s+`{re.escape(change_id)}`\n(?:Previous Change Status:\s+`[^`]+`\n)?Change Status:\s+`[^`]+`\n?",
+        rf"\n?{_vocab.MEMBER_ID_LABEL_RE}:\s+`{re.escape(change_id)}`\n(?:{_vocab.PREVIOUS_STATUS_LABEL_RE}:\s+`[^`]+`\n)?{_vocab.MEMBER_STATUS_LABEL_RE}:\s+`[^`]+`\n?",
         re.MULTILINE,
     )
 
@@ -7310,9 +7325,9 @@ def _contained_wave_review_paths(root: Path, wave_md: Path) -> tuple[Path, Path]
             wave_dir.relative_to(root_resolved)
     except ValueError as exc:
         raise ValueError("wave directory resolves outside the repository") from exc
-    expected_wave_md = wave_dir / "wave.md"
+    expected_wave_md = wave_dir / _vocab.RECORD_FILENAME
     if wave_md.resolve(strict=False) != expected_wave_md:
-        raise ValueError("wave.md must not resolve through a file symlink")
+        raise ValueError(f"{_vocab.RECORD_FILENAME} must not resolve through a file symlink")
     expected_events = wave_dir / "events.jsonl"
     if expected_events.resolve(strict=False) != expected_events:
         raise ValueError("events.jsonl must not resolve through a file symlink")
@@ -7332,7 +7347,7 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
         "wave", slug_s, legacy=False, commit=(mode_s == "create"), repo_root=root,
     )
     wave_dir = record_paths.load_record_roots(root).waves / wave_id
-    wave_md = wave_dir / "wave.md"
+    wave_md = _vocab.record_file(wave_dir)
     rel_path = str(wave_md.relative_to(root)).replace("\\", "/")
     exists = wave_md.exists()
     # Wave 1t9w9: waves no longer scaffold journals — in-flight capture goes
@@ -7347,25 +7362,25 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
     today_iso = datetime.date.today().isoformat()
     title = slug_s.replace('-', ' ').title()
     new_wave_text = (
-            "# Wave Record\n\n"
+            f"{_vocab.RECORD_TITLE}\n\n"
             "Owner: Engineering\n"
             "Status: planned\n"
             f"Last verified: {today_iso}\n"
             f"{REVIEW_EVIDENCE_SOURCE_DECLARATION}\n\n"
             "review-policy-reprepare-required: false\n\n"
-            f"wave-id: `{wave_id}`\n"
+            f"{_vocab.id_line(wave_id)}\n"
             f"Title: {title}\n\n"
             "## Objective\n\n"
             "<Describe the wave's load-bearing goal in 1–3 sentences — what changes "
             "in the project state when this wave closes, and why now. This text is "
             "displayed in the dashboard wave card.>\n\n"
-            "## Changes\n\n"
+            f"{_vocab.MEMBER_HEADING}\n\n"
             "## Participants\n\n"
             "- Coordinator: <wave coordinator>\n"
             "- Write-owning roles: <roles selected during Prepare wave>\n"
             "- Requested review lanes: none\n"
             "- Required review lanes: none\n\n"
-            "## Wave Summary\n\n"
+            f"{_vocab.SUMMARY_HEADING}\n\n"
             "<Describe the purpose and scope of this wave in 1–3 sentences.>\n\n"
             "## Watchpoints\n\n"
             "- <Add watchpoint, follow-up, or blocking notes here — coordination "
@@ -7376,7 +7391,7 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
             "## Dependencies\n\n"
             "- No external wave dependencies. Declare intra-wave dependencies with a "
             "`Depends On:` line containing full backticked change ids in each change's "
-            "block under `## Changes`.\n"
+            f"block under `{_vocab.MEMBER_HEADING}`.\n"
     )
     # Wave 1t3gt (1t3gu): a scaffold must be lint-valid from creation. Render the
     # projection-owned sections through the SAME renderers the validator compares
@@ -7456,6 +7471,11 @@ def wf_create_wave_response(root: Path, slug: str, mode: str = "dry_run", cache:
     return _attach_lint_to_response(envelope, root, result["mode"])
 
 
+# Bracketed placeholders and the bare TBD scaffold that templates have written on
+# the back-reference line over time; fixed legacy text, not profile vocabulary.
+_LEGACY_BACKREF_PLACEHOLDERS = r"\[wave-id or TBD\]|`?<wave-id>`?|TBD"
+
+
 def _insert_change_block_into_changes_section(text: str, change_id: str) -> str:
     """Append a ``Change ID:`` block inside the ``## Changes`` section.
 
@@ -7465,11 +7485,11 @@ def _insert_change_block_into_changes_section(text: str, change_id: str) -> str:
     first existing ``## `` heading, or appended to the end of the file if none
     exist. Admission order is preserved by tail-appending within the section.
     """
-    block = f"Change ID: `{change_id}`\nChange Status: `planned`\n"
-    changes_match = re.search(r"^## Changes[ \t]*\n", text, re.MULTILINE)
+    block = f"{_vocab.MEMBER_ID_LABEL}: `{change_id}`\n{_vocab.MEMBER_STATUS_LABEL}: `planned`\n"
+    changes_match = re.search(rf"^{_vocab.MEMBER_HEADING_RE}[ \t]*\n", text, re.MULTILINE)
     if changes_match is None:
         next_heading = re.search(r"^## ", text, re.MULTILINE)
-        section = "## Changes\n\n" + block + "\n"
+        section = _vocab.MEMBER_HEADING + "\n\n" + block + "\n"
         if next_heading is None:
             if text and not text.endswith("\n"):
                 text += "\n"
@@ -7655,8 +7675,8 @@ def wf_add_change_response(
                 # angle-bracket form cannot be a real wave id, so recognizing it
                 # is safe; recognition deliberately does NOT widen to "any
                 # unrecognized value", which could be an operator-authored note.
-                r"(?m)^Wave: (?:\[wave-id or TBD\]|`?<wave-id>`?|TBD)$",
-                f"Wave: {wave_md.parent.name}",
+                rf"(?m)^{_vocab.BACKREF_LABEL_RE}: (?:{_LEGACY_BACKREF_PLACEHOLDERS})$",
+                lambda _m: f"{_vocab.BACKREF_LABEL}: {wave_md.parent.name}",
                 admitted_text,
             )
             if repaired_admitted_text != admitted_text:
@@ -7816,13 +7836,14 @@ def new_change(root: Path, kind: str, slug: str, change_id: str | None = None) -
     if template_path.exists():
         template = template_path.read_text(encoding="utf-8")
     else:
-        template = _default_template(root)
+        # The shipped template carries the default header labels (wave 1z8mm).
+        template = _vocab.localize_template(_default_template(root))
 
     import time
     today = time.strftime("%Y-%m-%d")
     content = template
     content = re.sub(r"`<id-prefix>-<kind> <slug>`.*", f"`{change_id}`", content)
-    content = re.sub(r"Change ID:.*", f"Change ID: `{change_id}`", content)
+    content = re.sub(rf"{_vocab.MEMBER_ID_LABEL_RE}:.*", lambda _m: f"{_vocab.MEMBER_ID_LABEL}: `{change_id}`", content)
     content = re.sub(r"Last verified:.*", f"Last verified: {today}", content)
 
     out_path = plans_dir / f"{change_id}.md"
@@ -11386,10 +11407,10 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
     # remain a secondary source; prose and workstream tables are not a grammar.
     dependency_advisories: list[dict[str, Any]] = []
     wave_dependencies: dict[str, list[str]] = {}
-    changes_match = re.search(r"(?ms)^## Changes[ \t]*\n(.*?)(?=^## |\Z)", wave_text)
+    changes_match = re.search(rf"(?ms)^{_vocab.MEMBER_HEADING_RE}[ \t]*\n(.*?)(?=^## |\Z)", wave_text)
     owner = None
     for line in (changes_match.group(1) if changes_match else "").splitlines():
-        change_match = re.fullmatch(r"Change ID:[ \t]*`([^`]+)`[ \t]*", line)
+        change_match = re.fullmatch(rf"{_vocab.MEMBER_ID_LABEL_RE}:[ \t]*`([^`]+)`[ \t]*", line)
         if change_match:
             owner = change_match.group(1)
         elif owner and re.match(r"^Depends On:[ \t]+", line):
@@ -11706,8 +11727,8 @@ def _generate_wf_close_wave_summary(wave_id: str, wave_text: str, wave_md: Path)
 
 
 def _replace_wave_summary_section(text: str, summary: str) -> str:
-    """Replace the content of ## Wave Summary with the generated summary."""
-    marker = "## Wave Summary"
+    """Replace the content of the summary heading's section with the generated summary."""
+    marker = _vocab.SUMMARY_HEADING
     idx = text.find(marker)
     if idx == -1:
         return text
@@ -11966,7 +11987,11 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
             text = _replace_wave_summary_section(text, wave_summary)
             text = text[:status_match.start(1)] + "closed" + text[status_match.end(1):]
             if "Completed At:" not in text:
-                text = text.replace("## Wave Summary", f"Completed At: {time.strftime('%Y-%m-%d')}\n\n## Wave Summary", 1)
+                text = text.replace(
+                    _vocab.SUMMARY_HEADING,
+                    f"Completed At: {time.strftime('%Y-%m-%d')}\n\n{_vocab.SUMMARY_HEADING}",
+                    1,
+                )
             try:
                 text = _project_current_review_status(root, wave_md, text)
             except ValueError as exc:

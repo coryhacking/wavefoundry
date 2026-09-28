@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-26
+Last verified: 2026-09-27
 
 ## Allowed Dependencies
 
@@ -63,8 +63,8 @@ consumers open read-only connections and cannot repair or migrate persistent dat
 
 ## Shared path resolution (waves 1t3gt, 1xjmm, 1y0gz)
 
-Four stdlib-only modules are the single owners of path resolution and no other
-module may re-derive what they answer: `repo_root` discovers the repository root,
+Five stdlib-only modules are the single owners of path resolution and record
+naming, and no other module may re-derive what they answer: `repo_root` discovers the repository root,
 `path_containment` owns containment comparisons (including a pure already-resolved entry point),
 `index_paths` names the index database, and `record_paths` resolves the wave and
 plan record roots from its own module constants (`WAVES_ROOT = "docs/waves"`,
@@ -92,6 +92,23 @@ an explicit allowlist whose reasons are comment, docstring, user-facing message,
 or `pinned_evidence` (a shipped report pins the module's SHA-256). Docs-lint
 requires `<waves_root>/README.md`, and the lint and gardener walkers union
 `docs/` with the resolved roots when a root lies outside `docs/`.
+
+`vocabulary_profile` (wave 1z8mm) owns the record vocabulary: the record
+filename, the id key, the record title, the summary and member-list headings,
+the member id and status labels, and the back-reference label, plus the tier
+names. Like `record_paths` it reads no configuration; a fork edits its constants
+at merge time, and it validates them at import, failing closed with
+`VocabularyProfileInvalid`. It exports strings and regex-escaped fragments, not
+whole patterns, so each consuming site keeps its own grammar (anchoring,
+backticks, case, legacy aliases). Everything else in a record is fixed:
+`events.jsonl`, the `<!-- wave:* -->` fences, the other headings and keys, the
+lane names and the folder grammar. `record_paths` imports it (the only edge
+between the five; discovery asks for the profile's record filename), and it
+imports nothing but `re`. A second census test forbids the default markers in
+every other non-test module outside an allowlist of comment, docstring,
+message, frozen oracle and retired-name sites. When the waves root holds folders
+but none contains the profile's record file, docs-lint, `wf_list_waves` and
+`wf_current_wave` report the advisory `record_file_not_found`.
 
 Wave record discovery is one walk (wave 1y043): `record_paths.walk_wave_candidates`
 enumerates the waves root's child directories (flat, the shipped `NESTED = False`)

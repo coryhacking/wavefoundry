@@ -24,6 +24,7 @@ from typing import Any, Optional
 # SHA/path cannot inject a shell command through it).
 from index_state_store import _run_git
 import record_paths  # record roots (wave 1y0gz)
+import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 
 # A commit input is 7-40 lowercase hex. Syntax is only the first guard; callers
 # must also canonicalize it through local git before treating it as authority.
@@ -43,7 +44,7 @@ _WAVE_ID_TOKEN_RE = re.compile(r"\b(1[0-9a-z]{4,})\b")
 _LANDING_COMMIT_RE = re.compile(
     r"(?im)^\s*landing-commit\s*:\s*`?([0-9a-f]{7,40})`?\s*$"
 )
-_CHANGE_ID_RE = re.compile(r"(?im)^Change ID:\s*`([^`]+)`\s*$")
+_CHANGE_ID_RE = re.compile(rf"(?im)^{_vocab.MEMBER_ID_LABEL_RE}:\s*`([^`]+)`\s*$")
 
 _GIT_TIMEOUT = 10
 
@@ -133,7 +134,7 @@ def resolve_via_evidence(root: Path, sha: str) -> list[str]:
         return []
     found: list[str] = []
     # Wave 1y043: the shared discovery walk (flat or nested).
-    for wave_md in (d / "wave.md" for d in record_paths.discover_wave_dirs(root)):
+    for wave_md in (d / _vocab.RECORD_FILENAME for d in record_paths.discover_wave_dirs(root)):
         try:
             text = wave_md.read_text(encoding="utf-8", errors="ignore")
         except OSError:

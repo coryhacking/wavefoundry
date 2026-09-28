@@ -39,6 +39,7 @@ cli_stdio.configure_utf8_stdio()
 
 import dashboard_lib
 import record_paths  # record roots (wave 1y0gz)
+import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 
 
 ASSET_ROOT = Path(__file__).resolve().parent.parent / "dashboard"
@@ -929,7 +930,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if not matches or requested_wave not in (matches[0].name, record_paths.wave_id_of(matches[0])):
                 self.send_error(HTTPStatus.NOT_FOUND, "Document not found")
                 return
-            target = matches[0] / ("wave.md" if doc_type == "wave" else f"{doc_id}.md")
+            target = matches[0] / (_vocab.RECORD_FILENAME if doc_type == "wave" else f"{doc_id}.md")
         else:
             self.send_error(HTTPStatus.BAD_REQUEST, "Missing or invalid type/id parameters")
             return

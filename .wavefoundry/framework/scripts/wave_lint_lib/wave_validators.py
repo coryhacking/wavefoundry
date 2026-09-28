@@ -74,6 +74,7 @@ from .constants import (
 )
 from .helpers import load_json, read_text, relative_to_root, resolve_record_roots
 import record_paths  # discovery walk and ambiguity diagnostics (wave 1y043)
+import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 
 
 _H1_TITLE_RE = re.compile(r"^#\s+\S", re.MULTILINE)
@@ -981,7 +982,7 @@ def _parse_change_records(text: str, rel: str) -> list[WorkRecord]:
             current.depends_on.extend(BACKTICK_VALUE_PATTERN.findall(depends_match.group(1)))
     if current is not None:
         records.append(current)
-    if records and ("## Changes" in text or any(record.status is not None for record in records)):
+    if records and (_vocab.MEMBER_HEADING in text or any(record.status is not None for record in records)):
         return records
     return []
 
@@ -1050,7 +1051,7 @@ def _wave_folder_docs(wave_dir: Path) -> list[Path]:
     for dirpath, dirnames, filenames in os.walk(wave_dir):
         current = Path(dirpath)
         dirnames[:] = sorted(
-            name for name in dirnames if not (current / name / "wave.md").is_file()
+            name for name in dirnames if not (current / name / _vocab.RECORD_FILENAME).is_file()
         )
         docs.extend(current / name for name in filenames if name.endswith(".md") and (current / name).is_file())
     return docs
@@ -1058,7 +1059,7 @@ def _wave_folder_docs(wave_dir: Path) -> list[Path]:
 
 def _wave_record_files(root: Path, roots: record_paths.RecordRoots) -> list[Path]:
     """The ``wave.md`` of every discovered wave folder, sorted."""
-    return sorted(wave_dir / "wave.md" for wave_dir in record_paths.discover_wave_dirs(root, roots))
+    return sorted(wave_dir / _vocab.RECORD_FILENAME for wave_dir in record_paths.discover_wave_dirs(root, roots))
 
 
 def _collect_wave_state(root: Path) -> tuple[dict[str, WaveRecord], dict[str, WorkRecord]]:
@@ -1130,7 +1131,7 @@ def check_closed_wave_requirements(root: Path) -> list[str]:
             continue
         rel = relative_to_root(root, path)
         text = read_text(path)
-        if "wave-id:" not in text or ("## Changes" not in text and "## Items" not in text):
+        if f"{_vocab.ID_KEY}:" not in text or (_vocab.MEMBER_HEADING not in text and "## Items" not in text):
             continue
         status = (_metadata_value(text, "Status") or "").casefold()
         sections = _extract_sections(text)
@@ -1148,7 +1149,7 @@ def check_closed_wave_requirements(root: Path) -> list[str]:
             failures.append(f"{rel}: closed wave must declare at least one change")
         for record in work_records:
             if record.status is None:
-                status_label = "Change Status" if record.anchor_type == "change" else "Item Status"
+                status_label = _vocab.MEMBER_STATUS_LABEL if record.anchor_type == "change" else "Item Status"
                 failures.append(f"{rel}: closed wave {record.anchor_type} `{record.record_id}` is missing `{status_label}`")
             elif record.status.casefold() not in terminal_statuses:
                 failures.append(
@@ -1167,7 +1168,7 @@ def check_closed_wave_requirements(root: Path) -> list[str]:
                     f"{rel}: closed wave is missing review checkpoint evidence for required reviewer lane `{lane}`"
                 )
 
-        if "wave-id:" in text:
+        if f"{_vocab.ID_KEY}:" in text:
             wave_ids = WAVE_REFERENCE_PATTERN.findall(text)
             if wave_ids:
                 wave_id = wave_ids[0]
@@ -1216,14 +1217,14 @@ def check_plan_filenames(root: Path, only: set[Path] | None = None, skip: set[Pa
             expected = change_ids[0]
             if basename != expected:
                 failures.append(
-                    f"{rel}: plan filename must match `Change ID` — rename to "
+                    f"{rel}: plan filename must match `{_vocab.MEMBER_ID_LABEL}` — rename to "
                     f"`{plans_rel}/{expected}.md` (see `{plans_rel}/plan-template.md` → "
-                    f"**Change ID / Filename**; generate new IDs with "
+                    f"**{_vocab.MEMBER_ID_LABEL} / Filename**; generate new IDs with "
                     f"`python3 .wavefoundry/framework/scripts/lifecycle_id.py`)"
                 )
             if len(set(change_ids)) > 1:
                 failures.append(
-                    f"{rel}: plan declares multiple `Change ID` values "
+                    f"{rel}: plan declares multiple `{_vocab.MEMBER_ID_LABEL}` values "
                     f"({', '.join(f'`{cid}`' for cid in sorted(set(change_ids)))}); split into one plan per change"
                 )
             continue
@@ -1233,17 +1234,17 @@ def check_plan_filenames(root: Path, only: set[Path] | None = None, skip: set[Pa
             expected = wave_overview_ids[0]
             if basename != expected:
                 failures.append(
-                    f"{rel}: wave-level plan filename must match `Wave:` identifier — rename to "
+                    f"{rel}: wave-level plan filename must match `{_vocab.BACKREF_LABEL}:` identifier — rename to "
                     f"`{plans_rel}/{expected}.md`"
                 )
             continue
 
         failures.append(
-            f"{rel}: plan is missing a `Change ID:` or `Wave:` identifier line — "
+            f"{rel}: plan is missing a `{_vocab.MEMBER_ID_LABEL}:` or `{_vocab.BACKREF_LABEL}:` identifier line — "
             f"generate a change-id with "
             f"`python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind <kind> --slug <slug>`, "
-            f"record it as `Change ID: \\`<id>\\`` in the file, and ensure the filename matches "
-            f"(see `{plans_rel}/plan-template.md` → **Change ID / Filename**)"
+            f"record it as `{_vocab.MEMBER_ID_LABEL}: \\`<id>\\`` in the file, and ensure the filename matches "
+            f"(see `{plans_rel}/plan-template.md` → **{_vocab.MEMBER_ID_LABEL} / Filename**)"
         )
 
     return failures
@@ -1317,7 +1318,7 @@ def check_orphan_wave_ledgers(root: Path) -> list[str]:
                 continue  # absent or empty ledger: fresh scaffold, not orphan
         except OSError:
             continue
-        wave_md = wave_dir / "wave.md"
+        wave_md = wave_dir / _vocab.RECORD_FILENAME
         declared_or_marked = False
         if wave_md.is_file():
             try:
@@ -1342,13 +1343,21 @@ def check_orphan_wave_ledgers(root: Path) -> list[str]:
             )
             failures.append(
                 f"{roots.waves_prefix}{wave_dir.name}: orphaned review ledger: this "
-                "folder holds a non-empty `events.jsonl` but no readable sibling `wave.md` "
+                f"folder holds a non-empty `events.jsonl` but no readable sibling `{_vocab.RECORD_FILENAME}` "
                 "carrying `review-evidence-source: events.jsonl` (or the legacy inline "
                 "marker); a non-empty ledger requires a declared wave record, so restore "
-                "`wave.md` or its declaration line from history (Git or backups)"
+                f"`{_vocab.RECORD_FILENAME}` or its declaration line from history (Git or backups)"
                 f"{shape_note}"
             )
     return failures
+
+
+def record_discovery_findings(root: Path) -> list[str]:
+    """Wave 1z8mm: the advisory ``record_file_not_found`` sensor's findings."""
+    message = record_paths.record_discovery_mismatch(root)
+    if not message:
+        return []
+    return [f"{record_paths.unvalidated_record_roots(root).waves_rel}/: {message}"]
 
 
 def _route_sensor_findings(sensor_id: str, findings: list[str], failures: list[str],
@@ -1424,7 +1433,7 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
         if skip is not None and path in skip:
             continue
         text = read_text(path)
-        is_wave_record = path.name == "wave.md"
+        is_wave_record = path.name == _vocab.RECORD_FILENAME
         wave_matches: list[str] = []
         watchpoints = ""
 
@@ -1463,14 +1472,14 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
             # Wave record checks: wave-id, required sections, Title, Objective, Watchpoints, Changes
             wave_matches = WAVE_ID_PATTERN.findall(text)
             if not wave_matches:
-                failures.append(f"{rel}: missing stable `wave-id` declaration")
+                failures.append(f"{rel}: missing stable `{_vocab.ID_KEY}` declaration")
             elif len(wave_matches) > 1:
-                failures.append(f"{rel}: multiple `wave-id` declarations found")
+                failures.append(f"{rel}: multiple `{_vocab.ID_KEY}` declarations found")
             else:
                 wave_id = wave_matches[0]
                 existing = seen_wave_ids.get(wave_id)
                 if existing is not None:
-                    failures.append(f"{rel}: duplicate `wave-id` `{wave_id}` across wave artifacts (already declared in {existing})")
+                    failures.append(f"{rel}: duplicate `{_vocab.ID_KEY}` `{wave_id}` across wave artifacts (already declared in {existing})")
                 else:
                     seen_wave_ids[wave_id] = rel
             for section in WAVE_REQUIRED_SECTIONS:
@@ -1506,9 +1515,9 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
 
         if is_wave_record:
             if forward_wave and legacy_item_records:
-                failures.append(f"{rel}: ready or active wave records must use `Change ID` / `Change Status`, not `Item ID` / `Item Status`")
-            if forward_wave and "## Changes" not in text:
-                failures.append(f"{rel}: ready or active wave records must include `## Changes`")
+                failures.append(f"{rel}: ready or active wave records must use `{_vocab.MEMBER_ID_LABEL}` / `{_vocab.MEMBER_STATUS_LABEL}`, not `Item ID` / `Item Status`")
+            if forward_wave and _vocab.MEMBER_HEADING not in text:
+                failures.append(f"{rel}: ready or active wave records must include `{_vocab.MEMBER_HEADING}`")
             # Wave 1p3dk / 1p3do: a freshly-created `planned` wave has no
             # admitted changes yet. Defer the Change-ID requirement when both
             # (a) Status: planned AND (b) ## Changes section exists but is
@@ -1518,43 +1527,43 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
             wave_status = (_metadata_value(text, "Status") or "").casefold().strip()
             empty_changes_planned_wave = (
                 wave_status == "planned"
-                and "## Changes" in text
+                and _vocab.MEMBER_HEADING in text
                 and not change_records
                 and not legacy_item_records
             )
             if not forward_wave and not change_records and not legacy_item_records:
                 if not empty_changes_planned_wave:
-                    failures.append(f"{rel}: missing stable `Change ID` declaration")
+                    failures.append(f"{rel}: missing stable `{_vocab.MEMBER_ID_LABEL}` declaration")
             if forward_wave and not change_records:
                 if not empty_changes_planned_wave:
-                    failures.append(f"{rel}: missing stable `Change ID` declaration")
+                    failures.append(f"{rel}: missing stable `{_vocab.MEMBER_ID_LABEL}` declaration")
 
         if is_wave_record:
             for record in work_records:
                 if record.record_id in seen_item_ids:
-                    label = "Change ID" if record.anchor_type == "change" else "Item ID"
+                    label = _vocab.MEMBER_ID_LABEL if record.anchor_type == "change" else "Item ID"
                     failures.append(f"{rel}: duplicate {label} `{record.record_id}` across wave artifacts")
                 seen_item_ids.add(record.record_id)
         for raw_line in [line for line in text.splitlines() if line.startswith("Item ID:")]:
             if not ITEM_ID_PATTERN.match(raw_line):
                 item_value = _extract_backtick_value(raw_line)
                 failures.append(f"{rel}: wave artifact has unstable Item ID `{item_value}`")
-        for raw_line in [line for line in text.splitlines() if line.startswith("Change ID:")]:
+        for raw_line in [line for line in text.splitlines() if line.startswith(f"{_vocab.MEMBER_ID_LABEL}:")]:
             if not CHANGE_ID_PATTERN.match(raw_line):
                 change_value = _extract_backtick_value(raw_line)
-                failures.append(f"{rel}: wave artifact has unstable Change ID `{change_value}`")
+                failures.append(f"{rel}: wave artifact has unstable {_vocab.MEMBER_ID_LABEL} `{change_value}`")
 
         if work_records and all(record.status is None for record in work_records):
-            status_label = "Change Status" if change_records else "Item Status"
+            status_label = _vocab.MEMBER_STATUS_LABEL if change_records else "Item Status"
             failures.append(f"{rel}: missing `{status_label}` for declared wave changes")
         change_status_suffix = allowed_values_suffix(ALLOWED_CHANGE_STATUS_TRANSITIONS)
         item_status_suffix = allowed_values_suffix(ALLOWED_ITEM_STATUS_TRANSITIONS)
-        for raw_line in [line for line in text.splitlines() if line.startswith("Change Status:")]:
+        for raw_line in [line for line in text.splitlines() if line.startswith(f"{_vocab.MEMBER_STATUS_LABEL}:")]:
             if not CHANGE_STATUS_PATTERN.match(raw_line):
-                failures.append(f"{rel}: invalid `Change Status` declaration `{raw_line}`{change_status_suffix}")
-        for raw_line in [line for line in text.splitlines() if line.startswith("Previous Change Status:")]:
+                failures.append(f"{rel}: invalid `{_vocab.MEMBER_STATUS_LABEL}` declaration `{raw_line}`{change_status_suffix}")
+        for raw_line in [line for line in text.splitlines() if line.startswith(f"{_vocab.PREVIOUS_STATUS_LABEL}:")]:
             if not PREVIOUS_CHANGE_STATUS_PATTERN.match(raw_line):
-                failures.append(f"{rel}: invalid `Previous Change Status` declaration `{raw_line}`{change_status_suffix}")
+                failures.append(f"{rel}: invalid `{_vocab.PREVIOUS_STATUS_LABEL}` declaration `{raw_line}`{change_status_suffix}")
         for raw_line in [line for line in text.splitlines() if line.startswith("Item Status:")]:
             if not ITEM_STATUS_PATTERN.match(raw_line):
                 failures.append(f"{rel}: invalid `Item Status` declaration `{raw_line}`{item_status_suffix}")
@@ -1563,12 +1572,12 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                 failures.append(f"{rel}: invalid `Previous Item Status` declaration `{raw_line}`{item_status_suffix}")
         for raw_line in [line for line in text.splitlines() if line.startswith("Depends On:")]:
             if "`" not in raw_line:
-                failures.append(f"{rel}: `Depends On` must reference stable Change IDs in backticks")
+                failures.append(f"{rel}: `Depends On` must reference stable {_vocab.MEMBER_ID_LABEL}s in backticks")
 
         work_records_by_id = {record.record_id: record for record in work_records}
         for record in work_records:
             if record.status is None:
-                status_label = "Change Status" if record.anchor_type == "change" else "Item Status"
+                status_label = _vocab.MEMBER_STATUS_LABEL if record.anchor_type == "change" else "Item Status"
                 failures.append(f"{rel}: {record.anchor_type} `{record.record_id}` is missing `{status_label}`")
                 continue
             if record.previous_status is not None:
@@ -1587,7 +1596,7 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                     continue
                 dependency_record = work_records_by_id.get(dependency)
                 if dependency_record is None:
-                    dependency_label = "Change ID" if record.anchor_type == "change" else "Item ID"
+                    dependency_label = _vocab.MEMBER_ID_LABEL if record.anchor_type == "change" else "Item ID"
                     failures.append(f"{rel}: {record.anchor_type} `{record.record_id}` depends on unknown {dependency_label} `{dependency}`")
                     continue
                 progressable_statuses = PROGRESSABLE_CHANGE_STATUSES if record.anchor_type == "change" else PROGRESSABLE_ITEM_STATUSES
@@ -2120,18 +2129,18 @@ def check_cross_artifact_consistency(root: Path) -> list[str]:
         _check_doc_references(
             root=root,
             doc_root=root / "docs/agents/journals",
-            missing_wave_message="{rel}: journal doc references unknown `wave-id` `{wave_id}`",
+            missing_wave_message="{rel}: journal doc references unknown `" + _vocab.ID_KEY + "` `{wave_id}`",
             missing_item_message="{rel}: journal doc references unknown Item ID `{item_id}`",
-            missing_change_message="{rel}: journal doc references unknown Change ID `{change_id}`",
+            missing_change_message="{rel}: journal doc references unknown " + _vocab.MEMBER_ID_LABEL + " `{change_id}`",
         )
     )
     failures.extend(
         _check_doc_references(
             root=root,
             doc_root=root / "docs/agents/personas",
-            missing_wave_message="{rel}: persona doc references unknown `wave-id` `{wave_id}`",
+            missing_wave_message="{rel}: persona doc references unknown `" + _vocab.ID_KEY + "` `{wave_id}`",
             missing_item_message="{rel}: persona doc references unknown Item ID `{item_id}`",
-            missing_change_message="{rel}: persona doc references unknown Change ID `{change_id}`",
+            missing_change_message="{rel}: persona doc references unknown " + _vocab.MEMBER_ID_LABEL + " `{change_id}`",
         )
     )
     return failures
@@ -2193,7 +2202,7 @@ def check_prepare_council_verdict(root: Path) -> tuple[list[str], list[str]]:
 
     for path in _wave_record_files(root, roots):
         text = read_text(path)
-        if "wave-id:" not in text:
+        if f"{_vocab.ID_KEY}:" not in text:
             continue
         status = (_metadata_value(text, "Status") or "").casefold().strip()
         if status not in ("active", "implementing"):
@@ -2329,7 +2338,7 @@ def check_prepare_council_roster_evidence(root: Path) -> tuple[list[str], list[s
 
     for path in _wave_record_files(root, roots):
         text = read_text(path)
-        if "wave-id:" not in text:
+        if f"{_vocab.ID_KEY}:" not in text:
             continue
         status = (_metadata_value(text, "Status") or "").casefold().strip()
         if status not in ("active", "implementing"):
@@ -2387,4 +2396,4 @@ def _is_archived_legacy_wave_doc(root: Path, path: Path) -> bool:
     wave_folder = relative_parts[0]
     if not wave_folder.startswith("00000 "):
         return False
-    return path.name != "wave.md"
+    return path.name != _vocab.RECORD_FILENAME

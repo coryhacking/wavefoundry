@@ -252,6 +252,36 @@ class FileWalkerTests(unittest.TestCase):
                 f"{still_eligible!r} is not a fixed wave-folder sibling",
             )
 
+    def test_ledger_role_follows_relocated_and_nested_record_roots(self):
+        """Wave 1z8mm (1z8qj): the role comes from record_paths, not a fixed docs/waves."""
+        import record_paths
+        import review_evidence
+
+        check = review_evidence.is_canonical_wave_events_path
+        with patch.object(record_paths, "WAVES_ROOT", "project/records/waves"), \
+             patch.object(record_paths, "NESTED", True), \
+             patch.object(record_paths, "MAX_DEPTH", 2):
+            self.assertTrue(check("project/records/waves/1abc x/events.jsonl", self.root))
+            self.assertTrue(check("project/records/waves/group/1abc x/events.jsonl", self.root))
+            self.assertFalse(check("project/records/waves/a/b/1abc x/events.jsonl", self.root))
+            self.assertFalse(check("project/records/waves/events.jsonl", self.root))
+            self.assertFalse(check("docs/waves/1abc x/events.jsonl", self.root))
+            self.assertFalse(check("project/records/waves/1abc x/other.jsonl", self.root))
+        with patch.object(record_paths, "WAVES_ROOT", "project/records/waves"):
+            # Flat: exactly one folder level.
+            self.assertTrue(check("project/records/waves/1abc x/events.jsonl", self.root))
+            self.assertFalse(check("project/records/waves/group/1abc x/events.jsonl", self.root))
+
+    def test_ledger_role_reads_no_record(self):
+        """Wave 1z8mm (1z8qj): the decision is position-only (the 1to78 property)."""
+        import review_evidence
+
+        rel = "docs/waves/1zzzz never-created/events.jsonl"
+        self.assertFalse((self.root / "docs/waves/1zzzz never-created").exists())
+        with patch.object(Path, "read_text", side_effect=AssertionError("no record read")), \
+             patch.object(Path, "is_file", side_effect=AssertionError("no record probe")):
+            self.assertTrue(review_evidence.is_canonical_wave_events_path(rel, self.root))
+
     def test_id_shape_hint_is_a_separate_message_only_predicate(self):
         """FU4: the id-shape test survives as a lint MESSAGE hint only.
 

@@ -38,6 +38,14 @@ try:
     import record_paths as _wf_record_paths
 except Exception:
     _wf_record_paths = None
+# Wave 1z8mm: the record filename and id key come from the vocabulary profile at runtime,
+# guarded the same way (record_paths imports it, so without it there is no active wave).
+try:
+    import vocabulary_profile as _wf_vocab
+except Exception:
+    _wf_vocab = None
+_wf_record_file = getattr(_wf_vocab, "RECORD_FILENAME", None)
+_wf_id_prefix = getattr(_wf_vocab, "ID_KEY", None)
 
 
 def _waves_root(root: Path) -> Path | None:
@@ -70,8 +78,10 @@ def _wave_dirs(root: Path) -> list:
 
 
 def _active_wave(root: Path):
+    if _wf_record_file is None:
+        return None
     for wave_dir in _wave_dirs(root):
-        wave_md = wave_dir / "wave.md"
+        wave_md = wave_dir / _wf_record_file
         try:
             text = wave_md.read_text(encoding="utf-8")
         except Exception:
@@ -82,7 +92,7 @@ def _active_wave(root: Path):
             s = line.strip()
             if s.lower().startswith("status:"):
                 status = s.split(":", 1)[1].strip().lower()
-            elif s.startswith("wave-id:"):
+            elif _wf_id_prefix and s.startswith(_wf_id_prefix + ":"):
                 wave_id = s.split(":", 1)[1].strip().strip("`")
         if status in ("active", "implementing"):
             return (wave_id, wave_dir)
@@ -92,7 +102,7 @@ def _active_wave(root: Path):
 def _ac_progress(wave_dir: Path):
     done = total = 0
     for md in sorted(wave_dir.glob("*.md")):
-        if md.name == "wave.md":
+        if md.name == _wf_record_file:
             continue
         try:
             for line in md.read_text(encoding="utf-8").splitlines():

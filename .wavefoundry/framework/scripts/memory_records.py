@@ -29,6 +29,7 @@ if _scripts_dir not in sys.path:
     sys.path.insert(0, _scripts_dir)
 
 import record_paths  # noqa: E402  record roots (wave 1y0gz)
+import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 
 MEMORY_DIR = "docs/agents/memory"
 MEMORY_ARCHIVE_DIR = f"{MEMORY_DIR}/archive"
@@ -493,7 +494,7 @@ def _wave_dir_status(wave_dir: Path) -> Optional[str]:
     """The ``Status:`` value of a wave directory's wave.md; None when unreadable."""
 
     try:
-        text = (wave_dir / "wave.md").read_text(encoding="utf-8")
+        text = (wave_dir / _vocab.RECORD_FILENAME).read_text(encoding="utf-8")
     except OSError:
         return None
     match = re.search(r"^Status:\s+(\S+)\s*$", text, re.MULTILINE)
@@ -675,8 +676,8 @@ def migrate_memory_ids_to_lifecycle_naming(root: Path) -> dict[str, Any]:
     wave_statuses = {
         wave_dir: _wave_dir_status(wave_dir)
         for wave_dir in record_paths.discover_wave_dirs(root, roots)
-        if (wave_dir / "wave.md").resolve()
-        == root.resolve() / (wave_dir / "wave.md").relative_to(root)
+        if (wave_dir / _vocab.RECORD_FILENAME).resolve()
+        == root.resolve() / (wave_dir / _vocab.RECORD_FILENAME).relative_to(root)
     }
     paths = set(memory_root.glob("*.md")) | set(root.glob("*.md"))
     for corpus_root in (root / "docs", roots.plans, roots.waves):

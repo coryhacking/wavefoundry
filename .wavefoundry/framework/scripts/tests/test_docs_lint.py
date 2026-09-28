@@ -3227,7 +3227,8 @@ class SensorPolarityRegistryTests(unittest.TestCase):
         # Wave 1yzj9 (1yzj8 AC-3): removing either decided_wave fails here.
         from wave_lint_lib.constants import SENSOR_POLARITY_REGISTRY
         decided = {name: entry.get("decided_wave") for name, entry in SENSOR_POLARITY_REGISTRY.items()}
-        self.assertEqual({"ac_asserts_repository_state": "1yzj9", "inert_record_layout_config": "1yzj9"}, decided)
+        self.assertEqual({"ac_asserts_repository_state": "1yzj9", "inert_record_layout_config": "1yzj9",
+                          "record_file_not_found": "1z8mm"}, decided)
         for name, entry in SENSOR_POLARITY_REGISTRY.items():
             with self.subTest(sensor=name):
                 self.assertEqual("advisory", entry["polarity"])

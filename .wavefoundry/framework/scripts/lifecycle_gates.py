@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, NotRequired, Optional, TypedDict
 
 import lifecycle_gate_support
+import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 import review_evidence
 import sensor_runner
 from public_contract import CONFIGURED_GATE_OUTCOMES
@@ -319,7 +320,7 @@ def _evaluate_shared_delivery_state(
             "Record wf_review_event(event='approval', signoff_key='operator-signoff', "
             "approval_phase='delivery', mode='create')."
             if authority.typed
-            else f"Add `operator-signoff: approved` to `{review_evidence.REVIEW_EVIDENCE_SECTION}` in wave.md."
+            else f"Add `operator-signoff: approved` to `{review_evidence.REVIEW_EVIDENCE_SECTION}` in {_vocab.RECORD_FILENAME}."
         )
         diagnostics.append(
             lifecycle_gate_support._diagnostic(
@@ -719,7 +720,7 @@ def review_lanes_gate(ctx: GateContext, *, review_phase: str = "prepare",
         else:
             _prepare_lane_message = (
                 f"Prepare-phase review lanes without recorded signoff in `{review_evidence.PREPARE_REVIEW_EVIDENCE_MARKER}`: {', '.join(missing)}. "
-                f"Record each lane signoff in the `{review_evidence.PREPARE_REVIEW_EVIDENCE_MARKER}` section of wave.md before running wf_implement_wave."
+                f"Record each lane signoff in the `{review_evidence.PREPARE_REVIEW_EVIDENCE_MARKER}` section of {_vocab.RECORD_FILENAME} before running wf_implement_wave."
             )
         diagnostics.append(lifecycle_gate_support._diagnostic(
             "missing_required_lane",

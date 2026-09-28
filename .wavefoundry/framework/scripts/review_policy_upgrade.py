@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import record_paths  # record roots (wave 1y0gz)
+import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 import review_evidence
 from review_policy import (
     REVIEW_POLICY_EVALUATOR_VERSION,
@@ -88,7 +89,7 @@ def plan_review_policy_upgrade(root: Path) -> ReviewPolicyUpgradePlan:
     waves: list[WaveMigration] = []
     errors: list[str] = []
     # Wave 1y043: the shared discovery walk (flat or nested).
-    for wave_md in (d / "wave.md" for d in record_paths.discover_wave_dirs(root)):
+    for wave_md in (d / _vocab.RECORD_FILENAME for d in record_paths.discover_wave_dirs(root)):
         try:
             before = wave_md.read_bytes()
             text = before.decode("utf-8")

@@ -16,6 +16,7 @@ from typing import (
     Sequence,
 )
 import record_paths
+import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 from gardener_metadata import ambiguous_excluded_headings, canonical_review_policy_body
 from review_policy import (
     REVIEW_POLICY_EVALUATOR_VERSION,
@@ -240,7 +241,7 @@ def _required_wave_council_signoffs(
     return required
 
 
-_CHANGE_ID_PATTERN = re.compile(r"^Change ID:\s+`([^`]+)`", re.MULTILINE)
+_CHANGE_ID_PATTERN = re.compile(rf"^{_vocab.MEMBER_ID_LABEL_RE}:\s+`([^`]+)`", re.MULTILINE)
 
 
 _CLOSE_GATE_CHECKBOX_LINE_RE = re.compile(r"^\s*-\s+\[(?P<mark>[ xX~])\]\s+(?P<text>.+?)\s*$", re.MULTILINE)

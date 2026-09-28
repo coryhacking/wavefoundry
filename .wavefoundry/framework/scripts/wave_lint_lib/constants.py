@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import re
 
+# Wave 1z8mm: record markers are vocabulary, owned by vocabulary_profile.
+import vocabulary_profile as _vocab
+
 METADATA_PATTERNS = {
     "Owner": re.compile(r"^Owner:\s+.+$", re.MULTILINE),
     "Status": re.compile(r"^Status:\s+.+$", re.MULTILINE),
@@ -99,7 +102,7 @@ INDEX_REQUIRED_REFERENCES = (
 )
 
 WAVE_REQUIRED_SECTIONS = (
-    "## Wave Summary",
+    _vocab.SUMMARY_HEADING,
 )
 # Wave 1t9w9: new scaffolds carry `## Watchpoints`; existing waves keep the
 # legacy `## Journal Watchpoints` heading forever. Either satisfies the
@@ -287,25 +290,25 @@ LEGACY_SLUG_PATTERN = r"legacy[a-z0-9-]*"
 # never wraps — values past 36^5 encode naturally to 6 chars ~40 years out).
 LIFECYCLE_PREFIX_PATTERN = r"(?:[0-9a-z]{5,6}|00000)"
 
-WAVE_ID_PATTERN = re.compile(rf"^wave-id:\s+`({LIFECYCLE_PREFIX_PATTERN} {SLUG_PATTERN})`$", re.MULTILINE)
+WAVE_ID_PATTERN = re.compile(rf"^{_vocab.ID_KEY_RE}:\s+`({LIFECYCLE_PREFIX_PATTERN} {SLUG_PATTERN})`$", re.MULTILINE)
 CHANGE_KIND_PATTERN = r"(?:bug|feat|enh|change|doc|debt|ref|task|maint|ops)"
-CHANGE_ID_PATTERN = re.compile(rf"^Change ID:\s+`({LIFECYCLE_PREFIX_PATTERN}-{CHANGE_KIND_PATTERN} {SLUG_PATTERN})`$", re.MULTILINE)
+CHANGE_ID_PATTERN = re.compile(rf"^{_vocab.MEMBER_ID_LABEL_RE}:\s+`({LIFECYCLE_PREFIX_PATTERN}-{CHANGE_KIND_PATTERN} {SLUG_PATTERN})`$", re.MULTILINE)
 # CHANGE_ID_PATTERN validates change plan document headers (docs/plans/**/*.md and archived wave plan files).
 # It is not used for wave record headers — wave records carry only `wave-id`.
-PLAN_WAVE_OVERVIEW_PATTERN = re.compile(rf"^Wave:\s+`({LIFECYCLE_PREFIX_PATTERN} {SLUG_PATTERN})`$", re.MULTILINE)
+PLAN_WAVE_OVERVIEW_PATTERN = re.compile(rf"^{_vocab.BACKREF_LABEL_RE}:\s+`({LIFECYCLE_PREFIX_PATTERN} {SLUG_PATTERN})`$", re.MULTILINE)
 # PLAN_WAVE_OVERVIEW_PATTERN matches wave-level overview plans that sit under `docs/plans/` and use
 # a `Wave:` line (rather than a `Change ID:` line) as their identifier. Such plans use the wave-id
 # as the filename (example: `docs/plans/1n3dq github-enterprise-webhooks.md`).
 ITEM_ID_PATTERN = re.compile(r"^Item ID:\s+`([a-z0-9][a-z0-9-]*)`$", re.MULTILINE)
 ITEM_STATUS_PATTERN = re.compile(r"^Item Status:\s+`([a-z0-9-]+)`$", re.MULTILINE)
 PREVIOUS_ITEM_STATUS_PATTERN = re.compile(r"^Previous Item Status:\s+`([a-z0-9-]+)`$", re.MULTILINE)
-CHANGE_STATUS_PATTERN = re.compile(r"^Change Status:\s+`([a-z0-9-]+)`$", re.MULTILINE)
-PREVIOUS_CHANGE_STATUS_PATTERN = re.compile(r"^Previous Change Status:\s+`([a-z0-9-]+)`$", re.MULTILINE)
+CHANGE_STATUS_PATTERN = re.compile(rf"^{_vocab.MEMBER_STATUS_LABEL_RE}:\s+`([a-z0-9-]+)`$", re.MULTILINE)
+PREVIOUS_CHANGE_STATUS_PATTERN = re.compile(rf"^{_vocab.PREVIOUS_STATUS_LABEL_RE}:\s+`([a-z0-9-]+)`$", re.MULTILINE)
 DEPENDS_ON_LINE_PATTERN = re.compile(r"^Depends On:\s+(.+)$", re.MULTILINE)
 BACKTICK_TOKEN_PATTERN = re.compile(r"`([a-z0-9][a-z0-9-]*)`")
 BACKTICK_VALUE_PATTERN = re.compile(r"`([^`]+)`")
 JOURNAL_PATH_PATTERN = re.compile(r"docs/agents/journals/[A-Za-z0-9._/-]+\.md")
-WAVE_REFERENCE_PATTERN = re.compile(rf"^wave-id:\s+`({LIFECYCLE_PREFIX_PATTERN} {SLUG_PATTERN})`$", re.MULTILINE)
+WAVE_REFERENCE_PATTERN = WAVE_ID_PATTERN  # character-identical; collapsed in wave 1z8mm
 ITEM_REFERENCE_PATTERN = re.compile(r"^Item ID:\s+`([a-z0-9][a-z0-9-]*)`$", re.MULTILINE)
 CHANGE_REFERENCE_PATTERN = CHANGE_ID_PATTERN
 MARKDOWN_HEADING_PATTERN = re.compile(r"^(## .+)$", re.MULTILINE)
@@ -348,4 +351,6 @@ SENSOR_POLARITY_REGISTRY: dict[str, dict[str, str]] = {
                                     "decided_wave": "1yzj9"},
     "inert_record_layout_config": {"polarity": "advisory", "introduced_wave": "1yyoj",
                                    "decided_wave": "1yzj9"},
+    "record_file_not_found": {"polarity": "advisory", "introduced_wave": "1z8mm",
+                              "decided_wave": "1z8mm"},
 }

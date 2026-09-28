@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-26
+Last verified: 2026-09-27
 
 ## Runtime Topology
 
@@ -13,6 +13,7 @@ Developer/agent
   │
   ├── python3 .wavefoundry/framework/scripts/lifecycle_id.py  →  docs/workflow-config.json (read)
   ├── record_paths.py (imported by the server, docs-lint, gardener, indexer, memory backfill, dashboard, upgrade)  →  reads no config; its module constants `WAVES_ROOT`, `PLANS_ROOT`, `NESTED`, `MAX_DEPTH` are the single owner of the wave and plan record roots, edited by a fork at merge time (wave 1y0gz)
+  ├── vocabulary_profile.py (imported by record_paths, docs-lint, the server, gardener, review evidence, memory, dashboard and the Stop hook)  →  reads no config; its module constants are the single owner of the record vocabulary (the record filename `wave.md`, the `wave-id` key, the record title, the `## Wave Summary` and `## Changes` headings, and the `Change ID`, `Change Status` and `Wave` labels), edited by a fork at merge time; every reader and writer of those markers takes them from here, and the shipped change template is rewritten to the profile's labels when rendered (wave 1z8mm)
   ├── marker_namespaces.py (imported by the chunker, the code-navigation handlers and the surface renderer)  →  reads no config; its module constant `MARKER_NAMESPACES` is the single owner of the author-facing marker namespaces (`wave`, `waveframework`, `wavefoundry`, `waveforge`), edited by a fork at merge time (wave 1ym4h)
   ├── python3 .wavefoundry/framework/scripts/docs_lint.py      →  docs/ tree (read)
   ├── python3 .wavefoundry/framework/scripts/docs_gardener.py  →  docs/ tree (read/write metadata)

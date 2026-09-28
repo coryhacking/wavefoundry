@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-26
+Last verified: 2026-09-27
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -808,11 +808,23 @@ action when known.
   unreadable entry while `status` stays `ok`. When the unreadable wave is the
   ONLY wave, it is still surfaced this way: the response never degrades to a
   silent `no_active_wave`, which would deny the wave exists.
+- When no wave is found at all but the waves root holds folders with files,
+  none of which contains the record file that
+  `vocabulary_profile.RECORD_FILENAME` names, the response adds an advisory
+  `record_file_not_found` diagnostic beside `no_active_wave` (wave 1z8mm).
+  Folders without files (empty, only subfolders, or only dot-files such as
+  `.gitkeep`) are ignored, so a fresh install or a root of empty grouping
+  folders gets none. Known limits: a partial rename (some folders still hold
+  the record file) is not reported, and a grouping or helper folder that holds
+  files but no record (a `README.md`) counts.
 
 `wf_list_waves(limit: int = 50)`
 
 - Lists known waves with ID, status, and change count.
 - Optional `limit`: max waves to return, default `50`, clamped `[1, 200]`.
+- When the listing is empty but the waves root holds folders with files and
+  none contains the profile's record file, the response adds the advisory
+  `record_file_not_found` diagnostic beside `no_waves` (wave 1z8mm).
 - Response `data` includes `waves` (truncated list), `total` (untruncated count), and
 `has_more` (boolean indicating whether results were truncated).
 - `wave_metrics` is keyed by the returned wave IDs and contains only scalar,

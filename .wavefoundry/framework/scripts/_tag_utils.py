@@ -10,21 +10,10 @@ import sys
 
 sys.dont_write_bytecode = True
 
-# Wave 1y0gz: the waves root comes from the stdlib-only resolver. Loaded the
-# same two ways chunker.py loads THIS module (package import first, sibling
-# path second) so the tag rule works in every host that can load _tag_utils.
-try:
-    import record_paths as _record_paths
-except ImportError:  # scripts dir not on sys.path: load the sibling by path
-    import importlib.util as _ilu
-    from pathlib import Path as _Path
-
-    _rp_path = _Path(__file__).resolve().with_name("record_paths.py")
-    _rp_spec = _ilu.spec_from_file_location("record_paths", _rp_path)
-    if _rp_spec is None or _rp_spec.loader is None:
-        raise ImportError(f"cannot load record_paths from {_rp_path}")
-    _record_paths = _ilu.module_from_spec(_rp_spec)
-    _rp_spec.loader.exec_module(_record_paths)
+# Wave 1y0gz: the waves root comes from the stdlib-only resolver. Every caller
+# has the scripts directory on sys.path (wave 1z8mm removed an unreachable
+# by-path fallback that could not load record_paths anyway).
+import record_paths as _record_paths
 
 _DEFAULT_WAVES_PREFIX = _record_paths.WAVES_ROOT + "/"
 

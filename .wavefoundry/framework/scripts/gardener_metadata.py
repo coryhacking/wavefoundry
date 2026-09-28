@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import re
 
+# Wave 1z8mm: the member labels, id key and back-reference are vocabulary.
+import vocabulary_profile as _vocab
+
 
 GARDENER_DATE_SENTINEL = "Last verified: <gardener-owned-date>"
 PROGRESS_LOG_SENTINEL = "<progress-log narration excluded from the review-policy digest>"
@@ -16,7 +19,12 @@ SESSION_HANDOFF_TEMPLATE_BODY = (
     "See `docs/agents/session-handoff.md` for current session state."
 )
 _GARDENER_DATE_LINE_RE = re.compile(r"^Last verified:\s+\d{4}-\d{2}-\d{2}\s*$")
-_REVIEW_TRACKING_STATUS_LINE_RE = re.compile(r"^(?:Change )?Status:\s+.+?\s*$")
+# Wave 1z8mm: the member-status label comes from the profile, so a second
+# profile's status advance is excluded from the digest too (otherwise every
+# advance would move the digest and lapse approvals).
+_REVIEW_TRACKING_STATUS_LINE_RE = re.compile(
+    rf"^(?:{_vocab.MEMBER_STATUS_LABEL_RE}|Status):\s+.+?\s*$"
+)
 _FRONTMATTER_METADATA_RE = re.compile(r"^[A-Za-z][\w .()/-]*:\s")
 _FRONTMATTER_KEY_RE = re.compile(r"^(?P<key>[A-Za-z][\w .()/-]*):\s")
 # The keys a real leading metadata carrier uses, curated from a census of every
@@ -27,10 +35,11 @@ _FRONTMATTER_KEY_RE = re.compile(r"^(?P<key>[A-Za-z][\w .()/-]*):\s")
 # `docs/agents/memory-archive.md` closes its carrier above a genuine `Status:`
 # line and starts churning on every status advance.
 _CARRIER_METADATA_KEYS = frozenset({
-    "Change ID", "Change Status", "Status", "Owner", "Wave", "Last verified",
-    "Title", "wave-id", "review-evidence-source",
+    _vocab.MEMBER_ID_LABEL, _vocab.MEMBER_STATUS_LABEL, "Status", "Owner",
+    _vocab.BACKREF_LABEL, "Last verified", "Title", _vocab.ID_KEY,
+    "review-evidence-source",
     "review-policy-reprepare-required", "Completed At", "Closed At",
-    "Previous Change Status", "Role", "Category", "Memory ID", "Kind",
+    _vocab.PREVIOUS_STATUS_LABEL, "Role", "Category", "Memory ID", "Kind",
     "Confidence", "Created", "Updated", "Source event", "Validation",
     "Validated by", "Action delta", "Validation rationale",
     "Evidence verified", "Current target verified", "Canonical overlap",

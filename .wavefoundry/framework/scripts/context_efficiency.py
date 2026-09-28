@@ -24,6 +24,7 @@ import hashlib
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 from typing import Any, Callable, Iterable, Mapping, Optional
 from runtime_lock import RuntimeFileLock, RuntimeLockBusy, RuntimeLockError
 import record_paths  # record roots (wave 1y0gz)
@@ -398,7 +399,7 @@ def resolve_open_wave(root: Path) -> Optional[tuple[str, str]]:
         if record_paths.load_record_roots(Path(root)).waves.is_dir():
             # Wave 1y043: the shared discovery walk (flat or nested).
             for entry in record_paths.discover_wave_dirs(Path(root)):
-                wave_md = entry / "wave.md"
+                wave_md = entry / _vocab.RECORD_FILENAME
                 try:
                     head = wave_md.read_text(encoding="utf-8", errors="replace")[:2048]
                 except OSError:
@@ -3371,7 +3372,7 @@ def _non_closed_wave_ids(root: Path) -> list[str]:
     wave_ids: list[str] = []
     for entry in record_paths.discover_wave_dirs(Path(root)):
         try:
-            head = (entry / "wave.md").read_text(encoding="utf-8", errors="replace")[:2048]
+            head = (entry / _vocab.RECORD_FILENAME).read_text(encoding="utf-8", errors="replace")[:2048]
         except OSError:
             head = ""
         if _wave_status_from_text(head) != "closed":

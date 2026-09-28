@@ -6,6 +6,8 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
+import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
+
 from .context import build_context
 from .constants import AUDIT_DEFAULT_REPORT
 from .docs_constants_validators import check_docs_constants, check_wave_scaffolding_integrity
@@ -44,6 +46,7 @@ from .wave_validators import (
     check_wave_docs,
     check_wave_roots,
     _route_sensor_findings,
+    record_discovery_findings,
 )
 
 
@@ -205,11 +208,11 @@ def _run_incremental_checks(root: Path):
     # Wave 1y0gz: a changed doc under a record root relocated outside `docs/` is linted too.
     changed_docs = {p for p in changed if p.suffix == ".md" and is_under_markdown_scan_root(root, p)}
     changed_event_wave_docs = {
-        path.parent / "wave.md"
+        path.parent / _vocab.RECORD_FILENAME
         for path in changed
         if path.name == "events.jsonl"
         and path.parent.parent == roots.waves
-        and (path.parent / "wave.md").is_file()
+        and (path.parent / _vocab.RECORD_FILENAME).is_file()
     }
     changed_entry = {p for p in changed if p.parent == root and p.name in _ENTRY_FILES}
 
@@ -294,6 +297,8 @@ def _run_full_checks(root: Path, args: argparse.Namespace, timings: dict | None 
         failures.extend(check_wave_roots(root))
         failures.extend(check_workflow_config(root))
         _route_sensor_findings("inert_record_layout_config", inert_record_layout_findings(root),
+                               failures, warnings)
+        _route_sensor_findings("record_file_not_found", record_discovery_findings(root),
                                failures, warnings)
         failures.extend(check_review_policy_carriers(root))
         failures.extend(check_review_policy_carrier_parity(root))

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, TYPE_CHECKING
 
 import context_efficiency
+import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 import index_source_guard
 import record_paths
 from lifecycle_gate_support import _read_wave_record_text
@@ -492,7 +493,7 @@ def _context_efficiency_state(
         "persistence_health": health,
         "visibility": (
             "SQLite is the live write-through authority. Process focus and "
-            "producer-scoped general attribution remain isolated; wave.md is "
+            f"producer-scoped general attribution remain isolated; {_vocab.RECORD_FILENAME} is "
             "the last published checkpoint. Accounting gaps suppress a "
             "positive headline."
         ),

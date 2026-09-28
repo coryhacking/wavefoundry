@@ -6819,6 +6819,7 @@ _DELEGATE_CHILD_MODULES = (
     "cli_stdio.py",
     "reconcile_scan.py",
     "record_paths.py",  # wave 1y0gz: reconcile_scan resolves the record roots through it
+    "vocabulary_profile.py",  # wave 1z8mm: record_paths imports it
     "render_platform_surfaces.py",
     "check_version.py",
 )

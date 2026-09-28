@@ -36,7 +36,8 @@ MOVED = frozenset({
 })
 RETAINED = frozenset({"server_impl", "dashboard_handlers"})
 ALIAS_BODY = 'import importlib\nimport sys\n\nsys.modules[__name__] = importlib.import_module("wf_server.{name}")\n'
-RETAINED_DECLARATIONS = ("mcp_tool_extensions.py", "mcp_tool_roster.py", "record_paths.py", "server.py")
+RETAINED_DECLARATIONS = ("mcp_tool_extensions.py", "mcp_tool_roster.py", "record_paths.py", "server.py",
+                         "vocabulary_profile.py")
 
 
 def _run(code: str) -> dict:
