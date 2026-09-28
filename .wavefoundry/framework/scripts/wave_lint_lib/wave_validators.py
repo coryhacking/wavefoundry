@@ -1352,6 +1352,28 @@ def check_orphan_wave_ledgers(root: Path) -> list[str]:
     return failures
 
 
+def archive_readability_findings(root: Path) -> list[str]:
+    """Wave 1z8ts: the advisory ``archive_record_unreadable`` sensor. Archived
+    records are history, so no live-document rule applies to them; the only
+    check is that each archived wave's record reads under the archive profile."""
+    try:
+        roots = record_paths.load_record_roots(root)
+    except record_paths.RecordLayoutInvalid:
+        return []
+    if roots.archive is None:
+        return []
+    record_name = _vocab.archive_profile().RECORD_FILENAME
+    findings: list[str] = []
+    for wave_dir in record_paths.discover_archive_dirs(root, roots):
+        record = wave_dir / record_name
+        try:
+            record.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            rel = record.relative_to(root).as_posix()
+            findings.append(f"{rel}: archived record cannot be read ({type(exc).__name__})")
+    return findings
+
+
 def record_discovery_findings(root: Path) -> list[str]:
     """Wave 1z8mm: the advisory ``record_file_not_found`` sensor's findings."""
     message = record_paths.record_discovery_mismatch(root)

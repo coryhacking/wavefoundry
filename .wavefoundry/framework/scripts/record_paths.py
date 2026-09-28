@@ -43,6 +43,10 @@ WAVES_ROOT = "docs/waves"
 PLANS_ROOT = "docs/plans"
 NESTED = False
 MAX_DEPTH = 4
+# Optional read-only archive of closed records, often frozen under an older
+# vocabulary (``vocabulary_profile.ARCHIVE_PROFILE``). ``None`` disables it.
+# Read by id lookup and id-collision scanning; never written (wave 1z8ts).
+ARCHIVE_ROOT: "str | None" = None
 
 MAX_DEPTH_RANGE = (1, 8)
 CONSTANT_NAMES = ("WAVES_ROOT", "PLANS_ROOT", "NESTED", "MAX_DEPTH")
@@ -88,6 +92,8 @@ class RecordRoots:
     plans: Path
     nested: bool = False
     max_depth: int = 4
+    archive_rel: "str | None" = None
+    archive: "Path | None" = None
 
     @property
     def waves_prefix(self) -> str:
@@ -101,8 +107,11 @@ class RecordRoots:
 
 def layout_constants() -> tuple[object, object, object, object]:
     """The current constant values, read at call time. Cache keys fold this in
-    so a process whose constants were patched (tests) re-resolves."""
-    return (WAVES_ROOT, PLANS_ROOT, NESTED, MAX_DEPTH)
+    so a process whose constants were patched (tests) re-resolves. The archive
+    root is appended only when set, so the default key is unchanged."""
+    if ARCHIVE_ROOT is None:
+        return (WAVES_ROOT, PLANS_ROOT, NESTED, MAX_DEPTH)
+    return (WAVES_ROOT, PLANS_ROOT, NESTED, MAX_DEPTH, ARCHIVE_ROOT)
 
 
 def _canonical_parts(value: str) -> list[str]:
@@ -351,7 +360,39 @@ def validate_record_layout(root: Path) -> list[str]:
         diagnostics.append(
             f"{DIAGNOSTIC_CODE}: WAVES_ROOT and PLANS_ROOT must not nest ({waves_rel!r}, {plans_rel!r})"
         )
+    if ARCHIVE_ROOT is not None:
+        archive_rel, errs = _check_root("ARCHIVE_ROOT", ARCHIVE_ROOT, root)
+        diagnostics.extend(errs)
+        if archive_rel is not None:
+            for name, other_rel in (("WAVES_ROOT", waves_rel), ("PLANS_ROOT", plans_rel)):
+                relation = _root_overlap(root, archive_rel, other_rel)
+                if relation:
+                    diagnostics.append(
+                        f"{DIAGNOSTIC_CODE}: record_paths.ARCHIVE_ROOT and {name} must "
+                        f"{'differ' if relation == 'equal' else 'not nest'} ({archive_rel!r}, {other_rel!r})"
+                    )
     return diagnostics
+
+
+def _root_overlap(root: Path, a_rel: str, b_rel: str) -> "str | None":
+    """``'equal'``, ``'nest'`` (either direction) or ``None`` for two roots,
+    judged by spelling and on disk the same way as WAVES_ROOT and PLANS_ROOT
+    (an absent root by its nearest existing ancestor)."""
+    a, b = _join_rel(root, a_rel), _join_rel(root, b_rel)
+    a_at, a_exists = _existing_or_ancestor(root, a_rel)
+    b_at, b_exists = _existing_or_ancestor(root, b_rel)
+    if a_rel == b_rel or (a_exists and b_exists and _same_directory(a, b)):
+        return "equal"
+    if (
+        a_rel.startswith(b_rel + "/")
+        or b_rel.startswith(a_rel + "/")
+        or _nests_on_disk(a, b)
+        or _nests_on_disk(b, a)
+        or (not a_exists and b_exists and (_same_directory(a_at, b) or _nests_on_disk(a_at, b)))
+        or (not b_exists and a_exists and (_same_directory(b_at, a) or _nests_on_disk(b_at, a)))
+    ):
+        return "nest"
+    return None
 
 
 def load_record_roots(root: Path) -> RecordRoots:
@@ -363,6 +404,7 @@ def load_record_roots(root: Path) -> RecordRoots:
         raise RecordLayoutInvalid(diagnostics)
     waves_rel = "/".join(_canonical_parts(WAVES_ROOT))
     plans_rel = "/".join(_canonical_parts(PLANS_ROOT))
+    archive_rel = "/".join(_canonical_parts(ARCHIVE_ROOT)) if ARCHIVE_ROOT is not None else None
     return RecordRoots(
         waves_rel=waves_rel,
         plans_rel=plans_rel,
@@ -370,6 +412,8 @@ def load_record_roots(root: Path) -> RecordRoots:
         plans=_join_rel(root, plans_rel),
         nested=bool(NESTED),
         max_depth=int(MAX_DEPTH),
+        archive_rel=archive_rel,
+        archive=_join_rel(root, archive_rel) if archive_rel else None,
     )
 
 
@@ -419,14 +463,15 @@ def _list_subdirs(directory: Path, *, guarded: bool = True) -> list[Path]:
     return out
 
 
-def _has_wave_md(directory: Path) -> bool:
+def _has_wave_md(directory: Path, record_filename: "str | None" = None) -> bool:
     try:
-        return (directory / vocabulary_profile.RECORD_FILENAME).is_file()
+        return (directory / (record_filename or vocabulary_profile.RECORD_FILENAME)).is_file()
     except OSError:
         return False
 
 
-def walk_wave_candidates(root: Path, roots: RecordRoots | None = None) -> list[Path]:
+def walk_wave_candidates(root: Path, roots: RecordRoots | None = None, *,
+                         base: "Path | None" = None, record_filename: "str | None" = None) -> list[Path]:
     """Every directory that may hold a wave record, under the discovery guards.
 
     Flat layout: the waves root's child directories, exactly as ``iterdir``
@@ -437,19 +482,20 @@ def walk_wave_candidates(root: Path, roots: RecordRoots | None = None) -> list[P
     ``wave.md`` (a wave folder's own subdirectories are evidence, not waves).
     """
     roots = roots or load_record_roots(root)
-    if not roots.waves.is_dir():
+    top = base if base is not None else roots.waves
+    if not top.is_dir():
         return []
     if not roots.nested:
-        return _list_subdirs(roots.waves, guarded=False)
+        return _list_subdirs(top, guarded=False)
     found: list[Path] = []
-    stack: list[tuple[Path, int]] = [(roots.waves, 0)]
+    stack: list[tuple[Path, int]] = [(top, 0)]
     while stack:
         directory, depth = stack.pop()
         if depth >= roots.max_depth:
             continue
         for child in reversed(_list_subdirs(directory)):
             found.append(child)
-            if not _has_wave_md(child):
+            if not _has_wave_md(child, record_filename):
                 stack.append((child, depth + 1))
     return sorted(found)
 
@@ -459,6 +505,18 @@ def discover_wave_dirs(root: Path, roots: RecordRoots | None = None) -> list[Pat
     root: immediate children when ``NESTED`` is false, otherwise the bounded
     walk of :func:`walk_wave_candidates`."""
     return [d for d in walk_wave_candidates(root, roots) if _has_wave_md(d)]
+
+
+def discover_archive_dirs(root: Path, roots: RecordRoots | None = None) -> list[Path]:
+    """Every archived wave folder (wave 1z8ts): the folders under
+    ``ARCHIVE_ROOT`` that hold the archive profile's record file, walked with
+    the live ``NESTED``/``MAX_DEPTH``. Empty when the archive is unset or absent."""
+    roots = roots or load_record_roots(root)
+    if roots.archive is None or not roots.archive.is_dir():
+        return []
+    record = vocabulary_profile.archive_profile().RECORD_FILENAME
+    candidates = walk_wave_candidates(root, roots, base=roots.archive, record_filename=record)
+    return [d for d in candidates if _has_wave_md(d, record)]
 
 
 def _holds_a_file(directory: Path) -> bool:

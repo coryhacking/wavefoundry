@@ -379,6 +379,17 @@ def _existing_prefixes(repo_root: Path) -> set[str]:
             m = _PREFIX_RE.match(p.stem)
             if m:
                 prefixes.add(m.group(1))
+    if roots.archive is not None and roots.archive.is_dir():
+        # Wave 1z8ts: archived folders and documents keep their ids, so a new
+        # id must not collide with one. Names only; no archived record is read.
+        candidates = record_paths.walk_wave_candidates(
+            repo_root, roots, base=roots.archive,
+            record_filename=record_paths.vocabulary_profile.archive_profile().RECORD_FILENAME,
+        )
+        for path in [*candidates, *(md for wave_dir in candidates for md in wave_dir.glob("*.md"))]:
+            m = _PREFIX_RE.match(path.stem if path.suffix == ".md" else path.name)
+            if m:
+                prefixes.add(m.group(1))
     # Wave 1p45b — also dedup against ADR stems so a new mint never collides with
     # an existing architecture-decision record.
     adr_dir = repo_root / "docs" / "architecture" / "decisions"

@@ -21,7 +21,8 @@ from unittest import mock
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 
-_KEYS = {"waves_root": "WAVES_ROOT", "plans_root": "PLANS_ROOT", "nested": "NESTED", "max_depth": "MAX_DEPTH"}
+_KEYS = {"waves_root": "WAVES_ROOT", "plans_root": "PLANS_ROOT", "nested": "NESTED", "max_depth": "MAX_DEPTH",
+         "archive_root": "ARCHIVE_ROOT"}
 
 
 def _record_paths_modules(extra: tuple[Any, ...] = ()) -> list[Any]:

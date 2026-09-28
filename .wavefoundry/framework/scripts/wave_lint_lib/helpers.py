@@ -108,16 +108,34 @@ def markdown_scan_roots(root: Path) -> list[Path]:
     return scan_roots
 
 
+def archive_root(root: Path) -> Path | None:
+    """The read-only archive root (wave 1z8ts), or ``None``. Live-document
+    checks never run under it; only its record readability is checked."""
+    roots = resolve_record_roots(root)
+    return roots.archive if roots is not None else None
+
+
+def is_under_archive_root(root: Path, path: Path) -> bool:
+    archive = archive_root(root)
+    return archive is not None and _is_under(path, archive)
+
+
 def is_under_markdown_scan_root(root: Path, path: Path) -> bool:
-    """True when ``path`` lies under ``docs/`` or an outside record root."""
+    """True when ``path`` lies under ``docs/`` or an outside record root, and
+    not under the read-only archive root."""
+    if is_under_archive_root(root, path):
+        return False
     return any(_is_under(path, scan_root) for scan_root in markdown_scan_roots(root))
 
 
 def iter_markdown_docs(root: Path):
+    archive = archive_root(root)
     for scan_root in markdown_scan_roots(root):
         if not scan_root.exists():
             continue
         for path in scan_root.rglob("*.md"):
+            if archive is not None and _is_under(path, archive):
+                continue
             if path.is_file():
                 yield path
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-27
+Last verified: 2026-09-28
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -861,6 +861,18 @@ action when known.
   `ambiguous_change_id` diagnostic.
 - Ambiguous `wave_id` matches return all candidates in `data.waves[]`
   (`wave_id`, `path`, `changes`) and an `ambiguous_wave_id` diagnostic.
+- When a fork sets `record_paths.ARCHIVE_ROOT` (wave 1z8ts), a lookup that finds
+  nothing in the live roots consults that read-only archive, reading records with
+  `vocabulary_profile.ARCHIVE_PROFILE`: an archived change returns with
+  `data.change.archived: true`, and an archived wave returns with
+  `data.archived: true`, `data.wave` and its members read from the archived
+  folder only (each `archived: true`). A live record with the same id wins.
+  The lifecycle writers that take an existing wave or change id (`wf_add_change`,
+  `wf_remove_change`, `wf_mark_ac`, `wf_mark_task`, `wf_review_event`,
+  `wf_prepare_wave`, `wf_pause_wave`, `wf_review_wave`, `wf_implement_wave`,
+  `wf_close_wave`, `wf_reopen_wave`) refuse an archive-only id with
+  `archived_record_read_only` instead of the not-found diagnostic, and change
+  nothing.
 - Change lookup is namespace-scoped to change docs; wave lookup is namespace-scoped
   to `wave.md` records. Matching is anchored to the leading ID token rather than a
   loose substring in the slug.

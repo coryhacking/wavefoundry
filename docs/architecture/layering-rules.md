@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-27
+Last verified: 2026-09-28
 
 ## Allowed Dependencies
 
@@ -109,6 +109,25 @@ every other non-test module outside an allowlist of comment, docstring,
 message, frozen oracle and retired-name sites. When the waves root holds folders
 but none contains the profile's record file, docs-lint, `wf_list_waves` and
 `wf_current_wave` report the advisory `record_file_not_found`.
+
+An optional read-only archive (wave 1z8ts) holds closed records, often frozen
+under an older vocabulary. `record_paths.ARCHIVE_ROOT` (default `None`) is
+validated like the live roots and must neither equal nor nest with either of
+them; `layout_constants()` appends it only when set, so default cache keys are
+unchanged. `vocabulary_profile.ARCHIVE_PROFILE` (default `None`, meaning the
+live profile) is a mapping of exactly the twelve field names, validated at
+import; `archive_profile()` returns the effective profile with the same
+attribute names and fragments. Archived records are consulted for lookup in
+three places, after the live roots: `wf_get_change` (by id, results marked
+`archived`), the dashboard document view (with an `X-Wavefoundry-Archived`
+header) and the id-collision scan in `lifecycle_id` (names only). The writer
+refusal and the readability sensor below also read the archive. The shared resolvers never look at the
+archive. Instead, the eleven lifecycle writers that take an existing wave or
+change id refuse an archive-only id with `archived_record_read_only`. The
+gardener, docs-lint's markdown walk and the upgrade's retired-reference scan
+skip the archive; the secrets scan still covers it, and docs-lint only checks
+that each archived record reads under the archive profile (advisory
+`archive_record_unreadable`). Memory backfill does not read the archive yet.
 
 Wave record discovery is one walk (wave 1y043): `record_paths.walk_wave_candidates`
 enumerates the waves root's child directories (flat, the shipped `NESTED = False`)

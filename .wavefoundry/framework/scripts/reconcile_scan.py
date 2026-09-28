@@ -301,8 +301,11 @@ EXCLUDED_DIRS: tuple[str, ...] = _STATIC_EXCLUDED_DIRS + (record_paths.WAVES_ROO
 
 
 def excluded_dirs_for(root: Path) -> tuple[str, ...]:
-    """The exclusion set with the wave history root resolved for ``root``."""
-    return _STATIC_EXCLUDED_DIRS + (record_paths.load_record_roots(root).waves_rel,)
+    """The exclusion set with the wave history root, and the read-only archive
+    root when set (wave 1z8ts), resolved for ``root``."""
+    roots = record_paths.load_record_roots(root)
+    archive = (roots.archive_rel,) if roots.archive_rel else ()
+    return _STATIC_EXCLUDED_DIRS + (roots.waves_rel,) + archive
 # Protocol-bridge upgrades retain the previous framework tree under a generated sibling such as
 # ``.wavefoundry/framework.rollback-bridge-pfps-p2/``.  It is inactive recovery state, not a live
 # project carrier.  Keep this separate from ``EXCLUDED_DIRS`` because it is a component prefix, not

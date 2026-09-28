@@ -910,6 +910,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
         root = self._store._root
         roots = self._store._record_roots
         allowed_roots = [(root / "docs").resolve(), roots.waves.resolve(), roots.plans.resolve()]
+        # Wave 1z8ts: the read-only archive root (validated like the live roots)
+        # is served too; an archived document carries X-Wavefoundry-Archived.
+        archive_real = roots.archive.resolve() if roots.archive is not None else None
+        if archive_real is not None:
+            allowed_roots.append(archive_real)
 
         if doc_type == "change" and doc_id and doc_path:
             # The snapshot carries repository-relative paths for both plans
@@ -924,13 +929,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
             candidates = record_paths.discover_wave_dirs(root, roots)
             token = requested_wave.split(" ", 1)[0].lower()
             matches = [d for d in candidates if record_paths.wave_id_of(d) == token]
+            record_filename = _vocab.RECORD_FILENAME
+            if not matches:
+                # The live roots first, then the read-only archive (wave 1z8ts).
+                archived = record_paths.discover_archive_dirs(root, roots)
+                matches = [d for d in archived if record_paths.wave_id_of(d) == token]
+                record_filename = _vocab.archive_profile().RECORD_FILENAME
             if len(matches) > 1:
                 self.send_error(HTTPStatus.CONFLICT, "ambiguous_wave_id")
                 return
             if not matches or requested_wave not in (matches[0].name, record_paths.wave_id_of(matches[0])):
                 self.send_error(HTTPStatus.NOT_FOUND, "Document not found")
                 return
-            target = matches[0] / (_vocab.RECORD_FILENAME if doc_type == "wave" else f"{doc_id}.md")
+            target = matches[0] / (record_filename if doc_type == "wave" else f"{doc_id}.md")
         else:
             self.send_error(HTTPStatus.BAD_REQUEST, "Missing or invalid type/id parameters")
             return
@@ -962,6 +973,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        if archive_real is not None and target.is_relative_to(archive_real):
+            self.send_header("X-Wavefoundry-Archived", "1")
         self.end_headers()
         self.wfile.write(data)
 

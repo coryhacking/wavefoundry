@@ -47,6 +47,7 @@ from .wave_validators import (
     check_wave_roots,
     _route_sensor_findings,
     record_discovery_findings,
+    archive_readability_findings,
 )
 
 
@@ -299,6 +300,8 @@ def _run_full_checks(root: Path, args: argparse.Namespace, timings: dict | None 
         _route_sensor_findings("inert_record_layout_config", inert_record_layout_findings(root),
                                failures, warnings)
         _route_sensor_findings("record_file_not_found", record_discovery_findings(root),
+                               failures, warnings)
+        _route_sensor_findings("archive_record_unreadable", archive_readability_findings(root),
                                failures, warnings)
         failures.extend(check_review_policy_carriers(root))
         failures.extend(check_review_policy_carrier_parity(root))

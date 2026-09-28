@@ -5948,6 +5948,9 @@ def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -
                     unreadable_waves,
                     data={"wave_id": wave_id_s, "changes": []},
                 )
+            archived_waves = _archived_wave_matches(root, wave_id_s)
+            if archived_waves:
+                return _archived_wave_response(root, wave_id_s, archived_waves)
             return _response(
                 "ok",
                 {"wave_id": wave_id_s, "changes": []},
@@ -6054,6 +6057,9 @@ def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -
     # Single lookup mode.
     matches = _resolve_change_doc_matches(root, change_id_s)
     if not matches:
+        # Wave 1z8ts: the read-only archive is consulted after the live roots.
+        matches = _archived_change_matches(root, change_id_s)
+    if not matches:
         return _response(
             "ok",
             {"change_id": change_id_s, "change": None, "changes": []},
@@ -6109,10 +6115,74 @@ def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -
                 "path": match["path"],
                 "change_id": match["change_id"],
                 "trust_label": TRUSTED_PROJECT_METADATA,
+                **({"archived": True} if match.get("archived") else {}),
             },
         },
         next_tools=["wf_validate_docs"],
         usage="wf_validate_docs()",
+    )
+
+
+def _archived_wave_response(root: Path, wave_id_s: str, archived_waves: list[dict[str, Any]]) -> dict[str, Any]:
+    """``wf_get_change`` wave mode for an id found only in the archive (wave
+    1z8ts). Members are read from the archived wave folder alone, never from
+    the live plans root, and parsed with the archive profile."""
+    if len(archived_waves) > 1:
+        candidates = ", ".join(f"{m['wave_id']} ({m['path']})" for m in archived_waves)
+        return _response(
+            "ok",
+            {"wave_id": wave_id_s, "wave": None, "waves": archived_waves, "changes": []},
+            diagnostics=[_diagnostic(
+                "ambiguous_wave_id",
+                f"Multiple archived waves match '{wave_id_s}': {candidates}. Use a more specific wave ID.",
+                recovery_tools=["wf_get_change"],
+                recovery_usage="wf_get_change(wave_id=...)",
+            )],
+            next_tools=["wf_get_change"],
+            usage="wf_get_change(wave_id=...)",
+        )
+    wave = archived_waves[0]
+    profile = _vocab.archive_profile()
+    status_pattern = re.compile(rf"^{profile.MEMBER_STATUS_LABEL_RE}:\s+`([^`]+)`", re.MULTILINE)
+    archive_real = _archive_root_real(root)
+    wave_dir = (root / wave["path"]).parent
+    max_lines = 300
+    changes: list[dict[str, Any]] = []
+    for cid in wave["changes"]:
+        doc_path = None
+        for candidate in sorted(wave_dir.rglob("*.md")):
+            if (candidate.name != profile.RECORD_FILENAME and cid.lower() in candidate.stem.lower()
+                    and archive_real is not None and _archive_file_ok(candidate, archive_real)):
+                doc_path = candidate
+                break
+        if doc_path is None:
+            changes.append({"id": cid, "status": "unknown", "path": None, "content": None, "archived": True})
+            continue
+        try:
+            lines = doc_path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError) as exc:
+            changes.append({"id": cid, "status": "unknown", "path": _repo_rel(root, doc_path),
+                            "content": None, "read_error": _read_error_detail(exc), "archived": True})
+            continue
+        truncated = len(lines) > max_lines
+        content = "\n".join(lines[:max_lines])
+        if truncated:
+            content += f"\n\n[... truncated at {max_lines} lines. Use code_read(path=...) for the full file.]"
+        status_match = status_pattern.search(content)
+        changes.append({
+            "id": cid,
+            "status": status_match.group(1) if status_match else "unknown",
+            "path": _repo_rel(root, doc_path),
+            "content": content,
+            "truncated": truncated,
+            "archived": True,
+        })
+    return _response(
+        "ok",
+        {"wave_id": wave_id_s, "count": len(changes), "changes": changes, "archived": True,
+         "wave": {"wave_id": wave["wave_id"], "path": wave["path"], "archived": True}},
+        next_tools=["wf_get_change"],
+        usage="wf_get_change(change_id=...)",
     )
 
 
@@ -6550,6 +6620,111 @@ def _resolve_change_doc_matches(root: Path, change_id_prefix: str) -> list[dict[
 
 
 
+# ── Read-only archive root (wave 1z8ts) ───────────────────────────────────────
+# Archived records are read after the live roots, with the archive's own
+# vocabulary, only where a caller asks for them: wf_get_change's two miss
+# points, and the writer-only refusal below. The shared resolvers above never
+# look at the archive.
+
+def _archive_file_ok(path: Path, archive_real: Path) -> bool:
+    """An ordinary archived file that resolves inside the archive root."""
+    try:
+        if path.is_symlink() or not path.is_file():
+            return False
+        return path_containment.contained_resolved_path(archive_real, path.resolve(strict=True)) is not None
+    except (OSError, RuntimeError):
+        return False
+
+
+def _archive_root_real(root: Path) -> Optional[Path]:
+    roots = record_paths.load_record_roots(root)
+    if roots.archive is None or not roots.archive.is_dir() or roots.archive.is_symlink():
+        return None
+    try:
+        return roots.archive.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None
+
+
+def _archived_change_matches(root: Path, change_id_prefix: str) -> list[dict[str, Any]]:
+    """Archived change documents whose id (the archive profile's member id
+    label, else the file stem) matches the token; marked ``archived``."""
+    token = (change_id_prefix or "").strip().lower()
+    archive_real = _archive_root_real(root) if token else None
+    if archive_real is None:
+        return []
+    profile = _vocab.archive_profile()
+    id_pattern = re.compile(rf"^{profile.MEMBER_ID_LABEL_RE}:\s+`([^`]+)`", re.MULTILINE)
+    matches: list[dict[str, Any]] = []
+    for p in sorted(record_paths.load_record_roots(root).archive.rglob("*.md")):
+        if p.name == profile.RECORD_FILENAME or not _archive_file_ok(p, archive_real):
+            continue
+        try:
+            text = p.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            continue
+        id_match = id_pattern.search(text)
+        canonical_change_id = id_match.group(1) if id_match else p.stem
+        if _change_doc_matches_token(p, canonical_change_id, token):
+            matches.append({
+                "path": p.relative_to(root).as_posix(),
+                "change_id": canonical_change_id,
+                "content": text,
+                "archived": True,
+            })
+    return matches
+
+
+def _archived_wave_matches(root: Path, wave_id_or_prefix: str) -> list[dict[str, Any]]:
+    """Archived waves whose id (the archive profile's id key, else the folder
+    name) matches the token, with their member ids; marked ``archived``."""
+    token = (wave_id_or_prefix or "").strip().lower()
+    archive_real = _archive_root_real(root) if token else None
+    if archive_real is None:
+        return []
+    profile = _vocab.archive_profile()
+    id_pattern = re.compile(rf"^{profile.ID_KEY_RE}:\s+`([^`]+)`", re.MULTILINE)
+    matches: list[dict[str, Any]] = []
+    for wave_dir in record_paths.discover_archive_dirs(root):
+        record = wave_dir / profile.RECORD_FILENAME
+        if not _archive_file_ok(record, archive_real):
+            continue
+        try:
+            text = record.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            continue
+        id_match = id_pattern.search(text)
+        wave_id = id_match.group(1) if id_match else wave_dir.name
+        if _token_matches_id(wave_id, token) or _token_matches_id(wave_dir.name, token):
+            matches.append({
+                "wave_id": wave_id,
+                "path": record.relative_to(root).as_posix(),
+                "changes": _extract_change_ids_from_wave_text(text, profile),
+                "archived": True,
+            })
+    return sorted(matches, key=lambda m: m["path"])
+
+
+def _refuse_if_archived(root: Path, token: str, kind: str) -> Optional[dict[str, Any]]:
+    """Writer-only check (wave 1z8ts): the ``archived_record_read_only``
+    diagnostic when a writer's ``kind`` ("wave" or "change") target, not found
+    in the live roots, exists under the read-only archive; else ``None``."""
+    try:
+        found = (_archived_wave_matches if kind == "wave" else _archived_change_matches)(root, token)
+    except record_paths.RecordLayoutInvalid:
+        return None
+    if not found:
+        return None
+    where = ", ".join(m["path"] for m in found)
+    return _diagnostic(
+        "archived_record_read_only",
+        f"The {kind} '{token}' exists only in the read-only archive ({where}); "
+        "archived records cannot be changed by lifecycle tools.",
+        recovery_tools=["wf_get_change"],
+        recovery_usage="wf_get_change(...)  # read the archived record",
+    )
+
+
 def _resolve_unique_change_doc(root: Path, change_id: str) -> tuple[Optional[dict[str, Any]], Optional[dict[str, Any]]]:
     matches = _resolve_change_doc_matches(root, change_id)
     if not matches:
@@ -6584,7 +6759,7 @@ def _mark_change_item_response(
         return _response(
             "error",
             {},
-            diagnostics=[_diagnostic(
+            diagnostics=[_refuse_if_archived(root, wave_id, "wave") or _diagnostic(
                 "wave_not_found",
                 f"No wave found matching '{wave_id}'. Identify the active wave, then retry with its exact ID.",
                 recovery_tools=["wf_current_wave", "wf_list_waves"],
@@ -7532,10 +7707,10 @@ def wf_add_change_response(
                 wave_id, unreadable_waves,
                 data={"wave_id": wave_id, "change_id": change_id, "mode": mode_s},
             )
-        return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode_s}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
+        return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode_s}, diagnostics=[_refuse_if_archived(root, wave_id, "wave") or _diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
     change_matches = _resolve_change_doc_matches(root, change_id)
     if not change_matches:
-        return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode_s}, diagnostics=[_diagnostic("change_not_found", f"No change doc found matching '{change_id}'.", recovery_tools=["wf_list_plans"], recovery_usage="wf_list_plans()")], next_tools=["wf_list_plans"], usage="wf_list_plans()")
+        return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode_s}, diagnostics=[_refuse_if_archived(root, change_id, "change") or _diagnostic("change_not_found", f"No change doc found matching '{change_id}'.", recovery_tools=["wf_list_plans"], recovery_usage="wf_list_plans()")], next_tools=["wf_list_plans"], usage="wf_list_plans()")
     if len(change_matches) > 1:
         return _response(
             "error",
@@ -7740,7 +7915,7 @@ def wf_remove_change_response(
                 wave_id, unreadable_waves,
                 data={"wave_id": wave_id, "change_id": change_id, "mode": mode_s},
             )
-        return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode_s}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
+        return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode_s}, diagnostics=[_refuse_if_archived(root, wave_id, "wave") or _diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
     text, wave_read_error = _read_wave_record_text(wave_md)
     if text is None:
         # Wave 1v0lw: removal edits the admitted-change roster; a record that
@@ -9800,7 +9975,7 @@ def wf_review_event_response(
         return _response(
             "error",
             {"wave_id": wave_id},
-            diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.")],
+            diagnostics=[_refuse_if_archived(root, wave_id, "wave") or _diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.")],
             next_tools=["wf_list_waves"],
             usage="wf_list_waves()",
         )
@@ -10403,7 +10578,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
                 _wave_resolution_unreadable_diagnostic(wave_id, unreadable_waves)
             )
             return _prepare_envelope("error", {"wave_id": wave_id, "mode": mode_s}, next_tools=["wf_list_waves", "wf_validate_docs"], usage="wf_list_waves()")
-        diagnostics.append(_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()"))
+        diagnostics.append(_refuse_if_archived(root, wave_id, "wave") or _diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()"))
         return _prepare_envelope("error", {"wave_id": wave_id, "mode": mode_s}, next_tools=["wf_list_waves"], usage="wf_list_waves()")
     # Wave 1v0lw: unreadable non-matching siblings are NOT appended here --
     # prepare's diagnostics list gates receipt publication, and a rotted
@@ -10754,7 +10929,7 @@ def wf_pause_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
                 wave_id, unreadable_waves,
                 data={"wave_id": wave_id, "mode": mode_s},
             )
-        return _response("error", {"wave_id": wave_id, "mode": mode_s}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
+        return _response("error", {"wave_id": wave_id, "mode": mode_s}, diagnostics=[_refuse_if_archived(root, wave_id, "wave") or _diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
     handoff = root / "docs" / "agents" / "session-handoff.md"
     rel = str(handoff.relative_to(root)).replace("\\", "/")
     # Compute the wave-status transition. Only active → paused writes; other states are no-ops.
@@ -10856,7 +11031,7 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
             return _wave_resolution_unreadable_response(
                 wave_id, unreadable_waves, data={"wave_id": wave_id}
             )
-        return _response("error", {"wave_id": wave_id}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
+        return _response("error", {"wave_id": wave_id}, diagnostics=[_refuse_if_archived(root, wave_id, "wave") or _diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
     lint_result = run_validate(root)
     wave_text, wave_read_error = _read_wave_record_text(wave_md)
     if wave_text is None:
@@ -11264,7 +11439,7 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
             return _wave_resolution_unreadable_response(
                 wave_id, unreadable_waves, data={"wave_id": wave_id}
             )
-        return _response("error", {"wave_id": wave_id}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
+        return _response("error", {"wave_id": wave_id}, diagnostics=[_refuse_if_archived(root, wave_id, "wave") or _diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
 
     wave_text, wave_read_error = _read_wave_record_text(wave_md)
     if wave_text is None:
@@ -11848,7 +12023,7 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
             return _wave_resolution_unreadable_response(
                 wave_id, unreadable_waves, data={"wave_id": wave_id}
             )
-        return _close_envelope("error", {"wave_id": wave_id}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
+        return _close_envelope("error", {"wave_id": wave_id}, diagnostics=[_refuse_if_archived(root, wave_id, "wave") or _diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
     # Garden only runs on create — dry-run must stay read-only.
     garden_passed = True
     if mode_s == "create":
@@ -12059,7 +12234,7 @@ def wf_reopen_wave_response(root: Path, wave_id: str) -> dict[str, Any]:
             return _wave_resolution_unreadable_response(
                 wave_id, unreadable_waves, data={"wave_id": wave_id}
             )
-        return _response("error", {"wave_id": wave_id}, diagnostics=[_diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
+        return _response("error", {"wave_id": wave_id}, diagnostics=[_refuse_if_archived(root, wave_id, "wave") or _diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
     text, wave_read_error = _read_wave_record_text(wave_md)
     if text is None:
         # Wave 1v0lw: reopening rewrites the record's Status field; a record

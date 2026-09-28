@@ -46,6 +46,12 @@ MEMBER_STATUS_LABEL = "Change Status"
 # The label a work-item document (and a plan overview) uses to name its container.
 BACKREF_LABEL = "Wave"
 
+# The vocabulary of records under ``record_paths.ARCHIVE_ROOT`` (wave 1z8ts):
+# ``None`` reads the archive with the constants above; otherwise a mapping of
+# exactly the twelve field names above (``FIELD_NAMES``) to the names the
+# archived records were written with. Validated at import like the live ones.
+ARCHIVE_PROFILE: "dict[str, str] | None" = None
+
 # ---------------------------------------------------------------------------
 # Derived forms (not edited)
 # ---------------------------------------------------------------------------
@@ -76,22 +82,46 @@ FIXED_LABELS = frozenset({
 })
 RESERVED_RECORD_FILENAMES = frozenset({"readme.md", "plan-template.md", "events.jsonl"})
 
+# The editable fields, in declaration order.
+FIELD_NAMES = (
+    "CONTAINER_NAME", "CONTAINER_NAME_PLURAL", "ITEM_NAME", "ITEM_NAME_PLURAL",
+    "RECORD_FILENAME", "ID_KEY", "RECORD_TITLE", "SUMMARY_HEADING",
+    "MEMBER_HEADING", "MEMBER_ID_LABEL", "MEMBER_STATUS_LABEL", "BACKREF_LABEL",
+)
+_RE_FIELD_NAMES = (
+    "RECORD_FILENAME", "ID_KEY", "RECORD_TITLE", "SUMMARY_HEADING", "MEMBER_HEADING",
+    "MEMBER_ID_LABEL", "MEMBER_STATUS_LABEL", "PREVIOUS_STATUS_LABEL", "BACKREF_LABEL",
+)
+
 
 class VocabularyProfileInvalid(ValueError):
     """The vocabulary constants are unusable; the message names the field."""
 
 
-def validation_errors() -> list[str]:
-    """Every problem with the current constants; empty when valid."""
+def validation_errors(fields: "dict[str, str] | None" = None) -> list[str]:
+    """Every problem with a profile; empty when valid.
+
+    With no argument, the live constants above (including the derived
+    ``PREVIOUS_STATUS_LABEL``). With a mapping (``ARCHIVE_PROFILE``), exactly
+    the ``FIELD_NAMES`` keys, and the previous-status label derived from it."""
     errors: list[str] = []
-    fields = {
-        "CONTAINER_NAME": CONTAINER_NAME, "CONTAINER_NAME_PLURAL": CONTAINER_NAME_PLURAL,
-        "ITEM_NAME": ITEM_NAME, "ITEM_NAME_PLURAL": ITEM_NAME_PLURAL,
-        "RECORD_FILENAME": RECORD_FILENAME, "ID_KEY": ID_KEY, "RECORD_TITLE": RECORD_TITLE,
-        "SUMMARY_HEADING": SUMMARY_HEADING, "MEMBER_HEADING": MEMBER_HEADING,
-        "MEMBER_ID_LABEL": MEMBER_ID_LABEL, "MEMBER_STATUS_LABEL": MEMBER_STATUS_LABEL,
-        "BACKREF_LABEL": BACKREF_LABEL,
-    }
+    if fields is None:
+        fields = {name: globals()[name] for name in FIELD_NAMES}
+        previous = PREVIOUS_STATUS_LABEL
+    else:
+        if not isinstance(fields, dict):
+            return ["the profile must be a dict of the field names"]
+        missing = sorted(set(FIELD_NAMES) - set(fields))
+        extra = sorted(set(fields) - set(FIELD_NAMES), key=str)
+        if missing:
+            errors.append("missing field(s): " + ", ".join(missing))
+        if extra:
+            errors.append("unknown field(s): " + ", ".join(map(str, extra)))
+        if errors:
+            return errors
+        fields = dict(fields)
+        status = fields["MEMBER_STATUS_LABEL"]
+        previous = f"Previous {status}" if isinstance(status, str) else status
     for name, value in fields.items():
         if not isinstance(value, str) or not value.strip() or value != value.strip() or "\n" in value:
             errors.append(f"{name} must be a non-empty single-line string without surrounding spaces")
@@ -106,22 +136,19 @@ def validation_errors() -> list[str]:
     for name in ("ID_KEY", "MEMBER_ID_LABEL", "MEMBER_STATUS_LABEL", "BACKREF_LABEL"):
         if ":" in fields[name] or "`" in fields[name]:
             errors.append(f"{name} must not contain ':' or '`' (the colon is added where it is written)")
-    record = RECORD_FILENAME
+    record = fields["RECORD_FILENAME"]
     if "/" in record or "\\" in record or not record.lower().endswith(".md"):
         errors.append("RECORD_FILENAME must be a bare .md file name")
     if record.lower() in RESERVED_RECORD_FILENAMES:
         errors.append(f"RECORD_FILENAME must not be {record!r} (a reserved file name)")
-    headings = {"RECORD_TITLE": RECORD_TITLE, "SUMMARY_HEADING": SUMMARY_HEADING, "MEMBER_HEADING": MEMBER_HEADING}
+    headings = {name: fields[name] for name in ("RECORD_TITLE", "SUMMARY_HEADING", "MEMBER_HEADING")}
     if len({v for v in headings.values()}) != len(headings):
         errors.append("RECORD_TITLE, SUMMARY_HEADING and MEMBER_HEADING must all differ")
     for name, value in headings.items():
         if value in FIXED_HEADINGS:
             errors.append(f"{name} {value!r} collides with a fixed heading")
-    labels = {
-        "ID_KEY": ID_KEY, "MEMBER_ID_LABEL": MEMBER_ID_LABEL,
-        "MEMBER_STATUS_LABEL": MEMBER_STATUS_LABEL, "BACKREF_LABEL": BACKREF_LABEL,
-        "PREVIOUS_STATUS_LABEL": PREVIOUS_STATUS_LABEL,
-    }
+    labels = {name: fields[name] for name in ("ID_KEY", "MEMBER_ID_LABEL", "MEMBER_STATUS_LABEL", "BACKREF_LABEL")}
+    labels["PREVIOUS_STATUS_LABEL"] = previous
     for name, value in labels.items():
         if value in FIXED_LABELS:
             errors.append(f"{name} {value!r} collides with a fixed label")
@@ -170,9 +197,35 @@ def localize_template(text: str) -> str:
     return _SHIPPED_TEMPLATE_RECORD_RE.sub(lambda _m: RECORD_FILENAME, text)
 
 
+class _Profile:
+    """A profile's field values, derived previous-status label and escaped
+    fragments, under the same attribute names as this module's constants."""
+
+    def __init__(self, fields: "dict[str, str]") -> None:
+        for name in FIELD_NAMES:
+            setattr(self, name, fields[name])
+        self.PREVIOUS_STATUS_LABEL = f"Previous {self.MEMBER_STATUS_LABEL}"
+        for name in _RE_FIELD_NAMES:
+            setattr(self, name + "_RE", re.escape(getattr(self, name)))
+
+    def id_line(self, wave_id: str) -> str:
+        return f"{self.ID_KEY}: `{wave_id}`"
+
+
+def archive_profile() -> _Profile:
+    """The vocabulary archived records are read with (wave 1z8ts): the
+    ``ARCHIVE_PROFILE`` mapping when set, else the live constants, read at
+    call time."""
+    if ARCHIVE_PROFILE is None:
+        return _Profile({name: globals()[name] for name in FIELD_NAMES})
+    return _Profile(dict(ARCHIVE_PROFILE))
+
+
 def validate() -> None:
     """Raise :class:`VocabularyProfileInvalid` when the constants are unusable."""
     errors = validation_errors()
+    if ARCHIVE_PROFILE is not None:
+        errors += [f"ARCHIVE_PROFILE: {e}" for e in validation_errors(ARCHIVE_PROFILE)]
     if errors:
         raise VocabularyProfileInvalid("vocabulary_profile_invalid: " + "; ".join(errors))
 

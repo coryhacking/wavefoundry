@@ -353,4 +353,6 @@ SENSOR_POLARITY_REGISTRY: dict[str, dict[str, str]] = {
                                    "decided_wave": "1yzj9"},
     "record_file_not_found": {"polarity": "advisory", "introduced_wave": "1z8mm",
                               "decided_wave": "1z8mm"},
+    "archive_record_unreadable": {"polarity": "advisory", "introduced_wave": "1z8ts",
+                                  "decided_wave": "1z8ts"},
 }

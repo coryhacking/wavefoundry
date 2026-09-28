@@ -3228,7 +3228,7 @@ class SensorPolarityRegistryTests(unittest.TestCase):
         from wave_lint_lib.constants import SENSOR_POLARITY_REGISTRY
         decided = {name: entry.get("decided_wave") for name, entry in SENSOR_POLARITY_REGISTRY.items()}
         self.assertEqual({"ac_asserts_repository_state": "1yzj9", "inert_record_layout_config": "1yzj9",
-                          "record_file_not_found": "1z8mm"}, decided)
+                          "record_file_not_found": "1z8mm", "archive_record_unreadable": "1z8ts"}, decided)
         for name, entry in SENSOR_POLARITY_REGISTRY.items():
             with self.subTest(sensor=name):
                 self.assertEqual("advisory", entry["polarity"])

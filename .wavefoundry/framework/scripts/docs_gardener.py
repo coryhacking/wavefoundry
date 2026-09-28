@@ -155,12 +155,30 @@ def resolve_path_args(root: Path, rel_parts: list[str]) -> list[Path]:
     return resolved
 
 
+def _outside_archive(root: Path, paths: list[Path]) -> list[Path]:
+    """Drop anything under the read-only archive root (wave 1z8ts): archived
+    records are never gardened, whether enumerated, changed or named."""
+    archive = record_paths.load_record_roots(root).archive
+    if archive is None:
+        return paths
+    archive_real = archive.resolve()
+    kept = []
+    for path in paths:
+        try:
+            if Path(path).resolve().is_relative_to(archive_real):
+                continue
+        except (OSError, RuntimeError):
+            continue
+        kept.append(path)
+    return kept
+
+
 def resolve_metadata_targets(root: Path, args: argparse.Namespace) -> list[Path]:
     if args.all_docs:
-        return sorted(iter_markdown_docs(root))
+        return _outside_archive(root, sorted(iter_markdown_docs(root)))
     if args.paths:
-        return resolve_path_args(root, args.paths)
-    return collect_changed_markdown_paths(root)
+        return _outside_archive(root, resolve_path_args(root, args.paths))
+    return _outside_archive(root, collect_changed_markdown_paths(root))
 
 
 def refresh_last_verified(path: Path, date_value: str) -> bool:

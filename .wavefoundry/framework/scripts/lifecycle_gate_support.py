@@ -394,8 +394,13 @@ def _diagnostic(
     return payload
 
 
-def _extract_change_ids_from_wave_text(text: str) -> list[str]:
-    return _CHANGE_ID_PATTERN.findall(text)
+def _extract_change_ids_from_wave_text(text: str, profile=None) -> list[str]:
+    """Member ids listed in a wave record; ``profile`` (an
+    ``vocabulary_profile.archive_profile()`` object) parses an archived record
+    written under another vocabulary (wave 1z8ts)."""
+    if profile is None:
+        return _CHANGE_ID_PATTERN.findall(text)
+    return re.findall(rf"^{profile.MEMBER_ID_LABEL_RE}:\s+`([^`]+)`", text, re.MULTILINE)
 
 
 def _wave_change_doc_path(root: Path, wave_md: Path, change_id: str) -> Path:
