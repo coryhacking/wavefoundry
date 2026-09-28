@@ -57,10 +57,9 @@ class DocsGardenerTests(unittest.TestCase):
         payload = {
             "schema_version": 1,
             "framework_revision": "2099-01-01a",
-            "last_gardened_at": "1999-01-01",
             "public_prompt_surface": [],
             "seed_framework_source": "test",
-            "generated_artifacts": dg.default_manifest_payload("1999-01-01")[
+            "generated_artifacts": dg.default_manifest_payload()[
                 "generated_artifacts"
             ],
         }
@@ -266,7 +265,7 @@ class ManifestReconciliationTests(unittest.TestCase):
     def test_retired_entry_is_removed(self) -> None:
         """AC-1, using the field-reported entry."""
         self._write(self._drifted_payload())
-        dg.ensure_manifest(self.root, "2026-08-12", bump_last_gardened=True)
+        dg.ensure_manifest(self.root)
         self.assertNotIn("docs/agents/journals/", self._read()["generated_artifacts"])
 
     def test_entry_added_to_the_default_arrives(self) -> None:
@@ -274,8 +273,8 @@ class ManifestReconciliationTests(unittest.TestCase):
         installed before an entry was added never receives it, which leaves the
         framework's own record of what it generates wrong."""
         self._write(self._drifted_payload())
-        dg.ensure_manifest(self.root, "2026-08-12", bump_last_gardened=True)
-        current = dg.default_manifest_payload("2026-08-12")["generated_artifacts"]
+        dg.ensure_manifest(self.root)
+        current = dg.default_manifest_payload()["generated_artifacts"]
         self.assertEqual(self._read()["generated_artifacts"], current)
 
     def test_keys_the_default_does_not_own_survive(self) -> None:
@@ -283,7 +282,7 @@ class ManifestReconciliationTests(unittest.TestCase):
         `wave_root` would break docs-lint, which reads it through
         wave_lint_lib."""
         self._write(self._drifted_payload())
-        dg.ensure_manifest(self.root, "2026-08-12", bump_last_gardened=True)
+        dg.ensure_manifest(self.root)
         data = self._read()
         self.assertEqual(data["wave_root"], "docs/waves")
         self.assertEqual(data["framework_revision"], "1.16.1+pimb")
@@ -295,7 +294,7 @@ class ManifestReconciliationTests(unittest.TestCase):
         a manifest is the wrong place to prove a negative about out-of-tree
         readers."""
         self._write(self._drifted_payload())
-        dg.ensure_manifest(self.root, "2026-08-12", bump_last_gardened=True)
+        dg.ensure_manifest(self.root)
         data = self._read()
         self.assertIn("enabled_internal_features", data)
         self.assertEqual(data["enabled_internal_features"], ["wave_lifecycle"])
@@ -305,11 +304,9 @@ class ManifestReconciliationTests(unittest.TestCase):
         returned wrote-flag, so a rewrite that happened to be byte-identical
         would still be caught."""
         self._write(self._drifted_payload())
-        dg.ensure_manifest(self.root, "2026-08-12", bump_last_gardened=True)
+        dg.ensure_manifest(self.root)
         before = self.path.read_bytes()
-        _path, wrote = dg.ensure_manifest(
-            self.root, "2026-08-12", bump_last_gardened=True
-        )
+        _path, wrote = dg.ensure_manifest(self.root)
         self.assertFalse(wrote)
         self.assertEqual(self.path.read_bytes(), before)
 
@@ -317,11 +314,11 @@ class ManifestReconciliationTests(unittest.TestCase):
         """AC-6: the gardener runs inside the docs gate, so a partial manifest
         must not crash it or discard project content."""
         self._write({"wave_root": "docs/waves"})
-        dg.ensure_manifest(self.root, "2026-08-12", bump_last_gardened=True)
+        dg.ensure_manifest(self.root)
         data = self._read()
         self.assertEqual(
             data["generated_artifacts"],
-            dg.default_manifest_payload("2026-08-12")["generated_artifacts"],
+            dg.default_manifest_payload()["generated_artifacts"],
         )
         self.assertEqual(data["wave_root"], "docs/waves")
 
@@ -337,12 +334,13 @@ class ManifestReconciliationTests(unittest.TestCase):
     def test_reconciles_through_the_real_entry_point_with_nothing_to_stamp(self) -> None:
         """The defect a post-implementation review caught, pinned at the PUBLIC path.
 
-        `gardener_run` computes `bump_last_gardened = bool(updated_paths)`, so it
-        is False exactly when no doc needed stamping — the steady state of a
-        well-gardened repository. The first implementation returned early on
+        `gardener_run` used to pass `bump_last_gardened = bool(updated_paths)`,
+        which is False exactly when no doc needed stamping — the steady state of
+        a well-gardened repository. The first implementation returned early on
         that flag, so the manifest healed only on runs that happened to stamp
         something else. Asserting through `ensure_manifest` alone missed it
-        entirely, because that call site passes the flag directly.
+        entirely, because that call site passed the flag directly. 1z8tu removed
+        the flag with the date it gated; this run also drops the date key.
         """
         import argparse
 
@@ -352,7 +350,7 @@ class ManifestReconciliationTests(unittest.TestCase):
             "last_gardened_at": "2026-08-12",
             "seed_framework_source": ".wavefoundry/framework",
         })
-        # Already current, so nothing needs a stamp and bump_last_gardened is False.
+        # Already current, so nothing needs a stamp.
         (self.root / "docs" / "fresh.md").write_text(
             "# T\n\nOwner: Engineering\nStatus: draft\nLast verified: 2026-08-12\n",
             encoding="utf-8",
@@ -361,21 +359,85 @@ class ManifestReconciliationTests(unittest.TestCase):
             self.root,
             argparse.Namespace(date="2026-08-12", paths=None, all_docs=True),
         )
-        artifacts = self._read()["generated_artifacts"]
+        data = self._read()
+        artifacts = data["generated_artifacts"]
         self.assertNotIn("docs/agents/journals/", artifacts)
         self.assertIn("docs/reports/", artifacts)
+        # 1z8tu AC-1: a run that stamps nothing still removes the date key.
+        self.assertNotIn("last_gardened_at", data)
 
-    def test_non_bumping_run_does_not_stamp_the_date(self) -> None:
-        """The gating that must SURVIVE the fix: reconciliation runs always, but
-        a non-bumping caller still must not churn `last_gardened_at`."""
-        self._write({
-            "schema_version": 1,
-            "generated_artifacts": dg.default_manifest_payload("x")["generated_artifacts"],
-            "last_gardened_at": "2026-01-01",
-            "seed_framework_source": ".wavefoundry/framework",
-        })
-        dg.ensure_manifest(self.root, "2026-08-12", bump_last_gardened=False)
-        self.assertEqual(self._read()["last_gardened_at"], "2026-01-01")
+    def _stale_doc(self) -> Path:
+        doc = self.root / "docs" / "stale.md"
+        doc.write_text(
+            "# T\n\nOwner: Engineering\nStatus: draft\nLast verified: 2000-01-01\n",
+            encoding="utf-8",
+        )
+        return doc
+
+    def _run(self, date_value: str) -> list[str]:
+        import argparse
+
+        _code, paths = dg.gardener_run(
+            self.root,
+            argparse.Namespace(date=date_value, paths=None, all_docs=True),
+        )
+        return paths
+
+    def test_stamping_run_removes_the_date(self) -> None:
+        """1z8tu AC-1: a run that stamps a document drops `last_gardened_at`
+        instead of moving it, and the rest of the manifest reconciles and
+        survives as before."""
+        self._write(self._drifted_payload())
+        doc = self._stale_doc()
+        paths = self._run("2026-09-28")
+        self.assertIn("Last verified: 2026-09-28", doc.read_text(encoding="utf-8"))
+        data = self._read()
+        self.assertNotIn("last_gardened_at", data)
+        self.assertEqual(
+            data["generated_artifacts"], dg.default_manifest_payload()["generated_artifacts"]
+        )
+        self.assertEqual(data["framework_revision"], "1.16.1+pimb")
+        self.assertIn("docs/prompts/prompt-surface-manifest.json", paths)
+
+    def test_keyless_manifest_is_not_rewritten_on_a_later_date(self) -> None:
+        """1z8tu AC-1: once the key is gone, later gardening days leave the
+        manifest byte-identical, whether or not the run stamps a document.
+        The stamping case is the one that used to churn the file."""
+        self._write(self._drifted_payload())
+        self._run("2026-09-01")
+        settled = self.path.read_bytes()
+        handoff = self.root / "docs" / "agents" / "session-handoff.md"
+        for label, stamp in (("nothing stamped", False), ("doc stamped", True)):
+            with self.subTest(label):
+                if stamp:
+                    doc = self._stale_doc()
+                    paths = self._run("2026-10-15")
+                    self.assertIn("Last verified: 2026-10-15", doc.read_text(encoding="utf-8"))
+                else:
+                    # The settling run created the handoff with its own date;
+                    # bring it to the run's date so this run truly stamps nothing.
+                    handoff.write_text(
+                        handoff.read_text(encoding="utf-8").replace(
+                            "Last verified: 2026-09-01", "Last verified: 2026-10-14"
+                        ),
+                        encoding="utf-8",
+                    )
+                    paths = self._run("2026-10-14")
+                    self.assertEqual(paths, [])
+                self.assertEqual(self.path.read_bytes(), settled)
+                self.assertNotIn("docs/prompts/prompt-surface-manifest.json", paths)
+
+    def test_new_manifest_has_no_date(self) -> None:
+        """1z8tu AC-2: neither the default payload nor a created manifest
+        carries `last_gardened_at`."""
+        self.assertNotIn("last_gardened_at", dg.default_manifest_payload())
+        _path, wrote = dg.ensure_manifest(self.root)
+        self.assertTrue(wrote)
+        data = self._read()
+        self.assertNotIn("last_gardened_at", data)
+        self.assertEqual(
+            data["generated_artifacts"], dg.default_manifest_payload()["generated_artifacts"]
+        )
 
 
 class RecordLayoutGardenerTests(unittest.TestCase):
@@ -419,12 +481,12 @@ class RecordLayoutGardenerTests(unittest.TestCase):
 
         (self.root / "project" / "records" / "waves").mkdir(parents=True)
         with patch_layout(**self.LAYOUT):
-            artifacts = dg.default_manifest_payload("2020-01-01", self.root)["generated_artifacts"]
+            artifacts = dg.default_manifest_payload(self.root)["generated_artifacts"]
         self.assertIn(f"{self.WAVES}/", artifacts)
         self.assertIn(f"{self.WAVES}/README.md", artifacts)
         self.assertFalse(any(entry.startswith("docs/waves") for entry in artifacts), artifacts)
         # The shipped layout is unchanged.
-        default = dg.default_manifest_payload("2020-01-01", self.root)["generated_artifacts"]
+        default = dg.default_manifest_payload(self.root)["generated_artifacts"]
         self.assertIn("docs/waves/", default)
         self.assertIn("docs/waves/README.md", default)
 

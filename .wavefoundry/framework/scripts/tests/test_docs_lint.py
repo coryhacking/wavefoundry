@@ -5821,7 +5821,7 @@ class RecordLayoutLintTests(unittest.TestCase):
         shutil.move(str(root / "docs" / "waves"), str(target))
         manifest = root / "docs" / "prompts" / "prompt-surface-manifest.json"
         data = json.loads(manifest.read_text(encoding="utf-8"))
-        data["generated_artifacts"] = docs_gardener.default_manifest_payload("2026-03-21", root)[
+        data["generated_artifacts"] = docs_gardener.default_manifest_payload(root)[
             "generated_artifacts"
         ]
         manifest.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")

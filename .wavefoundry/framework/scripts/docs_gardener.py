@@ -194,7 +194,7 @@ def manifest_path(root: Path) -> Path:
     return root / "docs" / "prompts" / "prompt-surface-manifest.json"
 
 
-def default_manifest_payload(date_value: str, root: Path | None = None) -> dict:
+def default_manifest_payload(root: Path | None = None) -> dict:
     # Wave 1y0gz: the waves entries follow the record layout (validated against
     # the root when one is given; the raw constant otherwise).
     waves_rel = (
@@ -213,7 +213,6 @@ def default_manifest_payload(date_value: str, root: Path | None = None) -> dict:
             "docs/agents/personas/README.md",
             "docs/reports/",
         ],
-        "last_gardened_at": date_value,
         "public_prompt_surface": [],
         "seed_framework_source": ".wavefoundry/framework",
     }
@@ -268,16 +267,11 @@ def normalize_manifest_json(data: dict) -> str:
     return json.dumps(data, indent=2, sort_keys=True) + "\n"
 
 
-def ensure_manifest(
-    root: Path,
-    date_value: str,
-    *,
-    bump_last_gardened: bool,
-) -> tuple[Path, bool]:
+def ensure_manifest(root: Path) -> tuple[Path, bool]:
     path = manifest_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
-        payload = default_manifest_payload(date_value, root)
+        payload = default_manifest_payload(root)
         path.write_text(normalize_manifest_json(payload), encoding="utf-8")
         return path, True
     try:
@@ -286,22 +280,15 @@ def ensure_manifest(
         data = {}
     data.setdefault("schema_version", 1)
     data.setdefault("seed_framework_source", ".wavefoundry/framework")
-    # 1v7a0: reconcile the framework-owned keys on EVERY run, not only when the
-    # caller is bumping the date. `bump_last_gardened` is False precisely when
-    # no doc needed stamping, which is the steady state of a well-gardened
-    # repository — gating reconciliation on it meant the manifest healed only on
-    # runs that happened to stamp something else, so a healthy repo drifted
-    # forever. Found by a post-implementation review pass through the real
-    # `gardener_run` entry point; the first implementation returned early here
-    # and its AC-5 evidence came from calling `ensure_manifest` directly, which
-    # bypassed that gate.
-    #
-    # The date stamp stays gated, so a non-bumping run still does not churn
-    # `last_gardened_at`, and the change-only write below means a manifest that
-    # needs neither reconciliation nor a stamp is not rewritten at all.
-    reconcile_manifest_payload(data, default_manifest_payload(date_value, root))
-    if bump_last_gardened:
-        data["last_gardened_at"] = date_value
+    # 1v7a0: reconcile the framework-owned keys on EVERY run, including runs
+    # that stamp no document, which is the steady state of a well-gardened
+    # repository.
+    reconcile_manifest_payload(data, default_manifest_payload(root))
+    # 1z8tu: the manifest no longer carries a gardening date. Nothing read it,
+    # and stamping it made the file change on every gardening day, so an
+    # installed manifest drops the key once and the change-only write below
+    # then leaves it untouched.
+    data.pop("last_gardened_at", None)
     new_text = normalize_manifest_json(data)
     old_text = path.read_text(encoding="utf-8")
     if new_text == old_text:
@@ -348,8 +335,7 @@ def gardener_run(root: Path, args: argparse.Namespace) -> tuple[int, list[str]]:
             updated_paths.append(rel)
             stamped_paths.append(rel)
 
-    bump_manifest = bool(updated_paths)
-    manifest_p, manifest_wrote = ensure_manifest(root, date_value, bump_last_gardened=bump_manifest)
+    manifest_p, manifest_wrote = ensure_manifest(root)
     if manifest_wrote:
         updated_paths.append(manifest_p.relative_to(root).as_posix())  # Wave 1p6dx: forward-slash
 
