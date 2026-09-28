@@ -123,19 +123,24 @@ def _connect(root: Path) -> sqlite3.Connection:
     return conn
 
 
-def _canonical_waves_dir(root: Path) -> Path | None:
-    """Return the contained physical waves root, rejecting parent escapes."""
+def _canonical_waves_dir(root: Path, *, archive: bool = False) -> Path | None:
+    """Return the contained physical waves root, rejecting parent escapes.
+
+    ``archive=True`` returns the read-only archive root instead (wave 1z8tt),
+    or ``None`` when ``record_paths.ARCHIVE_ROOT`` is unset or absent."""
 
     import record_paths  # record roots (wave 1y0gz); lazy like the other sibling imports
 
+    label = "archive" if archive else "waves"
     try:
-        waves_dir = record_paths.load_record_roots(root).waves
+        roots = record_paths.load_record_roots(root)
     except record_paths.RecordLayoutInvalid as exc:
         # The resolver already refused (for example the waves root is a symlink
         # escaping the repository); keep this site's OSError contract so the
         # inventory callers report historical_memory_inventory_failed.
-        raise OSError(f"historical-memory waves directory refused: {exc}") from exc
-    if not waves_dir.exists() and not waves_dir.is_symlink():
+        raise OSError(f"historical-memory {label} directory refused: {exc}") from exc
+    waves_dir = roots.archive if archive else roots.waves
+    if waves_dir is None or (not waves_dir.exists() and not waves_dir.is_symlink()):
         return None
     try:
         root_real = root.resolve(strict=True)
@@ -145,30 +150,35 @@ def _canonical_waves_dir(root: Path) -> Path | None:
             or not waves_real.is_relative_to(root_real)
         ):
             raise OSError(
-                "historical-memory waves directory escapes the repository root"
+                f"historical-memory {label} directory escapes the repository root"
             )
         return waves_real
     except RuntimeError as exc:
         raise OSError(
-            "historical-memory waves directory could not be resolved safely"
+            f"historical-memory {label} directory could not be resolved safely"
         ) from exc
 
 
-def _contained_source_file(root: Path, wave_dir: Path, path: Path) -> bool:
-    """Accept only ordinary files physically contained by this project wave."""
+def _contained_source_file(
+    root: Path, wave_dir: Path, path: Path, base: Path | None = None
+) -> bool:
+    """Accept only ordinary files physically contained by this project wave.
+
+    ``base`` is the resolved record root the wave came from (the live waves
+    root or the archive root); ``None`` means the live waves root."""
     from path_containment import contained_resolved_path
 
 
     try:
-        waves_real = _canonical_waves_dir(root)
-        if waves_real is None:
+        base_real = _canonical_waves_dir(root) if base is None else base
+        if base_real is None:
             return False
         wave_real = wave_dir.resolve(strict=True)
         path_real = path.resolve(strict=True)
         return (
             not wave_dir.is_symlink()
             and not path.is_symlink()
-            and contained_resolved_path(waves_real, wave_real) is not None
+            and contained_resolved_path(base_real, wave_real) is not None
             and contained_resolved_path(wave_real, path_real) is not None
             and path.is_file()
         )
@@ -176,10 +186,13 @@ def _contained_source_file(root: Path, wave_dir: Path, path: Path) -> bool:
         return False
 
 
-def _wave_status(root: Path, path: Path) -> tuple[str, str]:
-    wave_md = path / _vocab.RECORD_FILENAME
-    if not _contained_source_file(root, path, wave_md):
-        return "unsupported", f"{_vocab.RECORD_FILENAME} is not an ordinary contained wave source"
+def _wave_status(
+    root: Path, path: Path, *, profile: Any = None, base: Path | None = None
+) -> tuple[str, str]:
+    record = (profile or _vocab).RECORD_FILENAME
+    wave_md = path / record
+    if not _contained_source_file(root, path, wave_md, base):
+        return "unsupported", f"{record} is not an ordinary contained wave source"
     try:
         text = wave_md.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
@@ -187,54 +200,169 @@ def _wave_status(root: Path, path: Path) -> tuple[str, str]:
     for line in text.splitlines():
         if line.lower().startswith("status:"):
             return line.split(":", 1)[1].strip().lower(), ""
-    return "unsupported", f"{_vocab.RECORD_FILENAME} has no Status field"
+    return "unsupported", f"{record} has no Status field"
 
 
-def inventory_closed_waves(root: Path) -> tuple[dict[str, Any], ...]:
-    """Return a deterministic local-only inventory; Git is never consulted."""
-
-    waves_dir = _canonical_waves_dir(root)
-    if waves_dir is None:
-        return ()
+def _inventory_rows(
+    root: Path,
+    candidates: Iterable[Path],
+    *,
+    profile: Any = None,
+    base: Path | None = None,
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    import record_paths  # lazy like the other sibling imports (wave 1y043)
-
-    # The shared discovery walk (flat or nested). The flat listing matches the
-    # pre-change ``iterdir`` enumeration, so this site keeps its own symlink
-    # exclusion as before.
-    for wave_dir in sorted(
-        (path for path in record_paths.walk_wave_candidates(root) if not path.is_symlink()),
-        key=lambda path: path.name,
-    ):
-        status, error = _wave_status(root, wave_dir)
+    for wave_dir in candidates:
+        status, error = _wave_status(root, wave_dir, profile=profile, base=base)
         if status not in _CLOSED_STATES and status not in {"unreadable", "unsupported"}:
             continue
-        rows.append(
-            {
-                "wave_id": wave_dir.name,
-                "path": wave_dir,
-                "status": status,
-                "error": error,
-                "fingerprint": source_fingerprint(root, wave_dir),
-            }
+        row = {
+            "wave_id": wave_dir.name,
+            "path": wave_dir,
+            "status": status,
+            "error": error,
+            "fingerprint": source_fingerprint(root, wave_dir, profile=profile, base=base),
+        }
+        if profile is not None:
+            row["archived"] = True
+        rows.append(row)
+    return rows
+
+
+def _inventory(
+    root: Path,
+) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, str], ...]]:
+    """The inventory rows plus the archived waves a live wave shadows.
+
+    Live waves come first. An archived closed wave (wave 1z8tt) is added only
+    when no live wave has the same id token (``record_paths.wave_id_of``,
+    exact equality): prefix matching resolves user queries and would hide a
+    distinct archived wave. Rows stay keyed by folder name."""
+
+    import record_paths  # lazy like the other sibling imports (wave 1y043)
+
+    waves_dir = _canonical_waves_dir(root)
+    archive_dir = _canonical_waves_dir(root, archive=True)
+    rows: list[dict[str, Any]] = []
+    if waves_dir is not None:
+        # The shared discovery walk (flat or nested). The flat listing matches
+        # the pre-change ``iterdir`` enumeration, so this site keeps its own
+        # symlink exclusion as before.
+        rows.extend(
+            _inventory_rows(
+                root,
+                sorted(
+                    (
+                        path
+                        for path in record_paths.walk_wave_candidates(root)
+                        if not path.is_symlink()
+                    ),
+                    key=lambda path: path.name,
+                ),
+            )
         )
-    return tuple(rows)
+    archived, shadowed = _archive_partition(root, waves_dir, archive_dir)
+    if archived:
+        rows.extend(
+            _inventory_rows(
+                root,
+                archived,
+                profile=_vocab.archive_profile(),
+                base=archive_dir,
+            )
+        )
+    return tuple(rows), tuple(shadowed)
 
 
-def source_fingerprint(root: Path, wave_dir: Path) -> str:
+def _archive_partition(
+    root: Path, waves_dir: Path | None, archive_dir: Path | None
+) -> tuple[list[Path], list[dict[str, str]]]:
+    """Split the archived wave folders into those to inventory and those a
+    live wave with the same id token shadows. Reads no record content."""
+
+    import record_paths
+
+    if archive_dir is None:
+        return [], []
+    live_by_id: dict[str, Path] = {}
+    if waves_dir is not None:
+        for live in record_paths.discover_wave_dirs(root):
+            live_by_id.setdefault(record_paths.wave_id_of(live), live)
+    archived: list[Path] = []
+    shadowed: list[dict[str, str]] = []
+    for path in sorted(
+        (p for p in record_paths.discover_archive_dirs(root) if not p.is_symlink()),
+        key=lambda path: path.name,
+    ):
+        live = live_by_id.get(record_paths.wave_id_of(path))
+        if live is not None:
+            shadowed.append(
+                {
+                    "wave_id": path.name,
+                    "archived_path": record_paths._repo_rel(root, path),
+                    "live_path": record_paths._repo_rel(root, live),
+                }
+            )
+            continue
+        archived.append(path)
+    return archived, shadowed
+
+
+def inventory_closed_waves(root: Path, *, with_shadowed: bool = False) -> Any:
+    """Return a deterministic local-only inventory; Git is never consulted.
+
+    Includes archived closed waves not shadowed by a live wave (wave 1z8tt).
+    ``with_shadowed=True`` returns ``(rows, shadowed)`` from the same single
+    walk, so a caller that also reports shadowed waves partitions once."""
+
+    rows, shadowed = _inventory(root)
+    return (rows, shadowed) if with_shadowed else rows
+
+
+def shadowed_archive_waves(root: Path) -> tuple[dict[str, str], ...]:
+    """Archived waves skipped because a live wave has the same id token."""
+
+    return tuple(
+        _archive_partition(
+            root, _canonical_waves_dir(root), _canonical_waves_dir(root, archive=True)
+        )[1]
+    )
+
+
+def shadowed_archive_diagnostics(
+    shadowed: Iterable[dict[str, str]],
+) -> list[dict[str, Any]]:
+    """One advisory ``archived_wave_shadowed`` diagnostic per shadowed wave."""
+
+    return [
+        {
+            "code": "archived_wave_shadowed",
+            "message": (
+                f"Archived wave {item['archived_path']} was skipped: live wave "
+                f"{item['live_path']} has the same id, and the live copy is used."
+            ),
+            "advisory": True,
+        }
+        for item in shadowed
+    ]
+
+
+def source_fingerprint(
+    root: Path, wave_dir: Path, *, profile: Any = None, base: Path | None = None
+) -> str:
     """Hash only stable local backfill sources, in deterministic path order."""
 
+    record = (profile or _vocab).RECORD_FILENAME
     digest = hashlib.sha256()
-    paths = [wave_dir / _vocab.RECORD_FILENAME, wave_dir / "events.jsonl"]
+    paths = [wave_dir / record, wave_dir / "events.jsonl"]
     paths.extend(
         path
         for path in sorted(wave_dir.glob("*.md"))
-        if path.name != _vocab.RECORD_FILENAME
+        if path.name != record
     )
     for path in paths:
         digest.update(path.name.encode("utf-8", errors="surrogateescape"))
         digest.update(b"\0")
-        if not _contained_source_file(root, wave_dir, path):
+        if not _contained_source_file(root, wave_dir, path, base):
             digest.update(b"<unsafe-or-missing-source>")
             digest.update(b"\0")
             continue
@@ -358,10 +486,15 @@ def sync_inventory(
     run_id: str,
     *,
     inventory: Iterable[dict[str, Any]] | None = None,
+    shadowed: Iterable[dict[str, str]] | None = None,
 ) -> dict[str, int]:
-    inventory_rows = tuple(
-        inventory_closed_waves(root) if inventory is None else inventory
-    )
+    if inventory is None:
+        inventory_rows, shadowed_rows = _inventory(root)
+    else:
+        inventory_rows = tuple(inventory)
+        shadowed_rows = tuple(
+            shadowed_archive_waves(root) if shadowed is None else shadowed
+        )
     conn = _connect(root)
     now = _now()
     references_repaired = 0
@@ -440,6 +573,7 @@ def sync_inventory(
         conn.close()
     summary = run_summary(root, run_id)
     summary["memory_id_references_repaired"] = references_repaired
+    summary["archived_waves_shadowed"] = len(shadowed_rows)
     return summary
 
 

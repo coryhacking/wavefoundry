@@ -28,7 +28,6 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-import record_paths  # record roots (wave 1y0gz)
 import storage_identity
 
 
@@ -377,9 +376,9 @@ CARRIER_EFFECTS = ("none", "displaced_expected", "supplied_gain")
 # Path shapes that identify each carrier kind.  Ordered most specific first so
 # a fixture under a wave directory classifies as fixture_source, not wave_record.
 # Each rule takes ``(path, waves_prefix)``; the waves prefix is the resolved
-# record root with a trailing slash (wave 1y0gz), defaulting to the resolver's
-# default layout for callers that own no repository root.
-_DEFAULT_WAVES_PREFIX = record_paths.WAVES_ROOT + "/"
+# record root with a trailing slash (wave 1y0gz). Callers that own no
+# repository root get the layout current at CALL time (wave 1z8ty,
+# ``_default_waves_prefix``), never a value captured at import.
 _CARRIER_PATH_RULES: tuple[tuple[str, Callable[[str, str], bool]], ...] = (
     ("fixture_source", lambda p, _w: p.startswith("docs/evals/")),
     ("generated_report", lambda p, _w: p.startswith("docs/reports/")),
@@ -390,13 +389,23 @@ _CARRIER_PATH_RULES: tuple[tuple[str, Callable[[str, str], bool]], ...] = (
 )
 
 
-def classify_carrier(path: str, *, waves_prefix: str = _DEFAULT_WAVES_PREFIX) -> str | None:
+def _default_waves_prefix() -> str:
+    """The waves prefix of the layout current at call time. The import is
+    function-level so a patched layout is always the one read (wave 1z8ty)."""
+    import record_paths
+
+    return record_paths.unvalidated_record_roots(Path(".")).waves_prefix
+
+
+def classify_carrier(path: str, *, waves_prefix: str | None = None) -> str | None:
     """The carrier kind for one normalized result path, or ``None`` if ordinary.
 
     Ordinary product source and documentation are NOT carriers; only the
     evaluation apparatus is.  A path that is not part of that apparatus returns
     ``None`` so it consumes no contamination budget.
     """
+    if waves_prefix is None:
+        waves_prefix = _default_waves_prefix()
     normalized = _normal_path(path)
     for kind, matches in _CARRIER_PATH_RULES:
         if matches(normalized, waves_prefix):
@@ -406,13 +415,15 @@ def classify_carrier(path: str, *, waves_prefix: str = _DEFAULT_WAVES_PREFIX) ->
 
 def carrier_rows(result_paths: Sequence[str], expected_paths: Sequence[str], *,
                  approved: Iterable[str] = (), top_k: int = RECALL_K,
-                 waves_prefix: str = _DEFAULT_WAVES_PREFIX) -> list[dict[str, Any]]:
+                 waves_prefix: str | None = None) -> list[dict[str, Any]]:
     """Typed carrier rows for one case's top-k results.
 
     ``effect`` is derived from position rather than asserted: a carrier ranked
     above any expected path DISPLACED it; a carrier present when no expected
     path was returned at all SUPPLIED whatever gain the case shows.
     """
+    if waves_prefix is None:
+        waves_prefix = _default_waves_prefix()
     approved_set = {_normal_path(p) for p in approved}
     expected = {_normal_path(p) for p in expected_paths}
     ranked = [_normal_path(p) for p in result_paths[:top_k]]

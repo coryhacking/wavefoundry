@@ -3,9 +3,9 @@ coverage before this change each see a wave placed under a relocated root.
 
 * dashboard listing (``dashboard_lib.collect_waves``)
 * memory-backfill wave scan (``memory_backfill.inventory_closed_waves``)
-* the ``wave`` document classification (``_tag_utils.infer_tags`` through the
-  chunker's ``_infer_tags`` binding and the server's ``_infer_tags`` live
-  path, which derives the prefix from the repository root)
+* the ``wave`` document classification (``_tag_utils.infer_tags`` directly
+  and through the server's ``_infer_tags`` live path, which derives the prefix
+  from the repository root)
 
 The layout is the ``record_paths`` module constants, patched through
 ``record_layout_support``.
@@ -81,25 +81,25 @@ class ColdSiteRelocatedRootTests(unittest.TestCase):
         self.assertEqual([r.get("wave_id") or r.get("id") for r in rows], ["1abcd relocated-demo"], rows)
 
     def test_wave_tag_follows_the_configured_prefix(self):
-        import chunker
+        import _tag_utils
         import record_paths
 
         prefix = record_paths.load_record_roots(self.root).waves_prefix
         self.assertEqual(prefix, "project/records/waves/")
         relocated = "project/records/waves/1abcd relocated-demo/wave.md"
-        self.assertIn("wave", chunker._infer_tags(relocated, waves_prefix=prefix))
+        shipped = "docs/waves/1abcd x/wave.md"
+        self.assertIn("wave", _tag_utils.infer_tags(relocated, waves_prefix=prefix))
         # Under the relocated layout the DEFAULT location is no longer a wave.
-        self.assertNotIn("wave", chunker._infer_tags("docs/waves/1abcd x/wave.md", waves_prefix=prefix))
-        # And the module default (the WAVES_ROOT constant bound at
-        # `_tag_utils` import time) keeps its own behaviour.
-        import _tag_utils
-
-        default_prefix = _tag_utils._DEFAULT_WAVES_PREFIX
-        self.assertIn("wave", chunker._infer_tags(f"{default_prefix}1abcd x/wave.md"))
+        self.assertNotIn("wave", _tag_utils.infer_tags(shipped, waves_prefix=prefix))
+        # 1z8ty: with no prefix the default is read at CALL time, so it
+        # follows the layout current now (relocated), whichever layout the
+        # module was first imported under.
+        self.assertIn("wave", _tag_utils.infer_tags(relocated))
+        self.assertNotIn("wave", _tag_utils.infer_tags(shipped))
 
     def test_server_infer_tags_derives_the_prefix_from_the_root(self):
         # The server's live path threads `_record_prefixes(root)` through;
-        # without a root the `_tag_utils` default binding applies unchanged.
+        # without a root the `_tag_utils` call-time default applies.
         relocated = "project/records/waves/1abcd relocated-demo/wave.md"
         shipped = "docs/waves/1abcd x/wave.md"
         other = "other/waves/1abcd x/wave.md"
@@ -111,17 +111,16 @@ class ColdSiteRelocatedRootTests(unittest.TestCase):
         with patch_layout(modules=(self.srv.record_paths,), waves_root="other/waves"):
             self.assertIn("wave", self.srv._infer_tags(other, root=self.root))
             self.assertNotIn("wave", self.srv._infer_tags(relocated, root=self.root))
-        # 1z8tw: compare with the server's OWN `_tag_utils` copy. `_tag_utils`
-        # captures its default prefix at import, and the server's cached copy
-        # and the public module can each have been first imported under a
-        # different patched layout by earlier tests in this interpreter.
-        server_tag_utils = self.srv._load_script("_tag_utils")
+        # 1z8ty: the server's cached `_tag_utils` copy and the public module
+        # both read the default at call time, so they agree whatever layout
+        # each was first imported under.
+        import _tag_utils
+
         for path in (relocated, shipped, other):
-            self.assertEqual(self.srv._infer_tags(path), server_tag_utils.infer_tags(path), path)
-        # And without a root the tag follows that copy's captured default,
-        # whichever layout it was captured under.
-        default_prefix = server_tag_utils._DEFAULT_WAVES_PREFIX
-        self.assertIn("wave", self.srv._infer_tags(f"{default_prefix}1abcd x/wave.md"))
+            self.assertEqual(self.srv._infer_tags(path), _tag_utils.infer_tags(path), path)
+        # And without a root the tag follows the layout current now.
+        self.assertIn("wave", self.srv._infer_tags(relocated))
+        self.assertNotIn("wave", self.srv._infer_tags(shipped))
         self.assertNotIn("wave", self.srv._infer_tags("elsewhere/waves/1abcd x/wave.md"))
 
 

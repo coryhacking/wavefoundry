@@ -452,8 +452,9 @@ Tag vocabulary:
 
 | Tag | What it matches |
 |-----|----------------|
-| `wave` | Wave records and change docs (`docs/waves/`) |
+| `wave` | Wave records and change docs (the configured waves root, `docs/waves/` by default, and the read-only archive when one is configured) |
 | `agent` | Agent prompts and role docs (`docs/prompts/agents/`, `docs/agents/`) |
+| `memory` | Typed memory records (`docs/agents/memory/`) |
 | `journal` | Historical journal files only (`docs/agents/journals/`, retired; present only in not-yet-migrated repositories) |
 | `lifecycle` | Install and onboarding docs under `docs/` |
 | `reference` | Reference docs (`docs/references/`) |

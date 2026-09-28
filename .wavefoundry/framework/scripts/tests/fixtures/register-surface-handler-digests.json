@@ -1,6 +1,6 @@
 {
   "captured_at": "f4063a85",
-  "description": "SHA-256 of each @mcp.tool handler's exact source (decorators through last line, dedented) inside register_mcp_surface, captured before wave 1y0h1 edited server_impl.py. Wave 1ypxw updates only wf_review_wave and wf_review_event for approved receipt-currency docstrings; all other captured hashes are retained.",
+  "description": "SHA-256 of each @mcp.tool handler's exact source (decorators through last line, dedented) inside register_mcp_surface, captured before wave 1y0h1 edited server_impl.py. Wave 1ypxw updates only wf_review_wave and wf_review_event for approved receipt-currency docstrings; all other captured hashes are retained. Wave 1z8tz updates only docs_search and code_search for the restored tag vocabulary (memory) and the rechunk remedy in their docstrings.",
   "handlers": {
     "code_ask": "d893cd2791ad0ade83b0a5d07997aa5afe049b7d5fd19a5b74cc890a31ae0ad9",
     "code_callgraph": "5fc05322e7ac0234ee2d14eb298175dd112fab1c21f66f032cba1db9928fa958",
@@ -21,8 +21,8 @@
     "code_read": "906657d507dc4596a778001419c8e592ba18687ea642c251a1834bb776dbafe9",
     "code_references": "55f7b204a43f91f2e9dcc464d5f7f981b4478f4ac553d2406013324083c2bcd6",
     "code_risk_score": "71c176dc74335bf32f40b0d723b9171b82a1877b0499a59c74e6d5ea44ed6373",
-    "code_search": "3bccd53931d09932e9e5518e17f7dc6241c71214993577e7de457b3d9066ce91",
-    "docs_search": "cedae3ed764772172cb677518e7823ea2c5228a4d44171011102b6c0082c1c7c",
+    "code_search": "32c1a75710764235c1aec6a1bbb4495d813814362b15f5e59f949a3114d0ef43",
+    "docs_search": "a936533457903014be23f81f81a3225f08ecac1001641b143c9f348e04019996",
     "index_build": "0d24946e5df23a03816caa62455d3d72a88ab54a1a4f79b19f279c730625d0e6",
     "index_build_status": "c81a30a77adbbe4d1e61ce2bb9d972714c4cdcc52c6383ea15dc13504a7668aa",
     "index_health": "059cfac0c6e6b2d0814e44a6a91f2cdcbe5e427a5246fad9221826d846423249",

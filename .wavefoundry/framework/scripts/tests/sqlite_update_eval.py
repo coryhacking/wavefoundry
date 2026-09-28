@@ -181,9 +181,9 @@ def run(args):
         active['semantic_start'] = time.perf_counter()
         return legacy_write(*values, **options)
 
-    def chunks(relative, text):
+    def chunks(relative, text, **prefixes):
         if relative != path:
-            return original_chunks(relative, text)
+            return original_chunks(relative, text, **prefixes)
         if text != source_file.read_text():
             raise RuntimeError("Prepared chunk source differs from actual filesystem")
         active["chunk_calls"] += 1

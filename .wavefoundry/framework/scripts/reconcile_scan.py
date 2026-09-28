@@ -295,9 +295,8 @@ _STATIC_EXCLUDED_DIRS: tuple[str, ...] = (
     "docs/agents/memory",      # memory records quote history; the memory corpus has its own hygiene loop
 )
 # Wave 1y0gz: the wave history root comes from the resolved record layout.
-# ``EXCLUDED_DIRS`` is the default-layout set; ``excluded_dirs_for(root)`` the
-# resolved one the scan walk uses.
-EXCLUDED_DIRS: tuple[str, ...] = _STATIC_EXCLUDED_DIRS + (record_paths.WAVES_ROOT,)
+# ``excluded_dirs_for(root)`` resolves it for the scan walk; wave 1z8ty removed
+# the import-time default-layout set so no default is captured at import.
 
 
 def excluded_dirs_for(root: Path) -> tuple[str, ...]:
@@ -308,7 +307,7 @@ def excluded_dirs_for(root: Path) -> tuple[str, ...]:
     return _STATIC_EXCLUDED_DIRS + (roots.waves_rel,) + archive
 # Protocol-bridge upgrades retain the previous framework tree under a generated sibling such as
 # ``.wavefoundry/framework.rollback-bridge-pfps-p2/``.  It is inactive recovery state, not a live
-# project carrier.  Keep this separate from ``EXCLUDED_DIRS`` because it is a component prefix, not
+# project carrier.  Keep this separate from ``excluded_dirs_for`` because it is a component prefix, not
 # one fixed directory name.
 _FRAMEWORK_ROLLBACK_DIR_PREFIX = "framework.rollback-"
 # File-name exclusions matched on BASENAME anywhere in the tree (not root-only). A file named
@@ -708,7 +707,7 @@ def _finding_context(text: str, line_number: int) -> tuple[str, str]:
 
 
 def is_excluded(
-    rel: str, *, name: str, suffix: str, excluded_dirs: tuple[str, ...] = EXCLUDED_DIRS
+    rel: str, *, name: str, suffix: str, excluded_dirs: tuple[str, ...]
 ) -> bool:
     """Return True when a repo-relative path is outside the reconciliation scan scope.
 

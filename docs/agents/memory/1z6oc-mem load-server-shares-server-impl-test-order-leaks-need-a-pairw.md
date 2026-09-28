@@ -21,7 +21,7 @@ Canonical overlap: none
 
 ## Summary
 
-server_tools_support.load_server re-executes only server.py, so server_impl and its _script_cache persist across calls; only the FIRST server_impl import evicts record_paths from sys.modules, leaving spec-loaded modules (e.g. a test's docs_gardener) holding an older copy that patch_layout misses unless passed via modules=. Modules that capture layout at import (_tag_utils._DEFAULT_WAVES_PREFIX) freeze whatever layout the first importer patched. run_tests.py isolates files per process, so these leaks only show under single-process unittest; verify an isolation fix by running every layout-patching or load_server file before the fixed module in one interpreter, not just the reported pair.
+server_tools_support.load_server re-executes only server.py, so server_impl and its _script_cache persist across calls; only the FIRST server_impl import evicts record_paths from sys.modules, leaving spec-loaded modules (e.g. a test's docs_gardener) holding an older copy that patch_layout misses unless passed via modules=. Modules that capture layout at import freeze whatever layout the first importer patched (wave 1z8tz removed the _tag_utils and retrieval_eval captures; review_policy.SCAFFOLD_DOCS remains, pinned by the census test). run_tests.py isolates files per process, so these leaks only show under single-process unittest; verify an isolation fix by running every layout-patching or load_server file before the fixed module in one interpreter, not just the reported pair.
 
 ## Evidence
 

@@ -1517,6 +1517,10 @@ class WaveIndex:
 
         chunks: list[dict[str, Any]] = []
         seen_paths: set[str] = set()
+        # Wave 1z8ty: the live path tags its chunks the way the index build
+        # does, so the `tags` filter works on the lexical fallback too.
+        waves_prefix, _plans_prefix = _record_prefixes(self.root)
+        archive_prefix = _archive_prefix(self.root)
         for path in files:
             rel = str(path.relative_to(self.root)).replace("\\", "/")
             if rel.startswith(".wavefoundry/framework/"):
@@ -1531,7 +1535,9 @@ class WaveIndex:
                 content = path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
-            doc_chunks, _ = idx._chunks_for_file(rel, content)
+            doc_chunks, _ = idx._chunks_for_file(
+                rel, content, waves_prefix=waves_prefix, archive_prefix=archive_prefix
+            )
             chunks.extend(doc_chunks)
         return chunks
 
@@ -3401,6 +3407,20 @@ def _record_prefixes(root: Optional[Path]) -> tuple[str, str]:
     return default.waves_prefix, default.plans_prefix
 
 
+def _archive_prefix(root: Optional[Path]) -> Optional[str]:
+    """The read-only archive root with a trailing slash, or ``None`` when no
+    archive is configured (wave 1z8ty). Resolved like ``_record_prefixes``:
+    tagging is observational and must never refuse a search."""
+    if root is not None:
+        try:
+            roots = record_paths.load_record_roots(root)
+        except record_paths.RecordLayoutInvalid:
+            roots = record_paths.unvalidated_record_roots(root)
+    else:
+        roots = record_paths.unvalidated_record_roots(Path("."))
+    return roots.archive_rel + "/" if roots.archive_rel else None
+
+
 # Wave 1p9iu: generous default timeout (seconds) for the server-side FULL-corpus docs-lint subprocess
 # in run_validate — well above the old hardcoded 30s that was too short on a large field repo, and at
 # minimum matching the post-edit hook's 120s floor (indexer.DOCS_LINT_HOOK_TIMEOUT_DEFAULT). The full
@@ -4481,12 +4501,12 @@ def _infer_tags(path: str, root: Optional[Path] = None) -> list[str]:
 
     Wave 1y0gz: with a repository ``root`` the ``wave`` tag follows that
     repository's waves root (``_record_prefixes``); without one the
-    ``_tag_utils`` default (the shipped layout) applies."""
+    ``_tag_utils`` default (the layout current at call time) applies."""
     infer = _load_script("_tag_utils").infer_tags
     if root is None:
         return infer(path)
     waves_prefix, _plans_prefix = _record_prefixes(root)
-    return infer(path, waves_prefix=waves_prefix)
+    return infer(path, waves_prefix=waves_prefix, archive_prefix=_archive_prefix(root))
 
 
 _script_cache: dict[str, Any] = {}
@@ -17855,11 +17875,15 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         NOT an empty corpus).
 
         Tags pre-filter the search space before cosine ranking. Use to scope results to a specific doc category.
-        Tag vocabulary: wave, agent, lifecycle, reference, journal, prompt, seed, framework, test, config.
+        Tag vocabulary: wave, agent, lifecycle, reference, journal, memory, prompt, seed, framework, test, config.
         Multiple tags use OR semantics (a chunk matching any requested tag is included).
         kind and tags compose with AND semantics (a chunk must satisfy both when both are provided).
         Examples: tags=["wave"] for wave records, tags=["agent"] for agent prompts and journals,
-                  tags=["lifecycle"] for install/onboarding docs, tags=["journal"] for agent journals only.
+                  tags=["lifecycle"] for install/onboarding docs, tags=["journal"] for agent journals only,
+                  tags=["memory"] for memory records under docs/agents/memory/.
+        Tags are written at index time from each path and the record layout (the waves and archive
+        roots); after changing the layout constants without moving files, run index_build(mode='rechunk')
+        to re-tag existing chunks (embeddings are reused).
 
         Args:
             query: Natural language search query.
@@ -17927,9 +17951,12 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Orientation pass (Guru): use kind="code-summary" with max_per_file=1 for a fast file-level survey before targeted retrieval.
 
         Tags pre-filter the search space before cosine ranking. Use to scope results to a specific file category.
-        Tag vocabulary: test, config, framework, seed. Multiple tags use OR semantics.
+        Tag vocabulary: wave, agent, lifecycle, reference, journal, memory, prompt, seed, framework, test, config;
+        the ones that usually apply to code are test, config, framework, seed. Multiple tags use OR semantics.
         language, kind, and tags all compose with AND semantics when provided together.
         Example: tags=["test"] to scope to test files only, tags=["config"] for config/infra files.
+        Tags are written at index time from each path and the record layout; after changing the layout
+        constants without moving files, run index_build(mode='rechunk') to re-tag existing chunks.
 
         Choosing a language filter:
         - No filter: query spans the whole codebase. Best when you don't know which language has the answer.

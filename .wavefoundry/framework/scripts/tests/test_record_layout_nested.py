@@ -117,14 +117,14 @@ class NestedLifecycleTests(_NestedRepo):
         state, _records = wv._collect_wave_state(self.root)
         self.assertEqual(sorted(state), sorted([w1, w2, w3]))
 
-        # The indexer's wave classification is depth independent, on the
-        # chunker binding and on the server's live path (which derives the
-        # prefix from the repository root).
-        import chunker
+        # The indexer's wave classification is depth independent, through
+        # `_tag_utils` directly and on the server's live path (which derives
+        # the prefix from the repository root).
+        import _tag_utils
 
         prefix = self.srv.record_paths.load_record_roots(self.root).waves_prefix
         deep = f"{WAVES_REL}/team/feature/{w3}/wave.md"
-        self.assertIn("wave", chunker._infer_tags(deep, waves_prefix=prefix))
+        self.assertIn("wave", _tag_utils.infer_tags(deep, waves_prefix=prefix))
         self.assertIn("wave", self.srv._infer_tags(deep, root=self.root))
 
     def test_relocating_a_wave_deeper_keeps_every_lookup_working(self):

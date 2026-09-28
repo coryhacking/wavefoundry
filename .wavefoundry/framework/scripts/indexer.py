@@ -1967,6 +1967,8 @@ def _run_streaming_full_rebuild(
     t_docs = 0.0
     t_code = 0.0
     total = len(files_to_index)
+    # Wave 1z8ty: chunk tags follow the record layout, resolved once per build.
+    waves_prefix, archive_prefix = _tag_prefixes(root)
 
     for i, file_path in enumerate(files_to_index, 1):
         rel = str(file_path.relative_to(root)).replace("\\", "/")
@@ -1976,7 +1978,9 @@ def _run_streaming_full_rebuild(
             if strict_reads:
                 raise
             continue
-        dc, cc = _chunks_for_file(rel, source_text)
+        dc, cc = _chunks_for_file(
+            rel, source_text, waves_prefix=waves_prefix, archive_prefix=archive_prefix
+        )
         # 1sek8: per-layer eligibility gates the routing — one corpus
         # definition per table under every content scope (a test file
         # reachable through the docs walk must not feed the code table).
@@ -2094,13 +2098,19 @@ def _store_log_safe(index_dir: "Optional[Path]", message: str) -> None:
 
 
 def _chunk_hash(chunk: dict) -> str:
-    """Return a stable fingerprint for the chunk content that affects retrieval."""
+    """Return a stable fingerprint for the chunk content that affects retrieval.
+
+    Wave 1z8ty: ``tags`` stays in the payload as a CONSTANT empty list. Tags are
+    path metadata, not embedded text; hashing the real tags would change every
+    stored hash and re-embed every tagged chunk. Keeping the key (rather than
+    dropping it) keeps the JSON byte-identical to hashes stored before tags
+    were written, so embedding reuse still matches."""
     payload = {
         "kind": str(chunk.get("kind") or ""),
         "language": str(chunk.get("language") or ""),
         "section": str(chunk.get("section") or ""),
         "text": str(chunk.get("text") or ""),
-        "tags": chunk.get("tags") or [],
+        "tags": [],
     }
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -3797,11 +3807,48 @@ def preflight_rebuild_sources(root: Path, index_dir: Path | None = None, *,
                     for p in sorted(paths)} for layer, paths in layers.items()}
 
 
-def _chunks_for_file(rel_path: str, content: str) -> tuple[list[dict], list[dict]]:
+def _tag_prefixes(root: Path) -> tuple[str, "str | None"]:
+    """``(waves_prefix, archive_prefix)`` for chunk tagging, resolved ONCE per
+    build (wave 1z8ty). Mirrors ``server_impl._record_prefixes``: the validated
+    layout for ``root``, falling back to the unvalidated one when the layout is
+    invalid, because tagging is observational and must never fail a build.
+    The archive prefix is ``None`` when no archive root is configured."""
+    import record_paths
+
+    try:
+        roots = record_paths.load_record_roots(root)
+    except record_paths.RecordLayoutInvalid:
+        roots = record_paths.unvalidated_record_roots(root)
+    archive_prefix = roots.archive_rel + "/" if roots.archive_rel else None
+    return roots.waves_prefix, archive_prefix
+
+
+def _chunks_for_file(
+    rel_path: str,
+    content: str,
+    *,
+    waves_prefix: "str | None" = None,
+    archive_prefix: "str | None" = None,
+) -> tuple[list[dict], list[dict]]:
+    """Chunk one file and split the chunks into (docs, code) dicts.
+
+    Wave 1z8ty: every chunk carries ``tags`` from ``_tag_utils.infer_tags``
+    (the stored column the ``tags`` search filter reads). Callers that own a
+    repository root pass the prefixes from :func:`_tag_prefixes`; omitted, the
+    waves prefix is the layout current at call time."""
+    import _tag_utils
+
     chunker = _get_chunker()
     raw = chunker.chunk_file(content, rel_path)
-    doc_chunks = [c.to_dict() for c in raw if _is_docs_kind(c.kind)]
-    code_chunks = [c.to_dict() for c in raw if not _is_docs_kind(c.kind)]
+    tags = _tag_utils.infer_tags(
+        rel_path, waves_prefix=waves_prefix, archive_prefix=archive_prefix
+    )
+    doc_chunks: list[dict] = []
+    code_chunks: list[dict] = []
+    for c in raw:
+        chunk = c.to_dict()
+        chunk["tags"] = list(tags)
+        (doc_chunks if _is_docs_kind(c.kind) else code_chunks).append(chunk)
     return doc_chunks, code_chunks
 
 
@@ -5163,13 +5210,17 @@ def _build_index_locked(
     # incremental path still materializes the changed files' chunks (it reuses vectors by content
     # hash and writes per-path).
     if not full:
+        # Wave 1z8ty: chunk tags follow the record layout, resolved once per build.
+        _waves_prefix, _archive_prefix = _tag_prefixes(root)
         for file_path in files_to_index:
             rel = str(file_path.relative_to(root)).replace("\\", "/")
             try:
                 source_text = file_path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
-            dc, cc = _chunks_for_file(rel, source_text)
+            dc, cc = _chunks_for_file(
+                rel, source_text, waves_prefix=_waves_prefix, archive_prefix=_archive_prefix
+            )
             # 1sek8: the emitted count reflects what the file CAN contribute
             # under the corpus definition — a code-ineligible file (e.g. a
             # test without --include-tests) contributes zero code chunks, so
@@ -5328,6 +5379,15 @@ def _build_index_locked(
                     # mirror the PRE-drift canonical state and would wrongly report
                     # "unchanged", silently defeating the drift repair.
                     _skip_exempt = set(drifted)
+                    # Wave 1z8ty: a rechunk (CHUNKER_VERSION bump or an explicit
+                    # mode='rechunk') must reach the delta planner for every stale
+                    # path. Chunk hashes deliberately exclude metadata such as
+                    # tags, so the registry map matches and the fast path would
+                    # skip every file, leaving stale metadata in place. Exempted,
+                    # `_plan_vector_delta_rows` compares the row metadata and
+                    # rewrites changed rows with their existing vectors.
+                    if rechunk_all:
+                        _skip_exempt |= layer_stale["docs"] | layer_stale["code"]
                     # 1sek8: each table's writer receives ITS layer's stale set
                     # (plus removals) — a stale path with zero new chunks means
                     # "delete this path's rows in this table", so handing one

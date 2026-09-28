@@ -29,6 +29,7 @@ estimated-exploration-avoided category reads.
 """
 from __future__ import annotations
 
+import functools
 import json
 import hashlib
 import re
@@ -52,7 +53,19 @@ _PATH_TOKEN_RE = re.compile(
     r"(?<![A-Za-z0-9_])((?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+"
     r"|[A-Za-z0-9_.-]+\.[A-Za-z][A-Za-z0-9]{0,8})(?::\d+(?::\d+)?)?"
 )
-_ADMITTED_CHANGE_RE = re.compile(rf"(?m)^{_vocab.MEMBER_ID_LABEL_RE}:\s*`([^`]+)`\s*$")
+
+
+@functools.lru_cache(maxsize=None)
+def _admitted_change_re_for(member_id_label_re: str) -> "re.Pattern[str]":
+    return re.compile(rf"(?m)^{member_id_label_re}:\s*`([^`]+)`\s*$")
+
+
+def _admitted_change_re(profile: Any = None) -> "re.Pattern[str]":
+    """The member-id line pattern for a wave record written in ``profile``
+    (the live vocabulary when ``None``), compiled once per profile (1z8tt)."""
+    return _admitted_change_re_for((profile or _vocab).MEMBER_ID_LABEL_RE)
+
+
 _NON_IMPLEMENTATION_EXTENSIONS = {
     ".json", ".jsonc", ".yaml", ".yml", ".toml",
     ".md", ".markdown", ".xml", ".xsd", ".xsl", ".xslt", ".svg",
@@ -67,26 +80,7 @@ def _wave_id_token(wave_id: str) -> str:
     return (wave_id or "").strip().split(" ", 1)[0]
 
 
-def resolve_wave_dir(root: Path, wave_id: str) -> tuple[Optional[Path], Optional[str]]:
-    """Resolve an exact id/full name or a unique lifecycle-id/name prefix."""
-    query = (wave_id or "").strip()
-    if not query:
-        return None, "wave_not_found"
-    if not record_paths.load_record_roots(root).waves.is_dir():
-        return None, "wave_not_found"
-    try:
-        root_real = root.resolve(strict=True)
-        # Wave 1y043: the shared discovery walk (flat or nested). The flat
-        # listing matches the pre-change ``iterdir`` enumeration, so symlinks
-        # are excluded here as before and containment is re-checked.
-        dirs = [
-            path
-            for path in record_paths.walk_wave_candidates(root)
-            if not path.is_symlink()
-            and path.resolve(strict=True).is_relative_to(root_real)
-        ]
-    except (OSError, RuntimeError):
-        return None, "wave_not_found"
+def _match_wave_dir(dirs: list[Path], query: str) -> tuple[Optional[Path], Optional[str]]:
     exact = [
         path for path in dirs
         if path.name == query or path.name.split(" ", 1)[0] == query
@@ -101,6 +95,74 @@ def resolve_wave_dir(root: Path, wave_id: str) -> tuple[Optional[Path], Optional
     if len(matches) == 1:
         return matches[0], None
     return None, "ambiguous_wave_id" if matches else "wave_not_found"
+
+
+def _contained_dirs(root: Path, candidates: list[Path]) -> list[Path]:
+    root_real = root.resolve(strict=True)
+    return [
+        path
+        for path in candidates
+        if not path.is_symlink()
+        and path.resolve(strict=True).is_relative_to(root_real)
+    ]
+
+
+def resolve_wave_dir(
+    root: Path, wave_id: str, *, include_archive: bool = False
+) -> tuple[Optional[Path], Optional[str]]:
+    """Resolve an exact id/full name or a unique lifecycle-id/name prefix.
+
+    Live waves only by default. ``include_archive=True`` (the backfill claim
+    flow and ``memory_propose`` only, wave 1z8tt) falls back to the archive
+    root when no live wave matches, skipping an archived wave whose id token a
+    live wave already has, and works in an archive-only repository."""
+    query = (wave_id or "").strip()
+    if not query:
+        return None, "wave_not_found"
+    roots = record_paths.load_record_roots(root)
+    live_dirs: list[Path] = []
+    if roots.waves.is_dir():
+        try:
+            # Wave 1y043: the shared discovery walk (flat or nested). The flat
+            # listing matches the pre-change ``iterdir`` enumeration, so
+            # symlinks are excluded here as before and containment is
+            # re-checked.
+            live_dirs = _contained_dirs(root, record_paths.walk_wave_candidates(root, roots))
+        except (OSError, RuntimeError):
+            return None, "wave_not_found"
+        found, error = _match_wave_dir(live_dirs, query)
+        if found is not None or error == "ambiguous_wave_id" or not include_archive:
+            return found, error
+    elif not include_archive:
+        return None, "wave_not_found"
+    try:
+        # The same shadowing rule as the backfill inventory: any live wave
+        # with this exact id token wins over the archived copy.
+        live_ids = {
+            record_paths.wave_id_of(path)
+            for path in record_paths.discover_wave_dirs(root, roots)
+        }
+        archived = [
+            path
+            for path in _contained_dirs(root, record_paths.discover_archive_dirs(root, roots))
+            if record_paths.wave_id_of(path) not in live_ids
+        ]
+    except (OSError, RuntimeError):
+        return None, "wave_not_found"
+    return _match_wave_dir(archived, query)
+
+
+def wave_profile(root: Path, wave_dir: Path) -> Any:
+    """The vocabulary ``wave_dir`` was written in: the archive profile when it
+    lies under ``record_paths.ARCHIVE_ROOT``, else the live vocabulary."""
+    archive = record_paths.load_record_roots(root).archive
+    if archive is not None:
+        try:
+            if wave_dir.resolve().is_relative_to(archive.resolve()):
+                return _vocab.archive_profile()
+        except (OSError, RuntimeError):
+            pass
+    return _vocab
 
 
 def _wave_dir_for_id(root: Path, wave_id: str) -> Optional[Path]:
@@ -225,22 +287,24 @@ def _prose_targets(refs: list[str], test_runner_names: set[str]) -> list[str]:
     return out
 
 
-def _admitted_change_ids(wave_dir: Path) -> list[str]:
-    if not _contained_source_file(wave_dir, wave_dir / _vocab.RECORD_FILENAME):
+def _admitted_change_ids(wave_dir: Path, profile: Any = None) -> list[str]:
+    record = (profile or _vocab).RECORD_FILENAME
+    if not _contained_source_file(wave_dir, wave_dir / record):
         return []
     try:
-        text = (wave_dir / _vocab.RECORD_FILENAME).read_text(encoding="utf-8", errors="ignore")
+        text = (wave_dir / record).read_text(encoding="utf-8", errors="ignore")
     except OSError:
         return []
-    return list(dict.fromkeys(_ADMITTED_CHANGE_RE.findall(text)))
+    return list(dict.fromkeys(_admitted_change_re(profile).findall(text)))
 
 
-def _admitted_change_docs(wave_dir: Path) -> list[Path]:
+def _admitted_change_docs(wave_dir: Path, profile: Any = None) -> list[Path]:
+    record = (profile or _vocab).RECORD_FILENAME
     docs: list[Path] = []
-    for change_id in _admitted_change_ids(wave_dir):
+    for change_id in _admitted_change_ids(wave_dir, profile):
         matches = [
             path for path in wave_dir.glob("*.md")
-            if path.name != _vocab.RECORD_FILENAME
+            if path.name != record
             and _contained_source_file(wave_dir, path)
             and (path.stem == change_id or path.stem.startswith(change_id + " "))
         ]
@@ -312,7 +376,9 @@ def _decision_log_rows(text: str) -> list[dict[str, str]]:
     return rows
 
 
-def source_exploration_cost(wave_dir: Path) -> int:
+def source_exploration_cost(
+    wave_dir: Path, profile: Any = None, *, root: Optional[Path] = None
+) -> int:
     """Measured consumed-token cost of the wave, from its 1stwj telemetry.
 
     Prefers the live SQLite write-through authority and falls back to the
@@ -320,20 +386,23 @@ def source_exploration_cost(wave_dir: Path) -> int:
     ``wave.md`` only when no live wave state exists. Returns ``request_debit +
     response_debit`` (the tokens actually spent flowing through the wave's
     retrieval calls). A measured quantity, never a constant; 0 when neither
-    authority has telemetry for the wave.
+    authority has telemetry for the wave. ``profile`` names the record file
+    (an archived wave's vocabulary); ``root`` is the repository root, which
+    defaults to the flat live layout's ``wave_dir.parents[2]``.
     """
+    store_root = root if root is not None else wave_dir.parents[2]
     # SQLite is the live write-through authority. Closed projections remain a
     # portable fallback for copied/older projects whose telemetry store is absent.
     try:
         import context_efficiency as ce
-        snapshot = ce.read_wave_snapshot(wave_dir.parents[2], wave_dir.name)
+        snapshot = ce.read_wave_snapshot(store_root, wave_dir.name)
         totals = snapshot.get("totals") or {}
         live = max(
             0,
             int(totals.get("request_debit", 0))
             + int(totals.get("response_debit", 0)),
         )
-        conn = ce._open_read_store(wave_dir.parents[2])
+        conn = ce._open_read_store(store_root)
         present = False
         if conn is not None:
             try:
@@ -353,7 +422,7 @@ def source_exploration_cost(wave_dir: Path) -> int:
             return live
     except (ImportError, OSError, ValueError, TypeError):
         pass
-    wave_md = wave_dir / _vocab.RECORD_FILENAME
+    wave_md = wave_dir / (profile or _vocab).RECORD_FILENAME
     if not _contained_source_file(wave_dir, wave_md):
         return 0
     try:
@@ -377,7 +446,12 @@ def _truncate(text: str, limit: int = 240) -> str:
 
 
 def draft_candidates(
-    root: Path, wave_id: str, *, limit: Optional[int] = DEFAULT_DRAFT_LIMIT
+    root: Path,
+    wave_id: str,
+    *,
+    limit: Optional[int] = DEFAULT_DRAFT_LIMIT,
+    wave_dir: Optional[Path] = None,
+    profile: Any = None,
 ) -> list[dict[str, Any]]:
     """Draft candidate memory records from a wave's typed evidence.
 
@@ -387,21 +461,28 @@ def draft_candidates(
     ``source_exploration_cost``. ``limit=None`` returns the complete eligible
     source set so lifecycle gates cannot silently ignore rows beyond the public
     page size. Never writes; the caller gates promotion.
+
+    A caller that already resolved the wave (the backfill claim flow and
+    ``memory_propose``, which may resolve an archived wave, wave 1z8tt) passes
+    ``wave_dir`` and ``profile``; otherwise the wave is resolved live-only.
     """
-    wave_dir = _wave_dir_for_id(root, wave_id)
     if wave_dir is None:
-        return []
+        wave_dir = _wave_dir_for_id(root, wave_id)
+        if wave_dir is None:
+            return []
+    if profile is None:
+        profile = wave_profile(root, wave_dir)
     wid = _wave_id_token(wave_id)
     # Wave 1tdl8: a measured cost of 0 (historical waves with no telemetry)
     # grounds nothing and reads as false precision — omit the stamp entirely
     # rather than writing `Source exploration cost: 0`.
-    measured_cost = source_exploration_cost(wave_dir)
+    measured_cost = source_exploration_cost(wave_dir, profile, root=root)
     cost = measured_cost if measured_cost > 0 else None
     test_runner_names = _test_runner_entry_names(root)
     drafts: list[dict[str, Any]] = []
 
     # (A) Decision Log rows -> `decision` candidates (durable by definition).
-    for change_doc in _admitted_change_docs(wave_dir):
+    for change_doc in _admitted_change_docs(wave_dir, profile):
         try:
             text = change_doc.read_text(encoding="utf-8", errors="ignore")
         except OSError:

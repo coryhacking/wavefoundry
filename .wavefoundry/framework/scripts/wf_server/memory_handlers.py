@@ -830,7 +830,9 @@ def _memory_propose_response_locked(
         n = max(1, min(int(limit), MEMORY_PROPOSE_CAP))
     except (TypeError, ValueError):
         n = MEMORY_PROPOSE_CAP
-    _wave_dir, wave_error = supply.resolve_wave_dir(root, wave_id)
+    # Wave 1z8tt: memory_propose and the backfill claim flow (which calls this
+    # function) are the only resolvers that fall back to the read-only archive.
+    wave_dir, wave_error = supply.resolve_wave_dir(root, wave_id, include_archive=True)
     if wave_error:
         return server_impl._response(
             "error",
@@ -846,7 +848,10 @@ def _memory_propose_response_locked(
     # Read the complete eligible set, then page AFTER suppressing durable
     # dispositions. Otherwise the first 20 already-validated sources would
     # permanently hide source 21+ on every subsequent run.
-    drafts = supply.draft_candidates(root, wave_id, limit=None)
+    drafts = supply.draft_candidates(
+        root, wave_id, limit=None,
+        wave_dir=wave_dir, profile=supply.wave_profile(root, wave_dir),
+    )
 
     # Idempotent supply (AC-5): skip a draft whose (kind, targets, normalized
     # summary) already exists (existing corpus + earlier in this run). The
@@ -1032,7 +1037,10 @@ def memory_backfill_response(
     except (TypeError, ValueError):
         candidate_budget = backfill.MAX_CANDIDATES_PER_CALL
     try:
-        inventory = backfill.inventory_closed_waves(root)
+        # Wave 1z8tt: archived waves a live wave shadows are skipped; report
+        # each one (advisory) and count them in the run summary. One walk
+        # yields both the rows and the shadowed list.
+        inventory, shadowed = backfill.inventory_closed_waves(root, with_shadowed=True)
     except OSError as exc:
         return server_impl._response(
             "error",
@@ -1062,12 +1070,14 @@ def memory_backfill_response(
                 "unreadable_waves": sum(
                     1 for item in inventory if item["status"] == "unreadable"
                 ),
+                "archived_waves_shadowed": len(shadowed),
                 "limits": {
                     "waves": backfill.MAX_WAVES_PER_CALL,
                     "candidates": candidate_budget,
                     "response_bytes": backfill.MAX_RESPONSE_BYTES,
                 },
             },
+            diagnostics=backfill.shadowed_archive_diagnostics(shadowed),
             next_tools=["memory_backfill"],
             usage="memory_backfill(mode='create')",
         )
@@ -1075,7 +1085,9 @@ def memory_backfill_response(
     processed: list[dict[str, Any]] = []
     with server_impl.project_state_publication_lock(root):
         run_id = backfill.ensure_run(root, entry_path_s)
-        backfill.sync_inventory(root, run_id, inventory=inventory)
+        backfill.sync_inventory(
+            root, run_id, inventory=inventory, shadowed=shadowed
+        )
         processed, summary, worklist = _memory_backfill_batch_locked(
             root,
             backfill=backfill,
@@ -1085,6 +1097,7 @@ def memory_backfill_response(
     payload = {
         **summary,
         **worklist,
+        "archived_waves_shadowed": len(shadowed),
         "mode": "create",
         "processed": processed,
         "limits": {
@@ -1133,7 +1146,7 @@ def memory_backfill_response(
     return server_impl._response(
         "ok",
         payload,
-        diagnostics=[],
+        diagnostics=backfill.shadowed_archive_diagnostics(shadowed),
         next_tools=next_tools,
         usage=usage,
     )
@@ -1211,7 +1224,9 @@ def _memory_backfill_batch_locked(
                 for item in proposed.get("diagnostics", [])
             )
             supply = server_impl._load_script("memory_supply")
-            wave_dir, _wave_error = supply.resolve_wave_dir(root, wave_id)
+            wave_dir, _wave_error = supply.resolve_wave_dir(
+                root, wave_id, include_archive=True
+            )
             ledger_errors: tuple[str, ...] = ()
             if wave_dir is not None:
                 _ledger_rows, ledger_errors = read_review_event_ledger(wave_dir)
@@ -1228,7 +1243,10 @@ def _memory_backfill_batch_locked(
             if wave_dir is not None:
                 source_events = {
                     str(draft.get("source_event") or "")
-                    for draft in supply.draft_candidates(root, wave_id, limit=None)
+                    for draft in supply.draft_candidates(
+                        root, wave_id, limit=None, wave_dir=wave_dir,
+                        profile=supply.wave_profile(root, wave_dir),
+                    )
                 }
                 for record in _memory_mod().load_memory_records(root):
                     if str(record.get("source_event") or "") in source_events:

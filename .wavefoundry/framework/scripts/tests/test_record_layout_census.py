@@ -42,7 +42,8 @@ CENSUS_EXCLUDED_DIRS = frozenset({"tests", "__pycache__", ".pytest_cache"})
 SITES: list[tuple[str, str, str]] = [
     ("_tag_utils.py", "infer_tags docstring: wave -- docs/waves/ subtree", "comment"),
     ("_tag_utils.py", "infer_tags: '\"docs/waves/\" in p'", "prefix_check"),
-    # chunker.py: imports _tag_utils.infer_tags but never calls it; no sites.
+    # chunker.py: imported _tag_utils.infer_tags but never called it; wave 1z8ty
+    # removed the import. No sites.
     ("commit_provenance.py", "resolve_via_evidence: root / \"docs\" / \"waves\"", "construction"),
     ("commit_provenance.py", "_wave_dir_for_id docstring", "comment"),
     ("commit_provenance.py", "_wave_dir_for_id: root / \"docs\" / \"waves\"", "construction"),
@@ -76,6 +77,7 @@ SITES: list[tuple[str, str, str]] = [
     ("memory_backfill.py", "_canonical_waves_dir: root / \"docs\" / \"waves\"", "construction"),
     ("memory_records.py", "repair references: rel_parts[:2] == (\"docs\", \"waves\")", "construction"),
     ("memory_supply.py", "resolve_wave_dir: root / \"docs\" / \"waves\"", "construction"),
+    # Wave 1z8ty removed the import-time EXCLUDED_DIRS default; excluded_dirs_for(root) remains.
     ("reconcile_scan.py", "EXCLUDED_DIRS: \"docs/waves\"", "prefix_check"),
     ("render_agent_surfaces.py", "docstring: docs/waves/<wave>/events.jsonl authority", "comment"),  # historical site removed by 1ypxw
     ("render_agent_surfaces.py", "review-plan prompt lines: Load the target change doc (...)", "message"),
@@ -113,7 +115,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     # -- deliberate exception, see ALLOWED_REASONS --
     ("graph_quality_eval.py", '"docs/waves/1wpih index-quality-evaluation-and-ranking/evidence"'): "pinned_evidence",
     # -- script-routing lane (Requirement 6) --
-    ("_tag_utils.py", "wave      — docs/waves/ subtree"): "docstring",
+    ("_tag_utils.py", "wave      — the waves root subtree (docs/waves/ by default)"): "docstring",
     ("dashboard_server.py", "(the common ``docs/waves/<id>/<change>.md``"): "docstring",
     ("gardener_metadata.py", "Two producers ship this sentence -- docs/plans/plan-template.md"): "comment",
     ("graph_indexer.py", "a memory target into ``docs/waves/``) are evidence"): "docstring",

@@ -1387,7 +1387,7 @@ class IncrementalBuildTests(unittest.TestCase):
         # line window that is not part of the source-code corpus.
         original_chunks_for_file = self.bi._chunks_for_file
 
-        def legacy_chunks_for_file(rel_path, content):
+        def legacy_chunks_for_file(rel_path, content, **prefixes):
             if rel_path == canonical:
                 return ([{
                     "id": f"{canonical}::legacy-ledger-row",
@@ -1398,7 +1398,7 @@ class IncrementalBuildTests(unittest.TestCase):
                     "section": "events",
                     "text": content,
                 }], [])
-            return original_chunks_for_file(rel_path, content)
+            return original_chunks_for_file(rel_path, content, **prefixes)
 
         with (
             patch.object(self.bi, "_is_canonical_wave_events_path", return_value=False),

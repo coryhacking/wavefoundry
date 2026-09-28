@@ -2949,92 +2949,99 @@ class DocSummaryChunkTests(unittest.TestCase):
 
 
 class InferTagsTests(unittest.TestCase):
-    """AC-1 through AC-9 (12dv9): _infer_tags controlled vocabulary."""
+    """AC-1 through AC-9 (12dv9): the infer_tags controlled vocabulary.
+
+    Wave 1z8ty: exercised through ``_tag_utils`` directly; the chunker's
+    unused ``_infer_tags`` alias was removed."""
 
     def setUp(self):
-        self.chunker = load_chunker()
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        import _tag_utils
+
+        self.tag_utils = _tag_utils
 
     def test_wave_tag(self):
-        tags = self.chunker._infer_tags("docs/waves/12dv9 chunk-tags/wave.md")
+        tags = self.tag_utils.infer_tags("docs/waves/12dv9 chunk-tags/wave.md")
         self.assertIn("wave", tags)
 
     def test_agent_tag_from_prompts_agents(self):
-        tags = self.chunker._infer_tags("docs/prompts/agents/performance-reviewer.prompt.md")
+        tags = self.tag_utils.infer_tags("docs/prompts/agents/performance-reviewer.prompt.md")
         self.assertIn("agent", tags)
         self.assertIn("prompt", tags)
 
     def test_agent_tag_from_docs_agents(self):
-        tags = self.chunker._infer_tags("docs/agents/journals/guru.md")
+        tags = self.tag_utils.infer_tags("docs/agents/journals/guru.md")
         self.assertIn("agent", tags)
         self.assertIn("journal", tags)
 
     def test_journal_tag(self):
-        tags = self.chunker._infer_tags("docs/agents/journals/wave-coordinator.md")
+        tags = self.tag_utils.infer_tags("docs/agents/journals/wave-coordinator.md")
         self.assertIn("journal", tags)
 
     def test_reference_tag(self):
-        tags = self.chunker._infer_tags("docs/references/project-overview.md")
+        tags = self.tag_utils.infer_tags("docs/references/project-overview.md")
         self.assertIn("reference", tags)
 
     def test_prompt_tag_from_docs_prompts(self):
-        tags = self.chunker._infer_tags("docs/prompts/prepare-wave.prompt.md")
+        tags = self.tag_utils.infer_tags("docs/prompts/prepare-wave.prompt.md")
         self.assertIn("prompt", tags)
 
     def test_prompt_tag_from_prompt_md_suffix_anywhere(self):
-        tags = self.chunker._infer_tags("some/other/location/my-agent.prompt.md")
+        tags = self.tag_utils.infer_tags("some/other/location/my-agent.prompt.md")
         self.assertIn("prompt", tags)
 
     def test_seed_and_framework_tags(self):
-        tags = self.chunker._infer_tags(".wavefoundry/framework/seeds/211-guru.prompt.md")
+        tags = self.tag_utils.infer_tags(".wavefoundry/framework/seeds/211-guru.prompt.md")
         self.assertIn("seed", tags)
         self.assertIn("framework", tags)
 
     def test_lifecycle_tag_install(self):
-        tags = self.chunker._infer_tags("docs/contributing/install-wavefoundry.md")
+        tags = self.tag_utils.infer_tags("docs/contributing/install-wavefoundry.md")
         self.assertIn("lifecycle", tags)
 
     def test_lifecycle_tag_onboarding(self):
-        tags = self.chunker._infer_tags("docs/references/onboarding-guide.md")
+        tags = self.tag_utils.infer_tags("docs/references/onboarding-guide.md")
         self.assertIn("lifecycle", tags)
 
     def test_lifecycle_not_triggered_outside_docs(self):
-        tags = self.chunker._infer_tags(".wavefoundry/framework/scripts/setup_index.py")
+        tags = self.tag_utils.infer_tags(".wavefoundry/framework/scripts/setup_index.py")
         self.assertNotIn("lifecycle", tags)
 
     def test_test_tag_python(self):
-        tags = self.chunker._infer_tags(".wavefoundry/framework/scripts/tests/test_chunker.py")
+        tags = self.tag_utils.infer_tags(".wavefoundry/framework/scripts/tests/test_chunker.py")
         self.assertIn("test", tags)
 
     def test_test_tag_go(self):
-        tags = self.chunker._infer_tags("pkg/indexer/indexer_test.go")
+        tags = self.tag_utils.infer_tags("pkg/indexer/indexer_test.go")
         self.assertIn("test", tags)
 
     def test_test_tag_spec_ts(self):
-        tags = self.chunker._infer_tags("src/components/Button.spec.ts")
+        tags = self.tag_utils.infer_tags("src/components/Button.spec.ts")
         self.assertIn("test", tags)
 
     def test_test_tag_tests_dir(self):
-        tags = self.chunker._infer_tags("src/tests/helpers.py")
+        tags = self.tag_utils.infer_tags("src/tests/helpers.py")
         self.assertIn("test", tags)
 
     def test_config_tag_yaml(self):
-        tags = self.chunker._infer_tags("config/settings.yaml")
+        tags = self.tag_utils.infer_tags("config/settings.yaml")
         self.assertIn("config", tags)
 
     def test_config_tag_toml(self):
-        tags = self.chunker._infer_tags("pyproject.toml")
+        tags = self.tag_utils.infer_tags("pyproject.toml")
         self.assertIn("config", tags)
 
     def test_config_tag_env(self):
-        tags = self.chunker._infer_tags(".env.production")
+        tags = self.tag_utils.infer_tags(".env.production")
         self.assertIn("config", tags)
 
     def test_no_tags_for_plain_source_file(self):
-        tags = self.chunker._infer_tags("src/auth/login.py")
+        tags = self.tag_utils.infer_tags("src/auth/login.py")
         self.assertEqual(tags, [])
 
     def test_multi_tag_seed_file(self):
-        tags = self.chunker._infer_tags(".wavefoundry/framework/seeds/001-overview.md")
+        tags = self.tag_utils.infer_tags(".wavefoundry/framework/seeds/001-overview.md")
         self.assertIn("seed", tags)
         self.assertIn("framework", tags)
         self.assertGreaterEqual(len(tags), 2)
@@ -3301,8 +3308,9 @@ class UniversalOversizedChunkGuardTests(unittest.TestCase):
         37 → 38 (wave 1wl7u, 1wh1b): notebook code cells emit kind="doc-code" (docs-routed; ids/language unchanged) and duplicate-titled prose sections gain repeat-only `~k` file-pass ordinals across md/rst/adoc, the H3-split and line-window bases, and the HTML/XML regex fallbacks (single-title files byte-identical, differential-pinned; `~` is outside the _slugify alphabet so no literal heading forges the shape).
         38 → 39 (wave 1wl7w, 1wl7v): tool-diagram LABEL EXTRACTION — .drawio chunks one docs-routed doc-code unit per page (mxCell values + object/UserObject wrapper labels, two-layer HTML decode, bounded per-page inflate cap, #diagram/#diagram~k ids) and .excalidraw one labels-plus-frames unit (isDeleted and empty skipped); degenerate inputs emit zero chunks; paired with WALKER 15 re-admitting both extensions.
         39 → 40 (wave 1wpif, 1wngv): flat-emitter per-file collision guard (k-th same-slug repeat gets the line-anchored `{slug}-L{start}` base with the `~k` same-line tie-break; first occurrences and non-colliding bases keep legacy bare ids) and splice-aware absolute line mapping for oversized markdown/rst/adoc prose (windows and whole-section chunks map to one-based source coordinates across excised fence spans via Chunk.line_map; the universal guard consumes the map), plus ast-based module-level Python summary symbols and the store-layer chunk-id collision census.
-        40 -> 41 (wave 1wpif, 1wngv delivery repair): two stored-coordinate corrections. Table row-group parts carry the lines of THEIR OWN rows (the decomposer applied the section base but never the row-group offset, so parts 2..n stored the table head's lines) and the reproduced prelude/header on parts 2..n is generated context; rst/adoc preamble and only-title sections carry per-line absolute numbers instead of a base of 1, so the first RETAINED line after the excised doc title is no longer numbered 1."""
-        self.assertEqual(self.chunker.CHUNKER_VERSION, "42")
+        40 -> 41 (wave 1wpif, 1wngv delivery repair): two stored-coordinate corrections. Table row-group parts carry the lines of THEIR OWN rows (the decomposer applied the section base but never the row-group offset, so parts 2..n stored the table head's lines) and the reproduced prelude/header on parts 2..n is generated context; rst/adoc preamble and only-title sections carry per-line absolute numbers instead of a base of 1, so the first RETAINED line after the excised doc title is no longer numbered 1.
+        42 -> 43 (wave 1z8tz, 1z8ty): chunk tags are written again (indexer._chunks_for_file sets them from _tag_utils.infer_tags); the chunk hash keeps a constant empty tags field so embeddings reuse, and the rechunk this bump triggers rewrites row metadata without re-embedding."""
+        self.assertEqual(self.chunker.CHUNKER_VERSION, "43")
 
     def test_split_large_chunks_is_idempotent_on_small_chunks(self):
         c = self.chunker.Chunk(id="x", path="p", kind="doc", language=None,

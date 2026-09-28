@@ -569,11 +569,23 @@ class RegistryDifferentialTests(_StoreCase):
         self.assertNotEqual(reg.get("a.py"), self._registry_map(chunks))
 
     def test_metadata_only_difference_changes_the_map(self):
-        # chunk_hash covers kind/language/section/text/tags — a tags-only
-        # change fails the skip condition (no silent stale-metadata retention).
+        # chunk_hash covers kind/language/section/text — a metadata change in
+        # those fields fails the skip condition (no silent stale-metadata retention).
+        old = [self._chunk("c1", "a.py", "x", section="a")]
+        new = [self._chunk("c1", "a.py", "x", section="b")]
+        self.assertNotEqual(self._registry_map(old), self._registry_map(new))
+
+    def test_tags_only_difference_keeps_the_map_and_rechunk_is_exempt(self):
+        # Wave 1z8ty: tags are path metadata, hashed as a CONSTANT empty list so
+        # stored hashes and embedding reuse stay valid. A tags-only change
+        # therefore keeps the map; tags change only with the path (new ids) or
+        # the layout constants, and the rechunk paths exempt every stale path
+        # from the registry skip so the delta planner rewrites the metadata.
         old = [self._chunk("c1", "a.py", "x", tags=["a"])]
         new = [self._chunk("c1", "a.py", "x", tags=["b"])]
-        self.assertNotEqual(self._registry_map(old), self._registry_map(new))
+        self.assertEqual(self._registry_map(old), self._registry_map(new))
+        src = (SCRIPTS_ROOT / "indexer.py").read_text(encoding="utf-8")
+        self.assertIn('_skip_exempt |= layer_stale["docs"] | layer_stale["code"]', src)
 
     def test_incremental_skip_is_gated_by_drift_and_kill_switch(self):
         src = (SCRIPTS_ROOT / "indexer.py").read_text(encoding="utf-8")

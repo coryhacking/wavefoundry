@@ -118,16 +118,22 @@ unchanged. `vocabulary_profile.ARCHIVE_PROFILE` (default `None`, meaning the
 live profile) is a mapping of exactly the twelve field names, validated at
 import; `archive_profile()` returns the effective profile with the same
 attribute names and fragments. Archived records are consulted for lookup in
-three places, after the live roots: `wf_get_change` (by id, results marked
+five places, after the live roots: `wf_get_change` (by id, results marked
 `archived`), the dashboard document view (with an `X-Wavefoundry-Archived`
-header) and the id-collision scan in `lifecycle_id` (names only). The writer
-refusal and the readability sensor below also read the archive. The shared resolvers never look at the
-archive. Instead, the eleven lifecycle writers that take an existing wave or
+header), the id-collision scan in `lifecycle_id` (names only), memory
+backfill and `memory_propose` (wave 1z8tz, below). The writer
+refusal and the readability sensor below also read the archive. The shared resolvers do not look at the
+archive by default: `memory_supply.resolve_wave_dir` reads it only when a
+caller passes `include_archive=True`, which only memory backfill's claim flow
+and `memory_propose` do, so the close gate stays live-only. Instead, the eleven lifecycle writers that take an existing wave or
 change id refuse an archive-only id with `archived_record_read_only`. The
 gardener, docs-lint's markdown walk and the upgrade's retired-reference scan
 skip the archive; the secrets scan still covers it, and docs-lint only checks
 that each archived record reads under the archive profile (advisory
-`archive_record_unreadable`). Memory backfill does not read the archive yet.
+`archive_record_unreadable`). Memory backfill (wave 1z8tz) inventories
+archived closed waves read with the archive profile. An archived wave whose id
+token equals a live wave's is skipped with the advisory `archived_wave_shadowed`,
+and the live wave is used. Backfill writes nothing under the archive.
 
 Wave record discovery is one walk (wave 1y043): `record_paths.walk_wave_candidates`
 enumerates the waves root's child directories (flat, the shipped `NESTED = False`)

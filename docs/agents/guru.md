@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: guru
 Category: specialist
-Last verified: 2026-09-22
+Last verified: 2026-09-28
 
 Shortcut: **`Guru`** | MCP tool: **`code_ask`**
 
@@ -439,9 +439,10 @@ Tag vocabulary:
 
 | Tag | What it matches |
 |-----|----------------|
-| `wave` | Wave records and change docs (`docs/waves/`) |
-| `agent` | Agent prompts and journals (`docs/prompts/agents/`, `docs/agents/`) |
-| `journal` | Agent journal files only (`docs/agents/memory/`) |
+| `wave` | Wave records and change docs (the configured waves root, `docs/waves/` by default, and the read-only archive when one is configured) |
+| `agent` | Agent prompts and role docs (`docs/prompts/agents/`, `docs/agents/`) |
+| `memory` | Typed memory records (`docs/agents/memory/`) |
+| `journal` | Historical journal files only (retired; present only in repositories not yet migrated to memory records) |
 | `lifecycle` | Install and onboarding docs under `docs/` |
 | `reference` | Reference docs (`docs/references/`) |
 | `prompt` | Any `.prompt.md` file or file under `docs/prompts/` |
@@ -467,8 +468,8 @@ code_search("chunk_markdown tests", tags=["test"])
 # Find lifecycle/install documentation
 docs_search("how to install", tags=["lifecycle"])
 
-# Find agent journals for recent signals
-docs_search("active wave signals", tags=["journal"])
+# Find typed memory records for prior signals
+docs_search("active wave signals", tags=["memory"])
 ```
 
 ### Layer Recognition
