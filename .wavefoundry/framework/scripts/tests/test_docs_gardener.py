@@ -480,7 +480,9 @@ class RecordLayoutGardenerTests(unittest.TestCase):
         from record_layout_support import patch_layout
 
         (self.root / "project" / "records" / "waves").mkdir(parents=True)
-        with patch_layout(**self.LAYOUT):
+        # 1z8tw: patch the gardener's own copy; a prior `load_server()` in this
+        # interpreter replaces the `record_paths` that sys.modules holds.
+        with patch_layout(modules=(dg.record_paths,), **self.LAYOUT):
             artifacts = dg.default_manifest_payload(self.root)["generated_artifacts"]
         self.assertIn(f"{self.WAVES}/", artifacts)
         self.assertIn(f"{self.WAVES}/README.md", artifacts)
@@ -522,7 +524,7 @@ class RecordLayoutGardenerTests(unittest.TestCase):
 
         doc = self._write_doc("docs/a.md")
         args = dg.parse_args(["--all-docs", "--date", "2020-01-03"])
-        with patch_layout(waves_root="../outside-waves"):
+        with patch_layout(modules=(dg.record_paths,), waves_root="../outside-waves"):
             with self.assertRaises(SystemExit) as ctx:
                 dg.gardener_run(self.root, args)
         self.assertIn("record_layout_invalid:", str(ctx.exception))

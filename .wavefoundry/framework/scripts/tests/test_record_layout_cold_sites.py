@@ -100,8 +100,6 @@ class ColdSiteRelocatedRootTests(unittest.TestCase):
     def test_server_infer_tags_derives_the_prefix_from_the_root(self):
         # The server's live path threads `_record_prefixes(root)` through;
         # without a root the `_tag_utils` default binding applies unchanged.
-        import _tag_utils
-
         relocated = "project/records/waves/1abcd relocated-demo/wave.md"
         shipped = "docs/waves/1abcd x/wave.md"
         other = "other/waves/1abcd x/wave.md"
@@ -113,8 +111,18 @@ class ColdSiteRelocatedRootTests(unittest.TestCase):
         with patch_layout(modules=(self.srv.record_paths,), waves_root="other/waves"):
             self.assertIn("wave", self.srv._infer_tags(other, root=self.root))
             self.assertNotIn("wave", self.srv._infer_tags(relocated, root=self.root))
+        # 1z8tw: compare with the server's OWN `_tag_utils` copy. `_tag_utils`
+        # captures its default prefix at import, and the server's cached copy
+        # and the public module can each have been first imported under a
+        # different patched layout by earlier tests in this interpreter.
+        server_tag_utils = self.srv._load_script("_tag_utils")
         for path in (relocated, shipped, other):
-            self.assertEqual(self.srv._infer_tags(path), _tag_utils.infer_tags(path), path)
+            self.assertEqual(self.srv._infer_tags(path), server_tag_utils.infer_tags(path), path)
+        # And without a root the tag follows that copy's captured default,
+        # whichever layout it was captured under.
+        default_prefix = server_tag_utils._DEFAULT_WAVES_PREFIX
+        self.assertIn("wave", self.srv._infer_tags(f"{default_prefix}1abcd x/wave.md"))
+        self.assertNotIn("wave", self.srv._infer_tags("elsewhere/waves/1abcd x/wave.md"))
 
 
 if __name__ == "__main__":
