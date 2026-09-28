@@ -140,6 +140,11 @@ def isolated_popen(cmd: Any, **kwargs: Any):
 
 
 _TREE_KILL_DRAIN_SECONDS = 2.0
+# Longest single wait inside run_with_tree_kill (wave 1z8tr): the child runs in
+# its own session or process group, so a terminal Ctrl-C reaches only the
+# parent, and on Windows one long wait never returns to the interpreter to
+# raise it. Short slices let the parent's KeyboardInterrupt surface promptly.
+_TREE_KILL_WAIT_SLICE_SECONDS = 0.5
 
 
 def run_with_tree_kill(cmd: Any, *, timeout: float | None = None, input: Any = None,
@@ -154,6 +159,12 @@ def run_with_tree_kill(cmd: Any, *, timeout: float | None = None, input: Any = N
     terminates the group before re-raising. The post-kill drain is bounded.
     Result and exceptions match ``subprocess.run``. Descendants that start their
     own session, or orphans whose parent already exited on Windows, can escape.
+
+    Without ``input`` the wait runs in short slices (wave 1z8tr), so an interrupt
+    in the parent is raised within a slice and ends the group; the effective
+    timeout, the captured output and ``TimeoutExpired.timeout`` are the caller's.
+    With ``input`` it is one wait, because a retried ``communicate`` cannot
+    resume writing input.
     """
     import subprocess
 
@@ -176,7 +187,7 @@ def run_with_tree_kill(cmd: Any, *, timeout: float | None = None, input: Any = N
 
     with subprocess.Popen(cmd, **kwargs) as process:
         try:
-            stdout, stderr = process.communicate(input, timeout=timeout)
+            stdout, stderr = _communicate_sliced(process, input, timeout)
         except subprocess.TimeoutExpired as exc:
             _kill_process_tree(process)
             try:
@@ -186,11 +197,38 @@ def run_with_tree_kill(cmd: Any, *, timeout: float | None = None, input: Any = N
             raise
         except BaseException:
             _kill_process_tree(process)
+            # Reap the killed child (bounded); Popen.__exit__ skips its own wait
+            # after communicate was interrupted.
+            try:
+                process.wait(timeout=_TREE_KILL_DRAIN_SECONDS)
+            except Exception:
+                pass
             raise
         retcode = process.poll()
         if check and retcode:
             raise subprocess.CalledProcessError(retcode, process.args, output=stdout, stderr=stderr)
     return subprocess.CompletedProcess(process.args, retcode, stdout, stderr)
+
+
+def _communicate_sliced(process: Any, input: Any, timeout: float | None) -> tuple[Any, Any]:
+    """``process.communicate`` bounded by ``timeout``, in slices when no ``input``."""
+    import subprocess
+    import time
+
+    if input is not None:
+        return process.communicate(input, timeout=timeout)
+    deadline = None if timeout is None else time.monotonic() + timeout
+    while True:
+        if deadline is None:
+            wait = _TREE_KILL_WAIT_SLICE_SECONDS
+        else:
+            wait = max(0.0, min(_TREE_KILL_WAIT_SLICE_SECONDS, deadline - time.monotonic()))
+        try:
+            # Retrying after TimeoutExpired loses no captured output.
+            return process.communicate(timeout=wait)
+        except subprocess.TimeoutExpired:
+            if deadline is not None and time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired(process.args, timeout) from None
 
 
 def _kill_process_tree(process: Any) -> None:

@@ -869,7 +869,8 @@ def _read_installed_graph_builder_version(root: Path) -> str:
     # no separate existence guard, which would be unpinnable duplication.
     python = venv_bootstrap.tool_venv_python()
     try:
-        probe = subprocess_util.isolated_run(
+        # Wave 1z8tr: a timeout ends the probe's whole process tree.
+        probe = subprocess_util.run_with_tree_kill(
             [str(python), "-c", _GRAPH_BUILDER_PROBE, str(SCRIPTS_DIR), str(root)],
             cwd=str(root), check=False, capture_output=True, text=True, timeout=300,
         )
@@ -1185,7 +1186,8 @@ def _run_hook(
             "WF_YES": "1" if ctx.yes else "0",
         }
         try:
-            result = subprocess_util.isolated_run(
+            # Wave 1z8tr: a hook is an arbitrary command; a timeout ends its whole tree.
+            result = subprocess_util.run_with_tree_kill(
                 hook_cmd, env=env, cwd=str(ctx.root),
                 check=False, timeout=_HOOK_TIMEOUT_S,
             )
@@ -3993,7 +3995,8 @@ def _delegated_summary_payload(
     # child's environment.
     summary_env.pop("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN", None)
     try:
-        result = subprocess_util.isolated_run(
+        # Wave 1z8tr: a timeout ends the summary child's whole process tree.
+        result = subprocess_util.run_with_tree_kill(
             cmd,
             env=summary_env,
             cwd=str(root),

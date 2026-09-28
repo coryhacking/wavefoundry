@@ -1622,7 +1622,7 @@ def run_techdocs_audit(
     and a thread would leave runaway work alive inside the MCP server.
     """
     import subprocess  # noqa: PLC0415
-    from subprocess_util import isolated_run, utf8_child_env  # noqa: PLC0415
+    from subprocess_util import run_with_tree_kill, utf8_child_env  # noqa: PLC0415
 
     budget = TECHDOCS_AUDIT_TIMEOUT_SECONDS if timeout_seconds is None else float(timeout_seconds)
     if budget <= 0:
@@ -1631,7 +1631,9 @@ def run_techdocs_audit(
     env = utf8_child_env()
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     try:
-        completed = isolated_run(
+        # Wave 1z8tr: the worker runs git through index_state_store; a timeout
+        # ends its whole process tree.
+        completed = run_with_tree_kill(
             [sys.executable, str(Path(__file__).resolve()), "--worker-json"],
             input=request,
             capture_output=True,

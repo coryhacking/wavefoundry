@@ -71,6 +71,28 @@ def _build(root: Path, *, mkdocs: str | None = MKDOCS) -> None:
         (root / "mkdocs.yml").write_text(mkdocs, encoding="utf-8")
 
 
+# Wave 1z8tr: the timed sites these tests fake now call run_with_tree_kill;
+# route it back through isolated_run so the existing fakes still intercept.
+_TREE_KILL_SHIM = None
+
+
+def setUpModule():
+    global _TREE_KILL_SHIM
+    if str(SCRIPTS_ROOT) not in sys.path:
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+    if str(SCRIPTS_ROOT / "tests") not in sys.path:
+        sys.path.insert(0, str(SCRIPTS_ROOT / "tests"))
+    from tree_kill_support import ModuleShim
+
+    _TREE_KILL_SHIM = ModuleShim()
+    _TREE_KILL_SHIM.start()
+
+
+def tearDownModule():
+    if _TREE_KILL_SHIM is not None:
+        _TREE_KILL_SHIM.stop()
+
+
 class TechdocsAuditFindingMatrixTests(unittest.TestCase):
     """AC-1: every code produced by exactly its injected defect, plus controls."""
 

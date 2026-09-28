@@ -53,6 +53,28 @@ def load_indexer():
     return mod
 
 
+# Wave 1z8tr: the timed sites these tests fake now call run_with_tree_kill;
+# route it back through isolated_run so the existing fakes still intercept.
+_TREE_KILL_SHIM = None
+
+
+def setUpModule():
+    global _TREE_KILL_SHIM
+    if str(SCRIPTS_ROOT) not in sys.path:
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+    if str(SCRIPTS_ROOT / "tests") not in sys.path:
+        sys.path.insert(0, str(SCRIPTS_ROOT / "tests"))
+    from tree_kill_support import ModuleShim
+
+    _TREE_KILL_SHIM = ModuleShim()
+    _TREE_KILL_SHIM.start()
+
+
+def tearDownModule():
+    if _TREE_KILL_SHIM is not None:
+        _TREE_KILL_SHIM.stop()
+
+
 class VersionAwareDependencyTests(unittest.TestCase):
     """Wave 1p95u — `_missing_in_venv` flags a dependency whose installed version violates its pin,
     not only an absent one, so a pinned version bump reaches existing installs on setup/upgrade.

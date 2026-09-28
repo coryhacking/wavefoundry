@@ -168,7 +168,7 @@ def _bootstrap_venv(root: Path | None = None) -> Path:
         print(f"Creating tool venv at {venv_dir} ...", flush=True)
         venv_timeout = _setup_deadlines(root)["venv_create_timeout_seconds"]
         try:
-            subprocess_util.isolated_run(
+            _run_install_step(
                 [sys.executable, "-m", "venv", str(venv_dir)],
                 check=True,
                 timeout=venv_timeout,
@@ -326,12 +326,24 @@ def _uv_bin(venv_python: Path) -> Path | None:
     return None
 
 
+def _run_install_step(cmd, **kwargs):
+    """Run a timed install step so its timeout ends the child's whole process tree
+    (venv/ensurepip, pip and uv start children of their own; wave 1z8tr).
+
+    The helper is looked up at call time: a 1.27.0 upgrade runner imports this
+    module lazily while its own older ``subprocess_util`` (without
+    ``run_with_tree_kill``) is already loaded, so fall back to ``isolated_run``.
+    """
+    run = getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
+    return run(cmd, **kwargs)
+
+
 def _bootstrap_uv(venv_python: Path, root: Path | None = None) -> Path | None:
     """Install uv into the tool venv via pip and return its path, or None on failure."""
     print("uv not found — installing uv for package age enforcement ...", flush=True)
     uv_timeout = _setup_deadlines(root)["uv_bootstrap_timeout_seconds"]
     try:
-        result = subprocess_util.isolated_run(
+        result = _run_install_step(
             [str(venv_python), "-m", "pip", "install", "uv"],
             check=False,
             env=_pip_tls_env(),
@@ -395,7 +407,7 @@ def _install_deps(missing: list[str], venv_python: Path, root: Path | None = Non
 
     deps_timeout = _setup_deadlines(root)["dep_install_timeout_seconds"]
     try:
-        result = subprocess_util.isolated_run(cmd, check=False, env=run_env, timeout=deps_timeout)
+        result = _run_install_step(cmd, check=False, env=run_env, timeout=deps_timeout)
     except subprocess.TimeoutExpired:
         # Wave 1p9it: a stalled dependency download/resolve (hung PyPI fetch behind a corp MITM / flaky
         # proxy) is a Phase-1 hang path. Fail loud with network/proxy/TLS guidance rather than blocking
