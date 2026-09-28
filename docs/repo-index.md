@@ -35,21 +35,22 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 15098 |
-| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1544 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 15121 |
+| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1475 |
+| docs | `docs` | code | 520 |
 | graph | `.wavefoundry/framework/scripts` | code | 394 |
-| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 388 |
-| indexer | `.wavefoundry/framework/scripts` | code | 303 |
-| workflow-config | `.wavefoundry/framework/scripts` | code | 289 |
-| chunker | `.wavefoundry/framework/scripts` | code | 283 |
-| scripts/run_tests | `.wavefoundry/framework/scripts` | code | 281 |
-| framework index | `.wavefoundry/framework/scripts` | code | 243 |
-| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 235 |
+| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 377 |
+| run_tests | `.wavefoundry/framework/scripts` | code | 368 |
+| chunker | `.wavefoundry/framework/scripts` | code | 285 |
+| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 266 |
+| indexer | `.wavefoundry/framework/scripts` | code | 245 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 223 |
+| framework index | `.wavefoundry/framework/scripts` | code | 217 |
 | render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 162 |
-| scripts/scripts/commit_provenance 1 | `.wavefoundry/framework/scripts` | code | 142 |
 | wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 104 |
+| scripts/scripts/commit_provenance 1 | `.wavefoundry/framework/scripts` | code | 102 |
 | scripts/memory_records | `.wavefoundry/framework/scripts` | code | 93 |
+| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 53 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 46 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
 | 1yzd0 server-package-boundary/evidence | `docs/waves/1yzd0 server-package-boundary/evidence` | code | 36 |
@@ -57,7 +58,6 @@ between the markers is machine-maintained; the surrounding narrative is not.
 | r | `docs/waves/1yxyw retire-optional-server-aliases/evidence/r` | code | 33 |
 | design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
 | 1tmtx test-suite-performance/evidence | `docs/waves/1tmtx test-suite-performance/evidence` | code | 25 |
-| scripts/render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 24 |
 | configuration | `(root)` | config | 27 |
 <!-- wave:repo-index-modules end -->
 

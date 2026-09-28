@@ -52,7 +52,8 @@ def run_sensor(root: Path, sensor: Mapping[str, Any], *, timeout_seconds: float,
             raise ValueError("Sensor command must be an argument list unless shell is explicitly enabled")
         if isinstance(cmd, list) and not shell:
             cmd = _resolve_command(cmd)
-        proc = subprocess_util.isolated_run(
+        # Wave 1z822: a timed-out sensor ends its whole tree, not only the direct child.
+        proc = subprocess_util.run_with_tree_kill(
             cmd, shell=shell, cwd=str(root), timeout=timeout_seconds,
             capture_output=True, text=True,
         )

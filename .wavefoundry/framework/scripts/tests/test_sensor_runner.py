@@ -24,7 +24,7 @@ class SensorCommandResolutionTests(unittest.TestCase):
     def _run(self, command, *, windows, which, shell=False):
         calls = []
 
-        def _isolated_run(cmd, **_kwargs):
+        def _run_with_tree_kill(cmd, **_kwargs):
             calls.append(cmd)
             return _completed(cmd)
 
@@ -33,7 +33,7 @@ class SensorCommandResolutionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, \
              patch.object(sensor_runner, "_IS_WINDOWS", windows), \
              patch.object(sensor_runner.shutil, "which", side_effect=which) as which_mock, \
-             patch.object(subprocess_util, "isolated_run", side_effect=_isolated_run):
+             patch.object(subprocess_util, "run_with_tree_kill", side_effect=_run_with_tree_kill):
             result = sensor_runner.run_sensor(Path(tmp), sensor, timeout_seconds=5, shell=shell)
         return result, calls, which_mock, sensor
 
@@ -67,6 +67,17 @@ class SensorCommandResolutionTests(unittest.TestCase):
             "npm test", windows=True, which=lambda name: "ignored", shell=True)
         self.assertEqual(calls, ["npm test"])
         which_mock.assert_not_called()
+
+
+class SensorTimeoutTests(unittest.TestCase):
+    def test_a_timed_out_sensor_reports_the_timeout(self):
+        # Wave 1z822: the timeout path runs through run_with_tree_kill for real.
+        sensor = {"name": "slow", "command": [sys.executable, "-c", "import time; time.sleep(30)"]}
+        with tempfile.TemporaryDirectory() as tmp:
+            result = sensor_runner.run_sensor(Path(tmp), sensor, timeout_seconds=0.5)
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["output_summary"], "Sensor timed out after 0.5s.")
+        self.assertLess(result["duration_ms"], 15000)
 
 
 if __name__ == "__main__":

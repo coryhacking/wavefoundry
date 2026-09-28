@@ -302,5 +302,77 @@ class PreferredPythonResolverTests(unittest.TestCase):
                     self.assertEqual(mod._preferred_python(), mod.sys.executable)
 
 
+_GRANDCHILD = (
+    "import subprocess, sys, time\n"
+    "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+    "print(child.pid, flush=True)\n"
+    "time.sleep(60)\n"
+)
+
+
+class RunWithTreeKillTests(unittest.TestCase):
+    """Wave 1z822: a timed-out helper ends its whole tree and never the caller's group."""
+
+    @unittest.skipIf(os.name == "nt", "POSIX process-group fixture")
+    def test_timeout_kills_the_grandchild_and_returns_promptly(self):
+        import time
+
+        started = time.monotonic()
+        with self.assertRaises(subprocess.TimeoutExpired) as caught:
+            subprocess_util.run_with_tree_kill(
+                [sys.executable, "-c", _GRANDCHILD], timeout=1.5, capture_output=True, text=True)
+        self.assertLess(time.monotonic() - started, 15)
+        grandchild = int(str(caught.exception.stdout).split()[0])
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            try:
+                os.kill(grandchild, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.1)
+        else:
+            os.kill(grandchild, 9)
+            self.fail("the grandchild outlived the timeout")
+
+    @unittest.skipIf(os.name == "nt", "POSIX process-group fixture")
+    def test_only_the_childs_own_group_is_signalled(self):
+        signalled = []
+        real_killpg = os.killpg
+
+        def spy(pgid, sig):
+            signalled.append(pgid)
+            return real_killpg(pgid, sig)
+
+        with patch.object(subprocess_util.os, "killpg", side_effect=spy):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                subprocess_util.run_with_tree_kill(
+                    [sys.executable, "-c", "import time; time.sleep(30)"], timeout=0.5)
+        self.assertEqual(len(signalled), 1)
+        self.assertNotEqual(signalled[0], os.getpgrp())
+
+    def test_a_command_that_finishes_matches_isolated_run(self):
+        argv = [sys.executable, "-c", "import sys; print('out'); sys.stderr.write('err'); sys.exit(3)"]
+        tree = subprocess_util.run_with_tree_kill(argv, timeout=30, capture_output=True, text=True)
+        plain = subprocess_util.isolated_run(argv, timeout=30, capture_output=True, text=True)
+        self.assertEqual((tree.returncode, tree.stdout, tree.stderr), (plain.returncode, plain.stdout, plain.stderr))
+        with self.assertRaises(subprocess.CalledProcessError):
+            subprocess_util.run_with_tree_kill(argv, timeout=30, capture_output=True, check=True)
+
+    def test_windows_kill_uses_taskkill_on_the_tree(self):
+        calls = []
+
+        class FakeProcess:
+            pid = 4242
+
+            def kill(self):
+                calls.append("kill")
+
+        with patch.object(subprocess_util.os, "name", "nt"), \
+             patch.object(subprocess_util, "isolated_run", side_effect=lambda argv, **kw: calls.append((argv, kw.get("timeout")))):
+            subprocess_util._kill_process_tree(FakeProcess())
+        self.assertEqual(calls[0], (["taskkill", "/PID", "4242", "/T", "/F"], 10))
+        self.assertEqual(calls[1], "kill")
+
+
 if __name__ == "__main__":
     unittest.main()

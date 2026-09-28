@@ -64,6 +64,64 @@ class RuntimeFileLockTests(unittest.TestCase):
         finally:
             lock.release()
 
+    @unittest.skipUnless(hasattr(os, "symlink") and os.name != "nt", "POSIX symlink fixture")
+    def test_symlinked_carriers_are_refused_and_their_targets_untouched(self) -> None:
+        # Wave 1z822: a committed symlink at a lock path must never redirect a write.
+        victim = self.root / "victim.txt"
+        victim.write_bytes(b"keep me\n")
+        locks = self.root / "locks"
+        locks.mkdir()
+        linked = locks / "linked.lock"
+        linked.symlink_to(victim)
+        with self.assertRaises(rl.RuntimeLockError) as caught:
+            rl.RuntimeFileLock(linked).acquire()
+        self.assertIn("symlink", str(caught.exception))
+        self.assertIn(str(linked), str(caught.exception))
+        with self.assertRaises(rl.RuntimeLockError):
+            rl.write_json_in_place(linked, {"pid": 1})
+        self.assertEqual(victim.read_bytes(), b"keep me\n")
+        dangling = locks / "dangling.lock"
+        missing = self.root / "created-through-link.txt"
+        dangling.symlink_to(missing)
+        with self.assertRaises(rl.RuntimeLockError):
+            rl.write_json_in_place(dangling, {"pid": 1})
+        with self.assertRaises(rl.RuntimeLockError):
+            rl.RuntimeFileLock(dangling).acquire()
+        self.assertFalse(missing.exists())
+        # Ordinary and missing carriers behave as before.
+        fresh = locks / "fresh.json"
+        rl.write_json_in_place(fresh, {"pid": 2})
+        self.assertEqual(json.loads(fresh.read_text(encoding="utf-8")), {"pid": 2})
+        with rl.RuntimeFileLock(locks / "fresh.lock"):
+            pass
+
+    def test_windows_branch_refuses_only_links_and_junctions(self) -> None:
+        ordinary = self.root / "ordinary.lock"
+        ordinary.write_bytes(b"")
+        tags = {"symlink.lock": 0xA000000C, "junction.lock": 0xA0000003,
+                "onedrive.lock": 0x9000001A, "dedup.lock": 0x80000013}
+        for name in tags:
+            (self.root / name).write_bytes(b"")
+        real_lstat = os.lstat
+
+        def fake_lstat(path, *args, **kwargs):
+            info = real_lstat(path, *args, **kwargs)
+            tag = tags.get(Path(path).name)
+            if tag is not None:
+                return types.SimpleNamespace(st_mode=info.st_mode, st_file_attributes=0x400, st_reparse_tag=tag)
+            return info
+
+        with patch.object(rl.os, "name", "nt"), patch.object(rl.os, "lstat", side_effect=fake_lstat):
+            for refused in ("symlink.lock", "junction.lock"):
+                with self.subTest(refused=refused), self.assertRaises(OSError):
+                    rl._open_carrier(self.root / refused, "a+b")
+            # Cloud-file placeholders and deduplicated files are reparse points but not links.
+            for allowed in ("onedrive.lock", "dedup.lock"):
+                rl._open_carrier(self.root / allowed, "a+b").close()
+            rl._open_carrier(ordinary, "a+b").close()
+            rl._open_carrier(self.root / "new.lock", "r+b").close()
+        self.assertTrue((self.root / "new.lock").exists())
+
     def test_open_failure_is_not_misreported_as_busy_or_unlocked(self) -> None:
         blocker = self.root / "not-a-directory"
         blocker.write_text("x", encoding="utf-8")

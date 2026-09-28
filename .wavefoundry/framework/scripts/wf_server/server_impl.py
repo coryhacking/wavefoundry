@@ -573,6 +573,10 @@ def _mcp_subprocess_run(
     flags = subprocess_util.no_window_creationflags()
     if flags:
         kwargs["creationflags"] = flags
+    if timeout is not None:
+        # Wave 1z822: a timed-out helper ends its whole tree, so a grandchild can
+        # neither keep running nor hold the pipes and hang this call.
+        return subprocess_util.run_with_tree_kill(cmd, **kwargs)
     return subprocess.run(cmd, **kwargs)
 
 

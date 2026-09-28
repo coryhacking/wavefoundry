@@ -4,8 +4,8 @@
     "preToolUse": [
       {
         "type": "command",
-        "bash": "python3 \".github/hooks/pre-tool-use.py\"",
-        "powershell": "python3 \".github/hooks/pre-tool-use.py\"",
+        "bash": "python3 -c \"import os,runpy,sys; sys.excepthook=lambda t,v,b:(print('wavefoundry hook .github/hooks/pre-tool-use.py failed; blocking the edit:',repr(v),file=sys.stderr),os._exit(2)); runpy.run_path(os.path.abspath(os.path.join('.github', 'hooks', 'pre-tool-use.py')), run_name='__main__')\"",
+        "powershell": "python3 -c \"import os,runpy,sys; sys.excepthook=lambda t,v,b:(print('wavefoundry hook .github/hooks/pre-tool-use.py failed; blocking the edit:',repr(v),file=sys.stderr),os._exit(2)); runpy.run_path(os.path.abspath(os.path.join('.github', 'hooks', 'pre-tool-use.py')), run_name='__main__')\"",
         "cwd": "."
       }
     ],

@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c \"import os,runpy,sys; root=os.environ.get('CLAUDE_PROJECT_DIR'); root or sys.exit('wavefoundry hook .claude/hooks/pre-edit.py: missing project root environment variable CLAUDE_PROJECT_DIR'); runpy.run_path(os.path.join(root, '.claude', 'hooks', 'pre-edit.py'), run_name='__main__')\"",
+            "command": "python3 -c \"import os,runpy,sys; sys.excepthook=lambda t,v,b:(print('wavefoundry hook .claude/hooks/pre-edit.py failed; blocking the edit:',repr(v),file=sys.stderr),os._exit(2)); root=os.environ.get('CLAUDE_PROJECT_DIR'); root or (print('wavefoundry hook .claude/hooks/pre-edit.py: missing project root environment variable CLAUDE_PROJECT_DIR',file=sys.stderr),os._exit(2)); runpy.run_path(os.path.join(root, '.claude', 'hooks', 'pre-edit.py'), run_name='__main__')\"",
             "statusMessage": "Checking framework edit gates..."
           }
         ]

@@ -12,7 +12,8 @@ REQUIRED_IMPORTS = {
     "igraph>=0.11": "igraph",
     "leidenalg>=0.10": "leidenalg",
     "numpy": "numpy",
-    "mcp[cli]": "mcp",
+    # mcp 2.x removed mcp.server.fastmcp; pin below 2 until the server migrates (wave 1z822).
+    "mcp[cli]<2": "mcp",
     # Tree-sitter grammars for AST-accurate code chunking. chunker.py falls back to regex /
     # line-window chunkers when a grammar is absent.
     "tree-sitter>=0.24,<0.26": "tree_sitter",

@@ -529,6 +529,24 @@ class SetupIndexTests(unittest.TestCase):
         self.assertIn("httpx[socks]", self.mod.REQUIRED_IMPORTS)
         self.assertEqual(self.mod.REQUIRED_IMPORTS["httpx[socks]"], "socksio")
 
+    def test_mcp_is_pinned_below_2_in_every_declaration(self):
+        # Wave 1z822: mcp 2.x removed mcp.server.fastmcp, which server.py imports.
+        self.assertEqual(self.mod.REQUIRED_IMPORTS.get("mcp[cli]<2"), "mcp")
+        with PYPROJECT_PATH.open("rb") as fh:
+            deps = tomllib.load(fh)["project"]["dependencies"]
+        self.assertEqual([dep for dep in deps if dep.startswith("mcp")], ["mcp[cli]<2"])
+
+    def test_setup_probe_flags_an_mcp_outside_the_pin(self):
+        try:
+            import importlib.metadata as metadata
+            installed = metadata.version("mcp")
+        except Exception:
+            self.skipTest("mcp is not installed in the test interpreter")
+        major = int(installed.split(".")[0])
+        python = Path(sys.executable)
+        self.assertEqual(self.mod._missing_in_venv(python, {f"mcp[cli]<{major + 1}": "mcp"}), [])
+        self.assertEqual(self.mod._missing_in_venv(python, {f"mcp[cli]<{major}": "mcp"}), [f"mcp[cli]<{major}"])
+
     def test_pyproject_includes_httpx_socks(self):
         with PYPROJECT_PATH.open("rb") as fh:
             metadata = tomllib.load(fh)

@@ -199,6 +199,18 @@ class SetupReadinessTests(unittest.TestCase):
             self.assertEqual(readiness._dependencies(), [])
         self.assertFalse(marker.exists())
 
+    def test_mcp_2_is_reported_missing_and_mcp_1_is_not(self):
+        # Wave 1z822: mcp 2.x removed mcp.server.fastmcp, so the declared pin must flag it.
+        self.deps.stop()
+        spec = next(key for key, module in readiness.REQUIRED_IMPORTS.items() if module == 'mcp')
+        info = readiness._site() / 'mcp.dist-info'
+        info.mkdir()
+        for version, expected in (('2.2.0', [spec]), ('1.28.1', [])):
+            with self.subTest(version=version):
+                (info / 'METADATA').write_text(f'Name: mcp\nVersion: {version}\nProvides-Extra: cli\n')
+                with patch.object(readiness, 'REQUIRED_IMPORTS', {spec: 'mcp'}), patch.object(readiness, 'GPU_ACCEL_IMPORTS', {}):
+                    self.assertEqual(readiness._dependencies(), expected)
+
     @unittest.skipUnless(hasattr(os, 'mkfifo'), 'POSIX FIFO fixture')
     def test_fifo_rejected_before_open(self):
         path = self.root / 'fifo'; os.mkfifo(path)

@@ -179,24 +179,48 @@ def _preflight_platform_render_paths(
             )
 
 
-def launcher_command(rel_base: str, project_dir_var: str | None = None) -> str:
+def launcher_command(rel_base: str, project_dir_var: str | None = None, *, fail_closed: bool = False) -> str:
     """Launcher command for a hook config — ``python3`` invoking the ``.py`` hook body directly.
 
     When a host supplies an owner-root environment variable, resolve the body
     inside Python rather than relying on shell-specific ``$VAR``/``%VAR%``
     expansion.  Hosts without such an anchor retain their documented root-cwd
     contract; this function never searches upward from an arbitrary cwd.
+
+    Wave 1z822: ``fail_closed`` is for hooks that run before an edit and block it
+    by exiting 2. Such a launcher exits 2, not 1, when the project-root variable is
+    missing or the body raises, because hosts treat exit 1 as a non-blocking
+    warning. It installs ``sys.excepthook`` rather than a ``try`` statement, which
+    cannot follow ``;`` on one line; the body's own ``SystemExit`` never reaches
+    the hook. The text avoids ``$`` and inner double quotes so PowerShell passes it
+    through unchanged. A missing ``python3`` still yields the shell's own status.
     """
+    parts = ", ".join(repr(part) for part in f"{rel_base}.py".split("/"))
+    hook_line = ""
+    if fail_closed:
+        failure = repr(f"wavefoundry hook {rel_base}.py failed; blocking the edit:")
+        hook_line = (
+            f"sys.excepthook=lambda t,v,b:(print({failure},repr(v),file=sys.stderr),os._exit(2)); "
+        )
     if project_dir_var:
-        parts = ", ".join(repr(part) for part in f"{rel_base}.py".split("/"))
         missing_message = repr(
             f"wavefoundry hook {rel_base}.py: missing project root environment variable "
             f"{project_dir_var}"
         )
+        missing = (
+            f"(print({missing_message},file=sys.stderr),os._exit(2))"
+            if fail_closed else f"sys.exit({missing_message})"
+        )
         return (
             'python3 -c "import os,runpy,sys; '
-            f"root=os.environ.get('{project_dir_var}'); root or sys.exit({missing_message}); "
+            f"{hook_line}root=os.environ.get('{project_dir_var}'); root or {missing}; "
             f"runpy.run_path(os.path.join(root, {parts}), "
+            "run_name='__main__')\""
+        )
+    if fail_closed:
+        return (
+            'python3 -c "import os,runpy,sys; '
+            f"{hook_line}runpy.run_path(os.path.abspath(os.path.join({parts})), "
             "run_name='__main__')\""
         )
     return f'python3 "{rel_base}.py"'
@@ -375,12 +399,68 @@ def hook_helpers() -> str:
             return ""
 
 
+        _CASE_INSENSITIVE: list[bool] = []
+
+
+        def _case_insensitive_fs() -> bool:
+            # Wave 1z822: macOS and Windows default to case-insensitive filesystems, where a
+            # variant spelling names the same guarded file.
+            if not _CASE_INSENSITIVE:
+                # Probe a lettered child so a root path with no letters is still detected.
+                probe = REPO_ROOT / ".wavefoundry"
+                if not probe.exists():
+                    probe = REPO_ROOT
+                swapped = probe.parent / probe.name.swapcase()
+                try:
+                    result = swapped != probe and os.path.samefile(probe, swapped)
+                except OSError:
+                    result = False
+                _CASE_INSENSITIVE.append(bool(result) or (swapped == probe and os.name == "nt"))
+            return _CASE_INSENSITIVE[0]
+
+
+        def _fold(text: str) -> str:
+            return text.casefold() if _case_insensitive_fs() else text
+
+
+        def repo_relative(path: str) -> str | None:
+            # Wave 1z822: hosts send absolute paths (Claude Code always does), and `..`, `./`,
+            # symlinks and case variants must not slip past the prefix gates. Returns the
+            # repo-relative POSIX path, or None when the path is outside the repository.
+            if not path:
+                return None
+            candidate = Path(os.path.expanduser(str(path)))
+            if not candidate.is_absolute():
+                candidate = REPO_ROOT / candidate
+            try:
+                resolved = candidate.resolve()
+            except (OSError, RuntimeError):
+                # A symlink loop or similar: lexical normalization still recognizes the location.
+                resolved = Path(os.path.normpath(os.path.abspath(str(candidate))))
+            text = resolved.as_posix()
+            root = REPO_ROOT.as_posix().rstrip("/")
+            if _fold(text) == _fold(root):
+                return ""
+            if not _fold(text).startswith(_fold(root + "/")):
+                return None
+            return text[len(root) + 1:]
+
+
+        def _rel_matches(rel: str | None, *prefixes: str) -> bool:
+            return rel is not None and any(_fold(rel).startswith(_fold(prefix)) for prefix in prefixes)
+
+
         def is_seed_prompt(path: str) -> bool:
-            return path.startswith(".wavefoundry/framework/seeds/") and path.endswith(".prompt.md")
+            rel = repo_relative(path)
+            return _rel_matches(rel, ".wavefoundry/framework/seeds/") and _fold(rel).endswith(".prompt.md")
 
 
         def is_framework_maintenance_surface(path: str) -> bool:
-            if path == "AGENTS.md":
+            rel = repo_relative(path)
+            if rel is None:
+                return False
+            path = _fold(rel)
+            if path == _fold("AGENTS.md"):
                 return True
             prefixes = (
                 ".wavefoundry/framework/",
@@ -396,7 +476,7 @@ def hook_helpers() -> str:
                 ".codex/skills/wf-",
                 ".agents/skills/wf-",
             )
-            if path.startswith(prefixes):
+            if path.startswith(tuple(_fold(prefix) for prefix in prefixes)):
                 return True
             exact = {
                 ".claude/settings.json",
@@ -404,7 +484,7 @@ def hook_helpers() -> str:
                 ".github/hooks/hooks.json",
                 ".windsurf/hooks.json",
             }
-            return path in exact
+            return path in {_fold(name) for name in exact}
 
 
         def run_command(argv: list[str], timeout=None) -> subprocess.CompletedProcess[str]:
@@ -433,7 +513,7 @@ def hook_helpers() -> str:
 
 
         def maybe_docs_lint(file_path: str) -> tuple[bool, str]:
-            if not file_path.startswith("docs/"):
+            if not _rel_matches(repo_relative(file_path), "docs/"):
                 return False, ""
             # Wave 1p7tz/1p802: the `bin/docs-lint` wrapper was retired — invoke docs_lint.py directly
             # via sys.executable. After in-process activation sys.executable stays the SYSTEM
@@ -472,12 +552,12 @@ def hook_helpers() -> str:
 
 
         def should_reindex(path: str) -> bool:
-            if not path:
+            rel = repo_relative(path)
+            if not rel:
                 return False
-            if path.startswith(".wavefoundry/index/"):
+            if _rel_matches(rel, ".wavefoundry/index/", ".wavefoundry/framework/index/"):
                 return False
-            if path.startswith(".wavefoundry/framework/index/"):
-                return False
+            path = rel
             suffix = Path(path).suffix.lower()
             skip_suffixes = {".pyc", ".npy", ".png", ".jpg", ".jpeg", ".gif", ".svg",
                              ".ico", ".woff", ".woff2", ".ttf", ".eot", ".zip"}
@@ -782,12 +862,13 @@ def claude_post_edit_source() -> str:
             if not file_path:
                 return 0
             blocked, message = maybe_docs_lint(file_path)
+            # Wave 1p9am: Claude has a turn-end Stop hook — mark the edit pending (no per-edit spawn);
+            # the Stop hook flushes one coalesced reindex per turn. Wave 1z822: mark it before a lint
+            # failure returns, since the edit already happened.
+            mark_reindex_pending_for(file_path)
             if blocked:
                 print(message, file=sys.stderr)
                 return 1
-            # Wave 1p9am: Claude has a turn-end Stop hook — mark the edit pending (no per-edit spawn);
-            # the Stop hook flushes one coalesced reindex per turn.
-            mark_reindex_pending_for(file_path)
             return 0
 
 
@@ -939,6 +1020,7 @@ def cursor_after_file_edit_source() -> str:
             # on Windows (these gate spawns are input=/capture-redirected); hook_python() falls back to
             # sys.executable on POSIX / when unavailable.
             python_exec = hook_python()
+            verdict = None
             for gate in GATES:
                 if _wf_subprocess_util is not None:
                     result = _wf_subprocess_util.isolated_run(
@@ -961,12 +1043,15 @@ def cursor_after_file_edit_source() -> str:
                     )
                 output = (result.stdout + result.stderr).strip()
                 if result.returncode == 10:
-                    print(json.dumps({"continue": False, "message": output or "Cursor hook blocked the edit."}))
-                    return 0
+                    verdict = {"continue": False, "message": output or "Cursor hook blocked the edit."}
+                    break
                 if result.returncode != 0:
-                    print(json.dumps({"continue": False, "message": output or "Cursor hook failed."}))
-                    return 0
+                    verdict = {"continue": False, "message": output or "Cursor hook failed."}
+                    break
+            # Wave 1z822: afterFileEdit runs once the edit exists, so index it whatever a gate said.
             maybe_trigger_reindex(detect_file_path(payload))
+            if verdict is not None:
+                print(json.dumps(verdict))
             return 0
 
 
@@ -1014,10 +1099,11 @@ def copilot_post_tool_use_source() -> str:
             if not file_path:
                 return 0
             blocked, message = maybe_docs_lint(file_path)
+            # Wave 1z822: the edit already happened, so trigger the reindex before a lint failure returns.
+            maybe_trigger_reindex(file_path)
             if blocked:
                 print(message, file=sys.stderr)
                 return 1
-            maybe_trigger_reindex(file_path)
             return 0
 
 
@@ -1436,7 +1522,11 @@ def render_claude_settings(repo_root: Path) -> None:
             "type": "command",
             # 1p88t: keep the committed hook command relative and byte-identical across OSes.
             # Native-Windows Claude Code passed `$CLAUDE_PROJECT_DIR` literally in field testing.
-            "command": launcher_command(f".claude/hooks/{hook['name']}", "CLAUDE_PROJECT_DIR"),
+            # Wave 1z822: hooks that run before an edit and block it by exiting 2 fail closed.
+            "command": launcher_command(
+                f".claude/hooks/{hook['name']}", "CLAUDE_PROJECT_DIR",
+                fail_closed=hook["event"] == "PreToolUse",
+            ),
             "statusMessage": hook["status_message"],
         }
         if "timeout" in hook:
@@ -1770,8 +1860,8 @@ def render_copilot_hooks(repo_root: Path) -> None:
             "preToolUse": [
                 {
                     "type": "command",
-                    "bash": launcher_command(".github/hooks/pre-tool-use"),
-                    "powershell": launcher_command(".github/hooks/pre-tool-use"),
+                    "bash": launcher_command(".github/hooks/pre-tool-use", fail_closed=True),
+                    "powershell": launcher_command(".github/hooks/pre-tool-use", fail_closed=True),
                     "cwd": ".",
                 }
             ],
@@ -2035,7 +2125,7 @@ def render_windsurf_hooks(repo_root: Path) -> None:
     config = {
         "hooks": {
             "pre_write_code": [
-                {"command": launcher_command(".windsurf/hooks/seed-protect"), "working_directory": ".", "show_output": True}
+                {"command": launcher_command(".windsurf/hooks/seed-protect", fail_closed=True), "working_directory": ".", "show_output": True}
             ],
             "post_write_code": [
                 {"command": launcher_command(".windsurf/hooks/docs-lint"), "working_directory": ".", "show_output": True}

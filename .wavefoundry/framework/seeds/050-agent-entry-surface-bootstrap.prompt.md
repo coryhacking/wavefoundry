@@ -452,8 +452,10 @@ Windsurf has `pre_write_code` which fires **before** the write — true blocking
 }
 ```
 
-Generated entrypoints (single `<name>.py` body each, launched via `python3 "<name>.py"`):
-- `.windsurf/hooks/seed-protect.py` — true-blocking seed protection + framework plan gate
+The `pre_write_code` command is shown in shape only: the renderer emits it fail-closed, as a one-line `python3 -c` launcher that runs the body with `runpy` and exits 2 if the body cannot run, so a broken hook blocks the write instead of allowing it. Hook bodies resolve the host's path against the repository before classifying it, so absolute, relative, symlinked and case-variant spellings of a guarded file are all recognized.
+
+Generated entrypoints (single `<name>.py` body each; `post_write_code` is launched via `python3 "<name>.py"`):
+- `.windsurf/hooks/seed-protect.py` — true-blocking seed protection
 - `.windsurf/hooks/docs-lint.py` — runs `wf docs-lint` after docs edits
 
 `.gitignore` tracks `.windsurf/hooks.json` and `.windsurf/hooks/`.
@@ -477,7 +479,9 @@ Scope boundary:
 }
 ```
 
-Generated entrypoints (single `<name>.py` body each, launched via `python3 "<name>.py"`):
+The `preToolUse` commands are shown in shape only: the renderer emits the same fail-closed one-line `python3 -c` launcher for `bash` and `powershell` (no `$` and no inner double quotes, so both shells pass it through unchanged), which exits 2 if the body cannot run.
+
+Generated entrypoints (single `<name>.py` body each; `postToolUse` is launched via `python3 "<name>.py"`):
 - `.github/hooks/pre-tool-use.py` — blocks seed-prompt edits and broad framework-maintenance edits per the guard-override file
 - `.github/hooks/post-tool-use.py` — runs `wf docs-lint` after docs edits
 

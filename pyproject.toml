@@ -33,7 +33,7 @@ dependencies = [
     "apsw==3.53.4.0",
     "sqlite-vec==0.1.9",
     "leidenalg>=0.10",
-    "mcp[cli]",
+    "mcp[cli]<2",
     "numpy",
     "tree-sitter>=0.24,<0.26",
     "tree-sitter-typescript",

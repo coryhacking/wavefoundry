@@ -126,12 +126,68 @@ def detect_command(payload: dict[str, object]) -> str:
     return ""
 
 
+_CASE_INSENSITIVE: list[bool] = []
+
+
+def _case_insensitive_fs() -> bool:
+    # Wave 1z822: macOS and Windows default to case-insensitive filesystems, where a
+    # variant spelling names the same guarded file.
+    if not _CASE_INSENSITIVE:
+        # Probe a lettered child so a root path with no letters is still detected.
+        probe = REPO_ROOT / ".wavefoundry"
+        if not probe.exists():
+            probe = REPO_ROOT
+        swapped = probe.parent / probe.name.swapcase()
+        try:
+            result = swapped != probe and os.path.samefile(probe, swapped)
+        except OSError:
+            result = False
+        _CASE_INSENSITIVE.append(bool(result) or (swapped == probe and os.name == "nt"))
+    return _CASE_INSENSITIVE[0]
+
+
+def _fold(text: str) -> str:
+    return text.casefold() if _case_insensitive_fs() else text
+
+
+def repo_relative(path: str) -> str | None:
+    # Wave 1z822: hosts send absolute paths (Claude Code always does), and `..`, `./`,
+    # symlinks and case variants must not slip past the prefix gates. Returns the
+    # repo-relative POSIX path, or None when the path is outside the repository.
+    if not path:
+        return None
+    candidate = Path(os.path.expanduser(str(path)))
+    if not candidate.is_absolute():
+        candidate = REPO_ROOT / candidate
+    try:
+        resolved = candidate.resolve()
+    except (OSError, RuntimeError):
+        # A symlink loop or similar: lexical normalization still recognizes the location.
+        resolved = Path(os.path.normpath(os.path.abspath(str(candidate))))
+    text = resolved.as_posix()
+    root = REPO_ROOT.as_posix().rstrip("/")
+    if _fold(text) == _fold(root):
+        return ""
+    if not _fold(text).startswith(_fold(root + "/")):
+        return None
+    return text[len(root) + 1:]
+
+
+def _rel_matches(rel: str | None, *prefixes: str) -> bool:
+    return rel is not None and any(_fold(rel).startswith(_fold(prefix)) for prefix in prefixes)
+
+
 def is_seed_prompt(path: str) -> bool:
-    return path.startswith(".wavefoundry/framework/seeds/") and path.endswith(".prompt.md")
+    rel = repo_relative(path)
+    return _rel_matches(rel, ".wavefoundry/framework/seeds/") and _fold(rel).endswith(".prompt.md")
 
 
 def is_framework_maintenance_surface(path: str) -> bool:
-    if path == "AGENTS.md":
+    rel = repo_relative(path)
+    if rel is None:
+        return False
+    path = _fold(rel)
+    if path == _fold("AGENTS.md"):
         return True
     prefixes = (
         ".wavefoundry/framework/",
@@ -147,7 +203,7 @@ def is_framework_maintenance_surface(path: str) -> bool:
         ".codex/skills/wf-",
         ".agents/skills/wf-",
     )
-    if path.startswith(prefixes):
+    if path.startswith(tuple(_fold(prefix) for prefix in prefixes)):
         return True
     exact = {
         ".claude/settings.json",
@@ -155,7 +211,7 @@ def is_framework_maintenance_surface(path: str) -> bool:
         ".github/hooks/hooks.json",
         ".windsurf/hooks.json",
     }
-    return path in exact
+    return path in {_fold(name) for name in exact}
 
 
 def run_command(argv: list[str], timeout=None) -> subprocess.CompletedProcess[str]:
@@ -184,7 +240,7 @@ def run_command(argv: list[str], timeout=None) -> subprocess.CompletedProcess[st
 
 
 def maybe_docs_lint(file_path: str) -> tuple[bool, str]:
-    if not file_path.startswith("docs/"):
+    if not _rel_matches(repo_relative(file_path), "docs/"):
         return False, ""
     # Wave 1p7tz/1p802: the `bin/docs-lint` wrapper was retired — invoke docs_lint.py directly
     # via sys.executable. After in-process activation sys.executable stays the SYSTEM
@@ -223,12 +279,12 @@ def maybe_docs_lint(file_path: str) -> tuple[bool, str]:
 
 
 def should_reindex(path: str) -> bool:
-    if not path:
+    rel = repo_relative(path)
+    if not rel:
         return False
-    if path.startswith(".wavefoundry/index/"):
+    if _rel_matches(rel, ".wavefoundry/index/", ".wavefoundry/framework/index/"):
         return False
-    if path.startswith(".wavefoundry/framework/index/"):
-        return False
+    path = rel
     suffix = Path(path).suffix.lower()
     skip_suffixes = {".pyc", ".npy", ".png", ".jpg", ".jpeg", ".gif", ".svg",
                      ".ico", ".woff", ".woff2", ".ttf", ".eot", ".zip"}
@@ -330,10 +386,11 @@ def main() -> int:
     if not file_path:
         return 0
     blocked, message = maybe_docs_lint(file_path)
+    # Wave 1z822: the edit already happened, so trigger the reindex before a lint failure returns.
+    maybe_trigger_reindex(file_path)
     if blocked:
         print(message, file=sys.stderr)
         return 1
-    maybe_trigger_reindex(file_path)
     return 0
 
 

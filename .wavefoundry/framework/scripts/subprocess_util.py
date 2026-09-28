@@ -139,6 +139,85 @@ def isolated_popen(cmd: Any, **kwargs: Any):
     return subprocess.Popen(cmd, **kwargs)
 
 
+_TREE_KILL_DRAIN_SECONDS = 2.0
+
+
+def run_with_tree_kill(cmd: Any, *, timeout: float | None = None, input: Any = None,
+                       check: bool = False, capture_output: bool = False, **kwargs: Any):
+    """``isolated_run`` whose timeout ends the child's whole process tree (wave 1z822).
+
+    ``subprocess.run`` kills only the direct child on timeout: a grandchild keeps
+    running, and on Windows the call then waits on pipes that grandchild holds.
+    This helper starts the child in its own group (a new session on POSIX,
+    ``CREATE_NEW_PROCESS_GROUP`` on Windows), so the kill can never reach the
+    caller's group, and on timeout or any other exception while waiting it
+    terminates the group before re-raising. The post-kill drain is bounded.
+    Result and exceptions match ``subprocess.run``. Descendants that start their
+    own session, or orphans whose parent already exited on Windows, can escape.
+    """
+    import subprocess
+
+    if capture_output:
+        kwargs["stdout"] = subprocess.PIPE
+        kwargs["stderr"] = subprocess.PIPE
+    if input is not None:
+        kwargs["stdin"] = subprocess.PIPE
+    elif "stdin" not in kwargs:
+        kwargs["stdin"] = subprocess.DEVNULL
+    if os.name == "nt":
+        kwargs["creationflags"] = (
+            kwargs.get("creationflags", 0)
+            | no_window_creationflags()
+            | int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+        )
+    else:
+        kwargs["start_new_session"] = True
+    _apply_utf8_capture(kwargs)
+
+    with subprocess.Popen(cmd, **kwargs) as process:
+        try:
+            stdout, stderr = process.communicate(input, timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            _kill_process_tree(process)
+            try:
+                exc.stdout, exc.stderr = process.communicate(timeout=_TREE_KILL_DRAIN_SECONDS)
+            except subprocess.TimeoutExpired:
+                pass
+            raise
+        except BaseException:
+            _kill_process_tree(process)
+            raise
+        retcode = process.poll()
+        if check and retcode:
+            raise subprocess.CalledProcessError(retcode, process.args, output=stdout, stderr=stderr)
+    return subprocess.CompletedProcess(process.args, retcode, stdout, stderr)
+
+
+def _kill_process_tree(process: Any) -> None:
+    """Terminate ``process`` and its group; never signal any other group."""
+
+    if os.name == "nt":
+        try:
+            isolated_run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                capture_output=True, timeout=10,
+            )
+        except Exception:
+            pass
+    else:
+        import signal
+
+        # The child was started with start_new_session, so its pid is its group id.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    try:
+        process.kill()
+    except OSError:
+        pass
+
+
 def _apply_utf8_capture(kwargs: dict[str, Any]) -> None:
     """Apply ``encoding='utf-8', errors='replace'`` for captured text spawns (wave 1p8gv).
 

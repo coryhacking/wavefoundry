@@ -2,7 +2,7 @@
   "hooks": {
     "pre_write_code": [
       {
-        "command": "python3 \".windsurf/hooks/seed-protect.py\"",
+        "command": "python3 -c \"import os,runpy,sys; sys.excepthook=lambda t,v,b:(print('wavefoundry hook .windsurf/hooks/seed-protect.py failed; blocking the edit:',repr(v),file=sys.stderr),os._exit(2)); runpy.run_path(os.path.abspath(os.path.join('.windsurf', 'hooks', 'seed-protect.py')), run_name='__main__')\"",
         "working_directory": ".",
         "show_output": true
       }

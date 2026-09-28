@@ -30,6 +30,47 @@ class RuntimeLockBusy(RuntimeLockError):
     """Raised when a non-blocking lock is already held."""
 
 
+def _open_carrier(path: Path, mode: str) -> BinaryIO:
+    """Open a lock carrier without following a symlink at its final component.
+
+    Wave 1z822: a repository can commit a symlink at a lock path; following it
+    would truncate and overwrite whatever file it names. ``mode`` is ``"a+b"``
+    (lock carriers) or ``"r+b"`` (metadata rewrites); both create a missing file.
+    POSIX refuses with ``O_NOFOLLOW``, which also refuses a dangling link rather
+    than creating its target. Windows has no ``O_NOFOLLOW``, so it refuses only on
+    a positive finding of a name-surrogate reparse point (a symlink or a junction),
+    never on an identity mismatch; OneDrive placeholders and deduplicated files
+    are reparse points too, and must keep working.
+    """
+    import stat
+
+    if os.name == "nt":
+        try:
+            info = os.lstat(path)
+        except FileNotFoundError:
+            info = None
+        link_tags = {
+            getattr(stat, "IO_REPARSE_TAG_SYMLINK", 0xA000000C),
+            getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003),
+        }
+        if info is not None and (
+            stat.S_ISLNK(info.st_mode) or getattr(info, "st_reparse_tag", 0) in link_tags
+        ):
+            raise OSError(errno.ELOOP, "lock path is a symlink or junction")
+        flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_BINARY", 0)
+    else:
+        flags = os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW
+    if mode == "a+b":
+        flags |= os.O_APPEND
+    try:
+        fd = os.open(os.fspath(path), flags, 0o666)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise OSError(errno.ELOOP, "lock path is a symlink") from exc
+        raise
+    return os.fdopen(fd, mode)
+
+
 @dataclass(frozen=True)
 class RuntimeLockProbe:
     held: bool | None
@@ -74,7 +115,7 @@ class RuntimeFileLock:
             # native-Windows branch can be exercised under a patched os.name
             # without pathlib attempting to manufacture a foreign path class.
             os.makedirs(os.path.dirname(os.fspath(self.path)), exist_ok=True)
-            handle = self.path.open("a+b")
+            handle = _open_carrier(self.path, "a+b")
         except OSError as exc:
             raise RuntimeLockError(
                 exc.errno or errno.EIO,
@@ -217,8 +258,7 @@ def write_json_in_place(path: Path, payload: Mapping[str, Any]) -> None:
     target = path if isinstance(path, Path) else Path(path)
     try:
         os.makedirs(os.path.dirname(os.fspath(target)), exist_ok=True)
-        mode = "r+b" if target.exists() else "w+b"
-        with target.open(mode) as handle:
+        with _open_carrier(target, "r+b") as handle:
             raw = (json.dumps(dict(payload), indent=2) + "\n").encode("utf-8")
             handle.seek(0)
             handle.truncate()

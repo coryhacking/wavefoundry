@@ -84,6 +84,23 @@ class McpSubprocessHelperTests(unittest.TestCase):
         self.assertIs(captured["stdout"], subprocess.DEVNULL)
         self.assertIs(captured["stderr"], subprocess.DEVNULL)
 
+    def test_timed_helpers_kill_their_tree_and_untimed_ones_do_not(self):
+        # Wave 1z822: only a call with a timeout needs the tree kill.
+        import subprocess_util
+
+        tree_calls, run_calls = [], []
+        with patch.object(subprocess_util, "run_with_tree_kill",
+                          side_effect=lambda cmd, **kw: tree_calls.append(kw) or subprocess.CompletedProcess(cmd, 0, "", "")), \
+             patch.object(subprocess, "run",
+                          side_effect=lambda cmd, **kw: run_calls.append(kw) or subprocess.CompletedProcess(cmd, 0, "", "")):
+            self.srv._mcp_subprocess_run(["tool"], cwd=".", timeout=5)
+            self.srv._mcp_subprocess_run(["tool"], cwd=".")
+        self.assertEqual(len(tree_calls), 1)
+        self.assertEqual(tree_calls[0]["timeout"], 5)
+        self.assertIs(tree_calls[0]["stdin"], subprocess.DEVNULL)
+        self.assertEqual(len(run_calls), 1)
+        self.assertIsNone(run_calls[0]["timeout"])
+
     def test_background_index_refresh_uses_windows_no_window_flag(self):
         src = inspect.getsource(self.srv._start_background_index_refresh)
         self.assertIn("subprocess.DETACHED_PROCESS", src)
@@ -4534,7 +4551,7 @@ class PreferredPythonSubprocessTests(unittest.TestCase):
         venv_python = self._make_venv_python()
         mock_proc = MagicMock(returncode=0, stdout="docs-lint: ok\n", stderr="")
         with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_python.parents[1])}), \
-             patch("subprocess.run", return_value=mock_proc) as run_mock:
+             patch("subprocess_util.run_with_tree_kill", return_value=mock_proc) as run_mock:
             self.srv.run_validate(self.root)
         called_cmd = run_mock.call_args.args[0]
         self.assertEqual(called_cmd[0], str(venv_python))

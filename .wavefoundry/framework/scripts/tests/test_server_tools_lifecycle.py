@@ -3198,7 +3198,7 @@ class RunValidateTests(unittest.TestCase):
         mock_result.returncode = returncode
         mock_result.stdout = output
         mock_result.stderr = ""
-        with patch("subprocess.run", return_value=mock_result):
+        with patch("subprocess_util.run_with_tree_kill", return_value=mock_result):  # wave 1z822: timed helpers kill their tree
             return self.srv.run_validate(self.root)
 
     def test_passed_true_on_zero_returncode(self):
@@ -3441,7 +3441,7 @@ class RunGardenTests(unittest.TestCase):
         mock_result.returncode = returncode
         mock_result.stdout = output
         mock_result.stderr = ""
-        with patch("subprocess.run", return_value=mock_result):
+        with patch("subprocess_util.run_with_tree_kill", return_value=mock_result):  # wave 1z822: timed helpers kill their tree
             return self.srv.run_garden(self.root)
 
     def test_passed_true_on_zero(self):

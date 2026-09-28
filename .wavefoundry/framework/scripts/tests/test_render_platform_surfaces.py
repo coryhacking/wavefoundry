@@ -349,11 +349,12 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             # Owner-bound hosts resolve through their documented root signal;
             # root-cwd hosts keep explicit repository-relative commands.
             mod = _load_render_module()
+            # Wave 1z822: pre-edit launchers fail closed; post-edit ones keep the plain form.
             expected_claude_command = mod.launcher_command(
-                ".claude/hooks/pre-edit", "CLAUDE_PROJECT_DIR"
+                ".claude/hooks/pre-edit", "CLAUDE_PROJECT_DIR", fail_closed=True
             )
             expected_cursor_command = 'python3 ".cursor/hooks/after-file-edit.py"'
-            expected_copilot_command = 'python3 ".github/hooks/pre-tool-use.py"'
+            expected_copilot_command = mod.launcher_command(".github/hooks/pre-tool-use", fail_closed=True)
 
             claude_settings = json.loads((repo_root / ".claude" / "settings.json").read_text(encoding="utf-8"))
             self.assertEqual(
@@ -1179,6 +1180,163 @@ class ClaudeHookSimulateParityTests(unittest.TestCase):
             simulate_src,
             "the Stop session-capture hook must be present in the simulate HOOKS map",
         )
+
+
+_STUB_INDEXER = """
+from pathlib import Path
+
+
+def docs_lint_hook_timeout_seconds(root):
+    return 30.0
+
+
+def mark_reindex_pending(index_dir):
+    Path(index_dir).mkdir(parents=True, exist_ok=True)
+    (Path(index_dir) / "pending-marked").write_text("1")
+
+
+def should_coalesce_hook_reindex(index_dir):
+    return True
+
+
+def consume_reindex_pending(index_dir):
+    return False
+
+
+def record_hook_reindex_spawn(index_dir):
+    pass
+"""
+
+
+@unittest.skipIf(os.name == "nt", "POSIX shell and symlink fixture")
+class RenderedEditHookPathTests(unittest.TestCase):
+    """Wave 1z822: rendered edit hooks classify host paths through one resolver."""
+
+    def setUp(self):
+        self.mod = _load_render_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.base = Path(self.tmp.name).resolve()
+        self.root = self.base / "repo"
+        scripts = self.root / ".wavefoundry" / "framework" / "scripts"
+        scripts.mkdir(parents=True)
+        (self.root / ".wavefoundry" / "framework" / "seeds").mkdir()
+        (self.root / "docs").mkdir()
+        (scripts / "indexer.py").write_text(_STUB_INDEXER, encoding="utf-8")
+        (scripts / "docs_lint.py").write_text(
+            "import sys\nprint('docs-lint: stub failure')\nsys.exit(1)\n", encoding="utf-8")
+        self.hooks = {
+            ".claude/hooks/pre-edit.py": self.mod.claude_pre_edit_source(),
+            ".claude/hooks/post-edit.py": self.mod.claude_post_edit_source(),
+            ".github/hooks/post-tool-use.py": self.mod.copilot_post_tool_use_source(),
+            ".cursor/hooks/after-file-edit.py": self.mod.cursor_after_file_edit_source(),
+        }
+        for rel, source in self.hooks.items():
+            target = self.root / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(source, encoding="utf-8")
+        for gate in ("seed-warn", "framework-plan-warn", "docs-lint"):
+            (self.root / ".cursor" / "hooks" / f"{gate}.py").write_text(
+                "import sys\nprint('gate warns')\nsys.exit(10)\n", encoding="utf-8")
+
+    def _gates(self, seed=False, framework=False):
+        (self.root / ".wavefoundry" / "guard-overrides.json").write_text(json.dumps({
+            "seed_edit_allowed": {"enabled": seed},
+            "framework_edit_allowed": {"enabled": framework},
+        }), encoding="utf-8")
+
+    def _run(self, rel, path):
+        payload = json.dumps({"tool_input": {"file_path": str(path)}})
+        return subprocess.run([sys.executable, str(self.root / rel)], input=payload, text=True,
+                              capture_output=True, cwd=str(self.base), timeout=60)
+
+    def _pending(self):
+        marker = self.root / ".wavefoundry" / "index" / "pending-marked"
+        found = marker.exists()
+        if found:
+            marker.unlink()
+        return found
+
+    def _case_insensitive(self):
+        return os.path.exists(str(self.root).swapcase())
+
+    def test_pre_edit_gates_every_spelling_of_a_guarded_path(self):
+        seed = self.root / ".wavefoundry" / "framework" / "seeds" / "100-x.prompt.md"
+        script = self.root / ".wavefoundry" / "framework" / "scripts" / "tool.py"
+        link = self.base / "link-to-framework"
+        link.symlink_to(self.root / ".wavefoundry" / "framework")
+        spellings = [
+            seed,
+            "./.wavefoundry/framework/seeds/100-x.prompt.md",
+            "docs/../.wavefoundry/framework/scripts/tool.py",
+            script,
+            link / "scripts" / "tool.py",
+        ]
+        if self._case_insensitive():
+            spellings.append(Path(str(self.root) + "/.WAVEFOUNDRY/framework/scripts/tool.py"))
+            spellings.append(Path(str(self.root).swapcase() + "/.wavefoundry/framework/scripts/tool.py"))
+        self._gates()
+        for spelling in spellings:
+            with self.subTest(path=str(spelling)):
+                self.assertEqual(self._run(".claude/hooks/pre-edit.py", spelling).returncode, 2)
+        self._gates(seed=True, framework=True)
+        for spelling in spellings:
+            with self.subTest(path=str(spelling), gates="open"):
+                self.assertEqual(self._run(".claude/hooks/pre-edit.py", spelling).returncode, 0)
+        self._gates()
+        outside = self.base / "elsewhere" / ".wavefoundry" / "framework" / "scripts" / "tool.py"
+        self.assertEqual(self._run(".claude/hooks/pre-edit.py", outside).returncode, 0)
+        self.assertEqual(self._run(".claude/hooks/post-edit.py", outside).returncode, 0)
+        self.assertFalse(self._pending())
+
+    def test_post_edit_reindexes_even_when_lint_or_a_gate_fails(self):
+        doc = self.root / "docs" / "guide.md"
+        claude = self._run(".claude/hooks/post-edit.py", doc)
+        self.assertEqual(claude.returncode, 1)
+        self.assertIn("stub failure", claude.stderr)
+        self.assertTrue(self._pending())
+        copilot = self._run(".github/hooks/post-tool-use.py", doc)
+        self.assertEqual(copilot.returncode, 1)
+        self.assertTrue(self._pending())
+        cursor = self._run(".cursor/hooks/after-file-edit.py", doc)
+        self.assertEqual(json.loads(cursor.stdout)["continue"], False)
+        self.assertTrue(self._pending())
+
+    def _launch(self, command, env_overrides=None, cwd=None):
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
+        env.update(env_overrides or {})
+        return subprocess.run(command, shell=True, cwd=str(cwd or self.root), env=env,
+                              capture_output=True, text=True, timeout=60).returncode
+
+    def test_pre_edit_launchers_fail_closed_and_others_do_not(self):
+        bodies = {
+            ".claude/hooks/pre-edit.py": "raise RuntimeError('boom')\n",
+            ".claude/hooks/session-capture.py": "raise RuntimeError('boom')\n",
+            ".github/hooks/pre-tool-use.py": "raise RuntimeError('boom')\n",
+            ".windsurf/hooks/seed-protect.py": "raise RuntimeError('boom')\n",
+        }
+        for rel, body in bodies.items():
+            (self.root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / rel).write_text(body, encoding="utf-8")
+        root_env = {"CLAUDE_PROJECT_DIR": str(self.root)}
+        claude_pre = self.mod.launcher_command(".claude/hooks/pre-edit", "CLAUDE_PROJECT_DIR", fail_closed=True)
+        claude_stop = self.mod.launcher_command(".claude/hooks/session-capture", "CLAUDE_PROJECT_DIR")
+        self.assertEqual(self._launch(claude_pre, root_env), 2)
+        self.assertEqual(self._launch(claude_pre), 2)
+        self.assertEqual(self._launch(claude_stop, root_env), 1)
+        self.assertEqual(self._launch(claude_stop), 1)
+        for rel_base in (".github/hooks/pre-tool-use", ".windsurf/hooks/seed-protect"):
+            with self.subTest(launcher=rel_base):
+                self.assertEqual(self._launch(self.mod.launcher_command(rel_base, fail_closed=True)), 2)
+        (self.root / ".claude/hooks/pre-edit.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+        self.assertEqual(self._launch(claude_pre, root_env), 0)
+        settings = {}
+        with patch.object(self.mod, "write_text", side_effect=lambda path, text, **kw: settings.update(json.loads(text))):
+            self.mod.render_claude_settings(self.root)
+        commands = {event: entries[0]["hooks"][0]["command"] for event, entries in settings["hooks"].items()}
+        self.assertIn("os._exit(2)", commands["PreToolUse"])
+        for event in ("PostToolUse", "Stop", "SessionStart"):
+            self.assertNotIn("os._exit(2)", commands[event])
 
 
 if __name__ == "__main__":

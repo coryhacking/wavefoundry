@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-26
+Last verified: 2026-09-27
 
 ## Verification Commands
 
@@ -72,6 +72,8 @@ What this does:
 - rebuilds the project docs index (seeds + docs), semantic code index, and graph index in the foreground
 
 **MCP search is complete when setup returns.** The default setup path treats docs and code the same: both semantic layers build in the foreground.
+
+**Package-age guard.** When `wf setup` installs missing or out-of-range dependencies through `uv`, it passes `--exclude-newer` with a cutoff 21 days in the past, so a package release younger than that is not installed. The guard applies only on that path: when `uv` cannot be found or bootstrapped, setup falls back to plain `pip` and prints a warning, and a tool environment built by hand never passes through setup's installer at all. `mcp` is pinned below 2 (`mcp[cli]<2`) until the server migrates to the 2.x API, which removed `mcp.server.fastmcp`; an environment that already installed 2.x is reported as needing setup, and `wf setup` reinstalls a 1.x release.
 
 ### Quick local readiness check
 
