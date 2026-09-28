@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-09-25
+Last verified: 2026-09-28
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -72,9 +72,10 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 
 | Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
-| accounting_gap | 0 | 0 |
+| review | 2 | 938 |
+| **Total** | **2** | **938** |
 
-<!-- wave:context-efficiency-state {"generation":0,"measurement_status":"accounting_gap","pending":false,"schema_version":1,"stages":{},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":0,"content_source_credit":0,"derived_artifact_credit":0,"direct_net":0,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":0,"response_debit":0,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0},"wave_id":"1z1vt post-upgrade-reload-live-runner"} -->
+<!-- wave:context-efficiency-state {"generation":2,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"review":{"calls":2,"content_source_credit":0,"derived_artifact_credit":1147,"direct_net":938,"estimated_tokens_saved":938,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":16,"response_debit":193,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":2,"content_source_credit":0,"derived_artifact_credit":1147,"direct_net":938,"estimated_tokens_saved":938,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":16,"response_debit":193,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0},"wave_id":"1z1vt post-upgrade-reload-live-runner"} -->
 <!-- wave:context-efficiency end -->
 
 <!-- wave:exploration-avoided begin -->
