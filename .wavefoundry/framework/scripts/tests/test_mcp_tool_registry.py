@@ -355,11 +355,15 @@ class HandlerDigestTests(unittest.TestCase):
 class RealSurfaceRegistryTests(_BootedSurface):
     def test_registry_names_and_tiers_match_the_roster(self):
         # AC-2: names equal the roster minus runner survivors, tiers match.
+        # Wave 1z8oz: the served roster is all_tool_tiers(), which adds declared
+        # extension tools and aliases and omits hidden names; the stock
+        # declaration makes it equal TOOL_TIERS.
         registry = self.impl._TOOL_REGISTRY
-        expected = set(self.roster.TOOL_TIERS) - set(self.roster.RUNNER_TOOLS)
+        tiers = self.roster.all_tool_tiers()
+        expected = set(tiers) - set(self.roster.RUNNER_TOOLS)
         self.assertEqual({spec.name for spec in registry.tools()}, expected)
         for spec in registry.tools():
-            self.assertEqual(spec.tier, self.roster.TOOL_TIERS[spec.name], spec.name)
+            self.assertEqual(spec.tier, tiers[spec.name], spec.name)
         self.assertEqual(registry.parity_defects, [])
 
     def test_specs_hold_the_callables_fastmcp_serves(self):

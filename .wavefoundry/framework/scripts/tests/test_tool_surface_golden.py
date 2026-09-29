@@ -428,13 +428,16 @@ class RosterRuntimeParityTests(_BootedSurface):
 
     def test_registered_set_equals_roster_both_ways(self):
         # AC-4 / Requirement 5: complete set, survivors included, no literal count.
+        # Wave 1z8oz: compare with all_tool_tiers(), the served roster; the
+        # stock declaration makes it equal TOOL_TIERS.
         registered = set(self.mcp._tool_manager._tools)
-        self.assertEqual(parity_errors(registered, self.roster.TOOL_TIERS, self.roster.RUNNER_TOOLS), [])
+        tiers = self.roster.all_tool_tiers()
+        self.assertEqual(parity_errors(registered, tiers, self.roster.RUNNER_TOOLS), [])
         self.assertTrue(set(self.roster.RUNNER_TOOLS) <= registered)
         # Implementation-side complement: registered minus survivors equals
         # roster minus survivors (what register_mcp_surface's warning compares).
         runner = set(self.roster.RUNNER_TOOLS)
-        self.assertEqual(registered - runner, set(self.roster.TOOL_TIERS) - runner)
+        self.assertEqual(registered - runner, set(tiers) - runner)
 
     def test_parity_fails_in_both_directions(self):
         registered = set(self.mcp._tool_manager._tools)

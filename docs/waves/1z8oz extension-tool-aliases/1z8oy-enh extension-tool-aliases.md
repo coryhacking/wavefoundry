@@ -1,10 +1,10 @@
 # Extension Tool Aliases, Hidden Names and Replacements
 
 Change ID: `1z8oy-enh extension-tool-aliases`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
-Status: planned
-Last verified: 2026-09-28
+Status: complete
+Last verified: 2026-09-29
 Wave: 1z8oz extension-tool-aliases
 
 ## Rationale
@@ -89,53 +89,25 @@ In FastMCP 1.28.1, `Tool` is a pydantic model and `Tool.run` calls `self.fn`. A 
 
 ## Acceptance Criteria
 
-- [ ] AC-1: each invalid declaration named in Requirement 2 is refused, with a message naming the entry, and startup strips to runner tools. The cases include:
-  - an alias named `wf_reload_mcp` on first startup;
-  - an alias whose target is a replaced core name;
-  - hiding a replaced core name;
-  - an aliases-only declaration with no module, which is validated and served rather than ignored.
-- [ ] AC-2: a plain alias carries the canonical protections:
-  - an alias of `wf_close_wave` returns the lock-busy response while the lifecycle lock is held;
-  - an alias of a write-tier tool is blocked by the publication guard during an upgrade checkpoint;
-  - an alias of a cost-exempt tool records no cost;
-  - `table[alias].fn is table[canonical].fn`.
-
-  Each test calls through the alias name over the served table.
-- [ ] AC-3: a hidden canonical name is absent from `list_tools` and not callable over MCP, while its alias works.
-- [ ] AC-4: a replacement with an incompatible schema behaves as follows:
-  - It is served under the core name, with the lifecycle lock applied.
-  - It records only a cost debit, with no extractor credit.
-  - Its own `next_tools` are not rewritten.
-  - The core behaviour answers under `alias_for_core` with the lock and guard (the AC-2 checks), and with extractor credit on an extractor-bearing tool (`wf_review_event`).
-  - The replacing handler's `__wf_middleware__` markers equal that core name's stock markers. The markers of the core behaviour under `alias_for_core` equal the stock markers plus `rewrite`.
-  - Its lock-busy response names `alias_for_core` in `recovery_tools` and `next_tools`.
-  - A replacement declaring `"write"` on a read-tier core name is guarded and allowlisted at write tier. The core behaviour under `alias_for_core` stays unguarded.
-  - A declared `"write"` replacement of `memory_validate` leaves the core behaviour's `memory_recovery` exemption intact.
-  - `wf_server_info` lists the replacement.
-- [ ] AC-5: rewriting uses the served names:
-  - With an alias declared, `next_tools`, `usage`, `recovery_tools` and `recovery_usage` in a real handler response name the alias.
-  - A core response naming a replaced core name is rewritten to `alias_for_core`.
-  - A name that contains the canonical name as a substring (`wf_close_wave_x`) is not rewritten.
-  - With the shipped empty declaration, the surface golden (`tests/test_tool_surface_golden.py`), `HandlerDigestTests` and the `MIDDLEWARE` order pin are unchanged, and every response except `wf_server_info` is byte-identical.
-  - `StockSurfaceTests` asserts that the new `wf_server_info` fields are empty.
-- [ ] AC-6: after `wf_reload_mcp`, aliases, hidden names and replacements are rebuilt from the declaration, and a declaration made invalid before reload fails closed.
-- [ ] AC-7: the rendered permission allowlist includes each alias and `alias_for_core` at its tier and omits hidden names. Parity is tested at two levels:
-  - `RosterRegistrationParityTests` passes unchanged, as the core-source gate.
-  - `RealSurfaceRegistryTests` and `RosterRuntimeParityTests` pass both for the shipped empty declaration and for fixture declarations: one with an alias, a hidden name and a replacement, and one that is aliases-only. The fixture cases run on a booted server or through the `ExtensionServingTests` path.
-
-  `DeclarationValidationTests` saves and restores all seven declaration constants.
-- [ ] AC-8: the change's own suites pass, and the documents it edits validate.
+- [x] AC-1: each invalid declaration named in Requirement 2 is refused, with a message naming the entry, and startup strips to runner tools. The cases include: an alias named `wf_reload_mcp` on first startup; an alias whose target is a replaced core name; hiding a replaced core name; an aliases-only declaration with no module, which is validated and served rather than ignored.
+- [x] AC-2: a plain alias carries the canonical protections: an alias of `wf_close_wave` returns the lock-busy response while the lifecycle lock is held; an alias of a write-tier tool is blocked by the publication guard during an upgrade checkpoint; an alias of a cost-exempt tool records no cost; `table[alias].fn is table[canonical].fn`. Each test calls through the alias name over the served table.
+- [x] AC-3: a hidden canonical name is absent from `list_tools` and not callable over MCP, while its alias works.
+- [x] AC-4: a replacement with an incompatible schema behaves as follows: it is served under the core name, with the lifecycle lock applied; it records only a cost debit, with no extractor credit; its own `next_tools` are not rewritten; the core behaviour answers under `alias_for_core` with the lock and guard (the AC-2 checks), and with extractor credit on an extractor-bearing tool (`wf_review_event`); the replacing handler's `__wf_middleware__` markers equal that core name's stock markers, plus `cost` when the core name is cost-exempt (its core handler records its own cost; a replacing handler does not, so it gets the cost wrapper). The markers of the core behaviour under `alias_for_core` equal the stock markers plus `rewrite`; its lock-busy response names `alias_for_core` in `recovery_tools` and `next_tools`; a replacement declaring `"write"` on a read-tier core name is guarded and allowlisted at write tier. The core behaviour under `alias_for_core` stays unguarded; a declared `"write"` replacement of `memory_validate` leaves the core behaviour's `memory_recovery` exemption intact; `wf_server_info` lists the replacement.
+- [x] AC-5: rewriting uses the served names: with an alias declared, `next_tools`, `usage`, `recovery_tools` and `recovery_usage` in a real handler response name the alias; a core response naming a replaced core name is rewritten to `alias_for_core`; a name that contains the canonical name as a substring (`wf_close_wave_x`) is not rewritten; with the shipped empty declaration, the surface golden (`tests/test_tool_surface_golden.py`), `HandlerDigestTests` and the `MIDDLEWARE` order pin are unchanged, and every response except `wf_server_info` is byte-identical; `StockSurfaceTests` asserts that the new `wf_server_info` fields are empty.
+- [x] AC-6: after `wf_reload_mcp`, aliases, hidden names and replacements are rebuilt from the declaration, and a declaration made invalid before reload fails closed.
+- [x] AC-7: the rendered permission allowlist includes each alias and `alias_for_core` at its tier and omits hidden names. Parity is tested at two levels: `RosterRegistrationParityTests` passes unchanged, as the core-source gate; `RealSurfaceRegistryTests` and `RosterRuntimeParityTests` pass both for the shipped empty declaration and for fixture declarations: one with an alias, a hidden name and a replacement, and one that is aliases-only. The fixture cases run on a booted server or through the `ExtensionServingTests` path. `DeclarationValidationTests` saves and restores all seven declaration constants.
+- [x] AC-8: the change's own suites pass, and the documents it edits validate.
 
 ## Tasks
 
-- [ ] Declaration constants, `declared()`, and validation in `declaration_problems` and `_install_extension_tools`.
-- [ ] Alias installation after `apply_middleware` inside the fail-closed block; hidden-name removal.
-- [ ] Replacements: capture before removal; keep `additionalProperties: false`; per-pass `extractors` flag in the cost wrapper; scratch-surface wrap of the captured core `Tool`; declared tier and guard membership.
-- [ ] Hint-rewrite wrapper, appended only when the map is non-empty.
-- [ ] `all_tool_tiers()`, `allow_rules()`, `build_registry`; parity tests switched to `all_tool_tiers()`.
-- [ ] `wf_server_info` provenance and `StockSurfaceTests`.
-- [ ] Tests for AC-1 to AC-7 using scratch extension module fixtures.
-- [ ] Spec, threat model, current-state, build-and-verification, CHANGELOG.
+- [x] Declaration constants, `declared()`, and validation in `declaration_problems` and `_install_extension_tools`.
+- [x] Alias installation after `apply_middleware` inside the fail-closed block; hidden-name removal.
+- [x] Replacements: capture before removal; keep `additionalProperties: false`; per-pass `extractors` flag in the cost wrapper; scratch-surface wrap of the captured core `Tool`; declared tier and guard membership.
+- [x] Hint-rewrite wrapper, appended only when the map is non-empty.
+- [x] `all_tool_tiers()`, `allow_rules()`, `build_registry`; parity tests switched to `all_tool_tiers()`.
+- [x] `wf_server_info` provenance and `StockSurfaceTests`.
+- [x] Tests for AC-1 to AC-7 using scratch extension module fixtures.
+- [x] Spec, threat model, current-state, build-and-verification, CHANGELOG.
 
 ## Agent Execution Graph
 
@@ -179,6 +151,8 @@ The spec `docs/specs/mcp-tool-surface.md` owns the declaration contract.
 | 2026-09-28 | Planned from the downstream RFC section 4.3. Code facts verified: every wrapper keys on the served table key, overrides already exist, hints are literals at about 333 `next_tools` sites | investigation of `mcp_tool_extensions.py`, `server_impl.register_mcp_surface`, FastMCP 1.28.1 `ToolManager` |
 | 2026-09-28 | Readiness review folded in: capture and separately wrap the core `Tool` for replacements; per-pass extractor flag; replacement-aware rewrite map; `declared()` covers the new constants; checks split by location; `wf_reload_mcp` alias case; optional replacement tier; parity tests on `all_tool_tiers()`; docs census | readiness review B1 to B4, N1 to N10; scratch probe of `model_copy` on a wrapped `Tool` |
 | 2026-09-28 | Confirmation round folded in: rewrite skip and writer-guard membership decided per pass (a declared-write replacement no longer changes the core behaviour's guard or drops the memory-recovery exemption); core-source parity test kept on `TOOL_TIERS`; marker expectations; extension-tool alias targets; `layering-rules.md` | confirmation review B5, B6, N-a to N-f; scratch probe of `apply_middleware` on a stub surface |
+| 2026-09-29 | Implemented. `mcp_tool_extensions`: three constants, `declared()` covers them, `replacement_targets()`, `served_name_map()`, and `_alias_hide_replacement_problems` in `declaration_problems`. `mcp_tool_roster.all_tool_tiers()` adds aliases at their canonical tier and `alias_for_core` at the core tier, applies a declared replacement tier, and omits hidden names. `server_impl`: `_install_extension_tools` classifies replacements, refuses a replacement that does not reject undeclared arguments or is not registered, refuses aliases and `alias_for_core` names in the reserved collections, and captures each replaced core `Tool` into `_EXTENSION_REPLACED_CORE`; `MIDDLEWARE` entries pass `_cost_pass_kwargs()` (`extractor_free`) and `_guard_pass_kwargs()` (`checkpoint_writers`), both empty unless a replacement is installed, so the stock calls are unchanged; the cost and guard wrappers decide extractors and checkpoint-versus-block per tool when built; `_wrap_served_name_hints` and `_rewrite_served_names` rewrite the four hint fields on a copy; `register_mcp_surface` appends `rewrite` only when the map is non-empty (skipping replacing handlers) and then `_install_served_names` wraps each captured core `Tool` on its own surface with `_CORE_BEHAVIOUR_MIDDLEWARE` plus rewrite, installs `alias_for_core`, installs aliases as `model_copy` renames and removes hidden names, all inside the fail-closed block, whose `except` also clears `_EXTENSION_REPLACED_CORE`; `wf_server_info` `extensions` gains `aliases`, `hidden`, `replacements` and `served_names`. Tests in `test_extension_tool_modules.py`: `alias` and `replace` driver modes (`AliasServingTests`, `ReplacementServingTests`), seventeen new refusal cases and an aliases-only positive case, `ServedNameRewriteTests`, declaration tests, stock fields empty; `RealSurfaceRegistryTests` and `RosterRuntimeParityTests` compare against `all_tool_tiers()`. Scratch mutants (clean baseline with PYTHONPATH set): unwrapped alias copy, rewrite applied to replacing handlers, extractors on for replacing handlers, core behaviour wrapped with the main chain, hidden names kept, roster keeping hidden names, write replacement unguarded, substring rewrite, aliases-only not declared, alias of a replaced name allowed, and guard choice keyed by name each fail at least one test. Focused suites: test_extension_tool_modules 51, test_mcp_tool_registry 27, test_tool_surface_golden 13, test_render_platform_surfaces 116, test_server_package 31, test_server_tools 348, test_docs_lint 1115, all OK. Gapfill: the Read tool and grep were used for server_impl.py (over 1 MB), the extension tests and the serialization-point docs, because every edit needed exact surrounding text; the pre-implementation symbol census also used grep. | tests/test_extension_tool_modules.py; scratch mutation run |
+| 2026-09-29 | Delivery repairs DEL-1 to DEL-4. DEL-1: `_wrap_first_party_tool_costs` skips a `_COST_EXEMPT_TOOLS` name only when it is not in `extractor_free`, so a replacing handler on a cost-exempt name records its debit; AC-4's marker clause amended accordingly. DEL-2: `_alias_hide_replacement_problems` refuses a hidden name declared twice, and the replaced-name refusal no longer advises aliasing `alias_for_core` (which is itself refused as another alias). DEL-3: threat model states that a declared tier replaces only the roster tier; the spec states that the rewrite also applies to the distribution's own tools and overrides, that an exempt replaced name gets the cost wrapper, and that a hidden name is declared once. DEL-4: the replacement fixture also replaces `wf_current_wave`, so a non-replaced core tool's lock-busy hints (`wf_add_change`) must name `fork_current_core`; replacement reload; a stock registration after a replacement on the same module leaves `_EXTENSION_REPLACED_CORE` empty and `wf_close_wave` without the cost marker; the replacing `memory_validate` keeps its guard and recovery exemption; the cost-exempt alias check calls without the busy lock; `_CORE_BEHAVIOUR_MIDDLEWARE` labels are pinned to `MIDDLEWARE`. Scratch mutants (clean baseline): reverting DEL-1, accepting duplicate hidden names, no clear at install start, main-pass map without replaced names, checkpoint guard for registered publishers, and a core chain missing a wrapper each fail at least one test. test_extension_tool_modules 57 OK. | events.jsonl DEL-1 to DEL-4; scratch mutation run |
 
 ## Decision Log
 

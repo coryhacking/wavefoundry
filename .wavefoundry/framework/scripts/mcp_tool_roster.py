@@ -168,6 +168,10 @@ TOOL_TIERS: dict[str, str] = {
 def all_tool_tiers() -> dict[str, str]:
     """Core tiers plus validated declared extension tiers.
 
+    Wave 1z8oz: aliases take their canonical tier, each ``alias_for_core``
+    takes the core tier, a replacement's declared tier replaces its core
+    name's tier, and hidden names are omitted.
+
     Raises ``mcp_tool_extensions.ExtensionDeclarationError`` when the
     declaration is invalid, so no caller derives rules from it.
     """
@@ -179,6 +183,14 @@ def all_tool_tiers() -> dict[str, str]:
         runner_tools=RUNNER_TOOLS,
     )
     tiers.update(mcp_tool_extensions.EXTENSION_TOOL_TIERS)
+    for core_name, (_module, spec) in mcp_tool_extensions.replacement_targets().items():
+        tiers[spec["alias_for_core"]] = TOOL_TIERS[core_name]
+        if "tier" in spec:
+            tiers[core_name] = spec["tier"]
+    for alias, canonical in mcp_tool_extensions.EXTENSION_TOOL_ALIASES.items():
+        tiers[alias] = tiers[canonical]
+    for name in mcp_tool_extensions.EXTENSION_HIDDEN_TOOLS:
+        tiers.pop(name, None)
     return tiers
 
 

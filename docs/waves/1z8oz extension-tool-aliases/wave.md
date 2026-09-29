@@ -1,8 +1,8 @@
 # Wave Record
 
 Owner: Engineering
-Status: planned
-Last verified: 2026-09-28
+Status: closed
+Last verified: 2026-09-29
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -16,7 +16,7 @@ A fork can serve Wavefoundry tools under its own names, hide canonical names, an
 ## Changes
 
 Change ID: `1z8oy-enh extension-tool-aliases`
-Change Status: `planned`
+Change Status: `complete`
 
 ## Participants
 
@@ -25,22 +25,35 @@ Change Status: `planned`
 - Requested review lanes: architecture-reviewer, security-reviewer
 - Required review lanes: code-reviewer, qa-reviewer, architecture-reviewer, docs-contract-reviewer, security-reviewer
 
+Completed At: 2026-09-29
+
 ## Wave Summary
 
-Adds alias, hidden-name and replacement declarations to the extension declaration. Aliases are copies of the wrapped canonical tool, so the lifecycle lock, publication guard and cost wrapper apply by construction.
+Wave `1z8oz` (Extension Tool Aliases) delivered one change: Extension Tool Aliases, Hidden Names and Replacements. Notable adjustments during implementation: Extension Tool Aliases, Hidden Names and Replacements: Delivery repairs DEL-1 to DEL-4. DEL-1: `_wrap_first_party_tool_costs` skips a `_COST_EXEMPT_TOOLS` name only when it is not in `extractor_free`, so a replacing handler on a cost-exempt name records its debit; AC-4's marker clause amended accordingly. DEL-2: `_alias_hide_replacement_problems` refuses a hidden name declared twice, and the replaced-name refusal no longer advises aliasing `alias_for_core` (which is itself refused as another alias). DEL-3: threat model states that a declared tier replaces only the roster tier; the spec states that the rewrite also applies to the distribution's own tools and overrides, that an exempt replaced name gets the cost wrapper, and that a hidden name is declared once. DEL-4: the replacement fixture also replaces `wf_current_wave`, so a non-replaced core tool's lock-busy hints (`wf_add_change`) must name `fork_current_core`; replacement reload; a stock registration after a replacement on the same module leaves `_EXTENSION_REPLACED_CORE` empty and `wf_close_wave` without the cost marker; the replacing `memory_validate` keeps its guard and recovery exemption; the cost-exempt alias check calls without the busy lock; `_CORE_BEHAVIOUR_MIDDLEWARE` labels are pinned to `MIDDLEWARE`. Scratch mutants (clean baseline): reverting DEL-1, accepting duplicate hidden names, no clear at install start, main-pass map without replaced names, checkpoint guard for registered publishers, and a core chain missing a wrapper each fail at least one test. test_extension_tool_modules 57 OK.
 
+**Changes delivered:**
+
+- **Extension Tool Aliases, Hidden Names and Replacements** (`1z8oy-enh extension-tool-aliases`) — 8 ACs completed. Key decisions: Declare aliases in the extension declaration, not the vocabulary profile; Aliases are `model_copy` renames of the wrapped canonical `Tool`
 ## Watchpoints
 
-- Watchpoint: serializes with wave `1z8ox` (its change `1z8ow` edits `wf_server/server_impl.py` and tests); block opening until `1z8ox` closes, or rebase on it.
+- Watchpoint: serialized with wave `1z8ox`, which closed on 2026-09-29 and is committed (`24513060`); this wave builds on it.
+
+## Review Checkpoints
+
+- **Prepare-phase Wave Council [prepare-council] — 2026-09-28: PASS** (moderator: wave-council; primer-depth: standard; seats: red-team, docs-contract-reviewer; rotating-seat: docs-contract-reviewer; strongest-challenge: the replacing handler and the core behaviour share one name key, so every name-keyed decision leaks across them, resolved by deciding extractors, rewrite skip and guard membership at wrap time from a main-pass-only set; strongest-alternative: split replacements into a follow-up change, declined by operator decision to keep them together). Red-team seat: the leak above plus the unwrapped replacement capture, both folded into Requirement 5. Docs seat: AC-7 named a source census that cannot see declarations, split into core-source and booted parity.
+- 2026-09-29: AC sub-bullets folded into single lines (wording unchanged) so implement-time lint accepts them; every code anchor the plan names re-verified against the tree after waves 1z8ox and 1zbrr; approvals re-recorded by reference against the new receipt.
 
 ## Finding Synthesis
 
 <!-- wave:finding-synthesis begin -->
 | Current finding | Disposition | Open block | Repair | Approval recheck |
 | --- | --- | --- | --- | --- |
-| — | — | — | — | — |
+| DEL-1 | do_now | no | completed | — |
+| DEL-2 | do_now | no | completed | — |
+| DEL-3 | do_now | no | completed | — |
+| DEL-4 | do_now | no | completed | — |
 
-*Machine review state — 0 findings; current: do_now 0, maybe_later 0, dont_do_later 0, not_issue 0*
+*Machine review state — 4 findings; current: do_now 4, maybe_later 0, dont_do_later 0, not_issue 0*
 <!-- wave:finding-synthesis end -->
 
 ## Review Evidence
@@ -49,13 +62,13 @@ Adds alias, hidden-name and replacement declarations to the extension declaratio
 | Signoff | State | Why | Next action |
 | --- | --- | --- | --- |
 | wave-council-readiness | approved | current executed approval by coryhacking follows every affected repair | none |
-| wave-council-delivery | pending | no current executed approval | record approval evidence for wave-council-delivery |
-| code-reviewer | pending | no current executed approval | record approval evidence for code-reviewer |
-| qa-reviewer | pending | no current executed approval | record approval evidence for qa-reviewer |
-| architecture-reviewer | pending | no current executed approval | record approval evidence for architecture-reviewer |
-| docs-contract-reviewer | pending | no current executed approval | record approval evidence for docs-contract-reviewer |
-| security-reviewer | pending | no current executed approval | record approval evidence for security-reviewer |
-| operator-signoff | pending | no current executed approval | record approval evidence for operator-signoff |
+| wave-council-delivery | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
+| code-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
+| qa-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
+| architecture-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
+| docs-contract-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
+| security-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
+| operator-signoff | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
 <!-- wave:review-status end -->
 
 - operator-signoff: <approved when operator confirms closure>
@@ -72,12 +85,25 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 
 | Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
-| plan | 29 | 401,930 |
-| **Total** | **29** | **401,930** |
+| plan | 46 | 436,065 |
+| implement | 40 | 0 |
+| review | 47 | 929,267 |
+| **Total** | **133** | **1,365,332** |
 
-<!-- wave:context-efficiency-state {"generation":29,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"plan":{"calls":29,"content_source_credit":456975,"derived_artifact_credit":1536,"direct_net":401930,"estimated_tokens_saved":401930,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3208,"response_debit":57182,"source_credit_count":24,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3809}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":29,"content_source_credit":456975,"derived_artifact_credit":1536,"direct_net":401930,"estimated_tokens_saved":401930,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3208,"response_debit":57182,"source_credit_count":24,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3809},"wave_id":"1z8oz extension-tool-aliases"} -->
+<!-- wave:context-efficiency-state {"generation":135,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":40,"content_source_credit":0,"derived_artifact_credit":0,"direct_net":-6454,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":1285,"response_debit":7355,"source_credit_count":0,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2186},"plan":{"calls":46,"content_source_credit":512310,"derived_artifact_credit":3104,"direct_net":436065,"estimated_tokens_saved":436065,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":7013,"response_debit":78847,"source_credit_count":38,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6511},"review":{"calls":47,"content_source_credit":1069563,"derived_artifact_credit":3190,"direct_net":929267,"estimated_tokens_saved":929267,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":10807,"response_debit":134995,"source_credit_count":61,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2316}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":133,"content_source_credit":1581873,"derived_artifact_credit":6294,"direct_net":1358878,"estimated_tokens_saved":1365332,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":19105,"response_debit":221197,"source_credit_count":99,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":11013},"wave_id":"1z8oz extension-tool-aliases"} -->
 <!-- wave:context-efficiency end -->
 
+## Estimated Exploration Avoided
+
 <!-- wave:exploration-avoided begin -->
-<!-- wave:exploration-avoided-state {"cited_events":0,"credited_records":0,"estimated_exploration_avoided":0,"surfaced_events":0} -->
+
+This is a bounded estimate from exact-match memory advisories. It is not added to measured Context Efficiency.
+
+| Advisory surfaces | Citations | Records credited | Estimated tokens avoided |
+| ---: | ---: | ---: | ---: |
+| 3 | 0 | 3 | 486,615 |
+
+estimated: a surfaced (or cited) advisory does not prove a re-exploration was avoided; this is grounded in the measured cost of the original exploration, scaled by a bounded exact-match attribution, and is NEVER summed into the measured Context Efficiency token total.
+
+<!-- wave:exploration-avoided-state {"cited_events":0,"credited_records":3,"estimated_exploration_avoided":486615,"surfaced_events":3} -->
 <!-- wave:exploration-avoided end -->

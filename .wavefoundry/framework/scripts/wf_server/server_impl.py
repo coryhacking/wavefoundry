@@ -20,10 +20,11 @@ import shlex
 import sys
 import threading
 import time
+import types
 import hashlib
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Iterable, Literal, Mapping, Optional, Sequence
+from typing import Any, Callable, Collection, Iterable, Literal, Mapping, Optional, Sequence
 
 sys.dont_write_bytecode = True
 
@@ -16693,10 +16694,7 @@ def build_handler(root: Path) -> ImplHandler:
 
 def _extension_provenance_for_response(root: Path) -> dict[str, Any]:
     """Loaded extension provenance with repository-relative paths (wave 1yv9l)."""
-    provenance = _EXTENSION_PROVENANCE or {
-        "declaration": _extension_declaration_provenance(),
-        "modules": [],
-    }
+    provenance = _EXTENSION_PROVENANCE or _empty_extension_provenance()
 
     def _rel(path: str) -> str:
         try:
@@ -16711,7 +16709,16 @@ def _extension_provenance_for_response(root: Path) -> dict[str, Any]:
         entry = dict(entry)
         entry["path"] = _rel(entry["path"])
         modules.append(entry)
-    return {"declaration": declaration, "modules": modules}
+    return {
+        "declaration": declaration,
+        "modules": modules,
+        # Wave 1z8oz: served aliases, hidden names, replacements, and the
+        # canonical-to-served map response hints follow.
+        "aliases": dict(provenance.get("aliases") or {}),
+        "hidden": list(provenance.get("hidden") or []),
+        "replacements": [dict(entry) for entry in provenance.get("replacements") or []],
+        "served_names": dict(provenance.get("served_names") or {}),
+    }
 
 
 def wf_server_info_response(root: Path, *, server_runner_version: str | None = None) -> dict[str, Any]:
@@ -17025,8 +17032,15 @@ def _wrap_lifecycle_mutation_lock(mcp: Any, get_handler: Any) -> None:
         tool.fn = _make(name, original)
 
 
-def _wrap_upgrade_publication_guard(mcp: Any, get_handler: Any) -> None:
-    """Fail every registered publisher fast while Upgrade owns project state."""
+def _wrap_upgrade_publication_guard(
+    mcp: Any, get_handler: Any, *, checkpoint_writers: Collection[str] = (),
+) -> None:
+    """Fail every registered publisher fast while Upgrade owns project state.
+
+    ``checkpoint_writers`` (wave 1z8oz, main pass only) are replacing handlers
+    declared ``write`` on a core name that is not a registered publisher; they
+    consult the checkpoint like write-tier extension tools.
+    """
 
     registry = getattr(getattr(mcp, "_tool_manager", None), "_tools", None)
     if not isinstance(registry, dict):
@@ -17039,6 +17053,7 @@ def _wrap_upgrade_publication_guard(mcp: Any, get_handler: Any) -> None:
         name for name, tier in mcp_tool_extensions.EXTENSION_TOOL_TIERS.items()
         if tier == mcp_tool_extensions.TIER_WRITE
     }
+    extension_writers |= set(checkpoint_writers) - guarded
     guarded |= extension_writers
     for name, tool in registry.items():
         if name not in guarded:
@@ -17047,11 +17062,11 @@ def _wrap_upgrade_publication_guard(mcp: Any, get_handler: Any) -> None:
         if original is None or getattr(original, "_wf_upgrade_guarded", False):
             continue
 
-        def _make(tool_name: str, fn: Any) -> Any:
+        def _make(tool_name: str, fn: Any, checkpoint_only: bool) -> Any:
             @functools.wraps(fn)
             def guarded_call(*args: Any, **kwargs: Any) -> Any:
                 root = get_handler().root
-                if tool_name in extension_writers:
+                if checkpoint_only:
                     reason = publication_control.publication_checkpoint_reason(
                         root, tool_name
                     )
@@ -17091,7 +17106,7 @@ def _wrap_upgrade_publication_guard(mcp: Any, get_handler: Any) -> None:
             guarded_call._wf_upgrade_guarded = True  # type: ignore[attr-defined]
             return guarded_call
 
-        tool.fn = _make(name, original)
+        tool.fn = _make(name, original, name in extension_writers)
 
 
 # Wave 1t3ek (1t2zq/1t15a): state files a tool demonstrably reads on the
@@ -17132,17 +17147,25 @@ _COST_FOCUS_EXTRACTORS: dict[str, Any] = {
 }
 
 
-def _wrap_first_party_tool_costs(mcp: Any, get_handler: Any) -> None:
+def _wrap_first_party_tool_costs(
+    mcp: Any, get_handler: Any, *, extractor_free: Collection[str] = (),
+) -> None:
     """Post-registration pass: wrap uninstrumented first-party tools with a
     debit recorder (plus artifact credit where an extractor exists). Purely
-    observational — any failure leaves the tool untouched."""
+    observational — any failure leaves the tool untouched.
+
+    ``extractor_free`` (wave 1z8oz, main pass only) names replacing handlers:
+    the extractors parse the core schema, so these record only their debit.
+    """
     try:
         tm = getattr(mcp, "_tool_manager", None)
         tools = getattr(tm, "_tools", None) if tm is not None else None
         if not tools:
             return
         for name, tool in tools.items():
-            if name in _COST_EXEMPT_TOOLS:
+            # An exempt core handler records its own cost; a replacing
+            # handler served under that name does not (wave 1z8oz).
+            if name in _COST_EXEMPT_TOOLS and name not in extractor_free:
                 continue
             if not any(name.startswith(prefix) for prefix in _served_tool_prefixes()):
                 continue
@@ -17150,12 +17173,17 @@ def _wrap_first_party_tool_costs(mcp: Any, get_handler: Any) -> None:
             if original is None or getattr(original, "_wf_cost_wrapped", False):
                 continue
 
-            def _make(tool_name: str, fn: Any) -> Any:
+            def _make(tool_name: str, fn: Any, extractors: bool) -> Any:
                 @functools.wraps(fn)
                 def wrapped(*args: Any, **kwargs: Any) -> Any:
                     result = fn(*args, **kwargs)
                     try:
                         handler = get_handler()
+                        # Decided when the wrapper was built: a replacing
+                        # handler never reaches the core-schema extractors.
+                        artifact_extractor = _ARTIFACT_EXTRACTORS.get(tool_name) if extractors else None
+                        state_extractor = _STATE_SOURCE_EXTRACTORS.get(tool_name) if extractors else None
+                        focus_extractor = _COST_FOCUS_EXTRACTORS.get(tool_name) if extractors else None
                         if publication_control.publication_checkpoint_reason(
                             handler.root, "context_efficiency"
                         ) is not None:
@@ -17185,9 +17213,8 @@ def _wrap_first_party_tool_costs(mcp: Any, get_handler: Any) -> None:
                         )
                         artifact_tokens = 0
                         event_id: Optional[str] = None
-                        extractor = _ARTIFACT_EXTRACTORS.get(tool_name)
-                        if extractor is not None and isinstance(result, Mapping):
-                            raw_artifacts, event_id = extractor(handler.root, result)
+                        if artifact_extractor is not None and isinstance(result, Mapping):
+                            raw_artifacts, event_id = artifact_extractor(handler.root, result)
                             # Credit only what the caller did not supply,
                             # floored at zero PER ARTIFACT (the 1t3s7 contract):
                             # a request larger than every individual artifact
@@ -17208,7 +17235,6 @@ def _wrap_first_party_tool_costs(mcp: Any, get_handler: Any) -> None:
                                      + "\x00" + response_json).encode("utf-8")
                                 ).hexdigest()
                         source_proofs = None
-                        state_extractor = _STATE_SOURCE_EXTRACTORS.get(tool_name)
                         if state_extractor is not None and isinstance(result, Mapping):
                             # Wave 1t3ek (1t2zq): avoided reading — live proofs
                             # for the state files this call consumed; any
@@ -17229,7 +17255,6 @@ def _wrap_first_party_tool_costs(mcp: Any, get_handler: Any) -> None:
                                     )
                             source_proofs = proofs or None
                         focus_override = None
-                        focus_extractor = _COST_FOCUS_EXTRACTORS.get(tool_name)
                         if focus_extractor is not None and isinstance(result, Mapping):
                             target_focus = focus_extractor(
                                 handler.root, request_payload, result
@@ -17260,7 +17285,7 @@ def _wrap_first_party_tool_costs(mcp: Any, get_handler: Any) -> None:
                 wrapped._wf_cost_wrapped = True  # type: ignore[attr-defined]
                 return wrapped
 
-            tool.fn = _make(name, original)
+            tool.fn = _make(name, original, name not in extractor_free)
     except Exception:
         pass
 
@@ -17371,18 +17396,151 @@ def _wrap_setup_notice(mcp: Any, get_handler: Any) -> None:
         tool.fn = _make(original)
 
 
+_HINT_LIST_FIELDS = ("next_tools",)
+_HINT_TEXT_FIELDS = ("usage",)
+
+
+def _rewrite_served_names(result: Any, served_names: Mapping[str, str]) -> Any:
+    """A copy of ``result`` whose structured hints name the served tools (wave 1z8oz).
+
+    Rewrites ``next_tools``, ``usage``, ``diagnostics[].recovery_tools`` and
+    ``diagnostics[].recovery_usage`` only: exact match for list items, and
+    whole-name matches inside strings. Prose, ``data`` and messages keep
+    canonical names. ``result`` itself is never mutated.
+    """
+    if not isinstance(result, dict) or not served_names:
+        return result
+    pattern = re.compile(
+        r"(?<![A-Za-z0-9_])("
+        + "|".join(re.escape(name) for name in sorted(served_names, key=len, reverse=True))
+        + r")(?![A-Za-z0-9_])"
+    )
+
+    def text(value: Any) -> Any:
+        return pattern.sub(lambda m: served_names[m.group(1)], value) if isinstance(value, str) else value
+
+    def names(value: Any) -> Any:
+        if not isinstance(value, list):
+            return value
+        return [served_names.get(item, item) if isinstance(item, str) else item for item in value]
+
+    rewritten = dict(result)
+    for key in _HINT_LIST_FIELDS:
+        if key in rewritten:
+            rewritten[key] = names(rewritten[key])
+    for key in _HINT_TEXT_FIELDS:
+        if key in rewritten:
+            rewritten[key] = text(rewritten[key])
+    diagnostics = rewritten.get("diagnostics")
+    if isinstance(diagnostics, list):
+        copied = []
+        for item in diagnostics:
+            if isinstance(item, dict) and ("recovery_tools" in item or "recovery_usage" in item):
+                item = dict(item)
+                if "recovery_tools" in item:
+                    item["recovery_tools"] = names(item["recovery_tools"])
+                if "recovery_usage" in item:
+                    item["recovery_usage"] = text(item["recovery_usage"])
+            copied.append(item)
+        rewritten["diagnostics"] = copied
+    return rewritten
+
+
+def _wrap_served_name_hints(
+    mcp: Any, get_handler: Any, *, served_names: Mapping[str, str], skip: Collection[str] = (),
+) -> None:
+    """Rewrite response hints to the served names (wave 1z8oz).
+
+    Appended to the chain only when a declaration aliases or replaces a name.
+    Skips runner tools, coroutine handlers and, in the main pass, replacing
+    handlers (``skip``), whose own hints name the distribution's tool.
+    """
+    registry = getattr(getattr(mcp, "_tool_manager", None), "_tools", None)
+    if not isinstance(registry, dict) or not served_names:
+        return
+    try:
+        skipped = set(_load_script("mcp_tool_roster").RUNNER_TOOLS)
+    except Exception:
+        skipped = set()
+    skipped |= set(skip)
+    names = dict(served_names)
+    for name, tool in registry.items():
+        if name in skipped:
+            continue
+        original = getattr(tool, "fn", None)
+        if (
+            original is None
+            or getattr(original, "_wf_hints_rewritten", False)
+            or inspect.iscoroutinefunction(original)
+        ):
+            continue
+
+        def _make(fn: Any) -> Any:
+            @functools.wraps(fn)
+            def rewritten_call(*args: Any, **kwargs: Any) -> Any:
+                return _rewrite_served_names(fn(*args, **kwargs), names)
+
+            rewritten_call._wf_hints_rewritten = True  # type: ignore[attr-defined]
+            return rewritten_call
+
+        tool.fn = _make(original)
+
+
+# Wave 1z8oz: replaced core names installed by _install_extension_tools, each
+# mapped to the captured core Tool. Read only by the main MIDDLEWARE pass;
+# cleared whenever registration fails.
+_EXTENSION_REPLACED_CORE: dict[str, Any] = {}
+
+
+def _cost_pass_kwargs() -> dict[str, Any]:
+    """Main-pass cost keywords: none unless a replacement is installed."""
+    return {"extractor_free": frozenset(_EXTENSION_REPLACED_CORE)} if _EXTENSION_REPLACED_CORE else {}
+
+
+def _guard_pass_kwargs() -> dict[str, Any]:
+    """Main-pass guard keywords: installed replacements declared ``write``.
+
+    The guard adds only those that are not already registered publishers.
+    """
+    targets = mcp_tool_extensions.replacement_targets()
+    writers = frozenset(
+        name for name in _EXTENSION_REPLACED_CORE
+        if name in targets and targets[name][1].get("tier") == mcp_tool_extensions.TIER_WRITE
+    )
+    return {"checkpoint_writers": writers} if writers else {}
+
+
 # Registration-time call wrappers, applied innermost first: cost, then the
 # lifecycle lock, then the upgrade-publication guard (wave 1y0h1), then the
 # setup-readiness notice (wave 1z2mc). Each entry
 # spells out its wrapper call so a module-level rebinding of the wrapper name
 # takes effect when the chain runs; the wrappers themselves stay the only
-# place a tool's callable is rebound.
+# place a tool's callable is rebound. The keyword arguments differ only for
+# replacing handlers (wave 1z8oz) and are empty for the stock declaration.
 MIDDLEWARE: tuple[tuple[str, Any], ...] = (
+    ("cost", lambda mcp, get_handler: _wrap_first_party_tool_costs(mcp, get_handler, **_cost_pass_kwargs())),
+    ("lock", lambda mcp, get_handler: _wrap_lifecycle_mutation_lock(mcp, get_handler)),
+    ("guard", lambda mcp, get_handler: _wrap_upgrade_publication_guard(mcp, get_handler, **_guard_pass_kwargs())),
+    ("setup", lambda mcp, get_handler: _wrap_setup_notice(mcp, get_handler)),
+)
+
+# The same chain with every decision keyed on the core name, for the core
+# behaviour of a replaced name served under its alias_for_core (wave 1z8oz).
+_CORE_BEHAVIOUR_MIDDLEWARE: tuple[tuple[str, Any], ...] = (
     ("cost", lambda mcp, get_handler: _wrap_first_party_tool_costs(mcp, get_handler)),
     ("lock", lambda mcp, get_handler: _wrap_lifecycle_mutation_lock(mcp, get_handler)),
     ("guard", lambda mcp, get_handler: _wrap_upgrade_publication_guard(mcp, get_handler)),
     ("setup", lambda mcp, get_handler: _wrap_setup_notice(mcp, get_handler)),
 )
+
+
+def _served_name_rewrite(served_names: Mapping[str, str], skip: Collection[str] = ()) -> tuple[str, Any]:
+    return (
+        "rewrite",
+        lambda mcp, get_handler: _wrap_served_name_hints(
+            mcp, get_handler, served_names=served_names, skip=skip,
+        ),
+    )
 
 
 def render_graph_communities_markdown(payload, index, gq) -> str:
@@ -17505,6 +17663,17 @@ def _extension_declaration_provenance() -> dict[str, Any]:
         "sha256": _file_sha256(declaration_path),
         "prefixes": list(mcp_tool_extensions.EXTENSION_TOOL_PREFIXES),
         "tiers": dict(sorted(mcp_tool_extensions.EXTENSION_TOOL_TIERS.items())),
+    }
+
+
+def _empty_extension_provenance() -> dict[str, Any]:
+    return {
+        "declaration": _extension_declaration_provenance(),
+        "modules": [],
+        "aliases": {},
+        "hidden": [],
+        "replacements": [],
+        "served_names": {},
     }
 
 
@@ -17657,12 +17826,12 @@ def _override_compatibility_problem(name: str, core_tool: Any, staged_tool: Any)
 def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
     """Stage, validate and install declared extension tools; return provenance.
 
-    Raises before touching the served table when anything is invalid.
+    Raises before touching the served table when anything is invalid. Each
+    replaced core Tool is captured, already argument-normalized, into
+    ``_EXTENSION_REPLACED_CORE`` before its name is handed to the module.
     """
-    provenance: dict[str, Any] = {
-        "declaration": _extension_declaration_provenance(),
-        "modules": [],
-    }
+    _EXTENSION_REPLACED_CORE.clear()
+    provenance = _empty_extension_provenance()
     if not mcp_tool_extensions.declared():
         return provenance
     roster = _load_script("mcp_tool_roster")
@@ -17724,18 +17893,22 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
         if len(staging._prompt_manager._prompts) != prompts_before:
             problems.append(f"{module_name!r} registers MCP prompts; extensions may register tools only")
         declared_overrides = set(mcp_tool_extensions.EXTENSION_OVERRIDES.get(module_name, ()))
+        declared_replacements = set(mcp_tool_extensions.EXTENSION_REPLACEMENTS.get(module_name, {}) or {})
         new_tools: list[str] = []
         overrides: list[str] = []
+        replacements: list[str] = []
         for name in attempts:
             if name in staged_by:
                 problems.append(f"{module_name!r} registers {name!r}, already staged by {staged_by[name]!r}")
                 continue
             staged_by[name] = module_name
             if name in core_names or name in runner:
-                if name not in declared_overrides:
-                    problems.append(f"{module_name!r} registers existing tool {name!r} without declaring an override")
-                else:
+                if name in declared_overrides:
                     overrides.append(name)
+                elif name in declared_replacements:
+                    replacements.append(name)
+                else:
+                    problems.append(f"{module_name!r} registers existing tool {name!r} without declaring an override")
                 continue
             if not any(name.startswith(prefix) for prefix in prefixes):
                 problems.append(f"{module_name!r} registers {name!r} without a declared extension prefix")
@@ -17747,15 +17920,29 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
             new_tools.append(name)
         for name in sorted(declared_overrides - set(attempts)):
             problems.append(f"{module_name!r} declares override {name!r} but does not register it")
+        for name in sorted(declared_replacements - set(attempts)):
+            problems.append(f"{module_name!r} declares replacement {name!r} but does not register it")
         provenance["modules"].append({
             "module": module_name,
             "path": str(source_path),
             "sha256": digest,
             "tools": [{"name": name, "tier": tiers.get(name)} for name in sorted(new_tools)],
             "overrides": sorted(overrides),
+            "replacements": sorted(replacements),
         })
     for name in sorted(set(tiers) - set(staged_by)):
         problems.append(f"declared tier for {name!r} has no registered tool")
+    # Wave 1z8oz: aliases and alias_for_core names may not take a name a core
+    # collection keys behavior on, including retired names.
+    replacement_targets = mcp_tool_extensions.replacement_targets()
+    served_aliases = [(alias, "alias") for alias in mcp_tool_extensions.EXTENSION_TOOL_ALIASES] + [
+        (spec["alias_for_core"], f"alias_for_core of {core_name!r}")
+        for core_name, (_module, spec) in replacement_targets.items()
+    ]
+    for alias, label in served_aliases:
+        for collection, reserved_names in reserved.items():
+            if alias in reserved_names:
+                problems.append(f"{label} {alias!r} is a name reserved by core {collection}")
 
     staged_table = staging._tool_manager._tools
     for name, tool in sorted(staged_table.items()):
@@ -17775,14 +17962,66 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
             problem = _override_compatibility_problem(name, table[name], staged_table[name])
             if problem:
                 problems.append(problem)
+        for name in entry["replacements"]:
+            if name not in staged_table:
+                continue  # already refused above
+            # A replacement may change the schema, but must keep the
+            # unknown_arguments envelope for undeclared arguments.
+            staged_schema = getattr(staged_table[name], "parameters", None) or {}
+            if staged_schema.get("additionalProperties") is not False:
+                problems.append(
+                    f"replacement {name!r} does not reject undeclared arguments; its handler must "
+                    "accept **kwargs and pass them to _ensure_no_extra_args"
+                )
     if problems:
         raise ExtensionLoadError("MCP tool extensions refused: " + "; ".join(problems))
 
+    captured = {name: table[name] for name in replacement_targets if name in table}
     for name, tool in staged_table.items():
         if name in table:
             mcp.remove_tool(name)
         table[name] = tool
+    _EXTENSION_REPLACED_CORE.update(captured)
+    provenance["aliases"] = dict(mcp_tool_extensions.EXTENSION_TOOL_ALIASES)
+    provenance["hidden"] = list(mcp_tool_extensions.EXTENSION_HIDDEN_TOOLS)
+    provenance["replacements"] = [
+        {
+            "core_name": core_name,
+            "module": module_name,
+            "alias_for_core": spec["alias_for_core"],
+            "tier": spec.get("tier") or roster.TOOL_TIERS.get(core_name),
+        }
+        for core_name, (module_name, spec) in sorted(replacement_targets.items())
+    ]
+    provenance["served_names"] = mcp_tool_extensions.served_name_map()
     return provenance
+
+
+def _install_served_names(mcp: Any, get_handler: Any) -> None:
+    """Core-behaviour aliases, aliases and hidden names (wave 1z8oz).
+
+    Runs after the main MIDDLEWARE pass, so every copy shares the wrapped
+    callable of the name it copies and each wrapper stays keyed on the
+    canonical name. The core behaviour of a replaced name is wrapped in its own
+    pass on a surface holding only that name, with the stock keyed sets and
+    extractors plus the hint rewrite.
+    """
+    table = mcp._tool_manager._tools
+    served_names = mcp_tool_extensions.served_name_map()
+    targets = mcp_tool_extensions.replacement_targets()
+    for core_name, captured in _EXTENSION_REPLACED_CORE.items():
+        surface = types.SimpleNamespace(_tool_manager=types.SimpleNamespace(_tools={core_name: captured}))
+        mcp_tool_registry.apply_middleware(
+            surface, get_handler, _CORE_BEHAVIOUR_MIDDLEWARE + (_served_name_rewrite(served_names),),
+        )
+        alias_for_core = targets[core_name][1]["alias_for_core"]
+        table[alias_for_core] = surface._tool_manager._tools[core_name].model_copy(
+            update={"name": alias_for_core}
+        )
+    for alias, canonical in mcp_tool_extensions.EXTENSION_TOOL_ALIASES.items():
+        table[alias] = table[canonical].model_copy(update={"name": alias})
+    for name in mcp_tool_extensions.EXTENSION_HIDDEN_TOOLS:
+        mcp.remove_tool(name)
 
 
 def _strip_to_runner_tools(mcp: Any) -> None:
@@ -22085,9 +22324,18 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         # it can fail fast without either waiting on Upgrade's lifecycle lock or
         # writing CE telemetry into the protected transaction. MIDDLEWARE declares
         # that order.
-        mcp_tool_registry.apply_middleware(mcp, get_handler, MIDDLEWARE)
+        chain = MIDDLEWARE
+        served_names = mcp_tool_extensions.served_name_map() if mcp_tool_extensions.declared() else {}
+        if served_names:
+            # Wave 1z8oz: appended only when declared, so the stock chain and
+            # responses stay unchanged; replacing handlers keep their hints.
+            chain = MIDDLEWARE + (_served_name_rewrite(served_names, frozenset(_EXTENSION_REPLACED_CORE)),)
+        mcp_tool_registry.apply_middleware(mcp, get_handler, chain)
+        if mcp_tool_extensions.declared():
+            _install_served_names(mcp, get_handler)
     except BaseException:
         _EXTENSION_PROVENANCE = None
+        _EXTENSION_REPLACED_CORE.clear()
         _strip_to_runner_tools(mcp)
         raise
     # Wave 1y0h1: the registry is built after the chain, so each spec holds the

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-28
+Last verified: 2026-09-29
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -106,6 +106,9 @@ merge time; the shipped declarations are empty and change nothing.
 | `EXTENSION_TOOL_PREFIXES` | Prefixes every new extension tool name must start with. A core prefix such as `wf_` is allowed; a distribution-specific prefix is recommended (see **New tools**). |
 | `EXTENSION_TOOL_TIERS` | Permission tier (`read` or `write`) for every new extension tool. |
 | `EXTENSION_OVERRIDES` | Core tools each module replaces, keyed by module name. |
+| `EXTENSION_TOOL_ALIASES` | Additional served names, `{alias: canonical_name}` (wave `1z8oz`). |
+| `EXTENSION_HIDDEN_TOOLS` | Canonical names that are not served; each must have an alias. |
+| `EXTENSION_REPLACEMENTS` | Core names a module reuses with an incompatible handler, `{module: {core_name: {"alias_for_core": name, "tier": optional "read" or "write"}}}`. |
 
 **Registration.** `register(mcp, get_handler)` receives a staging FastMCP surface: `@mcp.tool()`
 and `mcp.add_tool` work, and every attempted name is recorded. Handlers must be synchronous
@@ -135,6 +138,52 @@ for undeclared arguments is the extension's obligation: pass `kwargs` to
 `server_impl._ensure_no_extra_args(tool_name, kwargs)` and return its envelope when it is not
 `None`. Replacing the MCP tool does not change the server's internal callers of core response
 functions.
+
+**Aliases and hidden names (wave `1z8oz`).** A distribution can serve a tool under its own
+vocabulary. Each alias is installed after the `MIDDLEWARE` chain as a copy of the canonical
+tool as served (`Tool.model_copy` with the new name), so it shares the wrapped callable, schema and
+annotations, takes the canonical tier, and every wrapper stays keyed on the canonical name: the
+lifecycle lock, the publication guard, cost accounting, the setup notice and the context-efficiency
+extractors apply exactly as they do to the canonical name. Busy responses, cost records and
+attribution carry the canonical name, which remains the internal identity. An alias target may be a
+core tool or a declared extension tool; it may not be a runner tool, another alias (including an
+`alias_for_core`) or a replaced core name, whose core behaviour is served only under its
+`alias_for_core`. A hidden name may be declared once. A name in `EXTENSION_HIDDEN_TOOLS` is removed from the
+served table after its aliases are installed, so it is neither listed nor callable over MCP; internal
+callers of the response functions are unaffected. Runner tools cannot be hidden.
+
+**Replacements (wave `1z8oz`).** A replacement reuses a core name with a handler whose schema
+differs, for example a distribution whose `wf_close_wave` closes one work item, while the core
+behaviour stays reachable under `alias_for_core`. The replacing handler is served under the core
+name; the call-compatibility rules for overrides do not apply, except that its handler must accept
+`**kwargs` so undeclared arguments still get the `unknown_arguments` envelope. The main
+`MIDDLEWARE` pass wraps it by name, so it gets the core name's lock, guard and cost wrapper, but
+three decisions are made when the wrapper is built rather than by name at call time, because the
+core behaviour is keyed on the same name: the argument-parsing extractors are off (the replacing
+handler records only its cost debit), its response hints are not rewritten, and when it declares
+`tier: "write"` on a core name that is not a registered publisher it is guarded by the upgrade
+checkpoint. On a cost-exempt core name (whose core handler records its own cost), the replacing
+handler gets the cost wrapper, so it too records its debit. A core name that is already a registered publisher keeps its existing guard, including
+the `memory_recovery` exemption for `memory_backfill` and `memory_validate`. The core `Tool` is
+captured, already argument-normalized, before the module's handler replaces it; after the main pass
+it is wrapped on its own surface with the stock name-keyed sets, extractors on and the hint rewrite,
+and served under `alias_for_core`. A declared tier replaces the core name's tier in the roster;
+`alias_for_core` keeps the core tier. A replacement may not target a runner tool or a name also
+declared as an override, and its core name cannot be hidden or aliased.
+
+**Response hints.** When a declaration aliases or replaces a name, a `rewrite` wrapper is appended
+to the chain at registration (never to the static `MIDDLEWARE` tuple). It maps each canonical name
+to its first-declared alias, and each replaced core name to its `alias_for_core`, in `next_tools`,
+`usage`, `diagnostics[].recovery_tools` and `diagnostics[].recovery_usage`: exact matches for list
+items and whole-name matches inside strings, on a copy of the response. It skips runner tools,
+coroutine handlers and replacing handlers. It does apply to the distribution's own new tools and
+overrides, so a distribution tool whose hints name a replaced core name to mean the replacing
+handler is steered to `alias_for_core`; such a tool should build its hints for the served names
+it means. Names inside `data` (for example the `wf_help` catalog),
+diagnostic messages, docstrings, tool descriptions and FastMCP argument-validation errors stay
+canonical: a canonical name in prose always means the core behaviour. `wf_server_info` publishes the
+full map under `extensions.served_names`, so an agent can translate prose deterministically. With
+no declaration nothing is appended and responses are unchanged.
 
 **New tools.** Every new tool name starts with a declared extension prefix and has a declared
 tier. Since wave `1yyoj`, extension prefixes may equal or overlap core prefixes, so a distribution
@@ -180,9 +229,17 @@ owns project state.
   changes the served tool table directly (for example through `server_impl._MCP_INSTANCE`), or
   registers a resource or prompt;
 - a staged handler is asynchronous;
-- a declared tier has no registered tool, or an override breaks call-compatibility.
+- a declared tier has no registered tool, or an override breaks call-compatibility;
+- an alias or `alias_for_core` collides with an existing tool, a runner tool or another alias,
+  lacks a core or declared extension prefix, or takes a reserved name (including retired names); an
+  alias targets a name that is not served, a runner tool, another alias or a replaced core name; a
+  hidden name has no alias, is a runner tool or is a replaced core name; a replacement names an
+  undeclared module, a runner tool, a tool core does not register or an override target, declares
+  an unknown key or a tier other than `read`/`write`, is declared twice, is not registered by its
+  module, or does not reject undeclared arguments.
 
-Any failure between core registration and the completed `MIDDLEWARE` chain, including the core
+An aliases-only or hide-only declaration with no module is validated and served, not ignored. Any
+failure between core registration and the installed aliases and hidden names, including the core
 prefix contract, leaves only the runner tools served, and no tool at all when the roster cannot
 load (which also removes `wf_reload_mcp`, so recovery needs a restart). The server refuses to
 start, and `wf_reload_mcp` reports `register_surface_failed`. An invalid tier declaration also makes `mcp_tool_roster.allow_rules`
@@ -190,12 +247,16 @@ raise, which stops the allowlist renderer and upgrade allowlist reconciliation.
 
 **Reload.** `mcp_tool_extensions` is purged and re-imported on `wf_reload_mcp`, and each declared
 module is re-executed, so edited declarations and extension modules are served after reload.
+Reload removes every served name except the runner tools, so aliases, hidden names and replacements
+are rebuilt from the declaration, and a declaration made invalid fails closed.
 Undeclared helper modules an extension imports are not purged.
 
 **Provenance.** `wf_server_info` reports an `extensions` object: `declaration` (repository-relative
-path, SHA-256, declared prefixes and tiers) and `modules` (for each loaded module its path, the
-SHA-256 of the exact bytes executed, its new tools with tiers, and the core tools it overrides).
-With no declarations, `modules` is empty.
+path, SHA-256, declared prefixes and tiers), `modules` (for each loaded module its path, the
+SHA-256 of the exact bytes executed, its new tools with tiers, the core tools it overrides and the
+core names it replaces), `aliases`, `hidden`, `replacements` (core name, module, `alias_for_core`
+and served tier) and `served_names` (the canonical-to-served map the hint rewrite uses). With no
+declarations, `modules`, `aliases`, `hidden`, `replacements` and `served_names` are empty.
 
 **Trust boundary.** Extension modules are distribution code and run with the server's authority.
 Nothing is loaded from a target repository. An extension that rebinds existing tool objects, their handlers or wrapper

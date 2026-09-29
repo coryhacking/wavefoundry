@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-27
+Last verified: 2026-09-29
 
 ## Verification Commands
 
@@ -55,7 +55,7 @@ A golden diff is a public contract change. It must be named in the change doc th
 WF_UPDATE_TOOL_SURFACE_GOLDEN=1 python3 .wavefoundry/framework/scripts/run_tests.py --file test_tool_surface_golden.py
 ```
 
-Without the flag the test never writes. The fixture lives under the framework test tree, so it is inside the close-time receipt hash and outside the distribution pack. The same module carries the runtime roster parity test (registered set equals `mcp_tool_roster.TOOL_TIERS` in both directions; with declared extensions the registry compares against `mcp_tool_roster.all_tool_tiers()`, which adds validated `mcp_tool_extensions` tiers) and the behavioral wrapper-order test (cost innermost, lifecycle lock middle, upgrade-publication guard outermost of the three, with the five wrong permutations as negative controls). The setup-readiness notice wrapper added in wave `1z2mc` runs outside all three and only adds a diagnostic; `test_mcp_tool_registry` pins its label as the last `MIDDLEWARE` entry.
+Without the flag the test never writes. The fixture lives under the framework test tree, so it is inside the close-time receipt hash and outside the distribution pack. The same module carries the runtime roster parity test (registered set equals `mcp_tool_roster.all_tool_tiers()` in both directions, which for the stock declaration is `TOOL_TIERS`; with declared extensions it adds validated extension tiers, aliases and `alias_for_core` names and omits hidden names, wave `1z8oz`; the AST registration parity test in `test_render_platform_surfaces` stays on `TOOL_TIERS` as the core-source gate) and the behavioral wrapper-order test (cost innermost, lifecycle lock middle, upgrade-publication guard outermost of the three, with the five wrong permutations as negative controls). The setup-readiness notice wrapper added in wave `1z2mc` runs outside all three and only adds a diagnostic; `test_mcp_tool_registry` pins its label as the last `MIDDLEWARE` entry. The `rewrite` wrapper for aliased or replaced names (wave `1z8oz`) is appended at registration only when declared, so the pinned tuple and stock responses are unchanged.
 
 ## Semantic Index And Offline Search
 
