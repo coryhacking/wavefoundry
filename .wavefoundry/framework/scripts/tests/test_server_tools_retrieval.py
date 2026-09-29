@@ -658,10 +658,12 @@ class IndexBuildStatusTests(unittest.TestCase):
         self.assertEqual(result["data"]["progress"], "build_index: embedding doc chunks 100-200/500")
 
     def test_background_running_when_background_pid_active(self):
-        import os
+        from server_tools_support import spawn_index_builder_process, stop_process
+        builder = spawn_index_builder_process(self.root, self.index_dir)
+        self.addCleanup(stop_process, builder)
         bg_pid = self.index_dir / "background-build.pid"
         bg_log = self.logs_dir / "project-background-build.log"
-        bg_pid.write_text(str(os.getpid()), encoding="utf-8")
+        bg_pid.write_text(str(builder.pid), encoding="utf-8")
         bg_log.write_text(
             "Code index build started in background (PID 12345)\n"
             "build_index: scanning source files\n",
@@ -1611,12 +1613,106 @@ class BackgroundBuildStatusTests(unittest.TestCase):
         result = self.srv._background_build_status(self.root)
         self.assertEqual(result, "none")
 
-    def test_returns_running_when_process_alive(self):
+    def test_returns_running_when_index_builder_alive(self):
+        from server_tools_support import spawn_index_builder_process, stop_process
         pid_path = self._pid_path()
         pid_path.parent.mkdir(parents=True, exist_ok=True)
-        pid_path.write_text(str(os.getpid()), encoding="utf-8")
+        builder = spawn_index_builder_process(self.root, pid_path.parent)
+        self.addCleanup(stop_process, builder)
+        pid_path.write_text(str(builder.pid), encoding="utf-8")
         result = self.srv._background_build_status(self.root)
         self.assertEqual(result, "running")
+
+    def _status_for_process(self, script_name, *args):
+        from server_tools_support import spawn_idle_process, stop_process
+        pid_path = self._pid_path()
+        pid_path.parent.mkdir(parents=True, exist_ok=True)
+        workdir = Path(self.tmp.name) / f"proc-{len(list(Path(self.tmp.name).glob('proc-*')))}"
+        workdir.mkdir()
+        proc = spawn_idle_process(workdir, script_name, *args)
+        self.addCleanup(stop_process, proc)
+        pid_path.write_text(str(proc.pid), encoding="utf-8")
+        return self.srv._background_build_status(self.root)
+
+    def test_returns_completed_when_pid_is_not_an_index_build(self):
+        # Wave 1za2y (1z9yb): a live pid running some other program is not a
+        # background build.
+        self.assertEqual(self._status_for_process("other_tool.py", "--watch"), "completed")
+
+    def test_a_refused_fresh_indexer_load_does_not_make_a_stranger_running(self):
+        # Delivery repair: after a producer edit a fresh indexer load raises;
+        # the predicate uses the shared last-good module instead of failing
+        # open to "running".
+        from wf_server import server_impl
+        server_impl._indexer_module()  # a last-good module exists
+        original = server_impl._load_script
+
+        def refuse(name):
+            if name == "indexer":
+                raise RuntimeError("index_runtime_stale: indexer: fixture")
+            return original(name)
+
+        server_impl._script_cache.pop("_wavefoundry_indexer", None)
+        self.addCleanup(server_impl._indexer_module)
+        with patch.object(server_impl, "_load_script", refuse):
+            self.assertEqual(self._status_for_process("other_tool.py"), "completed")
+
+    def test_live_setup_entry_points_are_running(self):
+        # Wave 1za2y delivery repair: `wf setup` and `wf update-indexes` run
+        # setup_index in-process and stamp background-build.pid with the CLI's
+        # pid, often with no --root (they use the working directory).
+        for script, args in (
+            ("wf_cli.py", ("setup", "--background-code")),
+            ("wf_cli.py", ("update-indexes", "--background-code", "--verbose")),
+            ("setup_wavefoundry.py", ()),
+            ("setup_index.py", ("--background-code",)),
+            ("wf_cli.py", ("setup", "--root", str(self.root))),
+        ):
+            with self.subTest(script=script, args=args):
+                self.assertEqual(self._status_for_process(script, *args), "running")
+
+    def test_other_cli_commands_and_other_roots_are_not_running(self):
+        other = Path(self.tmp.name) / "other-repo"
+        other.mkdir()
+        for script, args in (
+            ("wf_cli.py", ("docs-lint",)),
+            ("wf_cli.py", ("setup", "--root", str(other))),
+            ("setup_wavefoundry.py", ("--root", str(other))),
+        ):
+            with self.subTest(script=script, args=args):
+                self.assertEqual(self._status_for_process(script, *args), "completed")
+
+    def test_returns_completed_when_builder_targets_another_root(self):
+        from server_tools_support import spawn_index_builder_process, stop_process
+        pid_path = self._pid_path()
+        pid_path.parent.mkdir(parents=True, exist_ok=True)
+        other = Path(self.tmp.name) / "other-repo"
+        other.mkdir()
+        builder = spawn_index_builder_process(other, pid_path.parent)
+        self.addCleanup(stop_process, builder)
+        pid_path.write_text(str(builder.pid), encoding="utf-8")
+        self.assertEqual(self.srv._background_build_status(self.root), "completed")
+
+    @unittest.skipIf(os.name == "nt", "zombie children are POSIX-only")
+    def test_returns_completed_and_reaps_a_finished_server_child(self):
+        from server_tools_support import spawn_index_builder_process
+        import wf_server.index_handlers as index_handlers
+        pid_path = self._pid_path()
+        pid_path.parent.mkdir(parents=True, exist_ok=True)
+        builder = spawn_index_builder_process(self.root, pid_path.parent)
+        index_handlers._register_background_build_pid(builder.pid)
+        self.addCleanup(index_handlers._BACKGROUND_BUILD_PIDS.discard, builder.pid)
+        pid_path.write_text(str(builder.pid), encoding="utf-8")
+        builder.kill()
+        indexer = self.srv._load_script("indexer")
+        deadline = time.time() + 10
+        # Unreaped exit: the pid still answers kill(pid, 0) until it is reaped.
+        while not indexer._process_is_zombie(builder.pid) and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(indexer._process_is_zombie(builder.pid))
+        self.assertEqual(self.srv._background_build_status(self.root), "completed")
+        self.assertNotIn(builder.pid, index_handlers._BACKGROUND_BUILD_PIDS)
+        builder.returncode = 0  # reaped by the status check; keep Popen from waiting again
 
     def test_returns_completed_when_pid_not_alive(self):
         pid_path = self._pid_path()

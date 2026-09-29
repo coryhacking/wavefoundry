@@ -12359,30 +12359,120 @@ def _resolve_repo_path(root: Path, user_path: str) -> Optional[Path]:
         return None
 
 
+# Wave 1za2y (1z9u7): the last indexer module that loaded in this process, kept
+# under a sys.modules key because wf_reload_mcp clears the script cache but not
+# index_compatibility's capture, so a fresh load after a producer edit fails.
+_LAST_GOOD_INDEXER_KEY = "_wavefoundry_indexer_last_good"
+
+
+class NavigationWalkerUnavailable(RuntimeError):
+    """No indexer module can serve the navigation walk in this process."""
+
+
+# Per tool call: what the navigation walker observed (``("stale", None)`` or
+# ``("unavailable", detail)``). The setup-notice wrapper opens and reads it.
+_NAVIGATION_EVENTS: contextvars.ContextVar[Optional[list]] = contextvars.ContextVar(
+    "wavefoundry_navigation_events", default=None
+)
+_RUNTIME_SIGNATURE_CACHE: dict[str, Any] = {"signature": None, "stale": False}
+
+
 def _indexer_module():
-    """Import the indexer module from the framework scripts directory."""
-    import importlib.util
-    indexer_path = SCRIPTS_DIR / "indexer.py"
-    spec = importlib.util.spec_from_file_location("indexer", indexer_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load indexer from {indexer_path}")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)  # type: ignore[arg-type]
+    """The process's indexer module (wave 1za2y).
+
+    The cached ``_load_script`` module, so every caller shares one instance.
+    When a fresh load fails (a producer changed on disk since the runtime's
+    capture), the last module that loaded successfully serves instead.
+    """
+    try:
+        mod = _load_script("indexer")
+    except Exception:
+        last_good = sys.modules.get(_LAST_GOOD_INDEXER_KEY)
+        if last_good is None:
+            raise
+        return last_good
+    sys.modules[_LAST_GOOD_INDEXER_KEY] = mod
     return mod
 
 
+def _index_runtime_stale() -> bool:
+    """True when installed index-producer sources differ from this runtime's capture.
+
+    Hashes only when a producer file's stat signature (size, mtime, inode,
+    ctime) changes, since a replacement can keep size and mtime.
+    """
+    try:
+        import index_compatibility
+    except Exception:  # noqa: BLE001
+        return False
+    signature = []
+    for name in index_compatibility._SOURCE_NAMES:
+        try:
+            st = (index_compatibility._SOURCE_ROOT / f"{name}.py").stat()
+            signature.append((name, st.st_size, st.st_mtime_ns, st.st_ino, st.st_ctime_ns))
+        except OSError:
+            signature.append((name, None, None, None, None))
+    key = tuple(signature)
+    if key != _RUNTIME_SIGNATURE_CACHE["signature"]:
+        try:
+            index_compatibility.ensure_runtime_current()
+            stale = False
+        except Exception:  # noqa: BLE001
+            stale = True
+        _RUNTIME_SIGNATURE_CACHE.update(signature=key, stale=stale)
+    return bool(_RUNTIME_SIGNATURE_CACHE["stale"])
+
+
 def _walk_repo_for_navigation(root: Path) -> list[Path]:
-    """Return navigable files respecting indexer ignore/exclusion rules."""
+    """Return navigable files respecting indexer ignore/exclusion rules.
+
+    Never falls back to an unfiltered walk (wave 1za2y): without an indexer it
+    raises, and the tool-level wrapper turns the call into an error response.
+    """
+    events = _NAVIGATION_EVENTS.get()
     try:
         indexer = _indexer_module()
-        return indexer.walk_repo(root)
-    except Exception:
-        # Fallback: simple glob without ignore support
-        result = []
-        for p in sorted(root.rglob("*")):
-            if p.is_file() and ".git" not in p.parts:
-                result.append(p)
+    except Exception as exc:
+        if events is not None:
+            events.append(("unavailable", f"{type(exc).__name__}: {exc}"))
+        raise NavigationWalkerUnavailable(str(exc)) from exc
+    if events is not None and _index_runtime_stale():
+        events.append(("stale", None))
+    return indexer.walk_repo(root)
+
+
+def _apply_navigation_notices(tool_name: str, result: Any, events: list) -> Any:
+    """Turn what the navigation walker saw during a call into the response (wave 1za2y)."""
+    if not events:
         return result
+    unavailable = [detail for kind, detail in events if kind == "unavailable"]
+    if unavailable:
+        return _response(
+            "error",
+            {"tool": tool_name, "navigation_available": False},
+            diagnostics=[_diagnostic(
+                "navigation_indexer_unavailable",
+                "Code navigation could not load the indexer in this server process "
+                f"({unavailable[0]}), so no file list was produced. Restart the MCP server "
+                "to load the current index runtime; wf_reload_mcp does not replace it.",
+                recovery_tools=["wf_server_info"],
+                recovery_usage="wf_server_info()",
+            )],
+            next_tools=["wf_server_info"],
+        )
+    if isinstance(result, dict) and any(kind == "stale" for kind, _ in events):
+        existing = result.get("diagnostics")
+        if existing is None or isinstance(existing, list):
+            result = dict(result)
+            result["diagnostics"] = [*(existing or []), _diagnostic(
+                "index_runtime_stale",
+                "Index producer sources changed on disk since this server loaded its indexer; "
+                "code navigation keeps using the loaded indexer, so file selection follows that "
+                "code. Restart the MCP server to adopt the current index runtime.",
+                recovery_tools=["wf_server_info"],
+                recovery_usage="wf_server_info()",
+            )]
+    return result
 
 
 
@@ -17343,9 +17433,13 @@ def _wrap_setup_notice(mcp: Any, get_handler: Any) -> None:
     """Tell the agent once per distinct result when setup needs the operator (wave 1z2mc).
 
     Reads only the handler's cached assessment, never computes one, and never
-    changes a call's outcome. Runner-registered tools (async, and re-wrapped on
+    changes a call's outcome for it. Runner-registered tools (async, and re-wrapped on
     every reload otherwise), coroutine functions, and ``index_health`` (which
     returns the assessment itself) are skipped.
+
+    Wave 1za2y: the same wrapper reports what the navigation walker saw during
+    the call (``_apply_navigation_notices``): a stale index runtime adds a
+    diagnostic, and a missing indexer replaces the result with an error.
     """
 
     registry = getattr(getattr(mcp, "_tool_manager", None), "_tools", None)
@@ -17367,10 +17461,21 @@ def _wrap_setup_notice(mcp: Any, get_handler: Any) -> None:
         ):
             continue
 
-        def _make(fn: Any) -> Any:
+        def _make(tool_name: str, fn: Any) -> Any:
             @functools.wraps(fn)
             def noticed_call(*args: Any, **kwargs: Any) -> Any:
-                result = fn(*args, **kwargs)
+                # Wave 1za2y (1z9u7): collect what the navigation walker saw in
+                # this call, so a stale runtime is reported and a missing
+                # indexer can never surface as an empty-result success.
+                token = _NAVIGATION_EVENTS.set([])
+                try:
+                    result = fn(*args, **kwargs)
+                except NavigationWalkerUnavailable:
+                    result = None  # the recorded event becomes the error below
+                finally:
+                    events = _NAVIGATION_EVENTS.get() or []
+                    _NAVIGATION_EVENTS.reset(token)
+                result = _apply_navigation_notices(tool_name, result, events)
                 try:
                     if isinstance(result, dict):
                         handler = get_handler()
@@ -17393,7 +17498,7 @@ def _wrap_setup_notice(mcp: Any, get_handler: Any) -> None:
             noticed_call._wf_setup_noticed = True  # type: ignore[attr-defined]
             return noticed_call
 
-        tool.fn = _make(original)
+        tool.fn = _make(name, original)
 
 
 _HINT_LIST_FIELDS = ("next_tools",)
@@ -18048,6 +18153,12 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     _MCP_INSTANCE = mcp
     try:
         _load_graph_query().set_post_rebuild_callback(_dispatch_graph_resources_updated)
+    except Exception:
+        pass
+    # Wave 1za2y (1z9u7): load the indexer now, best effort, so code navigation
+    # has a loaded walker before any later framework edit makes a load fail.
+    try:
+        _indexer_module()
     except Exception:
         pass
     # Tool annotation constants — passed to @mcp.tool(annotations={...}).
@@ -20288,7 +20399,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         `.wavefoundry/index/index-build.lock` directly: that file persists BY DESIGN as a
         last-owner record, so its presence does not mean a build is running. `ended_at`
         distinguishes a clean finish from an interrupted build (absent ⇒ the last build was
-        killed and the index may be partial).
+        killed and the index may be partial). A build held by THIS server process (fts
+        rebuild, index_optimize) is reported `held: true` with this process as owner from
+        an in-process record, without opening the lock file (wave 1za2y). When `state` is
+        'running' from the background setup process while `lock.held` is false, a
+        `state_note` says which field answers which question.
 
         `reap` (wave 1x6ti, 1x551): in every state, the eligibility reap's persisted
         record when one exists — `deferred` (per-table `{would_reap, table_paths}` the
@@ -20944,6 +21059,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         Args:
             glob: Optional glob pattern to filter results, e.g. "**/*.py" or "*.md".
+                  `**/` matches zero or more directories (so "**/*.py" includes top-level files) and `*` also crosses `/`.
                   Matches against full repo-relative paths and file names.
         """
         bad = _ensure_no_extra_args("code_list_files", kwargs)
@@ -21066,6 +21182,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Args:
             query: Exact text to search for (substring match). Omit when using ``queries``.
             glob: Optional glob to restrict the search, e.g. "**/*.py" or "*.md".
+                  `**/` matches zero or more directories (so "**/*.py" includes top-level files) and `*` also crosses `/`.
             queries: List of exact strings to search for in a single call. Omit when using ``query``.
             limit: Cap on returned results (default 50; matches ``code_pattern`` / ``code_references``).
                 When the cap fires the response includes ``truncated: true`` and ``total_matches_found``
@@ -21225,6 +21342,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Args:
             symbols: List of constant names to look up, e.g. ["VECTOR_TOP_K", "RRF_K"].
             glob: Optional glob to restrict search, e.g. "**/server.py" or "**/*.py".
+                  `**/` matches zero or more directories (so "**/*.py" includes top-level files) and `*` also crosses `/`.
         """
         bad = _ensure_no_extra_args("code_constants", kwargs)
         if bad is not None:
@@ -21269,6 +21387,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Args:
             pattern: Python ``re``-compatible regex string.
             glob: Optional glob to restrict search, e.g. "**/*.py" or "src/**".
+                  `**/` matches zero or more directories (so "**/*.py" includes top-level files) and `*` also crosses `/`.
             limit: Maximum number of matches to return (default 50; matches
                 ``code_keyword`` / ``code_references`` convention). Pass ``limit=0``
                 for no cap. Wave 1p3dk: canonical name for the result-cap parameter.

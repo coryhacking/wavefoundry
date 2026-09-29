@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-21
+Last verified: 2026-09-29
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -155,11 +155,20 @@ corrupt the index or run two builds at once. The pattern:
   `held` by *testing* the OS lock — POSIX `fcntl` `F_GETLK` (queries without acquiring and returns the
   holder PID) / a momentary non-blocking `msvcrt` acquire on Windows — never by inferring from the
   lock file's presence. Read `lock.held`, not the file.
+- **A hold by the server process is answered from memory (wave `1za2y`).** A POSIX record lock is
+  released when its holder closes *any* descriptor of the file, and `F_GETLK` never reports the
+  caller's own lock, so while the MCP server itself holds the lock (the `fts` rebuild, `index_optimize`)
+  no code in that process may open the lock file. `_index_build_lock` records the hold in a
+  process registry in `runtime_lock` (which an MCP reload does not replace) as part of acquiring,
+  under a re-entrant guard that every in-process reader also takes while it checks the registry and
+  opens the file; status then reports `held: true` with this process as owner. A second acquire in
+  the same process is refused with `IndexBuildAlreadyRunning` before the file is touched.
 - **The lock file is a durable "last owner" breadcrumb, reclaimed lazily — not deleted on exit.** The
   metadata file (owner PID, `started_at`, `cmdline`, and `ended_at` written best-effort on a clean
-  exit) is intentionally *not* unlinked when a build finishes; it is reclaimed on the next acquire only
-  when the prior owner is classified stale (`classify_index_build_lock_owner`, retained solely for that
-  reclaim decision). This is crash-safe: a hard-killed build can never leave a permanently-blocking
+  exit) is never unlinked, neither when a build finishes nor when the next build finds it stale: the next
+  acquire locks the same file and rewrites its metadata in place (`classify_index_build_lock_owner` only
+  decides whether to log a stale reclaim). Deleting a carrier would race a process that has just locked
+  that inode, letting a third process lock a fresh file alongside it (wave `1za2y`). This is crash-safe: a hard-killed build can never leave a permanently-blocking
   lock. **`ended_at` distinguishes a clean finish from an interrupted build** — its absence (with the
   lock not held) means the last build was killed and the index may be partial.
 - **Detached background builds are reaped.** The long-lived MCP server launches its reactive background

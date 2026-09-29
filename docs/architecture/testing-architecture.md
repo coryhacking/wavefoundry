@@ -491,6 +491,36 @@ delta as attributable only when the corpus and the instrument both held still.
 The two report paths join `.aiignore` like every other standing report family, so
 a measurement never becomes its own search answer.
 
+**Re-measuring the shipped pair (wave 1za2y).** Any edit to
+`graph_quality_eval.py` changes `evaluator_identity.source_sha256`, and
+`ShippedReportPairTests` then requires both reports to be re-measured with the
+edited evaluator; no report field is ever edited by hand. From the repository
+root:
+
+- **post**, from the live scripts:
+  `python -B .wavefoundry/framework/scripts/graph_quality_eval.py --corpus "$PWD/docs/evals/graph-quality-golden.json" --report docs/reports/graph-quality-post.json --label post --root "$PWD"`.
+- **baseline**, from the predecessor production: extract the scripts at commit
+  `f6790333` into a scratch directory
+  (`git archive f6790333 .wavefoundry/framework/scripts | tar -x -C <scratch>`),
+  copy the edited `graph_quality_eval.py` over the extracted one, and run that
+  copy with `--corpus docs/evals/graph-quality-golden.json --report docs/reports/graph-quality-baseline.json --label baseline --root "$PWD"`.
+  The baseline's `subprocess_util` predates `run_with_tree_kill`, so the
+  evaluator's helpers resolve it at call time and fall back to `isolated_run`.
+
+Pass `--corpus` exactly as shown: the report records the path verbatim (absolute
+for post, relative for baseline), and `corpus` must stay unchanged.
+
+Only these fields may change: `evaluator_identity`, `run_started_at`,
+`run_completed_at`, `repository_identity` (the commit becomes the current
+HEAD), `environment`, `production_identity.source_root` (the scratch path for
+the baseline), and `report_digest`. The post report's `production_identity`
+source hashes also follow the live graph sources when those changed since the
+last measurement. Every measured field (`relations`, `totals`, false-positive
+counts, `scored_relations`, `builder_versions`, `corpus`,
+`graph_input_fingerprint`, `classification_controls` including the baseline's
+`not_observed` list, and `graph_bounds`) must be unchanged; any other difference
+is a finding to investigate, not an update to accept.
+
 **Controls live where the walker indexes them.** The Evidence/Data positive and
 negative controls sit under the owning wave's `evidence/` directory, not beside
 the other eval fixtures. A re-derived census of the persisted graph found

@@ -1072,29 +1072,29 @@ class IndexBuildLockTests(unittest.TestCase):
         )
         self.assertEqual(completed, "completed")
 
-    def test_stale_lock_file_is_unlinked_before_acquire(self):
-        """Wave 1p2q3 (1p2w5 / Bug 1): a lock file whose metadata records a
-        dead PID must be unlinked at `_index_build_lock` entry so downstream
-        tools that read the file (status surfaces, diagnostic messages) see
-        the fresh post-acquire metadata, not the dead-pid legacy."""
+    def test_stale_lock_file_is_reused_and_its_metadata_replaced(self):
+        """Wave 1za2y (DEL-F3), superseding 1p2q3's unlink: a lock file whose
+        metadata records a dead PID keeps its inode (deleting a carrier races
+        a concurrent locker) and its metadata is replaced in place, so status
+        tools see the fresh owner."""
         lock_path = self.index_dir / self.bi.INDEX_BUILD_LOCK_NAME
         lock_path.write_text(
-            json.dumps({"pid": 99999999, "started_at": 0.0}),
+            json.dumps({"pid": 99999999, "started_at": 0.0, "cmdline": "x" * 400}),
             encoding="utf-8",
         )
-        # Capture the inode of the pre-existing file so we can confirm the
-        # post-acquire file is a fresh inode (i.e. the unlink ran).
         pre_inode = lock_path.stat().st_ino
         with redirect_stderr(io.StringIO()):
             with self.bi._index_build_lock(self.index_dir):
-                post_inode = lock_path.stat().st_ino
-                meta = json.loads(lock_path.read_text(encoding="utf-8"))
-                self.assertEqual(meta.get("pid"), os.getpid())
-        self.assertNotEqual(
-            pre_inode, post_inode,
-            "stale lock file should have been unlinked before acquire — "
-            "same inode means the original dead-PID metadata file was reused",
-        )
+                self.assertEqual(lock_path.stat().st_ino, pre_inode)
+                # Read from another process: opening the file here would
+                # release this process's record lock (wave 1za2y).
+                seen = subprocess.run(
+                    [sys.executable, "-B", "-c",
+                     "import json, sys; print(json.load(open(sys.argv[1]))['pid'])", str(lock_path)],
+                    capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL,
+                )
+                self.assertEqual(seen.stdout.strip(), str(os.getpid()), seen.stderr)
+        self.assertEqual(lock_path.stat().st_ino, pre_inode)
 
     def test_recent_completed_owner_does_not_log_reclaimed_stale(self):
         lock_path = self.index_dir / self.bi.INDEX_BUILD_LOCK_NAME
@@ -1122,7 +1122,12 @@ class IndexBuildLockTests(unittest.TestCase):
             encoding="utf-8",
         )
         stale_msg = self.bi.format_index_build_lock_conflict(self.index_dir)
-        self.assertIn("appears stale", stale_msg)
+        # Wave 1za2y: an earlier recorded owner is not "stale" while the OS lock
+        # is held, and lockf locks are not inherited.
+        self.assertIn("earlier build", stale_msg)
+        self.assertIn("lock.held", stale_msg)
+        self.assertNotIn("inherited", stale_msg)
+        self.assertNotIn("appears stale", stale_msg)
 
     def test_should_coalesce_hook_reindex_when_live_or_recent_spawn(self):
         lock_path = self.index_dir / self.bi.INDEX_BUILD_LOCK_NAME

@@ -10,6 +10,7 @@ from __future__ import annotations
 import errno
 import json
 import os
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -443,3 +444,41 @@ def probe_runtime_lock(
     except RuntimeLockError as exc:
         return RuntimeLockProbe(None, str(exc))
     return RuntimeLockProbe(False)
+
+
+# POSIX record locks belong to the process, and closing ANY descriptor of the
+# locked file releases them, so a process holding a record lock must not open
+# that file again. Holders register here and readers in the same process
+# consult the registry instead of opening the file. It lives in this module,
+# which an MCP reload leaves loaded (wave 1za2y).
+_PROCESS_RECORD_HOLDS: dict[str, dict[str, Any]] = {}
+# Serializes acquire-and-register against every in-process reader's
+# check-and-open (wave 1za2y): a reader that opened the file between another
+# thread's acquire and its registration would release that thread's lock.
+# Re-entrant, because a refused acquire formats its message through a reader.
+_PROCESS_HOLD_GUARD = threading.RLock()
+
+
+def process_hold_guard() -> threading.RLock:
+    """The lock held while registering a hold or while checking and opening a held file."""
+    return _PROCESS_HOLD_GUARD
+
+
+def _hold_key(path: os.PathLike[str] | str) -> str:
+    return os.path.realpath(os.fspath(path))
+
+
+def register_process_hold(path: os.PathLike[str] | str, metadata: Mapping[str, Any]) -> None:
+    """Record that this process holds the record lock on ``path``."""
+    _PROCESS_RECORD_HOLDS[_hold_key(path)] = dict(metadata)
+
+
+def release_process_hold(path: os.PathLike[str] | str) -> None:
+    """Forget this process's hold on ``path`` (before the lock is released)."""
+    _PROCESS_RECORD_HOLDS.pop(_hold_key(path), None)
+
+
+def process_hold(path: os.PathLike[str] | str) -> dict[str, Any] | None:
+    """The metadata this process recorded for its hold on ``path``, or ``None``."""
+    held = _PROCESS_RECORD_HOLDS.get(_hold_key(path))
+    return dict(held) if held is not None else None

@@ -4227,13 +4227,15 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         self.assertIn('index-build-badge--running', source)
 
     def test_background_build_status_surfaces_in_snapshot_health(self):
-        import os
+        from server_tools_support import spawn_index_builder_process, stop_process
 
         bg_pid = self.root / ".wavefoundry" / "index" / "background-build.pid"
         bg_log = self.root / ".wavefoundry" / "logs" / "project-background-build.log"
         bg_pid.parent.mkdir(parents=True, exist_ok=True)
         bg_log.parent.mkdir(parents=True, exist_ok=True)
-        bg_pid.write_text(str(os.getpid()), encoding="utf-8")
+        builder = spawn_index_builder_process(self.root, bg_pid.parent)
+        self.addCleanup(stop_process, builder)
+        bg_pid.write_text(str(builder.pid), encoding="utf-8")
         bg_log.write_text(
             "Code index build started in background (PID 12345)\n"
             "build_index: embedding code chunks 1-20/200\n",

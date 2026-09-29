@@ -350,12 +350,20 @@ def _pid_is_index_builder(pid: int) -> bool:
 
 
 def read_index_build_lock_metadata(lock_path: Path) -> Optional[dict]:
-    if not lock_path.exists():
-        return None
-    try:
-        loaded = json.loads(lock_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
+    # Wave 1za2y: while this process holds the lock, opening the file would
+    # release it (POSIX record locks), so answer from the process registry.
+    from runtime_lock import process_hold, process_hold_guard
+
+    with process_hold_guard():
+        held = process_hold(lock_path)
+        if held is not None:
+            return held
+        if not lock_path.exists():
+            return None
+        try:
+            loaded = json.loads(lock_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
     return loaded if isinstance(loaded, dict) else None
 
 
@@ -399,19 +407,19 @@ def format_index_build_lock_conflict(index_dir: Path, *, lock_path: Optional[Pat
     )
     if owner == "live":
         detail = f"live build in progress (owner pid {pid})"
-    elif owner == "stale":
+    elif owner in ("stale", "completed"):
+        # Wave 1za2y: the OS lock (lockf) is held, so a build is running even
+        # when the recorded owner is an earlier, finished one; lockf locks are
+        # not inherited by child processes.
         detail = (
-            f"recorded owner pid {pid} appears stale — the OS lock is held by another "
-            f"process (possible inherited lock descriptor); wait for the holder to exit or "
-            f"remove {lock_path} after confirming no build is active"
-        )
-    elif owner == "completed":
-        detail = (
-            f"recorded owner pid {pid} finished recently — the OS lock is held by another "
-            f"process; wait for the active build to finish"
+            f"the OS lock is held by another process; the recorded owner (pid {pid}) is an "
+            f"earlier build. Check index_build_status lock.held and retry when it is false"
         )
     else:
-        detail = "lock holder could not be classified from metadata"
+        detail = (
+            "the lock holder could not be identified from its metadata; check "
+            "index_build_status lock.held and retry when it is false"
+        )
     return f"{base} — {detail}"
 
 
@@ -3020,8 +3028,24 @@ def _index_build_lock_held(index_dir: Path) -> "tuple[Optional[bool], Optional[i
     error / unknown platform) — the acquire-time lock remains the ultimate authority, so status callers
     treat ``None`` as not-held. POSIX uses ``fcntl`` ``F_GETLK`` (queries without acquiring and returns
     the holder PID); native Windows uses a momentary non-blocking ``msvcrt`` lock on the sentinel byte
-    (Windows has no F_GETLK; it also has no defunct-owner problem, so the microsecond acquire is safe)."""
+    (Windows has no F_GETLK; it also has no defunct-owner problem, so the microsecond acquire is safe).
+    A hold by this process is answered from the ``runtime_lock`` process registry first, without
+    opening the file (wave 1za2y)."""
     lock_path = index_dir / INDEX_BUILD_LOCK_NAME
+    # Wave 1za2y: a hold by this process is known without opening the file;
+    # opening and closing it here would release that hold, and F_GETLK never
+    # reports the caller's own lock anyway.
+    from runtime_lock import process_hold, process_hold_guard
+
+    with process_hold_guard():
+        return _index_build_lock_held_unguarded(lock_path)
+
+
+def _index_build_lock_held_unguarded(lock_path: Path) -> "tuple[Optional[bool], Optional[int]]":
+    from runtime_lock import process_hold
+
+    if process_hold(lock_path) is not None:
+        return (True, os.getpid())
     if not lock_path.exists():
         return (False, None)
     try:
@@ -3128,42 +3152,56 @@ def _index_build_lock(index_dir: Path):
     cleanup correctness depend on unlinking after a crash.
     """
     lock_path = index_dir / INDEX_BUILD_LOCK_NAME
-    from runtime_lock import RuntimeFileLock, RuntimeLockBusy
+    from runtime_lock import (
+        RuntimeFileLock,
+        RuntimeLockBusy,
+        process_hold,
+        process_hold_guard,
+        register_process_hold,
+        release_process_hold,
+    )
 
+    # Wave 1za2y: a second acquire in the same process would succeed (a process
+    # can always re-take its own record lock) and its release would free the
+    # first holder's lock, so refuse it before touching the file. Checked again
+    # under the guard at acquire time, for a second thread.
+    def _refuse_if_held_here() -> None:
+        if process_hold(lock_path) is not None:
+            raise IndexBuildAlreadyRunning(
+                f"Another index build is already running in this process for {index_dir}; "
+                "check index_build_status lock.held before retrying."
+            )
+
+    with process_hold_guard():
+        _refuse_if_held_here()
     prior_owner = classify_index_build_lock_owner(read_index_build_lock_metadata(lock_path))
-    # Wave 1p2q3 (1p2w5): proactively unlink lock-file metadata that records a
-    # dead PID. The OS-held `flock()` is released when its holding process
-    # exits, so a fresh acquire below will succeed regardless — but leaving
-    # the stale metadata on disk causes downstream tools that read it (status
-    # surfaces, diagnostic messages) to keep surfacing the dead PID. Unlink
-    # races are safe: POSIX `unlink` does not affect file descriptors already
-    # open in other processes, and concurrent unlink callers see
-    # FileNotFoundError which we ignore.
-    if prior_owner == "stale" and lock_path.exists():
-        try:
-            lock_path.unlink()
-        except FileNotFoundError:
-            pass
-        except OSError:
-            # Permission or filesystem issue — fall through and let the
-            # `open()` below surface the underlying error.
-            pass
+    # Wave 1za2y (DEL-F3): the lock file is never unlinked here. Deleting a
+    # carrier whose metadata looks stale races any process that has just
+    # locked that inode: a third process then creates a fresh file, locks it
+    # too, and two builds run. Stale metadata is replaced in place instead:
+    # write_metadata truncates and rewrites the same inode right after acquire
+    # (this was wave 1p2q3's reason for the old unlink).
     lock = None
     lock_meta: Optional[dict] = None
     try:
         for _yield_cycle in range(_TEST_RUN_MAX_YIELD_CYCLES + 1):
-            lock = RuntimeFileLock(
-                lock_path,
-                blocking=False,
-                offset=INDEX_BUILD_LOCK_SENTINEL,
-                style="record",
-            )
-            try:
-                lock.acquire()
-            except RuntimeLockBusy as exc:
-                raise IndexBuildAlreadyRunning(
-                    format_index_build_lock_conflict(index_dir, lock_path=lock_path)
-                ) from exc
+            # Wave 1za2y: acquire and register as one step under the guard, so
+            # no in-process reader opens the file between them.
+            with process_hold_guard():
+                _refuse_if_held_here()
+                lock = RuntimeFileLock(
+                    lock_path,
+                    blocking=False,
+                    offset=INDEX_BUILD_LOCK_SENTINEL,
+                    style="record",
+                )
+                try:
+                    lock.acquire()
+                except RuntimeLockBusy as exc:
+                    raise IndexBuildAlreadyRunning(
+                        format_index_build_lock_conflict(index_dir, lock_path=lock_path)
+                    ) from exc
+                register_process_hold(lock_path, {"pid": os.getpid(), "started_at": time.time()})
             # Wave 1t72b (1t727 TOCTOU repair, revised): the test-lock check
             # happens while HOLDING the build lock (atomic with ownership),
             # but the build never waits while holding — on a held test lock it
@@ -3173,7 +3211,9 @@ def _index_build_lock(index_dir: Path):
                 index_dir
             ):
                 break
-            lock.release()
+            with process_hold_guard():
+                release_process_hold(lock_path)
+                lock.release()
             lock = None
             _wait_for_test_run_release(index_dir)
 
@@ -3191,21 +3231,26 @@ def _index_build_lock(index_dir: Path):
             "cmdline": " ".join(sys.argv),
         }
         lock.write_metadata(lock_meta)
+        register_process_hold(lock_path, lock_meta)
         yield
     finally:
         if lock is not None and lock.acquired:
-            if lock_meta is not None:
-                try:  # best-effort ended_at; a hard kill skips it → status sees an interrupted build
-                    lock_meta["ended_at"] = time.time()
-                    lock.write_metadata(lock_meta)
-                except index_compatibility.IndexCompatibilityError:
-                    raise
-                except Exception:  # noqa: BLE001
-                    pass
             try:
-                lock.release()
-            except OSError:
-                pass
+                if lock_meta is not None:
+                    try:  # best-effort ended_at; a hard kill skips it → status sees an interrupted build
+                        lock_meta["ended_at"] = time.time()
+                        lock.write_metadata(lock_meta)
+                    except index_compatibility.IndexCompatibilityError:
+                        raise
+                    except Exception:  # noqa: BLE001
+                        pass
+            finally:
+                with process_hold_guard():
+                    release_process_hold(lock_path)
+                    try:
+                        lock.release()
+                    except OSError:
+                        pass
 
 
 # ---------------------------------------------------------------------------

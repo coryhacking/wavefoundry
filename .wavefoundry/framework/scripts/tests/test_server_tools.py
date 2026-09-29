@@ -6744,7 +6744,11 @@ class WindowsLivenessGuardTests(unittest.TestCase):
             root = Path(tmp)
             (root / ".wavefoundry" / "index").mkdir(parents=True)
             (root / ".wavefoundry" / "index" / "background-build.pid").write_text("4321", encoding="utf-8")
-            with patch.object(srv, "_pid_is_running", return_value=True):
+            # Wave 1za2y: a live pid must also be an index build for this root.
+            indexer = srv._load_script("indexer")
+            with patch.object(srv, "_pid_is_running", return_value=True), \
+                    patch.object(indexer, "classify_index_build_lock_owner", return_value="live"), \
+                    patch.object(indexer, "_process_cmdline", return_value=f"python setup_index.py --root {root}"):
                 self.assertEqual(srv._background_build_status(root), "running")
             with patch.object(srv, "_pid_is_running", return_value=False):
                 self.assertEqual(srv._background_build_status(root), "completed")

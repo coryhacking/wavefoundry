@@ -61,7 +61,7 @@ CALLEES = frozenset({"run", "isolated_run", "run_with_tree_kill", "communicate",
 # up at call time in ONE module-level function, so the census can count its
 # sites by name. index_state_store._run_git is the store's resolver.
 RESOLVER_MODULES = (
-    "accel_embedder", "dashboard_lib", "docs_gardener", "graph_indexer",
+    "accel_embedder", "dashboard_lib", "docs_gardener", "graph_indexer", "graph_quality_eval",
     "indexer", "operator_identity", "provider_policy", "render_platform_surfaces", "retrieval_eval",
     "run_secrets_scan", "run_tests", "scan_secrets", "sqlite_storage_migration", "upgrade_protocol", "server_impl",
 )
@@ -106,6 +106,7 @@ ROUTED = {
     ("dashboard_lib.py", "list_git_changed_files.run", "_run_tree_kill"): 1,
     ("docs_gardener.py", "collect_changed_markdown_paths", "_run_tree_kill"): 1,
     ("graph_indexer.py", "_gitignored_paths", "_run_tree_kill"): 1,
+    ("graph_quality_eval.py", "_git_value", "_run_tree_kill"): 1,
     ("graph_indexer.py", "_physical_perf_core_count", "_run_tree_kill"): 1,
     ("indexer.py", "_process_cmdline", "_run_tree_kill"): 1,
     ("operator_identity.py", "resolve_operator", "_run_tree_kill"): 1,
@@ -126,10 +127,6 @@ ROUTED = {
 # Timed calls that stay as they are, each with the reason. Only these (wave 1z8ox).
 EXCLUDED = {
     ("dashboard_server.py", "_watch_loop", "wait"): (1, "threading.Event.wait, not a subprocess"),
-    ("graph_quality_eval.py", "_git_value", "isolated_run"): (
-        1, "the shipped graph-quality reports pin this evaluator's source hash; re-measuring "
-           "(builder 45 rebuilt from history) is disproportionate for a manual CLI's provenance "
-           "probes (git rev-parse HEAD, git status --porcelain); route at the next re-measure"),
     ("run_tests.py", "_run_file", "run"): (1, "waits run in worker threads; a new session would stop Ctrl-C ending the suite"),
     ("setup_index.py", "_run_indexer", "wait"): (1, "Popen background build with its own lifecycle"),
     ("setup_index.py", "_terminate_and_reap", "wait"): (2, "Popen background build with its own lifecycle"),
@@ -456,6 +453,30 @@ class RoutingSpyTests(unittest.TestCase):
         self.assertEqual(helper.call_args.args, (["git", "rev-parse", "--local-env-vars"],))
         self.assertEqual(helper.call_args.kwargs["timeout"], 10)
         plain.assert_not_called()
+
+    def test_graph_quality_git_value_calls_the_helper_with_its_timeout(self) -> None:
+        # Wave 1za2y (1za2x): the evaluator's provenance probe ends its tree on timeout.
+        import graph_quality_eval
+
+        done = subprocess.CompletedProcess(["git"], 0, stdout="abc\n")
+        with mock.patch.object(subprocess_util, "run_with_tree_kill", return_value=done) as helper, \
+                mock.patch.object(subprocess_util, "isolated_run") as plain:
+            self.assertEqual(graph_quality_eval._git_value(Path("."), "rev-parse", "HEAD"), "abc")
+        helper.assert_called_once()
+        self.assertEqual(helper.call_args.args, (["git", "rev-parse", "HEAD"],))
+        self.assertEqual(helper.call_args.kwargs["timeout"], 30)
+        plain.assert_not_called()
+
+    def test_graph_quality_git_value_falls_back_without_the_helper(self) -> None:
+        # The baseline production's subprocess_util predates run_with_tree_kill.
+        import graph_quality_eval
+
+        old = types.SimpleNamespace(isolated_run=mock.Mock(
+            return_value=subprocess.CompletedProcess(["git"], 0, stdout="abc\n")))
+        with mock.patch.dict(sys.modules, {"subprocess_util": old}):
+            self.assertEqual(graph_quality_eval._git_value(Path("."), "rev-parse", "HEAD"), "abc")
+        old.isolated_run.assert_called_once()
+        self.assertEqual(old.isolated_run.call_args.kwargs["timeout"], 30)
 
     def test_routed_module_falls_back_without_the_helper(self) -> None:
         # AC-5 (wave 1z8ox): an upgrade runner's older subprocess_util has no

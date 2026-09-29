@@ -517,6 +517,19 @@ def graph_input_fingerprint(root: Path, files: Sequence[Path],
     return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
 
 
+def _run_tree_kill(cmd, **kwargs):
+    """Run ``cmd`` so a timeout ends its whole process tree (wave 1za2y).
+
+    Resolved at call time, and imported lazily as this evaluator's other
+    helpers are: an older ``subprocess_util`` (the baseline production's
+    scripts) lacks ``run_with_tree_kill``, so fall back to ``isolated_run``.
+    """
+    import subprocess_util
+
+    run = getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
+    return run(cmd, **kwargs)
+
+
 def _git_value(root: Path, *args: str) -> str | None:
     """One git answer, or ``None`` when git cannot supply it.
 
@@ -528,12 +541,10 @@ def _git_value(root: Path, *args: str) -> str | None:
     import subprocess
 
     try:
-        from subprocess_util import isolated_run
+        completed = _run_tree_kill(["git", *args], cwd=str(root),
+                                   capture_output=True, text=True, timeout=30)
     except ImportError:
         return None
-    try:
-        completed = isolated_run(["git", *args], cwd=str(root),
-                                 capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return None
     if completed.returncode != 0:

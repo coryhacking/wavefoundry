@@ -1,10 +1,94 @@
 """Codenav response handlers; registration and shared dependencies stay in server_impl."""
 from __future__ import annotations
 
+import fnmatch
+import functools
+import os
+
 import marker_namespaces
 
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Optional, Sequence
+
+
+# Wave 1za2y (1z9ya): one matcher for every navigation glob. It keeps each match
+# the plain fnmatch filter makes (``*`` crosses ``/``, and the file name is also
+# tried), and adds zero-directory matches for ``**/``: ``A/**/*.py`` matches
+# ``A/x.py`` and ``**/*.py`` matches a root-level file. No regular expression is
+# built, so many ``**/`` segments cannot cause catastrophic backtracking.
+_GLOB_DOUBLE_STAR = "**/"
+
+
+@functools.lru_cache(maxsize=256)
+def _glob_tokens(glob: str) -> tuple[str, ...]:
+    """Split a glob into single-position tokens, ``*`` and the ``**/`` marker.
+
+    ``**/`` is a marker only as a whole segment (at the start of the glob or
+    after ``/``); inside a segment its stars are ordinary ``*``. A character
+    class ``[...]`` stays one token, parsed as fnmatch does (a ``]`` right
+    after ``[`` or ``[!`` is a member), and matched by fnmatch; any other
+    character is a literal or ``?``.
+    """
+    tokens: list[str] = []
+    i = 0
+    while i < len(glob):
+        if glob.startswith(_GLOB_DOUBLE_STAR, i) and (i == 0 or glob[i - 1] == "/"):
+            tokens.append(_GLOB_DOUBLE_STAR)
+            i += len(_GLOB_DOUBLE_STAR)
+        elif glob[i] == "[":
+            start = i + 1
+            if glob[start:start + 1] == "!":
+                start += 1
+            if glob[start:start + 1] == "]":
+                start += 1
+            close = glob.find("]", start)
+            if close == -1:
+                tokens.append("[")
+                i += 1
+            else:
+                tokens.append(glob[i:close + 1])
+                i = close + 1
+        else:
+            tokens.append(glob[i])
+            i += 1
+    return tuple(tokens)
+
+
+def _double_star_match(relpath: str, glob: str) -> bool:
+    """``glob`` against ``relpath`` with each ``**/`` matching zero or more directories.
+
+    Tracks the set of reachable text positions token by token, so the cost is
+    at most tokens times path length and never backtracks.
+    """
+    positions = {0}
+    size = len(relpath)
+    for token in _glob_tokens(glob):
+        if not positions:
+            return False
+        if token == "*":
+            positions = set(range(min(positions), size + 1))
+        elif token == _GLOB_DOUBLE_STAR:
+            start = min(positions)
+            positions = positions | {k + 1 for k in range(start, size) if relpath[k] == "/"}
+        else:
+            positions = {
+                k + 1 for k in positions
+                if k < size and (
+                    token == "?" or (fnmatch.fnmatchcase(relpath[k], token) if token.startswith("[") and len(token) > 1 else relpath[k] == token)
+                )
+            }
+    return size in positions
+
+
+def _glob_matches(relpath: str, name: str, glob: str) -> bool:
+    """True when a navigation glob selects this file (wave 1za2y)."""
+    if fnmatch.fnmatch(relpath, glob) or fnmatch.fnmatch(name, glob):
+        return True
+    if _GLOB_DOUBLE_STAR not in glob:
+        return False
+    if os.name == "nt":  # fnmatch is case-insensitive there; keep that
+        relpath, glob = relpath.lower(), glob.lower()
+    return _double_star_match(relpath, glob)
 
 
 def code_list_files_response(root: Path, glob: str = "") -> dict[str, Any]:
@@ -21,8 +105,7 @@ def code_list_files_response(root: Path, glob: str = "") -> dict[str, Any]:
         paths = [
             str(p.resolve().relative_to(root_r)).replace("\\", "/")
             for p in all_files
-            if fnmatch.fnmatch(str(p.resolve().relative_to(root_r)).replace("\\", "/"), glob)
-            or fnmatch.fnmatch(p.name, glob)
+            if _glob_matches(str(p.resolve().relative_to(root_r)).replace("\\", "/"), p.name, glob)
         ]
     else:
         paths = [str(p.resolve().relative_to(root_r)).replace("\\", "/") for p in all_files]
@@ -756,8 +839,7 @@ def code_keyword_response(
             import fnmatch
             all_files = [
                 p for p in all_files
-                if fnmatch.fnmatch(str(p.resolve().relative_to(root_r)).replace("\\", "/"), glob)
-                or fnmatch.fnmatch(p.name, glob)
+                if _glob_matches(str(p.resolve().relative_to(root_r)).replace("\\", "/"), p.name, glob)
             ]
         seen: set[tuple[str, int]] = set()
         merged: list[dict[str, Any]] = []
@@ -789,8 +871,7 @@ def code_keyword_response(
         import fnmatch
         all_files = [
             p for p in all_files
-            if fnmatch.fnmatch(str(p.resolve().relative_to(root_r)).replace("\\", "/"), glob)
-            or fnmatch.fnmatch(p.name, glob)
+            if _glob_matches(str(p.resolve().relative_to(root_r)).replace("\\", "/"), p.name, glob)
         ]
 
     results: list[dict[str, Any]] = []
@@ -974,8 +1055,7 @@ def code_constants_response(root: Path, symbols: list[str], glob: str = "") -> d
         import fnmatch
         all_files = [
             p for p in all_files
-            if fnmatch.fnmatch(str(p.resolve().relative_to(root_r)).replace("\\", "/"), glob)
-            or fnmatch.fnmatch(p.name, glob)
+            if _glob_matches(str(p.resolve().relative_to(root_r)).replace("\\", "/"), p.name, glob)
         ]
 
     symbol_set = set(symbols)
@@ -1197,8 +1277,7 @@ def code_pattern_response(
         import fnmatch
         all_files = [
             p for p in all_files
-            if fnmatch.fnmatch(str(p.resolve().relative_to(root_r)).replace("\\", "/"), glob)
-            or fnmatch.fnmatch(p.name, glob)
+            if _glob_matches(str(p.resolve().relative_to(root_r)).replace("\\", "/"), p.name, glob)
         ]
 
     matches: list[dict[str, Any]] = []

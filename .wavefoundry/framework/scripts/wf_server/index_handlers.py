@@ -151,11 +151,11 @@ def _audit_index_snapshot(root: Path, index_dir: Path) -> dict[str, Any]:
 def _background_build_status(root: Path) -> str:
     """Return 'running', 'completed', or 'none' for the background code build.
 
-    Uses a PID file written by _spawn_background_code_build to detect whether
-    the process is still alive. 'completed' means the PID file exists but the
-    process has already exited (build finished or crashed).
+    Uses a PID file written by the setup code build to detect whether the
+    build is still alive. 'completed' means the PID file exists but no index
+    build for this root is running under that pid (it finished or crashed, or
+    the pid now belongs to another program).
     """
-    from wf_server import server_impl
     pid_path = root / ".wavefoundry" / "index" / "background-build.pid"
     if not pid_path.exists():
         return "none"
@@ -163,9 +163,10 @@ def _background_build_status(root: Path) -> str:
         pid = int(pid_path.read_text(encoding="utf-8").strip())
     except (ValueError, OSError):
         return "completed"
-    # Wave 1p6d6: route through the guarded _pid_is_running (Windows-correct via tasklist)
-    # instead of an inline os.kill that misjudges liveness on native Windows.
-    return "running" if server_impl._pid_is_running(pid) else "completed"
+    # Wave 1za2y: a bare liveness check also accepts an unreaped child, a reused
+    # pid and an earlier server's child; reap ours, then require an index build.
+    _reap_background_build_pids()
+    return "running" if _pid_is_live_index_build(pid, None, root, unbound_ok=True) else "completed"
 
 
 def _background_build_progress(root: Path) -> str:
@@ -970,18 +971,12 @@ def run_index_rebuild(
         # wait or to clean up after a known-dead holder.
         lock_owner_pid: int | None = None
         try:
-            import importlib.util as _importlib_util
-            _indexer_spec = _importlib_util.spec_from_file_location(
-                "wavefoundry_indexer_for_lock_owner",
-                server_impl.SCRIPTS_DIR / "indexer.py",
-            )
-            if _indexer_spec is not None and _indexer_spec.loader is not None:
-                _indexer_mod = _importlib_util.module_from_spec(_indexer_spec)
-                _indexer_spec.loader.exec_module(_indexer_mod)
-                _lock_path = root / ".wavefoundry" / "index" / "index-build.lock"
-                _meta = _indexer_mod.read_index_build_lock_metadata(_lock_path)
-                if isinstance(_meta, dict) and isinstance(_meta.get("pid"), int):
-                    lock_owner_pid = int(_meta["pid"])
+            # Wave 1za2y: the process's shared indexer module, not a fresh load.
+            _indexer_mod = server_impl._indexer_module()
+            _lock_path = root / ".wavefoundry" / "index" / "index-build.lock"
+            _meta = _indexer_mod.read_index_build_lock_metadata(_lock_path)
+            if isinstance(_meta, dict) and isinstance(_meta.get("pid"), int):
+                lock_owner_pid = int(_meta["pid"])
         except Exception:
             pass
         return {
@@ -1125,29 +1120,8 @@ def _background_refresh_active(state_path: Path) -> bool:
     state = _load_background_refresh_state(state_path)
     pid = state.get("pid")
     started_at = state.get("started_at")
-    if isinstance(pid, int) and server_impl._pid_is_running(pid):
-        # The state file outlives both the child and MCP hot reload. Confirm
-        # that an unregistered live/reused PID is actually an index builder;
-        # the indexer's classifier is already zombie-, PID-reuse-, and
-        # native-Windows-aware. Probe failure remains fail-safe ("live").
-        if pid in _BACKGROUND_BUILD_PIDS:
-            return True
-        try:
-            indexer_module = server_impl._load_script("indexer")
-            owner = indexer_module.classify_index_build_lock_owner(
-                {"pid": pid, "started_at": started_at}
-            )
-        except Exception:  # noqa: BLE001
-            return True
-        if owner == "live":
-            try:
-                cmdline = indexer_module._process_cmdline(pid)
-            except Exception:  # noqa: BLE001
-                return True
-            if cmdline is None:
-                return True
-            if _index_builder_cmdline_targets_root(cmdline, root):
-                return True
+    if isinstance(pid, int) and _pid_is_live_index_build(pid, started_at, root):
+        return True
     # Short throttle covers the brief window between Popen() and the indexer acquiring
     # its build lock (~1-2 seconds on a cold start).
     if isinstance(started_at, (int, float)):
@@ -1157,7 +1131,76 @@ def _background_refresh_active(state_path: Path) -> bool:
     return False
 
 
-def _index_builder_cmdline_targets_root(cmdline: str, root: Path) -> bool:
+def _pid_is_live_index_build(pid: int, started_at: Any, root: Path, *, unbound_ok: bool = False) -> bool:
+    """Whether ``pid`` is a running index build for ``root`` (wave 1za2y, shared).
+
+    A durable pid record outlives both the child and MCP hot reload, so a live
+    pid is confirmed as an index builder: a server-registered child counts;
+    otherwise the indexer's classifier (zombie-, pid-reuse- and native-Windows
+    aware) and the command line must agree. Probe failure is fail-safe (live).
+    ``unbound_ok`` is for ``background-build.pid``, which ``setup_index``
+    stamps with its own pid: it also accepts the setup entry points that run
+    ``setup_index`` in-process (``wf setup``, ``wf update-indexes``,
+    ``setup_wavefoundry.py``) and a command line that names no ``--root``
+    (they run against the working directory). Callers reap server-owned
+    children first.
+    """
+    from wf_server import server_impl
+    if not server_impl._pid_is_running(pid):
+        return False
+    if pid in _BACKGROUND_BUILD_PIDS:
+        return True
+    try:
+        # The shared module keeps answering after a producer edit (wave 1za2y).
+        indexer_module = server_impl._indexer_module()
+        owner = indexer_module.classify_index_build_lock_owner(
+            {"pid": pid, "started_at": started_at}
+        )
+    except Exception:  # noqa: BLE001
+        return True
+    if owner != "live" and not unbound_ok:
+        return False
+    try:
+        cmdline = indexer_module._process_cmdline(pid)
+    except Exception:  # noqa: BLE001
+        return True
+    if cmdline is None:
+        return owner == "live"
+    if owner != "live":
+        # Only a setup entry point reaches here; the classifier does not know
+        # it because lock reclaim must keep its narrower builder markers.
+        if not _is_setup_entry_cmdline(cmdline):
+            return False
+        try:
+            if indexer_module._process_is_zombie(pid):
+                return False
+        except Exception:  # noqa: BLE001
+            pass
+    return _index_builder_cmdline_targets_root(cmdline, root, unbound_ok=unbound_ok)
+
+
+_SETUP_ENTRY_SCRIPTS = frozenset({"setup_wavefoundry.py"})
+_SETUP_CLI_SCRIPT = "wf_cli.py"
+_SETUP_CLI_COMMANDS = frozenset({"setup", "update-indexes"})
+
+
+def _is_setup_entry_cmdline(cmdline: str) -> bool:
+    """Whether ``cmdline`` runs a setup entry point that stamps ``background-build.pid``."""
+    try:
+        tokens = [token.strip("\"'") for token in shlex.split(cmdline, posix=os.name != "nt")]
+    except ValueError:
+        return False
+    names = [token.replace("\\", "/").rsplit("/", 1)[-1] for token in tokens]
+    for index, name in enumerate(names):
+        if name in _SETUP_ENTRY_SCRIPTS:
+            return True
+        if name == _SETUP_CLI_SCRIPT:
+            rest = [token for token in tokens[index + 1:] if not token.startswith("-")]
+            return bool(rest) and rest[0] in _SETUP_CLI_COMMANDS
+    return False
+
+
+def _index_builder_cmdline_targets_root(cmdline: str, root: Path, *, unbound_ok: bool = False) -> bool:
     """Whether a readable index-builder command explicitly targets ``root``.
 
     Persisted background PIDs can be recycled by another Wavefoundry indexer.
@@ -1181,7 +1224,7 @@ def _index_builder_cmdline_targets_root(cmdline: str, root: Path) -> bool:
             raw_root = token.partition("=")[2]
             break
     if not raw_root:
-        return False
+        return unbound_ok
     if os.name == "nt":
         import ntpath
 
@@ -2166,7 +2209,8 @@ def _index_build_lock_info(root: Path) -> dict[str, Any]:
 
     ``held`` is determined by **non-destructively testing the real OS lock**
     (``indexer._index_build_lock_held`` — POSIX ``fcntl`` ``F_GETLK`` / native Windows momentary
-    ``msvcrt``), never from file presence. The lock FILE persists **by design** as a last-owner record,
+    ``msvcrt``), never from file presence; a hold by this process is answered from the in-process
+    record without opening the file (wave 1za2y). The lock FILE persists **by design** as a last-owner record,
     so ``present: true`` does not imply a build is running — read ``held``. ``ended_at`` (best-effort,
     written on a clean build exit) distinguishes a clean finish from an **interrupted** build (a hard
     kill can't write it). Plain terminology only — no "zombie"."""
@@ -2268,6 +2312,16 @@ def index_build_status_response(root: Path, layer: str = "project") -> dict[str,
             epoch = _read_epoch()  # double-check: rule out a finalize between reads
         epoch["interrupted"] = epoch.get("status") == "building" and not held
         data["epoch"] = epoch
+        # Wave 1za2y: a live setup process can run without holding the lock
+        # (model download, provider probe, between layers). Say which field
+        # answers which question instead of leaving them to contradict.
+        if data.get("state") == "running" and data.get("source") == "background" and not held:
+            data["state_note"] = (
+                "The background setup process for this repository is running, but it does not "
+                "hold the index build lock right now (for example while it downloads models or "
+                "between layers). lock.held is authoritative for whether an index write is in "
+                "progress; state reports that the setup process is still alive."
+            )
         if data.get("state") == "idle" and epoch["interrupted"]:
             data["state"] = "interrupted"
             resp.setdefault("diagnostics", []).append(_diagnostic(

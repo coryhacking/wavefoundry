@@ -98,6 +98,31 @@ def _make_repo(tmp: Path, files: dict[str, str] | None = None) -> Path:
     return tmp
 
 
+def spawn_idle_process(workdir: Path, script_name: str, *args: str) -> subprocess.Popen:
+    """Start a real, idle process whose command line is ``python <workdir>/<script_name> <args>``.
+
+    Status checks classify a pid by its live command line, so tests use real
+    processes of the shape under test rather than the test runner's own pid.
+    The caller terminates it (see ``stop_process``).
+    """
+    script = Path(workdir) / script_name
+    script.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
+    return subprocess.Popen(
+        [sys.executable, "-B", str(script), *args],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+
+
+def spawn_index_builder_process(root: Path, workdir: Path) -> subprocess.Popen:
+    """An idle process shaped like ``setup_index.py --root <root>``."""
+    return spawn_idle_process(workdir, "setup_index.py", "--root", str(root))
+
+
+def stop_process(proc: subprocess.Popen) -> None:
+    proc.kill()
+    proc.wait(timeout=10)
+
+
 def review_policy_config(**overrides) -> dict:
     """Return a complete policy block; install under workflow-config's wave_review."""
     return {"enabled": True, "delivery_mode": "targeted", **overrides}
