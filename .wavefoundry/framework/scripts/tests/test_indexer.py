@@ -114,6 +114,28 @@ def _make_repo(tmp: Path, files: dict[str, str]) -> None:
         p.write_text(content, encoding="utf-8")
 
 
+# Wave 1z8ox (change 1z8ow): the timed sites these tests fake now call
+# run_with_tree_kill; route it back through isolated_run so the existing fakes
+# still intercept (each test asserts its fake was called).
+_TREE_KILL_SHIM = None
+
+
+def setUpModule():
+    global _TREE_KILL_SHIM
+    tests_dir = str(Path(__file__).resolve().parent)
+    if tests_dir not in sys.path:
+        sys.path.insert(0, tests_dir)
+    from tree_kill_support import ModuleShim
+
+    _TREE_KILL_SHIM = ModuleShim()
+    _TREE_KILL_SHIM.start()
+
+
+def tearDownModule():
+    if _TREE_KILL_SHIM is not None:
+        _TREE_KILL_SHIM.stop()
+
+
 class FileWalkerTests(unittest.TestCase):
     def setUp(self):
         self.bi = load_build_index()
@@ -1229,6 +1251,14 @@ class IndexBuildLockTests(unittest.TestCase):
         with patch.object(self.bi.subprocess_util, "isolated_run", side_effect=fake_run):
             self.bi._process_cmdline(4321)
         self.assertIn("cmd", captured)
+        # Wave 1z8ox: the Windows branch is timed and goes through run_with_tree_kill;
+        # the module's tree-kill shim routes it back through the faked isolated_run.
+        captured.clear()
+        with patch.object(self.bi, "os") as fake_os, \
+                patch.object(self.bi.subprocess_util, "isolated_run", side_effect=fake_run):
+            fake_os.name = "nt"
+            self.assertEqual(self.bi._process_cmdline(4321), "python indexer.py --root .")
+        self.assertEqual(captured["cmd"][0], "powershell")
 
 
 class IncrementalBuildTests(unittest.TestCase):

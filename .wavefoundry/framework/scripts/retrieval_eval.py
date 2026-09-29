@@ -1476,6 +1476,20 @@ def _module_constant(path: Path, name: str) -> str | None:
     return match.group(1) if match else None
 
 
+def _run_tree_kill(cmd, **kwargs):
+    """Run ``cmd`` so a timeout ends its whole process tree (wave 1z8ox).
+
+    The helper is resolved at call time: an upgrade runner may have an older
+    ``subprocess_util`` loaded that lacks ``run_with_tree_kill``, so fall back
+    to ``isolated_run``. Raises ``ImportError`` when ``subprocess_util`` is
+    unavailable.
+    """
+    import subprocess_util  # framework-wide spawn isolation
+
+    run = getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
+    return run(cmd, **kwargs)
+
+
 def _git_output(root: Path, *args: str, binary: bool = False) -> str | bytes | None:
     """Captured stdout of one git command, or ``None`` when git cannot answer.
 
@@ -1483,14 +1497,12 @@ def _git_output(root: Path, *args: str, binary: bool = False) -> str | bytes | N
     served file is hashed (no newline translation, no decode replacement).
     """
     try:
-        from subprocess_util import isolated_run  # framework-wide spawn isolation
-    except ImportError:
-        return None
-    try:
-        completed = isolated_run(
+        completed = _run_tree_kill(
             ["git", "-C", str(root), *args], capture_output=True, text=not binary,
             timeout=30, check=False,
         )
+    except ImportError:
+        return None
     except (OSError, subprocess.SubprocessError):
         return None
     if completed.returncode != 0:

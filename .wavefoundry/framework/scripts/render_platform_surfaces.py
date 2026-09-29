@@ -236,17 +236,22 @@ def launcher_command(rel_base: str, project_dir_var: str | None = None, *, fail_
 #   matcher: tool matcher for the settings entry, or None for unmatched events (Stop)
 #   status_message: statusMessage shown by Claude while the hook runs
 #   timeout: optional seconds, emitted on the command object only when present
+# Wave 1z8ot (1z8op): Claude Code matches plain `A|B` matchers as exact alternatives, so every
+# built-in file-editing tool is named. Seeds 050 and 160 state this same matcher.
+CLAUDE_EDIT_TOOL_NAMES: tuple[str, ...] = ("Edit", "Write", "MultiEdit", "NotebookEdit")
+CLAUDE_EDIT_MATCHER = "|".join(CLAUDE_EDIT_TOOL_NAMES)
+
 CLAUDE_HOOKS: tuple[dict[str, object], ...] = (
     {
         "name": "pre-edit",
         "event": "PreToolUse",
-        "matcher": "Edit|Write",
+        "matcher": CLAUDE_EDIT_MATCHER,
         "status_message": "Checking framework edit gates...",
     },
     {
         "name": "post-edit",
         "event": "PostToolUse",
-        "matcher": "Edit|Write",
+        "matcher": CLAUDE_EDIT_MATCHER,
         "status_message": "Running docs gates...",
     },
     # Wave 1p5ti — session-end capture (capture/nudge only; never blocks).
@@ -373,14 +378,19 @@ def hook_helpers() -> str:
             return value if isinstance(value, str) else ""
 
 
+        # Wave 1z8ot (1z8op): `tool_input.notebook_path` is Claude Code's NotebookEdit path.
+        FILE_PATH_KEYS = (
+            ("tool_input", "file_path"),
+            ("tool_input", "notebook_path"),
+            ("tool_input", "path"),
+            ("tool_info", "file_path"),
+            ("file_path",),
+            ("path",),
+        )
+
+
         def detect_file_path(payload: dict[str, object]) -> str:
-            for path in (
-                ("tool_input", "file_path"),
-                ("tool_input", "path"),
-                ("tool_info", "file_path"),
-                ("file_path",),
-                ("path",),
-            ):
+            for path in FILE_PATH_KEYS:
                 candidate = get_nested(payload, *path)
                 if candidate:
                     return candidate
@@ -824,33 +834,79 @@ def claude_session_start_source() -> str:
     )
 
 
-def claude_pre_edit_source() -> str:
-    return compose_script(
-        """
-        def main() -> int:
-            payload = load_payload(read_payload_text())
-            file_path = detect_file_path(payload)
-            if not file_path:
-                return 0
-            if is_seed_prompt(file_path) and not guard_enabled("seed_edit_allowed"):
-                print(
-                    "BLOCKED: Seed prompt edit requires `.wavefoundry/guard-overrides.json` with `seed_edit_allowed.enabled: true` before intentional seed edits.",
-                    file=sys.stderr,
-                )
-                return 2
-            if is_framework_maintenance_surface(file_path) and not guard_enabled("framework_edit_allowed"):
-                print(
-                    "BLOCKED: Broad framework-maintenance edits require `.wavefoundry/guard-overrides.json` with `framework_edit_allowed.enabled: true` after an approved file-level plan.",
-                    file=sys.stderr,
-                )
-                return 2
-            return 0
+# Wave 1z8ot (1z8op): a strict parser for the blocking pre-edit hooks only. The shared
+# ``load_payload`` stays lenient because post-edit and warn hooks use it too. Composed into a
+# hook body (column 0 after compose_script's dedent), never into ``hook_helpers``.
+_STRICT_PAYLOAD_SOURCE = '''
+def load_payload_strict(raw: str) -> tuple[object, str]:
+    # Returns (payload, "") or (None, reason) when the payload cannot be inspected.
+    if not raw.strip():
+        return None, "stdin was empty"
+    try:
+        loaded = json.loads(raw)
+    except (ValueError, RecursionError):
+        return None, "stdin was not valid JSON"
+    if not isinstance(loaded, dict):
+        return None, "the payload was not a JSON object"
+    return loaded, ""
 
 
-        if __name__ == "__main__":
-            raise SystemExit(main())
-        """
+def block_uninspectable(reason: str, keys: str) -> int:
+    print(
+        f"BLOCKED: the edit gate could not inspect this tool call ({reason}); "
+        f"it looked for a path under: {keys}.",
+        file=sys.stderr,
     )
+    return 2
+'''
+
+
+def claude_pre_edit_source() -> str:
+    body = _STRICT_PAYLOAD_SOURCE + '''
+
+EDIT_TOOL_NAMES = {edit_tools!r}
+
+
+def main() -> int:
+    keys = ", ".join(".".join(key) for key in FILE_PATH_KEYS)
+    payload, problem = load_payload_strict(read_payload_text())
+    if payload is None:
+        return block_uninspectable(problem, keys)
+    tool_name = payload.get("tool_name")
+    if isinstance(tool_name, str) and tool_name and tool_name not in EDIT_TOOL_NAMES:
+        # A named non-edit tool is never gated, whatever path it names.
+        return 0
+    # An edit tool, or a payload that does not say which tool, is gated and must name its path.
+    file_path = detect_file_path(payload)
+    if not file_path:
+        return block_uninspectable("no file path was found", keys)
+    return gate_file_path(file_path)
+'''.replace("{edit_tools!r}", repr(CLAUDE_EDIT_TOOL_NAMES))
+    return compose_script(body + _GATE_FILE_PATH_SOURCE)
+
+
+# The seed and framework gate verdict shared by the Claude and Copilot pre-edit hooks.
+_GATE_FILE_PATH_SOURCE = '''
+
+def gate_file_path(file_path: str) -> int:
+    if is_seed_prompt(file_path) and not guard_enabled("seed_edit_allowed"):
+        print(
+            "BLOCKED: Seed prompt edit requires `.wavefoundry/guard-overrides.json` with `seed_edit_allowed.enabled: true` before intentional seed edits.",
+            file=sys.stderr,
+        )
+        return 2
+    if is_framework_maintenance_surface(file_path) and not guard_enabled("framework_edit_allowed"):
+        print(
+            "BLOCKED: Broad framework-maintenance edits require `.wavefoundry/guard-overrides.json` with `framework_edit_allowed.enabled: true` after an approved file-level plan.",
+            file=sys.stderr,
+        )
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'''
 
 
 def claude_post_edit_source() -> str:
@@ -1061,56 +1117,162 @@ def cursor_after_file_edit_source() -> str:
     )
 
 
+# Wave 1z8ot (1z8op): Copilot's own payload shapes. The gate read only Claude-style keys, so it
+# never saw a Copilot path. Sources:
+# - Copilot CLI and cloud agent send camelCase `toolName` and `toolArgs`, where `toolArgs` is a
+#   JSON-encoded string; the VS Code-compatible form sends snake_case `tool_name` and `tool_input`
+#   (https://docs.github.com/en/copilot/reference/hooks-reference;
+#   https://github.com/github/copilot-cli/issues/3349).
+# - CLI file-write tools are `create` and `edit` (https://pkg.go.dev/github.com/Checkmarx/ast-cx-hooks/copilotcli),
+#   with the path in `toolArgs.path`
+#   (https://htek.dev/articles/github-copilot-cli-extensions-complete-guide); the hooks reference
+#   maps `edit`, `str_replace_editor` and `apply_patch` to Claude's `Edit` and `create` to `Write`.
+# - VS Code tools use camelCase `tool_input.filePath`
+#   (https://github.com/good-enough-productions/vscode-copilot-expert/blob/main/docs/05-hooks.md).
+#   The model-facing names and input schemas are in the Copilot Chat extension source
+#   (https://github.com/microsoft/vscode-copilot-chat, src/extension/tools/common/toolNames.ts and
+#   package.json `languageModelTools`): `insert_edit_into_file`, `create_file`,
+#   `replace_string_in_file` and `edit_notebook_file` take `filePath`;
+#   `multi_replace_string_in_file` takes `replacements[].filePath`.
+# - `editFiles` sends `tool_input.files`, a list of paths, and the file-writing names `createFile`,
+#   `write` and `str_replace_based_edit_tool` are listed alongside it
+#   (https://humanwhocodes.com/blog/2026/05/vscode-agent-hooks/); `writeFile` is listed at
+#   https://aridanemartin.dev/blog/vscode-copilot-hooks/. Neither page shows an input
+#   shape for `write`, `createFile` or `writeFile`, so the hook reads every known path key and
+#   fails closed when none is present. `str_replace_based_edit_tool` is Anthropic's text editor
+#   tool, which takes `path`
+#   (https://platform.claude.com/docs/en/agents-and-tools/tool-use/text-editor-tool).
+# `apply_patch` carries its paths inside patch text and is not gated (a known limit).
+COPILOT_EDIT_TOOL_NAMES: tuple[str, ...] = (
+    "create", "edit", "write", "str_replace_editor", "str_replace_based_edit_tool",
+    "create_file", "createFile", "writeFile", "insert_edit_into_file",
+    "replace_string_in_file", "multi_replace_string_in_file", "editFiles",
+    "edit_notebook_file",
+)
+# The text-editor tools take a `command`. Anthropic's text editor tool documents `view` as its
+# only read; `str_replace`, `create`, `insert` and (in text_editor_20241022/20250124) `undo_edit`
+# modify files (https://platform.claude.com/docs/en/agents-and-tools/tool-use/text-editor-tool).
+# Only a known read is exempt; a missing, non-string or unknown command stays an edit.
+COPILOT_TEXT_EDITOR_TOOL_NAMES: tuple[str, ...] = ("str_replace_editor", "str_replace_based_edit_tool")
+COPILOT_TEXT_EDITOR_READ_COMMANDS: tuple[str, ...] = ("view",)
+
+_COPILOT_PAYLOAD_SOURCE = """
+
+COPILOT_EDIT_TOOL_NAMES = __EDIT_TOOLS__
+COPILOT_TEXT_EDITOR_TOOL_NAMES = __TEXT_EDITOR_TOOLS__
+COPILOT_TEXT_EDITOR_READ_COMMANDS = __TEXT_EDITOR_READS__
+COPILOT_PATH_KEYS = (
+    "toolArgs or tool_input: path, file_path, filePath, notebook_path, files[], "
+    "replacements[].filePath; then " + ", ".join(".".join(key) for key in FILE_PATH_KEYS)
+)
+
+
+def copilot_tool_name(payload: dict[str, object]) -> str:
+    for key in ("toolName", "tool_name"):
+        value = payload.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return ""
+
+
+def copilot_tool_args(payload: dict[str, object]) -> dict[str, object]:
+    for key in ("toolArgs", "tool_input"):
+        value = payload.get(key)
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except (ValueError, RecursionError):
+                value = None
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def copilot_edit_paths(payload: dict[str, object]) -> list[str]:
+    args = copilot_tool_args(payload)
+    paths: list[str] = []
+    for key in ("path", "file_path", "filePath", "notebook_path"):
+        value = args.get(key)
+        if isinstance(value, str) and value:
+            paths.append(value)
+    files = args.get("files")
+    if isinstance(files, list):
+        paths.extend(item for item in files if isinstance(item, str) and item)
+    replacements = args.get("replacements")
+    if isinstance(replacements, list):
+        for item in replacements:
+            value = item.get("filePath") if isinstance(item, dict) else None
+            if isinstance(value, str) and value:
+                paths.append(value)
+    fallback = detect_file_path(payload)
+    if fallback and fallback not in paths:
+        paths.append(fallback)
+    return paths
+
+
+def copilot_is_edit(payload: dict[str, object]) -> bool:
+    # An edit tool, or a payload that does not say which tool. Shell and read tools are never gated.
+    name = copilot_tool_name(payload)
+    if not name:
+        return True
+    if name not in COPILOT_EDIT_TOOL_NAMES:
+        return False
+    if name in COPILOT_TEXT_EDITOR_TOOL_NAMES:
+        # A text-editor read is not an edit; every other command, or none, is (fail closed).
+        command = copilot_tool_args(payload).get("command")
+        if isinstance(command, str) and command in COPILOT_TEXT_EDITOR_READ_COMMANDS:
+            return False
+    return True
+""".replace("__EDIT_TOOLS__", repr(COPILOT_EDIT_TOOL_NAMES)).replace(
+    "__TEXT_EDITOR_TOOLS__", repr(COPILOT_TEXT_EDITOR_TOOL_NAMES)).replace(
+    "__TEXT_EDITOR_READS__", repr(COPILOT_TEXT_EDITOR_READ_COMMANDS))
+
+
 def copilot_pre_tool_use_source() -> str:
-    return compose_script(
-        """
-        def main() -> int:
-            payload = load_payload(read_payload_text())
-            file_path = detect_file_path(payload)
-            if not file_path:
-                return 0
-            if is_seed_prompt(file_path) and not guard_enabled("seed_edit_allowed"):
-                print(
-                    "BLOCKED: Seed prompt edit requires `.wavefoundry/guard-overrides.json` with `seed_edit_allowed.enabled: true` before intentional seed edits.",
-                    file=sys.stderr,
-                )
-                return 2
-            if is_framework_maintenance_surface(file_path) and not guard_enabled("framework_edit_allowed"):
-                print(
-                    "BLOCKED: Broad framework-maintenance edits require `.wavefoundry/guard-overrides.json` with `framework_edit_allowed.enabled: true` after an approved file-level plan.",
-                    file=sys.stderr,
-                )
-                return 2
-            return 0
+    body = _STRICT_PAYLOAD_SOURCE + _COPILOT_PAYLOAD_SOURCE + """
 
-
-        if __name__ == "__main__":
-            raise SystemExit(main())
-        """
-    )
+def main() -> int:
+    payload, problem = load_payload_strict(read_payload_text())
+    if payload is None:
+        return block_uninspectable(problem, COPILOT_PATH_KEYS)
+    if not copilot_is_edit(payload):
+        return 0
+    paths = copilot_edit_paths(payload)
+    if not paths:
+        return block_uninspectable("no file path was found", COPILOT_PATH_KEYS)
+    for file_path in paths:
+        verdict = gate_file_path(file_path)
+        if verdict:
+            return verdict
+    return 0
+"""
+    return compose_script(body + _GATE_FILE_PATH_SOURCE)
 
 
 def copilot_post_tool_use_source() -> str:
-    return compose_script(
-        """
-        def main() -> int:
-            payload = load_payload(read_payload_text())
-            file_path = detect_file_path(payload)
-            if not file_path:
-                return 0
-            blocked, message = maybe_docs_lint(file_path)
-            # Wave 1z822: the edit already happened, so trigger the reindex before a lint failure returns.
-            maybe_trigger_reindex(file_path)
-            if blocked:
-                print(message, file=sys.stderr)
-                return 1
-            return 0
+    body = _COPILOT_PAYLOAD_SOURCE + """
+
+def main() -> int:
+    payload = load_payload(read_payload_text())
+    if not copilot_is_edit(payload):
+        return 0
+    failures = []
+    for file_path in copilot_edit_paths(payload):
+        blocked, message = maybe_docs_lint(file_path)
+        # Wave 1z822: the edit already happened, so trigger the reindex before a lint failure returns.
+        maybe_trigger_reindex(file_path)
+        if blocked:
+            failures.append(message)
+    if failures:
+        print("\\n".join(failures), file=sys.stderr)
+        return 1
+    return 0
 
 
-        if __name__ == "__main__":
-            raise SystemExit(main())
-        """
-    )
+if __name__ == "__main__":
+    raise SystemExit(main())
+"""
+    return compose_script(body)
 
 
 def windsurf_seed_protect_source() -> str:
@@ -1141,6 +1303,9 @@ def windsurf_docs_lint_source() -> str:
             payload = load_payload(read_payload_text())
             file_path = detect_file_path(payload)
             blocked, message = maybe_docs_lint(file_path)
+            # Wave 1z8ot (1z8op): Windsurf has no Stop hook to flush a pending marker, so trigger
+            # the debounced reindex directly, and before a lint failure returns.
+            maybe_trigger_reindex(file_path)
             if blocked:
                 print(message, file=sys.stderr)
                 return 1
@@ -2242,6 +2407,17 @@ _GITIGNORE_BLOCK = [
 _GITIGNORE_MANAGED_LINES = frozenset(line.strip() for line in _GITIGNORE_BLOCK if line.strip())
 
 
+def _run_tree_kill(cmd, **kwargs):
+    """Run ``cmd`` so a timeout ends its whole process tree (wave 1z8ox).
+
+    The helper is resolved at call time: an upgrade runner may have an older
+    ``subprocess_util`` loaded that lacks ``run_with_tree_kill``, so fall back
+    to ``isolated_run``.
+    """
+    run = getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
+    return run(cmd, **kwargs)
+
+
 def tracked_runtime_diagnostics(repo_root: Path) -> list[dict]:
     """Read-only Git census against canonical runtime rules, not project ignores.
 
@@ -2263,7 +2439,7 @@ def tracked_runtime_diagnostics(repo_root: Path) -> list[dict]:
     env.update({"GIT_OPTIONAL_LOCKS": "0", "LC_ALL": "C"})
 
     def git(*args: str):
-        return subprocess_util.isolated_run(
+        return _run_tree_kill(
             ["git", "-C", str(repo_root), *args],
             capture_output=True, text=False, timeout=5, check=False, env=env,
         )

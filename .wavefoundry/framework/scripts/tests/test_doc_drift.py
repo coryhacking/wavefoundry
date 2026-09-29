@@ -71,6 +71,28 @@ def _commit_all_at(root: Path, message: str, ts: int) -> None:
     )
 
 
+# Wave 1z8ox (change 1z8ow): the timed sites these tests fake now call
+# run_with_tree_kill; route it back through isolated_run so the existing fakes
+# still intercept (each test asserts its fake was called).
+_TREE_KILL_SHIM = None
+
+
+def setUpModule():
+    global _TREE_KILL_SHIM
+    tests_dir = str(Path(__file__).resolve().parent)
+    if tests_dir not in sys.path:
+        sys.path.insert(0, tests_dir)
+    from tree_kill_support import ModuleShim
+
+    _TREE_KILL_SHIM = ModuleShim()
+    _TREE_KILL_SHIM.start()
+
+
+def tearDownModule():
+    if _TREE_KILL_SHIM is not None:
+        _TREE_KILL_SHIM.stop()
+
+
 class _DriftCase(unittest.TestCase):
     def setUp(self):
         self.iss = load_store_module()
@@ -79,6 +101,12 @@ class _DriftCase(unittest.TestCase):
         self.root = Path(self._tmp.name) / "repo"
         self.root.mkdir()
         self.index_dir = self.root / ".wavefoundry" / "index"
+        # Wave 1z8ox: commands a git fake intercepted, so a test can assert its
+        # fake still intercepts now that _run_git calls run_with_tree_kill.
+        self.fake_hits = []
+
+    def assertFakeIntercepted(self):
+        self.assertTrue(self.fake_hits, "the git fake never intercepted a call")
 
     def _write(self, rel: str, text: str) -> None:
         path = self.root / rel
@@ -888,6 +916,7 @@ class GitWalkFailClosedTests(_DriftCase):
 
         def fake(cmd, **k):
             if "--name-only" in cmd:
+                self.fake_hits.append(cmd)
                 return _sp.CompletedProcess(cmd, 0, stdout="\x01NOT_A_SHA\x02123\x02\x02subj\n", stderr="")
             return real(cmd, **k)
 
@@ -896,6 +925,7 @@ class GitWalkFailClosedTests(_DriftCase):
             ok, commits = self.iss._collect_git_history(self.root)
         finally:
             self.iss.subprocess_util.isolated_run = real
+        self.assertFakeIntercepted()
         self.assertFalse(ok)
 
     def test_history_walk_failure_preserves_prior_drift(self):
@@ -932,6 +962,7 @@ class GitWalkFailClosedTests(_DriftCase):
 
         def fake(cmd, **k):
             if "-U0" in cmd:  # the gardener -p pass
+                self.fake_hits.append(cmd)
                 return _sp.CompletedProcess(cmd, 0, stdout="+orphan content, no commit sentinel\n", stderr="")
             return real(cmd, **k)
 
@@ -940,6 +971,7 @@ class GitWalkFailClosedTests(_DriftCase):
             gok, pairs = self.iss._gardener_only_pairs(self.root, commits, ["docs/guide.md"])
         finally:
             self.iss.subprocess_util.isolated_run = real
+        self.assertFakeIntercepted()
         self.assertFalse(gok, "content before any commit sentinel is malformed → ok=False")
 
 
@@ -1101,14 +1133,17 @@ class GardenerFrameCompletenessTests(_DriftCase):
 
         def fake(cmd, **k):
             if "-U0" in cmd:
+                self.fake_hits.append(cmd)
                 return _sp.CompletedProcess(cmd, 0, stdout=fake_stdout, stderr="")
             return real(cmd, **k)
 
         self.iss.subprocess_util.isolated_run = fake
         try:
-            return self.iss._gardener_only_pairs(self.root, commits, ["docs/g.md"])
+            result = self.iss._gardener_only_pairs(self.root, commits, ["docs/g.md"])
         finally:
             self.iss.subprocess_util.isolated_run = real
+        self.assertFakeIntercepted()
+        return result
 
     def test_sentinel_only_is_not_ok(self):
         ok, _ = self._run_with_patch("\x01" + "a" * 40 + "\n")
@@ -1142,14 +1177,17 @@ class HistoryStrictFramingTests(_DriftCase):
 
         def fake(cmd, **k):
             if "--name-only" in cmd:
+                self.fake_hits.append(cmd)
                 return _sp.CompletedProcess(cmd, 0, stdout=fake_stdout, stderr="")
             return real(cmd, **k)
 
         self.iss.subprocess_util.isolated_run = fake
         try:
-            return self.iss._collect_git_history(self.root)
+            result = self.iss._collect_git_history(self.root)
         finally:
             self.iss.subprocess_util.isolated_run = real
+        self.assertFakeIntercepted()
+        return result
 
     def test_orphan_pre_sentinel_content(self):
         ok, _ = self._history_with("some/orphan/path.py\n\x01" + "a" * 40 + "\x02100\x02\x02subj\n")
@@ -1193,14 +1231,17 @@ class HistoryStrictFramingTests(_DriftCase):
 
             def fake(cmd, _real=real, _shape=shape, **k):
                 if "--name-only" in cmd:
+                    self.fake_hits.append(cmd)
                     return _sp.CompletedProcess(cmd, 0, stdout=_shape, stderr="")
                 return _real(cmd, **k)
 
+            self.fake_hits.clear()
             self.iss.subprocess_util.isolated_run = fake
             try:
                 summary = self._update(["docs/g.md"], ["docs/g.md", "src/a.py"])
             finally:
                 self.iss.subprocess_util.isolated_run = real
+            self.assertFakeIntercepted()
             self.assertTrue(summary.get("drift_detect_failed"), shape[:20])
             # 1u8o0 re-point: each malformed shape fails the HISTORY stage
             # with a malformed_output reason, never the static parenthetical.
@@ -1405,6 +1446,7 @@ class GitAuthorityTypedStateTests(_DriftCase):
 
         def boom(cmd, **k):
             if cmd[:2] == ["git", "-C"]:
+                self.fake_hits.append(cmd)
                 raise TimeoutError("forced probe timeout")
             return real(cmd, **k)
 
@@ -1415,6 +1457,7 @@ class GitAuthorityTypedStateTests(_DriftCase):
             summary = self._update(["docs/g.md"], ["docs/g.md", "src/a.py"])
         finally:
             self.iss.subprocess_util.isolated_run = real
+        self.assertFakeIntercepted()
         self.assertTrue(summary.get("git_probe_failed"))
         self.assertNotIn("cleared_git_derived", summary)
         self.assertEqual(
@@ -1427,9 +1470,12 @@ class GitAuthorityTypedStateTests(_DriftCase):
 
         def fake(cmd, **k):
             if cmd[:2] == ["git", "-C"]:
+                self.fake_hits.append(cmd)
                 return subprocess.CompletedProcess(cmd, returncode, stdout="", stderr=stderr)
             return real(cmd, **k)
 
+        # Each caller restores ``real`` and then asserts the fake intercepted.
+        self.addCleanup(self.assertFakeIntercepted)
         return real, fake
 
     def test_dubious_ownership_is_probe_failed_not_non_git(self):
@@ -1809,7 +1855,7 @@ class GitSubprocessCensusTests(unittest.TestCase):
     # Distinctive process-runner attribute/callable names.
     _RUNNER_ATTRS = {
         "run", "Popen", "call", "check_call", "check_output",
-        "getoutput", "getstatusoutput", "isolated_run",
+        "getoutput", "getstatusoutput", "isolated_run", "run_with_tree_kill",
     }
     _RUNNER_BARE = {
         "Popen", "check_call", "check_output", "getoutput", "getstatusoutput",
@@ -1845,9 +1891,19 @@ class GitSubprocessCensusTests(unittest.TestCase):
                 return True
             return False
 
+        def is_runner_lookup(node):
+            # Wave 1z8ox: `getattr(subprocess_util, ...)` resolves a runner at
+            # call time; outside the allowed functions it would bypass the
+            # sanitized env under a name the attribute check cannot see.
+            return (
+                isinstance(node.func, ast.Name) and node.func.id == "getattr"
+                and bool(node.args)
+                and isinstance(node.args[0], ast.Name) and node.args[0].id == "subprocess_util"
+            )
+
         offenders = []
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and is_runner(node.func):
+            if isinstance(node, ast.Call) and (is_runner(node.func) or is_runner_lookup(node)):
                 fn = enclosing.get(id(node))
                 if fn not in self._ALLOWED:
                     offenders.append((fn, node.lineno))
@@ -1887,9 +1943,11 @@ class DriftFailureTaxonomyTests(_DriftCase):
 
         def wrapper(cmd, _real=real, **k):
             if "-U0" in cmd:
+                self.fake_hits.append(cmd)
                 return fake(cmd)
             return _real(cmd, **k)
 
+        self.fake_hits.clear()
         self.iss.subprocess_util.isolated_run = wrapper
         buf = io.StringIO()
         try:
@@ -1897,6 +1955,7 @@ class DriftFailureTaxonomyTests(_DriftCase):
                 summary = self._update(["docs/g.md"], ["docs/g.md", "src/a.py"])
         finally:
             self.iss.subprocess_util.isolated_run = real
+        self.assertFakeIntercepted()
         return summary, buf.getvalue()
 
     def test_subprocess_error_class_names_itself(self):

@@ -46,11 +46,49 @@ __all__ = [
     "tool_venv_python",
     "activate_tool_venv",
     "ensure_python_resolves",
+    "disable_onnxruntime_telemetry",
 ]
 
 # Minimum interpreter the committed `command: "python3"` launchers require.
 MIN_PYTHON_VERSION = (3, 11)
 MCP_PYTHON_COMMAND = "python3"
+
+# onnxruntime telemetry (change 1z8or). onnxruntime 1.29 creates a device id and an event
+# store under the user's home (or ``:memory:.ses`` in the cwd) on a bare import. Setting
+# ORT_DISABLE_TELEMETRY=1 before the import prevents it on macOS and Linux. An empty value
+# re-enables telemetry on 1.29, so empty counts as unset; any other value (including "0",
+# the opt-back-in) is the operator's explicit choice and is kept. Child processes inherit it.
+ORT_TELEMETRY_ENV = "ORT_DISABLE_TELEMETRY"
+if not os.environ.get(ORT_TELEMETRY_ENV):
+    os.environ[ORT_TELEMETRY_ENV] = "1"
+
+
+def disable_onnxruntime_telemetry(ort: object | None = None) -> None:
+    """Call ``onnxruntime.disable_telemetry_events()`` after an onnxruntime or fastembed import.
+
+    The call disables onnxruntime's API-controlled telemetry events; upstream documents it as
+    a control distinct from ``ORT_DISABLE_TELEMETRY``, and on Windows it is the only one. It
+    is harmless elsewhere. When the operator has set ``ORT_DISABLE_TELEMETRY=0`` (after
+    stripping whitespace), the documented opt back in, the call is skipped so those events
+    stay enabled too; unset, empty and every other value keep it. ``ort`` is the imported
+    module; when omitted, onnxruntime is taken from ``sys.modules`` (a fastembed import loads
+    it). Nothing is imported here, so this module stays stdlib-only, and when onnxruntime was
+    never loaded there is nothing to disable. A missing module, a missing function, or any
+    exception from the call is tolerated: telemetry suppression never breaks embedding. Every
+    non-test onnxruntime/fastembed import site must call this (standing scan test).
+    """
+    if os.environ.get(ORT_TELEMETRY_ENV, "").strip() == "0":
+        return
+    try:
+        if ort is None:
+            ort = sys.modules.get("onnxruntime")
+            if ort is None:
+                return
+        fn = getattr(ort, "disable_telemetry_events", None)
+        if callable(fn):
+            fn()
+    except Exception:
+        pass
 
 
 def tool_venv_base() -> Path:

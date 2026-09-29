@@ -608,6 +608,19 @@ def _hosts_gone(receipt: dict) -> None:
         raise MigrationRequired("storage_old_host_alive: " + ", ".join(str(h["pid"]) + " (" + h["kind"] + "; " + h.get("association", h.get("source", "recorded host")) + ")" for h in blockers))
 
 
+def _run_tree_kill(cmd, **kwargs):
+    """Run ``cmd`` so a timeout ends its whole process tree (wave 1z8ox).
+
+    The helper is resolved at call time: an upgrade runner may have an older
+    ``subprocess_util`` loaded that lacks ``run_with_tree_kill``, so fall back
+    to ``isolated_run``.
+    """
+    import subprocess_util
+
+    run = getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
+    return run(cmd, **kwargs)
+
+
 def _process_cwds(pids: list[int]) -> dict[int, Path]:
     """One bounded observation for relative framework entry-point candidates."""
     paths = {}
@@ -622,7 +635,7 @@ def _process_cwds(pids: list[int]) -> dict[int, Path]:
     elif sys.platform == "darwin":
         import subprocess_util
         try:
-            result = subprocess_util.isolated_run(["lsof", "-a", "-p", ",".join(map(str, pids)), "-d", "cwd", "-Fn"], capture_output=True, text=True, timeout=5, check=True)
+            result = _run_tree_kill(["lsof", "-a", "-p", ",".join(map(str, pids)), "-d", "cwd", "-Fn"], capture_output=True, text=True, timeout=5, check=True)
             pid = None
             for line in result.stdout.splitlines():
                 if line.startswith("p") and line[1:].isdigit():
@@ -642,13 +655,13 @@ def discover_hosts(root: Path) -> tuple[list[dict], list[str]]:
     try:
         if os.name == "nt":
             script = "Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress"
-            result = subprocess_util.isolated_run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True, text=True, timeout=10, check=True)
+            result = _run_tree_kill(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True, text=True, timeout=10, check=True)
             rows = json.loads(result.stdout or "[]")
             if isinstance(rows, dict):
                 rows = [rows]
             processes = [(int(row["ProcessId"]), row.get("CommandLine") or "") for row in rows]
         else:
-            result = subprocess_util.isolated_run(["ps", "-axww", "-o", "pid=,command="], capture_output=True, text=True, timeout=10, check=True)
+            result = _run_tree_kill(["ps", "-axww", "-o", "pid=,command="], capture_output=True, text=True, timeout=10, check=True)
             if not isinstance(result.stdout, str):
                 raise ValueError("process command output unavailable")
             processes = [(int(parts[0]), parts[1]) for line in result.stdout.splitlines() if len(parts := line.strip().split(None, 1)) == 2 and parts[0].isdigit()]

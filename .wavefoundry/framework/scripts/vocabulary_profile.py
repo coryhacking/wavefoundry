@@ -16,6 +16,10 @@ The module exports strings and regex-escaped fragments, not whole patterns:
 each consuming site keeps its own grammar (anchoring, backticks, case, legacy
 aliases) around the fragment.
 
+Which labels and headings a profile may use, and how readers must match them,
+is stated once in ``docs/architecture/layering-rules.md`` (vocabulary profile
+paragraph); ``validation_errors`` enforces the profile half of it.
+
 Stdlib-only and import-cheap; validated at import, failing closed.
 """
 from __future__ import annotations
@@ -152,21 +156,23 @@ def validation_errors(fields: "dict[str, str] | None" = None) -> list[str]:
     for name, value in labels.items():
         if value in FIXED_LABELS:
             errors.append(f"{name} {value!r} collides with a fixed label")
+    # The rule for labels and headings is stated once, in
+    # docs/architecture/layering-rules.md (vocabulary profile paragraph).
     items = sorted(labels.items())
     for i, (name_a, a) in enumerate(items):
         for name_b, b in items[i + 1:]:
-            if a == b:
-                errors.append(f"{name_a} and {name_b} must differ ({a!r})")
-            elif a.startswith(b) or b.startswith(a):
-                errors.append(f"{name_a} and {name_b} must not be a prefix of one another ({a!r}, {b!r})")
-    # Some readers test for a heading or label by substring, so a token that
-    # is a prefix of another (``## Set`` and ``## Set Summary``) would match
-    # the wrong line. Fixed tokens are compared too (``## Progress``).
-    for group, fixed in ((headings, FIXED_HEADINGS), (labels, FIXED_LABELS)):
-        for name, value in sorted(group.items()):
-            for other in sorted(fixed):
-                if value != other and (value.startswith(other) or other.startswith(value)):
-                    errors.append(f"{name} {value!r} must not be a prefix of the fixed {other!r}, or it of {name}")
+            if a.casefold() == b.casefold():
+                errors.append(f"{name_a} and {name_b} must differ ({a!r}, {b!r})")
+    for name, value in sorted(headings.items()):
+        for other in sorted(FIXED_HEADINGS):
+            if value != other and (value.startswith(other) or other.startswith(value)):
+                errors.append(f"{name} {value!r} must not be a prefix of the fixed {other!r}, or it of {name}")
+    for name, value in sorted(labels.items()):
+        folded = value.casefold()
+        for other in sorted(FIXED_LABELS):
+            other_folded = other.casefold()
+            if value != other and (folded.startswith(other_folded) or other_folded.startswith(folded)):
+                errors.append(f"{name} {value!r} must not be a prefix of the fixed {other!r}, or it of {name}")
     heading_items = sorted(headings.items())
     for i, (name_a, a) in enumerate(heading_items):
         for name_b, b in heading_items[i + 1:]:

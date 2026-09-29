@@ -106,7 +106,8 @@ class RuntimeFileLockTests(unittest.TestCase):
 
         def fake_lstat(path, *args, **kwargs):
             info = real_lstat(path, *args, **kwargs)
-            tag = tags.get(Path(path).name)
+            # Python 3.11 cannot build a WindowsPath under a patched os.name.
+            tag = tags.get(os.path.basename(os.fspath(path)))
             if tag is not None:
                 return types.SimpleNamespace(st_mode=info.st_mode, st_file_attributes=0x400, st_reparse_tag=tag)
             return info
@@ -121,6 +122,161 @@ class RuntimeFileLockTests(unittest.TestCase):
             rl._open_carrier(ordinary, "a+b").close()
             rl._open_carrier(self.root / "new.lock", "r+b").close()
         self.assertTrue((self.root / "new.lock").exists())
+
+    @unittest.skipUnless(hasattr(os, "symlink") and os.name != "nt", "POSIX symlink fixture")
+    def test_symlinked_lock_directories_are_refused_and_nothing_is_created_outside(self) -> None:
+        # Wave 1z8ot (1z8oq): makedirs followed a committed directory link, so
+        # every lock and metadata rewrite landed outside the repository.
+        both = (("locks", "x.lock"), ("locks", "sub", "x.lock"))
+        cases = {
+            "locks-link": ((".wavefoundry", "locks"), both),
+            "state-link": ((".wavefoundry",), both),
+            "nested-link": ((".wavefoundry", "locks", "sub"), both[1:]),
+        }
+        for label, (linked_parts, rels) in cases.items():
+            with self.subTest(label=label):
+                repo = self.root / label / "repo"
+                outside = self.root / label / "outside"
+                outside.mkdir(parents=True)
+                link = repo.joinpath(*linked_parts)
+                link.parent.mkdir(parents=True, exist_ok=True)
+                link.symlink_to(outside, target_is_directory=True)
+                for rel in rels:
+                    path = repo.joinpath(".wavefoundry", *rel)
+                    with self.assertRaises(rl.RuntimeLockError) as caught:
+                        rl.RuntimeFileLock(path).acquire()
+                    self.assertIn("replace it with a real directory", str(caught.exception))
+                    with self.assertRaises(rl.RuntimeLockError):
+                        rl.write_json_in_place(path, {"pid": 1})
+                    self.assertIsNone(rl.probe_runtime_lock(path, create=True).held)
+                self.assertEqual(list(outside.iterdir()), [])
+
+        # A dangling directory link is refused without creating its target.
+        repo = self.root / "dangling" / "repo"
+        (repo / ".wavefoundry").mkdir(parents=True)
+        missing = self.root / "dangling" / "missing-dir"
+        (repo / ".wavefoundry" / "locks").symlink_to(missing, target_is_directory=True)
+        with self.assertRaises(rl.RuntimeLockError):
+            rl.RuntimeFileLock(repo / ".wavefoundry" / "locks" / "x.lock").acquire()
+        with self.assertRaises(rl.RuntimeLockError):
+            rl.write_json_in_place(repo / ".wavefoundry" / "locks" / "x.lock", {"pid": 1})
+        self.assertFalse(os.path.lexists(missing))
+
+    @unittest.skipIf(os.name == "nt", "POSIX dir_fd fixture")
+    def test_concurrent_create_spurious_enoent_is_retried(self) -> None:
+        # macOS returns ENOENT to the loser of two concurrent O_CREAT openat
+        # calls; a bounded retry finds the file, and a persistent ENOENT fails.
+        real_open = os.open
+        failures = {"left": 1}
+
+        def flaky_open(path, flags, *args, **kwargs):
+            if kwargs.get("dir_fd") is not None and flags & os.O_CREAT and failures["left"]:
+                failures["left"] -= 1
+                raise FileNotFoundError(errno.ENOENT, "spurious", path)
+            return real_open(path, flags, *args, **kwargs)
+
+        path = self.root / ".wavefoundry" / "locks" / "raced.lock"
+        with patch.object(rl.os, "open", side_effect=flaky_open):
+            with rl.RuntimeFileLock(path):
+                pass
+            self.assertEqual(failures["left"], 0)
+            failures["left"] = rl._OPEN_AT_ATTEMPTS
+            with self.assertRaises(rl.RuntimeLockError):
+                rl.RuntimeFileLock(self.root / ".wavefoundry" / "locks" / "gone.lock").acquire()
+
+    def test_full_path_open_without_boundary_retries_spurious_enoent(self) -> None:
+        # Delivery finding DEL-F2: the spurious ENOENT was reproduced only with
+        # openat(dir_fd); a lock path with no .wavefoundry component (opened by
+        # full path) retries it defensively, and this pins that it does.
+        real_open = os.open
+        failures = {"left": 1}
+        seen: list[bool] = []
+
+        def flaky_open(path, flags, *args, **kwargs):
+            if flags & os.O_CREAT and failures["left"]:
+                seen.append(kwargs.get("dir_fd") is None)
+                failures["left"] -= 1
+                raise FileNotFoundError(errno.ENOENT, "spurious", path)
+            return real_open(path, flags, *args, **kwargs)
+
+        path = self.root / "scratch" / "no-boundary.lock"
+        with patch.object(rl.os, "open", side_effect=flaky_open):
+            with rl.RuntimeFileLock(path):
+                pass
+            self.assertEqual(seen, [True])
+            self.assertTrue(path.is_file())
+            rl.write_json_in_place(self.root / "scratch" / "meta.json", {"pid": 1})
+            failures["left"] = rl._OPEN_AT_ATTEMPTS
+            with self.assertRaises(rl.RuntimeLockError):
+                rl.RuntimeFileLock(self.root / "scratch" / "gone.lock").acquire()
+        self.assertTrue((self.root / "scratch" / "meta.json").is_file())
+
+    def test_parent_component_below_boundary_is_refused_with_accurate_message(self) -> None:
+        path = Path(os.path.join(os.fspath(self.root), ".wavefoundry", "locks", "..", "x.lock"))
+        with self.assertRaises(rl.RuntimeLockError) as caught:
+            rl.RuntimeFileLock(path).acquire()
+        self.assertIn("contains a .. component below .wavefoundry", str(caught.exception))
+        self.assertNotIn("leaves .wavefoundry", str(caught.exception))
+
+    @unittest.skipUnless(hasattr(os, "symlink") and os.name != "nt", "POSIX symlink fixture")
+    def test_links_above_the_boundary_and_paths_without_it_are_unchanged(self) -> None:
+        real = self.root / "real-checkout"
+        real.mkdir()
+        checkout = self.root / "linked-checkout"
+        checkout.symlink_to(real, target_is_directory=True)
+        # The repository root above .wavefoundry may be a link; .wavefoundry is
+        # created when missing and used.
+        path = checkout / ".wavefoundry" / "locks" / "nested" / "worker.lock"
+        with rl.RuntimeFileLock(path) as lock:
+            lock.write_metadata({"pid": 1})
+        rl.write_json_in_place(path, {"pid": 2})
+        self.assertTrue((real / ".wavefoundry").is_dir())
+        self.assertEqual(
+            json.loads((real / ".wavefoundry/locks/nested/worker.lock").read_text(encoding="utf-8")),
+            {"pid": 2},
+        )
+        # With no .wavefoundry component only the final component is checked.
+        scratch = self.root / "scratch-target"
+        scratch.mkdir()
+        (self.root / "scratch").symlink_to(scratch, target_is_directory=True)
+        with rl.RuntimeFileLock(self.root / "scratch" / "tmp.lock"):
+            pass
+        rl.write_json_in_place(self.root / "scratch" / "tmp.json", {"pid": 3})
+        self.assertTrue((scratch / "tmp.lock").is_file())
+        self.assertTrue((scratch / "tmp.json").is_file())
+
+    def test_windows_branch_refuses_junctioned_directories_only(self) -> None:
+        # Wave 1z8ot (1z8oq): Windows has no openat, so each directory under
+        # .wavefoundry is checked with lstat before it is created or opened.
+        tags = {"junction-dir": 0xA0000003, "symlink-dir": 0xA000000C,
+                "onedrive-dir": 0x9000001A}
+        state = self.root / ".wavefoundry"
+        for name in tags:
+            (state / name).mkdir(parents=True)
+        real_lstat = os.lstat
+
+        def fake_lstat(path, *args, **kwargs):
+            info = real_lstat(path, *args, **kwargs)
+            tag = tags.get(os.path.basename(os.fspath(path)))
+            if tag is not None:
+                return types.SimpleNamespace(st_mode=info.st_mode, st_file_attributes=0x400, st_reparse_tag=tag)
+            return info
+
+        with patch.object(rl.os, "name", "nt"), patch.object(rl.os, "lstat", side_effect=fake_lstat):
+            for refused in ("junction-dir", "symlink-dir"):
+                with self.subTest(refused=refused):
+                    with self.assertRaises(rl.RuntimeLockError) as caught:
+                        rl.RuntimeFileLock(state / refused / "sub" / "x.lock").acquire()
+                    self.assertIn(refused, str(caught.exception))
+                    self.assertFalse((state / refused / "sub").exists())
+                    with self.assertRaises(rl.RuntimeLockError):
+                        rl.write_json_in_place(state / refused / "x.lock", {"pid": 1})
+                    self.assertEqual(list((state / refused).iterdir()), [])
+            # A OneDrive directory is a reparse point but not a name surrogate.
+            rl._open_lock_carrier(state / "onedrive-dir" / "sub" / "x.lock", "a+b").close()
+            rl.write_json_in_place(state / "onedrive-dir" / "meta.json", {"pid": 1})
+        self.assertTrue((state / "onedrive-dir" / "sub" / "x.lock").is_file())
+        self.assertTrue((state / "onedrive-dir" / "meta.json").is_file())
 
     def test_open_failure_is_not_misreported_as_busy_or_unlocked(self) -> None:
         blocker = self.root / "not-a-directory"

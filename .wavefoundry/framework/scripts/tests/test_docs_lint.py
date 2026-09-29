@@ -5399,7 +5399,10 @@ class EvaluatorEditBaselinePolicyPinTests(unittest.TestCase):
         self.assertIn("**A `cross_generation` comparison attributes corpus drift to the change.**", text)
         # Delivery review ARCH-RV1-2: the pointer names the receipt binding the current identities.
         # Wave 1yxyw: the reference moved after the evaluator's existence-check identity change.
-        self.assertIn("The current reference receipt is `docs/reports/retrieval-quality-1yxyw-e3.json`", text)
+        # Wave 1z8ox: the evaluator changed after e3, so e3 is named as the former reference.
+        self.assertIn("The most recent reference receipt was `docs/reports/retrieval-quality-1yxyw-e3.json`", text)
+        self.assertIn("It no longer binds the current evaluator", text)
+        self.assertNotIn("The current reference receipt is `docs/reports/retrieval-quality-1yxyw-e3.json`", text)
         self.assertNotIn("The current reference receipt is `docs/reports/retrieval-quality-1yzd0-e2b.json`", text)
         self.assertNotIn("The current\nreference receipt is `docs/reports/retrieval-quality-1ymzq-after.json`", text)
         self.assertNotIn("reference receipt is `docs/reports/retrieval-quality-post-1wuju.json`", text)
@@ -5411,8 +5414,11 @@ class EvaluatorEditBaselinePolicyPinTests(unittest.TestCase):
         text = (self.DOCS_DIR / "architecture" / "testing-architecture.md").read_text(encoding="utf-8")
         self.assertIn("An evaluator-only edit records no close-time baseline (wave `1wybq`)", text)
         self.assertIn("the reference only until the next evaluator edit", text)
-        self.assertIn("standing baseline `docs/reports/retrieval-quality-1yxyw-e3.json`", text)
-        self.assertIn("--baseline docs/reports/retrieval-quality-1yxyw-e3.json", text)
+        # Wave 1z8ox (DEL-F3): the 1yxyw-e3 receipt no longer binds the current
+        # evaluator, so it is named as the former baseline and not as a --baseline.
+        self.assertIn("former standing baseline `docs/reports/retrieval-quality-1yxyw-e3.json`", text)
+        self.assertIn("refuses it as a `--baseline`", text)
+        self.assertIn("(not `--baseline docs/reports/retrieval-quality-1yxyw-e3.json`)", text)
         self.assertIn("attributes corpus drift to the change under the\nzero-tolerance regression rule", text)
 
 

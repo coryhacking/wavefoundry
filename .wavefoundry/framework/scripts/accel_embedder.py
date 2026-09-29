@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Iterable, Iterator, Optional
 
 import subprocess_util
+import venv_bootstrap  # stdlib-only; onnxruntime telemetry off (change 1z8or)
 
 STATIC_BATCH = 32
 # Wave 1p66v: the reranker's static batch is decoupled from the embedder's. The embedder
@@ -118,6 +119,17 @@ def _probe_failure_detail(returncode: int | None, stderr: str) -> str:
     return f"{detail}; stderr tail: {tail}" if tail else detail
 
 
+def _run_tree_kill(cmd, **kwargs):
+    """Run ``cmd`` so a timeout ends its whole process tree (wave 1z8ox).
+
+    The helper is resolved at call time: an upgrade runner may have an older
+    ``subprocess_util`` loaded that lacks ``run_with_tree_kill``, so fall back
+    to ``isolated_run``.
+    """
+    run = getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
+    return run(cmd, **kwargs)
+
+
 def _coreml_static_probe_passes(model_name: str, workload: str) -> bool:
     """Crash-isolate the production static CoreML graph before in-process use.
 
@@ -175,7 +187,7 @@ else:
     child_env = os.environ.copy()
     child_env[_COREML_STATIC_PROBE_CHILD_ENV] = "1"
     try:
-        completed = subprocess_util.isolated_run(
+        completed = _run_tree_kill(
             [subprocess_util.windowless_pythonw() or sys.executable,
              "-c", probe_code, workload, model_name],
             cwd=str(Path(__file__).resolve().parent),
@@ -350,6 +362,7 @@ def _ensure_fastembed_model_cached(model_name: str) -> None:
     CPU fallback path (no risk of a different export changing the vectors)."""
     try:
         from fastembed import TextEmbedding
+        venv_bootstrap.disable_onnxruntime_telemetry()
         cache_dir = str(_fastembed_cache_dir())
         # Wave 1p5cx: cached-first so an already-warm model makes no Hub round-trip (no
         # unauthenticated-request warning); download only on a genuine cache miss.
@@ -530,6 +543,7 @@ class StaticShapeEmbedder:
     def __init__(self, model_name: str, providers: Iterable[str]) -> None:
         import numpy as np  # noqa: F401  (import-time availability check)
         import onnxruntime as ort
+        venv_bootstrap.disable_onnxruntime_telemetry(ort)
         from tokenizers import Tokenizer
 
         gpu = next((p for p in providers if p in GPU_PROVIDERS), None)
@@ -676,6 +690,7 @@ def _available_gpu_providers() -> list[str]:
         return []
     try:
         import onnxruntime as ort
+        venv_bootstrap.disable_onnxruntime_telemetry(ort)
         available = set(ort.get_available_providers())
     except Exception:
         return []
@@ -740,6 +755,7 @@ def make_embedder(model_name: str, providers: Iterable[str]):
     try:
         import onnx  # noqa: F401  (static-shape pin dependency — needed for both the GPU FP16 and
         import onnxruntime  # noqa: F401  # CPU INT8 static-graph builds)
+        venv_bootstrap.disable_onnxruntime_telemetry(onnxruntime)
         import tokenizers  # noqa: F401
     except ImportError:
         return None
@@ -792,6 +808,7 @@ class StaticShapeReranker:
     def __init__(self, model_name: str, providers: Iterable[str]) -> None:
         import numpy as np  # noqa: F401  (import-time availability check)
         import onnxruntime as ort
+        venv_bootstrap.disable_onnxruntime_telemetry(ort)
         from tokenizers import Tokenizer
 
         gpu = next((p for p in providers if p in GPU_PROVIDERS), None)
@@ -926,6 +943,7 @@ def make_reranker(model_name: str, providers: Iterable[str]):
     # needed to BUILD the static graph (at prewarm, in a build subprocess). Warm cache → onnxruntime only.
     try:
         import onnxruntime  # noqa: F401
+        venv_bootstrap.disable_onnxruntime_telemetry(onnxruntime)
         import tokenizers  # noqa: F401
     except ImportError:
         return None

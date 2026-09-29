@@ -100,14 +100,19 @@ def get_nested(mapping: dict[str, object], *path: str) -> str:
     return value if isinstance(value, str) else ""
 
 
+# Wave 1z8ot (1z8op): `tool_input.notebook_path` is Claude Code's NotebookEdit path.
+FILE_PATH_KEYS = (
+    ("tool_input", "file_path"),
+    ("tool_input", "notebook_path"),
+    ("tool_input", "path"),
+    ("tool_info", "file_path"),
+    ("file_path",),
+    ("path",),
+)
+
+
 def detect_file_path(payload: dict[str, object]) -> str:
-    for path in (
-        ("tool_input", "file_path"),
-        ("tool_input", "path"),
-        ("tool_info", "file_path"),
-        ("file_path",),
-        ("path",),
-    ):
+    for path in FILE_PATH_KEYS:
         candidate = get_nested(payload, *path)
         if candidate:
             return candidate

@@ -103,18 +103,49 @@ class ValidationTests(unittest.TestCase):
         self.assertRefused("MEMBER_HEADING", MEMBER_HEADING="## Progress")
         self.assertRefused("SUMMARY_HEADING", SUMMARY_HEADING="## Objectives")
 
-    def test_labels_must_not_prefix_each_other(self) -> None:
-        self.assertRefused("BACKREF_LABEL", BACKREF_LABEL="Member", MEMBER_ID_LABEL="Member ID",
-                           MEMBER_STATUS_LABEL="Entry Status", PREVIOUS_STATUS_LABEL="Previous Entry Status")
+    def test_labels_may_prefix_each_other(self) -> None:
+        # Change 1z8os (AC-1): labels are written and read in colon form at the
+        # start of a line, so `Wave:`, `Wave ID:` and `Wave Status:` are
+        # distinct tokens (this test inverts test_labels_must_not_prefix_each_other).
+        wave_set = dict(BACKREF_LABEL="Wave", MEMBER_ID_LABEL="Wave ID",
+                        MEMBER_STATUS_LABEL="Wave Status", PREVIOUS_STATUS_LABEL="Previous Wave Status")
+        self.assertEqual(_errors(**wave_set), [])
+        with patch.multiple(vocabulary_profile, **wave_set):
+            vocabulary_profile.validate()
+
+    def test_archive_profile_accepts_the_prefix_label_set(self) -> None:
+        # AC-1: ARCHIVE_PROFILE goes through the same validation.
+        fields = {name: getattr(vocabulary_profile, name) for name in vocabulary_profile.FIELD_NAMES}
+        fields.update(BACKREF_LABEL="Wave", MEMBER_ID_LABEL="Wave ID", MEMBER_STATUS_LABEL="Wave Status")
+        self.assertEqual(vocabulary_profile.validation_errors(fields), [])
+        with patch.object(vocabulary_profile, "ARCHIVE_PROFILE", fields):
+            vocabulary_profile.validate()
+        duplicate = dict(fields, BACKREF_LABEL="wave id")
+        self.assertTrue(any("BACKREF_LABEL" in e and "MEMBER_ID_LABEL" in e
+                            for e in vocabulary_profile.validation_errors(duplicate)))
 
     def test_labels_must_not_prefix_a_fixed_label(self) -> None:
         self.assertRefused("MEMBER_STATUS_LABEL", MEMBER_STATUS_LABEL="Stat",
                            PREVIOUS_STATUS_LABEL="Previous Stat")
         self.assertRefused("BACKREF_LABEL", BACKREF_LABEL="Depends On Set")
 
+    def test_fixed_label_check_is_case_insensitive(self) -> None:
+        # AC-3: `status:` is read case-insensitively (memory_backfill, the Stop
+        # hook), so a case variant of a fixed label is refused.
+        self.assertRefused("MEMBER_STATUS_LABEL", MEMBER_STATUS_LABEL="status",
+                           PREVIOUS_STATUS_LABEL="Previous status")
+        self.assertRefused("BACKREF_LABEL", BACKREF_LABEL="OWNER")
+        self.assertRefused("MEMBER_STATUS_LABEL", MEMBER_STATUS_LABEL="stat",
+                           PREVIOUS_STATUS_LABEL="Previous stat")
+
     def test_labels_must_differ_from_each_other(self) -> None:
         self.assertRefused("BACKREF_LABEL", BACKREF_LABEL="Change ID")
         self.assertRefused("ID_KEY", ID_KEY="Wave")
+
+    def test_labels_differing_only_in_case_are_refused(self) -> None:
+        # AC-3: duplicates are compared casefolded.
+        self.assertRefused("BACKREF_LABEL", BACKREF_LABEL="change id")
+        self.assertRefused("ID_KEY", ID_KEY="WAVE")
 
 
 class DiscoveryDiagnosticTests(unittest.TestCase):

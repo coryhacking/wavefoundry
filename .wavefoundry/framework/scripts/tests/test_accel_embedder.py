@@ -29,6 +29,28 @@ def load_accel():
     return mod
 
 
+# Wave 1z8ox (change 1z8ow): the timed sites these tests fake now call
+# run_with_tree_kill; route it back through isolated_run so the existing fakes
+# still intercept (each test asserts its fake was called).
+_TREE_KILL_SHIM = None
+
+
+def setUpModule():
+    global _TREE_KILL_SHIM
+    tests_dir = str(Path(__file__).resolve().parent)
+    if tests_dir not in sys.path:
+        sys.path.insert(0, tests_dir)
+    from tree_kill_support import ModuleShim
+
+    _TREE_KILL_SHIM = ModuleShim()
+    _TREE_KILL_SHIM.start()
+
+
+def tearDownModule():
+    if _TREE_KILL_SHIM is not None:
+        _TREE_KILL_SHIM.stop()
+
+
 class _Enc:
     def __init__(self, seq):
         self.ids = [1] * seq
@@ -186,12 +208,13 @@ class AccelEmbedderTests(unittest.TestCase):
         completed = MagicMock(returncode=0, stdout="", stderr="")
         with patch.object(
             self.ae.subprocess_util, "isolated_run", return_value=completed
-        ):
+        ) as run:
             self.assertTrue(
                 self.ae._coreml_static_probe_passes(
                     "cross-encoder/ms-marco-MiniLM-L-6-v2", "reranker"
                 )
             )
+        run.assert_called_once()
 
     def _probe_stderr(self, completed) -> str:
         """Run one probe against a fake child and return what it wrote to stderr."""
@@ -200,10 +223,11 @@ class AccelEmbedderTests(unittest.TestCase):
         buffer = io.StringIO()
         with patch.object(
             self.ae.subprocess_util, "isolated_run", return_value=completed
-        ), contextlib.redirect_stderr(buffer):
+        ) as run, contextlib.redirect_stderr(buffer):
             self.ae._coreml_static_probe_passes(
                 "Snowflake/snowflake-arctic-embed-s", "embedder"
             )
+        run.assert_called_once()
         return buffer.getvalue()
 
     def test_probe_rejection_reports_return_code_and_stderr_tail(self):
@@ -279,12 +303,13 @@ class AccelEmbedderTests(unittest.TestCase):
             self.ae.subprocess_util,
             "isolated_run",
             side_effect=subprocess.TimeoutExpired(cmd=["python", "-c", "SECRET_PROBE_SOURCE"], timeout=300),
-        ), contextlib.redirect_stderr(buffer):
+        ) as run, contextlib.redirect_stderr(buffer):
             self.assertFalse(
                 self.ae._coreml_static_probe_passes(
                     "Snowflake/snowflake-arctic-embed-s", "embedder"
                 )
             )
+        run.assert_called_once()
         self.assertIn("TimeoutExpired", buffer.getvalue())
         self.assertNotIn("SECRET_PROBE_SOURCE", buffer.getvalue())
 

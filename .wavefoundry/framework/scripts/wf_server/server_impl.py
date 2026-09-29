@@ -537,6 +537,17 @@ def _wf_log(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
 
+def _run_tree_kill(cmd, **kwargs):
+    """Run a cheap timed git probe so a timeout ends its whole process tree (wave 1z8ox).
+
+    The helper is resolved at call time: a server started under an older
+    ``subprocess_util`` that lacks ``run_with_tree_kill`` falls back to
+    ``isolated_run``.
+    """
+    run = getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
+    return run(cmd, **kwargs)
+
+
 def _mcp_subprocess_run(
     cmd: list[str] | str,
     *,
@@ -1224,6 +1235,7 @@ def _ensure_model_cached(model_name: str, model_type: str) -> None:
 
     else:  # embedding
         from fastembed import TextEmbedding
+        venv_bootstrap.disable_onnxruntime_telemetry()
 
         # Check if already cached (offline probe)
         try:
@@ -1759,6 +1771,7 @@ class WaveIndex:
 
             try:
                 from fastembed import TextEmbedding
+                venv_bootstrap.disable_onnxruntime_telemetry()
             except ImportError:
                 raise IndexNotReadyError(
                     "fastembed is not installed. Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py"
@@ -3531,15 +3544,13 @@ def _predict_incremental_full_fallback(root: Path) -> bool:
     Fail-safe: any git failure (non-git checkout, missing binary) predicts False — the CLI
     no-ops on a missing changed set there, so the light hook bound is correct.
 
-    Uses ``subprocess_util.isolated_run`` directly (NOT ``_mcp_subprocess_run``) — this is a
+    Uses ``_run_tree_kill`` directly (NOT ``_mcp_subprocess_run``) — this is a
     cheap pre-check, not the docs_lint spawn, and the argv/count assertions on the post-write
     tests patch ``_mcp_subprocess_run`` expecting exactly one docs_lint invocation.
     """
-    import subprocess_util
-
     triggers = set(_incremental_full_fallback_trigger_files())
     try:
-        result = subprocess_util.isolated_run(
+        result = _run_tree_kill(
             ["git", "status", "--porcelain"],
             cwd=str(root),
             capture_output=True,
@@ -7290,7 +7301,7 @@ def _broken_relative_links_after_relocation(doc_text: str) -> list[str]:
 
 def _change_block_pattern(change_id: str) -> re.Pattern[str]:
     return re.compile(
-        rf"\n?{_vocab.MEMBER_ID_LABEL_RE}:\s+`{re.escape(change_id)}`\n(?:{_vocab.PREVIOUS_STATUS_LABEL_RE}:\s+`[^`]+`\n)?{_vocab.MEMBER_STATUS_LABEL_RE}:\s+`[^`]+`\n?",
+        rf"\n?^{_vocab.MEMBER_ID_LABEL_RE}:\s+`{re.escape(change_id)}`\n(?:{_vocab.PREVIOUS_STATUS_LABEL_RE}:\s+`[^`]+`\n)?{_vocab.MEMBER_STATUS_LABEL_RE}:\s+`[^`]+`\n?",
         re.MULTILINE,
     )
 
@@ -8038,7 +8049,7 @@ def new_change(root: Path, kind: str, slug: str, change_id: str | None = None) -
     today = time.strftime("%Y-%m-%d")
     content = template
     content = re.sub(r"`<id-prefix>-<kind> <slug>`.*", f"`{change_id}`", content)
-    content = re.sub(rf"{_vocab.MEMBER_ID_LABEL_RE}:.*", lambda _m: f"{_vocab.MEMBER_ID_LABEL}: `{change_id}`", content)
+    content = re.sub(rf"(?m)^{_vocab.MEMBER_ID_LABEL_RE}:.*", lambda _m: f"{_vocab.MEMBER_ID_LABEL}: `{change_id}`", content)
     content = re.sub(r"Last verified:.*", f"Last verified: {today}", content)
 
     out_path = plans_dir / f"{change_id}.md"
@@ -11333,7 +11344,7 @@ def _wave_code_footprint(root: Path, wave_md: Path) -> Optional[int]:
         )
 
     try:
-        proc = subprocess_util.isolated_run(
+        proc = _run_tree_kill(
             ["git", "-C", str(root), "status", "--porcelain"],
             capture_output=True, text=True, timeout=10, check=False,
         )

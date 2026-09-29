@@ -14,6 +14,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import operator_identity as subject
 
 
+# Wave 1z8ox (change 1z8ow): the timed sites these tests fake now call
+# run_with_tree_kill; route it back through isolated_run so the existing fakes
+# still intercept (each test asserts its fake was called).
+_TREE_KILL_SHIM = None
+
+
+def setUpModule():
+    global _TREE_KILL_SHIM
+    tests_dir = str(Path(__file__).resolve().parent)
+    if tests_dir not in sys.path:
+        sys.path.insert(0, tests_dir)
+    from tree_kill_support import ModuleShim
+
+    _TREE_KILL_SHIM = ModuleShim()
+    _TREE_KILL_SHIM.start()
+
+
+def tearDownModule():
+    if _TREE_KILL_SHIM is not None:
+        _TREE_KILL_SHIM.stop()
+
+
 class OperatorIdentityTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -76,31 +98,35 @@ class OperatorIdentityTests(unittest.TestCase):
         failures = [FileNotFoundError("private detail"), subprocess.TimeoutExpired("git", 10),
                     UnicodeDecodeError("utf-8", b"\xff", 0, 1, "bad")]
         for error in failures:
-            with self.subTest(error=error), patch.object(subject.subprocess, "run", side_effect=error):
+            with self.subTest(error=error), patch.object(subject.subprocess, "run", side_effect=error) as run:
                 self.assertEqual(subject.resolve_operator(self.root), (None, "git user.email lookup failed"))
+                run.assert_called_once()
         for result in (self.git_result(returncode=128), self.git_result(returncode=1), self.git_result(" \n")):
-            with self.subTest(result=result), patch.object(subject.subprocess, "run", return_value=result):
+            with self.subTest(result=result), patch.object(subject.subprocess, "run", return_value=result) as run:
                 operator, reason = subject.resolve_operator(self.root)
                 self.assertIsNone(operator)
                 self.assertTrue(reason)
+                run.assert_called_once()
 
     def test_normalized_duplicate_email_is_one_handle_but_two_handles_are_ambiguous(self):
         entry = {"name": "Alice", "emails": [" alice@EXAMPLE.test ", "ALICE@example.test"]}
         self.write_map({"alice": entry})
-        with patch.object(subject.subprocess, "run", return_value=self.git_result(" Alice@Example.Test \n")):
+        with patch.object(subject.subprocess, "run", return_value=self.git_result(" Alice@Example.Test \n")) as run:
             self.assertEqual(subject.resolve_operator(self.root), ({"handle": "alice", "source": "git_email"}, ""))
             self.write_map({"alice": entry, "bob": entry})
             operator, reason = subject.resolve_operator(self.root)
             self.assertIsNone(operator)
             self.assertIn("multiple", reason)
+        self.assertEqual(run.call_count, 2)
 
     def test_unmapped_email_and_empty_map_are_unresolved(self):
-        with patch.object(subject.subprocess, "run", return_value=self.git_result("unknown@example.test")):
+        with patch.object(subject.subprocess, "run", return_value=self.git_result("unknown@example.test")) as run:
             for entries in ({"alice": {"name": "Alice", "emails": ["alice@example.test"]}}, {}):
                 self.write_map(entries)
                 operator, reason = subject.resolve_operator(self.root)
                 self.assertIsNone(operator)
                 self.assertIn("not in", reason)
+        self.assertEqual(run.call_count, 2)
 
     def test_git_call_is_bounded_read_only_and_sanitizes_target_overrides(self):
         with patch.dict(os.environ, {"GIT_DIR": "/decoy", "GIT_WORK_TREE": "/decoy", "GIT_CONFIG_COUNT": "1"}), patch.object(subject.subprocess, "run", return_value=self.git_result()) as run:

@@ -52,7 +52,9 @@ from .constants import (
     JOURNAL_SIGNAL_MARKERS,
     JOURNAL_PATH_PATTERN,
     JOURNAL_REQUIRED_SECTIONS,
+    CHANGE_KIND_PATTERN,
     LEGACY_MARKERS,
+    LIFECYCLE_PREFIX_PATTERN,
     MANIFEST_REQUIRED_GENERATED_ARTIFACTS,
     MARKDOWN_HEADING_PATTERN,
     PERSONA_REQUIRED_SECTIONS,
@@ -63,6 +65,7 @@ from .constants import (
     SENSOR_POLARITY_REGISTRY,
     PROGRESSABLE_CHANGE_STATUSES,
     PROGRESSABLE_ITEM_STATUSES,
+    SLUG_PATTERN,
     TERMINAL_CHANGE_STATUSES,
     TERMINAL_ITEM_STATUSES,
     WAVE_WATCHPOINT_MARKERS,
@@ -78,6 +81,32 @@ import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm
 
 
 _H1_TITLE_RE = re.compile(r"^#\s+\S", re.MULTILINE)
+
+# A generated decision-log source event (``memory_supply.draft_candidates``):
+# the change stem, then ``:`` and the 16-hex decision hash. A slug ending in a
+# keyword such as ``secret`` makes that ``:`` read as a secret assignment
+# (wave 1zbrr). The group is the separator; nothing else on the line is exempt.
+_DECISION_LOG_SOURCE_EVENT_RE = re.compile(
+    rf"^Source event:\s*`decision-log:{LIFECYCLE_PREFIX_PATTERN}-{CHANGE_KIND_PATTERN} "
+    rf"{SLUG_PATTERN}(:)[0-9a-f]{{16}}`\s*$"
+)
+
+
+def _memory_forbidden_match(raw_line: str) -> bool:
+    """True when ``raw_line`` matches a memory forbidden-content pattern.
+
+    Every match of every pattern is checked. The only match ignored is one that
+    ends exactly at the decision-log hash separator of a fully recognized
+    generated source event; finding and repeated-repairs events get no
+    exemption.
+    """
+    event = _DECISION_LOG_SOURCE_EVENT_RE.match(raw_line)
+    exempt_end = event.end(1) if event else None
+    return any(
+        match.end() != exempt_end
+        for pattern in MEMORY_DISALLOWED_PATTERNS
+        for match in pattern.finditer(raw_line)
+    )
 
 _CHANGE_DOC_REQUIRED_SECTIONS = (
     "## Rationale",
@@ -1131,7 +1160,7 @@ def check_closed_wave_requirements(root: Path) -> list[str]:
             continue
         rel = relative_to_root(root, path)
         text = read_text(path)
-        if f"{_vocab.ID_KEY}:" not in text or (_vocab.MEMBER_HEADING not in text and "## Items" not in text):
+        if not re.search(rf"(?m)^{_vocab.ID_KEY_RE}:", text) or (_vocab.MEMBER_HEADING not in text and "## Items" not in text):
             continue
         status = (_metadata_value(text, "Status") or "").casefold()
         sections = _extract_sections(text)
@@ -1168,7 +1197,7 @@ def check_closed_wave_requirements(root: Path) -> list[str]:
                     f"{rel}: closed wave is missing review checkpoint evidence for required reviewer lane `{lane}`"
                 )
 
-        if f"{_vocab.ID_KEY}:" in text:
+        if re.search(rf"(?m)^{_vocab.ID_KEY_RE}:", text):
             wave_ids = WAVE_REFERENCE_PATTERN.findall(text)
             if wave_ids:
                 wave_id = wave_ids[0]
@@ -1908,7 +1937,7 @@ def check_memory_docs(root: Path, only: set[Path] | None = None, skip: set[Path]
         for raw_line in text.splitlines():
             if _line_forbids_content(raw_line):
                 continue
-            if any(pattern.search(raw_line) for pattern in MEMORY_DISALLOWED_PATTERNS):
+            if _memory_forbidden_match(raw_line):
                 failures.append(
                     f"{rel}: memory record appears to capture secrets, raw transcript content, "
                     f"or personal facts (forbidden by schema): {raw_line.strip()[:80]!r}"
@@ -2224,7 +2253,7 @@ def check_prepare_council_verdict(root: Path) -> tuple[list[str], list[str]]:
 
     for path in _wave_record_files(root, roots):
         text = read_text(path)
-        if f"{_vocab.ID_KEY}:" not in text:
+        if not re.search(rf"(?m)^{_vocab.ID_KEY_RE}:", text):
             continue
         status = (_metadata_value(text, "Status") or "").casefold().strip()
         if status not in ("active", "implementing"):
@@ -2360,7 +2389,7 @@ def check_prepare_council_roster_evidence(root: Path) -> tuple[list[str], list[s
 
     for path in _wave_record_files(root, roots):
         text = read_text(path)
-        if f"{_vocab.ID_KEY}:" not in text:
+        if not re.search(rf"(?m)^{_vocab.ID_KEY_RE}:", text):
             continue
         status = (_metadata_value(text, "Status") or "").casefold().strip()
         if status not in ("active", "implementing"):

@@ -19,6 +19,28 @@ import runtime_advisory
 import wf_cli
 
 
+# Wave 1z8ox (change 1z8ow): timed git and probe calls now go through
+# run_with_tree_kill; route it back through isolated_run so a "must not run"
+# guard on subprocess.run still catches a routed site.
+_TREE_KILL_SHIM = None
+
+
+def setUpModule():
+    global _TREE_KILL_SHIM
+    tests_dir = str(Path(__file__).resolve().parent)
+    if tests_dir not in sys.path:
+        sys.path.insert(0, tests_dir)
+    from tree_kill_support import ModuleShim
+
+    _TREE_KILL_SHIM = ModuleShim()
+    _TREE_KILL_SHIM.start()
+
+
+def tearDownModule():
+    if _TREE_KILL_SHIM is not None:
+        _TREE_KILL_SHIM.stop()
+
+
 class RuntimePolicyTests(unittest.TestCase):
     def test_policy_uses_executing_version_not_executable_or_path(self):
         for version in ((3, 10, 9), (3, 11, 8), (3, 12, 1), (3, 13, 0), (3, 14, 0), (4, 0, 0)):

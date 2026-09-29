@@ -13,6 +13,16 @@ AC-4: a ``KeyboardInterrupt`` raised in the parent during the sliced wait ends
 the child group, including through a setup install step.
 AC-5: ``setup_index`` against a ``subprocess_util`` without the helper falls
 back to ``isolated_run``.
+
+Wave 1z8ox (change 1z8ow) widens the census: calls through
+``index_state_store._run_git`` and each module's ``_run_tree_kill`` resolver are
+counted, a timed call to an unnamed callee fails it, and only the named
+exclusions remain. It adds a spy per resolver, a routed git site whose timeout
+ends a fake git's descendant, the reap guard in ``_kill_process_tree``, and the
+fallback of a routed module without the helper. Its delivery repair (DEL-F2)
+adds ``check_output``, ``check_call`` and ``call`` to the counted callees, routes
+``run_tests.repo_state_snapshot``'s git listing, and adds a binding census: a
+process runner bound to a name outside the named resolvers fails it.
 """
 from __future__ import annotations
 
@@ -44,7 +54,17 @@ POSIX_ONLY = unittest.skipIf(os.name == "nt", "process-group checks use POSIX pi
 # ---------------------------------------------------------------------------
 
 CALLEES = frozenset({"run", "isolated_run", "run_with_tree_kill", "communicate", "wait", "_run_install_step",
-                     "_mcp_subprocess_run"})
+                     "_mcp_subprocess_run", "_run_git", "_run_tree_kill",
+                     "check_output", "check_call", "call"})
+
+# Named resolvers (wave 1z8ox, change 1z8ow): each routed module looks the helper
+# up at call time in ONE module-level function, so the census can count its
+# sites by name. index_state_store._run_git is the store's resolver.
+RESOLVER_MODULES = (
+    "accel_embedder", "dashboard_lib", "docs_gardener", "graph_indexer",
+    "indexer", "operator_identity", "provider_policy", "render_platform_surfaces", "retrieval_eval",
+    "run_secrets_scan", "run_tests", "scan_secrets", "sqlite_storage_migration", "upgrade_protocol", "server_impl",
+)
 
 # Calls that end their whole process tree on timeout.
 ROUTED = {
@@ -65,53 +85,75 @@ ROUTED = {
     ("upgrade_wavefoundry.py", "_delegated_summary_payload", "run_with_tree_kill"): 1,
     ("upgrade_wavefoundry.py", "_read_installed_graph_builder_version", "run_with_tree_kill"): 1,
     ("upgrade_wavefoundry.py", "_run_hook", "run_with_tree_kill"): 1,
+    # index_state_store._run_git resolves the helper and keeps the sanitized git env (wave 1z8ox).
+    ("commit_provenance.py", "_git", "_run_git"): 1,
+    ("index_state_store.py", "_batch_git_blobs", "_run_git"): 1,
+    ("index_state_store.py", "_collect_git_freshness", "_run_git"): 1,
+    ("index_state_store.py", "_collect_git_history", "_run_git"): 1,
+    ("index_state_store.py", "_gardener_only_pairs", "_run_git"): 1,
+    ("index_state_store.py", "_git_authority", "_run_git"): 2,
+    ("index_state_store.py", "_git_head", "_run_git"): 1,
+    ("techdocs_audit_lib.py", "_baseline_text", "_run_git"): 1,
+    # _git_strip_vars cannot call _run_git (it would recurse), so it binds the
+    # call-time resolution to a local named after the helper; pinned by a spy.
+    ("index_state_store.py", "_git_strip_vars", "run_with_tree_kill"): 1,
+    # Per-module _run_tree_kill resolvers (wave 1z8ox).
+    ("accel_embedder.py", "_coreml_static_probe_passes", "_run_tree_kill"): 1,
+    ("dashboard_lib.py", "_windows_process_cmdlines", "_run_tree_kill"): 1,
+    ("dashboard_lib.py", "collect_git_stats.run", "_run_tree_kill"): 1,
+    ("dashboard_lib.py", "collect_git_stats.run_raw", "_run_tree_kill"): 1,
+    ("dashboard_lib.py", "get_file_diff._run", "_run_tree_kill"): 1,
+    ("dashboard_lib.py", "list_git_changed_files.run", "_run_tree_kill"): 1,
+    ("docs_gardener.py", "collect_changed_markdown_paths", "_run_tree_kill"): 1,
+    ("graph_indexer.py", "_gitignored_paths", "_run_tree_kill"): 1,
+    ("graph_indexer.py", "_physical_perf_core_count", "_run_tree_kill"): 1,
+    ("indexer.py", "_process_cmdline", "_run_tree_kill"): 1,
+    ("operator_identity.py", "resolve_operator", "_run_tree_kill"): 1,
+    ("provider_policy.py", "_ldconfig_lib_paths", "_run_tree_kill"): 1,
+    ("provider_policy.py", "nvidia_gpu_present", "_run_tree_kill"): 1,
+    ("render_platform_surfaces.py", "tracked_runtime_diagnostics.git", "_run_tree_kill"): 1,
+    ("retrieval_eval.py", "_git_output", "_run_tree_kill"): 1,
+    ("run_tests.py", "repo_state_snapshot", "_run_tree_kill"): 1,
+    ("run_secrets_scan.py", "_physical_perf_core_count", "_run_tree_kill"): 1,
+    ("scan_secrets.py", "_physical_perf_core_count", "_run_tree_kill"): 1,
+    ("sqlite_storage_migration.py", "_process_cwds", "_run_tree_kill"): 1,
+    ("sqlite_storage_migration.py", "discover_hosts", "_run_tree_kill"): 2,
+    ("upgrade_protocol.py", "_validate_mandatory_imports_in_subprocess", "_run_tree_kill"): 1,
+    ("wf_server/server_impl.py", "_predict_incremental_full_fallback", "_run_tree_kill"): 1,
+    ("wf_server/server_impl.py", "_wave_code_footprint", "_run_tree_kill"): 1,
 }
 
-# Timed calls that stay as they are, each with the reason.
-_GIT = "single git command, no descendants"
-_PROBE = "single-program probe, no descendants"
+# Timed calls that stay as they are, each with the reason. Only these (wave 1z8ox).
 EXCLUDED = {
-    ("accel_embedder.py", "_coreml_static_probe_passes", "isolated_run"): (1, "one Python process loading a model; no children"),
-    ("dashboard_lib.py", "_windows_process_cmdlines", "isolated_run"): (1, "PowerShell process query"),
-    ("dashboard_lib.py", "collect_git_stats.run", "isolated_run"): (1, _GIT),
-    ("dashboard_lib.py", "collect_git_stats.run_raw", "isolated_run"): (1, _GIT),
-    ("dashboard_lib.py", "get_file_diff._run", "isolated_run"): (1, _GIT),
-    ("dashboard_lib.py", "list_git_changed_files.run", "isolated_run"): (1, _GIT),
     ("dashboard_server.py", "_watch_loop", "wait"): (1, "threading.Event.wait, not a subprocess"),
-    ("docs_gardener.py", "collect_changed_markdown_paths", "isolated_run"): (1, _GIT),
-    ("graph_indexer.py", "_gitignored_paths", "isolated_run"): (1, _GIT),
-    ("graph_indexer.py", "_physical_perf_core_count", "isolated_run"): (1, "sysctl " + _PROBE),
-    ("graph_quality_eval.py", "_git_value", "isolated_run"): (1, _GIT),
-    ("index_state_store.py", "_git_strip_vars", "isolated_run"): (1, _GIT),
-    ("indexer.py", "_process_cmdline", "isolated_run"): (1, "PowerShell process query"),
-    ("operator_identity.py", "resolve_operator", "run"): (1, _GIT),
-    ("provider_policy.py", "_ldconfig_lib_paths", "isolated_run"): (1, "ldconfig " + _PROBE),
-    ("provider_policy.py", "nvidia_gpu_present", "isolated_run"): (1, "nvidia-smi " + _PROBE),
-    ("render_platform_surfaces.py", "tracked_runtime_diagnostics.git", "isolated_run"): (1, _GIT),
-    ("retrieval_eval.py", "_git_output", "isolated_run"): (1, _GIT),
-    ("run_secrets_scan.py", "_physical_perf_core_count", "isolated_run"): (1, "sysctl " + _PROBE),
+    ("graph_quality_eval.py", "_git_value", "isolated_run"): (
+        1, "the shipped graph-quality reports pin this evaluator's source hash; re-measuring "
+           "(builder 45 rebuilt from history) is disproportionate for a manual CLI's provenance "
+           "probes (git rev-parse HEAD, git status --porcelain); route at the next re-measure"),
     ("run_tests.py", "_run_file", "run"): (1, "waits run in worker threads; a new session would stop Ctrl-C ending the suite"),
-    ("scan_secrets.py", "_physical_perf_core_count", "isolated_run"): (1, "sysctl " + _PROBE),
     ("setup_index.py", "_run_indexer", "wait"): (1, "Popen background build with its own lifecycle"),
     ("setup_index.py", "_terminate_and_reap", "wait"): (2, "Popen background build with its own lifecycle"),
-    ("sqlite_storage_migration.py", "_process_cwds", "isolated_run"): (1, "lsof " + _PROBE),
-    ("sqlite_storage_migration.py", "discover_hosts", "isolated_run"): (2, "ps or PowerShell process query"),
     ("subprocess_util.py", "_communicate_sliced", "communicate"): (2, "the helper's own wait"),
     ("subprocess_util.py", "_kill_process_tree", "isolated_run"): (1, "taskkill inside the helper"),
     ("subprocess_util.py", "run_with_tree_kill", "communicate"): (1, "the helper's own post-kill drain"),
     ("subprocess_util.py", "run_with_tree_kill", "wait"): (1, "the helper's own reap after an interrupt kill"),
-    ("upgrade_protocol.py", "_validate_mandatory_imports_in_subprocess", "run"): (1, "isolated interpreter import probe"),
-    ("venv_bootstrap.py", "_probe_interpreter", "run"): (1, "interpreter version probe"),
-    ("wf_server/server_impl.py", "_predict_incremental_full_fallback", "isolated_run"): (1, _GIT),
-    ("wf_server/server_impl.py", "_wave_code_footprint", "isolated_run"): (1, _GIT),
+    ("venv_bootstrap.py", "_probe_interpreter", "run"): (
+        1, "venv_bootstrap is stdlib-only (test_venv_bootstrap.StdlibOnlyTests); the "
+           "python -I -S -B -c probe starts no descendants"),
 }
+
+# The census key for a timed call whose callee is not a plain name or attribute,
+# such as an inline ``(getattr(...) or ...)(..., timeout=...)``.
+UNNAMED = "<unnamed>"
 
 
 def timed_call_census(scripts_root: Path) -> Counter:
     """(file, enclosing function, callee) -> count of calls passing ``timeout=``.
 
-    Predicate: a call whose callee name is in ``CALLEES`` and that passes a
-    literal ``timeout=`` keyword. Known limits: a timeout forwarded through
+    Predicate: a call that passes a literal ``timeout=`` keyword and whose
+    callee name is in ``CALLEES``, or whose callee has no name at all (an
+    inline ``(getattr(...) or ...)(...)`` call-time resolution), counted under
+    ``UNNAMED`` so the classification test fails on it. Known limits: a timeout forwarded through
     ``**kwargs`` is not seen (``server_impl._mcp_subprocess_run`` forwards to
     ``run_with_tree_kill`` that way, so its callers are counted instead), and
     calls inside rendered hook bodies (template strings in
@@ -136,9 +178,86 @@ def timed_call_census(scripts_root: Path) -> Counter:
             def visit_Call(self, node):  # noqa: N802
                 func = node.func
                 name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
-                if name in CALLEES and any(k.arg == "timeout" for k in node.keywords):
-                    found[(rel.as_posix(), ".".join(stack) or "<module>", name)] += 1
+                timed = any(k.arg == "timeout" for k in node.keywords)
+                if timed and (name in CALLEES or not name):
+                    found[(rel.as_posix(), ".".join(stack) or "<module>", name or UNNAMED)] += 1
                 self.generic_visit(node)
+
+        _Visitor().visit(tree)
+    return found
+
+
+# Functions allowed to bind a process runner to a name (DEL-F2 of wave 1z8ox):
+# a runner held in a local and called under another name escapes the timed-call
+# census above, so only the named resolvers may do it.
+BINDING_ALLOWED = frozenset(
+    {(("wf_server/" if name == "server_impl" else "") + name + ".py", "_run_tree_kill")
+     for name in RESOLVER_MODULES}
+    | {
+        ("index_state_store.py", "_run_git"),
+        ("index_state_store.py", "_git_strip_vars"),
+        # setup_index's resolver predates the per-module name; it is the only
+        # caller of the helper there and is pinned by RoutingSpyTests.
+        ("setup_index.py", "_run_install_step"),
+    }
+)
+
+_RUNNER_ATTRS = {
+    ("subprocess_util", "isolated_run"), ("subprocess_util", "run_with_tree_kill"),
+    ("subprocess", "run"), ("subprocess", "Popen"),
+    ("subprocess", "check_output"), ("subprocess", "check_call"), ("subprocess", "call"),
+}
+
+
+def _references_runner(value: ast.AST) -> bool:
+    """True when ``value`` refers to a process runner as a value, not by calling it.
+
+    ``subprocess.run(...)`` (the runner is the callee) is a call, not a binding;
+    ``subprocess_util.isolated_run`` or ``getattr(subprocess_util, ...)`` used as
+    a value is a binding.
+    """
+    callees = {id(node.func) for node in ast.walk(value) if isinstance(node, ast.Call)}
+    for node in ast.walk(value):
+        if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+                and (node.value.id, node.attr) in _RUNNER_ATTRS and id(node) not in callees):
+            return True
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr"
+                and node.args and isinstance(node.args[0], ast.Name)
+                and node.args[0].id == "subprocess_util"):
+            return True
+    return False
+
+
+def runner_binding_census(scripts_root: Path) -> Counter:
+    """(file, enclosing function) -> count of Assign/AnnAssign/NamedExpr nodes
+    whose value refers to a process runner (see ``_references_runner``).
+
+    Known limits: an import alias (``from subprocess_util import isolated_run as r``),
+    a module alias (``import subprocess_util as su; r = su.isolated_run``) and a
+    default argument (``def f(r=subprocess.run)``) are not seen; none exists in
+    the tree today."""
+    found: Counter = Counter()
+    for path in sorted(scripts_root.rglob("*.py")):
+        rel = path.relative_to(scripts_root)
+        if "tests" in rel.parts[:-1] or "__pycache__" in rel.parts:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        stack: list[str] = []
+
+        class _Visitor(ast.NodeVisitor):
+            def visit_FunctionDef(self, node):  # noqa: N802
+                stack.append(node.name)
+                self.generic_visit(node)
+                stack.pop()
+
+            visit_AsyncFunctionDef = visit_FunctionDef
+
+            def _check(self, node):
+                if node.value is not None and _references_runner(node.value):
+                    found[(rel.as_posix(), ".".join(stack) or "<module>")] += 1
+                self.generic_visit(node)
+
+            visit_Assign = visit_AnnAssign = visit_NamedExpr = _check
 
         _Visitor().visit(tree)
     return found
@@ -165,12 +284,108 @@ class ClassificationTests(unittest.TestCase):
             )
             self.assertEqual(dict(timed_call_census(Path(tmp))), {("tiny.py", "build", "run"): 1})
 
+    def test_census_flags_a_timed_call_to_an_unnamed_callee(self) -> None:
+        # An inline call-time resolution has no callee name for the census to
+        # classify, so it is reported under UNNAMED and fails the table check.
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "tiny.py").write_text(
+                "import subprocess_util\n"
+                "def probe():\n"
+                "    (getattr(subprocess_util, 'run_with_tree_kill', None)\n"
+                "     or subprocess_util.isolated_run)(['git', 'status'], timeout=1)\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(dict(timed_call_census(Path(tmp))), {("tiny.py", "probe", UNNAMED): 1})
+        self.assertNotIn(UNNAMED, {callee for _file, _fn, callee in timed_call_census(SCRIPTS_ROOT)})
+
+    def test_census_sees_a_planted_timed_check_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "tiny.py").write_text(
+                "import subprocess\n"
+                "def probe():\n"
+                "    return subprocess.check_output(['git', 'status'], timeout=5)\n",
+                encoding="utf-8",
+            )
+            census = dict(timed_call_census(Path(tmp)))
+        self.assertEqual(census, {("tiny.py", "probe", "check_output"): 1})
+        expected = dict(ROUTED)
+        expected.update({key: count for key, (count, _reason) in EXCLUDED.items()})
+        self.assertNotEqual({**dict(timed_call_census(SCRIPTS_ROOT)), **census}, expected)
+
+    def test_runners_are_bound_to_names_only_in_the_resolvers(self) -> None:
+        census = runner_binding_census(SCRIPTS_ROOT)
+        self.assertEqual(set(census) - BINDING_ALLOWED, set())
+
+    def test_binding_census_sees_a_planted_runner_alias(self) -> None:
+        # A runner bound to a local and called under another name dodges the
+        # timed-call census (``runner`` is not in CALLEES); the binding census
+        # catches it.
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "tiny.py").write_text(
+                "import subprocess_util\n"
+                "def probe():\n"
+                "    runner = subprocess_util.isolated_run\n"
+                "    return runner(['git', 'status'], timeout=5)\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(dict(timed_call_census(Path(tmp))), {})
+            census = runner_binding_census(Path(tmp))
+        self.assertEqual(dict(census), {("tiny.py", "probe"): 1})
+        self.assertEqual(set(census) - BINDING_ALLOWED, {("tiny.py", "probe")})
+
+    def test_binding_census_sees_planted_aliases_of_every_subprocess_api(self) -> None:
+        # Each subprocess runner API bound to a local and called under another
+        # name dodges the timed-call census; the binding census catches each.
+        for api in ("run", "Popen", "check_output", "check_call", "call"):
+            with self.subTest(api=api), tempfile.TemporaryDirectory() as tmp:
+                (Path(tmp) / "tiny.py").write_text(
+                    "import subprocess\n"
+                    "def probe():\n"
+                    f"    runner = subprocess.{api}\n"
+                    "    return runner(['git', 'status'], timeout=5)\n",
+                    encoding="utf-8",
+                )
+                self.assertEqual(dict(timed_call_census(Path(tmp))), {})
+                self.assertEqual(dict(runner_binding_census(Path(tmp))), {("tiny.py", "probe"): 1})
+
+    def test_binding_census_ignores_direct_calls(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "tiny.py").write_text(
+                "import subprocess, subprocess_util\n"
+                "def probe():\n"
+                "    result = subprocess.run(['git'])\n"
+                "    other = subprocess_util.isolated_run(['git'])\n"
+                "    return result, other\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(dict(runner_binding_census(Path(tmp))), {})
+
+    def test_resolver_sites_are_in_the_resolver_modules(self) -> None:
+        resolver_files = {
+            file for (file, _fn, callee) in ROUTED if callee == "_run_tree_kill"
+        }
+        expected = {
+            ("wf_server/" if name == "server_impl" else "") + name + ".py" for name in RESOLVER_MODULES
+        }
+        self.assertEqual(resolver_files, expected)
+
 
 def _load_setup_index():
     spec = importlib.util.spec_from_file_location("setup_index_tree_kill", SCRIPTS_ROOT / "setup_index.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _load_resolver_module(name: str):
+    if name == "server_impl":
+        tests_dir = str(Path(__file__).resolve().parent)
+        if tests_dir not in sys.path:
+            sys.path.insert(0, tests_dir)
+        import server_tools_support
+
+        return server_tools_support.load_server()
+    return importlib.import_module(name)
 
 
 class RoutingSpyTests(unittest.TestCase):
@@ -201,6 +416,59 @@ class RoutingSpyTests(unittest.TestCase):
             techdocs_audit_lib.run_techdocs_audit(Path(tmp), timeout_seconds=1)
         helper.assert_called_once()
         self.assertIn('"repo_root"', helper.call_args.kwargs["input"])
+
+    def test_each_module_resolver_calls_the_helper(self) -> None:
+        done = subprocess.CompletedProcess(["x"], 0)
+        for name in RESOLVER_MODULES:
+            with self.subTest(module=name):
+                module = _load_resolver_module(name)
+                with mock.patch.object(subprocess_util, "run_with_tree_kill", return_value=done) as helper, \
+                        mock.patch.object(subprocess_util, "isolated_run") as plain:
+                    self.assertIs(module._run_tree_kill(["x"], check=False, timeout=7), done)
+                helper.assert_called_once_with(["x"], check=False, timeout=7)
+                plain.assert_not_called()
+
+    def test_store_run_git_calls_the_helper_with_the_sanitized_env(self) -> None:
+        import index_state_store as iss
+
+        done = subprocess.CompletedProcess(["git"], 0)
+        with mock.patch.object(iss, "_git_strip_vars_cache", frozenset({"GIT_DIR"})), \
+                mock.patch.dict(os.environ, {"GIT_DIR": "/decoy"}), \
+                mock.patch.object(subprocess_util, "run_with_tree_kill", return_value=done) as helper, \
+                mock.patch.object(subprocess_util, "isolated_run") as plain:
+            self.assertIs(iss._run_git(["git", "status"], capture_output=True, timeout=7), done)
+        helper.assert_called_once()
+        self.assertEqual(helper.call_args.args, (["git", "status"],))
+        self.assertEqual(helper.call_args.kwargs["timeout"], 7)
+        self.assertNotIn("GIT_DIR", helper.call_args.kwargs["env"])
+        self.assertEqual(helper.call_args.kwargs["env"]["LC_ALL"], "C")
+        plain.assert_not_called()
+
+    def test_store_git_strip_vars_calls_the_helper(self) -> None:
+        import index_state_store as iss
+
+        done = subprocess.CompletedProcess(["git"], 0, stdout="GIT_EXAMPLE_VAR\n")
+        with mock.patch.object(iss, "_git_strip_vars_cache", None), \
+                mock.patch.object(subprocess_util, "run_with_tree_kill", return_value=done) as helper, \
+                mock.patch.object(subprocess_util, "isolated_run") as plain:
+            self.assertIn("GIT_EXAMPLE_VAR", iss._git_strip_vars())
+        helper.assert_called_once()
+        self.assertEqual(helper.call_args.args, (["git", "rev-parse", "--local-env-vars"],))
+        self.assertEqual(helper.call_args.kwargs["timeout"], 10)
+        plain.assert_not_called()
+
+    def test_routed_module_falls_back_without_the_helper(self) -> None:
+        # AC-5 (wave 1z8ox): an upgrade runner's older subprocess_util has no
+        # run_with_tree_kill; a routed site falls back to isolated_run.
+        import provider_policy
+
+        old = types.SimpleNamespace(isolated_run=mock.Mock(
+            return_value=subprocess.CompletedProcess(["nvidia-smi"], 0, stdout="GPU 0: Example\n")))
+        with mock.patch.object(provider_policy, "subprocess_util", old), \
+                mock.patch.object(provider_policy.shutil, "which", return_value="nvidia-smi"):
+            self.assertTrue(provider_policy.nvidia_gpu_present())
+        old.isolated_run.assert_called_once_with(
+            ["nvidia-smi", "-L"], capture_output=True, text=True, timeout=3, check=False)
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +561,83 @@ class GrandchildTests(_TreeCase):
                 setup_index._run_install_step(_grandchild_script(self.pid_file), check=False, timeout=30)
         finally:
             timer.cancel()
+        self.assertGone(self._grandchild_pid())
+
+
+@POSIX_ONLY
+class RoutedGitSiteTests(_TreeCase):
+    """Wave 1z8ox (change 1z8ow) AC-2: a routed git site ends git's descendants on timeout.
+
+    Runs without the tree-kill test shim: the real helper, a real process tree.
+    """
+
+    def test_gitignored_paths_timeout_ends_the_fake_gits_descendant(self) -> None:
+        import graph_indexer
+
+        bin_dir = Path(self._tmp.name) / "bin"
+        bin_dir.mkdir()
+        fake_git = bin_dir / "git"
+        fake_git.write_text(
+            f"#!/bin/sh\nsleep 60 &\necho $! > '{self.pid_file}'\nsleep 60\n", encoding="utf-8")
+        fake_git.chmod(0o755)
+        path = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+        started = time.monotonic()
+        with mock.patch.dict(os.environ, {"PATH": path}), \
+                mock.patch.object(graph_indexer, "_GITIGNORED_PATHS_TIMEOUT_S", 1.5):
+            self.assertEqual(graph_indexer._gitignored_paths(Path(self._tmp.name)), frozenset())
+        self.assertLess(time.monotonic() - started, 20)
+        self.assertGone(self._grandchild_pid())
+
+
+class ReapGuardTests(unittest.TestCase):
+    """Wave 1z8ox AC-3: a child the helper already reaped never has its old group id signalled."""
+
+    def _process(self, returncode):
+        return types.SimpleNamespace(pid=424242, returncode=returncode, kill=mock.Mock())
+
+    def test_reaped_child_is_not_group_signalled(self) -> None:
+        process = self._process(0)
+        with mock.patch.object(subprocess_util.os, "killpg", create=True) as killpg:
+            subprocess_util._kill_process_tree(process)
+        killpg.assert_not_called()
+        process.kill.assert_called_once()
+
+    @POSIX_ONLY
+    def test_unreaped_child_is_group_signalled(self) -> None:
+        import signal
+
+        process = self._process(None)
+        with mock.patch.object(subprocess_util.os, "killpg") as killpg:
+            subprocess_util._kill_process_tree(process)
+        killpg.assert_called_once_with(424242, signal.SIGKILL)
+
+    def test_windows_branch_follows_the_same_rule(self) -> None:
+        fake_os = types.SimpleNamespace(name="nt")
+        for returncode, calls in ((0, 0), (None, 1)):
+            with self.subTest(returncode=returncode), \
+                    mock.patch.object(subprocess_util, "os", fake_os), \
+                    mock.patch.object(subprocess_util, "isolated_run") as taskkill:
+                subprocess_util._kill_process_tree(self._process(returncode))
+            self.assertEqual(taskkill.call_count, calls)
+            if calls:
+                self.assertEqual(taskkill.call_args.args[0][:3], ["taskkill", "/PID", "424242"])
+
+
+@POSIX_ONLY
+class ExitedUnreapedChildTests(_TreeCase):
+    """Wave 1z8ox AC-3b: a child that exited but is unreaped, while a descendant
+    holds its output pipe, still has its group signalled on timeout. A guard that
+    calls ``poll()`` first would reap the child, skip the kill and leak the descendant."""
+
+    def test_exited_child_with_a_descendant_holding_the_pipe_ends_the_group(self) -> None:
+        code = (
+            "import subprocess, sys\n"
+            "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+            f"open({str(self.pid_file)!r}, 'w').write(str(g.pid))\n"
+        )
+        with self.assertRaises(subprocess.TimeoutExpired):
+            subprocess_util.run_with_tree_kill(
+                [sys.executable, "-c", code], capture_output=True, text=True, timeout=1.5)
         self.assertGone(self._grandchild_pid())
 
 

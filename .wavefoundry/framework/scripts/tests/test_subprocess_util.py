@@ -363,6 +363,7 @@ class RunWithTreeKillTests(unittest.TestCase):
 
         class FakeProcess:
             pid = 4242
+            returncode = None  # unreaped, so the tree may be signalled (wave 1z8ox reap rule)
 
             def kill(self):
                 calls.append("kill")

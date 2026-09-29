@@ -127,6 +127,17 @@ def _assigned_integer(tree: ast.AST, name: str) -> int | None:
     return None
 
 
+def _run_tree_kill(cmd, **kwargs):
+    """Run ``cmd`` so a timeout ends its whole process tree (wave 1z8ox).
+
+    The helper is resolved at call time: an upgrade runner may have an older
+    ``subprocess_util`` loaded that lacks ``run_with_tree_kill``, so fall back
+    to ``isolated_run``.
+    """
+    run = getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
+    return run(cmd, **kwargs)
+
+
 def _validate_mandatory_imports_in_subprocess(
     archive: zipfile.ZipFile, names: set[str]
 ) -> None:
@@ -169,7 +180,7 @@ def _validate_mandatory_imports_in_subprocess(
                 {"PYTHONDONTWRITEBYTECODE": "1", "PYTHONIOENCODING": "utf-8"}
             )
             interpreter = subprocess_util.windowless_pythonw() or sys.executable
-            completed = subprocess.run(
+            completed = _run_tree_kill(
                 [interpreter, "-I", "-B", "-c", probe, str(scripts), json.dumps(modules)],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,

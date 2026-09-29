@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -64,6 +65,162 @@ def _lock_owner_hint(path: Path) -> str:
     )
 
 
+def _is_windows_link(path: str) -> bool:
+    """True only for a name-surrogate reparse point (symlink or junction).
+
+    OneDrive placeholders and deduplicated files are reparse points too, but
+    not name surrogates, and must keep working.
+    """
+    import stat
+
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return False
+    link_tags = {
+        getattr(stat, "IO_REPARSE_TAG_SYMLINK", 0xA000000C),
+        getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003),
+    }
+    return stat.S_ISLNK(info.st_mode) or getattr(info, "st_reparse_tag", 0) in link_tags
+
+
+def _link_refusal(component: str) -> OSError:
+    return OSError(
+        errno.ELOOP,
+        f"lock path component {component} is a symlink or junction; replace it "
+        "with a real directory or file (lock paths under .wavefoundry are fixed)",
+    )
+
+
+_OPEN_ATTEMPTS = 5
+
+
+def _open_retrying(path: str, flags: int, dir_fd: int | None = None) -> int:
+    """``os.open`` with ``O_CREAT``, retrying a spurious ``ENOENT``.
+
+    The same rule as ``runtime_lock._open_retrying``, inlined because this
+    bootstrap runs standalone. Observed on macOS: when two processes create the
+    same new file name at once, the loser can get ``ENOENT`` although the parent
+    directory exists. It was reproduced with ``openat(dir_fd, name)``, and one
+    retry succeeded in every observed case; the full-path open (the Windows
+    branch) is retried defensively. The attempts are bounded so a directory
+    that was really removed still fails.
+    """
+    for attempt in range(_OPEN_ATTEMPTS):
+        try:
+            if dir_fd is None:
+                return os.open(path, flags, 0o666)
+            return os.open(path, flags, 0o666, dir_fd=dir_fd)
+        except FileNotFoundError:
+            if attempt == _OPEN_ATTEMPTS - 1:
+                raise
+    raise AssertionError("unreachable")
+
+
+def _open_strict_carrier(path: Path):
+    """Open a lock carrier in append mode, refusing links under ``.wavefoundry``.
+
+    Wave 1z8ot (1z8oq): the same rule as ``runtime_lock``, inlined because this
+    bootstrap runs standalone. The boundary is the last ``.wavefoundry``
+    component of the path as given; the repository root above it is not
+    checked. Every component from ``.wavefoundry`` down, and the carrier itself,
+    must not be a link. POSIX walks with directory handles and ``O_NOFOLLOW``;
+    Windows checks each component with ``lstat`` before creating or opening it,
+    which leaves a window between check and use.
+    """
+    import stat
+
+    text = os.fspath(path)
+    head = os.path.dirname(text)
+    names: list[str] = []
+    base = None
+    while True:
+        parent, tail = os.path.split(head)
+        if tail == ".wavefoundry":
+            names.append(tail)
+            names.reverse()
+            base = parent or os.curdir
+            break
+        if not tail or parent == head:
+            break
+        names.append(tail)
+        head = parent
+    carrier = os.path.basename(text)
+    if os.name == "nt":
+        if base is None:
+            current = os.path.dirname(text) or os.curdir
+            os.makedirs(current, exist_ok=True)
+        else:
+            os.makedirs(base, exist_ok=True)
+            current = base
+            for name in names:
+                if name == os.pardir:
+                    raise OSError(
+                        errno.EINVAL,
+                        f"lock path {text} contains a .. component below .wavefoundry",
+                    )
+                current = os.path.join(current, name)
+                if _is_windows_link(current):
+                    raise _link_refusal(current)
+                try:
+                    os.mkdir(current)
+                except FileExistsError:
+                    pass
+        target = os.path.join(current, carrier)
+        if _is_windows_link(target):
+            raise _link_refusal(target)
+        flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | getattr(os, "O_BINARY", 0)
+        return os.fdopen(_open_retrying(target, flags), "a+b")
+
+    if base is None:
+        # No .wavefoundry boundary: keep the final-component check only.
+        os.makedirs(os.path.dirname(text) or os.curdir, exist_ok=True)
+        base, names = os.path.dirname(text) or os.curdir, []
+    else:
+        os.makedirs(base, exist_ok=True)
+    dir_flags = os.O_RDONLY | os.O_DIRECTORY
+    fd = os.open(base, dir_flags)
+    try:
+        current = base
+        for name in names:
+            if name == os.pardir:
+                raise OSError(
+                    errno.EINVAL,
+                    f"lock path {text} contains a .. component below .wavefoundry",
+                )
+            current = os.path.join(current, name)
+            try:
+                os.mkdir(name, dir_fd=fd)
+            except FileExistsError:
+                pass
+            try:
+                child = os.open(name, dir_flags | os.O_NOFOLLOW, dir_fd=fd)
+            except OSError as exc:
+                # macOS reports a symlinked directory as ENOTDIR, Linux as ELOOP.
+                if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+                    try:
+                        is_link = stat.S_ISLNK(
+                            os.stat(name, dir_fd=fd, follow_symlinks=False).st_mode
+                        )
+                    except OSError:
+                        is_link = False
+                    if is_link:
+                        raise _link_refusal(current) from exc
+                raise
+            os.close(fd)
+            fd = child
+        flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW
+        try:
+            carrier_fd = _open_retrying(carrier, flags, fd)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                raise _link_refusal(os.path.join(current, carrier)) from exc
+            raise
+        return os.fdopen(carrier_fd, "a+b")
+    finally:
+        os.close(fd)
+
+
 class _StrictLock:
     def __init__(self, path: Path, offset: int, *, style: str) -> None:
         if style not in {"record", "flock"}:
@@ -74,8 +231,14 @@ class _StrictLock:
         self.handle = None
 
     def __enter__(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.handle = self.path.open("a+b")
+        try:
+            # Wave 1z8ot (1z8oq): mkdir and open sit inside the BridgeError
+            # translation, and the Windows carrier byte below is written only
+            # after the link check in _open_strict_carrier has passed.
+            self.handle = _open_strict_carrier(self.path)
+        except OSError as exc:
+            self.handle = None
+            raise BridgeError(f"cannot open strict lock {self.path}: {exc}") from exc
         try:
             if os.name == "nt":
                 import msvcrt

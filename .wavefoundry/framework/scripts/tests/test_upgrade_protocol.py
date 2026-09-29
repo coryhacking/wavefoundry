@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import errno
+import os
 import contextlib
 import io
 import shutil
@@ -710,6 +712,142 @@ class UpgradeProtocolTests(unittest.TestCase):
                 with flock:
                     self.assertTrue(flock_call.called)
                     self.assertFalse(lockf_call.called)
+
+    @unittest.skipIf(sys.platform == "win32", "POSIX symlink fixture")
+    def test_bridge_carrier_open_retries_spurious_enoent_in_every_form(self):
+        # Delivery finding DEL-F2: macOS can return ENOENT to the loser of a
+        # concurrent O_CREAT by dir_fd (reproduced); every carrier-open form
+        # retries it, the full-path form defensively. One retry succeeds.
+        real_open = os.open
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            cases = [
+                ("boundary", base / ".wavefoundry" / "locks" / "a.lock", "posix"),
+                ("no-boundary", base / "scratch" / "b.lock", "posix"),
+                ("windows-full-path", base / "win" / "c.lock", "nt"),
+            ]
+            for label, path, name in cases:
+                with self.subTest(label=label):
+                    failures = {"left": 1}
+
+                    def flaky_open(target, flags, *args, **kwargs):
+                        if flags & os.O_CREAT and failures["left"]:
+                            failures["left"] -= 1
+                            raise FileNotFoundError(errno.ENOENT, "spurious", target)
+                        return real_open(target, flags, *args, **kwargs)
+
+                    with patch.object(
+                        upgrade_bridge_bootstrap.os, "open", side_effect=flaky_open
+                    ), patch.object(upgrade_bridge_bootstrap.os, "name", name):
+                        upgrade_bridge_bootstrap._open_strict_carrier(path).close()
+                        self.assertEqual(failures["left"], 0)
+                        self.assertTrue(path.is_file())
+                        failures["left"] = upgrade_bridge_bootstrap._OPEN_ATTEMPTS
+                        with self.assertRaises(FileNotFoundError):
+                            upgrade_bridge_bootstrap._open_strict_carrier(
+                                path.with_name("gone.lock")
+                            )
+            with self.assertRaisesRegex(OSError, "contains a .. component below .wavefoundry"):
+                upgrade_bridge_bootstrap._open_strict_carrier(
+                    Path(os.path.join(tmp, ".wavefoundry", "locks", "..", "x.lock"))
+                )
+
+    def test_bridge_refuses_symlinked_lock_paths_and_creates_nothing_outside(self):
+        # Wave 1z8ot (1z8oq): the bridge followed a committed link at a lock
+        # carrier or a directory above it and locked files outside the repository.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            outside = base / "outside"
+            outside.mkdir()
+            victim = outside / "victim.txt"
+            victim.write_bytes(b"keep me\n")
+            missing = outside / "created-through-link.lock"
+
+            carrier_root = base / "carrier-link"
+            (carrier_root / ".wavefoundry").mkdir(parents=True)
+            lifecycle = carrier_root / upgrade_bridge_bootstrap.LIFECYCLE_LOCK
+            for target in (victim, missing):
+                with self.subTest(target=target.name):
+                    lifecycle.symlink_to(target)
+                    lock = upgrade_bridge_bootstrap._StrictLock(
+                        lifecycle, upgrade_bridge_bootstrap.LIFECYCLE_OFFSET, style="record"
+                    )
+                    with self.assertRaises(upgrade_bridge_bootstrap.BridgeError):
+                        lock.__enter__()
+                    self.assertIsNone(lock.handle)
+                    lifecycle.unlink()
+
+            dir_root = base / "dir-link"
+            (dir_root / ".wavefoundry").mkdir(parents=True)
+            (dir_root / ".wavefoundry" / "locks").symlink_to(outside, target_is_directory=True)
+            for rel in (
+                upgrade_bridge_bootstrap.PUBLICATION_LOCK,
+                upgrade_bridge_bootstrap.DASHBOARD_LOCK,
+            ):
+                with self.subTest(rel=str(rel)):
+                    lock = upgrade_bridge_bootstrap._StrictLock(dir_root / rel, 0, style="flock")
+                    with self.assertRaisesRegex(
+                        upgrade_bridge_bootstrap.BridgeError, "real directory"
+                    ):
+                        lock.__enter__()
+
+            state_root = base / "state-link"
+            state_root.mkdir()
+            (state_root / ".wavefoundry").symlink_to(outside, target_is_directory=True)
+            with self.assertRaises(upgrade_bridge_bootstrap.BridgeError):
+                upgrade_bridge_bootstrap._StrictLock(
+                    state_root / upgrade_bridge_bootstrap.PUBLICATION_LOCK, 0, style="flock"
+                ).__enter__()
+
+            self.assertEqual(sorted(p.name for p in outside.iterdir()), ["victim.txt"])
+            self.assertEqual(victim.read_bytes(), b"keep me\n")
+
+            # A link above .wavefoundry (the repository root) is not checked.
+            real = base / "real-checkout"
+            real.mkdir()
+            linked = base / "linked-checkout"
+            linked.symlink_to(real, target_is_directory=True)
+            with upgrade_bridge_bootstrap._StrictLock(
+                linked / upgrade_bridge_bootstrap.PUBLICATION_LOCK, 0, style="flock"
+            ):
+                pass
+            self.assertTrue((real / upgrade_bridge_bootstrap.PUBLICATION_LOCK).is_file())
+
+    def test_windows_bridge_refuses_junction_before_writing_carrier_byte(self):
+        tags = {"locks": 0xA0000003, "cloud": 0x9000001A}
+        calls = []
+        fake_msvcrt = types.SimpleNamespace(
+            LK_NBLCK=1, LK_UNLCK=2, locking=lambda fd, mode, n: calls.append(mode),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".wavefoundry" / "locks").mkdir(parents=True)
+            (root / ".wavefoundry" / "cloud").mkdir()
+            real_lstat = os.lstat
+
+            def fake_lstat(path, *args, **kwargs):
+                info = real_lstat(path, *args, **kwargs)
+                tag = tags.get(os.path.basename(os.fspath(path)))
+                if tag is not None:
+                    return types.SimpleNamespace(st_mode=info.st_mode, st_reparse_tag=tag)
+                return info
+
+            with patch.object(upgrade_bridge_bootstrap.os, "name", "nt"), \
+                 patch.object(upgrade_bridge_bootstrap.os, "lstat", side_effect=fake_lstat), \
+                 patch.dict(sys.modules, {"msvcrt": fake_msvcrt}):
+                with self.assertRaisesRegex(
+                    upgrade_bridge_bootstrap.BridgeError, "symlink or junction"
+                ):
+                    upgrade_bridge_bootstrap._StrictLock(
+                        root / upgrade_bridge_bootstrap.PUBLICATION_LOCK, 0, style="flock"
+                    ).__enter__()
+                self.assertEqual(calls, [])
+                self.assertEqual(list((root / ".wavefoundry" / "locks").iterdir()), [])
+                # A non-name-surrogate reparse point (OneDrive) is allowed.
+                cloud = root / ".wavefoundry" / "cloud" / "x.lock"
+                with upgrade_bridge_bootstrap._StrictLock(cloud, 0, style="flock"):
+                    pass
+            self.assertEqual(cloud.read_bytes(), b"\0")
 
     def test_bridge_lock_construction_matches_cross_platform_product_domains(self):
         with tempfile.TemporaryDirectory() as tmp:

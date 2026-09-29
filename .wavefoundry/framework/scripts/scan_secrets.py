@@ -42,6 +42,17 @@ _WORKERS_ENV = "WAVEFOUNDRY_SCAN_PARALLEL_WORKERS"
 _PERF_CORE_COUNT_CACHE: int | None = None
 
 
+def _run_tree_kill(cmd, **kwargs):
+    """Run ``cmd`` so a timeout ends its whole process tree (wave 1z8ox).
+
+    The helper is resolved at call time: an upgrade runner may have an older
+    ``subprocess_util`` loaded that lacks ``run_with_tree_kill``, so fall back
+    to ``isolated_run``.
+    """
+    run = getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
+    return run(cmd, **kwargs)
+
+
 def _physical_perf_core_count() -> int | None:
     """Return performance-core count on macOS Apple Silicon, or None elsewhere."""
     global _PERF_CORE_COUNT_CACHE
@@ -50,7 +61,7 @@ def _physical_perf_core_count() -> int | None:
     if sys.platform != "darwin":
         return None
     try:
-        result = subprocess_util.isolated_run(
+        result = _run_tree_kill(
             ["sysctl", "-n", "hw.perflevel0.physicalcpu"],
             capture_output=True, text=True, timeout=2,
         )

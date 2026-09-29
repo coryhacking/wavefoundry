@@ -274,6 +274,17 @@ def write_dashboard_metadata(root: Path, payload: dict[str, Any]) -> None:
     write_json_in_place(path, payload)
 
 
+def _run_tree_kill(cmd, **kwargs):
+    """Run ``cmd`` so a timeout ends its whole process tree (wave 1z8ox).
+
+    The helper is resolved at call time: an upgrade runner may have an older
+    ``subprocess_util`` loaded that lacks ``run_with_tree_kill``, so fall back
+    to ``isolated_run``.
+    """
+    run = getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
+    return run(cmd, **kwargs)
+
+
 def _windows_process_cmdlines() -> str | None:
     """Wave 1p6eq: best-effort ``<pid> <command line>`` listing on native Windows, one process per
     line, via PowerShell + CIM (``Get-CimInstance Win32_Process`` — the only built-in that exposes a
@@ -287,7 +298,7 @@ def _windows_process_cmdlines() -> str | None:
         "ForEach-Object { \"$($_.ProcessId) $($_.CommandLine)\" }"
     )
     try:
-        result = subprocess_util.isolated_run(
+        result = _run_tree_kill(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
             capture_output=True, text=True, check=False, timeout=10,
         )
@@ -1369,7 +1380,7 @@ def list_git_changed_files(root: Path, since: date | None = None, limit: int = 5
     """
     def run(*args: str) -> str:
         try:
-            r = subprocess_util.isolated_run(
+            r = _run_tree_kill(
                 ["git", *args], cwd=root, capture_output=True, text=True, timeout=10
             )
             return r.stdout if r.returncode == 0 else ""
@@ -1465,7 +1476,7 @@ def get_file_diff(root: Path, rel_path: str) -> tuple[str, int]:
 
     def _run(*args: str) -> str:
         try:
-            r = subprocess_util.isolated_run(
+            r = _run_tree_kill(
                 list(args), cwd=root, capture_output=True, text=True, timeout=10
             )
             return r.stdout
@@ -1763,7 +1774,7 @@ def collect_git_stats(root: Path) -> dict[str, Any]:
     """Collect local git statistics for the dashboard hero area."""
     def run(*args: str) -> str:
         try:
-            r = subprocess_util.isolated_run(
+            r = _run_tree_kill(
                 ["git", *args], cwd=root, capture_output=True, text=True, timeout=5
             )
             return r.stdout.strip() if r.returncode == 0 else ""
@@ -1777,7 +1788,7 @@ def collect_git_stats(root: Path) -> dict[str, Any]:
         # the whole blob corrupts the first/last token (and can drop a short first
         # record below the 4-char floor). Mirror list_git_changed_files's raw read.
         try:
-            r = subprocess_util.isolated_run(
+            r = _run_tree_kill(
                 ["git", *args], cwd=root, capture_output=True, text=True, timeout=5
             )
             return r.stdout if r.returncode == 0 else ""

@@ -44,11 +44,22 @@ _SCAN_STATE_RELPATH = ".wavefoundry/index/scan/scan-state.json"
 _RULES_RELPATHS = (".wavefoundry/framework/scan-rules.toml", "docs/scan-rules.toml")
 
 
+def _run_tree_kill(cmd, **kwargs):
+    """Run ``cmd`` so a timeout ends its whole process tree (wave 1z8ox).
+
+    The helper is resolved at call time: an upgrade runner may have an older
+    ``subprocess_util`` loaded that lacks ``run_with_tree_kill``, so fall back
+    to ``isolated_run``.
+    """
+    run = getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
+    return run(cmd, **kwargs)
+
+
 def _physical_perf_core_count() -> int | None:
     if sys.platform != "darwin":
         return None
     try:
-        r = subprocess_util.isolated_run(
+        r = _run_tree_kill(
             ["sysctl", "-n", "hw.perflevel0.physicalcpu"],
             capture_output=True, text=True, timeout=2,
         )

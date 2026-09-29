@@ -111,12 +111,23 @@ def iter_markdown_docs(root: Path):
                 yield path
 
 
+def _run_tree_kill(cmd, **kwargs):
+    """Run ``cmd`` so a timeout ends its whole process tree (wave 1z8ox).
+
+    The helper is resolved at call time: an upgrade runner may have an older
+    ``subprocess_util`` loaded that lacks ``run_with_tree_kill``, so fall back
+    to ``isolated_run``.
+    """
+    run = getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
+    return run(cmd, **kwargs)
+
+
 def collect_changed_markdown_paths(root: Path) -> list[Path]:
     scan_roots = markdown_scan_roots(root)
     if not (root / "docs").exists():
         return []
     try:
-        proc = subprocess_util.isolated_run(
+        proc = _run_tree_kill(
             ["git", "-C", str(root), "diff", "--name-only", "HEAD"],
             capture_output=True,
             text=True,

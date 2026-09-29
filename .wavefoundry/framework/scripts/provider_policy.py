@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
+import venv_bootstrap  # stdlib-only; onnxruntime telemetry off (change 1z8or)
 
 CPU_PROVIDER = "CPUExecutionProvider"
 CUDA_PROVIDER = "CUDAExecutionProvider"
@@ -75,10 +76,22 @@ ProviderProbe = Callable[[str], ProviderProbeResult]
 def available_onnx_providers() -> tuple[str, ...]:
     try:
         import onnxruntime as ort
+        venv_bootstrap.disable_onnxruntime_telemetry(ort)
         providers = ort.get_available_providers()
     except Exception:
         return (CPU_PROVIDER,)
     return tuple(str(provider) for provider in providers) or (CPU_PROVIDER,)
+
+
+def _run_tree_kill(cmd, **kwargs):
+    """Run ``cmd`` so a timeout ends its whole process tree (wave 1z8ox).
+
+    The helper is resolved at call time: an upgrade runner may have an older
+    ``subprocess_util`` loaded that lacks ``run_with_tree_kill``, so fall back
+    to ``isolated_run``.
+    """
+    run = getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
+    return run(cmd, **kwargs)
 
 
 def nvidia_gpu_present() -> bool:
@@ -86,7 +99,7 @@ def nvidia_gpu_present() -> bool:
     if not nvidia_smi:
         return False
     try:
-        result = subprocess_util.isolated_run(
+        result = _run_tree_kill(
             [nvidia_smi, "-L"],
             capture_output=True,
             text=True,
@@ -259,7 +272,7 @@ def _ldconfig_lib_paths() -> dict[str, str]:
     """Best-effort {basename: path} from `ldconfig -p`. Empty on any failure."""
     ldconfig = shutil.which("ldconfig") or "/sbin/ldconfig"
     try:
-        result = subprocess_util.isolated_run(
+        result = _run_tree_kill(
             [ldconfig, "-p"], capture_output=True, text=True, timeout=3, check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -381,6 +394,7 @@ def diagnostic_report(provider_probe: "ProviderProbe | None" = None) -> dict:
     ort_version = None
     try:
         import onnxruntime as _ort
+        venv_bootstrap.disable_onnxruntime_telemetry(_ort)
         ort_version = getattr(_ort, "__version__", None)
     except Exception:  # noqa: BLE001 — ORT may be absent (pre-setup); report None, don't raise
         ort_version = None

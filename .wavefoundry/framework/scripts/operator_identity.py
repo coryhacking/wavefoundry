@@ -6,6 +6,19 @@ import os
 from pathlib import Path
 import subprocess
 
+import subprocess_util
+
+
+def _run_tree_kill(cmd, **kwargs):
+    """Run ``cmd`` so a timeout ends its whole process tree (wave 1z8ox).
+
+    The helper is resolved at call time: an upgrade runner may have an older
+    ``subprocess_util`` loaded that lacks ``run_with_tree_kill``, so fall back
+    to ``isolated_run``.
+    """
+    run = getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
+    return run(cmd, **kwargs)
+
 
 def resolve_operator(
     root: Path, explicit_handle: str | None = None,
@@ -53,7 +66,7 @@ def resolve_operator(
     ):
         env.pop(key, None)
     try:
-        result = subprocess.run(
+        result = _run_tree_kill(
             ["git", "-C", str(root), "config", "user.email"],
             capture_output=True, text=True, encoding="utf-8", timeout=10, env=env,
             stdin=subprocess.DEVNULL,

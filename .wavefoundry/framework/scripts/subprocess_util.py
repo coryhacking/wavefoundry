@@ -159,6 +159,10 @@ def run_with_tree_kill(cmd: Any, *, timeout: float | None = None, input: Any = N
     terminates the group before re-raising. The post-kill drain is bounded.
     Result and exceptions match ``subprocess.run``. Descendants that start their
     own session, or orphans whose parent already exited on Windows, can escape.
+    The group is signalled only while the child is unreaped, so its id cannot
+    have been reused; an interrupt that lands after the child was reaped skips
+    the group signal, and descendants can escape there too (see
+    ``_kill_process_tree``).
 
     Without ``input`` the wait runs in short slices (wave 1z8tr), so an interrupt
     in the parent is raised within a slice and ends the group; the effective
@@ -232,24 +236,37 @@ def _communicate_sliced(process: Any, input: Any, timeout: float | None) -> tupl
 
 
 def _kill_process_tree(process: Any) -> None:
-    """Terminate ``process`` and its group; never signal any other group."""
+    """Terminate ``process`` and its group; never signal any other group.
 
-    if os.name == "nt":
-        try:
-            isolated_run(
-                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                capture_output=True, timeout=10,
-            )
-        except Exception:
-            pass
-    else:
-        import signal
+    Reap rule (wave 1z8ox): the group is signalled only while the child is
+    unreaped (``process.returncode is None``). An unreaped child, running or a
+    zombie, keeps its pid, which is also its group id, from being reused, so the
+    signal cannot reach an unrelated group. Nothing here calls ``poll()`` or
+    ``wait()`` before the signal: reaping first would free the id and skip the
+    kill, and a descendant still holding the output pipe would keep running.
+    When ``returncode`` is already set the helper reaped the child itself (only
+    reachable when an interrupt lands after the internal wait), the id may have
+    been reused, and the group signal is skipped; descendants can escape there,
+    as can descendants that start their own session with ``setsid``.
+    """
 
-        # The child was started with start_new_session, so its pid is its group id.
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
+    if process.returncode is None:
+        if os.name == "nt":
+            try:
+                isolated_run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    capture_output=True, timeout=10,
+                )
+            except Exception:
+                pass
+        else:
+            import signal
+
+            # The child was started with start_new_session, so its pid is its group id.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
     try:
         process.kill()
     except OSError:

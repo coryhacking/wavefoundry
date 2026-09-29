@@ -954,6 +954,7 @@ def _warm_model(model_name: str, *, local_files_only: bool, deadline_seconds: fl
 
 def _warm_model_inner(model_name: str, *, local_files_only: bool) -> None:
     from fastembed import TextEmbedding
+    venv_bootstrap.disable_onnxruntime_telemetry()
 
     def _build() -> None:
         embedding = TextEmbedding(
@@ -1145,6 +1146,7 @@ def _probe_embedding_provider(provider: str, *, model_name: str | None = None) -
     import time as _time
 
     from fastembed import TextEmbedding
+    venv_bootstrap.disable_onnxruntime_telemetry()
 
     model = model_name or _indexer_models(include_code=False)[0]
     sample = [

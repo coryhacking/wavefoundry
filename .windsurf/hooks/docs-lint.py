@@ -100,14 +100,19 @@ def get_nested(mapping: dict[str, object], *path: str) -> str:
     return value if isinstance(value, str) else ""
 
 
+# Wave 1z8ot (1z8op): `tool_input.notebook_path` is Claude Code's NotebookEdit path.
+FILE_PATH_KEYS = (
+    ("tool_input", "file_path"),
+    ("tool_input", "notebook_path"),
+    ("tool_input", "path"),
+    ("tool_info", "file_path"),
+    ("file_path",),
+    ("path",),
+)
+
+
 def detect_file_path(payload: dict[str, object]) -> str:
-    for path in (
-        ("tool_input", "file_path"),
-        ("tool_input", "path"),
-        ("tool_info", "file_path"),
-        ("file_path",),
-        ("path",),
-    ):
+    for path in FILE_PATH_KEYS:
         candidate = get_nested(payload, *path)
         if candidate:
             return candidate
@@ -384,6 +389,9 @@ def main() -> int:
     payload = load_payload(read_payload_text())
     file_path = detect_file_path(payload)
     blocked, message = maybe_docs_lint(file_path)
+    # Wave 1z8ot (1z8op): Windsurf has no Stop hook to flush a pending marker, so trigger
+    # the debounced reindex directly, and before a lint failure returns.
+    maybe_trigger_reindex(file_path)
     if blocked:
         print(message, file=sys.stderr)
         return 1

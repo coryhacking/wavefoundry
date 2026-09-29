@@ -24,6 +24,28 @@ import sqlite_storage_migration as migration
 import upgrade_lib
 
 
+# Wave 1z8ox (change 1z8ow): the timed sites these tests fake now call
+# run_with_tree_kill; route it back through isolated_run so the existing fakes
+# still intercept (each test asserts its fake was called).
+_TREE_KILL_SHIM = None
+
+
+def setUpModule():
+    global _TREE_KILL_SHIM
+    tests_dir = str(Path(__file__).resolve().parent)
+    if tests_dir not in sys.path:
+        sys.path.insert(0, tests_dir)
+    from tree_kill_support import ModuleShim
+
+    _TREE_KILL_SHIM = ModuleShim()
+    _TREE_KILL_SHIM.start()
+
+
+def tearDownModule():
+    if _TREE_KILL_SHIM is not None:
+        _TREE_KILL_SHIM.stop()
+
+
 class ReceiptTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -356,13 +378,15 @@ class ReceiptTests(unittest.TestCase):
         script = self.root / ".wavefoundry/framework/scripts/server.py"
         dashboard = self.root / ".wavefoundry/framework/scripts/dashboard_server.py"
         result = SimpleNamespace(stdout=f"901 python {script} --root {self.root}\n902 python {dashboard} --root {self.root}\n903 python {script} --root /unrelated\n904 python /other/server.py --root {self.root}\n905 zsh --root {self.root}\n")
-        with patch.object(migration.subprocess, "run", return_value=result):
+        with patch.object(migration.subprocess, "run", return_value=result) as run:
             hosts, limits = migration.discover_hosts(self.root)
+        self.assertTrue(run.called, "the process-list fake must intercept discover_hosts")
         self.assertEqual({h["pid"] for h in hosts}, {901, 902})
         self.assertTrue(all(h["association"] for h in hosts))
         self.assertTrue(limits)
-        with patch.object(migration.subprocess, "run", side_effect=OSError):
+        with patch.object(migration.subprocess, "run", side_effect=OSError) as run:
             self.assertIn("failed", migration.discover_hosts(self.root)[1][-1])
+        run.assert_called_once()
 
     def test_resume_refreshes_new_hosts_and_preserves_prior_pid_guards(self):
         with patch.object(migration, "discover_hosts", return_value=([{"pid": 901, "kind": "mcp"}], [])):
@@ -385,14 +409,16 @@ class ReceiptTests(unittest.TestCase):
             root = self.root / name
             script = root / ".wavefoundry/framework/scripts/server.py"
             result = SimpleNamespace(stdout=f'901 python {script} --root {root}\n902 echo {script} --root {root}\n903 python -c "{script}" --root "{root}"\n904 python "{script}" --root "{root}"\n')
-            with patch.object(migration.subprocess, "run", return_value=result):
+            with patch.object(migration.subprocess, "run", return_value=result) as run:
                 hosts, _ = migration.discover_hosts(root)
+            self.assertTrue(run.called, "the process-list fake must intercept discover_hosts")
             self.assertEqual([h["pid"] for h in hosts], [901, 904])
 
     def test_relative_framework_entrypoint_requires_observed_cwd(self):
         result = SimpleNamespace(stdout="901 python .wavefoundry/framework/scripts/server.py\n902 python .wavefoundry/framework/scripts/dashboard_server.py\n903 zsh\n904 python .wavefoundry/framework/scripts/server.py\n")
-        with patch.object(migration.subprocess, "run", return_value=result), patch.object(migration, "_process_cwds", return_value={901: self.root, 902: Path("/unrelated"), 903: self.root}):
+        with patch.object(migration.subprocess, "run", return_value=result) as run, patch.object(migration, "_process_cwds", return_value={901: self.root, 902: Path("/unrelated"), 903: self.root}):
             hosts, limits = migration.discover_hosts(self.root)
+        run.assert_called_once()
         self.assertEqual([h["pid"] for h in hosts], [901])
         self.assertIn("cwd", hosts[0]["association"])
         self.assertTrue(any("PID 904" in limit for limit in limits))

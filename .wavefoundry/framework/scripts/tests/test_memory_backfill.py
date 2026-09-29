@@ -24,6 +24,28 @@ import server_impl
 import setup_wavefoundry
 
 
+# Wave 1z8ox (change 1z8ow): timed git and probe calls now go through
+# run_with_tree_kill; route it back through isolated_run so a "must not run"
+# guard on subprocess.run still catches a routed site.
+_TREE_KILL_SHIM = None
+
+
+def setUpModule():
+    global _TREE_KILL_SHIM
+    tests_dir = str(Path(__file__).resolve().parent)
+    if tests_dir not in sys.path:
+        sys.path.insert(0, tests_dir)
+    from tree_kill_support import ModuleShim
+
+    _TREE_KILL_SHIM = ModuleShim()
+    _TREE_KILL_SHIM.start()
+
+
+def tearDownModule():
+    if _TREE_KILL_SHIM is not None:
+        _TREE_KILL_SHIM.stop()
+
+
 class HistoricalMemoryBackfillTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

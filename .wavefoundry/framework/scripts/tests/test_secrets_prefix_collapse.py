@@ -18,9 +18,11 @@ import random
 import re
 import string
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS_ROOT))
@@ -46,6 +48,43 @@ def _compile_original(pattern: str) -> re.Pattern:
         return re.compile(pattern)
     except re.error:
         return re.compile(sv._re2_to_re(pattern))
+
+
+class _NoRepoWrites:
+    """Wave 1z8ox (1z8ov): scan the REAL repository without writing into it.
+
+    ``check_hardcoded_secrets`` publishes the guard-skip ledger
+    (``.wavefoundry/index/scan/guard-skips.json``) and may save the findings
+    ledger (``docs/scan-findings.json``). Tests that scan ``REPO_ROOT`` read
+    repository content only, so both writers are replaced by recorders. The
+    findings recorder runs the REAL ``save_exceptions`` against a temporary
+    root and keeps the exact bytes it wrote, so a comparison never depends on
+    a re-implementation of the serializer.
+    """
+
+    def __init__(self):
+        self.saved: list[bytes] = []
+        real_save = sv.save_exceptions
+
+        def record(root, exceptions):
+            with tempfile.TemporaryDirectory(prefix="scan-ledger-") as scratch:
+                real_save(Path(scratch), exceptions)
+                self.saved.append((Path(scratch) / sv.SCAN_FINDINGS_PATH).read_bytes())
+
+        self._patchers = [
+            patch.object(sv, "update_scanner_skips", lambda root, outcomes: None),
+            patch.object(sv, "save_exceptions", record),
+        ]
+
+    def __enter__(self):
+        for p in self._patchers:
+            p.start()
+        return self
+
+    def __exit__(self, *exc):
+        for p in reversed(self._patchers):
+            p.stop()
+        return False
 
 
 def _rec(m):
@@ -275,7 +314,8 @@ keywords = ["a"]
         target = REPO_ROOT / "docs" / "waves" / "1tmtx test-suite-performance" / "evidence" / "census.json"
         if not target.is_file():
             self.skipTest("the slow evidence artifact is not in this tree")
-        sv.check_hardcoded_secrets(REPO_ROOT, files=[target], max_workers=1, record_only=True)
+        with _NoRepoWrites():
+            sv.check_hardcoded_secrets(REPO_ROOT, files=[target], max_workers=1, record_only=True)
         rows = [r for r in sv.most_expensive_rules() if r["file"].endswith("census.json")]
         self.assertTrue(rows, "no cost row for the scanned file")
         rules, _p, _e = sv.load_merged_ruleset(REPO_ROOT)
@@ -315,7 +355,8 @@ class NothingNewIsSkippedTests(unittest.TestCase):
     def test_every_eligible_file_is_scanned_or_skipped_for_a_pre_existing_reason(self):
         files = sv.get_scan_files(REPO_ROOT, scan_all=True)
         self.assertGreater(len(files), 100)
-        sv.check_hardcoded_secrets(REPO_ROOT, files=list(files), max_workers=1, record_only=True)
+        with _NoRepoWrites():
+            sv.check_hardcoded_secrets(REPO_ROOT, files=list(files), max_workers=1, record_only=True)
         reasons = {s["reason"] for s in sv._SCANNER_SKIPS}
         unknown = reasons - self.PRE_EXISTING_SKIP_REASONS
         self.assertEqual(set(), unknown, f"a NEW skip reason appeared: {unknown}")
@@ -353,12 +394,17 @@ class FixturesYieldNoFindingsTests(unittest.TestCase):
     def test_scanning_the_fixtures_records_nothing(self):
         ledger = REPO_ROOT / "docs" / "scan-findings.json"
         before = ledger.read_bytes() if ledger.is_file() else None
-        failures = sv.check_hardcoded_secrets(
-            REPO_ROOT, files=[POSITIVES, FROZEN], max_workers=1, record_only=False)
+        # Wave 1z8ox (1z8ov): the ledger save is recorded, not written, so a
+        # regression fails here without dirtying the real ledger.
+        with _NoRepoWrites() as recorder:
+            failures = sv.check_hardcoded_secrets(
+                REPO_ROOT, files=[POSITIVES, FROZEN], max_workers=1, record_only=False)
         self.assertEqual([], [f for f in failures if "[secrets]" in f],
                          "a fixture string was recorded as a secret finding")
-        after = ledger.read_bytes() if ledger.is_file() else None
-        self.assertEqual(before, after, "scanning the fixtures dirtied docs/scan-findings.json")
+        for would_write in recorder.saved:
+            self.assertEqual(before, would_write,
+                             "scanning the fixtures would have dirtied docs/scan-findings.json")
+        self.assertEqual(before, ledger.read_bytes() if ledger.is_file() else None)
 
 
 if __name__ == "__main__":

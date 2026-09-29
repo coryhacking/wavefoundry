@@ -3564,6 +3564,181 @@ class MemoryProposeTests(_MemoryCase):
             self.supply.read_review_event_ledger = orig
         self.assertEqual(drafts, [], "an unrepaired finding is not a durable lesson")
 
+    # Wave 1zbrr: generated source events pass memory content lint.
+
+    def _propose_and_lint(self, wave_id):
+        from wave_lint_lib import wave_validators
+        r = self.srv.memory_propose_response(self.root, wave_id, "create")
+        self.assertEqual(r["status"], "ok", r)
+        paths = [self.root / w["path"] for w in r["data"]["written"]]
+        self.assertTrue(paths, r)
+        events = [self.mem.parse_memory_record(p)["source_event"] for p in paths]
+        return events, wave_validators.check_memory_docs(self.root, only=set(paths))
+
+    def test_decision_log_events_with_keyword_slugs_pass_memory_lint(self):
+        for wave_id, slug, keyword in (
+            ("1aaba", "tenant-secret", "secret"),
+            ("1aabb", "reset-password", "password"),
+            ("1aabc", "store-passwd", "passwd"),
+            ("1aabd", "rotate-token", "token"),
+            ("1aabe", "vendor-api-key", "api-key"),
+        ):
+            with self.subTest(slug=slug):
+                cid = self._wave(wave_id, slug,
+                                 decision_rows=[("Use `src/foo.py` for X", "because Y")])
+                events, failures = self._propose_and_lint(wave_id)
+                self.assertEqual(len(events), 1)
+                self.assertRegex(events[0], rf"^decision-log:{cid}:[0-9a-f]{{16}}$")
+                self.assertIn(f"{keyword}:", events[0])
+                self.assertEqual(failures, [])
+
+    def test_finding_and_repeated_repairs_events_pass_memory_lint(self):
+        for wave_id in ("1aabf", "1aabga"):
+            with self.subTest(wave_id=wave_id):
+                self._wave(wave_id, "event-families", decision_rows=[])
+                self._write_completed_findings(wave_id, "event-families", [
+                    ("token-refresh-defect", "src/bug.py; test_a", "token refresh"),
+                    ("secret-rotation-a", "src/frag.py; test_b", "secret rotation"),
+                    ("secret-rotation-b", "src/frag.py; test_c", "secret rotation"),
+                ])
+                events, failures = self._propose_and_lint(wave_id)
+                self.assertEqual(sorted(events), [
+                    f"finding:{wave_id}:token-refresh-defect",
+                    f"repeated-repairs:{wave_id}:src/frag.py",
+                ])
+                self.assertEqual(failures, [])
+
+    def test_finding_id_carrying_an_assignment_still_fails_memory_lint(self):
+        """The producer skips this draft on its title; the event alone must still fail lint."""
+        from wave_lint_lib import wave_validators
+        self._wave("1aabh", "leaky-finding", decision_rows=[])
+        self._write_completed_findings("1aabh", "leaky-finding", [
+            ("leaked-token:hunter2", "src/bug.py; test_a", "token handling"),
+        ])
+        r = self.srv.memory_propose_response(self.root, "1aabh", "create")
+        self.assertEqual(r["data"]["records_written"], 0, r)
+        self.assertIn("memory_draft_skipped_forbidden", [d["code"] for d in r["diagnostics"]])
+        event = r["data"]["proposed"][0]["source_event"]
+        self.assertEqual(event, "finding:1aabh:leaked-token:hunter2")
+        path = self.mem.write_memory_record(self.root, self.mem.render_memory_record(
+            memory_id="mem-leaky", kind="failed_attempt", summary="A lesson.",
+            evidence=["`1aabh`"], targets=["src/bug.py"], title="Lesson",
+            source_event=event, validation="pending", date="2026-09-29",
+        ), "mem-leaky")
+        failures = wave_validators.check_memory_docs(self.root, only={path})
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn("secrets, raw transcript content, or personal facts", failures[0])
+
+
+class MemorySourceEventLintTests(_MemoryCase):
+    """Wave 1zbrr: only the decision-log hash separator of a fully recognized
+    generated source event is exempt from memory forbidden-content lint."""
+
+    REPORTED = ("decision-log:1v5sl-bug marketplace-queue-handlers-log-tenant-secret:"
+                "6263b748459fc4fb")
+    FORBIDDEN = "secrets, raw transcript content, or personal facts"
+
+    def _record(self, source_event):
+        return self.mem.render_memory_record(
+            memory_id="mem-event", kind="decision", summary="A durable lesson.",
+            evidence=["`1abcd-bug some-change` — observed"], targets=["src/a.py"],
+            title="Lesson", source_event=source_event, validation="pending",
+            date="2026-09-29",
+        )
+
+    def _lint(self, content):
+        from wave_lint_lib import wave_validators
+        path = self.root / self.mem.MEMORY_DIR / "mem-event.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return wave_validators.check_memory_docs(self.root, only={path})
+
+    def _lint_event(self, source_event):
+        return self._lint(self._record(source_event))
+
+    def _line_variant(self, source_event, replace):
+        content = self._record(source_event)
+        line = f"Source event: `{source_event}`"
+        self.assertEqual(content.count(line), 1)
+        return content.replace(line, replace(line))
+
+    def test_generated_events_pass(self):
+        for event in (
+            self.REPORTED,
+            "decision-log:1v5slq-enh rotate-api-key:0123456789abcdef",
+            "decision-log:1abcd-feat reset-password:fedcba9876543210",
+            "finding:1abcd:finding-1",
+            "finding:1abcde:f-2",
+            "repeated-repairs:1abcd:src/frag.py",
+            "repeated-repairs:1abcde:symbol:Foo.bar",
+            "finding:x",
+            "decision-log:1zzzz-feat demo:abc123",
+        ):
+            with self.subTest(event=event):
+                self.assertEqual(self._lint_event(event), [])
+
+    def test_content_protection_still_fires(self):
+        for event in (
+            "finding:token:secret=fixture-value",
+            "finding:token:hunter2",
+            "repeated-repairs:secret:x.py",
+            "repeated-repairs:1abcd:symbol:secret:foo",
+            "repeated-repairs:1abcd:community:password=hunter2",
+            "repeated-repairs:1abcd:symbol:raw transcript",
+            "decision-log:demo-secret:0123456789abcdef",
+            "decision-log:1abcd-zzz tenant-secret:0123456789abcdef",
+            "decision-log:1abcd-feat tenant-secret:0123456789ABCDEF",
+            "decision-log:1abcd-feat tenant-secret:0123456789abcde",
+            "decision-log:1abcd-feat tenant-secret:0123456789abcdef0",
+            "decision-log:1abcd-feat api-key=v-secret:0123456789abcdef",
+            "decision-log:1abcd-feat tenant-secret:0123456789abcdef:token=x",
+        ):
+            with self.subTest(event=event):
+                failures = self._lint_event(event)
+                self.assertEqual(len(failures), 1, failures)
+                self.assertIn(self.FORBIDDEN, failures[0])
+
+    def test_line_must_be_complete(self):
+        for label, replace in (
+            ("trailing assignment", lambda line: line + " secret=hunter2"),
+            ("trailing text", lambda line: line + " note"),
+            ("extra backtick", lambda line: line + " `x`"),
+            ("wrong label", lambda line: line.replace("Source event:", "Source events:")),
+        ):
+            with self.subTest(label=label):
+                failures = self._lint(self._line_variant(self.REPORTED, replace))
+                self.assertTrue(any(self.FORBIDDEN in f for f in failures), failures)
+
+    def test_exemption_does_not_leave_the_source_event_line(self):
+        content = self._record(self.REPORTED).replace(
+            "## Summary\n\nA durable lesson.",
+            "## Summary\n\nA durable lesson; see handlers-log-tenant-secret:6263b748459fc4fb.",
+        )
+        failures = self._lint(content)
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn(self.FORBIDDEN, failures[0])
+
+    def test_source_event_bytes_are_unchanged(self):
+        self.assertEqual(self._lint(self._record(self.REPORTED)), [])
+        path = self.root / self.mem.MEMORY_DIR / "mem-event.md"
+        self.assertEqual(self.mem.parse_memory_record(path)["source_event"], self.REPORTED)
+        match = self.mem._SOURCE_EVENT_RE.search(path.read_text(encoding="utf-8"))
+        self.assertEqual(match.group(1), self.REPORTED)
+
+    def test_journal_content_check_is_unchanged(self):
+        from wave_lint_lib import wave_validators
+        journal = self.root / "docs" / "agents" / "journals" / "reviewer.md"
+        journal.parent.mkdir(parents=True)
+        journal.write_text(f"# Journal\n\nSource event: `{self.REPORTED}`\n", encoding="utf-8")
+        failures = wave_validators.check_journal_docs(self.root, only={journal})
+        self.assertEqual(
+            [f for f in failures if "journal appears to capture sensitive data" in f],
+            [f"docs/agents/journals/reviewer.md: journal appears to capture sensitive data, "
+             f"raw transcript content, or low-salience routine noise (a line that is "
+             f"*forbidding* such content is exempt; this line is not): "
+             f"{('Source event: `' + self.REPORTED + '`')[:80]!r}"],
+        )
+
 
 class ExplorationAvoidedTests(_MemoryCase):
     """Wave 1svuk: the separate, grounded, labeled estimated-exploration-avoided metric."""

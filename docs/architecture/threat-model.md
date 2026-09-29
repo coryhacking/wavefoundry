@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-24
+Last verified: 2026-09-29
 
 ## Trust Boundaries
 
@@ -55,6 +55,11 @@ Any one of these flips the posture and re-scopes the actor classes above; when a
 |------|--------|-----------|
 | Seed protection bypass | Framework seed edits without guard approval could corrupt seed prompts | Pre-edit hook checks `.wavefoundry/guard-overrides.json`; seeds require explicit approval |
 | Framework plan gate bypass | Broad docs/prompts/ edits without plan review | Pre-edit hook enforces `framework_edit_allowed` flag |
+| Edit gates do not see shell writes (wave 1z8ot) | A file written through a shell command bypasses every pre-write gate on every host | Known limit; listed in seed `050-agent-entry-surface-bootstrap.prompt.md`, "Known limits of the edit gates" |
+| File-writing MCP tools are not gated on Claude (wave 1z8ot) | Writes through the Wavefoundry server or a third-party MCP server never reach the pre-edit hook, whose matcher names only built-in edit tools | Known limit; see seed 050's known limits |
+| Check-then-use window in edit hooks (wave 1z8ot) | The hook classifies the path before the host writes it, so the path can be retargeted in between; this needs an actor who can already write the repository | Known limit; see seed 050's known limits |
+| Check-then-use window in Windows lock paths (wave 1z8ot) | On native Windows each lock directory under `.wavefoundry` is checked with `lstat` for a symlink or junction before it is created or opened, so the path can be retargeted between the check and its use; this needs an actor who can already write the repository | Known limit; POSIX walks with directory handles and `O_NOFOLLOW`, so it has no window (`runtime_lock._open_lock_carrier`, `upgrade_bridge_bootstrap._open_strict_carrier`) |
+| A missing `python3` fails open on Claude and Windsurf (wave 1z8ot) | The shell returns 127, not 2, and those hosts allow any exit other than 2 | Known limit; see seed 050's known limits. Copilot denies any non-zero pre-tool-use exit |
 | MCP server allowed-roots escape (future) | Tool reads/writes outside operator-configured roots | Explicit allowed-roots validation before every tool operation |
 | Dashboard accidental non-loopback exposure | Local operational data could be exposed on the network if bound too broadly | Default host is `127.0.0.1`; config-driven host is explicit; security review lane required for trust-boundary changes to dashboard server |
 | Dashboard state drift via persisted snapshots | Operator could see stale fabricated state if the dashboard relied on generated JSON files | Browser state stays in memory; the server reads live repo state; `.wavefoundry/locks/dashboard-server.lock` carries endpoint metadata, not a dashboard snapshot |

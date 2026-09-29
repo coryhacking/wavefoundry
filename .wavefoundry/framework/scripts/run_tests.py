@@ -50,6 +50,15 @@ _TESTS_DIR = _SCRIPT_DIR / "tests"
 _FRAMEWORK_DIR = _SCRIPT_DIR.parent
 _CACHE_FILE = _FRAMEWORK_DIR / "test-cache.json"
 _LOCK_FILE = _FRAMEWORK_DIR / "test-run.lock"
+# Wave 1z8ox (1z8ov): the repository the standing repository-state guard
+# snapshots, the edit-gate file it always includes, and the only paths it
+# excludes (the receipt and lock this runner writes itself).
+_REPO_ROOT = _FRAMEWORK_DIR.parent.parent
+_GUARD_OVERRIDES_REL = ".wavefoundry/guard-overrides.json"
+_REPO_GUARD_EXCLUDE = frozenset({
+    ".wavefoundry/framework/test-cache.json",
+    ".wavefoundry/framework/test-run.lock",
+})
 
 # Wave 1p9j0: msvcrt.locking (native Windows) is mandatory byte-range, so the run lock is taken on
 # a SENTINEL byte at this high fixed offset — NOT byte 0 — so the same-handle pid write/truncate at
@@ -246,18 +255,251 @@ def stray_artifact_paths(scripts_dir: Path | None = None) -> list[str]:
     ) or [base.name]
 
 
-def _stray_artifact_failure(preexisting: list[str]) -> str | None:
-    """Return a failure message when the run created new stray artifacts."""
-    created = [p for p in stray_artifact_paths() if p not in preexisting]
-    if not created:
-        return None
-    return (
-        "STRAY TEST ARTIFACTS: a test wrote durable state relative to cwd "
-        "instead of its fixture root:\n  "
-        + "\n  ".join(created)
-        + "\nFix the offending test (see the 1t231 pattern: unmocked "
-        "cwd-relative write paths) and delete the artifacts."
+# Wave 1z8ox (1z8ov, delivery finding DEL-F1): regions of a wave record the
+# framework rewrites on its own while tests run. MCP calls record context
+# usage, and the Claude Stop hook and the MCP quiet-period monitor publish it by
+# rewriting the open wave record (context_efficiency.replace_checkpoint_block,
+# then exploration_avoided.replace_checkpoint_block). Each entry is (optional
+# heading, begin marker, end marker); the state comments sit inside the
+# markers. Pinned against the owning modules' constants by
+# tests/test_run_tests_repo_guard.py, so run_tests never imports them.
+_PROJECTED_WAVE_REGIONS = (
+    ("## Context Efficiency",
+     "<!-- wave:context-efficiency begin -->",
+     "<!-- wave:context-efficiency end -->"),
+    ("## Estimated Exploration Avoided",
+     "<!-- wave:exploration-avoided begin -->",
+     "<!-- wave:exploration-avoided end -->"),
+)
+# Legacy marker names the context-efficiency projection canonicalizes in the
+# whole record (context_efficiency._LEGACY_CONTEXT_EFFICIENCY_MARKERS).
+_LEGACY_PROJECTION_MARKERS = (
+    ("<!-- wavefoundry:context-efficiency begin -->", "<!-- wave:context-efficiency begin -->"),
+    ("<!-- wavefoundry:context-efficiency end -->", "<!-- wave:context-efficiency end -->"),
+    ("<!-- wavefoundry:context-efficiency-state ", "<!-- wave:context-efficiency-state "),
+    ("<!-- wavefoundry:context-efficiency-carrier begin -->", "<!-- wave:context-efficiency-carrier begin -->"),
+    ("<!-- wavefoundry:context-efficiency-carrier end -->", "<!-- wave:context-efficiency-carrier end -->"),
+)
+_PROJECTED_REGION_PATTERNS = tuple(
+    re.compile(
+        r"(?:" + re.escape(heading) + r"[ \t]*\r?\n\s*)?"
+        + re.escape(begin) + r".*?" + re.escape(end),
+        re.S,
     )
+    for heading, begin, end in _PROJECTED_WAVE_REGIONS
+)
+_REGION_SEAM = "\x00"
+_GIT_LISTING_TIMEOUT_SECONDS = 60
+# Why the most recent repo_state_snapshot returned None (stated to the operator).
+_repo_state_unavailable_reason = ""
+
+
+def _run_tree_kill(cmd, **kwargs):
+    """Run ``cmd`` so a timeout ends its whole process tree (wave 1z8ox, 1z8ow).
+
+    The helper is resolved at call time: an upgrade runner may have an older
+    ``subprocess_util`` loaded that lacks ``run_with_tree_kill``, so fall back
+    to ``isolated_run``. Raises ``AttributeError`` when neither exists.
+    """
+    run = getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
+    return run(cmd, **kwargs)
+
+
+def _wave_record_matcher(root: Path) -> "tuple[str, str] | None":
+    """(waves-root prefix, record file name) for ``root``, or ``None``.
+
+    Both come from the stdlib-only layout modules (``record_paths``,
+    ``vocabulary_profile``). When they cannot be imported there is no matcher:
+    no file is treated as a wave record, so the projection tolerance is off and
+    the guard stays strict rather than guessing a layout.
+    """
+    try:
+        import record_paths as _record_paths
+        import vocabulary_profile as _vocabulary_profile
+        waves_rel = _record_paths.unvalidated_record_roots(root).waves_rel
+        record_name = _vocabulary_profile.RECORD_FILENAME
+        if waves_rel and isinstance(record_name, str) and record_name:
+            return waves_rel.rstrip("/") + "/", record_name
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def _is_wave_record(rel: str, matcher: "tuple[str, str] | None") -> bool:
+    if matcher is None:
+        return False
+    prefix, record_name = matcher
+    return rel.startswith(prefix) and rel.rsplit("/", 1)[-1] == record_name
+
+
+def _content_digest(path: Path, st: os.stat_result) -> str:
+    """SHA-256 of a file's content, or of its link target for a symlink."""
+    import stat as _stat
+    if _stat.S_ISLNK(st.st_mode):
+        return "link:" + hashlib.sha256(os.fsencode(os.readlink(path))).hexdigest()
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def repo_state_snapshot(repo_root: Path | None = None) -> "dict[str, tuple | None] | None":
+    """Wave 1z8ox (1z8ov): snapshot of the repository state a test must never change.
+
+    Covers every tracked file and every untracked file git does not ignore
+    (``git ls-files -co --exclude-standard``), plus the edit-gate state file
+    ``.wavefoundry/guard-overrides.json`` (ignored by git, but a security
+    control). Each entry maps a repo-relative POSIX path to ``(size,
+    mtime_ns)``, or ``None`` when the path is absent. The edit-gate file is
+    compared by content hash (``("sha256", digest)``), not size and mtime, and
+    each wave record also keeps its bytes (``(size, mtime_ns, bytes)``) so
+    ``_repo_state_changes`` can tolerate the framework's own context-efficiency
+    projection. Other files are stat only: the tree holds thousands. Ignored
+    runtime paths (logs, index, locks, ``__pycache__``) and ``.git/`` are
+    outside the snapshot; the isolated census covers those. The runner's own
+    receipt and lock are excluded. Returns ``None`` when git is unavailable,
+    the root is not a git checkout or the listing timed out, with the cause in
+    ``_repo_state_unavailable_reason``, so the caller can state it.
+    """
+    global _repo_state_unavailable_reason
+    _repo_state_unavailable_reason = ""
+    root = repo_root or _REPO_ROOT
+    try:
+        # The listing ends its whole process tree on timeout (wave 1z8ox, 1z8ow).
+        listing = _run_tree_kill(
+            ["git", "ls-files", "-co", "--exclude-standard", "-z"],
+            cwd=str(root),
+            capture_output=True,
+            check=False,
+            stdin=subprocess.DEVNULL,
+            timeout=_GIT_LISTING_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        _repo_state_unavailable_reason = (
+            f"git ls-files did not finish within {_GIT_LISTING_TIMEOUT_SECONDS}s"
+        )
+        return None
+    except AttributeError:
+        _repo_state_unavailable_reason = "subprocess_util has no process runner"
+        return None
+    except (OSError, subprocess.SubprocessError):
+        _repo_state_unavailable_reason = "git is unavailable"
+        return None
+    if listing.returncode != 0:
+        _repo_state_unavailable_reason = "the root is not a git checkout"
+        return None
+    rels = {p for p in listing.stdout.decode("utf-8", errors="surrogateescape").split("\0") if p}
+    rels.add(_GUARD_OVERRIDES_REL)
+    matcher = _wave_record_matcher(root)
+    snapshot: dict[str, tuple | None] = {}
+    for rel in rels:
+        if rel in _REPO_GUARD_EXCLUDE:
+            continue
+        path = root / rel
+        try:
+            st = os.lstat(path)
+            if rel == _GUARD_OVERRIDES_REL:
+                snapshot[rel] = ("sha256", _content_digest(path, st))
+            elif _is_wave_record(rel, matcher) and not os.path.islink(path):
+                snapshot[rel] = (st.st_size, st.st_mtime_ns, path.read_bytes())
+            else:
+                snapshot[rel] = (st.st_size, st.st_mtime_ns)
+        except OSError:
+            snapshot[rel] = None
+    return snapshot
+
+
+def _strip_projected_regions(data: bytes) -> str:
+    """A wave record's text with the framework-projected regions removed.
+
+    Legacy marker names are canonicalized first (the projection does the same
+    to the whole record), each projected region and its heading becomes one
+    seam, the whitespace the projection rewrites around a region collapses
+    into that seam, and seams at the ends of the record are dropped (the
+    projection appends a region the record lacked).
+    """
+    text = data.decode("utf-8", errors="surrogateescape")
+    for legacy, canonical in _LEGACY_PROJECTION_MARKERS:
+        text = text.replace(legacy, canonical)
+    for pattern in _PROJECTED_REGION_PATTERNS:
+        text = pattern.sub(_REGION_SEAM, text)
+    text = re.sub(r"\s*" + _REGION_SEAM + r"\s*", _REGION_SEAM, text)
+    text = re.sub(_REGION_SEAM + "+", _REGION_SEAM, text)
+    return text.strip().strip(_REGION_SEAM).strip()
+
+
+def _projection_only_change(before: "tuple | None", after: "tuple | None") -> bool:
+    """True when two wave-record entries differ only inside projected regions."""
+    if not (isinstance(before, tuple) and isinstance(after, tuple)
+            and len(before) == 3 and len(after) == 3):
+        return False
+    if before[:2] == after[:2]:
+        return True  # size and mtime unchanged: not a change
+    return _strip_projected_regions(before[2]) == _strip_projected_regions(after[2])
+
+
+def _repo_state_changes(before: "dict[str, tuple | None]",
+                        after: "dict[str, tuple | None]") -> list[str]:
+    """Paths created, modified or deleted between two ``repo_state_snapshot`` results.
+
+    A wave record whose only difference is the framework's own
+    context-efficiency projection (DEL-F1) is not a change.
+    """
+    changed = []
+    for rel in sorted(set(before) | set(after)):
+        b, a = before.get(rel), after.get(rel)
+        if b != a and not _projection_only_change(b, a):
+            changed.append(rel)
+    return changed
+
+
+def _stray_artifact_failure(preexisting: list[str],
+                            repo_before: "dict[str, tuple | None] | None" = None,
+                            repo_root: Path | None = None) -> str | None:
+    """Return a failure message when the run created stray artifacts or changed repository state.
+
+    ``repo_before`` (wave 1z8ox, 1z8ov) is the ``repo_state_snapshot`` taken
+    after the run lock was acquired; when given, the repository is snapshotted
+    again and every created, modified or deleted tracked or non-ignored file,
+    and any change to the edit-gate file, fails the run. A second snapshot
+    that cannot be taken (for example a timed-out listing) also fails the run,
+    with the cause stated.
+    """
+    created = [p for p in stray_artifact_paths() if p not in preexisting]
+    changed: list[str] = []
+    unverified = ""
+    if repo_before is not None:
+        repo_after = repo_state_snapshot(repo_root)
+        if repo_after is None:
+            unverified = _repo_state_unavailable_reason or "the second snapshot failed"
+        else:
+            changed = _repo_state_changes(repo_before, repo_after)
+    if not created and not changed and not unverified:
+        return None
+    parts = []
+    if created:
+        parts.append(
+            "STRAY TEST ARTIFACTS: a test wrote durable state relative to cwd "
+            "instead of its fixture root:\n  "
+            + "\n  ".join(created)
+            + "\nFix the offending test (see the 1t231 pattern: unmocked "
+            "cwd-relative write paths) and delete the artifacts."
+        )
+    if changed:
+        parts.append(
+            "REPOSITORY CHANGED DURING THE TEST RUN: tests must write only under "
+            "temporary roots, but these tracked, non-ignored or edit-gate paths "
+            "were created, modified or deleted:\n  "
+            + "\n  ".join(changed)
+            + "\nA concurrent edit by an operator or agent during the run, "
+            "including opening or closing an edit gate, also trips this guard; "
+            "if that is the cause, re-run once the tree is quiet. Otherwise fix "
+            "the offending test to write under a temporary root."
+        )
+    if unverified:
+        parts.append(
+            "REPOSITORY STATE NOT VERIFIED AFTER THE TEST RUN: the end-of-run "
+            f"snapshot could not be taken ({unverified}), so the run cannot show "
+            "it left the repository unchanged. Re-run once git responds."
+        )
+    return "\n\n".join(parts)
 
 
 def _cache_hit(inputs_hash: str, cache: dict | None = None) -> dict | None:
@@ -586,6 +828,10 @@ def _run_file(file_path: Path) -> FileResult:
     # utf8_child_env sets PYTHONUTF8=1 AND PYTHONIOENCODING=utf-8: an inherited
     # PYTHONIOENCODING=cp1252 would otherwise win over PYTHONUTF8 in the child.
     env = subprocess_util.utf8_child_env(env)
+    # Wave 1z8ox (1z8ov): ``-B`` below covers only the worker interpreter; the
+    # environment variable also reaches every Python child a test spawns, so
+    # none of them writes ``__pycache__`` into the repository.
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     start = time.monotonic()
     try:
         result = subprocess.run(
@@ -684,6 +930,17 @@ def _execute_files(ordered_files: list[Path]) -> tuple[int, list[FileResult]]:
     # Wave 1t3ek (1t231): snapshot pre-existing stray artifacts so the
     # end-of-run guard flags only what THIS run created.
     preexisting_strays = stray_artifact_paths()
+    # Wave 1z8ox (1z8ov): snapshot tracked and non-ignored files plus the
+    # edit-gate file, after the lock, so the end-of-run guard can name any
+    # repository path the run created, modified or deleted.
+    repo_before = repo_state_snapshot()
+    if repo_before is None:
+        print(
+            f"run_tests: {_REPO_ROOT} could not be snapshotted "
+            f"({_repo_state_unavailable_reason or 'not a git checkout, or git is unavailable'}); "
+            "the repository-state guard is skipped for this run.",
+            flush=True,
+        )
 
     try:
         # Remove stale bytecode before spawning workers.
@@ -741,17 +998,21 @@ def _execute_files(ordered_files: list[Path]) -> tuple[int, list[FileResult]]:
             f"Worker service time: {service_time:.3f}s across "
             f"{len(file_results)} files; skipped {total_skipped} tests"
         )
+        # Evaluated before the failed-files branch so a failing run still
+        # names any repository path it changed (wave 1z8ox, 1z8ov).
+        stray_failure = _stray_artifact_failure(preexisting_strays, repo_before)
         if failed_files:
+            if stray_failure is not None:
+                print(f"\n{stray_failure}", file=sys.stderr)
             print(f"FAILED ({', '.join(failed_files)})")
             print(f"Ran {total_tests} tests across {len(ordered_files)} files in {wall_elapsed:.3f}s")
             _clean_pycache()
             return 1, file_results
 
-        stray_failure = _stray_artifact_failure(preexisting_strays)
         if stray_failure is not None:
             print(f"\n{stray_failure}", file=sys.stderr)
             print(f"Ran {total_tests} tests across {len(ordered_files)} files in {wall_elapsed:.3f}s")
-            print("FAILED (stray test artifacts)")
+            print("FAILED (stray test artifacts or repository changes)")
             _clean_pycache()
             return 1, file_results
 

@@ -370,6 +370,13 @@ The same principle applies to **literal-identifier and cross-surface text sweeps
 | Junie | ❌ instruction-only (`AGENTS.md`, `.junie/guidelines.md`) | ❌ | `.junie/guidelines.md` |
 | Warp | ❌ instruction-only | ❌ | `WARP.md` |
 
+Known limits of the edit gates (state these to targets; do not describe the gates as complete isolation):
+
+- **The shell tool is not gated on any host.** An agent that writes a file through a shell command (Claude `Bash`, Copilot `bash`/`powershell`, a terminal) bypasses every pre-write gate.
+- **File-writing MCP tools are not gated on Claude.** The Claude matcher names only the built-in edit tools (`Edit`, `Write`, `MultiEdit`, `NotebookEdit`), so a write made through an MCP tool, the Wavefoundry server's or a third-party server's, never reaches the pre-edit hook.
+- **Check-then-use.** A hook resolves and classifies the path, and then the host performs the write; a path swapped in between (for example by retargeting a symlink) is written unchecked. Exploiting that window needs an actor who can already write the repository.
+- **A missing `python3` fails open on Claude and Windsurf.** The launcher needs `python3` on `PATH`; when it is missing the shell returns 127, not 2, and those hosts treat any exit other than 2 as allow. (Copilot denies on any non-zero `preToolUse` exit.)
+
 For Codex, Air, Junie, and Warp, reinforce rules in `AGENTS.md` and the respective thin-pointer or native-wrapper files only.
 
 ### Claude Code
@@ -379,9 +386,9 @@ Seed or update `.claude/settings.json` with the hooks below. **Merge with any ex
 ```json
 {
  "hooks": {
- "PreToolUse": [ { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "python3 \".claude/hooks/pre-edit.py\"", "statusMessage": "Checking framework edit gates..." } ] } ],
+ "PreToolUse": [ { "matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [ { "type": "command", "command": "python3 \".claude/hooks/pre-edit.py\"", "statusMessage": "Checking framework edit gates..." } ] } ],
  "PostToolUse": [
- { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "python3 \".claude/hooks/post-edit.py\"", "statusMessage": "Running docs gates..." } ] }
+ { "matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [ { "type": "command", "command": "python3 \".claude/hooks/post-edit.py\"", "statusMessage": "Running docs gates..." } ] }
  ],
  "Stop": [
  { "hooks": [ { "type": "command", "command": "python3 \".claude/hooks/session-capture.py\"", "statusMessage": "Capturing session state..." } ] },
@@ -394,7 +401,7 @@ Seed or update `.claude/settings.json` with the hooks below. **Merge with any ex
 }
 ```
 
-The rendered commands resolve each body from `CLAUDE_PROJECT_DIR`; the JSON above shows the shape, not the exact launcher text.
+The rendered commands resolve each body from `CLAUDE_PROJECT_DIR`; the JSON above shows the shape, not the exact launcher text. Claude Code matches a plain `A|B` matcher as exact alternatives, so the matcher names every built-in file-editing tool; `NotebookEdit` sends its path as `tool_input.notebook_path`. The pre-edit hook fails closed: it blocks (exit 2) when stdin is empty, is not JSON, or is not an object, and when an edit tool (or a payload naming no tool) carries no recognisable path, naming the keys it looked for. Other tool names pass.
 
 Generated entrypoints (single `<name>.py` body each):
 - `.claude/hooks/pre-edit.py` — seed protection + framework plan gate
@@ -456,7 +463,7 @@ The `pre_write_code` command is shown in shape only: the renderer emits it fail-
 
 Generated entrypoints (single `<name>.py` body each; `post_write_code` is launched via `python3 "<name>.py"`):
 - `.windsurf/hooks/seed-protect.py` — true-blocking seed protection
-- `.windsurf/hooks/docs-lint.py` — runs `wf docs-lint` after docs edits
+- `.windsurf/hooks/docs-lint.py` — runs `wf docs-lint` after docs edits and triggers the debounced incremental reindex for every edit, before reporting a lint failure
 
 `.gitignore` tracks `.windsurf/hooks.json` and `.windsurf/hooks/`.
 
@@ -484,6 +491,8 @@ The `preToolUse` commands are shown in shape only: the renderer emits the same f
 Generated entrypoints (single `<name>.py` body each; `postToolUse` is launched via `python3 "<name>.py"`):
 - `.github/hooks/pre-tool-use.py` — blocks seed-prompt edits and broad framework-maintenance edits per the guard-override file
 - `.github/hooks/post-tool-use.py` — runs `wf docs-lint` after docs edits
+
+Both bodies read Copilot's own payload shapes: the Copilot CLI and cloud agent form (`toolName`, with `toolArgs` as a JSON-encoded string whose `path` names the file) and the VS Code form (`tool_name`, `tool_input.filePath`, `tool_input.files` for a multi-file edit, or `tool_input.replacements[].filePath` for a multi-replace). They gate only Copilot's file-editing tools (`create`, `edit`, `write`, `str_replace_editor`, `str_replace_based_edit_tool`, `create_file`, `createFile`, `writeFile`, `insert_edit_into_file`, `replace_string_in_file`, `multi_replace_string_in_file`, `editFiles`, `edit_notebook_file`), so shell and read tools are never blocked. The text-editor tools (`str_replace_editor`, `str_replace_based_edit_tool`) are classified by their `command`: `view` is treated as a read, while any other command, or none, is treated as an edit. An edit tool whose path cannot be found, or unparseable stdin, is blocked. `apply_patch` carries its paths inside the patch text and is not gated.
 
 Keep `.github/copilot-instructions.md` as a thin pointer and route mechanical enforcement through `.github/hooks/hooks.json`.
 

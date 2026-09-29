@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-09-29
 
 ## Test Tiers
 
@@ -39,7 +39,7 @@ Last verified: 2026-09-25
 | Diagram-file chunking (wave 1wik9, 1whuq) | per-family fixture shape and breadcrumb tests (mermaid frontmatter title, plantuml title directive, DOT graph identifier incl. quoted names, stem fallback), degenerate inputs (empty, oversized via the universal guard), chunker-only registration pins (extension-set disjointness in the chunker; never `_KNOWN_TEXT_EXTENSIONS`, `SOURCE_CODE_EXTENSIONS`, `BINARY_EXTENSIONS`, or the generated set in the indexer), docs-split membership in and out of docs roots, the binary-impostor OLE `.dot` sniff exclusion, and the frozen 9-query `diagrams` golden set with its executed eligibility census | `test_chunker.py` (`DiagramChunkerTests`), `test_indexer.py` (`DiagramCorpusMembershipTests`), `tests/fixtures/retrieval_golden/diagrams/` | Same runner |
 | Doc-code routing and kind filtering (wave 1wik9, 1whup) | doc-code emission from all three doc-family emitters with file-pass-scoped ordinal identities (duplicate-titled-section collision pins), per-emitter breadcrumb truth (baked markdown, injected rst/adoc, bare preamble), code-cap selection, prompt fence-inline exemption, notebook doc-code routing (the 1wl7u/1wh1b executable supersession of the preserved state), per-emission-site content-coverage invariant, docs-table routing via `_is_docs_kind`, and the server-side kind-filter enforcement including a native SQLite semantic-path raw-SQL filter regression and the `code_ask` partition-tuple complementarity pin; the regenerated markdown differential snapshot with the specs-negatives zero-delta assertion; the extended prose golden set with unique-anchor fence queries and the content-anchored recall supplement | `test_chunker.py` (`DocCodeRoutingTests`, `MarkdownDifferentialTests`), `test_indexer.py` (`DocCodeTableRoutingTests`), `test_server_tools_retrieval.py` (`DocCodeKindFilterTests`), `tests/fixtures/retrieval_golden/` | Same runner |
 | Spec-aware chunking detection and differential (wave 1wfsl, 1wfr8) | Detection positives (OpenAPI 3.x YAML+JSON, Swagger 2.x, JSON Schema dialect-URI and schema-shaped roots) and negatives (kubernetes/CI/compose configs, schemastore `$schema` configs, arbitrary JSON, and the adversarial schema-shaped data file) over the COMMITTED spec fixture corpus; operation/definition chunk shapes with baked breadcrumbs and deterministic identities; kind="code" layer-boundary pin; the `indexing.max_treesitter_parse_bytes` cap boundary on the spec path; the config gate (`WAVEFOUNDRY_SPEC_CHUNKING`); the non-spec byte-identity differential against a pre-change-chunker snapshot; and the golden-set measurement harness (`run_retrieval_eval.py`) whose before/after results are wave evidence | `test_chunker.py` (`SpecChunkingTests`), `tests/fixtures/retrieval_golden/` | Same runner |
-| Standing production retrieval evaluation (wave 1seaw, 1sear) | Generation-frozen, cached/offline evaluation of the current public `code_ask`, `code_search`, `docs_search`, and `code_lexical` response paths over a versioned calibration/holdout corpus. Reports Recall@k, nDCG@k, agentic MRR@10, abstention, warm p95, cold start, and serialized-envelope size, and binds each report to the production-module identity digest, run timestamps, and the resolved declaration spans behind symbol anchors (declaration-span intersection, never a same-file mention); it is intentionally outside the hermetic default test run because it requires a published index and cached models. | `.wavefoundry/framework/scripts/retrieval_eval.py`; `docs/evals/retrieval-quality-golden.json`; standing baseline `docs/reports/retrieval-quality-1yxyw-e3.json` (wave `1yxyw`, a single-run baseline on the final tree with the shipped evaluator bytes; the removal is measured by `1yxyw-e2c` against `1yxyw-e1`, with no quality violations and operator review for latency only, but a later comment-only evaluator edit means those two cannot be a `--baseline` for the shipped evaluator; there is no signed comparison against the `1yzd0` receipts; the reference only until the next evaluator edit) | `python3 -B .wavefoundry/framework/scripts/retrieval_eval.py --root . --fixtures docs/evals/retrieval-quality-golden.json --out docs/reports/retrieval-quality-<change-id>.json --baseline docs/reports/retrieval-quality-1yxyw-e3.json` |
+| Standing production retrieval evaluation (wave 1seaw, 1sear) | Generation-frozen, cached/offline evaluation of the current public `code_ask`, `code_search`, `docs_search`, and `code_lexical` response paths over a versioned calibration/holdout corpus. Reports Recall@k, nDCG@k, agentic MRR@10, abstention, warm p95, cold start, and serialized-envelope size, and binds each report to the production-module identity digest, run timestamps, and the resolved declaration spans behind symbol anchors (declaration-span intersection, never a same-file mention); it is intentionally outside the hermetic default test run because it requires a published index and cached models. | `.wavefoundry/framework/scripts/retrieval_eval.py`; `docs/evals/retrieval-quality-golden.json`; former standing baseline `docs/reports/retrieval-quality-1yxyw-e3.json` (wave `1yxyw`, a single-run baseline on the final tree with the evaluator bytes of that wave; the removal is measured by `1yxyw-e2c` against `1yxyw-e1`, with no quality violations and operator review for latency only; there is no signed comparison against the `1yzd0` receipts; it was the reference only until the next evaluator edit, and that edit has happened: `retrieval_eval.py` changed after it was measured, including wave `1z8ox`'s routing of its git probes, so its recorded `evaluator_identity.source_sha256` no longer matches the current evaluator and `retrieval_eval.py` refuses it as a `--baseline`. No committed report currently binds the current evaluator; the next measurement records its own baseline run first and compares against that) | `python3 -B .wavefoundry/framework/scripts/retrieval_eval.py --root . --fixtures docs/evals/retrieval-quality-golden.json --out docs/reports/retrieval-quality-<change-id>.json --baseline <report whose evaluator_identity matches the current evaluator>` (not `--baseline docs/reports/retrieval-quality-1yxyw-e3.json`) |
 | Manual docs gate | MCP **`wf_validate_docs`** succeeds, **or** `wf docs-lint` passes | MCP / repo root | `wf_validate_docs` / `wf docs-lint` |
 | Manual gardener | MCP **`wf_garden_docs`**, **or** `wf docs-gardener` | MCP / repo root | `wf_garden_docs` / `wf docs-gardener` |
 
@@ -107,6 +107,46 @@ neither the cache file nor the timing manifest is a public compatibility API.
 loops: the same lock/subprocess/timeout/artifact-guard path, no cache or
 timing access, output labeled as focused. Focused runs are never delivery
 evidence — one full canonical isolated run remains the delivery authority.
+
+**Repository-state guard (wave 1z8ox).** Tests write only under temporary
+roots (a `tempfile` directory or a copied fixture tree); a test that needs
+repository content reads it and writes elsewhere. The runner enforces this
+in `_execute_files`, so full, `--file` and `--schedule-control` runs behave
+the same. After it acquires the run lock it snapshots, by path, size and
+modification time, every tracked file, every untracked file that git does
+not ignore (`git ls-files -co --exclude-standard`), and the edit-gate state
+file `.wavefoundry/guard-overrides.json`. At the end of the run it snapshots
+again; any created, modified or deleted path fails the run, the paths are
+named, and no receipt is written. The only exclusions are the receipt
+(`test-cache.json`) and lock (`test-run.lock`) the runner writes itself. A
+concurrent edit by an operator or agent during the run, including opening
+or closing an edit gate, also trips the guard. The edit-gate file is
+compared by content hash rather than size and modification time. The one
+tolerated change is the framework's own context-efficiency projection: MCP
+calls record usage, and the Stop hook and the MCP quiet-period monitor
+publish it by rewriting the open wave record (`wave.md` under `docs/waves/`,
+both taken from the record layout modules) during the run. The snapshot
+keeps each wave record's bytes, and a wave record that changed is tolerated
+only when its text is identical after removing the projected regions (the
+`wave:context-efficiency` block with its state comment and the
+`wave:exploration-avoided` block, each with its heading); an edit outside
+those blocks, including one inside another marker region, still fails. Known
+limit: because those blocks are removed before comparing, a change confined
+to them is tolerated whatever its source, including an added, deleted or
+edited block of that kind. The
+`git ls-files` listing is timed (60 seconds) and ends its process tree on
+timeout. Outside a git checkout, or when the first listing times out, the
+guard is skipped with a stated message; when the end-of-run listing cannot
+be taken, the run fails with the cause stated. Ignored runtime paths
+(`.wavefoundry/logs/`, `.wavefoundry/index/`, `.wavefoundry/locks/`,
+`__pycache__`) and `.git/` are outside the standing guard, because the live
+host writes there during a run; test writes there are caught by an isolated
+census instead: a full run in a temporary clone that reproduces the working
+tree, with no MCP server attached, compared against a before-and-after
+snapshot of every file including `.git/`. The earlier check for a nested
+`.wavefoundry` under the scripts directory remains part of the same guard.
+The runner also sets `PYTHONDONTWRITEBYTECODE=1` in the worker environment,
+so Python children that tests spawn write no bytecode into the repository.
 
 The former 37k-line `test_server_tools.py` monolith is a three-shard family
 plus a non-discovered support module: `test_server_tools.py` (server
@@ -545,6 +585,8 @@ Minimum verification bar for any framework script change:
 2. Docs gate: **agents** — MCP **`wf_validate_docs`** succeeds (use **`wf_garden_docs`** first when metadata needs refresh); **CI / no MCP** — `wf docs-lint` passes on the Wavefoundry repo itself
 
 ## Framework Script Hygiene
+
+Tests write only under temporary roots, never into the repository under test; the runner's repository-state guard (see the Canonical Runner section) fails a run that changes a tracked or non-ignored file or the edit-gate file.
 
 Run tests without writing bytecode: `python3 -B .wavefoundry/framework/scripts/run_tests.py`. If caches were written, clean them:
 

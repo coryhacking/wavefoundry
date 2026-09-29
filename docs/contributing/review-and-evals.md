@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-09-29
 
 ## Review Lane Summary
 
@@ -345,9 +345,12 @@ receipt (`docs/reports/retrieval-quality-post-1wuju.json`, a single run at the
 reference receipt `docs/reports/retrieval-quality-1ymzq-after.json` (R2, recorded
 on 2026-09-22 on stable complete generation 1914 with verdict `baseline`) was a
 NEW baseline after `index_handlers.py` joined evaluator membership.
-The current reference receipt is `docs/reports/retrieval-quality-1yxyw-e3.json`
+The most recent reference receipt was `docs/reports/retrieval-quality-1yxyw-e3.json`
 (wave `1yxyw`): a single-run `baseline` recorded on 2026-09-25 at stable
-complete generation 2144 on the final tree, with the shipped evaluator bytes.
+complete generation 2144 on the final tree, with the evaluator bytes of that wave.
+It no longer binds the current evaluator: `retrieval_eval.py` changed after it
+was measured (including wave `1z8ox`), so `--baseline` refuses it, and the next
+measurement records its own baseline run first.
 It exists because the evaluator identity is a hash of the evaluator source
 bytes: a comment-only edit to `retrieval_eval.py` (AST-identical) followed the
 removal measurement, so the receipts below cannot serve as a `--baseline` for

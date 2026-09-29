@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import atexit
 import contextlib
 import hashlib
 import importlib.util
@@ -37,6 +38,52 @@ RETIRED_GRAPH_STATE_RELPATH = (
     f"{_ssm_for_retired_name.GRAPH_OUTPUT_DIRNAME}/project-graph-state.sqlite")
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[3].parent
+_REPO_INDEX_COPY: "Path | None" = None
+
+
+def _copy_index_file(src: Path, dst: Path) -> None:
+    """Copy one index file, as a copy-on-write clone where the platform offers one."""
+    if sys.platform == "darwin":
+        try:
+            done = subprocess.run(["cp", "-c", str(src), str(dst)],
+                                  capture_output=True, timeout=120, check=False)
+            if done.returncode == 0:
+                return
+        except (OSError, subprocess.SubprocessError):
+            pass
+    shutil.copyfile(src, dst)
+
+
+def _repo_index_copy_root() -> Path:
+    """A temporary root holding a copy of THIS repository's project index.
+
+    Wave 1z8ox (1z8ov): tests that assert over the live repository's published
+    graph read it through this copy. Opening the real ``index.sqlite``, even
+    read-only, creates its ``-wal`` and ``-shm`` siblings inside the
+    repository; the copy keeps every SQLite side effect under a temporary
+    root. The files are copied, never opened, so the source is untouched. The
+    storage-migration receipt is not copied: it pins the index to its original
+    path, and a copy at another path would fail closed on it. The suite runner
+    holds its lock for the whole run, which index builds yield to, so the
+    database and its WAL are copied as one consistent pair.
+    """
+    global _REPO_INDEX_COPY
+    if _REPO_INDEX_COPY is not None:
+        return _REPO_INDEX_COPY
+    tmp = Path(tempfile.mkdtemp(prefix="wf-repo-index-copy-"))
+    atexit.register(shutil.rmtree, tmp, True)
+    src = _REPO_ROOT / ".wavefoundry" / "index"
+    dst = tmp / ".wavefoundry" / "index"
+    dst.mkdir(parents=True)
+    for name in (index_paths.INDEX_DATABASE_FILENAME,
+                 index_paths.INDEX_DATABASE_FILENAME + "-wal"):
+        if (src / name).is_file():
+            _copy_index_file(src / name, dst / name)
+    _REPO_INDEX_COPY = tmp
+    return tmp
+
+
 def _require_published_repo_graph(case) -> None:
     """Skip when THIS repository has no published graph generation.
 
@@ -47,7 +94,7 @@ def _require_published_repo_graph(case) -> None:
     has nothing for them to read. That is a property of the checkout, not of
     the behavior under test -- skip with a reason rather than fail.
     """
-    repo = Path(__file__).resolve().parents[3].parent
+    repo = _repo_index_copy_root()
     if not graph_snapshot.acquire(repo, "project").present:
         case.skipTest(
             "this repository has no published graph generation "
@@ -5226,7 +5273,7 @@ class EvidencePartitionResponseTests(unittest.TestCase):
 
     def _report(self, **kwargs):
         return self.srv.wf_graph_report_response(
-            Path(__file__).resolve().parents[3].parent, **kwargs)["data"]
+            _repo_index_copy_root(), **kwargs)["data"]
 
     def test_every_pair_is_present_including_its_evidence_half(self):
         data = self._report(limit=5)
@@ -5327,7 +5374,7 @@ class EvidencePartitionResponseTests(unittest.TestCase):
             self.skipTest("this tree has no classified evidence communities")
         cid = rows[0]["community_id"]
         resp = self.srv.code_graph_community_response(
-            Path(__file__).resolve().parents[3].parent, community_id=cid)
+            _repo_index_copy_root(), community_id=cid)
         self.assertEqual("ok", resp["status"],
                          "partitioning must not remove the community from the catalog")
 
@@ -17717,7 +17764,7 @@ class EvidenceNodesStayQueryableTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.root = Path(__file__).resolve().parents[3].parent
+        cls.root = _repo_index_copy_root()
         sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
         import graph_query
         # Read the PUBLISHED rows directly (wave 1xny6 lane L6b retired the
@@ -17944,7 +17991,7 @@ class EvidencePairDocumentationTests(unittest.TestCase):
         # one, fails here rather than drifting silently.
         _require_published_repo_graph(self)
         srv = load_server()
-        data = srv.wf_graph_report_response(self.REPO, limit=1)["data"]
+        data = srv.wf_graph_report_response(_repo_index_copy_root(), limit=1)["data"]
         emitted = {k[len("evidence_"):] for k in data if k.startswith("evidence_")}
         self.assertEqual(set(self.PAIRS), emitted)
 

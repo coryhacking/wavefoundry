@@ -919,11 +919,27 @@ def _extract_doc_links(source_text: str, rel_path: str, current_paths: set[str] 
     return targets
 
 
+# Bound on the `git ls-files --ignored` walk in _gitignored_paths; a timeout ends
+# git's whole process tree (wave 1z8ox).
+_GITIGNORED_PATHS_TIMEOUT_S = 30
+
+
+def _run_tree_kill(cmd, **kwargs):
+    """Run ``cmd`` so a timeout ends its whole process tree (wave 1z8ox).
+
+    The helper is resolved at call time: an upgrade runner may have an older
+    ``subprocess_util`` loaded that lacks ``run_with_tree_kill``, so fall back
+    to ``isolated_run``.
+    """
+    run = getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
+    return run(cmd, **kwargs)
+
+
 def _gitignored_paths(root: Path) -> frozenset[str]:
     try:
-        result = subprocess_util.isolated_run(
+        result = _run_tree_kill(
             ["git", "ls-files", "--others", "--ignored", "--exclude-standard"],
-            capture_output=True, text=True, cwd=str(root), timeout=30,
+            capture_output=True, text=True, cwd=str(root), timeout=_GITIGNORED_PATHS_TIMEOUT_S,
         )
         if result.returncode == 0:
             return frozenset(
@@ -15926,7 +15942,7 @@ def _physical_perf_core_count() -> int | None:
     if sys.platform != "darwin":
         return None
     try:
-        result = subprocess_util.isolated_run(
+        result = _run_tree_kill(
             ["sysctl", "-n", "hw.perflevel0.physicalcpu"],
             capture_output=True, text=True, timeout=2,
         )

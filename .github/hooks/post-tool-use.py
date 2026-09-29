@@ -100,14 +100,19 @@ def get_nested(mapping: dict[str, object], *path: str) -> str:
     return value if isinstance(value, str) else ""
 
 
+# Wave 1z8ot (1z8op): `tool_input.notebook_path` is Claude Code's NotebookEdit path.
+FILE_PATH_KEYS = (
+    ("tool_input", "file_path"),
+    ("tool_input", "notebook_path"),
+    ("tool_input", "path"),
+    ("tool_info", "file_path"),
+    ("file_path",),
+    ("path",),
+)
+
+
 def detect_file_path(payload: dict[str, object]) -> str:
-    for path in (
-        ("tool_input", "file_path"),
-        ("tool_input", "path"),
-        ("tool_info", "file_path"),
-        ("file_path",),
-        ("path",),
-    ):
+    for path in FILE_PATH_KEYS:
         candidate = get_nested(payload, *path)
         if candidate:
             return candidate
@@ -380,16 +385,86 @@ def maybe_trigger_reindex(file_path: str) -> None:
         return
     _spawn_reindex()
 
+COPILOT_EDIT_TOOL_NAMES = ('create', 'edit', 'write', 'str_replace_editor', 'str_replace_based_edit_tool', 'create_file', 'createFile', 'writeFile', 'insert_edit_into_file', 'replace_string_in_file', 'multi_replace_string_in_file', 'editFiles', 'edit_notebook_file')
+COPILOT_TEXT_EDITOR_TOOL_NAMES = ('str_replace_editor', 'str_replace_based_edit_tool')
+COPILOT_TEXT_EDITOR_READ_COMMANDS = ('view',)
+COPILOT_PATH_KEYS = (
+    "toolArgs or tool_input: path, file_path, filePath, notebook_path, files[], "
+    "replacements[].filePath; then " + ", ".join(".".join(key) for key in FILE_PATH_KEYS)
+)
+
+
+def copilot_tool_name(payload: dict[str, object]) -> str:
+    for key in ("toolName", "tool_name"):
+        value = payload.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return ""
+
+
+def copilot_tool_args(payload: dict[str, object]) -> dict[str, object]:
+    for key in ("toolArgs", "tool_input"):
+        value = payload.get(key)
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except (ValueError, RecursionError):
+                value = None
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def copilot_edit_paths(payload: dict[str, object]) -> list[str]:
+    args = copilot_tool_args(payload)
+    paths: list[str] = []
+    for key in ("path", "file_path", "filePath", "notebook_path"):
+        value = args.get(key)
+        if isinstance(value, str) and value:
+            paths.append(value)
+    files = args.get("files")
+    if isinstance(files, list):
+        paths.extend(item for item in files if isinstance(item, str) and item)
+    replacements = args.get("replacements")
+    if isinstance(replacements, list):
+        for item in replacements:
+            value = item.get("filePath") if isinstance(item, dict) else None
+            if isinstance(value, str) and value:
+                paths.append(value)
+    fallback = detect_file_path(payload)
+    if fallback and fallback not in paths:
+        paths.append(fallback)
+    return paths
+
+
+def copilot_is_edit(payload: dict[str, object]) -> bool:
+    # An edit tool, or a payload that does not say which tool. Shell and read tools are never gated.
+    name = copilot_tool_name(payload)
+    if not name:
+        return True
+    if name not in COPILOT_EDIT_TOOL_NAMES:
+        return False
+    if name in COPILOT_TEXT_EDITOR_TOOL_NAMES:
+        # A text-editor read is not an edit; every other command, or none, is (fail closed).
+        command = copilot_tool_args(payload).get("command")
+        if isinstance(command, str) and command in COPILOT_TEXT_EDITOR_READ_COMMANDS:
+            return False
+    return True
+
+
 def main() -> int:
     payload = load_payload(read_payload_text())
-    file_path = detect_file_path(payload)
-    if not file_path:
+    if not copilot_is_edit(payload):
         return 0
-    blocked, message = maybe_docs_lint(file_path)
-    # Wave 1z822: the edit already happened, so trigger the reindex before a lint failure returns.
-    maybe_trigger_reindex(file_path)
-    if blocked:
-        print(message, file=sys.stderr)
+    failures = []
+    for file_path in copilot_edit_paths(payload):
+        blocked, message = maybe_docs_lint(file_path)
+        # Wave 1z822: the edit already happened, so trigger the reindex before a lint failure returns.
+        maybe_trigger_reindex(file_path)
+        if blocked:
+            failures.append(message)
+    if failures:
+        print("\n".join(failures), file=sys.stderr)
         return 1
     return 0
 

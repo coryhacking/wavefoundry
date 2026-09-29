@@ -290,11 +290,23 @@ def _process_is_zombie(pid: int) -> bool:
     return (result.stdout or "").strip()[:1] == "Z"
 
 
+def _run_tree_kill(cmd, **kwargs):
+    """Run ``cmd`` so a timeout ends its whole process tree (wave 1z8ox).
+
+    The helper is resolved at call time: an upgrade runner may have an older
+    ``subprocess_util`` loaded that lacks ``run_with_tree_kill``, so fall back
+    to ``isolated_run``.
+    """
+    run = getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
+    return run(cmd, **kwargs)
+
+
 def _process_cmdline(pid: int) -> Optional[str]:
     """Best-effort full command line for ``pid`` — cross-OS and windowless. None if unavailable.
 
     POSIX: ``ps -o args=``. Windows: ``powershell.exe`` + CIM (the only built-in exposing the full
-    CommandLine), invoked EXPLICITLY through the windowless ``isolated_run`` — no ``shell=True`` and
+    CommandLine), invoked EXPLICITLY through the windowless ``_run_tree_kill`` (a timeout ends its
+    whole process tree; wave 1z8ox) — no ``shell=True`` and
     no reliance on the parent shell, so it behaves identically whether the operator runs cmd or
     PowerShell, and no console window flashes. Any failure (incl. PowerShell absent) → None so the
     caller keeps today's behavior."""
@@ -306,7 +318,7 @@ def _process_cmdline(pid: int) -> Optional[str]:
                 f"Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}' "
                 "| ForEach-Object { $_.CommandLine }"
             )
-            result = subprocess_util.isolated_run(
+            result = _run_tree_kill(
                 ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
                 capture_output=True, text=True, check=False, timeout=10,
             )
@@ -3396,6 +3408,7 @@ def _get_embedder(model_name: str, n_chunks: Optional[int] = None):
             providers = ["CPUExecutionProvider"]
     try:
         from fastembed import TextEmbedding
+        venv_bootstrap.disable_onnxruntime_telemetry()
     except ImportError:
         print(
             "build_index: fastembed is not installed.\n"

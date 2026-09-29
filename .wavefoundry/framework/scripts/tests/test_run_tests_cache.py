@@ -308,7 +308,11 @@ class RunLockTests(unittest.TestCase):
         clean_mock.assert_not_called()
 
     def test_cache_hit_bypasses_lock_acquisition(self):
+        # Wave 1z8ox (1z8ov): _read_cache is patched too, so the test never
+        # depends on whether the real repository holds a receipt (in a fresh
+        # clone it does not, and main() then ran the suite path).
         with patch.object(run_tests, "_hash_inputs", return_value="stable_hash"), \
+                patch.object(run_tests, "_read_cache", return_value={}), \
                 patch.object(run_tests, "_cache_hit", return_value={"test_count": 99, "ran_at": "2026-05-26T00:00:00Z"}), \
                 patch.object(run_tests, "_acquire_run_lock") as lock_mock, \
                 patch.object(sys, "argv", ["run_tests.py"]):
@@ -343,11 +347,16 @@ class MainCacheBehaviorTests(unittest.TestCase):
         self._patcher_build_probe = patch.object(
             run_tests, "_probe_index_build_lock", return_value=(False, None)
         )
+        # Wave 1z8ox (1z8ov): never snapshot the live repository here.
+        self._patcher_repo_snapshot = patch.object(
+            run_tests, "repo_state_snapshot", return_value={}
+        )
         self._patcher_clean.start()
         self._patcher_lock.start()
         self._patcher_release.start()
         self._patcher_build_wait.start()
         self._patcher_build_probe.start()
+        self._patcher_repo_snapshot.start()
 
     def tearDown(self):
         self._patcher_clean.stop()
@@ -355,6 +364,7 @@ class MainCacheBehaviorTests(unittest.TestCase):
         self._patcher_release.stop()
         self._patcher_build_wait.stop()
         self._patcher_build_probe.stop()
+        self._patcher_repo_snapshot.stop()
         run_tests._CACHE_FILE = self._orig_cache_file
         run_tests._TESTS_DIR = self._orig_tests_dir
         shutil.rmtree(self._tmp, ignore_errors=True)
@@ -545,6 +555,8 @@ class TelemetrySummaryTests(unittest.TestCase):
             patch.object(run_tests, "_release_run_lock"),
             patch.object(run_tests, "_wait_for_index_build", return_value=None),
             patch.object(run_tests, "_probe_index_build_lock", return_value=(False, None)),
+            # Wave 1z8ox (1z8ov): never snapshot the live repository here.
+            patch.object(run_tests, "repo_state_snapshot", return_value={}),
         ]
         for p in self._patchers:
             p.start()
@@ -633,6 +645,8 @@ class _MainScaffoldTests(unittest.TestCase):
             patch.object(run_tests, "_release_run_lock"),
             patch.object(run_tests, "_wait_for_index_build", return_value=None),
             patch.object(run_tests, "_probe_index_build_lock", return_value=(False, None)),
+            # Wave 1z8ox (1z8ov): never snapshot the live repository here.
+            patch.object(run_tests, "repo_state_snapshot", return_value={}),
         ]
         for p in self._patchers:
             p.start()
@@ -874,6 +888,7 @@ class FocusedCallOrderTests(unittest.TestCase):
                              side_effect=recorder(
                                  "_run_file",
                                  run_tests.FileResult("test_fake.py", 0, "", 2, 0.4, 0))), \
+                patch.object(run_tests, "repo_state_snapshot", return_value={}), \
                 patch.object(run_tests, "_stray_artifact_failure",
                              side_effect=recorder("_stray_artifact_failure", None)), \
                 patch.object(run_tests, "_release_run_lock",

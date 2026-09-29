@@ -11,6 +11,28 @@ from unittest.mock import patch
 from server_tools_support import _make_repo, integrity_checks, load_server, load_thin_runner
 
 
+# Wave 1z8ox (change 1z8ow): the timed sites these tests fake now call
+# run_with_tree_kill; route it back through isolated_run so the existing fakes
+# still intercept (each test asserts its fake was called).
+_TREE_KILL_SHIM = None
+
+
+def setUpModule():
+    global _TREE_KILL_SHIM
+    tests_dir = str(Path(__file__).resolve().parent)
+    if tests_dir not in sys.path:
+        sys.path.insert(0, tests_dir)
+    from tree_kill_support import ModuleShim
+
+    _TREE_KILL_SHIM = ModuleShim()
+    _TREE_KILL_SHIM.start()
+
+
+def tearDownModule():
+    if _TREE_KILL_SHIM is not None:
+        _TREE_KILL_SHIM.stop()
+
+
 class ReviewOperatorIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -80,13 +102,20 @@ class ReviewOperatorIntegrationTests(unittest.TestCase):
         self.assertIn('current executed approval by alice, not receipt-bound, follows every affected repair',
                       self.wave_md.read_text())
 
+    def assertEmailLookupFaked(self, run):
+        # Wave 1z8ox: the lookup goes through run_with_tree_kill; the module's
+        # tree-kill shim routes it back through the faked subprocess.run.
+        self.assertTrue(any(call.args and list(call.args[0][-2:]) == ['config', 'user.email']
+                            for call in run.call_args_list), run.call_args_list)
+
     def test_git_identity_and_unresolved_git_states_reach_public_write(self):
         import subprocess
         module = sys.modules['operator_identity']
         for event in ('approval', 'finding', 'run'):
             with self.subTest(event=event), patch.object(module.subprocess, 'run', return_value=
-                    subprocess.CompletedProcess([], 0, ' ALICE@EXAMPLE.TEST\n', '')):
+                    subprocess.CompletedProcess([], 0, ' ALICE@EXAMPLE.TEST\n', '')) as run:
                 result = self.call(event, context='git-' + event)
+            self.assertEmailLookupFaked(run)
             self.assertEqual(result['status'], 'ok', result)
             self.assertTrue(self.contexts(result))
             for context in self.contexts(result):
@@ -98,8 +127,9 @@ class ReviewOperatorIntegrationTests(unittest.TestCase):
                 data['bob']['emails'].append('alice@example.test')
                 self.map.write_text(json.dumps(data))
             with patch.object(module.subprocess, 'run', return_value=
-                              subprocess.CompletedProcess([], code, email, '')):
+                              subprocess.CompletedProcess([], code, email, '')) as run:
                 result = self.call(context=label)
+            self.assertEmailLookupFaked(run)
             self.assertEqual(result['status'], 'ok', result)
             self.assertNotIn('operator', self.contexts(result)[0])
             self.assertEqual([d['code'] for d in result['diagnostics']], ['operator_identity_unresolved'])

@@ -4019,13 +4019,17 @@ def _git_strip_vars() -> frozenset:
         return _git_strip_vars_cache
     names: set[str] = set(_GIT_DISCOVERY_ENV_OVERRIDES)
     try:
-        # Self-sanitized minimal env + a DIRECT isolated_run (not _run_git, which
+        # Self-sanitized minimal env + a DIRECT runner (not _run_git, which
         # would recurse). The census output is static, but strip the known set
-        # anyway so nothing perturbs the call.
+        # anyway so nothing perturbs the call. The runner ends the whole process
+        # tree on timeout and is resolved at call time, as in _run_git.
         base = dict(os.environ, LC_ALL="C", LANG="C")
         for v in _GIT_DISCOVERY_ENV_OVERRIDES:
             base.pop(v, None)
-        res = subprocess_util.isolated_run(
+        run_with_tree_kill = (
+            getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
+        )
+        res = run_with_tree_kill(
             ["git", "rev-parse", "--local-env-vars"],
             capture_output=True, text=True, timeout=10, env=base,
         )
@@ -4065,13 +4069,18 @@ def _run_git(cmd: list[str], **kwargs: Any):
     """The SINGLE sanctioned entry point for every git subprocess in the
     freshness / fingerprint / drift / gardener / blob-read derivation chain.
 
-    Routes through ``subprocess_util.isolated_run`` with the sanitized git env
-    (C locale + stripped repo/discovery overrides) always applied, so a future
-    call site cannot silently omit sanitization and let an ambient
-    ``GIT_DIR``/``GIT_WORK_TREE`` redirect a ``-C <root>`` command to a decoy.
-    Any caller-supplied ``env`` is still sanitized (overrides re-stripped)."""
+    Routes through ``subprocess_util.run_with_tree_kill`` (a timeout ends git's
+    whole process tree, hooks and credential helpers included; wave 1z8ox) with
+    the sanitized git env (C locale + stripped repo/discovery overrides) always
+    applied, so a future call site cannot silently omit sanitization and let an
+    ambient ``GIT_DIR``/``GIT_WORK_TREE`` redirect a ``-C <root>`` command to a
+    decoy. Any caller-supplied ``env`` is still sanitized (overrides
+    re-stripped). The helper is resolved at call time: an upgrade runner may
+    have an older ``subprocess_util`` loaded that lacks it, so fall back to
+    ``isolated_run``."""
     kwargs["env"] = _sanitized_git_env(kwargs.get("env"))
-    return subprocess_util.isolated_run(cmd, **kwargs)
+    run = getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
+    return run(cmd, **kwargs)
 
 
 def _git_marker_present(root: Path) -> bool:

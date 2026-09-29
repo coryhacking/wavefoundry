@@ -50,6 +50,28 @@ def _get_sse_client_class():
     return srv._SseClient
 
 
+# Wave 1z8ox (change 1z8ow): the timed sites these tests fake now call
+# run_with_tree_kill; route it back through isolated_run so the existing fakes
+# still intercept (each test asserts its fake was called).
+_TREE_KILL_SHIM = None
+
+
+def setUpModule():
+    global _TREE_KILL_SHIM
+    tests_dir = str(Path(__file__).resolve().parent)
+    if tests_dir not in sys.path:
+        sys.path.insert(0, tests_dir)
+    from tree_kill_support import ModuleShim
+
+    _TREE_KILL_SHIM = ModuleShim()
+    _TREE_KILL_SHIM.start()
+
+
+def tearDownModule():
+    if _TREE_KILL_SHIM is not None:
+        _TREE_KILL_SHIM.stop()
+
+
 class _MockStore:
     """Minimal SnapshotStore stand-in for handler tests."""
 
@@ -2276,19 +2298,23 @@ class DashboardProcessControlTests(unittest.TestCase):
             argv = run.call_args[0][0]
             self.assertEqual(argv[0], "powershell")
             self.assertIn("Get-CimInstance Win32_Process", " ".join(argv))
-        with patch("subprocess.run", return_value=SimpleNamespace(returncode=1, stdout="")):
+        with patch("subprocess.run", return_value=SimpleNamespace(returncode=1, stdout="")) as run:
             self.assertIsNone(self.lib._windows_process_cmdlines())
-        with patch("subprocess.run", side_effect=OSError("powershell missing")):
+        run.assert_called_once()
+        with patch("subprocess.run", side_effect=OSError("powershell missing")) as run:
             self.assertIsNone(self.lib._windows_process_cmdlines())
+        run.assert_called_once()
 
     def test_cmdline_scan_windows_returns_none_on_failure(self):
         # 1p6eq: any PowerShell failure → None → caller falls back to bare-PID liveness (no regression).
         from types import SimpleNamespace
         with patch.object(self.lib.os, "name", "nt"):
-            with patch("subprocess.run", return_value=SimpleNamespace(returncode=1, stdout="")):
+            with patch("subprocess.run", return_value=SimpleNamespace(returncode=1, stdout="")) as run:
                 self.assertIsNone(self.server._dashboard_cmdline_pids(self.root))
-            with patch("subprocess.run", side_effect=OSError("powershell missing")):
+            run.assert_called_once()
+            with patch("subprocess.run", side_effect=OSError("powershell missing")) as run:
                 self.assertIsNone(self.server._dashboard_cmdline_pids(self.root))
+            run.assert_called_once()
 
     def test_start_reconciles_orphans_before_spawn(self):
         # AC-3: no valid recorded instance + a live orphan whose URL is NOT serving → start terminates
@@ -3592,8 +3618,10 @@ class GitStatsParsingTests(unittest.TestCase):
             stdout = cmd_outputs.get(key, "")
             return MagicMock(returncode=0, stdout=stdout)
 
-        with patch("subprocess.run", side_effect=fake_run):
-            return self.lib.collect_git_stats(self.root)
+        with patch("subprocess.run", side_effect=fake_run) as run:
+            result = self.lib.collect_git_stats(self.root)
+        self.assertTrue(run.called, "the git fake must intercept collect_git_stats")
+        return result
 
     def test_shortstat_insertions_deletions_parsed(self):
         outputs = {

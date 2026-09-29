@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-28
+Last verified: 2026-09-29
 
 ## Allowed Dependencies
 
@@ -109,6 +109,23 @@ every other non-test module outside an allowlist of comment, docstring,
 message, frozen oracle and retired-name sites. When the waves root holds folders
 but none contains the profile's record file, docs-lint, `wf_list_waves` and
 `wf_current_wave` report the advisory `record_file_not_found`.
+
+This paragraph is the single statement of the label rule (change 1z8os). A label
+(the id key, the member id and status labels, the derived previous-status label
+and the back-reference label) is always written with a trailing colon, and may
+not contain `:` itself. Every label reader matches the colon form anchored to
+the start of a line (`(?m)^` in a regex, `startswith(label + ":")` on a line of
+`splitlines()`, `fullmatch` on one line, or an exact key comparison), so labels
+that are prefixes of one another in bare form, such as `Wave`, `Wave ID` and
+`Wave Status`, are distinct tokens. The profile therefore refuses only duplicate
+labels, compared casefolded. A label also may not equal or be a prefix of a
+fixed label, or have one as its prefix, compared casefolded, because some fixed
+labels (`Status:`) are read case-insensitively. Headings are still read by
+substring, so the heading prefix checks compare exactly. A census test
+(`tests/test_label_reader_census.py`) fails on any non-test reader of a profile
+label that is not both colon-terminated and line-anchored, outside an allowlist
+of messages, writers, exact-key comparisons, continuation lines that a literal
+newline precedes, and labels handed on through a variable.
 
 An optional read-only archive (wave 1z8ts) holds closed records, often frozen
 under an older vocabulary. `record_paths.ARCHIVE_ROOT` (default `None`) is

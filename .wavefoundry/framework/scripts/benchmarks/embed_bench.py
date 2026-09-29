@@ -32,6 +32,11 @@ from pathlib import Path
 from typing import Any, Optional
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+# Put the scripts directory on sys.path, then import the stdlib-only bootstrap before any
+# fastembed/onnxruntime import: it defaults ORT_DISABLE_TELEMETRY=1 (change 1z8or).
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+import venv_bootstrap  # noqa: E402
 BENCH_DIR = Path(__file__).resolve().parent
 EVAL_PATH = BENCH_DIR / "retrieval_eval.json"
 MODEL_SWAP_CODE_PATH = BENCH_DIR / "model_swap_code_queries.json"
@@ -99,6 +104,7 @@ def _truncation_rate(chunks: list[dict], model_name: str) -> dict:
     """Estimate fraction of chunks that would be truncated at model's token limit."""
     try:
         from fastembed import TextEmbedding
+        venv_bootstrap.disable_onnxruntime_telemetry()
         model_info = next(
             (m for m in TextEmbedding.list_supported_models() if m["model"] == model_name),
             None,

@@ -700,41 +700,49 @@ class FrameworkWideSubprocessIsolationGuard(unittest.TestCase):
 
     def test_provider_policy_nvidia_probe_isolates_stdin_and_no_window_on_windows(self):
         # nvidia-smi probe is MCP-reachable via wf_gpu_doctor / provider selection in the server process.
+        # Wave 1z8ox: the probe runs through run_with_tree_kill, which spawns with
+        # Popen; the fake captures that spawn (and fails it, which the probe tolerates).
         import provider_policy
 
         captured: dict[str, object] = {}
 
-        def fake_run(cmd, **kwargs):
+        def fake_popen(cmd, **kwargs):
             captured.update(kwargs)
-            return subprocess.CompletedProcess(cmd, 0, stdout="GPU 0", stderr="")
+            raise OSError("spawn captured")
 
         with patch.object(provider_policy, "shutil") as shutil_mock, \
              patch.object(provider_policy.os, "name", "nt"), \
              patch.object(subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True), \
-             patch.object(subprocess, "run", side_effect=fake_run):
+             patch.object(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200, create=True), \
+             patch.object(subprocess, "Popen", side_effect=fake_popen):
             shutil_mock.which.return_value = "/usr/bin/nvidia-smi"
-            provider_policy.nvidia_gpu_present()
+            self.assertFalse(provider_policy.nvidia_gpu_present())
 
+        self.assertTrue(captured, "the spawn fake must intercept the nvidia-smi probe")
         self.assertIs(captured["stdin"], subprocess.DEVNULL)
-        self.assertEqual(captured["creationflags"], 0x08000000)
+        self.assertEqual(captured["creationflags"], 0x08000000 | 0x00000200)
 
     def test_dashboard_powershell_scan_isolates_stdin_and_no_window_on_windows(self):
         # The PowerShell cmdline scan is MCP-reachable via server_impl's dashboard reconciliation.
+        # Wave 1z8ox: the scan runs through run_with_tree_kill, which spawns with
+        # Popen; the fake captures that spawn (and fails it, which the scan tolerates).
         import dashboard_lib
 
         captured: dict[str, object] = {}
 
-        def fake_run(cmd, **kwargs):
+        def fake_popen(cmd, **kwargs):
             captured.update(kwargs)
-            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            raise OSError("spawn captured")
 
         with patch.object(dashboard_lib.os, "name", "nt"), \
              patch.object(subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True), \
-             patch.object(subprocess, "run", side_effect=fake_run):
-            dashboard_lib._windows_process_cmdlines()
+             patch.object(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200, create=True), \
+             patch.object(subprocess, "Popen", side_effect=fake_popen):
+            self.assertIsNone(dashboard_lib._windows_process_cmdlines())
 
+        self.assertTrue(captured, "the spawn fake must intercept the PowerShell scan")
         self.assertIs(captured["stdin"], subprocess.DEVNULL)
-        self.assertEqual(captured["creationflags"], 0x08000000)
+        self.assertEqual(captured["creationflags"], 0x08000000 | 0x00000200)
 
 
 class FrameworkInProcessStdoutPurityGuard(unittest.TestCase):

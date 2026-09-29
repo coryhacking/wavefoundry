@@ -29,6 +29,28 @@ def _load_render_module():
     return mod
 
 
+# Wave 1z8ox (change 1z8ow): the timed sites these tests fake now call
+# run_with_tree_kill; route it back through isolated_run so the existing fakes
+# still intercept (each test asserts its fake was called).
+_TREE_KILL_SHIM = None
+
+
+def setUpModule():
+    global _TREE_KILL_SHIM
+    tests_dir = str(Path(__file__).resolve().parent)
+    if tests_dir not in sys.path:
+        sys.path.insert(0, tests_dir)
+    from tree_kill_support import ModuleShim
+
+    _TREE_KILL_SHIM = ModuleShim()
+    _TREE_KILL_SHIM.start()
+
+
+def tearDownModule():
+    if _TREE_KILL_SHIM is not None:
+        _TREE_KILL_SHIM.stop()
+
+
 class TrackedRuntimeDiagnosticsTests(unittest.TestCase):
     """Real Git validates pattern semantics and the non-mutating boundary."""
 
@@ -108,19 +130,21 @@ class TrackedRuntimeDiagnosticsTests(unittest.TestCase):
     def test_failures_are_advisory_and_nonrepo_is_harmless(self):
         for failure in (FileNotFoundError("git"), subprocess.TimeoutExpired("git", 5)):
             with self.subTest(failure=type(failure).__name__), \
-                 patch.object(self.mod.subprocess, "run", side_effect=failure):
+                 patch.object(self.mod.subprocess, "run", side_effect=failure) as run:
                 rows = self.mod.tracked_runtime_diagnostics(self.root)
                 self.assertEqual(rows[0]["channel"], "tracked-runtime-inspection")
                 self.assertIn("unavailable", rows[0]["detail"])
+                run.assert_called_once()
         with tempfile.TemporaryDirectory() as outside:
             self.assertEqual(self.mod.tracked_runtime_diagnostics(Path(outside)), [])
         for phase in ("discovery", "census"):
             failed = subprocess.CompletedProcess([], 128, b"", b"access refused")
             replies = [failed] if phase == "discovery" else [
                 subprocess.CompletedProcess([], 0, b"\n", b""), failed]
-            with patch.object(self.mod.subprocess, "run", side_effect=replies):
+            with patch.object(self.mod.subprocess, "run", side_effect=replies) as run:
                 self.assertEqual(self.mod.tracked_runtime_diagnostics(self.root)[0]["channel"],
                                  "tracked-runtime-inspection")
+            self.assertEqual(run.call_count, len(replies))
 
     def test_display_cap_reports_omitted_count(self):
         folder = self.root / ".wavefoundry/logs"
@@ -1196,6 +1220,8 @@ def mark_reindex_pending(index_dir):
 
 
 def should_coalesce_hook_reindex(index_dir):
+    # Only maybe_trigger_reindex asks this; mark_reindex_pending_for never does.
+    (Path(index_dir) / "coalesce-checked").write_text("1")
     return True
 
 
@@ -1229,7 +1255,10 @@ class RenderedEditHookPathTests(unittest.TestCase):
             ".claude/hooks/pre-edit.py": self.mod.claude_pre_edit_source(),
             ".claude/hooks/post-edit.py": self.mod.claude_post_edit_source(),
             ".github/hooks/post-tool-use.py": self.mod.copilot_post_tool_use_source(),
+            ".github/hooks/pre-tool-use.py": self.mod.copilot_pre_tool_use_source(),
             ".cursor/hooks/after-file-edit.py": self.mod.cursor_after_file_edit_source(),
+            ".windsurf/hooks/seed-protect.py": self.mod.windsurf_seed_protect_source(),
+            ".windsurf/hooks/docs-lint.py": self.mod.windsurf_docs_lint_source(),
         }
         for rel, source in self.hooks.items():
             target = self.root / rel
@@ -1337,6 +1366,245 @@ class RenderedEditHookPathTests(unittest.TestCase):
         self.assertIn("os._exit(2)", commands["PreToolUse"])
         for event in ("PostToolUse", "Stop", "SessionStart"):
             self.assertNotIn("os._exit(2)", commands[event])
+
+    # Wave 1z8ot (1z8op) -------------------------------------------------------------------------
+
+    def _run_raw(self, rel, stdin):
+        return subprocess.run([sys.executable, str(self.root / rel)], input=stdin, text=True,
+                              capture_output=True, cwd=str(self.base), timeout=60)
+
+    def _seed(self):
+        return str(self.root / ".wavefoundry" / "framework" / "seeds" / "100-x.prompt.md")
+
+    def test_claude_matcher_covers_every_edit_tool_in_settings_and_seeds(self):
+        settings = {}
+        with patch.object(self.mod, "write_text", side_effect=lambda path, text, **kw: settings.update(json.loads(text))):
+            self.mod.render_claude_settings(self.root)
+        expected = "Edit|Write|MultiEdit|NotebookEdit"
+        for event in ("PreToolUse", "PostToolUse"):
+            self.assertEqual(settings["hooks"][event][0]["matcher"], expected)
+        seeds = PROJECT_ROOT / "framework" / "seeds"
+        for name in ("050-agent-entry-surface-bootstrap.prompt.md", "160-upgrade-wavefoundry.prompt.md"):
+            with self.subTest(seed=name):
+                text = (seeds / name).read_text(encoding="utf-8")
+                self.assertIn(expected, text)
+                # No shorter Claude matcher survives anywhere in the seed.
+                self.assertEqual(text.count("Edit|Write"), text.count(expected))
+
+    def test_notebook_edit_of_a_seed_follows_the_seed_gate(self):
+        # Claude Code's NotebookEdit tool takes `notebook_path` (its tool schema: "The absolute path
+        # to the Jupyter notebook file to edit"), not `file_path`.
+        payload = json.dumps({"tool_name": "NotebookEdit",
+                              "tool_input": {"notebook_path": self._seed(), "new_source": "x"}})
+        self._gates()
+        self.assertEqual(self._run_raw(".claude/hooks/pre-edit.py", payload).returncode, 2)
+        self._gates(seed=True, framework=True)
+        self.assertEqual(self._run_raw(".claude/hooks/pre-edit.py", payload).returncode, 0)
+
+    def test_claude_pre_edit_fails_closed_on_payloads_it_cannot_inspect(self):
+        self._gates()
+        pathless = [
+            "", "   \n", "{not json", "[1, 2]", '"text"', "null",
+            json.dumps({"tool_input": {}}),
+            json.dumps({"tool_name": None, "tool_input": {}}),
+        ] + [json.dumps({"tool_name": name, "tool_input": {"content": "x"}})
+             for name in ("Edit", "Write", "MultiEdit", "NotebookEdit")]
+        for stdin in pathless:
+            with self.subTest(stdin=stdin):
+                result = self._run_raw(".claude/hooks/pre-edit.py", stdin)
+                self.assertEqual(result.returncode, 2)
+                for key in ("tool_input.file_path", "tool_input.notebook_path", "tool_info.file_path"):
+                    self.assertIn(key, result.stderr)
+        # A non-edit tool with no path is allowed.
+        bash = json.dumps({"tool_name": "Bash", "tool_input": {"command": "ls"}})
+        self.assertEqual(self._run_raw(".claude/hooks/pre-edit.py", bash).returncode, 0)
+        # Positive controls: an ordinary Write of a seed is blocked, of another path allowed.
+        write_seed = json.dumps({"tool_name": "Write", "tool_input": {"file_path": self._seed()}})
+        self.assertEqual(self._run_raw(".claude/hooks/pre-edit.py", write_seed).returncode, 2)
+        write_doc = json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(self.root / "src" / "a.py")}})
+        self.assertEqual(self._run_raw(".claude/hooks/pre-edit.py", write_doc).returncode, 0)
+        # Hooks that share the lenient load_payload are unchanged: unreadable stdin is not an error.
+        for rel in (".claude/hooks/post-edit.py", ".github/hooks/post-tool-use.py",
+                    ".windsurf/hooks/seed-protect.py", ".windsurf/hooks/docs-lint.py"):
+            for stdin in ("", "{not json", "[1]"):
+                with self.subTest(hook=rel, stdin=stdin):
+                    self.assertEqual(self._run_raw(rel, stdin).returncode, 0)
+        self.assertEqual(self.mod.hook_helpers().count("def load_payload("), 1)
+        self.assertNotIn("load_payload_strict", self.mod.hook_helpers())
+
+    def test_host_payload_fixtures_reach_the_gate(self):
+        seed = self._seed()
+        other = str(self.root / "src" / "app.py")
+        self._gates()
+        blocked_copilot = {
+            # Copilot CLI and cloud agent: camelCase `toolName`, `toolArgs` as a JSON-encoded string
+            # (https://docs.github.com/en/copilot/reference/hooks-reference;
+            # https://github.com/github/copilot-cli/issues/3349); file writes are `create`/`edit`
+            # with `toolArgs.path` (https://pkg.go.dev/github.com/Checkmarx/ast-cx-hooks/copilotcli).
+            "cli edit": {"sessionId": "s", "timestamp": 1, "cwd": str(self.root), "toolName": "edit",
+                         "toolArgs": json.dumps({"path": seed, "old_str": "a", "new_str": "b"})},
+            "cli create": {"toolName": "create", "toolArgs": json.dumps({"path": seed, "file_text": "x"})},
+            # The hooks reference allows `toolArgs: unknown`; an object form is read too.
+            "cli edit object args": {"toolName": "edit", "toolArgs": {"path": seed}},
+            # VS Code-compatible form: snake_case `tool_name`/`tool_input` (hooks reference above);
+            # VS Code tools use camelCase `tool_input.filePath`
+            # (https://github.com/good-enough-productions/vscode-copilot-expert/blob/main/docs/05-hooks.md).
+            "vscode create_file": {"hook_event_name": "PreToolUse", "tool_name": "create_file",
+                                   "tool_input": {"filePath": seed, "content": "x"}},
+            # Model-facing tool names and input schemas: Copilot Chat extension source
+            # (https://github.com/microsoft/vscode-copilot-chat, src/extension/tools/common/toolNames.ts
+            # and package.json `languageModelTools`).
+            "vscode notebook": {"tool_name": "edit_notebook_file", "tool_input": {"filePath": seed}},
+            "vscode replace_string": {"tool_name": "replace_string_in_file", "tool_input": {
+                "filePath": seed, "oldString": "a", "newString": "b"}},
+            # The hooks reference names `str_replace_editor` without an input shape; this fixture
+            # uses the CLI `path` key.
+            "cli str_replace_editor": {"toolName": "str_replace_editor",
+                                       "toolArgs": json.dumps({"command": "str_replace", "path": seed})},
+            "vscode insert_edit_into_file": {"tool_name": "insert_edit_into_file",
+                                             "tool_input": {"filePath": seed, "code": "x", "explanation": "e"}},
+            "vscode multi_replace": {"tool_name": "multi_replace_string_in_file", "tool_input": {
+                "explanation": "e",
+                "replacements": [{"filePath": other, "oldString": "a", "newString": "b"},
+                                 {"filePath": seed, "oldString": "a", "newString": "b"}]}},
+            # Multi-file: `editFiles` sends `tool_input.files`, a captured payload in
+            # https://humanwhocodes.com/blog/2026/05/vscode-agent-hooks/.
+            "vscode editFiles": {"tool_name": "editFiles", "tool_input": {"files": [other, seed]}},
+            # File-writing names listed by humanwhocodes (above) and
+            # https://aridanemartin.dev/blog/vscode-copilot-hooks/; neither shows an input shape, so
+            # these fixtures use the camelCase `filePath` (VS Code form) or `path` (CLI form).
+            "cli write": {"toolName": "write", "toolArgs": json.dumps({"path": seed, "content": "x"})},
+            "vscode createFile": {"tool_name": "createFile", "tool_input": {"filePath": seed, "content": "x"}},
+            "vscode writeFile": {"tool_name": "writeFile", "tool_input": {"filePath": seed, "content": "x"}},
+            # Anthropic's text editor tool takes `path`
+            # (https://platform.claude.com/docs/en/agents-and-tools/tool-use/text-editor-tool).
+            "str_replace_based_edit_tool": {"tool_name": "str_replace_based_edit_tool", "tool_input": {
+                "command": "str_replace", "path": seed, "old_str": "a", "new_str": "b"}},
+        }
+        for name, payload in blocked_copilot.items():
+            with self.subTest(host="copilot", case=name):
+                self.assertEqual(self._run_raw(".github/hooks/pre-tool-use.py", json.dumps(payload)).returncode, 2)
+        self._gates(seed=True, framework=True)
+        for name, payload in blocked_copilot.items():
+            with self.subTest(host="copilot", case=name, gate="open"):
+                self.assertEqual(self._run_raw(".github/hooks/pre-tool-use.py", json.dumps(payload)).returncode, 0)
+        self._gates()
+        # Every gated tool name has a blocked-seed fixture above.
+        covered = {payload.get("toolName") or payload.get("tool_name") for payload in blocked_copilot.values()}
+        self.assertEqual(set(self.mod.COPILOT_EDIT_TOOL_NAMES) - covered, set())
+        # A multi-replace touching only non-gated paths is allowed with the gate closed.
+        multi_other = {"tool_name": "multi_replace_string_in_file", "tool_input": {
+            "explanation": "e", "replacements": [{"filePath": other, "oldString": "a", "newString": "b"}]}}
+        self.assertEqual(self._run_raw(".github/hooks/pre-tool-use.py", json.dumps(multi_other)).returncode, 0)
+        # Shell and read tools are never blocked, even when they name a gated path.
+        for payload in ({"toolName": "bash", "toolArgs": json.dumps({"command": "cat " + seed})},
+                        {"toolName": "view", "toolArgs": json.dumps({"path": seed})},
+                        {"tool_name": "read_file", "tool_input": {"filePath": seed}}):
+            with self.subTest(host="copilot", allowed=payload):
+                self.assertEqual(self._run_raw(".github/hooks/pre-tool-use.py", json.dumps(payload)).returncode, 0)
+        # An edit tool with unreadable args, or unparseable stdin, fails closed.
+        for stdin in (json.dumps({"toolName": "edit", "toolArgs": "{broken"}), "not json"):
+            with self.subTest(host="copilot", stdin=stdin):
+                result = self._run_raw(".github/hooks/pre-tool-use.py", stdin)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("toolArgs", result.stderr)
+        # Copilot post-tool-use now sees a CLI path too.
+        doc = str(self.root / "docs" / "guide.md")
+        post = self._run_raw(".github/hooks/post-tool-use.py",
+                             json.dumps({"toolName": "edit", "toolArgs": json.dumps({"path": doc})}))
+        self.assertEqual(post.returncode, 1)
+        self.assertTrue(self._pending())
+        # Windsurf pre_write_code: `tool_info.file_path` (https://docs.windsurf.com/windsurf/cascade/hooks,
+        # now served at https://docs.devin.ai/desktop/cascade/hooks); notebooks and multi-file edits are
+        # not expressible (one file per event).
+        windsurf = {"agent_action_name": "pre_write_code", "trajectory_id": "t", "execution_id": "e",
+                    "tool_info": {"file_path": seed, "edits": [{"old_string": "a", "new_string": "b"}]}}
+        self.assertEqual(self._run_raw(".windsurf/hooks/seed-protect.py", json.dumps(windsurf)).returncode, 2)
+        # Cursor afterFileEdit: top-level `file_path` (https://cursor.com/docs/agent/hooks). It runs
+        # after the edit, so the gate halts the agent with `continue: false` rather than blocking.
+        (self.root / ".cursor" / "hooks" / "seed-warn.py").write_text(
+            self.mod.cursor_seed_warn_source(), encoding="utf-8")
+        cursor = self._run_raw(".cursor/hooks/after-file-edit.py",
+                               json.dumps({"file_path": seed, "edits": [{"old_string": "a", "new_string": "b"}]}))
+        verdict = json.loads(cursor.stdout)
+        self.assertEqual(verdict["continue"], False)
+        self.assertIn("seed_edit_allowed", verdict["message"])
+
+    @staticmethod
+    def _text_editor_payload(tool, shape, args):
+        # Copilot CLI sends `toolArgs` as a JSON string; the VS Code form sends a `tool_input` object.
+        if shape == "cli":
+            return json.dumps({"toolName": tool, "toolArgs": json.dumps(args)})
+        return json.dumps({"tool_name": tool, "tool_input": args})
+
+    def test_text_editor_view_is_a_read_and_other_commands_stay_edits(self):
+        # Anthropic's text editor tool documents `view` as its only read; `str_replace`, `create`,
+        # `insert` and `undo_edit` modify files
+        # (https://platform.claude.com/docs/en/agents-and-tools/tool-use/text-editor-tool).
+        seed = self._seed()
+        self._gates()
+        for tool in self.mod.COPILOT_TEXT_EDITOR_TOOL_NAMES:
+            for shape in ("cli", "vscode"):
+                view = self._text_editor_payload(tool, shape, {"command": "view", "path": seed})
+                with self.subTest(tool=tool, shape=shape, command="view"):
+                    self.assertEqual(self._run_raw(".github/hooks/pre-tool-use.py", view).returncode, 0)
+                edits = [{"command": name, "path": seed}
+                         for name in ("str_replace", "create", "insert", "undo_edit", "rewrite", "View", "")]
+                edits += [{"command": None, "path": seed}, {"command": ["view"], "path": seed}, {"path": seed}]
+                for args in edits:
+                    payload = self._text_editor_payload(tool, shape, args)
+                    with self.subTest(tool=tool, shape=shape, args=args):
+                        self.assertEqual(self._run_raw(".github/hooks/pre-tool-use.py", payload).returncode, 2)
+        # The post hook shares the classifier: a view of a doc runs no lint and marks no reindex.
+        doc = str(self.root / "docs" / "guide.md")
+        for tool in self.mod.COPILOT_TEXT_EDITOR_TOOL_NAMES:
+            for shape in ("cli", "vscode"):
+                view = self._text_editor_payload(tool, shape, {"command": "view", "path": doc})
+                with self.subTest(tool=tool, shape=shape, hook="post", command="view"):
+                    result = self._run_raw(".github/hooks/post-tool-use.py", view)
+                    self.assertEqual(result.returncode, 0)
+                    self.assertNotIn("stub failure", result.stdout + result.stderr)
+                    self.assertFalse(self._pending())
+                edit = self._text_editor_payload(tool, shape, {"command": "str_replace", "path": doc})
+                with self.subTest(tool=tool, shape=shape, hook="post", command="str_replace"):
+                    result = self._run_raw(".github/hooks/post-tool-use.py", edit)
+                    self.assertEqual(result.returncode, 1)
+                    self.assertIn("stub failure", result.stderr)
+                    self.assertTrue(self._pending())
+        # Other Copilot edit tools are unaffected by a `command: view` argument.
+        other = json.dumps({"toolName": "edit", "toolArgs": json.dumps({"command": "view", "path": seed})})
+        self.assertEqual(self._run_raw(".github/hooks/pre-tool-use.py", other).returncode, 2)
+
+    def test_claude_pre_edit_allows_named_non_edit_tools_and_gates_unnamed_ones(self):
+        seed = self._seed()
+        self._gates()
+        # Requirement 3 of 1z8op: any tool_name outside the edit set is allowed, whatever its path.
+        read = json.dumps({"tool_name": "Read", "tool_input": {"file_path": seed}})
+        self.assertEqual(self._run_raw(".claude/hooks/pre-edit.py", read).returncode, 0)
+        # A payload that does not name its tool, but names a gated path, is treated as an edit.
+        for tool_name in (None, "", 7):
+            payload = {"tool_input": {"file_path": seed}}
+            if tool_name is not None:
+                payload["tool_name"] = tool_name
+            with self.subTest(tool_name=tool_name):
+                self.assertEqual(self._run_raw(".claude/hooks/pre-edit.py", json.dumps(payload)).returncode, 2)
+        for name in self.mod.CLAUDE_EDIT_TOOL_NAMES:
+            payload = json.dumps({"tool_name": name, "tool_input": {"file_path": seed, "notebook_path": seed}})
+            with self.subTest(tool_name=name):
+                self.assertEqual(self._run_raw(".claude/hooks/pre-edit.py", payload).returncode, 2)
+
+    def test_windsurf_docs_lint_triggers_a_debounced_reindex(self):
+        coalesce = self.root / ".wavefoundry" / "index" / "coalesce-checked"
+        for path, code in ((self.root / "docs" / "guide.md", 1), (self.root / "src" / "app.py", 0)):
+            with self.subTest(path=str(path)):
+                payload = json.dumps({"agent_action_name": "post_write_code",
+                                      "tool_info": {"file_path": str(path)}})
+                result = self._run_raw(".windsurf/hooks/docs-lint.py", payload)
+                self.assertEqual(result.returncode, code)
+                self.assertTrue(self._pending())
+                # maybe_trigger_reindex, not the Stop-flushed mark_reindex_pending_for.
+                self.assertTrue(coalesce.exists())
+                coalesce.unlink()
 
 
 if __name__ == "__main__":
