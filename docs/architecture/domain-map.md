@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-09-29
 
 ## Domains
 
@@ -49,6 +49,14 @@ assessment when no readable stamp exists (never replacing a readable one). The s
 compares only setup-relevant environment fields (tool environment, Python
 `major.minor`, provider and reranker selection). Recovery continuations
 remain owned and fully revalidated by setup or upgrade, never by the check.
+
+MCP startup is the one caller that acts on an assessment (wave `1zfd9`): when
+missing or version-incompatible dependencies are the only blocking reason,
+`server.py` hands the reported specs to `setup_index.install_requirement_specs`,
+which installs them through uv into the existing tool environment. Every dependency
+install (`wf setup`, the upgrade's dependency step, startup) takes one OS lock stored
+beside the tool-environment directory (`setup_index.dependency_install_lock_path`).
+The assessor itself still performs no installs.
 
 ## Interaction Edges
 

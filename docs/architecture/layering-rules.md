@@ -196,7 +196,12 @@ grammar used by setup and the assessor; metadata inspection must not activate th
 its `.pth` files. Advisory stamps never replace live compatibility and ownership checks.
 The same holds for its consumers that run before activation: `wf setup --check`,
 MCP startup, and the Claude Code session-start hook, whose body is composed without
-the tool-environment bootstrap and writes no framework bytecode.
+the tool-environment bootstrap and writes no framework bytecode. MCP startup's
+dependency install (wave `1zfd9`) keeps this: `setup_index`, `setup_requirements`,
+`runtime_lock` and `process_info` are imported before activation because each imports
+only the standard library at module level, the installer runs
+as a child process targeting the tool environment's interpreter, and the parent never
+activates the tool environment to install.
 
 `sqlite_storage_migration` may load the pinned legacy reader only during supported
 setup- or upgrade-owned conversion. Its durable receipt records recovery and cleanup progress;

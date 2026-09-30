@@ -36,6 +36,10 @@ def render(result, format_command):
         lines.append(_clean("- " + str(item.get("code")) + ": " + str(item.get("message"))))
     if len(reasons) > MAX_REASONS:
         lines.append("- (" + str(len(reasons) - MAX_REASONS) + " more reasons omitted)")
+    if any(item.get("code") == "dependencies_missing" for item in reasons):
+        # Wave 1zfd9: MCP startup installs missing declared dependencies itself.
+        lines.append("The MCP server attempts to install missing dependencies at startup; "
+                     "if it fails to start, run `wf setup`.")
     for action in result.get("actions") or []:
         kind = action.get("kind")
         if kind == "restart":

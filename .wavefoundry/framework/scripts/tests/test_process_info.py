@@ -153,6 +153,8 @@ _STDLIB_ONLY = (
     "venv_bootstrap.py", "setup_requirements.py", "setup_readiness.py", "setup_index.py",
     "setup_wavefoundry.py", "setup_reconciliation.py", "upgrade_lib.py", "dashboard_lib.py",
     "sqlite_storage_migration.py",
+    # Wave 1zfd9: the shared dependency-install lock is taken before activation.
+    "runtime_lock.py",
 )
 
 

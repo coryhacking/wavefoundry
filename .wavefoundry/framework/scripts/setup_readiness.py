@@ -441,8 +441,8 @@ def assess_setup(root: Path, *, loaded_identity: dict | None = None,
               'advisories': [advisory] if advisory is not None else [],
               'limitations': list(LIMITATIONS), 'timings_ms': {}}
     unknown, needs_setup, pending, preserve = False, False, False, False
-    def reason(code, message):
-        result['reasons'].append({'code': code, 'message': message})
+    def reason(code, message, **extra):
+        result['reasons'].append({'code': code, 'message': message, **extra})
     try:
         root = Path(root).resolve(strict=True)
         if not root.is_dir():
@@ -465,7 +465,9 @@ def assess_setup(root: Path, *, loaded_identity: dict | None = None,
         if identity['errors']:
             raise ObservationError('; '.join(identity['errors']))
         if loaded_identity is not None and loaded_identity != identity:
-            reason('loaded_code_stale', 'Installed assessment/producer code changed; restart the Wavefoundry host before reassessing.')
+            reason('loaded_code_stale', 'Installed assessment/producer code changed; restart the Wavefoundry host before reassessing. '
+                   'The restarted server attempts to install any newly required dependencies at startup; '
+                   'if it fails to start, run `wf setup`.')
             result['actions'].append({'kind': 'restart', 'argv': []})
             unknown = True
         try:
@@ -497,7 +499,8 @@ def assess_setup(root: Path, *, loaded_identity: dict | None = None,
                 result['startup_blocked'] = False
             if missing:
                 needs_setup = True; result['startup_blocked'] = True
-                reason('dependencies_missing', 'Missing or incompatible dependency metadata: ' + ', '.join(missing))
+                reason('dependencies_missing', 'Missing or incompatible dependency metadata: ' + ', '.join(missing),
+                       missing=list(missing))
         result['timings_ms']['environment'] = round((time.monotonic() - env_started) * 1000, 3)
         config = _safe(root, CONFIG_FILES[0])
         if not config.exists():
@@ -617,6 +620,39 @@ def assess_setup(root: Path, *, loaded_identity: dict | None = None,
     result['status'] = 'indeterminate' if unknown else 'action_required' if result['actions'] else 'ready'
     result['timings_ms']['total'] = round((time.monotonic() - started) * 1000, 3)
     return result
+
+
+# Wave 1zfd9: reasons that rule out the MCP server's startup install. Anything
+# else a pull produces alongside dependencies_missing (setup_inputs_changed,
+# producer_changed, index_*, model_changed, configuration_*, surface_*) does not.
+STARTUP_INSTALL_EXCLUDED_REASONS = frozenset({
+    'environment_missing', 'environment_incompatible', 'framework_missing',
+    'recovery_pending', 'recovery_unproven', 'loaded_code_stale',
+    'assessment_unproven', 'probe_timeout', 'inputs_changed',
+})
+
+
+def startup_install_specs(result: dict) -> list:
+    """The requirement specs MCP startup may install, or ``[]`` (wave 1zfd9).
+
+    Non-empty only when startup is blocked, a ``dependencies_missing`` reason
+    lists the specs, and no excluded reason is present.
+    """
+    if not result.get('startup_blocked'):
+        return []
+    reasons = [item for item in result.get('reasons') or [] if isinstance(item, dict)]
+    if any(item.get('code') in STARTUP_INSTALL_EXCLUDED_REASONS for item in reasons):
+        return []
+    return missing_dependency_specs(result)
+
+
+def missing_dependency_specs(result: dict) -> list:
+    """The specs a ``dependencies_missing`` reason lists (absent or version-incompatible)."""
+    specs = []
+    for item in result.get('reasons') or []:
+        if isinstance(item, dict) and item.get('code') == 'dependencies_missing':
+            specs.extend(spec for spec in item.get('missing') or [] if isinstance(spec, str))
+    return list(dict.fromkeys(specs))
 
 
 def exit_code(result: dict) -> int:

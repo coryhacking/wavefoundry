@@ -39,6 +39,21 @@ class ProcessInfoUnavailable(RuntimeError):
 
 _LOCK = threading.Lock()
 _PSUTIL: Any = None
+# Wave 1zfd9: while MCP startup installs psutil in the background, the module
+# is not imported, so the next call after the install loads the installed
+# version instead of one already held in this process.
+_STARTUP_INSTALL_PENDING: Optional[str] = None
+
+
+def set_startup_install_pending(message: Optional[str]) -> None:
+    """Mark a startup install of ``psutil`` as running (a message) or finished (None)."""
+    global _STARTUP_INSTALL_PENDING
+    _STARTUP_INSTALL_PENDING = message
+
+
+def psutil_loaded() -> bool:
+    """Whether this process already holds ``psutil`` (a replacement then needs a restart)."""
+    return _PSUTIL is not None
 
 
 def _min_version() -> tuple[int, ...]:
@@ -70,6 +85,8 @@ def _load() -> Any:
     with _LOCK:
         if _PSUTIL is not None:
             return _PSUTIL
+        if _STARTUP_INSTALL_PENDING:
+            raise ProcessInfoUnavailable(_STARTUP_INSTALL_PENDING)
         importlib.invalidate_caches()
         try:
             module = importlib.import_module("psutil")

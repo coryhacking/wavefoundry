@@ -62,7 +62,11 @@ sees stderr notices. Where the host supports it, a session-start hook runs the s
 read-only check and reports a non-ready result into the session; at session start
 no task authorization exists yet, so report it and ask the operator before running
 setup, and the existing task-authorization rule applies after that. The hook never
-runs setup. No Git hooks are installed by this guidance.
+runs setup. The MCP server's own startup is the one exception to report-only: when
+missing or version-incompatible declared dependencies are the only thing blocking it,
+it installs them into the tool environment through uv (in the background when it can
+run without them) and reports the install in `wf_server_info`; if it still cannot
+start, run `wf setup`. No Git hooks are installed by this guidance.
 
 Also put a short native-Windows pre-MCP prerequisite instruction in root `AGENTS.md`: for a fresh install or an already-seeded checkout on a new workstation, run `powershell -NoProfile -File ".\.wavefoundry\framework\scripts\diagnose_python.ps1"` before treating `wf.cmd`, MCP or completed install rows as proof of local readiness. A failed or policy-blocked diagnostic must route to `.wavefoundry/framework/seeds/011-install-wavefoundry-phase-1.prompt.md` **Python prerequisite**; the required host command remains `python3` 3.11 or newer. Do not rerender, reseed or rebuild merely to diagnose missing local Python.
 

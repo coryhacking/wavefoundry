@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import contextlib
 import io
 import json
 import os
@@ -354,7 +355,8 @@ class SetupIndexTests(unittest.TestCase):
     def test_ensure_deps_installs_missing_packages(self):
         """ensure_deps calls _install_deps for missing packages then rechecks."""
         with patch.object(self.mod, "_bootstrap_venv", return_value=FAKE_VENV_PYTHON):
-            with patch.object(self.mod, "_missing_in_venv", return_value=["fastembed", "numpy"]):
+            with patch.object(self.mod, "_missing_in_venv", return_value=["fastembed", "numpy"]), \
+                    patch.object(self.mod, "_held_install_lock", return_value=contextlib.nullcontext()):
                 with patch.object(self.mod, "_install_deps"):
                     with self.assertRaises(SystemExit) as raised:
                         # Second call to _missing_in_venv still returns packages → exits 2
@@ -363,7 +365,8 @@ class SetupIndexTests(unittest.TestCase):
 
     def test_ensure_deps_succeeds_when_all_installed(self):
         with patch.object(self.mod, "_bootstrap_venv", return_value=FAKE_VENV_PYTHON):
-            with patch.object(self.mod, "_missing_in_venv", return_value=[]):
+            with patch.object(self.mod, "_missing_in_venv", return_value=[]), \
+                    patch.object(self.mod, "_held_install_lock", return_value=contextlib.nullcontext()):
                 with redirect_stdout(io.StringIO()):
                     self.mod.ensure_deps()  # must not raise
 
@@ -374,16 +377,19 @@ class SetupIndexTests(unittest.TestCase):
 
         def missing_side_effect(venv_python, required_imports=None):
             call_count[0] += 1
+            # The check under the install lock, then the check after installing (wave 1zfd9).
             return missing if call_count[0] == 1 else []
 
-        with patch.object(self.mod, "_bootstrap_venv", return_value=FAKE_VENV_PYTHON):
+        with patch.object(self.mod, "_bootstrap_venv", return_value=FAKE_VENV_PYTHON), \
+                patch.object(self.mod, "_venv_needs_bootstrap", return_value=True):
             with patch.object(self.mod, "_missing_in_venv", side_effect=missing_side_effect):
-                with patch.object(self.mod, "_install_deps") as mock_install:
-                    with redirect_stdout(io.StringIO()):
-                        self.mod.ensure_deps()
+                with patch.object(self.mod, "_held_install_lock", return_value=contextlib.nullcontext()):
+                    with patch.object(self.mod, "_install_deps") as mock_install:
+                        with redirect_stdout(io.StringIO()):
+                            self.mod.ensure_deps()
 
         # Wave 1p9it: ensure_deps threads root through to _install_deps (root=None here — direct call).
-        mock_install.assert_called_once_with(missing, FAKE_VENV_PYTHON, None)
+        mock_install.assert_called_once_with(missing, FAKE_VENV_PYTHON, None, lock=None)
 
     def test_install_deps_invokes_pip_via_venv_python(self):
         """_install_deps uses the venv Python, not sys.executable."""
@@ -1104,14 +1110,17 @@ class MigrationReaderDependencyTests(unittest.TestCase):
     def test_reader_is_installed_only_by_explicit_migration_path(self):
         root=Path('/test/root')
         with patch.object(self.mod,'_bootstrap_venv',return_value=FAKE_VENV_PYTHON), \
+             patch.object(self.mod,'_venv_needs_bootstrap',return_value=True), \
              patch.object(self.mod,'_missing_in_venv',side_effect=[['lancedb==0.33.0'],[]]), \
+             patch.object(self.mod,'_held_install_lock',return_value=contextlib.nullcontext()), \
              patch.object(self.mod,'_install_deps') as install:
             self.mod.ensure_migration_deps(root)
-        install.assert_called_once_with(['lancedb==0.33.0'],FAKE_VENV_PYTHON,root)
+        install.assert_called_once_with(['lancedb==0.33.0'],FAKE_VENV_PYTHON,root,lock=None)
         self.assertNotIn('lancedb',self.mod.REQUIRED_IMPORTS.values())
     def test_reader_install_failure_is_not_success(self):
         with patch.object(self.mod,'_bootstrap_venv',return_value=FAKE_VENV_PYTHON), \
              patch.object(self.mod,'_missing_in_venv',return_value=['lancedb==0.33.0']), \
+             patch.object(self.mod,'_held_install_lock',return_value=contextlib.nullcontext()), \
              patch.object(self.mod,'_install_deps'):
             with self.assertRaises(SystemExit): self.mod.ensure_migration_deps(Path('/test/root'))
 

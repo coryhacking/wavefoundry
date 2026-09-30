@@ -101,7 +101,7 @@ separate advisory and does not invalidate an otherwise usable core index.
 MCP startup and its existing staleness monitor use the same assessment; startup
 notices use stderr so they cannot corrupt MCP protocol output.
 
-After Git operations that change the checkout, follow `AGENTS.md` **Check readiness after Git changes**: call `index_health()` and inspect both freshness and `data.setup_readiness`. If MCP is unavailable, use `wf setup --check --json`; this fallback does not verify source freshness. The check reports actions without automatically executing repairs.
+After Git operations that change the checkout, follow `AGENTS.md` **Check readiness after Git changes**: call `index_health()` and inspect both freshness and `data.setup_readiness`. If MCP is unavailable, use `wf setup --check --json`; this fallback does not verify source freshness. The check reports actions without automatically executing repairs; the one automatic action is the MCP server's own startup install of missing or version-incompatible declared dependencies (wave `1zfd9`).
 
 ### Onboarding
 

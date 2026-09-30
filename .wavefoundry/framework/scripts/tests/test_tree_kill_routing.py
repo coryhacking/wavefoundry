@@ -81,6 +81,8 @@ ROUTED = {
     ("setup_index.py", "_bootstrap_uv", "_run_install_step"): 1,
     ("setup_index.py", "_bootstrap_venv", "_run_install_step"): 1,
     ("setup_index.py", "_install_deps", "_run_install_step"): 1,
+    # Wave 1zfd9: the MCP startup installer (uv only).
+    ("setup_index.py", "install_requirement_specs", "_run_install_step"): 1,
     ("techdocs_audit_lib.py", "run_techdocs_audit", "run_with_tree_kill"): 1,
     ("upgrade_wavefoundry.py", "_delegated_summary_payload", "run_with_tree_kill"): 1,
     ("upgrade_wavefoundry.py", "_read_installed_graph_builder_version", "run_with_tree_kill"): 1,

@@ -109,6 +109,11 @@ UPGRADE_SUMMARY_TERMINAL_KEYS = {
     # registration lives in the MCP server's in-process module, so it takes
     # effect only after a full host restart; emission is unaffected by that.
     "summary_schema_version",
+    # Wave 1zfd9: setup readiness after cleanup and the dependency step outcome.
+    # ``setup_reasons`` is a list, bounded as a collection.
+    "setup_status",
+    "setup_command",
+    "dependency_provisioning_failed",
     *RETIRED_MODEL_CLEANUP_KEYS,
 }
 
@@ -1257,6 +1262,24 @@ def wf_upgrade_response(
         if _index_pub_failed
         else None
     )
+    # Wave 1zfd9: a failed dependency step is not an index publication failure.
+    _deps_failed = bool(
+        (summary is not None and summary.get("dependency_provisioning_failed") is True)
+        or "Dependency provisioning FAILED" in output
+    )
+    _deps_diag = (
+        _diagnostic(
+            "dependency_provisioning_failed",
+            "The upgrade could not install the declared dependencies, so the index "
+            "update did not run. Fix network, proxy or TLS access to the package "
+            "index, then run `wf setup`. Report this to the operator and ask before "
+            "running any command.",
+            recovery_tools=["wf_upgrade_status"],
+            recovery_usage="wf setup",
+        )
+        if _deps_failed
+        else None
+    )
     _retired_cleanup_failed = bool(
         (
             summary is not None
@@ -1443,12 +1466,16 @@ def wf_upgrade_response(
             # 1u44n: the standalone index phases reuse exit 1; do not mislabel
             # an observed publication failure as a docs-gate failure.
             reason = "index publication failed"
+        if result.returncode == 1 and _deps_failed:
+            reason = "dependency provisioning failed; run `wf setup`"
         err = server_impl._response(
             "error",
             data,
             diagnostics=[_diagnostic("upgrade_failed", f"Upgrade phase '{phase}' failed: {reason}")],
             next_tools=_next_tools,
         )
+        if _deps_diag is not None:
+            err.setdefault("diagnostics", []).append(_deps_diag)
         if _index_pub_diag is not None:
             err.setdefault("diagnostics", []).append(_index_pub_diag)
         err["next_step"] = _next_step
@@ -1478,7 +1505,24 @@ def wf_upgrade_response(
         else:
             _next_step = _next_step + " " + _CUTOVER_RESTART_INSTRUCTION
 
+    # Wave 1zfd9: after cleanup, a setup state that is not ready puts its command
+    # ahead of the reload (read from the raw parsed summary, like the cutover check).
+    if phase == "cleanup" and isinstance(summary, dict):
+        setup_status = summary.get("setup_status")
+        setup_command = summary.get("setup_command")
+        if setup_status not in (None, "ready", "not_assessed") and setup_command:
+            _next_step = (
+                f"Setup needs attention ({setup_status}): recommended `{setup_command}` before "
+                "wf_reload_mcp. Report this to the operator and ask before running any command. "
+                + _next_step
+            )
+            # ``wf setup`` is a CLI command, not a tool; index_health reports the
+            # same assessment and command, so it leads next_tools ahead of the reload.
+            _next_tools = ["index_health", *[t for t in _next_tools if t != "index_health"]]
+
     resp = server_impl._response("ok", data, usage=f"wf_upgrade(phase='{phase}')", next_tools=_next_tools)
+    if _deps_diag is not None:
+        resp.setdefault("diagnostics", []).append(_deps_diag)
     if _index_pub_diag is not None:
         # 1u44n: a zero-exit run whose summary reports a failed publication
         # still carries the index_health-naming diagnostic.

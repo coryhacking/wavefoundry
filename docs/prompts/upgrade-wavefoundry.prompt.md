@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-22
+Last verified: 2026-09-29
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -24,6 +24,13 @@ currently checked out usable on this machine. After pulling a teammate's
 committed upgrade, run `wf setup`. It selects no archive and preserves project
 customizations. Missing indexes build, compatible indexes update, and supported
 obsolete storage uses the existing staged migration and verified cleanup.
+
+When the pulled framework adds or re-pins a required package, the MCP server
+installs it at its next start, through uv with its package-age guard: in the
+background when the server can run without it, before starting otherwise. The
+install shows in `wf_server_info` (`startup_install`); if the server still cannot
+start, run `wf setup`. A server already running when the pull lands reports
+`loaded_code_stale` and cannot see the new requirement: restart the host.
 
 A pending archive-owned upgrade cannot be adopted by setup: keep its original
 archive and exact continuation. A setup-owned handoff retains the installed
@@ -341,6 +348,8 @@ What this prompt is not:
 
 **Upgrade REPORTING no longer waits a cycle (and what still does).** The same old-code window used to apply to the upgrade's own reporting: the primary-phase summary sentinel was built by the pre-extraction orchestrator, so any change to what the upgrade reports shipped one upgrade late and produced false "the fix does not work" field reports. That window is now closed structurally: the parent delegates the primary-phase summary (and the reconciliation scan it embeds) to a subprocess running the freshly extracted tree's `upgrade_wavefoundry.py --emit-summary`, behind a pinned entry-point contract carrying a `summary_schema_version` token (a tripwire against silent drift: deliberate versioned evolution is supported by bumping the token, and old runners then degrade with a marker for one transition run); any delegation failure degrades to the parent's own in-process summary marked with `summary_source_degraded`, never a silent substitution. Three class boundaries matter when reading upgrade output: (a) sentinel-carried summary fields take effect on the upgrade that installs them; (b) behavior-class fixes (what the upgrade DOES mid-run) still need a pack hook bridge, like the permissions backstops above, to act on their installing upgrade; and (c) server-resident response fields (`runner_stale`, diagnostics composition, response bounding) are computed by the running MCP server and still require a full host restart on every release. One residual fires exactly once per target: the upgrade that first installs the delegation is still driven by a pre-delegation parent, so that single transition run reports an old-schema summary. Do not report that one transition run's old-schema summary as the backstop failing to work; every later upgrade reports on fresh code.
 
+**Dependencies and setup readiness after an upgrade.** The upgrade installs the declared dependencies as its own step before Phase 4 indexing. If that install fails (offline, proxy or TLS interception, application control), the index update does not run: the summary's `index_update` reads `not run: dependency provisioning failed; run wf setup` (the recommended command is `wf setup`), `dependency_provisioning_failed` is `true`, and `wf_upgrade` returns a `dependency_provisioning_failed` diagnostic instead of an index publication failure. The cleanup summary carries `setup_status` (`ready`, `action_required`, `indeterminate` or `not_assessed`), `setup_reasons` and `setup_command`; when setup is not ready after cleanup, `next_step` recommends `setup_command` ahead of `wf_reload_mcp` (report it to the operator and ask before running it). Transition runs: the setup fields come from the new-code `--cleanup` process, so they appear on the upgrade that installs them. The separate dependency step changes what Phase 4 does, and on the default path of both `wf upgrade` and `wf_upgrade()` Phase 4 runs in the pre-extraction orchestrator, so it takes effect from the next upgrade (it applies at once when Phase 4 runs as a new-code process: `--update-index`, `--rebuild-index`, `--resume-after-memory`); that transition run still installs through the Phase 4 child's own dependency check, and if that install fails the upgrade completes but reports an index publication failure recommending `index_build`. On that run, follow the cleanup summary's `setup_command` (`wf setup`) instead: `index_build` cannot install a missing package. The new `next_step` is computed by the running server, so it appears after `wf_reload_mcp` or a restart onto the new code. Do not report either transition run as the fix failing.
+
 **Reading token presence (do this before reporting a missing token).** `summary_schema_version` is NOT delegation-exclusive: the cleanup phase's emit site carries it too, on both the success and the failure branch. Present, it says only that post-extraction framework code rendered THIS summary; it never says which emitter produced it, and it never claims the upgrade succeeded (`failed_phase` is the success discriminator). Absent, it has three distinct causes and a field report must name which one applies instead of reporting a bare "absent":
 
 1. **The in-process degradation fallback produced the summary.** Always accompanied by `summary_source_degraded`, which names the delegation failure class.
@@ -622,7 +631,7 @@ Surface rendering in the normal installing upgrade runs the on-disk renderer in 
 
 ### Post-Git readiness instruction reconciliation
 
-When seed 050 changes, merge its **Check readiness after Git changes** instruction into root `AGENTS.md`, preserving project-specific guidance. Verify checkout-changing operations and conflict stops require `index_health()`, that both freshness and `data.setup_readiness` are inspected, and that the no-MCP `wf setup --check --json` fallback is described as bounded readiness only. Keep host wrappers as pointers; do not install Git hooks or automatically execute recommended repairs.
+When seed 050 changes, merge its **Check readiness after Git changes** instruction into root `AGENTS.md`, preserving project-specific guidance. Verify checkout-changing operations and conflict stops require `index_health()`, that both freshness and `data.setup_readiness` are inspected, and that the no-MCP `wf setup --check --json` fallback is described as bounded readiness only. Keep host wrappers as pointers; do not install Git hooks or automatically execute recommended repairs. The one exception is the MCP server's own startup install of missing or version-incompatible declared dependencies, which seed 050 names.
 
 ## Wavefoundry tooling Python runtime guidance
 

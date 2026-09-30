@@ -52,6 +52,10 @@ REQUIRED_IMPORTS = {
     "networkx>=3.0": "networkx",
     PSUTIL_REQUIREMENT: "psutil",
 }
+# Wave 1zfd9: requirements the MCP server imports lazily and runs without, so a
+# startup install of only these runs in the background after the server starts.
+# A test pins that no module imported at server start imports them at module level.
+STARTUP_DEFERRABLE_IMPORTS = frozenset({PSUTIL_REQUIREMENT})
 CUDA_DEPENDENCY_IMPORTS = {
     "fastembed-gpu": "fastembed",
 }

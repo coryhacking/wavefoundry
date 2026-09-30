@@ -223,10 +223,12 @@ def _make_zip(entries: dict[str, str], prefix: str = ".wavefoundry/framework/see
 # Wave 1z8tr: the timed sites these tests fake now call run_with_tree_kill;
 # route it back through isolated_run so the existing fakes still intercept.
 _TREE_KILL_SHIM = None
+_DEPENDENCY_METADATA_PATCH = None
+_REAL_DEPENDENCIES = None
 
 
 def setUpModule():
-    global _TREE_KILL_SHIM
+    global _TREE_KILL_SHIM, _DEPENDENCY_METADATA_PATCH
     if str(SCRIPTS_ROOT) not in sys.path:
         sys.path.insert(0, str(SCRIPTS_ROOT))
     if str(SCRIPTS_ROOT / "tests") not in sys.path:
@@ -235,9 +237,20 @@ def setUpModule():
 
     _TREE_KILL_SHIM = ModuleShim()
     _TREE_KILL_SHIM.start()
+    # Wave 1zfd9: the upgrade's dependency step reads tool-venv metadata first; report
+    # nothing missing so no test here reaches the real installer, whatever state the
+    # host's tool venv is in. The step itself is tested in test_startup_install.
+    import setup_readiness
+
+    global _REAL_DEPENDENCIES
+    _REAL_DEPENDENCIES = setup_readiness._dependencies
+    _DEPENDENCY_METADATA_PATCH = patch.object(setup_readiness, "_dependencies", return_value=[])
+    _DEPENDENCY_METADATA_PATCH.start()
 
 
 def tearDownModule():
+    if _DEPENDENCY_METADATA_PATCH is not None:
+        _DEPENDENCY_METADATA_PATCH.stop()
     if _TREE_KILL_SHIM is not None:
         _TREE_KILL_SHIM.stop()
 
@@ -1445,7 +1458,9 @@ class PhaseCleanupSetupBaselineTests(unittest.TestCase):
     def test_not_ready_cleanup_writes_nothing_and_names_setup(self):
         for info in (self.root / "venv").rglob("numpy-*.dist-info"):
             shutil.rmtree(info)
-        out = self._cleanup()
+        # This test removes metadata on purpose, so it reads the real metadata.
+        with patch.object(self.readiness, "_dependencies", _REAL_DEPENDENCIES):
+            out = self._cleanup()
         self.assertFalse(self.stamp.exists())
         self.assertIn("setup readiness: action_required); run `wf setup`.", out)
 
@@ -1506,10 +1521,19 @@ class PhaseCleanupSetupBaselineTests(unittest.TestCase):
                 self.assertEqual(waits, [])
                 self.assertFalse(self.stamp.exists())
 
+    def test_dependency_failure_assesses_without_stamping(self):
+        """Wave 1zfd9: a failed dependency step never records a setup baseline."""
+        out = self._cleanup(dependency_provisioning_failed=True)
+        self.assertFalse(self.stamp.exists())
+        self.assertIn('"dependency_provisioning_failed": true', out)
+        self.assertIn('"setup_status": "ready"', out)
+
     def test_index_update_failure_writes_nothing(self):
         out = self._cleanup(index_update_failed=True)
         self.assertFalse(self.stamp.exists())
-        self.assertIn("Setup baseline not recorded (index update failed); run `wf setup`.", out)
+        self.assertIn("Setup baseline not recorded (index update did not complete); run `wf setup`.", out)
+        # Wave 1zfd9: still assessed (without stamping), so the summary reports setup.
+        self.assertIn('"setup_status": "ready"', out)
 
     def test_source_change_since_assessment_writes_nothing(self):
         real = self.readiness.capture_loaded_identity()
@@ -7243,6 +7267,15 @@ class DelegatedSummaryContractTests(unittest.TestCase):
             for line in out.splitlines()
             if line.startswith(sentinel)
         ]
+
+    def test_cleanup_reports_a_recorded_dependency_failure(self):
+        """Wave 1zfd9: the --cleanup branch reads dependency_provisioning_failed from the lock."""
+        root = self._cleanup_ready_root(dependency_provisioning_failed=True)
+        out, code = self._drive_cleanup(root)
+        summaries = self._cleanup_sentinels(out)
+        self.assertEqual(len(summaries), 1, out)
+        self.assertIs(summaries[0]["dependency_provisioning_failed"], True)
+        self.assertTrue(summaries[0]["index_update"].startswith("not run: dependency provisioning failed"))
 
     def test_checkpoint_pause_recovery_cleanup_carries_the_schema_token(self):
         """Wave 1uf68 requirement 6(a) / AC-1: the FAILURE branch of

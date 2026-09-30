@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-26
+Last verified: 2026-09-29
 
 ## Runtime advisory boundary
 
@@ -217,6 +217,14 @@ that no server was running. Start reports success only for a verified serving
 child, reaps an exited child and reports a still-starting child as pending.
 If another verified server wins startup, its actual PID and URL are returned as
 already running rather than claiming that a new server was started.
+
+### Path 7a: MCP Startup Dependency Install (wave 1zfd9)
+
+1. `server.py`'s executable entry assesses setup before activation (`_assess_startup`).
+2. `_startup_install_gate` asks `setup_readiness.startup_install_specs` for the specs startup may install: non-empty only when startup is blocked, `dependencies_missing` lists them, and no excluded reason is present. `--dry-run` skips this.
+3. If every spec is in `setup_requirements.STARTUP_DEFERRABLE_IMPORTS`, the gate marks `process_info` as waiting for the install, records a `startup_install_running` reason, and startup continues; after `build_server`, a daemon thread runs the install, reassesses, clears the `process_info` wait and publishes the new assessment to the handler.
+4. Otherwise the gate prints one stderr line, installs before `server_impl` is imported, reassesses once, and startup exits with the `wf setup` guidance if still blocked.
+5. Both paths call `setup_index.install_requirement_specs`: uv only, from the tool-environment directory, under the shared install lock, with the recheck under the lock, and all output on stderr. `wf_server_info` reads the runner's record (`startup_install`) through a provider that survives `wf_reload_mcp`.
 
 ### Path 8: Hook- and MCP-Owned Incremental Index Refresh
 

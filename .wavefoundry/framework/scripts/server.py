@@ -34,11 +34,152 @@ _STARTUP_ASSESSMENT: dict[str, Any] | None = None
 _STARTUP_ROOT: Path | None = None
 
 
-def _assess_startup(root: Path) -> dict[str, Any]:
+def _assess_startup(root: Path, *, report: bool = True) -> dict[str, Any]:
     result = setup_readiness.assess_setup(root, loaded_identity=_SETUP_LOADED_IDENTITY)
-    if result["status"] != "ready":
+    if report and result["status"] != "ready":
         print(setup_readiness.format_text(result), file=sys.stderr)
     return result
+
+
+# Wave 1zfd9: MCP startup installs missing or version-incompatible declared
+# dependencies when they are the only thing blocking it. The record lives in the
+# runner (it survives implementation reload) and is read through a provider.
+_STARTUP_INSTALL: Optional[dict[str, Any]] = None
+_STARTUP_INSTALL_LOCK = threading.Lock()
+_BACKGROUND_INSTALL_SPECS: list[str] = []
+_INSTALL_OK = ("installed", "already_installed")
+
+
+def _startup_install_snapshot() -> Optional[dict[str, Any]]:
+    with _STARTUP_INSTALL_LOCK:
+        return dict(_STARTUP_INSTALL) if _STARTUP_INSTALL is not None else None
+
+
+def _set_startup_install(**fields: Any) -> None:
+    global _STARTUP_INSTALL
+    with _STARTUP_INSTALL_LOCK:
+        _STARTUP_INSTALL = {**(_STARTUP_INSTALL or {}), **fields}
+
+
+def _with_reason(assessment: dict[str, Any], code: str, message: str) -> dict[str, Any]:
+    result = dict(assessment)
+    result["reasons"] = [*(assessment.get("reasons") or []), {"code": code, "message": message}]
+    return result
+
+
+def _missing_now(root: Path) -> list[str]:
+    """Specs still missing, reassessed once the install lock is held."""
+    result = setup_readiness.assess_setup(root, loaded_identity=_SETUP_LOADED_IDENTITY)
+    return setup_readiness.missing_dependency_specs(result)
+
+
+def _startup_install_gate(root: Path, assessment: dict[str, Any], *, dry_run: bool) -> dict[str, Any]:
+    """Install what blocks startup, or plan a background install (wave 1zfd9).
+
+    Returns the assessment startup continues with. Deferrable packages (the
+    server runs without them) install in the background after the transport
+    starts; anything else installs here, before ``server_impl`` is imported.
+    ``--dry-run`` never installs. ``setup_index`` is imported before the
+    transport starts in both cases, because its import reconfigures stdio.
+    """
+    try:
+        return _startup_install_gate_unguarded(root, assessment, dry_run=dry_run)
+    except Exception as exc:  # noqa: BLE001 - a torn tree or a bug here must not hide the guidance
+        print(f"wavefoundry: startup dependency install skipped ({type(exc).__name__}: {exc})", file=sys.stderr)
+        return assessment
+
+
+def _startup_install_gate_unguarded(root: Path, assessment: dict[str, Any], *, dry_run: bool) -> dict[str, Any]:
+    global _BACKGROUND_INSTALL_SPECS
+    if dry_run:
+        return assessment
+    # A torn tree can pair this runner with an older assessor; no install then.
+    select = getattr(setup_readiness, "startup_install_specs", None)
+    specs = select(assessment) if callable(select) else []
+    if not specs:
+        return assessment
+    import setup_index
+    import setup_requirements
+
+    if all(spec in setup_requirements.STARTUP_DEFERRABLE_IMPORTS for spec in specs):
+        import process_info
+
+        process_info.set_startup_install_pending(
+            "MCP startup is installing " + ", ".join(specs) + "; process information is available when it finishes"
+        )
+        _BACKGROUND_INSTALL_SPECS = list(specs)
+        _set_startup_install(mode="background", packages=list(specs), status="pending", message="")
+        return _with_reason(
+            assessment,
+            "startup_install_running",
+            "MCP startup is installing " + ", ".join(specs) + " in the background; this notice updates when it finishes.",
+        )
+    print(
+        "wavefoundry: installing missing dependencies before starting: " + " ".join(specs)
+        + ". If startup is interrupted, run `wf setup`.",
+        file=sys.stderr,
+    )
+    _set_startup_install(mode="foreground", packages=list(specs), status="running", message="")
+    outcome = setup_index.install_requirement_specs(
+        specs,
+        root=root,
+        lock_wait_seconds=setup_index.STARTUP_INSTALL_LOCK_WAIT_SECONDS,
+        recheck=lambda: _missing_now(root),
+    )
+    _set_startup_install(status=outcome["status"], packages=outcome["packages"], message=outcome["message"])
+    if outcome["status"] not in _INSTALL_OK:
+        print(f"wavefoundry: startup dependency install did not complete: {outcome['message']}", file=sys.stderr)
+    # Reassess once; a still-blocked result exits without retrying.
+    return _assess_startup(root, report=False)
+
+
+def _run_background_install(root: Path) -> None:
+    """Install the deferrable specs after the transport started (wave 1zfd9); never raises."""
+    global _STARTUP_ASSESSMENT
+    import process_info
+
+    specs = list(_BACKGROUND_INSTALL_SPECS)
+    final: dict[str, Any] = {}
+    try:
+        import setup_index
+
+        _set_startup_install(status="running")
+        outcome = setup_index.install_requirement_specs(specs, root=root, recheck=lambda: _missing_now(root))
+        restart_needed = outcome["status"] == "installed" and process_info.psutil_loaded()
+        # Recorded only after the reassessment is published (below), so a caller that
+        # sees the final status also sees the matching setup notice.
+        final = {
+            "status": outcome["status"],
+            "packages": outcome["packages"],
+            "message": outcome["message"],
+            "restart_required": restart_needed,
+        }
+        reassessed = setup_readiness.assess_setup(root, loaded_identity=_SETUP_LOADED_IDENTITY)
+        if outcome["status"] not in _INSTALL_OK:
+            reassessed = _with_reason(
+                reassessed,
+                "startup_install_failed",
+                "The startup dependency install did not complete: " + outcome["message"],
+            )
+    except Exception as exc:  # noqa: BLE001 - a background install never breaks the server
+        _set_startup_install(status="failed", message=f"{type(exc).__name__}: {exc}; run `wf setup`")
+        reassessed = None
+    finally:
+        process_info.set_startup_install_pending(None)
+    if reassessed is None:
+        return
+    _STARTUP_ASSESSMENT = reassessed
+    try:
+        with _reload_lock:
+            server_impl._SETUP_STARTUP_RESULT = reassessed
+            if _handler is not None:
+                guard = getattr(_handler, "_setup_assessment_lock", None) or threading.Lock()
+                with guard:
+                    _handler._setup_assessment_result = reassessed
+    except Exception:  # noqa: BLE001
+        pass
+    finally:
+        _set_startup_install(**final)
 
 
 # The supported executable entry assesses before activation (including .pth)
@@ -51,8 +192,12 @@ if __name__ == "__main__":
         if _runtime_advisory is not None:
             print(runtime_advisory.format_advisory(_runtime_advisory), file=sys.stderr)
     _STARTUP_ROOT = repo_root.discover_root(_startup_args.root)
-    _STARTUP_ASSESSMENT = _assess_startup(_STARTUP_ROOT)
-    if _STARTUP_ASSESSMENT.get("startup_blocked"):
+    _STARTUP_ASSESSMENT = _startup_install_gate(
+        _STARTUP_ROOT, _assess_startup(_STARTUP_ROOT, report=False), dry_run=_startup_args.dry_run
+    )
+    if _STARTUP_ASSESSMENT["status"] != "ready":
+        print(setup_readiness.format_text(_STARTUP_ASSESSMENT), file=sys.stderr)
+    if _STARTUP_ASSESSMENT.get("startup_blocked") and not _BACKGROUND_INSTALL_SPECS:
         raise SystemExit(setup_readiness.exit_code(_STARTUP_ASSESSMENT))
 
 # Activate the shared tool venv IN-PROCESS before any heavy import (wave 1p7pl/1p802). Stdlib-only;
@@ -135,6 +280,7 @@ def _record_runner_identity() -> Optional[str]:
         server_impl._SETUP_LOADED_IDENTITY = _SETUP_LOADED_IDENTITY
         server_impl._SETUP_STARTUP_ROOT = _STARTUP_ROOT
         server_impl._SETUP_STARTUP_RESULT = _STARTUP_ASSESSMENT
+        server_impl._SETUP_STARTUP_INSTALL_PROVIDER = _startup_install_snapshot
     except Exception as exc:
         return f"could not record setup assessment identity ({type(exc).__name__}: {exc}); restart the host"
     setter = getattr(server_impl, "set_server_runner_version", None)
@@ -735,7 +881,7 @@ def main(argv: list[str] | None = None) -> int:
     if _STARTUP_ASSESSMENT is None or _STARTUP_ROOT != root or argv is not None:
         _STARTUP_ROOT = root
         _STARTUP_ASSESSMENT = _assess_startup(root)
-    if _STARTUP_ASSESSMENT.get("startup_blocked"):
+    if _STARTUP_ASSESSMENT.get("startup_blocked") and not _BACKGROUND_INSTALL_SPECS:
         return setup_readiness.exit_code(_STARTUP_ASSESSMENT)
 
     if args.dry_run:
@@ -776,6 +922,10 @@ def main(argv: list[str] | None = None) -> int:
     # returns above).
     _isolate_native_stdout_from_protocol()
     mcp = build_server(root)
+    if _BACKGROUND_INSTALL_SPECS:
+        threading.Thread(
+            target=_run_background_install, args=(root,), name="wf-startup-install", daemon=True
+        ).start()
     mcp.run(transport="stdio")
     return 0
 

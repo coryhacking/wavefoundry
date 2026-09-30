@@ -263,7 +263,11 @@ sees stderr notices. Where the host supports it, a session-start hook runs the s
 read-only check and reports a non-ready result into the session; at session start
 no task authorization exists yet, so report it and ask the operator before running
 setup, and the existing task-authorization rule applies after that. The hook never
-runs setup. No Git hooks are installed by this guidance.
+runs setup. The MCP server's own startup is the one exception to report-only: when
+missing or version-incompatible declared dependencies are the only thing blocking it,
+it installs them into the tool environment through uv (in the background when it can
+run without them) and reports the install in `wf_server_info`; if it still cannot
+start, run `wf setup`. No Git hooks are installed by this guidance.
 
 ### MCP / Wavefoundry server — enabling per host
 

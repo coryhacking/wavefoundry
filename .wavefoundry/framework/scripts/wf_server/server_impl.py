@@ -16817,11 +16817,18 @@ def _process_info_status() -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
     ok, detail = process_info.available()
     if ok:
         return {"available": True, "psutil_version": detail}, None
+    # Wave 1zfd9: while MCP startup installs psutil, recommending `wf setup`
+    # would only queue behind the same install lock.
+    remedy = (
+        "It becomes available when the startup install finishes; wf_server_info shows its progress."
+        if getattr(process_info, "_STARTUP_INSTALL_PENDING", None)
+        else "Run `wf setup` to install or repair psutil."
+    )
     return {"available": False, "reason": detail}, _diagnostic(
         "process_info_unavailable",
         f"Process information is unavailable: {detail}. Until it is fixed, process status may show "
         "a running build or dashboard as not running; index builds still run because the OS locks "
-        "decide. Run `wf setup` to install or repair psutil.",
+        f"decide. {remedy}",
         recovery_tools=[],
         recovery_usage="wf setup",
     )
@@ -16834,6 +16841,14 @@ def wf_server_info_response(root: Path, *, server_runner_version: str | None = N
     data["process_info"], process_info_diagnostic = _process_info_status()
     if process_info_diagnostic is not None:
         diagnostics.append(process_info_diagnostic)
+    # Wave 1zfd9: what MCP startup installed (packages, mode, outcome), read from the runner.
+    provider = globals().get("_SETUP_STARTUP_INSTALL_PROVIDER")
+    try:
+        startup_install = provider() if callable(provider) else None
+    except Exception:  # noqa: BLE001 - reporting must never fail the response
+        startup_install = None
+    if startup_install is not None:
+        data["startup_install"] = startup_install
     if data.get("runner_stale") is True:
         diagnostics.append(
             _diagnostic("runner_stale", str(data.get("runner_stale_detail") or _runner_stale_detail()))

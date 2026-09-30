@@ -2315,6 +2315,50 @@ def _index_child_publisher_grant(root: Path) -> str | None:
         return None
 
 
+def _provision_upgrade_dependencies(root: Path) -> bool:
+    """Install the declared dependencies before Phase 4 indexing (wave 1zfd9).
+
+    An explicit step, so a failure (offline, proxy or TLS interception,
+    application control) is reported as a dependency failure naming
+    ``wf setup``, and the index children are skipped rather than reported as a
+    failed publication. Records ``dependency_provisioning_failed`` in the lock.
+    """
+    import upgrade_lib
+
+    failed = False
+    try:
+        # A metadata read (no subprocess) decides whether an install is needed;
+        # the Phase 4 child's own ensure_deps still verifies imports.
+        import setup_readiness
+
+        missing = setup_readiness._dependencies()
+    except Exception:  # noqa: BLE001 - unproven metadata falls through to the installer
+        missing = None
+    if missing == []:
+        try:
+            upgrade_lib.update_upgrade_lock(root, dependency_provisioning_failed=False)
+        except (OSError, ValueError):
+            pass
+        return True
+    _log("  Provisioning declared dependencies ...")
+    try:
+        import setup_index
+
+        setup_index.ensure_deps(root)
+    except (SystemExit, RuntimeError, OSError, subprocess.CalledProcessError) as exc:
+        failed = True
+        _err(
+            f"Dependency provisioning FAILED ({type(exc).__name__}: {exc}); the index "
+            "update did not run. Fix network, proxy or TLS access to the package index, "
+            "then run `wf setup`."
+        )
+    try:
+        upgrade_lib.update_upgrade_lock(root, dependency_provisioning_failed=failed)
+    except (OSError, ValueError):
+        pass
+    return not failed
+
+
 def _record_index_publication_outcome(root: Path, published: bool) -> None:
     """Stamp the upgrade lock from the OBSERVED publication result (1u44n).
 
@@ -2326,7 +2370,12 @@ def _record_index_publication_outcome(root: Path, published: bool) -> None:
     """
     import upgrade_lib
 
-    if upgrade_lib.read_upgrade_lock(root) is None:
+    lock = upgrade_lib.read_upgrade_lock(root)
+    if lock is None:
+        return
+    if not published and lock.get("dependency_provisioning_failed"):
+        # Wave 1zfd9: the index children never ran; nothing was published or failed.
+        upgrade_lib.update_upgrade_lock(root, index_rebuilt_at=None, index_publication_failed=False)
         return
     if published:
         upgrade_lib.update_upgrade_lock(
@@ -2385,6 +2434,13 @@ def phase_index_update(root: Path) -> bool:
     migration_receipt = sqlite_storage_migration.read_receipt(root / ".wavefoundry/index")
     migration_pending = migration_receipt is not None and migration_receipt["state"] != "complete"
     rebuild_storage = migration_pending and migration_receipt.get("strategy") == "rebuild"
+    if not _provision_upgrade_dependencies(root):
+        if migration_pending:
+            raise RuntimeError(
+                "dependency provisioning failed; storage migration retains its receipt and "
+                "legacy sources; run `wf setup`, then retry"
+            )
+        return False
     migration_state = sqlite_storage_migration.detect(root / ".wavefoundry/index")
     if migration_state["migration_required"]:
         # Dependency provisioning stays on canonical setup, before native
@@ -2592,6 +2648,8 @@ def phase_index_rebuild(root: Path) -> bool:
     """
     _enforce_index_guard_before_children(root)
     _log("\n── Phase 4: Index rebuild (full) ──")
+    if not _provision_upgrade_dependencies(root):
+        return False
     setup_script = SCRIPTS_DIR / "setup_index.py"
     if not setup_script.exists():
         _log("  setup_index.py not found — skipping index rebuild.")
@@ -3086,7 +3144,7 @@ def _setup_result_is_transient(result: dict) -> bool:
             and all(isinstance(r, dict) and r.get("code") in _TRANSIENT_SETUP_REASONS for r in reasons))
 
 
-def _record_setup_baseline(root: Path, *, sleep=None) -> None:
+def _record_setup_baseline(root: Path, *, sleep=None, stamp: bool = True) -> dict | None:
     """Refresh the advisory setup stamp after a successful upgrade (wave 1yzcz).
 
     Runs only on phase_cleanup's success path, after the upgrade lock is removed,
@@ -3097,6 +3155,9 @@ def _record_setup_baseline(root: Path, *, sleep=None) -> None:
     hidden. Any failure is logged and never fails the upgrade. An indeterminate
     result whose reasons are all transient is retried up to three more times
     (wave 1z1vs).
+
+    Wave 1zfd9: returns the assessment (``None`` when it could not run) for the
+    summary's setup fields; ``stamp=False`` assesses without writing the stamp.
     """
     try:
         import setup_readiness
@@ -3116,7 +3177,9 @@ def _record_setup_baseline(root: Path, *, sleep=None) -> None:
         if status != "ready":
             command = "wf setup" if status == "action_required" else "wf setup --check"
             _log(f"  Setup baseline not recorded (setup readiness: {status}); run `{command}`.")
-            return
+            return result
+        if not stamp:
+            return result
         prior = setup_readiness.read_setup_stamp(root)
         if prior is not None and (
             setup_readiness.projected_environment(prior.get("environment"))
@@ -3126,11 +3189,13 @@ def _record_setup_baseline(root: Path, *, sleep=None) -> None:
                 "  Setup baseline not recorded: the environment differs from the one setup "
                 "last recorded; run `wf setup`."
             )
-            return
+            return result
         setup_readiness.write_setup_stamp(root, provenance="upgrade", identity=identity)
         _log("  Setup baseline recorded.")
+        return result
     except Exception as exc:  # the stamp is advisory; never fail the upgrade on it
         _log(f"  ⚠  Setup baseline not recorded: {exc}; run `wf setup --check`.")
+        return None
 
 
 def phase_cleanup(
@@ -3145,6 +3210,7 @@ def phase_cleanup(
     review_sidecar_cleanup: dict | None = None,
     index_update_failed: bool = False,
     retired_model_cleanup: dict | None = None,
+    dependency_provisioning_failed: bool = False,
 ) -> None:
     import upgrade_lib
     import sqlite_storage_migration
@@ -3210,6 +3276,7 @@ def phase_cleanup(
             permissions_delta=_cl_permissions,
             index_update_failed=index_update_failed,
             retired_model_cleanup=retired_model_cleanup,
+            dependency_provisioning_failed=dependency_provisioning_failed,
         )
         raise SystemExit(1)
 
@@ -3271,10 +3338,12 @@ def phase_cleanup(
     # somehow did not land (soft failure, out-of-band edit, or a transition
     # upgrade that ran an older pipeline without Phase 2c).
     _ensure_lifecycle_policy_backstop(root)
-    if not index_update_failed:
-        _record_setup_baseline(root)
-    else:
-        _log("  Setup baseline not recorded (index update failed); run `wf setup`.")
+    # Wave 1zfd9: assess even when the index update failed (without stamping),
+    # so the summary carries the setup state and its recommended command.
+    stamp_baseline = not index_update_failed and not dependency_provisioning_failed
+    setup_assessment = _record_setup_baseline(root, stamp=stamp_baseline)
+    if not stamp_baseline:
+        _log("  Setup baseline not recorded (index update did not complete); run `wf setup`.")
 
     _print_operator_summary(
         from_version=from_version,
@@ -3288,6 +3357,8 @@ def phase_cleanup(
         permissions_delta=_cl_permissions,
         index_update_failed=index_update_failed,
         retired_model_cleanup=retired_model_cleanup,
+        setup_assessment=setup_assessment,
+        dependency_provisioning_failed=dependency_provisioning_failed,
     )
     if (
         zip_path is not None
@@ -3768,6 +3839,8 @@ def _build_upgrade_summary(
     retired_model_cleanup: dict | None = None,
     renderer_warnings: list[dict] | None = None,
     reconciliation_disposition_diagnostics: list[dict] | None = None,
+    setup_assessment: dict | None = None,
+    dependency_provisioning_failed: bool = False,
 ) -> dict:
     """Wave 1p8eu — assemble the operator summary ONCE as a dict.
 
@@ -3819,12 +3892,20 @@ def _build_upgrade_summary(
             "docs and code layers complete"
             if ran_index_rebuild
             else (
-                "publication failed: semantic index epoch incomplete; run "
-                "index_build, then confirm with index_health"
-                if index_update_failed
-                else "not run — call with --update-index after editing pass"
+                "not run: dependency provisioning failed; run wf setup"
+                if dependency_provisioning_failed
+                else (
+                    "publication failed: semantic index epoch incomplete; run "
+                    "index_build, then confirm with index_health"
+                    if index_update_failed
+                    else "not run — call with --update-index after editing pass"
+                )
             )
         ),
+        # Wave 1zfd9: flat fields (ADR 1u49j); produced by the new-code --cleanup
+        # process, not_assessed in the primary-phase summary.
+        "dependency_provisioning_failed": bool(dependency_provisioning_failed),
+        **_setup_summary_fields(setup_assessment),
         "failed_phase": failed_phase,
         "is_major_or_minor": _is_major_or_minor_upgrade(from_version, to_version),
         "reconciliation": reconciliation,
@@ -3859,6 +3940,36 @@ def _build_upgrade_summary(
         "skipped_scan_locations": list(_PACK_SCAN_SKIPPED),
         **cleanup,
     }
+
+
+def _setup_summary_fields(result: dict | None) -> dict:
+    """``setup_status``, ``setup_reasons`` and ``setup_command`` from a readiness result (wave 1zfd9)."""
+    if not isinstance(result, dict):
+        return {"setup_status": "not_assessed", "setup_reasons": [], "setup_command": None}
+    status = str(result.get("status") or "indeterminate")
+    reasons = [
+        str(item.get("code"))
+        for item in result.get("reasons") or []
+        if isinstance(item, dict) and item.get("code")
+    ]
+    command = None
+    if status != "ready":
+        for action in result.get("actions") or []:
+            if not isinstance(action, dict):
+                continue
+            argv = action.get("argv") or []
+            if argv:
+                # Platform quoting, so a root with spaces stays one argument.
+                import setup_readiness
+
+                command = setup_readiness.format_command([str(part) for part in argv])
+                break
+            if action.get("kind") == "restart":
+                command = "restart the Wavefoundry host"
+                break
+        if command is None:
+            command = "wf setup --check"
+    return {"setup_status": status, "setup_reasons": reasons, "setup_command": command}
 
 
 def _emit_summary_line(summary: dict) -> None:
@@ -4153,6 +4264,7 @@ def _emit_delegated_summary(root: Path) -> int:
         ),
         index_update_failed=bool(lock.get("index_publication_failed")),
         retired_model_cleanup=_retired_model_cleanup_from_mapping(lock),
+        dependency_provisioning_failed=bool(lock.get("dependency_provisioning_failed")),
     )
     # Parent-only fact: the pack-search skip list lives in the PARENT's memory
     # (per-process permission grants make it non-rescannable here); the parent
@@ -4181,6 +4293,8 @@ def _print_operator_summary(
     permissions_delta: dict | None = None,
     index_update_failed: bool = False,
     retired_model_cleanup: dict | None = None,
+    setup_assessment: dict | None = None,
+    dependency_provisioning_failed: bool = False,
 ) -> None:
     # Wave 1p8et/1p8kz: run the shipped retired-surface reconciliation scan on EVERY upgrade (operator
     # direction — a patch or same-version build-successor can change/retire a surface too), report-only
@@ -4214,6 +4328,8 @@ def _print_operator_summary(
         permissions_delta=permissions_delta,
         index_update_failed=index_update_failed,
         retired_model_cleanup=retired_model_cleanup,
+        setup_assessment=setup_assessment,
+        dependency_provisioning_failed=dependency_provisioning_failed,
     )
 
     from_str = from_version or "(none)"
@@ -4261,6 +4377,13 @@ def _print_operator_summary(
     _log(f"Files pruned:       {summary['pruned_count']}")
     _log(f"Docs gate:          {summary['docs_gate']}")
     _log(f"Index update:       {summary['index_update']}")
+    if summary["setup_status"] != "not_assessed":
+        setup_line = summary["setup_status"]
+        if summary["setup_reasons"]:
+            setup_line += " (" + ", ".join(summary["setup_reasons"]) + ")"
+        if summary["setup_command"]:
+            setup_line += f"; next: {summary['setup_command']}"
+        _log(f"Setup:              {setup_line}")
     _log(
         "Retired models:      "
         f"{summary['retired_model_cleanup_status']} "
@@ -5376,6 +5499,9 @@ def main(argv: list[str] | None = None) -> int:
                 ),
                 index_update_failed=_cl_index_failed,
                 retired_model_cleanup=_cl_retired,
+                dependency_provisioning_failed=(
+                    bool(lock.get("dependency_provisioning_failed")) if lock else False
+                ),
             )
             _run_hook("post_cleanup", _cl_ctx, _cl_ext)
         finally:

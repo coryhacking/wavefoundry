@@ -125,8 +125,13 @@ def _rmtree_clearing_readonly(path: Path) -> None:
     shutil.rmtree(path, **_rm_kw)
 
 
-def _bootstrap_venv(root: Path | None = None) -> Path:
-    """Ensure the tool venv exists; return the path to its Python binary."""
+def _bootstrap_venv(root: Path | None = None, *, lock=None) -> Path:
+    """Ensure the tool venv exists; return the path to its Python binary.
+
+    Callers hold the shared dependency-install lock (wave 1zfd9), since this may
+    delete and recreate the shared venv; ``lock`` passes its carrier to the
+    ``venv`` child on POSIX.
+    """
     venv_python = _tool_venv_python()
     venv_dir = venv_python.parent.parent
 
@@ -172,6 +177,7 @@ def _bootstrap_venv(root: Path | None = None) -> Path:
                 [sys.executable, "-m", "venv", str(venv_dir)],
                 check=True,
                 timeout=venv_timeout,
+                **_lock_passing_kwargs(lock),
             )
         except subprocess.TimeoutExpired:
             # Wave 1p9it: creating a venv is a LOCAL op, so a stall is almost always antivirus/endpoint
@@ -338,7 +344,7 @@ def _run_install_step(cmd, **kwargs):
     return run(cmd, **kwargs)
 
 
-def _bootstrap_uv(venv_python: Path, root: Path | None = None) -> Path | None:
+def _bootstrap_uv(venv_python: Path, root: Path | None = None, *, lock=None) -> Path | None:
     """Install uv into the tool venv via pip and return its path, or None on failure."""
     print("uv not found — installing uv for package age enforcement ...", flush=True)
     uv_timeout = _setup_deadlines(root)["uv_bootstrap_timeout_seconds"]
@@ -348,6 +354,7 @@ def _bootstrap_uv(venv_python: Path, root: Path | None = None) -> Path | None:
             check=False,
             env=_pip_tls_env(),
             timeout=uv_timeout,
+            **_lock_passing_kwargs(lock),
         )
     except subprocess.TimeoutExpired:
         # Wave 1p9it: uv is an OPTIONAL supply-chain age guard; a stalled `pip install uv` (hung PyPI
@@ -367,7 +374,267 @@ def _bootstrap_uv(venv_python: Path, root: Path | None = None) -> Path | None:
     return _uv_bin(venv_python)
 
 
-def _install_deps(missing: list[str], venv_python: Path, root: Path | None = None) -> None:
+DEPENDENCY_INSTALL_LOCK_SUFFIX = ".install.lock"
+# A foreground MCP startup waits at most this long for another installer (wave 1zfd9).
+STARTUP_INSTALL_LOCK_WAIT_SECONDS = 30.0
+# Test seam: a command prefix replacing the resolved uv binary (for example
+# ``[sys.executable, "fake_uv.py"]``), so the startup installer is testable on
+# every platform without a real uv.
+_STARTUP_UV_COMMAND: "list[str] | None" = None
+
+
+def dependency_install_lock_path() -> Path:
+    """The OS lock every dependency install into the shared tool venv takes (wave 1zfd9).
+
+    Beside the tool-venv base, not inside it: setup may remove and recreate the venv.
+    The whole base is resolved, so a per-user ``~/.wavefoundry`` that is a symlink or
+    junction (relocated to another disk) is not refused by the repository
+    ``.wavefoundry`` link check in ``runtime_lock``, and every spelling of a linked
+    venv directory shares one lock beside its real location. Resolution can raise
+    ``OSError`` (on Windows, for a winerror outside ``realpath``'s allowlist);
+    callers treat that as an unavailable lock.
+    """
+    real = Path(os.path.realpath(venv_bootstrap.tool_venv_base()))
+    return real.with_name(real.name + DEPENDENCY_INSTALL_LOCK_SUFFIX)
+
+
+def _dependency_install_lock(*, blocking: bool):
+    import runtime_lock
+
+    return runtime_lock.RuntimeFileLock(dependency_install_lock_path(), blocking=blocking)
+
+
+def _lock_passing_kwargs(lock) -> dict:
+    """On POSIX the installer child inherits the lock carrier, so a parent killed
+    mid-install cannot let a second installer start while the child still runs."""
+    handle = getattr(lock, "handle", None)
+    if lock is None or handle is None or os.name == "nt":
+        return {}
+    return {"pass_fds": (handle.fileno(),)}
+
+
+@contextlib.contextmanager
+def _held_install_lock():
+    """Hold the shared install lock for an operator-run install (``wf setup``, upgrade).
+
+    Blocks while another installer runs. A lock that cannot be opened (for
+    example a linked directory) fails closed with ``SystemExit(2)``.
+    """
+    import runtime_lock
+
+    lock = None
+    try:
+        # Building the lock resolves its path, which can itself raise OSError.
+        lock = _dependency_install_lock(blocking=True)
+        probe = _dependency_install_lock(blocking=False)
+        try:
+            probe.acquire()
+            probe.release()
+        except runtime_lock.RuntimeLockBusy:
+            print(
+                "Waiting for another dependency install into the shared tool environment "
+                f"({getattr(lock, 'path', '')}) to finish ...",
+                file=sys.stderr,
+                flush=True,
+            )
+        except runtime_lock.RuntimeLockError:
+            pass  # the blocking acquire below reports it
+        lock.acquire()
+    except OSError as exc:
+        # Fail closed (RuntimeLockError is an OSError): an install without
+        # ownership could race another installer or a venv recreation in the
+        # shared tool environment.
+        where = getattr(lock, "path", None)
+        print(
+            f"Dependency install lock unavailable ({exc}); nothing was installed. Fix the lock path"
+            f"{f' ({where})' if where else ''}, then rerun `wf setup`.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    try:
+        yield lock
+    finally:
+        try:
+            lock.release()
+        except runtime_lock.RuntimeLockError:
+            pass
+
+
+def _stderr_fd():
+    try:
+        return sys.stderr.fileno()
+    except (AttributeError, OSError, ValueError):
+        return subprocess.DEVNULL
+
+
+def _operator_uv_config_files() -> list[Path]:
+    """The operator's user- and system-level ``uv.toml`` locations, in uv's precedence order."""
+    files: list[Path] = []
+    if os.name == "nt":
+        for var in ("APPDATA", "PROGRAMDATA"):
+            base = os.environ.get(var)
+            if base:
+                files.append(Path(base) / "uv" / "uv.toml")
+    else:
+        config_home = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+        files.append(Path(config_home) / "uv" / "uv.toml")
+        for base in (os.environ.get("XDG_CONFIG_DIRS") or "/etc/xdg").split(os.pathsep):
+            if base:
+                files.append(Path(base) / "uv" / "uv.toml")
+        files.append(Path("/etc/uv/uv.toml"))
+    return files
+
+
+def _uv_config_args() -> list[str]:
+    """Configuration arguments that keep repository ``uv.toml`` / ``[tool.uv]`` out (wave 1zfd9).
+
+    uv discovers configuration from its working directory and every parent, so
+    the working directory alone is no isolation when the tool venv lives inside a
+    checkout. An explicit ``--config-file`` skips discovery, so the operator's own
+    user- or system-level file is passed explicitly when one exists, and
+    ``--no-config`` otherwise. An operator-set ``UV_CONFIG_FILE``, or a truthy
+    ``UV_NO_CONFIG``, already disables discovery and is left to uv; a falsy
+    ``UV_NO_CONFIG`` such as ``0`` does not, so isolation stays on. uv
+    environment variables such as ``UV_INDEX_URL`` still apply.
+    """
+    no_config = os.environ.get("UV_NO_CONFIG", "").strip().lower()
+    if os.environ.get("UV_CONFIG_FILE") or no_config in {"1", "true", "yes", "on"}:
+        return []
+    for candidate in _operator_uv_config_files():
+        if candidate.is_file():
+            return ["--config-file", str(candidate)]
+    return ["--no-config"]
+
+
+_WINDOWS_IN_USE_HINT = (
+    "On Windows a package in use cannot be replaced: stop other Wavefoundry hosts, "
+    "index builds and the dashboard, then retry or run `wf setup`."
+)
+
+
+def install_requirement_specs(
+    specs: list[str],
+    *,
+    root: Path | None = None,
+    lock_wait_seconds: float | None = None,
+    recheck=None,
+) -> dict:
+    """Install exactly ``specs`` into the existing tool venv, through uv only (wave 1zfd9).
+
+    Used by MCP startup. Never creates or recreates the venv, never bootstraps
+    uv or falls back to pip, never adds packages it was not given, and never
+    writes to stdout: output goes to stderr and each child's stdout is fd 2.
+    Repository ``uv.toml`` and ``[tool.uv]`` settings never apply
+    (``_uv_config_args``); uv runs from the tool-venv base. Holds the shared install lock until the
+    installer tree has exited; ``lock_wait_seconds`` bounds the wait (``None``
+    waits). ``recheck`` returns the specs still missing once the lock is held,
+    so a waiter does not install what another installer just installed.
+
+    Returns ``{"status", "packages", "message"}`` with status ``installed``,
+    ``already_installed``, ``no_uv``, ``busy`` or ``failed``. Never raises.
+    """
+    import runtime_lock
+
+    packages = [str(spec) for spec in specs]
+    outcome = {"status": "failed", "packages": packages, "message": ""}
+    venv_python = venv_bootstrap.tool_venv_python()
+    if not venv_python.exists():
+        outcome["message"] = "the tool environment is missing; run `wf setup`"
+        return outcome
+    if _STARTUP_UV_COMMAND is not None:
+        uv_command = list(_STARTUP_UV_COMMAND)
+    else:
+        uv_path = _uv_bin(venv_python)
+        if uv_path is None:
+            outcome["status"] = "no_uv"
+            outcome["message"] = (
+                "uv is not available, and startup installs only through uv with its package-age "
+                "guard; run `wf setup`"
+            )
+            return outcome
+        uv_command = [str(uv_path)]
+    try:
+        lock = _dependency_install_lock(blocking=False)
+    except OSError as exc:  # resolving the lock path failed
+        outcome["message"] = f"dependency install lock unavailable ({exc}); run `wf setup`"
+        return outcome
+    started = time.monotonic()
+    while True:
+        try:
+            lock.acquire()
+            break
+        except runtime_lock.RuntimeLockBusy:
+            if lock_wait_seconds is not None and time.monotonic() - started >= lock_wait_seconds:
+                outcome["status"] = "busy"
+                outcome["message"] = "another dependency install is running; retry or run `wf setup`"
+                return outcome
+            time.sleep(0.2)
+        except OSError as exc:
+            outcome["message"] = f"dependency install lock unavailable ({exc}); run `wf setup`"
+            return outcome
+    try:
+        remaining = packages
+        if recheck is not None:
+            try:
+                remaining = [str(spec) for spec in recheck()]
+            except Exception as exc:  # noqa: BLE001 - a failed recheck installs the original list
+                print(f"Dependency recheck failed ({exc}); installing the reported packages.", file=sys.stderr)
+        if not remaining:
+            outcome["status"] = "already_installed"
+            return outcome
+        outcome["packages"] = remaining
+        cutoff = _exclude_newer_cutoff(days=21)
+        print(
+            f"Installing missing dependencies with uv (--exclude-newer {cutoff}): {' '.join(remaining)}",
+            file=sys.stderr,
+            flush=True,
+        )
+        cmd = (
+            uv_command
+            + ["pip", "install", *_uv_config_args(), "--python", str(venv_python), "--exclude-newer", cutoff]
+            + remaining
+        )
+        timeout = _setup_deadlines(root)["dep_install_timeout_seconds"]
+        stderr_fd = _stderr_fd()
+        try:
+            completed = _run_install_step(
+                cmd,
+                check=False,
+                env=_uv_install_env(),
+                timeout=timeout,
+                cwd=str(venv_bootstrap.tool_venv_base()),
+                stdout=stderr_fd,
+                stderr=stderr_fd,
+                **_lock_passing_kwargs(lock),
+            )
+        except subprocess.TimeoutExpired:
+            outcome["message"] = (
+                f"dependency install timed out after {timeout:g}s; check network, proxy or TLS "
+                "access to https://pypi.org, then run `wf setup`"
+            )
+            return outcome
+        except OSError as exc:
+            outcome["message"] = f"dependency install could not start ({exc}); run `wf setup`"
+            return outcome
+        if completed.returncode != 0:
+            message = f"uv install failed (exit {completed.returncode}); run `wf setup`"
+            if os.name == "nt":
+                message += ". " + _WINDOWS_IN_USE_HINT
+            outcome["message"] = message
+            return outcome
+        outcome["status"] = "installed"
+        return outcome
+    except Exception as exc:  # noqa: BLE001 - never raise into MCP startup
+        outcome["message"] = f"dependency install failed ({type(exc).__name__}: {exc}); run `wf setup`"
+        return outcome
+    finally:
+        try:
+            lock.release()
+        except OSError:
+            pass
+
+
+def _install_deps(missing: list[str], venv_python: Path, root: Path | None = None, *, lock=None) -> None:
     """Install missing packages into the tool venv.
 
     Prefers ``uv`` with ``--exclude-newer`` (21-day package age guard) to reduce
@@ -380,7 +647,7 @@ def _install_deps(missing: list[str], venv_python: Path, root: Path | None = Non
     )
     print(f"Installing missing dependencies: {display}", flush=True)
 
-    uv = _uv_bin(venv_python) or _bootstrap_uv(venv_python, root)
+    uv = _uv_bin(venv_python) or _bootstrap_uv(venv_python, root, lock=lock)
 
     if uv is not None:
         cutoff = _exclude_newer_cutoff(days=21)
@@ -407,7 +674,7 @@ def _install_deps(missing: list[str], venv_python: Path, root: Path | None = Non
 
     deps_timeout = _setup_deadlines(root)["dep_install_timeout_seconds"]
     try:
-        result = _run_install_step(cmd, check=False, env=run_env, timeout=deps_timeout)
+        result = _run_install_step(cmd, check=False, env=run_env, timeout=deps_timeout, **_lock_passing_kwargs(lock))
     except subprocess.TimeoutExpired:
         # Wave 1p9it: a stalled dependency download/resolve (hung PyPI fetch behind a corp MITM / flaky
         # proxy) is a Phase-1 hang path. Fail loud with network/proxy/TLS guidance rather than blocking
@@ -436,15 +703,39 @@ def _install_deps(missing: list[str], venv_python: Path, root: Path | None = Non
     print("Dependencies installed successfully.", flush=True)
 
 
+def _venv_needs_bootstrap() -> bool:
+    """True when ``_bootstrap_venv`` would create or recreate the tool venv. Read-only."""
+    venv_python = _tool_venv_python()
+    if not venv_python.exists():
+        return True
+    built_for = venv_bootstrap._venv_python_version(venv_python.parent.parent)
+    return built_for is not None and built_for != sys.version_info[:2]
+
+
+def _satisfied_without_lock(required_imports: dict[str, str]) -> bool:
+    """A read-only check that nothing needs to change, so no lock is taken (wave 1zfd9).
+
+    A check that installs and recreates nothing must not fail on lock errors.
+    """
+    return not _venv_needs_bootstrap() and not _missing_in_venv(_tool_venv_python(), required_imports)
+
+
 def ensure_deps(root: Path | None = None) -> None:
-    venv_python = _bootstrap_venv(root)
+    # Wave 1zfd9: the shared install lock owns every mutation of the tool venv,
+    # including its creation or recreation, so it is taken before bootstrap and
+    # the check repeats under it. A check that changes nothing takes no lock.
     required_imports = _planned_required_imports()
-    missing = _missing_in_venv(venv_python, required_imports)
-    if not missing:
+    if _satisfied_without_lock(required_imports):
         print(f"Dependencies satisfied ({', '.join(required_imports)})", flush=True)
         return
-    _install_deps(missing, venv_python, root)
-    still_missing = _missing_in_venv(venv_python, required_imports)
+    with _held_install_lock() as lock:
+        venv_python = _bootstrap_venv(root, lock=lock)
+        missing = _missing_in_venv(venv_python, required_imports)
+        if not missing:
+            print(f"Dependencies satisfied ({', '.join(required_imports)})", flush=True)
+            return
+        _install_deps(missing, venv_python, root, lock=lock)
+        still_missing = _missing_in_venv(venv_python, required_imports)
     if still_missing:
         print(
             f"Dependencies installed but still not importable: {', '.join(still_missing)}\n"
@@ -457,12 +748,16 @@ def ensure_deps(root: Path | None = None) -> None:
 
 def ensure_migration_deps(root: Path) -> None:
     """Provision the pinned reader only for an explicitly detected legacy index."""
-    venv_python = _bootstrap_venv(root)
     requirements = {"lancedb==0.33.0": "lancedb"}
-    missing = _missing_in_venv(venv_python, requirements)
-    if missing:
-        _install_deps(missing, venv_python, root)
-    if _missing_in_venv(venv_python, requirements):
+    if _satisfied_without_lock(requirements):
+        return
+    with _held_install_lock() as lock:
+        venv_python = _bootstrap_venv(root, lock=lock)
+        missing = _missing_in_venv(venv_python, requirements)
+        if missing:
+            _install_deps(missing, venv_python, root, lock=lock)
+        still_missing = _missing_in_venv(venv_python, requirements)
+    if still_missing:
         raise SystemExit("Legacy vector reader unavailable; index preserved for upgrade retry.")
 
 
