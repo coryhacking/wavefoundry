@@ -2344,6 +2344,7 @@ class DashboardProcessControlTests(unittest.TestCase):
         other_root = Path(self.tmp.name) / "other"
         _make_repo(other_root)
         other_meta = self._write_dashboard_metadata(other_root, pid=9999)
+        other_before = other_meta.read_text(encoding="utf-8")
 
         # Wave 1rswx: a genuinely-live recorded dashboard is classified via the cmdline-verified
         # (zombie-safe) check now, so it must appear in the cmdline scan for this root — that is exactly
@@ -2358,8 +2359,12 @@ class DashboardProcessControlTests(unittest.TestCase):
         self.assertEqual(env["status"], "ok")
         self.assertTrue(env["data"]["stopped"])
         self.assertEqual(env["data"]["pid"], 4321)
-        self.assertFalse(current_meta.exists(), "stop must clear the current repo dashboard metadata")
-        self.assertTrue(other_meta.exists(), "stop must not touch another repo's dashboard metadata")
+        # Wave 1zc7n: the metadata file is the dashboard's lock carrier; it is
+        # kept and its content cleared, never deleted.
+        self.assertEqual(json.loads(current_meta.read_text(encoding="utf-8")), {},
+                         "stop must clear the current repo dashboard metadata")
+        self.assertEqual(other_meta.read_text(encoding="utf-8"), other_before,
+                         "stop must not touch another repo's dashboard metadata")
         terminate.assert_called_once_with(4321)
 
     def test_dashboard_restart_stops_then_starts_again(self):
@@ -2512,7 +2517,8 @@ class DashboardChildReapTests(unittest.TestCase):
         self.assertEqual(env["status"], "ok")
         self.assertTrue(env["data"].get("already_stopped"))
         term.assert_not_called()  # a <defunct> PID is never SIGTERM/SIGKILL'd
-        self.assertFalse(meta_path.exists(), "stale metadata must be cleared")
+        # Wave 1zc7n: the carrier is the lock file; it is kept and its metadata cleared.
+        self.assertEqual(json.loads(meta_path.read_text(encoding="utf-8")), {}, "stale metadata must be cleared")
         wp.assert_any_call(4321, self.server.os.WNOHANG)  # the zombie was reaped on entry
         self.assertNotIn(4321, self.server._DASHBOARD_CHILD_PIDS)
 
@@ -2545,7 +2551,7 @@ class DashboardChildReapTests(unittest.TestCase):
         self.assertEqual(env["status"], "ok")
         self.assertTrue(env["data"].get("already_stopped"))
         term.assert_not_called()
-        self.assertFalse(meta_path.exists(), "a genuinely-dead recorded PID clears its metadata")
+        self.assertEqual(json.loads(meta_path.read_text(encoding="utf-8")), {}, "a genuinely-dead recorded PID clears its metadata")
 
     def test_stop_still_kills_live_dashboard(self):
         # AC-3: a genuinely-live dashboard for this root (present in the cmdline scan) is still terminated.
@@ -4901,7 +4907,7 @@ class DashboardManagedIdentityTests(unittest.TestCase):
                     result = self.impl.wf_stop_dashboard_response(self.root)
                     self.assertTrue(result['data'].get('stopped'), result)
                     self.assertFalse(self.impl._pid_is_running(pid))
-                    self.assertFalse(self.lib.dashboard_metadata_path(self.root).exists())
+                    self.assertEqual(self.lib.read_dashboard_metadata(self.root), {})
                 finally:
                     self.impl._terminate_dashboard_pid(pid)
 
@@ -4937,7 +4943,7 @@ class DashboardManagedIdentityTests(unittest.TestCase):
         result = self.impl.wf_stop_dashboard_response(self.root)
         self.assertTrue(result['data'].get('stopped'), result)
         self.assertFalse(self.impl._pid_is_running(pid))
-        self.assertFalse(self.lib.dashboard_metadata_path(self.root).exists())
+        self.assertEqual(self.lib.read_dashboard_metadata(self.root), {})
 
     def test_mcp_start_confirms_serving_own_child(self):
         with patch.dict(os.environ, {'WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER': '1'}):

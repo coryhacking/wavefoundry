@@ -98,6 +98,46 @@ def _make_repo(tmp: Path, files: dict[str, str] | None = None) -> Path:
     return tmp
 
 
+def fake_psutil(*, exists=True, process_error=None, status="running", cmdline=None,
+                cwd=None, create_time=None, version="7.0.0"):
+    """A minimal stand-in for ``psutil`` for the ``process_info`` loader seam (wave 1zc7n)."""
+    mod = types.SimpleNamespace()
+
+    class NoSuchProcess(Exception):
+        pass
+
+    class ZombieProcess(NoSuchProcess):
+        pass
+
+    class AccessDenied(Exception):
+        pass
+
+    class Process:
+        def __init__(self, pid):
+            if process_error is not None:
+                raise getattr(mod, process_error)(pid) if isinstance(process_error, str) else process_error
+            self.pid = pid
+
+        def status(self):
+            return status
+
+        def cmdline(self):
+            return list(cmdline or [])
+
+        def cwd(self):
+            return cwd
+
+        def create_time(self):
+            return create_time
+
+    mod.__version__ = version
+    mod.NoSuchProcess, mod.ZombieProcess, mod.AccessDenied = NoSuchProcess, ZombieProcess, AccessDenied
+    mod.STATUS_ZOMBIE = "zombie"
+    mod.Process = Process
+    mod.pid_exists = lambda pid: exists
+    return mod
+
+
 def spawn_idle_process(workdir: Path, script_name: str, *args: str) -> subprocess.Popen:
     """Start a real, idle process whose command line is ``python <workdir>/<script_name> <args>``.
 

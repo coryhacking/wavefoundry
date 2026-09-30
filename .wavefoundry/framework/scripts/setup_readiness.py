@@ -43,7 +43,7 @@ SOURCE_FILES = (
     'server.py', 'server_impl.py', 'wf_server/server_impl.py', 'index_compatibility.py', 'index_paths.py',
     'index_state_store.py', 'sqlite_vector_store.py', 'sqlite_runtime.py', 'chunker.py',
     'indexer.py', 'graph_indexer.py', 'graph_store.py', 'model_bundle.py',
-    'provider_policy.py', 'render_platform_surfaces.py', 'render_agent_surfaces.py',
+    'provider_policy.py', 'render_platform_surfaces.py', 'render_agent_surfaces.py', 'process_info.py',
 )
 CONFIG_FILES = ('docs/workflow-config.json', '.wavefoundry/framework/VERSION',
                 '.wavefoundry/framework/install/workflow-config.defaults.json')

@@ -120,7 +120,7 @@ SPLIT_THREE_ROSTERS = {'wf_server.context_efficiency_handlers': ['_read_ce_proje
                         '_dashboard_url_reachable',
                         '_dashboard_already_serving',
                         '_dashboard_process_metadata',
-                        '_remove_dashboard_metadata',
+                        '_clear_dashboard_metadata',
                         '_terminate_dashboard_pid',
                         'wf_stop_dashboard_response',
                         'wf_restart_dashboard_response',

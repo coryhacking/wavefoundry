@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-22
+Last verified: 2026-09-29
 
 ## Configuration
 
@@ -129,6 +129,7 @@ This recovery reporting adds no downloader, cache location, or selection path.
 
 ## Shared Utilities
 
+- `.wavefoundry/framework/scripts/process_info.py` is the single process-information seam (wave `1zc7n`, ADR `1z9df-adr psutil-process-info`): pid liveness, zombie state, command line, working directory and start time from `psutil`, a required dependency, with no hand-rolled fallback. It answers questions and never decides policy; process information is reporting only, and the OS locks above stay the only correctness authority. When `psutil` cannot be imported, liveness reads "not running" so every build and refresh proceeds to its lock, and `index_health`, `index_build_status` and `wf_server_info` report `process_info_unavailable` recommending `wf setup`. Code that runs before dependencies are installed or inside an older upgrade runner (`venv_bootstrap`, setup before `ensure_deps`, `upgrade_lib`, `dashboard_lib`, `sqlite_storage_migration`, the modules `upgrade_protocol` validates) keeps its own standard-library process queries and never imports `psutil`. Like `runtime_lock`, it is not reloaded by `wf_reload_mcp`; a change takes effect after an MCP restart.
 - `.wavefoundry/framework/scripts/path_containment.py` owns the resolving containment predicate and its pure already-resolved comparison; callers retain their existing resolution, symlink and failure policies.
 
 - `.wavefoundry/framework/scripts/wave_lint_lib/` — shared modules for docs_lint: `link_validators.py`, `metadata_validators.py`, `context.py`, `helpers.py`.

@@ -1227,43 +1227,52 @@ class IndexBuildLockTests(unittest.TestCase):
         self.assertIn("cmdline", data)
         self.assertIsInstance(data["cmdline"], str)
 
-    def test_process_is_zombie_parses_ps_state(self):
-        def fake_run(cmd, **kw):
-            return MagicMock(returncode=0, stdout="Z\n")
-        with patch.object(self.bi, "os") as fake_os:
-            fake_os.name = "posix"
-            with patch.object(self.bi.subprocess_util, "isolated_run", side_effect=fake_run):
-                self.assertTrue(self.bi._process_is_zombie(4321))
-        with patch.object(self.bi, "os") as fake_os:
-            fake_os.name = "posix"
-            with patch.object(self.bi.subprocess_util, "isolated_run",
-                              side_effect=lambda cmd, **kw: MagicMock(returncode=0, stdout="S\n")):
-                self.assertFalse(self.bi._process_is_zombie(4321))
+    def test_process_is_zombie_reads_a_real_zombie_child(self):
+        # Wave 1zc7n: zombie state comes from process_info (psutil), no ps spawn.
+        if os.name == "nt":
+            self.skipTest("POSIX zombie")
+        child = subprocess.Popen([sys.executable, "-c", "pass"])
+        self.addCleanup(child.wait)
+        deadline = time.time() + 10
+        while not self.bi._process_is_zombie(child.pid) and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(self.bi._process_is_zombie(child.pid))
+        self.assertFalse(self.bi._pid_is_running(child.pid))
+        self.assertFalse(self.bi._process_is_zombie(os.getpid()))
 
     def test_process_is_zombie_noop_on_windows(self):
-        with patch.object(self.bi, "os") as fake_os:
-            fake_os.name = "nt"
-            with patch.object(self.bi.subprocess_util, "isolated_run") as run:
-                self.assertFalse(self.bi._process_is_zombie(4321))
-                run.assert_not_called()
-
-    def test_liveness_probes_route_through_windowless_helper(self):
-        # AC-6: process probes must use subprocess_util.isolated_run (windowless), never bare subprocess.
-        captured = {}
-        def fake_run(cmd, **kw):
-            captured["cmd"] = cmd
-            return MagicMock(returncode=0, stdout="python indexer.py --root .")
-        with patch.object(self.bi.subprocess_util, "isolated_run", side_effect=fake_run):
-            self.bi._process_cmdline(4321)
-        self.assertIn("cmd", captured)
-        # Wave 1z8ox: the Windows branch is timed and goes through run_with_tree_kill;
-        # the module's tree-kill shim routes it back through the faked isolated_run.
-        captured.clear()
+        import process_info
         with patch.object(self.bi, "os") as fake_os, \
-                patch.object(self.bi.subprocess_util, "isolated_run", side_effect=fake_run):
+                patch.object(process_info, "is_zombie") as probe:
             fake_os.name = "nt"
-            self.assertEqual(self.bi._process_cmdline(4321), "python indexer.py --root .")
-        self.assertEqual(captured["cmd"][0], "powershell")
+            self.assertFalse(self.bi._process_is_zombie(4321))
+            probe.assert_not_called()
+
+    def test_process_cmdline_comes_from_process_info(self):
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)", "indexer.py", "--root", "/tmp/a b"],
+            stdin=subprocess.DEVNULL,
+        )
+        self.addCleanup(lambda: (child.kill(), child.wait()))
+        line = self.bi._process_cmdline(child.pid)
+        self.assertIsNotNone(line)
+        # Review DEL-CR-WINDOWS-QUOTING: Windows quotes the spaced argument.
+        tail = ["indexer.py", "--root", "/tmp/a b"]
+        rendered = subprocess.list2cmdline(tail) if os.name == "nt" else " ".join(tail)
+        self.assertIn(rendered, line)
+
+    def test_unavailable_process_info_reads_not_running_and_unverifiable(self):
+        # ADR 1z9df: without psutil, liveness reads not running (the OS lock
+        # decides) and the command line is unverifiable (None).
+        import process_info
+
+        def refuse():
+            raise process_info.ProcessInfoUnavailable("fixture; run `wf setup`")
+
+        with patch.object(process_info, "_load", side_effect=refuse):
+            self.assertFalse(self.bi._pid_is_running(os.getpid()))
+            self.assertFalse(self.bi._process_is_zombie(os.getpid()))
+            self.assertIsNone(self.bi._process_cmdline(os.getpid()))
 
 
 class IncrementalBuildTests(unittest.TestCase):

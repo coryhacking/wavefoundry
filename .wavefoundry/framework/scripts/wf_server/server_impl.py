@@ -234,7 +234,7 @@ from wf_server.dashboard_handlers import (
     _dashboard_url_reachable,
     _dashboard_already_serving,
     _dashboard_process_metadata,
-    _remove_dashboard_metadata,
+    _clear_dashboard_metadata,
     _terminate_dashboard_pid,
     wf_stop_dashboard_response,
     wf_restart_dashboard_response,
@@ -7074,31 +7074,25 @@ def _mark_change_item_response(
 
 
 def _pid_is_running(pid: int) -> bool:
+    """Whether ``pid`` is a live, non-zombie process (wave 1zc7n: via ``process_info``).
+
+    Aligned with the indexer: a process that exists but cannot be inspected
+    (for example another user's) reads as running, and a zombie as not
+    running. When ``psutil`` is unavailable the answer is not running, so
+    callers go on to the OS locks, which stay the only authority (ADR 1z9df);
+    ``index_health``, ``index_build_status`` and ``wf_server_info`` report
+    ``process_info_unavailable`` with the ``wf setup`` remedy.
+    """
     if pid <= 0:
         return False
-    # Wave 1p6d6: os.kill(pid, 0) is unreliable on native Windows; use tasklist there (mirrors
-    # the already-guarded copies in indexer.py / upgrade_lib.py). This was the ONLY unguarded
-    # liveness check, and it is called from 12+ sites incl. the dashboard 1p654 reconciliation —
-    # the bare os.kill misjudged live/dead PIDs on Windows. POSIX branch is unchanged.
-    if os.name == "nt":
-        import subprocess  # local import — server_impl imports subprocess per-function (convention)
-        try:
-            # MCP-reachable (12+ liveness call sites incl. dashboard/index status): isolate stdin from
-            # the JSON-RPC stream and suppress the console window on Windows (wave 1p88t).
-            result = subprocess.run(
-                ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
-                capture_output=True, text=True, check=False,
-                encoding="utf-8", errors="replace",  # 1p8gv (review F2): deterministic capture decoding
-                stdin=subprocess.DEVNULL, creationflags=_windows_no_window_flag(),
-            )
-            return str(pid) in result.stdout
-        except OSError:
-            return False
+    import process_info
+
     try:
-        os.kill(pid, 0)
-    except OSError:
+        if process_info.pid_state(pid) == process_info.DEAD:
+            return False
+        return process_info.is_zombie(pid) is not True
+    except process_info.ProcessInfoUnavailable:
         return False
-    return True
 
 
 
@@ -16811,10 +16805,35 @@ def _extension_provenance_for_response(root: Path) -> dict[str, Any]:
     }
 
 
+def _process_info_status() -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
+    """``psutil`` availability for responses, and the diagnostic when it is unavailable (wave 1zc7n).
+
+    When ``psutil`` cannot be imported, process liveness reads "not running"
+    and the OS locks decide (ADR 1z9df); the diagnostic makes that visible and
+    recommends ``wf setup``.
+    """
+    import process_info
+
+    ok, detail = process_info.available()
+    if ok:
+        return {"available": True, "psutil_version": detail}, None
+    return {"available": False, "reason": detail}, _diagnostic(
+        "process_info_unavailable",
+        f"Process information is unavailable: {detail}. Until it is fixed, process status may show "
+        "a running build or dashboard as not running; index builds still run because the OS locks "
+        "decide. Run `wf setup` to install or repair psutil.",
+        recovery_tools=[],
+        recovery_usage="wf setup",
+    )
+
+
 def wf_server_info_response(root: Path, *, server_runner_version: str | None = None) -> dict[str, Any]:
     data = server_identity(root, server_runner_version=server_runner_version)
     data["extensions"] = _extension_provenance_for_response(root)
     diagnostics: list[dict[str, Any]] = []
+    data["process_info"], process_info_diagnostic = _process_info_status()
+    if process_info_diagnostic is not None:
+        diagnostics.append(process_info_diagnostic)
     if data.get("runner_stale") is True:
         diagnostics.append(
             _diagnostic("runner_stale", str(data.get("runner_stale_detail") or _runner_stale_detail()))

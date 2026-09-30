@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-09-29
 
 Architecture Decision Records (ADRs) capture significant design decisions made for Wavefoundry.
 
@@ -44,6 +44,7 @@ Copy `template.md` and fill in all sections. Link new ADRs from `docs/ARCHITECTU
 | [1yb53-adr](1yb53-adr%20config-declared-phase-gates.md) | Typed configuration for required prepare/close sensors | accepted |
 | [1ye5y-adr](1ye5y-adr%20flat-sibling-tool-registry.md) | The MCP tool registry and wrapper-chain applier live in a flat, stateless sibling module | superseded by 1yx4m (placement) |
 | [1yx4m-adr](1yx4m-adr%20wf-server-package.md) | The MCP server implementation lives in the `wf_server` package; `server_impl` and `dashboard_handlers` keep flat `sys.modules` aliases, the other ten are reached as `wf_server.<name>` (amended by wave `1yxyw`) | accepted |
+| [1z9df-adr](1z9df-adr%20psutil-process-info.md) | Process information in tool-environment code comes from `psutil` (required, capped) through one module, with no fallback; pre-dependency and old-runner code keeps its own standard-library queries | accepted |
 | [1yja8-adr](1yja8-adr%20persisted-storage-continuity.md) | Persisted path and available-inode continuity, with pure recovery reads | accepted |
 
 - [Index Build Source Races](1yj14-adr%20index-build-source-races.md) — automatic-writer exclusion, bounded coherent retry and verified precommit recovery.

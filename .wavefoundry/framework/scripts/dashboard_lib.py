@@ -329,9 +329,9 @@ def dashboard_cmdline_pids(root: Path) -> list[int] | None:
         out = _windows_process_cmdlines()
     else:
         try:
-            out = subprocess_util.isolated_run(
+            out = _run_tree_kill(
                 ["ps", "-axww", "-o", "pid=,command="],
-                capture_output=True, text=True, check=False,
+                capture_output=True, text=True, check=False, timeout=10,
             ).stdout
         except Exception:  # noqa: BLE001 — best-effort scan; any failure → fall back
             return None

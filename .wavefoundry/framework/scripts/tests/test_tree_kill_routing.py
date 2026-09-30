@@ -62,8 +62,8 @@ CALLEES = frozenset({"run", "isolated_run", "run_with_tree_kill", "communicate",
 # sites by name. index_state_store._run_git is the store's resolver.
 RESOLVER_MODULES = (
     "accel_embedder", "dashboard_lib", "docs_gardener", "graph_indexer", "graph_quality_eval",
-    "indexer", "operator_identity", "provider_policy", "render_platform_surfaces", "retrieval_eval",
-    "run_secrets_scan", "run_tests", "scan_secrets", "sqlite_storage_migration", "upgrade_protocol", "server_impl",
+    "operator_identity", "provider_policy", "render_platform_surfaces", "retrieval_eval",
+    "run_secrets_scan", "run_tests", "scan_secrets", "sqlite_storage_migration", "upgrade_lib", "upgrade_protocol", "server_impl",
 )
 
 # Calls that end their whole process tree on timeout.
@@ -101,6 +101,8 @@ ROUTED = {
     ("accel_embedder.py", "_coreml_static_probe_passes", "_run_tree_kill"): 1,
     ("dashboard_lib.py", "_windows_process_cmdlines", "_run_tree_kill"): 1,
     ("dashboard_lib.py", "collect_git_stats.run", "_run_tree_kill"): 1,
+    ("dashboard_lib.py", "dashboard_cmdline_pids", "_run_tree_kill"): 1,
+    ("upgrade_lib.py", "_pid_is_running", "_run_tree_kill"): 1,
     ("dashboard_lib.py", "collect_git_stats.run_raw", "_run_tree_kill"): 1,
     ("dashboard_lib.py", "get_file_diff._run", "_run_tree_kill"): 1,
     ("dashboard_lib.py", "list_git_changed_files.run", "_run_tree_kill"): 1,
@@ -108,7 +110,6 @@ ROUTED = {
     ("graph_indexer.py", "_gitignored_paths", "_run_tree_kill"): 1,
     ("graph_quality_eval.py", "_git_value", "_run_tree_kill"): 1,
     ("graph_indexer.py", "_physical_perf_core_count", "_run_tree_kill"): 1,
-    ("indexer.py", "_process_cmdline", "_run_tree_kill"): 1,
     ("operator_identity.py", "resolve_operator", "_run_tree_kill"): 1,
     ("provider_policy.py", "_ldconfig_lib_paths", "_run_tree_kill"): 1,
     ("provider_policy.py", "nvidia_gpu_present", "_run_tree_kill"): 1,

@@ -1301,6 +1301,12 @@ class WaveIndexHealthTests(unittest.TestCase):
 
     def test_returns_ok_when_semantic_ready(self):
         index = MagicMock()
+        # A real empty root: a MagicMock root turned its background-build.pid
+        # into pid 1, which reads as running since wave 1zc7n (another user's
+        # process is running, not dead).
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        index.root = Path(tmp.name)
         index.docs_health.return_value = {
             "semantic_ready": True,
             "stale_layers": [],
@@ -1670,6 +1676,15 @@ class BackgroundBuildStatusTests(unittest.TestCase):
         ):
             with self.subTest(script=script, args=args):
                 self.assertEqual(self._status_for_process(script, *args), "running")
+
+    def test_a_rootless_setup_that_started_after_the_stamp_is_a_reused_pid(self):
+        # Wave 1zc7l (CR-L1): the pid file is written while the stamped
+        # process owns the pid, so a rootless `wf setup` in another repository
+        # that reuses it started after the write and is not this build.
+        self.assertEqual(self._status_for_process("wf_cli.py", "setup", "--background-code"), "running")
+        stamped = time.time() - 3600
+        os.utime(self._pid_path(), (stamped, stamped))
+        self.assertEqual(self.srv._background_build_status(self.root), "completed")
 
     def test_other_cli_commands_and_other_roots_are_not_running(self):
         other = Path(self.tmp.name) / "other-repo"
@@ -3405,7 +3420,9 @@ class BackgroundRefreshActiveTests(unittest.TestCase):
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        self._write_state(pid=child.pid, started_at=0.0)
+        # Wave 1zc7n: record a real start time; a process that started after
+        # the recorded start is a reused pid, not the build.
+        self._write_state(pid=child.pid, started_at=time.time())
         self.server._BACKGROUND_BUILD_PIDS.add(child.pid)
         try:
             self.assertTrue(self.server._background_refresh_active(self.state_path))
@@ -3445,7 +3462,11 @@ class BackgroundRefreshActiveTests(unittest.TestCase):
         )
         indexer = self.server._load_script("indexer")
         cmdline = f"python indexer.py --root {root} --content all"
-        with patch.object(indexer, "_process_cmdline", return_value=cmdline):
+        # This test covers the command-line root check; the synthetic start
+        # time would otherwise trip the wave-1zc7n pid-reuse guard first.
+        import wf_server.index_handlers as index_handlers
+        with patch.object(indexer, "_process_cmdline", return_value=cmdline), \
+                patch.object(index_handlers, "_pid_started_after", return_value=False):
             self.assertTrue(self.server._background_refresh_active(state_path))
 
     def test_windows_quoted_indexer_root_is_compared_case_insensitively(self):
@@ -3658,7 +3679,11 @@ class MaybeRefreshIfStaleTests(unittest.TestCase):
         )
         started: list[tuple] = []
         indexer = self.server._load_script("indexer")
-        with patch.object(indexer, "classify_index_build_lock_owner", side_effect=OSError("probe")), \
+        # This test covers the classifier's fail-safe; the synthetic start time
+        # would otherwise trip the wave-1zc7n pid-reuse guard first.
+        import wf_server.index_handlers as index_handlers
+        with patch.object(index_handlers, "_pid_started_after", return_value=False), \
+             patch.object(indexer, "classify_index_build_lock_owner", side_effect=OSError("probe")), \
              patch.object(self.server, "_index_inputs_stale", return_value=True), \
              patch.object(
                  self.server,

@@ -6,6 +6,10 @@ from pathlib import Path
 # Qualified shared semantic runtime; migration owns the retired Lance reader.
 APSW_REQUIREMENT = "apsw==3.53.4.0"
 SQLITE_VEC_REQUIREMENT = "sqlite-vec==0.1.9"
+# Process information for tool-environment code (ADR 1z9df, wave 1zc7n);
+# process_info reads the floor from PSUTIL_MIN_VERSION.
+PSUTIL_MIN_VERSION = (6, 1)
+PSUTIL_REQUIREMENT = "psutil>=6.1,<8"
 REQUIRED_IMPORTS = {
     "fastembed": "fastembed",
     "httpx[socks]": "socksio",
@@ -46,6 +50,7 @@ REQUIRED_IMPORTS = {
     APSW_REQUIREMENT: "apsw",
     SQLITE_VEC_REQUIREMENT: "sqlite_vec",
     "networkx>=3.0": "networkx",
+    PSUTIL_REQUIREMENT: "psutil",
 }
 CUDA_DEPENDENCY_IMPORTS = {
     "fastembed-gpu": "fastembed",

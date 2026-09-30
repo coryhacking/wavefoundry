@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: supported
-Last verified: 2026-09-25
+Last verified: 2026-09-29
 
 ## SQLite conversion qualification (1xjmm)
 
@@ -25,7 +25,7 @@ Native-Windows support is **more than the bin shell scripts, but less than a rew
 Windows was considered — and handled correctly — in several places:
 
 - Process termination branches to `taskkill /PID <pid> /T /F` on `os.name == "nt"` (`wf_server/server_impl.py`).
-- Process liveness uses `tasklist` on Windows (`indexer.py:192`, `upgrade_lib.py:121`).
+- Process liveness, zombie state, command lines, working directories and start times come from `psutil` through `process_info.py` in the MCP server and the indexer (wave `1zc7n`, ADR `1z9df-adr psutil-process-info`); `psutil`'s Windows code is tested on Windows CI upstream, so no `tasklist` or PowerShell query runs on the MCP status path. Code that runs before dependencies are installed keeps a standard-library path: `upgrade_lib._pid_is_running` (timed `tasklist`), `dashboard_lib`'s dashboard scan (PowerShell/CIM) and `sqlite_storage_migration` (a `SYNCHRONIZE`-only `OpenProcess` probe). Application control (AppLocker or WDAC) must allow `psutil`'s extension (`_psutil_windows.pyd`) in the tool environment, as it already must allow the `apsw` and `sqlite-vec` extensions; when it is blocked, builds still run under the OS locks and `index_health` reports `process_info_unavailable` with the `wf setup` remedy.
 - File locking branches between `msvcrt.locking` (Windows) and `fcntl.flock` (POSIX) (`indexer.py:1906`, `dashboard_lib.py:171`).
 - Most background spawns set `creationflags=DETACHED_PROCESS|CREATE_NEW_PROCESS_GROUP` on Windows (`wf_server/server_impl.py`, `setup_index.py:771`, dashboard spawn `wf_server/server_impl.py`).
 - Path strings are normalized through `replace("\\", "/")` before posix-path operations (`chunker.py:375` `_normalize_path`; `dashboard_lib.py` multiple sites).
@@ -113,7 +113,7 @@ different distribution model.
 
 ### Bucket 4 — Verification you can trust
 
-None of the existing `taskkill` / `tasklist` / `msvcrt` / `creationflags` branches have ever run on a real Windows host in CI — they are **unverified**. Credible Windows support requires a Windows smoke path (CI runner or, at minimum, a documented manual checklist exercising: MCP server start, `docs-lint`, a wave-gate open/close, a dashboard start/stop, an index build). The biggest hidden risk in this whole effort is shipping Windows branches that have never executed on Windows.
+None of the remaining `taskkill` / `tasklist` / `msvcrt` / `creationflags` branches have ever run on a real Windows host in CI — they are **unverified**. Credible Windows support requires a Windows smoke path (CI runner or, at minimum, a documented manual checklist exercising: MCP server start, `docs-lint`, a wave-gate open/close, a dashboard start/stop, an index build). The biggest hidden risk in this whole effort is shipping Windows branches that have never executed on Windows.
 
 ## Status summary
 

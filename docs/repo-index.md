@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-26
+Last verified: 2026-09-29
 
 ## Repository Summary
 
@@ -35,26 +35,26 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 15402 |
-| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1196 |
-| upgrade_wavefoundry | `.wavefoundry/framework/scripts` | code | 562 |
-| graph | `.wavefoundry/framework/scripts` | code | 389 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 331 |
-| workflow-config | `.wavefoundry/framework/scripts` | code | 324 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 15836 |
+| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1392 |
+| setup | `.wavefoundry/framework/scripts` | code | 584 |
+| record_paths | `.wavefoundry/framework/scripts` | code | 541 |
+| graph | `.wavefoundry/framework/scripts` | code | 393 |
 | chunker | `.wavefoundry/framework/scripts` | code | 283 |
-| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 257 |
-| framework index | `.wavefoundry/framework/scripts` | code | 237 |
+| indexer | `.wavefoundry/framework/scripts` | code | 281 |
+| framework index | `.wavefoundry/framework/scripts` | code | 224 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 223 |
-| indexer | `.wavefoundry/framework/scripts` | code | 219 |
-| reconcile_scan | `.wavefoundry/framework/scripts` | code | 182 |
+| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 159 |
+| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 149 |
 | context_efficiency | `.wavefoundry/framework/scripts` | code | 146 |
-| secrets_validators | `.wavefoundry/framework/scripts` | code | 111 |
-| retrieval_eval | `.wavefoundry/framework/scripts` | code | 103 |
+| retrieval_eval | `.wavefoundry/framework/scripts` | code | 135 |
+| memory_records | `.wavefoundry/framework/scripts` | code | 114 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 106 |
 | upgrade_extensions | `.wavefoundry/framework/scripts` | code | 67 |
-| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 53 |
+| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 55 |
+| run_tests | `.wavefoundry/framework/scripts` | code | 52 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 46 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
-| run_tests | `.wavefoundry/framework/scripts` | code | 44 |
 | evidence | `docs/waves/1yzd0 server-package-boundary/evidence` | code | 36 |
 | m | `docs/waves/1yzd0 server-package-boundary/evidence/m` | code | 36 |
 | r | `docs/waves/1yxyw retire-optional-server-aliases/evidence/r` | code | 33 |

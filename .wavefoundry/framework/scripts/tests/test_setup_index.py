@@ -558,6 +558,26 @@ class SetupIndexTests(unittest.TestCase):
             deps = tomllib.load(fh)["project"]["dependencies"]
         self.assertEqual([dep for dep in deps if dep.startswith("mcp")], ["mcp[cli]<2"])
 
+    def test_psutil_is_pinned_in_every_declaration(self):
+        # Wave 1zc7n (ADR 1z9df): psutil is required, floored and capped below 8.
+        import setup_requirements as req
+        self.assertEqual(self.mod.REQUIRED_IMPORTS.get(req.PSUTIL_REQUIREMENT), "psutil")
+        self.assertEqual(req.PSUTIL_REQUIREMENT, "psutil>=6.1,<8")
+        self.assertEqual(tuple(req.PSUTIL_MIN_VERSION), (6, 1))
+        with PYPROJECT_PATH.open("rb") as fh:
+            deps = tomllib.load(fh)["project"]["dependencies"]
+        self.assertEqual([dep for dep in deps if dep.startswith("psutil")], ["psutil>=6.1,<8"])
+
+    def test_required_imports_and_pyproject_agree(self):
+        # Wave 1zc7n: the two declarations may differ only by the known entries.
+        known_only_required = {"networkx>=3.0"}
+        known_only_pyproject = {"packaging>=24"}
+        with PYPROJECT_PATH.open("rb") as fh:
+            deps = set(tomllib.load(fh)["project"]["dependencies"])
+        required = set(self.mod.REQUIRED_IMPORTS)
+        self.assertEqual(required - deps, known_only_required)
+        self.assertEqual(deps - required, known_only_pyproject)
+
     def test_setup_probe_flags_an_mcp_outside_the_pin(self):
         try:
             import importlib.metadata as metadata

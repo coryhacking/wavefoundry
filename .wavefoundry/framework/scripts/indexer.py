@@ -10,7 +10,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -27,7 +26,6 @@ import index_compatibility
 index_compatibility.register_loaded_source()
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
-import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
 import model_bundle
 import index_source_guard
@@ -231,110 +229,64 @@ def docs_lint_hook_timeout_seconds(root: Path) -> float:
 
 
 def _pid_is_running(pid: int) -> bool:
+    """Whether ``pid`` is a live, non-zombie process (wave 1zc7n: via ``process_info``).
+
+    Unknown (for example a process this user may not signal) reads as running,
+    the safe direction for lock reclaim. When ``psutil`` is unavailable the
+    answer is not running: the OS lock stays the only authority, so a build
+    still proceeds to it (ADR 1z9df).
+    """
     if pid <= 0:
         return False
-    if os.name == "nt":
-        try:
-            result = subprocess_util.isolated_run(
-                ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            return str(pid) in result.stdout
-        except OSError:
-            return False
+    import process_info
+
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
+        state = process_info.pid_state(pid)
+    except process_info.ProcessInfoUnavailable:
         return False
-    except PermissionError:
-        return True
-    except OSError:
+    if state == process_info.DEAD:
         return False
-    # Wave 1p98u: os.kill(pid, 0) keeps succeeding for a zombie/defunct process until its parent
-    # reaps it, which made a finished-but-unreaped index build read as "live" and block every
-    # later build. A defunct process has already exited (its OS flock is released), so treat it as
-    # not running — mirrors the background-build/dashboard zombie guards (waves 1p654/1p6d6).
+    # Wave 1p98u: a zombie/defunct process has already exited (its OS lock is
+    # released), so it is not running even though it still has a pid.
     if _process_is_zombie(pid):
         return False
     return True
 
 
 # Wave 1p98u: index-build-lock liveness hardening. A recorded owner PID can be a zombie/defunct
-# process (os.kill still succeeds) or a recycled PID now running an unrelated program — both made the
-# lock read as a live build and skipped/blocked index updates. These helpers reconcile against the
-# real process state + cmdline, mirroring the dashboard 1p654 reconciliation. Every probe routes
-# through subprocess_util.isolated_run (windowless on Windows — no console flash) and degrades to a
-# safe default on any failure (never reclaim a possibly-live build; the OS flock stays the authority).
+# process or a recycled PID now running an unrelated program; both made the lock read as a live
+# build. These helpers reconcile against the real process state and command line (from
+# process_info since wave 1zc7n; no subprocess) and degrade to a safe default on any failure
+# (never reclaim a possibly-live build; the OS lock stays the authority).
 _INDEX_BUILDER_MARKERS = ("indexer.py", "setup_index.py")
 
 
 def _process_is_zombie(pid: int) -> bool:
-    """POSIX: True iff ``pid`` is in ``Z``/defunct state. Windows / any failure: False.
-
-    Windows has no zombie concept, so this is a no-op there and never spawns a console."""
+    """True iff ``pid`` is a zombie (wave 1zc7n: via ``process_info``); Windows and any failure: False."""
     if os.name == "nt" or pid <= 0:
         return False
+    import process_info
+
     try:
-        result = subprocess_util.isolated_run(
-            ["ps", "-o", "state=", "-p", str(int(pid))],
-            capture_output=True, text=True, check=False,
-        )
-    except index_compatibility.IndexCompatibilityError:
-        raise
-    except Exception:  # noqa: BLE001 — best-effort; any failure → not-zombie (safe: no reclaim)
+        return process_info.is_zombie(pid) is True
+    except process_info.ProcessInfoUnavailable:
         return False
-    if result.returncode != 0:
-        return False
-    return (result.stdout or "").strip()[:1] == "Z"
-
-
-def _run_tree_kill(cmd, **kwargs):
-    """Run ``cmd`` so a timeout ends its whole process tree (wave 1z8ox).
-
-    The helper is resolved at call time: an upgrade runner may have an older
-    ``subprocess_util`` loaded that lacks ``run_with_tree_kill``, so fall back
-    to ``isolated_run``.
-    """
-    run = getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
-    return run(cmd, **kwargs)
 
 
 def _process_cmdline(pid: int) -> Optional[str]:
-    """Best-effort full command line for ``pid`` — cross-OS and windowless. None if unavailable.
+    """The full command line for ``pid``, or None (wave 1zc7n: via ``process_info``).
 
-    POSIX: ``ps -o args=``. Windows: ``powershell.exe`` + CIM (the only built-in exposing the full
-    CommandLine), invoked EXPLICITLY through the windowless ``_run_tree_kill`` (a timeout ends its
-    whole process tree; wave 1z8ox) — no ``shell=True`` and
-    no reliance on the parent shell, so it behaves identically whether the operator runs cmd or
-    PowerShell, and no console window flashes. Any failure (incl. PowerShell absent) → None so the
-    caller keeps today's behavior."""
+    Rendered like ``ps -o args=`` on POSIX and ``subprocess.list2cmdline`` on
+    Windows, which the root matchers parse. None when it cannot be read or
+    ``psutil`` is unavailable; callers treat None as unverifiable."""
     if pid <= 0:
         return None
+    import process_info
+
     try:
-        if os.name == "nt":
-            ps_script = (
-                f"Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}' "
-                "| ForEach-Object { $_.CommandLine }"
-            )
-            result = _run_tree_kill(
-                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
-                capture_output=True, text=True, check=False, timeout=10,
-            )
-        else:
-            result = subprocess_util.isolated_run(
-                ["ps", "-o", "args=", "-p", str(int(pid))],
-                capture_output=True, text=True, check=False,
-            )
-    except index_compatibility.IndexCompatibilityError:
-        raise
-    except Exception:  # noqa: BLE001 — best-effort; any failure → None (caller falls back)
+        return process_info.cmdline(pid)
+    except process_info.ProcessInfoUnavailable:
         return None
-    if result.returncode != 0:
-        return None
-    out = (result.stdout or "").strip()
-    return out or None
 
 
 def _pid_is_index_builder(pid: int) -> bool:

@@ -321,14 +321,96 @@ def _dashboard_process_metadata(root: Path) -> tuple[Path, dict[str, Any]]:
     return meta_path, dashboard_lib.read_dashboard_metadata(root)
 
 
-def _remove_dashboard_metadata(meta_path: Path) -> bool:
+def _posix_pid_exited(pid: int) -> bool:
+    """Whether ``pid`` has exited, without ``psutil`` (wave 1zc7n).
+
+    Reaps our own child first, so a finished child is never read as gone
+    while it is still a zombie; a process that no longer exists has exited;
+    a zombie we cannot reap has exited too.
+    """
     try:
-        meta_path.unlink()
-        return True
-    except FileNotFoundError:
-        return False
+        ended_pid, _ = os.waitpid(pid, os.WNOHANG)
+    except ChildProcessError:
+        ended_pid = 0
     except OSError:
+        ended_pid = 0
+    if ended_pid == pid:
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return False  # exists but may not be signalled
+    import process_info
+
+    try:
+        return process_info.is_zombie(pid) is True
+    except process_info.ProcessInfoUnavailable:
         return False
+
+
+def _clear_dashboard_metadata(meta_path: Path, *, settle_seconds: float = 0.0):
+    """Clear the dashboard metadata in place while holding the dashboard's lock (wave 1zc7n).
+
+    The metadata file is the dashboard server's lifetime lock carrier, so it
+    is never deleted: a dashboard that locked it between a check and a delete
+    would keep a deleted inode while a second dashboard locked a fresh file.
+    Instead stop takes the same lock, non-blocking, rewrites the metadata to
+    ``{}`` and releases; while stop holds it no dashboard can start. Returns a
+    ``RuntimeLockProbe``: ``held`` False means cleared (or no file), True means
+    a live holder, None means the lock could not be taken (for example a
+    read-only carrier). ``settle_seconds`` retries a held lock, for a process
+    whose handles the OS is still closing after a stop.
+    """
+    import time as _time
+
+    import dashboard_lib
+    from runtime_lock import RuntimeFileLock, RuntimeLockBusy, RuntimeLockError, RuntimeLockProbe
+
+    if not meta_path.exists():
+        return RuntimeLockProbe(False)
+    deadline = _time.monotonic() + settle_seconds
+    while True:
+        lock = RuntimeFileLock(meta_path, blocking=False, offset=dashboard_lib._LOCK_BYTE_OFFSET)
+        try:
+            lock.acquire()
+        except RuntimeLockBusy:
+            if _time.monotonic() >= deadline:
+                return RuntimeLockProbe(True)
+            _time.sleep(0.1)
+            continue
+        except RuntimeLockError as exc:
+            return RuntimeLockProbe(None, str(exc))
+        try:
+            lock.write_metadata({})
+        except RuntimeLockError as exc:
+            return RuntimeLockProbe(None, str(exc))
+        finally:
+            try:
+                lock.release()
+            except RuntimeLockError:
+                pass
+        return RuntimeLockProbe(False)
+
+
+def _dashboard_metadata_kept_response(summary: dict[str, Any], meta_path: Path, probe) -> dict[str, Any]:
+    from wf_server import server_impl
+
+    state = "held" if probe.held else f"unreadable ({probe.error or 'unknown error'})"
+    summary.update({"already_stopped": False, "stopped": False, "metadata_cleared": False})
+    return server_impl._response(
+        "ok",
+        summary,
+        diagnostics=[_diagnostic(
+            "dashboard_lock_unverified",
+            f"Dashboard shutdown could not be verified: its lock file {meta_path} is {state}. The file "
+            "is the running dashboard's lock, so its metadata was kept. Stop the dashboard process manually, or "
+            "restore write permission on .wavefoundry/locks/dashboard-server.lock; a later start then "
+            "succeeds.",
+        )],
+        usage="wf_stop_dashboard()",
+    )
 
 
 def _terminate_dashboard_pid(pid: int) -> bool:
@@ -360,17 +442,12 @@ def _terminate_dashboard_pid(pid: int) -> bool:
     except OSError:
         return False
 
+    # Wave 1zc7n: confirm exit (reaping our child first) without psutil, so a
+    # zombie is reaped before it reads as gone and SIGKILL escalation still
+    # happens when process information is unavailable.
     deadline = _time.monotonic() + 5.0
     while _time.monotonic() < deadline:
-        if not server_impl._pid_is_running(pid):
-            return True
-        try:
-            ended_pid, _ = os.waitpid(pid, os.WNOHANG)
-        except ChildProcessError:
-            ended_pid = 0
-        except OSError:
-            ended_pid = 0
-        if ended_pid == pid:
+        if _posix_pid_exited(pid):
             return True
         _time.sleep(0.1)
 
@@ -383,19 +460,11 @@ def _terminate_dashboard_pid(pid: int) -> bool:
 
     deadline = _time.monotonic() + 2.0
     while _time.monotonic() < deadline:
-        if not server_impl._pid_is_running(pid):
-            return True
-        try:
-            ended_pid, _ = os.waitpid(pid, os.WNOHANG)
-        except ChildProcessError:
-            ended_pid = 0
-        except OSError:
-            ended_pid = 0
-        if ended_pid == pid:
+        if _posix_pid_exited(pid):
             return True
         _time.sleep(0.1)
 
-    return not server_impl._pid_is_running(pid)
+    return _posix_pid_exited(pid)
 
 
 def wf_stop_dashboard_response(root: Path) -> dict[str, Any]:
@@ -457,7 +526,12 @@ def wf_stop_dashboard_response(root: Path) -> dict[str, Any]:
                 )],
                 usage="wf_stop_dashboard()",
             )
-        summary.update({"already_stopped": True, "metadata_removed": _remove_dashboard_metadata(meta_path)})
+        # Wave 1zc7n: the metadata file is the dashboard's lock carrier; clear it
+        # in place while holding that lock (held or unknown keeps it untouched).
+        probe = _clear_dashboard_metadata(meta_path)
+        if probe.held is not False:
+            return _dashboard_metadata_kept_response(summary, meta_path, probe)
+        summary.update({"already_stopped": True, "metadata_cleared": True})
         return server_impl._response("ok", summary, usage="wf_stop_dashboard()")
 
     failed = [p for p in sorted(targets) if not _terminate_dashboard_pid(p)]
@@ -471,7 +545,11 @@ def wf_stop_dashboard_response(root: Path) -> dict[str, Any]:
         )
 
     orphan_count = len([p for p in stopped if p != pid])
-    summary.update({"stopped": True, "stopped_pids": stopped, "metadata_removed": _remove_dashboard_metadata(meta_path)})
+    probe = _clear_dashboard_metadata(meta_path, settle_seconds=2.0)
+    if probe.held is not False:
+        summary["stopped_pids"] = stopped
+        return _dashboard_metadata_kept_response(summary, meta_path, probe)
+    summary.update({"stopped": True, "stopped_pids": stopped, "metadata_cleared": True})
     if orphan_count:
         summary["orphans_terminated"] = orphan_count
     return server_impl._response("ok", summary, usage="wf_stop_dashboard()")

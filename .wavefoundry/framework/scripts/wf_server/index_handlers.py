@@ -166,7 +166,11 @@ def _background_build_status(root: Path) -> str:
     # Wave 1za2y: a bare liveness check also accepts an unreaped child, a reused
     # pid and an earlier server's child; reap ours, then require an index build.
     _reap_background_build_pids()
-    return "running" if _pid_is_live_index_build(pid, None, root, unbound_ok=True) else "completed"
+    try:
+        stamped_at: Optional[float] = pid_path.stat().st_mtime
+    except OSError:
+        stamped_at = None
+    return "running" if _pid_is_live_index_build(pid, stamped_at, root, unbound_ok=True) else "completed"
 
 
 def _background_build_progress(root: Path) -> str:
@@ -610,9 +614,39 @@ def _refresh_index_build_stats_from_finished_logs(root: Path, layer: str) -> Opt
     return best_stats
 
 
+_PID_REUSE_TOLERANCE_SECONDS = 2.0
+
+
+def _pid_started_after(pid: int, started_at: Any) -> bool:
+    """True when ``pid``'s process started more than 2 s after ``started_at`` (wave 1zc7n).
+
+    That process cannot be the one recorded at ``started_at``: the pid was
+    reused. Unknown times (or an unavailable ``psutil``) skip the check.
+    """
+    if not isinstance(started_at, (int, float)):
+        return False
+    import process_info
+
+    try:
+        created = process_info.create_time(pid)
+    except process_info.ProcessInfoUnavailable:
+        return False
+    return created is not None and created > float(started_at) + _PID_REUSE_TOLERANCE_SECONDS
+
+
 def _index_build_active(root: Path, layer: str) -> bool:
-    """Return True if a index_build-spawned process is currently running."""
+    """Return True if an index build is running or was just spawned for ``root``.
+
+    The OS lock is asked first (wave 1zc7n): a held lock is a running build
+    whatever the pid liveness says, so ``index_build`` returns
+    ``already_running`` before it touches the build log or state file.
+    """
     from wf_server import server_impl
+    try:
+        if _index_build_lock_info(root).get("held") is True:
+            return True
+    except Exception:  # noqa: BLE001 - status probe only; the child's acquire still decides
+        pass
     state_path = _index_build_state_path(root, layer)
     if not state_path.exists():
         return False
@@ -621,7 +655,11 @@ def _index_build_active(root: Path, layer: str) -> bool:
     except (OSError, json.JSONDecodeError):
         return False
     pid = state.get("pid")
-    if isinstance(pid, int) and server_impl._pid_is_running(pid):
+    if (
+        isinstance(pid, int)
+        and server_impl._pid_is_running(pid)
+        and not _pid_started_after(pid, state.get("started_at"))
+    ):
         return True
     # Brief throttle covers the Popen → indexer lock-acquire window (~1-2s cold start).
     # Reuses BACKGROUND_INDEX_REFRESH_THROTTLE_SECONDS (15s) — same race condition.
@@ -1148,6 +1186,10 @@ def _pid_is_live_index_build(pid: int, started_at: Any, root: Path, *, unbound_o
     from wf_server import server_impl
     if not server_impl._pid_is_running(pid):
         return False
+    # Wave 1zc7n: a process that started after the recorded start is a reused
+    # pid, even when it belongs to another user and its command line is unreadable.
+    if _pid_started_after(pid, started_at):
+        return False
     if pid in _BACKGROUND_BUILD_PIDS:
         return True
     try:
@@ -1668,6 +1710,9 @@ def index_health_response(
     # by design, not held) is diagnosable at a glance and agents don't misread its presence as "a build
     # is running."
     health["size"] = _index_dir_size(index.root / ".wavefoundry" / "index")  # wave 1p9a9
+    health["process_info"], _process_info_diagnostic = server_impl._process_info_status()
+    if _process_info_diagnostic is not None:
+        diagnostics.append(_process_info_diagnostic)
     lock_info = _index_build_lock_info(index.root)
     health["lock"] = lock_info
     if (
@@ -2312,6 +2357,10 @@ def index_build_status_response(root: Path, layer: str = "project") -> dict[str,
             epoch = _read_epoch()  # double-check: rule out a finalize between reads
         epoch["interrupted"] = epoch.get("status") == "building" and not held
         data["epoch"] = epoch
+        # Wave 1zc7n: without psutil, liveness reads "not running"; say so.
+        data["process_info"], _process_info_diagnostic = server_impl._process_info_status()
+        if _process_info_diagnostic is not None:
+            resp.setdefault("diagnostics", []).append(_process_info_diagnostic)
         # Wave 1za2y: a live setup process can run without holding the lock
         # (model download, provider probe, between layers). Say which field
         # answers which question instead of leaving them to contradict.
@@ -2470,7 +2519,12 @@ def _index_build_status_response_inner(root: Path, layer: str = "project") -> di
             usage="index_build_status()",
         )
 
-    if not log_done and isinstance(pid, int) and server_impl._pid_is_running(pid):
+    if (
+        not log_done
+        and isinstance(pid, int)
+        and server_impl._pid_is_running(pid)
+        and not _pid_started_after(pid, started_at)
+    ):
         running_data: dict[str, Any] = {
             "layer": layer_s,
             "state": "running",

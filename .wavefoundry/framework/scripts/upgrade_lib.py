@@ -227,18 +227,35 @@ def is_lock_stale(root: Path) -> bool:
     return not _pid_is_running(pid)
 
 
+def _run_tree_kill(cmd, **kwargs):
+    """Run ``cmd`` so a timeout ends its whole process tree (wave 1zc7n).
+
+    Resolved at call time: an older upgrade runner may have loaded a
+    ``subprocess_util`` without ``run_with_tree_kill``, so fall back to
+    ``isolated_run``. This module stays standard-library (ADR 1z9df).
+    """
+    import subprocess_util  # shared subprocess isolation (wave 1p8gu)
+
+    run = getattr(subprocess_util, "run_with_tree_kill", None) or subprocess_util.isolated_run
+    return run(cmd, **kwargs)
+
+
 def _pid_is_running(pid: int) -> bool:
     """Cross-platform check: return True if *pid* refers to a running process."""
     if os.name == "nt":
-        import subprocess_util  # shared subprocess isolation (wave 1p8gu)
+        import subprocess
         try:
-            result = subprocess_util.isolated_run(
+            result = _run_tree_kill(
                 ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=10,
             )
             return str(pid) in result.stdout
+        except subprocess.TimeoutExpired:
+            # Can't tell: count it as running so the upgrade lock is never judged stale.
+            return True
         except OSError:
             return False
     else:

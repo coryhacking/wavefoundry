@@ -110,21 +110,14 @@ class McpSubprocessHelperTests(unittest.TestCase):
 
     # --- wave 1p88t: MCP-reachable probes that previously bypassed the helper are now isolated ---
 
-    def test_pid_is_running_isolates_stdin_and_no_window_on_windows(self):
-        # tasklist liveness is MCP-reachable (12+ call sites incl. dashboard/index status).
-        captured: dict[str, object] = {}
-
-        def fake_run(cmd, **kwargs):
-            captured.update(kwargs)
-            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-
-        with patch.object(self.srv.os, "name", "nt"), \
-             patch.object(subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True), \
-             patch.object(subprocess, "run", side_effect=fake_run):
-            self.srv._pid_is_running(4321)
-
-        self.assertIs(captured["stdin"], subprocess.DEVNULL)
-        self.assertEqual(captured["creationflags"], 0x08000000)
+    def test_pid_is_running_spawns_no_process(self):
+        # Wave 1zc7n: liveness comes from process_info (psutil); no tasklist or
+        # ps spawn on the MCP path, on any platform.
+        with patch.object(subprocess, "run", side_effect=AssertionError("spawned")), \
+                patch.object(subprocess, "Popen", side_effect=AssertionError("spawned")):
+            self.assertTrue(self.srv._pid_is_running(os.getpid()))
+            with patch.object(self.srv.os, "name", "nt"):
+                self.assertTrue(self.srv._pid_is_running(os.getpid()))
 
     def test_git_audits_route_through_mcp_subprocess_helper(self):
         # _audit_commit_governance (git log) and _audit_harnessability (git grep) are MCP-reachable
@@ -322,6 +315,13 @@ class FrameworkWideSubprocessIsolationGuard(unittest.TestCase):
                 elif isinstance(func, _ast.Attribute):
                     name = func.attr
                 if name not in self._POOL_NAMES:
+                    continue
+                # Wave 1zc7n: psutil.Process(pid) is a handle to an existing process, not a
+                # multiprocessing pool; its single construction site is exempt by name.
+                if (path.name, name) == ("process_info.py", "Process") and any(
+                    lo <= node.lineno <= hi and seg.startswith("def _process(")
+                    for lo, hi, seg in func_spans
+                ):
                     continue
                 # multiprocessing.get_context is also a pool-prep call but is covered by the helper;
                 # the construction nodes (PPE/Pool/Process) are the audit points.
@@ -6714,29 +6714,56 @@ class WindowsLivenessGuardTests(unittest.TestCase):
         self.assertFalse(self.srv._pid_is_running(0))
         self.assertFalse(self.srv._pid_is_running(-5))
 
-    def test_posix_uses_os_kill_unchanged(self):
+    def _with_psutil(self, fake):
+        import process_info
+        return patch.object(process_info, "_load", return_value=fake)
+
+    def test_liveness_policy_through_process_info(self):
+        # Wave 1zc7n: aligned with the indexer. A process that exists but may
+        # not be inspected is running; absent or zombie is not running.
+        from server_tools_support import fake_psutil
         srv = self.srv
-        with patch.object(srv.os, "name", "posix"):
-            with patch.object(srv.os, "kill") as killed:
+        with self._with_psutil(fake_psutil(exists=True, process_error="AccessDenied")):
+            self.assertTrue(srv._pid_is_running(4321))
+        with self._with_psutil(fake_psutil(exists=False)):
+            self.assertFalse(srv._pid_is_running(4321))
+        with self._with_psutil(fake_psutil(exists=True, status="zombie")):
+            self.assertFalse(srv._pid_is_running(4321))
+        with self._with_psutil(fake_psutil(exists=True, status="running")):
+            self.assertTrue(srv._pid_is_running(4321))
+
+    def test_windows_liveness_through_process_info(self):
+        from server_tools_support import fake_psutil
+        srv = self.srv
+        import process_info
+        with patch.object(process_info.os, "name", "nt"):
+            with self._with_psutil(fake_psutil(exists=True, process_error="AccessDenied")):
                 self.assertTrue(srv._pid_is_running(4321))
-                killed.assert_called_once_with(4321, 0)
-            with patch.object(srv.os, "kill", side_effect=OSError()):
+            with self._with_psutil(fake_psutil(exists=False)):
                 self.assertFalse(srv._pid_is_running(4321))
 
-    def test_windows_uses_tasklist(self):
-        srv = self.srv
-        with patch.object(srv.os, "name", "nt"):
-            present = MagicMock(stdout='"python.exe","4321","Console","1","50,000 K"\r\n')
-            with patch("subprocess.run", return_value=present) as run:
-                self.assertTrue(srv._pid_is_running(4321))
-                argv = run.call_args[0][0]
-                self.assertEqual(argv[0], "tasklist")
-                self.assertIn("PID eq 4321", argv)
-            absent = MagicMock(stdout="INFO: No tasks are running which match the specified criteria.\r\n")
-            with patch("subprocess.run", return_value=absent):
-                self.assertFalse(srv._pid_is_running(4321))
-            with patch("subprocess.run", side_effect=OSError()):
-                self.assertFalse(srv._pid_is_running(4321))
+    def test_unavailable_psutil_reads_not_running(self):
+        import process_info
+
+        def refuse():
+            raise process_info.ProcessInfoUnavailable("fixture; run `wf setup`")
+
+        with patch.object(process_info, "_load", side_effect=refuse):
+            self.assertFalse(self.srv._pid_is_running(os.getpid()))
+
+    def test_real_zombie_child_and_other_user_process(self):
+        if os.name == "nt":
+            self.skipTest("POSIX process model")
+        child = subprocess.Popen([sys.executable, "-c", "pass"])
+        self.addCleanup(child.wait)
+        import process_info
+        deadline = time.time() + 10
+        while process_info.is_zombie(child.pid) is not True and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertFalse(self.srv._pid_is_running(child.pid))
+        if os.geteuid() != 0:
+            # pid 1 exists but may not be signalled by this user: running.
+            self.assertTrue(self.srv._pid_is_running(1))
 
     def test_background_build_status_routes_through_guard(self):
         srv = self.srv
