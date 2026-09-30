@@ -853,6 +853,74 @@ class UpgradeDependencyStepTests(unittest.TestCase):
                 self.up.phase_index_update(Path("/r"))
         self.assertIn("storage migration retains its receipt", str(raised.exception))
 
+    # Wave 1zep5: provisioning inside the storage-migration branch.
+
+    class _Reached(Exception):
+        pass
+
+    def _migration_branch(self, stack, *, deps_error=None, reader_error=None, receipt=None):
+        import sqlite_storage_migration as migration
+
+        stack.enter_context(patch.object(self.up, "_enforce_index_guard_before_children"))
+        stack.enter_context(patch.object(migration, "read_receipt", return_value=receipt))
+        stack.enter_context(patch.object(self.up, "_provision_upgrade_dependencies", return_value=True))
+        stack.enter_context(patch.object(
+            migration, "detect", return_value={"migration_required": True, "legacy": ["code.lance"]}))
+        mocks = {
+            "deps": stack.enter_context(patch.object(setup_index, "ensure_deps", side_effect=deps_error)),
+            "reader": stack.enter_context(patch.object(setup_index, "ensure_migration_deps", side_effect=reader_error)),
+            "convert": stack.enter_context(patch.object(
+                migration, "migrate_legacy", side_effect=self._Reached("migrate_legacy"))),
+            "publish": stack.enter_context(patch.object(migration, "begin_upgrade_publication")),
+            "update": stack.enter_context(patch("upgrade_lib.update_upgrade_lock")),
+            "err": io.StringIO(),
+        }
+        stack.enter_context(contextlib.redirect_stderr(mocks["err"]))
+        stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+        return mocks
+
+    def _assert_classified_failure(self, mocks, raised):
+        self.assertIn("storage migration retains its receipt", str(raised.exception))
+        mocks["update"].assert_called_with(Path("/r"), dependency_provisioning_failed=True)
+        self.assertIn("Dependency provisioning FAILED", mocks["err"].getvalue())
+        self.assertIn("wf setup", mocks["err"].getvalue())
+        mocks["convert"].assert_not_called()
+        mocks["publish"].assert_not_called()
+
+    def test_a_failing_migration_reader_is_a_dependency_failure_without_a_receipt(self):
+        # migration_required can be set with no receipt; the branch still raises.
+        with contextlib.ExitStack() as stack:
+            mocks = self._migration_branch(stack, reader_error=SystemExit(2), receipt=None)
+            with self.assertRaises(RuntimeError) as raised:
+                self.up.phase_index_update(Path("/r"))
+        self._assert_classified_failure(mocks, raised)
+
+    def test_a_failing_ensure_deps_in_the_migration_branch_is_classified_the_same(self):
+        receipt = {"state": "converting", "strategy": "transfer"}
+        with contextlib.ExitStack() as stack:
+            mocks = self._migration_branch(stack, deps_error=OSError(13, "denied"), receipt=receipt)
+            with self.assertRaises(RuntimeError) as raised:
+                self.up.phase_index_update(Path("/r"))
+        self._assert_classified_failure(mocks, raised)
+        mocks["reader"].assert_not_called()
+
+    def test_successful_migration_provisioning_proceeds_to_the_migration(self):
+        with contextlib.ExitStack() as stack:
+            mocks = self._migration_branch(stack)
+            with self.assertRaises(self._Reached):
+                self.up.phase_index_update(Path("/r"))
+        mocks["deps"].assert_called_once_with(Path("/r"))
+        mocks["reader"].assert_called_once_with(Path("/r"))
+        mocks["update"].assert_called_with(Path("/r"), dependency_provisioning_failed=False)
+
+    def test_an_unrelated_error_is_not_relabelled_a_dependency_failure(self):
+        with contextlib.ExitStack() as stack:
+            mocks = self._migration_branch(stack, reader_error=ValueError("bug"))
+            with self.assertRaises(ValueError):
+                self.up.phase_index_update(Path("/r"))
+        self.assertNotIn("Dependency provisioning FAILED", mocks["err"].getvalue())
+        mocks["convert"].assert_not_called()
+
     def test_the_delegated_summary_reads_the_lock_flag(self):
         lock = {"from_version": "1", "to_version": "2", "dependency_provisioning_failed": True}
         out = io.StringIO()

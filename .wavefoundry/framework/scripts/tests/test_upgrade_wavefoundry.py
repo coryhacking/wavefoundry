@@ -8583,6 +8583,43 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
         self.assertEqual(second, 0)
         phase_again.assert_not_called()
 
+    def test_resume_handles_a_migration_reader_failure_as_a_dependency_failure(self):
+        # Wave 1zep5: the reader's SystemExit used to escape this path's
+        # `except Exception`, skipping its failure handling.
+        import setup_index
+        import sqlite_storage_migration as migration
+
+        with patch.object(self.mod, "_enforce_index_guard_before_children"), \
+             patch.object(self.mod, "_provision_upgrade_dependencies", return_value=True), \
+             patch.object(migration, "read_receipt", return_value=None), \
+             patch.object(migration, "detect", return_value={"migration_required": True, "legacy": ["docs.lance"]}), \
+             patch.object(migration, "migrate_legacy") as convert, \
+             patch.object(setup_index, "ensure_deps"), \
+             patch.object(setup_index, "ensure_migration_deps", side_effect=SystemExit(2)), \
+             contextlib.redirect_stderr(io.StringIO()) as err:
+            result = self.mod.main(
+                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
+            )
+        self.assertEqual(result, 1)
+        convert.assert_not_called()
+        lock = self.upgrade_lib.read_upgrade_lock(self.root)
+        self.assertEqual(lock.get("failed_phase"), "index_update")
+        self.assertIs(lock.get("dependency_provisioning_failed"), True)
+        self.assertIn("Dependency provisioning FAILED", err.getvalue())
+        self.assertIn("storage migration retains its receipt", lock.get("memory_backfill_last_failure", ""))
+
+    def test_default_path_failure_keeps_the_dependency_flag_beside_the_failed_phase(self):
+        # 1zep5 (AC-1, default path by composition): the helper records the flag,
+        # then main's BaseException handler finalizes the failed phase; the second
+        # write must not clobber the first.
+        failing = MagicMock(side_effect=SystemExit(2))
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertFalse(self.mod._run_dependency_install(self.root, failing))
+        self.mod._finalize_failed_upgrade(self.root, True, "index_update")
+        lock = self.upgrade_lib.read_upgrade_lock(self.root)
+        self.assertEqual(lock.get("failed_phase"), "index_update")
+        self.assertIs(lock.get("dependency_provisioning_failed"), True)
+
     def test_resume_accepts_publication_checkpoint_and_clears_compatibility_lease(self):
         self.upgrade_lib.update_upgrade_lock(
             self.root,

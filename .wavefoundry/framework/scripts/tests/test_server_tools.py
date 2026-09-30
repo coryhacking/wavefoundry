@@ -6070,6 +6070,33 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         codes = [d["code"] for d in result["diagnostics"]]
         self.assertIn("index_publication_failed", codes)
 
+    def test_migration_dependency_failure_carries_the_dependency_diagnostic(self):
+        """1zep5 (AC-1): a storage-migration provisioning failure produces no
+        summary, so the output line is the only route to the diagnostic."""
+        stderr = (
+            "Dependency provisioning FAILED (SystemExit: 2); the index update did not run. "
+            "Fix network, proxy or TLS access to the package index, then run `wf setup`.\n"
+            "Traceback (most recent call last):\n"
+            "RuntimeError: dependency provisioning failed; storage migration retains its "
+            "receipt and legacy sources; run `wf setup`, then retry\n"
+        )
+        for phase in ("preflight_to_docs_gate", "update_index", "resume_after_memory"):
+            with self.subTest(phase=phase):
+                mock_proc = MagicMock()
+                mock_proc.returncode = 1
+                mock_proc.stdout = ""
+                mock_proc.stderr = stderr
+                with patch("subprocess.run", return_value=mock_proc):
+                    result = self.srv.wf_upgrade_response(self.root, phase=phase)
+                self.assertEqual(result["status"], "error")
+                upgrade_failed = next(
+                    d for d in result["diagnostics"] if d["code"] == "upgrade_failed"
+                )
+                self.assertIn("dependency provisioning failed", upgrade_failed["message"])
+                self.assertIn("wf setup", upgrade_failed["message"])
+                codes = [d["code"] for d in result["diagnostics"]]
+                self.assertIn("dependency_provisioning_failed", codes)
+
     def test_successful_summary_carries_no_publication_diagnostic(self):
         mock_proc = MagicMock()
         mock_proc.returncode = 0

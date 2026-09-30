@@ -2325,7 +2325,6 @@ def _provision_upgrade_dependencies(root: Path) -> bool:
     """
     import upgrade_lib
 
-    failed = False
     try:
         # A metadata read (no subprocess) decides whether an install is needed;
         # the Phase 4 child's own ensure_deps still verifies imports.
@@ -2341,11 +2340,39 @@ def _provision_upgrade_dependencies(root: Path) -> bool:
             pass
         return True
     _log("  Provisioning declared dependencies ...")
-    try:
+
+    def _install() -> None:
         import setup_index
 
         setup_index.ensure_deps(root)
-    except (SystemExit, RuntimeError, OSError, subprocess.CalledProcessError) as exc:
+
+    return _run_dependency_install(root, _install)
+
+
+# What a dependency install raises when it fails; deliberately not `Exception`,
+# so an unrelated error is never relabelled as a dependency failure.
+_DEPENDENCY_INSTALL_FAILURES = (SystemExit, RuntimeError, OSError, subprocess.CalledProcessError)
+
+_MIGRATION_DEPENDENCY_FAILURE = (
+    "dependency provisioning failed; storage migration retains its receipt and "
+    "legacy sources; run `wf setup`, then retry"
+)
+
+
+def _run_dependency_install(root: Path, install) -> bool:
+    """Run one dependency install and classify a failure (waves 1zfd9, 1zep5).
+
+    The single place that decides what a dependency failure is: it logs the
+    ``Dependency provisioning FAILED ... wf setup`` line (which ``wf_upgrade``
+    matches for its diagnostic) and records ``dependency_provisioning_failed``
+    in the upgrade lock. Returns True on success.
+    """
+    import upgrade_lib
+
+    failed = False
+    try:
+        install()
+    except _DEPENDENCY_INSTALL_FAILURES as exc:
         failed = True
         _err(
             f"Dependency provisioning FAILED ({type(exc).__name__}: {exc}); the index "
@@ -2436,19 +2463,25 @@ def phase_index_update(root: Path) -> bool:
     rebuild_storage = migration_pending and migration_receipt.get("strategy") == "rebuild"
     if not _provision_upgrade_dependencies(root):
         if migration_pending:
-            raise RuntimeError(
-                "dependency provisioning failed; storage migration retains its receipt and "
-                "legacy sources; run `wf setup`, then retry"
-            )
+            raise RuntimeError(_MIGRATION_DEPENDENCY_FAILURE)
         return False
     migration_state = sqlite_storage_migration.detect(root / ".wavefoundry/index")
     if migration_state["migration_required"]:
         # Dependency provisioning stays on canonical setup, before native
-        # conversion is imported. The reader remains migration-only.
+        # conversion is imported. The reader remains migration-only. ensure_deps
+        # stays: it repairs a venv that needs rebuilding, which the dependency
+        # step's metadata precheck cannot see. A failure is classified like the
+        # dependency step's and always raises here, before anything migrates
+        # (wave 1zep5), whether or not a migration receipt is pending.
         import setup_index
-        setup_index.ensure_deps(root)
-        if not rebuild_storage and any(name in migration_state["legacy"] for name in ("docs.lance", "code.lance")):
-            setup_index.ensure_migration_deps(root)
+
+        def _install_migration_dependencies() -> None:
+            setup_index.ensure_deps(root)
+            if not rebuild_storage and any(name in migration_state["legacy"] for name in ("docs.lance", "code.lance")):
+                setup_index.ensure_migration_deps(root)
+
+        if not _run_dependency_install(root, _install_migration_dependencies):
+            raise RuntimeError(_MIGRATION_DEPENDENCY_FAILURE)
         if rebuild_storage:
             # Validate the normal setup model path before replacing the live
             # database. This process must not attempt indexing a legacy store.
