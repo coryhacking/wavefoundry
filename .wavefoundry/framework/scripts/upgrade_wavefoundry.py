@@ -3284,6 +3284,11 @@ def phase_cleanup(
                 "  Resolve the docs findings, run --resume-after-gate, then "
                 "--update-index and --cleanup."
             )
+        elif failed_phase == POST_DOCS_GATE_PHASE:
+            _log(
+                "  The docs gate passed and a later step failed. Run "
+                "--resume-after-gate, then --update-index and --cleanup."
+            )
         elif failed_phase == "review_sidecar_cleanup":
             _log(
                 "  Stop the dashboard and every attached MCP/agent host, then "
@@ -3525,6 +3530,34 @@ def _warn_if_migration_errors(root: Path) -> None:
         )
 
 
+# Wave 1zeyo (1zeyn): the failed phase for a crash after the docs gate passed
+# and before the historical-memory checkpoint is recorded (the post_docs_gate
+# hook or the memory bootstrap). ``awaiting_memory_validation`` stays reserved
+# for the real memory pause, which always arms ``action_required``.
+POST_DOCS_GATE_PHASE = "post_docs_gate"
+
+
+def _is_post_docs_gate_failure(lock: dict | None) -> bool:
+    """True for a retained lock whose upgrade failed after the docs gate passed.
+
+    Also recognises the label a pre-1.28 runner writes for the same crash: the
+    memory-pause name, but with the docs gate complete and no armed
+    ``action_required`` (a real pause always writes both ``action_required``
+    and ``current_phase: awaiting_memory_validation``). A memory run id may or
+    may not be present; the resume reuses one if it is.
+    """
+    if not isinstance(lock, dict):
+        return False
+    failed_phase = lock.get("failed_phase")
+    if failed_phase == POST_DOCS_GATE_PHASE:
+        return True
+    return (
+        failed_phase == "awaiting_memory_validation"
+        and lock.get("current_phase") == "docs_gate_complete"
+        and not lock.get("action_required")
+    )
+
+
 def _docs_gate_summary_line(failed_phase: str | None) -> str:
     """Render the 'Docs gate:' summary value from real lock state (wave 1p44o).
 
@@ -3533,9 +3566,10 @@ def _docs_gate_summary_line(failed_phase: str | None) -> str:
 
     - ``None``       → the upgrade reached cleanup without a recorded failure → PASSED.
     - ``"docs_gate"`` → the docs gate itself failed → FAILED.
+    - ``"post_docs_gate"`` → the gate passed and a later step failed → PASSED.
     - any other phase → the upgrade failed before the docs gate ran → NOT RUN.
     """
-    if failed_phase is None:
+    if failed_phase is None or failed_phase == POST_DOCS_GATE_PHASE:
         return "PASSED"
     if failed_phase == "docs_gate":
         return "FAILED"
@@ -4544,6 +4578,13 @@ def _finalize_failed_upgrade(root: Path, tree_mutated: bool, current_phase: str)
                 "Index publication and cleanup remain blocked until that "
                 "recovery succeeds."
             )
+        elif current_phase == POST_DOCS_GATE_PHASE:
+            recovery = (
+                "The docs gate passed; a later step failed before the "
+                "historical-memory checkpoint was recorded. Resolve the error, "
+                "then run --resume-after-gate (wf_upgrade(phase='resume_after_gate')); "
+                "it re-runs the docs gate and continues without re-extracting."
+            )
         elif current_phase == "review_sidecar_cleanup":
             recovery = (
                 "Stop the dashboard and every attached MCP/agent host, then "
@@ -4865,9 +4906,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         dest="resume_after_gate",
         help=(
-            "Resume a docs-gate-failed upgrade: re-run docs-gardener + docs-lint "
-            "against the already-extracted tree (no extract/render/prune). "
-            "Requires a retained lock whose failed_phase is 'docs_gate'."
+            "Resume an upgrade that failed at or after the docs gate: re-run "
+            "docs-gardener + docs-lint against the already-extracted tree (no "
+            "extract/render/prune), then establish the historical-memory checkpoint. "
+            "Requires a retained lock whose failed_phase is 'docs_gate' or "
+            "'post_docs_gate' (or the pre-1.28 label for the same crash)."
         ),
     )
     parser.add_argument(
@@ -5048,6 +5091,14 @@ def main(argv: list[str] | None = None) -> int:
         failed_phase = (
             lock.get("failed_phase") if isinstance(lock, dict) else None
         )
+        if _is_post_docs_gate_failure(lock):
+            _err(
+                "Index publication and cleanup are refused while the retained "
+                f"upgrade lock has failed_phase={failed_phase!r}: the docs gate "
+                "passed and a later step failed. Run --resume-after-gate, then "
+                "retry the requested phase."
+            )
+            return True
         if failed_phase not in {"review_sidecar_cleanup", "docs_gate"}:
             return False
         if failed_phase == "review_sidecar_cleanup":
@@ -5573,12 +5624,12 @@ def main(argv: list[str] | None = None) -> int:
                 _err("No upgrade lock found — nothing to resume.")
                 return 1
             failed_phase = lock.get("failed_phase") if isinstance(lock, dict) else None
-            resumable_gate_phases = {"docs_gate"}
-            if failed_phase not in resumable_gate_phases:
+            if failed_phase != "docs_gate" and not _is_post_docs_gate_failure(lock):
                 _err(
                     "Resume-after-gate requires a retained lock whose failed_phase is "
-                    f"'docs_gate'; found failed_phase={failed_phase!r}. Resolve the "
-                    "upgrade manually or re-run the full upgrade."
+                    f"'docs_gate' or '{POST_DOCS_GATE_PHASE}'; found "
+                    f"failed_phase={failed_phase!r}. Resolve the upgrade manually or "
+                    "re-run the full upgrade."
                 )
                 return 1
             _log(
@@ -5590,8 +5641,8 @@ def main(argv: list[str] | None = None) -> int:
                 # it has no zip to load one from — so the pre_docs_gate repair
                 # cannot reach it. Call the INSTALLED extension directly. That
                 # is not the class-b trap Requirement 7 warns about: resume
-                # runs strictly post-extraction (it requires
-                # failed_phase == "docs_gate"), so the installed module is
+                # runs strictly post-extraction (it requires a docs_gate or
+                # post_docs_gate failure), so the installed module is
                 # already the new one. Without this, a repository that halted
                 # on a declaring scaffold stays halted on every resume, which
                 # is the one path it can travel.
@@ -5611,17 +5662,33 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 _close_log()
                 raise
-            # Gate passed. Clear only the docs failure, then establish the
-            # historical-memory checkpoint that every publication path expects.
-            # A pre-upgrade runner cannot know this post-extraction protocol,
-            # so recovery must compose the newly installed backstop here.
-            upgrade_lib.update_upgrade_lock(root, failed_phase=None, failed_at=None)
+            # Gate passed. The docs failure becomes a post_docs_gate failure
+            # until the historical-memory checkpoint that every publication
+            # path expects is recorded, so a failure below stays resumable
+            # here. A pre-upgrade runner cannot know this post-extraction
+            # protocol, so recovery must compose the newly installed backstop.
+            def _retain_post_docs_gate_failure() -> None:
+                current = upgrade_lib.read_upgrade_lock(root) or {}
+                # A sidecar-cleanup failure keeps its own label: its recovery
+                # (stop attached hosts, re-run the full upgrade) differs.
+                if current.get("failed_phase") == "review_sidecar_cleanup":
+                    return
+                upgrade_lib.update_upgrade_lock(
+                    root,
+                    failed_phase=POST_DOCS_GATE_PHASE,
+                    failed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                )
+
+            _retain_post_docs_gate_failure()
             lock = upgrade_lib.read_upgrade_lock(root)
             backfill, run_id, summary, gate_error = _new_code_upgrade_backstop(
                 lock,
                 current_lock_held=True,
             )
             if gate_error is not None:
+                # The backstop labels its own failure; restore the
+                # resumable one unless it is the sidecar cleanup's.
+                _retain_post_docs_gate_failure()
                 return gate_error
             if backfill is None or run_id is None or summary is None:
                 _err(
@@ -5648,6 +5715,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             upgrade_lib.update_upgrade_lock(
                 root,
+                failed_phase=None,
+                failed_at=None,
                 current_phase=checkpoint_phase,
                 memory_backfill_run_id=run_id,
                 memory_backfill_state=memory_state,
@@ -5659,6 +5728,22 @@ def main(argv: list[str] | None = None) -> int:
                 memory_backfill_last_failure=summary["last_failure"],
             )
             if memory_state == "awaiting_validation":
+                import uuid
+
+                # Arm the same typed pause the full upgrade writes, so
+                # wf_upgrade reports this exit as the memory pause it is.
+                upgrade_lib.update_upgrade_lock(
+                    root,
+                    action_required={
+                        "kind": "historical_memory",
+                        "state": "awaiting_memory_validation",
+                        "resume_phase": "resume_after_memory",
+                        "run_id": run_id,
+                        "token": uuid.uuid4().hex,
+                    },
+                    failed_phase="awaiting_memory_validation",
+                    failed_at=None,
+                )
                 _log(
                     "\nReview-state projection and docs gate PASSED on resume. "
                     "Historical memory requires bounded extraction and agent "
@@ -6008,13 +6093,14 @@ def main(argv: list[str] | None = None) -> int:
             failed_phase=None,
             failed_at=None,
         )
-        current_phase = "awaiting_memory_validation"
+        # Wave 1zeyo (1zeyn): until the memory run is recorded below, a failure
+        # is a post-docs-gate crash, not the memory pause.
+        current_phase = POST_DOCS_GATE_PHASE
         _run_hook("post_docs_gate", ctx, ext_mod)
 
         # Historical memory is reconciled by the newly extracted implementation
         # before index publication.  The retained upgrade lock mirrors only the
         # run id/current gate; memory-state.sqlite owns the authoritative work.
-        current_phase = "awaiting_memory_validation"
         import memory_backfill
 
         memory_run_id = memory_backfill.ensure_run(root, "upgrade")
@@ -6067,6 +6153,7 @@ def main(argv: list[str] | None = None) -> int:
             ),
             memory_backfill_last_failure=memory_summary["last_failure"],
         )
+        current_phase = "awaiting_memory_validation"
         if memory_summary["state"] == "awaiting_validation":
             import uuid
 

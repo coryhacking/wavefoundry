@@ -1780,6 +1780,130 @@ class ResumeAfterGateTests(unittest.TestCase):
         self.assertEqual(lock.get("current_phase"), "awaiting_memory_validation")
         self.assertTrue(str(lock.get("memory_backfill_run_id") or "").strip())
 
+    # Wave 1zeyo (1zeyn): a crash after the docs gate passed.
+
+    def _post_gate_lock(self, failed_phase, *, run_id=None, action_required=None, current_phase="docs_gate_complete"):
+        self.lib.write_upgrade_lock(self.root, "1.27.0", "1.28.0")
+        fields = {"current_phase": current_phase, "failed_phase": failed_phase, "failed_at": "t"}
+        if run_id is not None:
+            fields["memory_backfill_run_id"] = run_id
+        if action_required is not None:
+            fields["action_required"] = action_required
+        self.lib.update_upgrade_lock(self.root, **fields)
+
+    def _resume_passing_gate(self):
+        with patch.object(self.mod, "phase_docs_gate", lambda _root: None):
+            return self._resume()
+
+    def test_resume_recovers_a_post_docs_gate_failure(self):
+        self._post_gate_lock(self.mod.POST_DOCS_GATE_PHASE)
+        self.assertEqual(self._resume_passing_gate(), 0)
+        lock = self.lib.read_upgrade_lock(self.root)
+        self.assertIsNone(lock.get("failed_phase"))
+        self.assertTrue(str(lock.get("memory_backfill_run_id") or "").strip())
+
+    def test_a_failed_checkpoint_after_the_gate_stays_resumable(self):
+        # The marker is kept until the memory checkpoint is recorded: a
+        # bootstrap, reconciliation or unknown-state failure leaves a lock
+        # that the next --resume-after-gate accepts once the fault is gone.
+        import memory_backfill
+
+        def _raise(*_args, **_kwargs):
+            raise RuntimeError("injected")
+
+        faults = {
+            "sync_inventory": patch.object(memory_backfill, "sync_inventory", _raise),
+            "reconcile_raises": patch.object(memory_backfill, "reconcile_index_publication", _raise),
+            "reconcile_unknown_state": patch.object(
+                memory_backfill, "reconcile_index_publication", lambda *_a, **_k: {"state": "bogus"}
+            ),
+        }
+        for start in ("docs_gate", self.mod.POST_DOCS_GATE_PHASE):
+            for label, fault in faults.items():
+                with self.subTest(start=start, fault=label):
+                    self._post_gate_lock(start)
+                    with fault, contextlib.suppress(RuntimeError):
+                        self.assertNotEqual(self._resume_passing_gate(), 0)
+                    lock = self.lib.read_upgrade_lock(self.root)
+                    self.assertEqual(lock.get("failed_phase"), self.mod.POST_DOCS_GATE_PHASE)
+                    self.assertTrue(self.mod._is_post_docs_gate_failure(lock))
+                    self.assertEqual(self._resume_passing_gate(), 0)
+                    lock = self.lib.read_upgrade_lock(self.root)
+                    self.assertIsNone(lock.get("failed_phase"))
+                    self.assertTrue(str(lock.get("memory_backfill_run_id") or "").strip())
+                    self.lib.remove_upgrade_lock(self.root)
+
+    def test_a_sidecar_cleanup_failure_after_the_gate_keeps_its_own_label(self):
+        # Its recovery (stop attached hosts, re-run the full upgrade) differs,
+        # so the resumable label must not overwrite it.
+        def _held(*_args, **_kwargs):
+            raise SystemExit("sidecar held open")
+
+        self._post_gate_lock(self.mod.POST_DOCS_GATE_PHASE)
+        with patch.object(self.mod, "phase_review_evidence_sidecar_cleanup", _held):
+            self.assertNotEqual(self._resume_passing_gate(), 0)
+        lock = self.lib.read_upgrade_lock(self.root)
+        self.assertEqual(lock.get("failed_phase"), "review_sidecar_cleanup")
+
+    def test_resume_recovers_the_pre_1_28_label_with_and_without_a_run_id(self):
+        import memory_backfill
+
+        for with_run in (False, True):
+            with self.subTest(with_run=with_run):
+                run_id = memory_backfill.ensure_run(self.root, "upgrade") if with_run else None
+                self._post_gate_lock("awaiting_memory_validation", run_id=run_id)
+                self.assertTrue(self.mod._is_post_docs_gate_failure(self.lib.read_upgrade_lock(self.root)))
+                self.assertEqual(self._resume_passing_gate(), 0)
+                lock = self.lib.read_upgrade_lock(self.root)
+                self.assertIsNone(lock.get("failed_phase"))
+                if with_run:
+                    self.assertEqual(lock.get("memory_backfill_run_id"), run_id)
+                self.lib.remove_upgrade_lock(self.root)
+
+    def test_a_real_memory_pause_is_not_treated_as_a_crash(self):
+        self._post_gate_lock(
+            "awaiting_memory_validation",
+            run_id="run-1",
+            action_required={"kind": "historical_memory", "resume_phase": "resume_after_memory"},
+            current_phase="awaiting_memory_validation",
+        )
+        self.assertFalse(self.mod._is_post_docs_gate_failure(self.lib.read_upgrade_lock(self.root)))
+        self.assertEqual(self._resume_passing_gate(), 1)
+        # The docs gate must be recorded as complete: without it, the same
+        # label and no action block is not recognised as a post-gate crash.
+        self.lib.remove_upgrade_lock(self.root)
+        self._post_gate_lock("awaiting_memory_validation", current_phase="awaiting_memory_validation")
+        self.assertFalse(self.mod._is_post_docs_gate_failure(self.lib.read_upgrade_lock(self.root)))
+        # An armed action_required block alone rules out a crash, even with the
+        # docs gate recorded as complete.
+        self.lib.remove_upgrade_lock(self.root)
+        self._post_gate_lock(
+            "awaiting_memory_validation",
+            run_id="run-1",
+            action_required={"kind": "historical_memory", "resume_phase": "resume_after_memory"},
+        )
+        self.assertFalse(self.mod._is_post_docs_gate_failure(self.lib.read_upgrade_lock(self.root)))
+
+    def test_index_and_cleanup_refuse_a_post_docs_gate_failure_with_a_pointer(self):
+        for flag in ("--update-index", "--cleanup"):
+            with self.subTest(flag=flag):
+                self._post_gate_lock(self.mod.POST_DOCS_GATE_PHASE)
+                err = io.StringIO()
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                    rc = self.mod.main([flag, "--root", str(self.root)])
+                self.assertNotEqual(rc, 0)
+                self.assertIn("--resume-after-gate", err.getvalue())
+                self.lib.remove_upgrade_lock(self.root)
+
+    def test_the_summary_reports_the_gate_passed_and_finalize_points_at_resume(self):
+        self.assertEqual(self.mod._docs_gate_summary_line(self.mod.POST_DOCS_GATE_PHASE), "PASSED")
+        self.lib.write_upgrade_lock(self.root, "1.27.0", "1.28.0")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.mod._finalize_failed_upgrade(self.root, True, self.mod.POST_DOCS_GATE_PHASE)
+        self.assertIn("--resume-after-gate", err.getvalue())
+        self.assertEqual(self.lib.read_upgrade_lock(self.root).get("failed_phase"), self.mod.POST_DOCS_GATE_PHASE)
+
     def test_projector_is_retired_without_replacement(self):
         # Wave 1tomw (AC-11): no projector symbol, recovery marker key, or
         # resume branch for it survives in the upgrade module.
@@ -1876,6 +2000,8 @@ class UpgradeManifestRecoveryTests(unittest.TestCase):
         def hook(name, *_):
             if name == "pre_extract" and failure == "before":
                 raise SystemExit(23)
+            if name == "post_docs_gate" and failure == "post_docs_gate":
+                raise SystemExit(3)  # what _run_hook does when a hook raises
 
         def surface(_):
             if failure == "surface":
@@ -1906,6 +2032,11 @@ class UpgradeManifestRecoveryTests(unittest.TestCase):
                                             return_value={"upgrade_protocol_version": 2}))
             stack.enter_context(patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"))
             stack.enter_context(patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}))
+            if failure == "bootstrap":
+                import memory_backfill
+
+                stack.enter_context(patch.object(
+                    memory_backfill, "ensure_run", side_effect=RuntimeError("injected bootstrap failure")))
             if failure == "prune":
                 stack.enter_context(patch.object(mod.subprocess_util, "isolated_run",
                     return_value=types.SimpleNamespace(returncode=1, stdout="", stderr="injected prune failure")))
@@ -1913,7 +2044,7 @@ class UpgradeManifestRecoveryTests(unittest.TestCase):
             stack.enter_context(contextlib.redirect_stderr(io.StringIO()))
             try:
                 result = mod.main(["--root", str(root), "--pack", str(pack), "--yes"])
-            except (SystemExit, OSError) as exc:
+            except (SystemExit, OSError, RuntimeError) as exc:
                 result = exc
         return result, len(extracted)
 
@@ -1922,6 +2053,34 @@ class UpgradeManifestRecoveryTests(unittest.TestCase):
         self.assertFalse((framework / "seeds/retired.md").exists())
         self.assertEqual((framework / "seeds/project.md").read_text(), "project-owned\n")
         self.assertFalse(mod._old_manifest_snapshot(root).exists())
+
+    def test_a_post_docs_gate_hook_crash_is_labelled_as_its_own_phase(self):
+        # Wave 1zeyo (1zeyn AC-1): not the memory-pause label.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "target"; pack = self._fixture(root)
+            mod = load_upgrade_module()
+            result, _count = self._attempt(root, pack, "post_docs_gate", mod)
+            self.assertIsInstance(result, SystemExit)
+            import upgrade_lib
+
+            lock = upgrade_lib.read_upgrade_lock(root) or {}
+            self.assertEqual(lock.get("failed_phase"), mod.POST_DOCS_GATE_PHASE)
+            self.assertEqual(lock.get("current_phase"), "docs_gate_complete")
+            self.assertFalse(lock.get("action_required"))
+
+    def test_an_in_process_memory_bootstrap_crash_is_labelled_post_docs_gate(self):
+        # Until the memory run is recorded, a failure after the hook is still a
+        # post-docs-gate crash (1zeyn Requirement 1).
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "target"; pack = self._fixture(root)
+            mod = load_upgrade_module()
+            result, _count = self._attempt(root, pack, "bootstrap", mod)
+            self.assertIsInstance(result, RuntimeError)
+            import upgrade_lib
+
+            lock = upgrade_lib.read_upgrade_lock(root) or {}
+            self.assertEqual(lock.get("failed_phase"), mod.POST_DOCS_GATE_PHASE)
+            self.assertEqual(lock.get("current_phase"), "docs_gate_complete")
 
     def test_full_retry_after_surface_failure_skips_extract_and_prunes_original(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -10144,6 +10303,146 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         self.assertIs(loaded, self.backfill)
         self.assertIs(sys.modules["memory_backfill"], self.backfill)
         self.assertIsNot(loaded.ensure_run, stale)
+
+    # Wave 1zeyo (1zesi): a v1.27.0 runner drives the upgrade with its own
+    # ``record_paths`` (no ``RecordRoots.archive``, no ``vocabulary_profile``)
+    # already in ``sys.modules``.
+
+    def _preload_v1_27_record_paths(self):
+        import importlib
+        import types
+
+        names = self.ext._MEMORY_BOOTSTRAP_MODULES
+        saved = {name: sys.modules.get(name) for name in names}
+
+        def restore():
+            for name, module in saved.items():
+                if module is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = module
+                    importlib.reload(module)
+
+        self.addCleanup(restore)
+        source = (
+            Path(__file__).resolve().parent / "fixtures" / "upgrade_old_runner" / "record_paths_v1_27_0.py.txt"
+        ).read_text(encoding="utf-8")
+        old = types.ModuleType("record_paths")
+        old.__file__ = str(SCRIPTS_ROOT / "record_paths.py")
+        sys.modules["record_paths"] = old
+        exec(compile(source, old.__file__, "exec"), old.__dict__)
+        sys.modules.pop("vocabulary_profile", None)
+        self.assertFalse(hasattr(old.load_record_roots(self.root), "archive"))
+        wave = self.root / "docs" / "waves" / "1old closed"
+        wave.mkdir()
+        wave.joinpath("wave.md").write_text("# Wave\n\nStatus: closed\n", encoding="utf-8")
+        self.ctx.runner_protocol = 2
+
+    def test_memory_bootstrap_runs_with_a_v1_27_record_paths_loaded(self):
+        self._preload_v1_27_record_paths()
+        self.assertIsNone(self.ext.post_docs_gate(self.ctx))
+        lock = json.loads(
+            (self.root / ".wavefoundry" / "upgrade-in-progress.json").read_text(encoding="utf-8")
+        )
+        self.assertTrue(lock.get("memory_backfill_run_id"))
+        self.assertIn("memory_backfill_state", lock)
+
+    def test_the_old_runners_own_post_hook_import_runs_consistent_code(self):
+        # Mirrors the v1.27.0 runner after the hook returns: it imports
+        # memory_backfill itself and runs the bootstrap in the same process.
+        self._preload_v1_27_record_paths()
+        self.ext.post_docs_gate(self.ctx)
+        import memory_backfill as runner_backfill
+
+        run_id = runner_backfill.ensure_run(self.root, "upgrade")
+        runner_backfill.sync_inventory(self.root, run_id)
+        summary = runner_backfill.reconcile_index_publication(self.root, run_id)
+        self.assertIn("state", summary)
+
+    def test_names_imported_from_the_old_record_paths_still_catch_what_it_raises(self):
+        # wave_lint_lib/helpers.py does ``from record_paths import
+        # RecordLayoutInvalid, load_record_roots``. After the in-place reload
+        # the old function looks up the exception class in the refreshed
+        # namespace, so the class must keep its identity for that except
+        # clause to catch it.
+        self._preload_v1_27_record_paths()
+        import record_paths as old
+
+        held_error, held_ambiguous, held_load = old.RecordLayoutInvalid, old.AmbiguousWaveId, old.load_record_roots
+        self.ext.post_docs_gate(self.ctx)
+        import record_paths
+
+        self.assertIs(record_paths.RecordLayoutInvalid, held_error)
+        self.assertIs(record_paths.AmbiguousWaveId, held_ambiguous)
+        with patch.object(record_paths, "validate_record_layout", lambda _root: ["bad layout"]):
+            with self.assertRaises(held_error):
+                held_load(self.root)
+            with self.assertRaises(held_error):
+                record_paths.load_record_roots(self.root)
+
+    def test_memory_bootstrap_on_current_modules_is_unchanged(self):
+        wave = self.root / "docs" / "waves" / "1old closed"
+        wave.mkdir()
+        wave.joinpath("wave.md").write_text("# Wave\n\nStatus: closed\n", encoding="utf-8")
+        self.ctx.runner_protocol = 2
+        self.assertIsNone(self.ext.post_docs_gate(self.ctx))
+        lock = json.loads(
+            (self.root / ".wavefoundry" / "upgrade-in-progress.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(lock["memory_backfill_state"], "awaiting_validation")
+        self.assertEqual(lock["memory_backfill_pending"], 1)
+
+    def test_review_module_reloads_refresh_a_v1_27_record_paths_first(self):
+        self._preload_v1_27_record_paths()
+        self.ext._reload_cached_review_evidence()
+        import record_paths
+
+        self.assertTrue(hasattr(record_paths.load_record_roots(self.root), "archive"))
+
+    def test_every_other_installed_reload_refreshes_a_v1_27_record_paths_first(self):
+        import record_paths as _unused  # noqa: F401  ensure the name is importable
+
+        for label, call in (
+            ("fresh_installed_module", lambda: self.ext._fresh_installed_module("memory_records")),
+            ("repair_declaring_scaffold", lambda: self.ext.repair_declaring_scaffold(self.root)),
+        ):
+            with self.subTest(loader=label):
+                self._preload_v1_27_record_paths()
+                call()
+                import record_paths
+
+                self.assertTrue(hasattr(record_paths.load_record_roots(self.root), "archive"))
+                (self.root / "docs" / "waves" / "1old closed" / "wave.md").unlink()
+                (self.root / "docs" / "waves" / "1old closed").rmdir()
+
+    def test_every_framework_import_of_the_bootstrap_modules_is_reloaded_or_excluded(self):
+        # The reload set is derived, not hand-picked: every framework module a
+        # reloaded module imports (top level or lazily) is itself reloaded or
+        # excluded with a stated reason.
+        import ast
+
+        reloaded = set(self.ext._MEMORY_BOOTSTRAP_MODULES)
+        excluded = set(self.ext._MEMORY_BOOTSTRAP_EXCLUDED)
+        self.assertFalse(reloaded & excluded)
+        for reason in self.ext._MEMORY_BOOTSTRAP_EXCLUDED.values():
+            self.assertTrue(reason.strip())
+        from framework_files import framework_source_files, source_path
+
+        framework = {path.stem for path in framework_source_files()}
+        missing = {}
+        for name in reloaded:
+            tree = ast.parse(source_path(name).read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    targets = [alias.name.split(".")[0] for alias in node.names]
+                elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                    targets = [node.module.split(".")[0]]
+                else:
+                    continue
+                for target in targets:
+                    if target in framework and target not in reloaded | excluded:
+                        missing.setdefault(name, set()).add(target)
+        self.assertEqual(missing, {})
 
     def test_pre_docs_gate_migrates_memory_naming_for_pre_1_15_runner(self):
         """1t9w7: upgrades from pre-1.15 rename legacy memory records to the

@@ -397,6 +397,44 @@ def _load_upgrade_lib() -> Any:
         return None
 
 
+def _post_docs_gate_failure_phase(root: Path) -> str | None:
+    """The retained lock's failed phase when the upgrade failed after the docs gate.
+
+    Wave 1zeyo (1zeyn): a hook or memory-bootstrap crash exits 3, which the
+    exit-code map used to report as a pre-flight failure. Returns ``None`` when
+    the lock records no such failure or cannot be read.
+
+    The predicate is kept here rather than read from ``upgrade_wavefoundry``:
+    an MCP reload refreshes this module but not a cached pre-upgrade
+    ``upgrade_wavefoundry``, which would not have it. A parity test pins this
+    copy to ``upgrade_wavefoundry._is_post_docs_gate_failure``.
+    """
+    ulib = _load_upgrade_lib()
+    if ulib is None:
+        return None
+    try:
+        lock = ulib.read_upgrade_lock(root)
+    except Exception:  # noqa: BLE001 - labelling is best-effort; the exit-code reason stands
+        return None
+    if _is_post_docs_gate_failure(lock):
+        return str(lock.get("failed_phase"))
+    return None
+
+
+def _is_post_docs_gate_failure(lock: object) -> bool:
+    """Mirror of ``upgrade_wavefoundry._is_post_docs_gate_failure`` (see above)."""
+    if not isinstance(lock, dict):
+        return False
+    failed_phase = lock.get("failed_phase")
+    if failed_phase == "post_docs_gate":
+        return True
+    return (
+        failed_phase == "awaiting_memory_validation"
+        and lock.get("current_phase") == "docs_gate_complete"
+        and not lock.get("action_required")
+    )
+
+
 def _upgrade_summary_sentinel() -> str:
     """Return the canonical ``WAVE_UPGRADE_SUMMARY_JSON:`` sentinel from upgrade_wavefoundry."""
     from wf_server import server_impl
@@ -1099,7 +1137,8 @@ def wf_upgrade_response(
       "resume_after_gate" — rebuild and persist current review-status projection,
           then re-run docs-gardener + docs-lint against the already-extracted
           tree (no extract/render/prune). Recovers a retained lock whose
-          failed_phase is "review_status_projection" or "docs_gate"; preserves
+          failed_phase is "docs_gate" or "post_docs_gate" (including the
+          pre-1.28 label for a crash after the gate passed); preserves
           the actual failing phase on retry and, after the gate passes,
           establishes or refreshes the historical-memory checkpoint. It may
           return action-required memory work; continue with "resume_after_memory".
@@ -1468,6 +1507,18 @@ def wf_upgrade_response(
             reason = "index publication failed"
         if result.returncode == 1 and _deps_failed:
             reason = "dependency provisioning failed; run `wf setup`"
+        _post_gate_phase = None if _deps_failed else _post_docs_gate_failure_phase(root)
+        if _post_gate_phase is not None:
+            reason = (
+                "failed after the docs gate passed (post_docs_gate; retained "
+                f"failed_phase={_post_gate_phase!r}); resolve the error, then run "
+                "wf_upgrade(phase='resume_after_gate')"
+            )
+            _next_step = (
+                "Resolve the reported error, then call "
+                "wf_upgrade(phase='resume_after_gate'). It re-runs the docs gate and "
+                "establishes the historical-memory checkpoint without re-extracting."
+            )
         err = server_impl._response(
             "error",
             data,

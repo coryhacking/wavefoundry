@@ -151,6 +151,26 @@ def _feature_state(root: Path, returncode: int) -> tuple[str, dict]:
     return (f"failed:{failed}" if failed else "failed"), state
 
 
+def _post_docs_gate_failure(state: object) -> bool:
+    """A retained checkpoint whose upgrade failed after the docs gate passed.
+
+    Mirrors ``upgrade_wavefoundry._is_post_docs_gate_failure`` (wave 1zeyo);
+    the bundle reads the checkpoint JSON without importing the runner, and a
+    parity test pins the two together. Such a lock is recovered by
+    ``--resume-after-gate`` rather than a full rerun.
+    """
+    if not isinstance(state, dict):
+        return False
+    failed = state.get("failed_phase")
+    if failed == "post_docs_gate":
+        return True
+    return (
+        failed == "awaiting_memory_validation"
+        and state.get("current_phase") == "docs_gate_complete"
+        and not state.get("action_required")
+    )
+
+
 def _recovery(root: Path, bridge: dict, feature_state: str) -> dict:
     runner = root / ".wavefoundry/framework/scripts/upgrade_wavefoundry.py"
     if feature_state == "awaiting_memory_validation":
@@ -190,7 +210,7 @@ def _recovery(root: Path, bridge: dict, feature_state: str) -> dict:
     except (OSError, UnicodeError, ValueError):
         state = {}
     failed = state.get("failed_phase") if isinstance(state, dict) else None
-    if failed == "docs_gate":
+    if failed == "docs_gate" or _post_docs_gate_failure(state):
         argv = [sys.executable, str(runner), "--root", str(root), "--resume-after-gate", "--yes"]
     else:
         argv = list(bridge["next_argv"])

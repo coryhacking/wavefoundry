@@ -1008,6 +1008,61 @@ def pre_extract(ctx):
     _cut_over_runtime_locks(ctx.root)
 
 
+# Wave 1zeyo (1zesi): the pure framework modules the memory bootstrap
+# (``ensure_run``, ``sync_inventory``, ``reconcile_index_publication``) reaches
+# at runtime, leaf-first. A pre-upgrade runner holds its own copies in
+# ``sys.modules``; refreshing only ``memory_backfill`` left it calling new code
+# against an old ``record_paths`` (a 1.27 ``RecordRoots`` has no ``archive``).
+# The v1.27.0 runner also imports ``memory_backfill`` itself after this hook,
+# so the refresh happens in this process rather than in a subprocess.
+_MEMORY_BOOTSTRAP_MODULES = (
+    "vocabulary_profile",
+    "path_containment",
+    "repo_root",
+    "record_paths",
+    "memory_records",
+    "memory_backfill",
+)
+# Framework modules the bootstrap reaches that are never reloaded, and why.
+_MEMORY_BOOTSTRAP_EXCLUDED = {
+    "index_state_store": (
+        "holds build-state locks and context variables; the bootstrap calls only "
+        "read_build_state, whose definition is unchanged since v1.27.0"
+    ),
+    "lifecycle_id": (
+        "activates the tool venv when imported; memory_records calls only "
+        "build_prefix and load_lifecycle_policy, both unchanged since v1.27.0"
+    ),
+}
+
+
+def _reload_in_place(module) -> None:
+    """Re-execute a cached module from the extracted source, keeping its exception classes.
+
+    ``importlib.reload`` updates the module's namespace in place, so functions
+    that other modules imported by name (``from record_paths import
+    load_record_roots``) raise the NEW exception class, while those modules'
+    ``except`` clauses still name the OLD one they imported. Rebinding each
+    exception class that survives the reload to its original object keeps
+    those holders catching what the reloaded code raises. The exception classes
+    in the reloaded modules carry the same definition as in v1.27.0.
+    """
+
+    name = module.__name__
+    kept = {
+        attr: value
+        for attr, value in vars(module).items()
+        if isinstance(value, type)
+        and issubclass(value, BaseException)
+        and value.__module__ == name
+    }
+    importlib.reload(module)
+    for attr, old in kept.items():
+        new = getattr(module, attr, None)
+        if isinstance(new, type) and issubclass(new, BaseException):
+            setattr(module, attr, old)
+
+
 def _installed_memory_backfill(root: Path):
     """Load the just-extracted coordinator, even under a pre-upgrade runner."""
 
@@ -1015,14 +1070,14 @@ def _installed_memory_backfill(root: Path):
     if str(scripts) not in sys.path:
         sys.path.insert(0, str(scripts))
     # Same cross-extraction seam as ``_reload_cached_review_evidence``: a
-    # pre-upgrade runner's cached module would shadow the extracted one.
-    cached = sys.modules.get("memory_backfill")
-    if cached is not None:
-        importlib.reload(cached)
-        return cached
-    import memory_backfill
-
-    return memory_backfill
+    # pre-upgrade runner's cached modules would shadow the extracted ones.
+    for name in _MEMORY_BOOTSTRAP_MODULES:
+        cached = sys.modules.get(name)
+        if cached is not None:
+            _reload_in_place(cached)
+        else:
+            importlib.import_module(name)
+    return sys.modules["memory_backfill"]
 
 
 def _installed_upgrade_module(root: Path):
@@ -1056,9 +1111,25 @@ def _reload_cached_review_evidence() -> None:
     for any existing holders.
     """
 
+    _refresh_record_layout_modules()
     cached = sys.modules.get("review_evidence")
     if cached is not None:
         importlib.reload(cached)
+
+
+# Wave 1zeyo (1zesi): pure record-layout leaves that the reloaded review and
+# memory modules import. A reloaded module must not run against the old
+# runner's copies of these (a 1.27 ``RecordRoots`` has no ``archive``). The
+# functions 1.27 code calls on them keep compatible signatures, so refreshing
+# them in place is safe for the old runner too.
+_RECORD_LAYOUT_MODULES = ("vocabulary_profile", "path_containment", "record_paths")
+
+
+def _refresh_record_layout_modules() -> None:
+    for name in _RECORD_LAYOUT_MODULES:
+        cached = sys.modules.get(name)
+        if cached is not None:
+            _reload_in_place(cached)
 
 
 def _fresh_installed_module(name: str):
@@ -1070,6 +1141,7 @@ def _fresh_installed_module(name: str):
     cold entry imports normally from the installed scripts directory.
     """
 
+    _refresh_record_layout_modules()
     cached = sys.modules.get(name)
     if cached is not None:
         importlib.reload(cached)
@@ -1308,6 +1380,7 @@ def repair_declaring_scaffold(root) -> list[str]:
         # Resolve against the EXTRACTED tree: a pre-upgrade runner's cached
         # module would be the old parser, which is the version that did not
         # know the marker block at all.
+        _refresh_record_layout_modules()
         cached = sys.modules.get("review_policy")
         if cached is not None:
             importlib.reload(cached)

@@ -2625,6 +2625,36 @@ class SetupReadinessOnStartAndReloadTests(unittest.TestCase):
         self.assertEqual(reloaded["data"]["setup_readiness"]["status"], "ready")
         self.assertNotIn("setup_not_ready", [item["code"] for item in reloaded["diagnostics"]])
 
+    def test_wf_upgrade_survives_a_reload_during_its_own_call(self):
+        """1zeyo (1zedi): wf_upgrade's automatic post-upgrade reload re-executes
+        server_impl mid-call, rebinding the navigation ContextVar; the wrapper
+        must reset the variable it set and still apply events recorded before."""
+        self._build()
+        import server_impl as impl
+
+        tool = self.runner._mcp._tool_manager._tools["wf_upgrade"]
+        self.assertTrue(getattr(tool.fn, "_wf_setup_noticed", False))
+        runner = self.runner
+
+        def upgrade_that_reloads(*_args, **_kwargs):
+            impl._NAVIGATION_EVENTS.get().append(("stale", None))
+            before = impl._NAVIGATION_EVENTS
+            reloaded = runner.perform_mcp_reload()
+            self.assertEqual(reloaded["status"], "ok", reloaded)
+            self.assertIsNot(sys.modules["server_impl"]._NAVIGATION_EVENTS, before)
+            return {"status": "ok", "data": {"upgraded": True}, "diagnostics": []}
+
+        with patch.object(impl, "wf_upgrade_response", upgrade_that_reloads):
+            result = tool.fn(phase="cleanup")
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["data"]["upgraded"])
+        self.assertIn("index_runtime_stale", [d["code"] for d in result["diagnostics"]])
+
+    def test_wf_reload_mcp_stays_unwrapped(self):
+        self._build()
+        tool = self.runner._mcp._tool_manager._tools["wf_reload_mcp"]
+        self.assertFalse(getattr(tool.fn, "_wf_setup_noticed", False))
+
 
 class RunnerIdentitySetterCompatibilityTests(unittest.TestCase):
     """Wave 1u2b0 repair: a torn mid-upgrade tree (this runner + an OLDER server_impl whose
@@ -6096,6 +6126,105 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
                 self.assertIn("wf setup", upgrade_failed["message"])
                 codes = [d["code"] for d in result["diagnostics"]]
                 self.assertIn("dependency_provisioning_failed", codes)
+
+    def test_a_post_docs_gate_failure_is_named_with_its_recovery(self):
+        """1zeyo (1zeyn AC-3): a hook crash exits 3, which used to read as a
+        pre-flight failure; the retained lock names what failed."""
+        import upgrade_lib
+
+        for failed_phase in ("post_docs_gate", "awaiting_memory_validation"):
+            with self.subTest(failed_phase=failed_phase):
+                upgrade_lib.write_upgrade_lock(self.root, "1.27.0", "1.28.0")
+                upgrade_lib.update_upgrade_lock(
+                    self.root,
+                    current_phase="docs_gate_complete",
+                    failed_phase=failed_phase,
+                    failed_at="t",
+                )
+                mock_proc = MagicMock()
+                mock_proc.returncode = 3
+                mock_proc.stdout = ""
+                mock_proc.stderr = "ERROR: Extension hook 'post_docs_gate' raised: boom\n"
+                with patch("subprocess.run", return_value=mock_proc):
+                    result = self.srv.wf_upgrade_response(self.root, phase="preflight_to_docs_gate")
+                self.assertEqual(result["status"], "error")
+                upgrade_failed = next(
+                    d for d in result["diagnostics"] if d["code"] == "upgrade_failed"
+                )
+                self.assertIn("post_docs_gate", upgrade_failed["message"])
+                self.assertIn("resume_after_gate", upgrade_failed["message"])
+                self.assertNotIn("pre-flight", upgrade_failed["message"])
+                self.assertIn("resume_after_gate", result.get("next_step", ""))
+                upgrade_lib.remove_upgrade_lock(self.root)
+
+    def test_the_label_survives_a_cached_pre_upgrade_runner_module(self):
+        """1zeyo: an MCP reload refreshes the handlers but not a cached
+        ``upgrade_wavefoundry``; a 1.27 copy has no predicate to read."""
+        import upgrade_lib
+
+        upgrade_lib.write_upgrade_lock(self.root, "1.27.0", "1.28.0")
+        upgrade_lib.update_upgrade_lock(
+            self.root,
+            current_phase="docs_gate_complete",
+            failed_phase="post_docs_gate",
+            failed_at="t",
+        )
+        mock_proc = MagicMock()
+        mock_proc.returncode = 3
+        mock_proc.stdout = ""
+        mock_proc.stderr = "ERROR: Extension hook 'post_docs_gate' raised: boom\n"
+        stale_runner = types.ModuleType("upgrade_wavefoundry")
+        stale_runner.WAVE_UPGRADE_SUMMARY_SENTINEL = "WAVE_UPGRADE_SUMMARY_JSON:"
+        try:
+            with patch.dict(sys.modules, {"upgrade_wavefoundry": stale_runner}), patch(
+                "subprocess.run", return_value=mock_proc
+            ):
+                result = self.srv.wf_upgrade_response(self.root, phase="preflight_to_docs_gate")
+        finally:
+            upgrade_lib.remove_upgrade_lock(self.root)
+        upgrade_failed = next(d for d in result["diagnostics"] if d["code"] == "upgrade_failed")
+        self.assertIn("post_docs_gate", upgrade_failed["message"])
+        self.assertNotIn("pre-flight", upgrade_failed["message"])
+        self.assertIn("resume_after_gate", result.get("next_step", ""))
+
+    def test_a_recovered_gate_that_pauses_for_memory_reports_the_pause(self):
+        """1zeyo: resume_after_gate that ends at memory validation exits 4; the
+        lock it writes must carry the typed pause so the handler reports it as
+        the pause, not as a failed recovery."""
+        import upgrade_lib
+        import upgrade_wavefoundry
+
+        wave = self.root / "docs" / "waves" / "1old closed"
+        wave.mkdir(parents=True)
+        wave.joinpath("wave.md").write_text("# Wave\n\nStatus: closed\n", encoding="utf-8")
+        upgrade_lib.write_upgrade_lock(self.root, "1.27.0", "1.28.0")
+        upgrade_lib.update_upgrade_lock(
+            self.root, current_phase="docs_gate_complete", failed_phase="post_docs_gate", failed_at="t"
+        )
+        self.addCleanup(upgrade_lib.remove_upgrade_lock, self.root)
+        with patch.object(upgrade_wavefoundry, "phase_docs_gate", lambda _root: None), \
+             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            rc = upgrade_wavefoundry.main(["--resume-after-gate", "--root", str(self.root)])
+        self.assertEqual(rc, 4)
+        mock_proc = MagicMock()
+        mock_proc.returncode = 4
+        mock_proc.stdout = ""
+        mock_proc.stderr = ""
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root, phase="resume_after_gate")
+        self.assertEqual(result["status"], "ok", result.get("diagnostics"))
+        self.assertEqual(result["data"]["state"], "awaiting_memory_validation")
+        self.assertIn("resume_after_memory", result.get("next_step", ""))
+
+    def test_a_real_preflight_failure_keeps_its_label(self):
+        mock_proc = MagicMock()
+        mock_proc.returncode = 3
+        mock_proc.stdout = ""
+        mock_proc.stderr = "pre-flight refused\n"
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root, phase="preflight_to_docs_gate")
+        upgrade_failed = next(d for d in result["diagnostics"] if d["code"] == "upgrade_failed")
+        self.assertIn("pre-flight check failed", upgrade_failed["message"])
 
     def test_successful_summary_carries_no_publication_diagnostic(self):
         mock_proc = MagicMock()

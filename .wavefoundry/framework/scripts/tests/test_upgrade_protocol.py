@@ -395,6 +395,49 @@ class UpgradeProtocolTests(unittest.TestCase):
         self.assertIn("operator does not copy or type", instruction)
         self.assertIn("Restart every attached host", instruction)
 
+    def test_a_post_docs_gate_checkpoint_recovers_through_resume_after_gate(self):
+        # Wave 1zeyo (1zeyn): a crash after the docs gate gets the targeted
+        # recovery, not a full rerun, in both its new and pre-1.28 labels.
+        shapes = {
+            "post_docs_gate": {"failed_phase": "post_docs_gate", "current_phase": "docs_gate_complete"},
+            "pre_1_28": {"failed_phase": "awaiting_memory_validation", "current_phase": "docs_gate_complete"},
+        }
+        for label, lock in shapes.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / ".wavefoundry").mkdir()
+                (root / ".wavefoundry" / "upgrade-in-progress.json").write_text(json.dumps(lock), encoding="utf-8")
+                recovery = upgrade_bundle._recovery(root, {"next_argv": ["python3", "runner.py", "--yes"]}, "failed")
+                self.assertIn("--resume-after-gate", recovery["argv"])
+
+    def test_the_bundle_predicate_matches_the_runners(self):
+        import importlib
+
+        runner = importlib.import_module("upgrade_wavefoundry")
+        # The MCP handler keeps its own copy too (a reload does not refresh a
+        # cached runner module); all three must agree.
+        handlers = importlib.import_module("wf_server.upgrade_handlers")
+        shapes = [
+            {},
+            {"failed_phase": "docs_gate"},
+            {"failed_phase": "post_docs_gate"},
+            {"failed_phase": "awaiting_memory_validation", "current_phase": "docs_gate_complete"},
+            {"failed_phase": "awaiting_memory_validation", "current_phase": "docs_gate_complete", "memory_backfill_run_id": "r"},
+            {"failed_phase": "awaiting_memory_validation", "current_phase": "docs_gate_complete", "action_required": {"kind": "x"}},
+            {"failed_phase": "awaiting_memory_validation", "current_phase": "awaiting_memory_validation"},
+            {"failed_phase": "index_update", "current_phase": "docs_gate_complete"},
+        ]
+        for shape in shapes:
+            with self.subTest(shape=shape):
+                self.assertEqual(
+                    upgrade_bundle._post_docs_gate_failure(shape),
+                    runner._is_post_docs_gate_failure(shape),
+                )
+                self.assertEqual(
+                    handlers._is_post_docs_gate_failure(shape),
+                    runner._is_post_docs_gate_failure(shape),
+                )
+
     def test_bundle_validation_failure_cleans_composition_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-29
+Last verified: 2026-09-30
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -519,7 +519,7 @@ docs-gate failure through `resume_after_gate`, and recover a
 re-running the full upgrade. After lint passes, `resume_after_gate` establishes
 or refreshes the memory checkpoint and may return its action-required worklist;
 continue through `resume_after_memory`, not `update_index`. Index and cleanup also refuse while memory
-work remains. Fresh/no-history projects continue directly. Upgrade/status responses expose the run id, outcome/pending
+work remains. A crash after the docs gate passed and before the memory checkpoint is recorded (for example in the `post_docs_gate` hook) leaves `failed_phase=post_docs_gate`; an upgrade driven by a pre-1.28 runner labels the same crash `awaiting_memory_validation` with `current_phase: docs_gate_complete` and no action-required block. Recover either through `resume_after_gate`, which re-runs the docs gate and establishes the memory checkpoint without re-extracting; index and cleanup refuse such a lock until then. Fresh/no-history projects continue directly. Upgrade/status responses expose the run id, outcome/pending
 counts, last failure, and next bounded worklist; do not scrape output or use a
 global candidate search. The no-MCP `wf memory-validate` fallback has full
 rewrite-field parity.

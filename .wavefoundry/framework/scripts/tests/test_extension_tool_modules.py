@@ -1157,6 +1157,9 @@ NON_BEHAVIOR_COLLECTIONS = {
     ("retrieval_eval.py", "CALL_TIMEOUT_SECONDS"),
     ("retrieval_eval.py", "OPERATOR_REVIEW_P95_MS"),
     ("server.py", "_RELOAD_SURVIVOR_TOOLS"),
+    # Module names reloaded by the upgrade memory hook; "memory_backfill" is
+    # also a tool name, but this tuple selects modules, not tools (wave 1zeyo).
+    ("upgrade_extensions.py", "_MEMORY_BOOTSTRAP_MODULES"),
     ("wf_server/server_impl.py", "CODE_SEARCH_SUBSTRATE_SOURCES"),
     ("wf_server/server_impl.py", "CODE_ASK_SUBSTRATE_SOURCES"),
     ("wf_server/server_impl.py", "_CONTEXT_RETRIEVAL_TOOLS"),

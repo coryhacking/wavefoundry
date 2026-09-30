@@ -17501,14 +17501,19 @@ def _wrap_setup_notice(mcp: Any, get_handler: Any) -> None:
                 # Wave 1za2y (1z9u7): collect what the navigation walker saw in
                 # this call, so a stale runtime is reported and a missing
                 # indexer can never surface as an empty-result success.
-                token = _NAVIGATION_EVENTS.set([])
+                # Wave 1zeyo (1zedi): hold the variable that was set. A tool that
+                # reloads this module mid-call (wf_upgrade's automatic reload)
+                # rebinds the global to a new ContextVar, and resetting that
+                # one with this token raises.
+                events_var = _NAVIGATION_EVENTS
+                token = events_var.set([])
                 try:
                     result = fn(*args, **kwargs)
                 except NavigationWalkerUnavailable:
                     result = None  # the recorded event becomes the error below
                 finally:
-                    events = _NAVIGATION_EVENTS.get() or []
-                    _NAVIGATION_EVENTS.reset(token)
+                    events = events_var.get() or []
+                    events_var.reset(token)
                 result = _apply_navigation_notices(tool_name, result, events)
                 try:
                     if isinstance(result, dict):
@@ -20557,8 +20562,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
               - ``"resume_after_gate"`` — rebuild and persist current
                 review-status projection, then re-run docs-gardener + docs-lint
                 against the already-extracted tree (no extract/render/prune).
-                Accepts retained ``failed_phase`` values
-                ``"review_status_projection"`` and ``"docs_gate"``; preserves
+                Accepts retained ``failed_phase`` values ``"docs_gate"`` and
+                ``"post_docs_gate"`` (including the pre-1.28 label for a crash
+                after the gate passed); preserves
                 the actual failing phase on retry and, after the gate passes,
                 establishes or refreshes the historical-memory checkpoint. It
                 may return action-required memory work; continue with
