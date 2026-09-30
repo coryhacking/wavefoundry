@@ -915,6 +915,22 @@ def _extract_feature_members(zf: "zipfile.ZipFile", root: Path) -> int:
     return skipped
 
 
+def _withheld_member_names(zf: "zipfile.ZipFile") -> list[str]:
+    """The members ``_extract_feature_members`` withholds, in archive order."""
+    return [
+        name
+        for name in zf.namelist()
+        if not (name.startswith(_EXTRACT_MEMBER_PREFIX) or name in _EXTRACT_ROOT_MEMBERS)
+        or name == _ROOT_BOOTSTRAP_FILENAME
+    ]
+
+
+def _describe_withheld_members(names: list[str], limit: int = 10) -> str:
+    shown = ", ".join(names[:limit])
+    rest = len(names) - limit
+    return f"{shown}, and {rest} more" if rest > 0 else shown
+
+
 def _snapshot_pre_extract_versions(root: Path) -> dict[str, str]:
     """Snapshot all relevant framework version constants from the consumer's
     pre-existing index/graph state files. Returns a flat dict with keys
@@ -4536,14 +4552,16 @@ def _print_operator_summary(
     # seed-160's step 0 is pack adoption, not journal work. Do not reintroduce a
     # step here without checking the seed step it cites still means what the
     # label claims.
-    _log("Next steps for agent editing pass:")
+    if failed_phase:
+        # The recovery instruction printed before this summary is the next step.
+        return
+    _log("Upgrade complete. Agent editing pass, if not done yet:")
     _log("  See seed-160 for the full editing-pass sequence; key steps:")
     _log("  1. Drift detection (seed-160 step 6)")
     _log("  2. Spec gaps via seed-230 (seed-160 step 4 / 160 step 8)")
     _log("  3. Resolve any docs/scan-findings.json entries via seed-213 (security reviewer) before re-running the docs gate")
     _log("  4. Docs gate re-run after edits (wf_garden_docs → wf_validate_docs, or wf docs-lint)")
-    _log("  5. Index update: wf upgrade --update-index")
-    _log("  6. Cleanup lock after rebuild: wf upgrade --cleanup")
+    _log("  5. Only if those edits changed indexed files: wf upgrade --update-index")
     _log("")
 
 
@@ -5934,6 +5952,7 @@ def main(argv: list[str] | None = None) -> int:
                 with zipfile.ZipFile(zip_path, "r") as zf:
                     tree_mutated = True  # A failed extraction can already have written files.
                     _skipped_members = _extract_feature_members(zf, root)
+                    _withheld_names = _withheld_member_names(zf)
                 # Tree is now half-replaced — from here a failure must RETAIN the
                 # lock (wave 1p44o) rather than remove it.
                 tree_mutated = True
@@ -5941,7 +5960,8 @@ def main(argv: list[str] | None = None) -> int:
                 if _skipped_members:
                     _log(
                         f"  Withheld {_skipped_members} non-feature or preexisting "
-                        "project-owned member(s) from extraction."
+                        "project-owned member(s) from extraction: "
+                        f"{_describe_withheld_members(_withheld_names)}."
                     )
             _run_hook("post_extract", ctx, ext_mod)
 

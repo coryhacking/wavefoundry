@@ -1074,8 +1074,10 @@ def _upgrade_next_step(phase: str) -> tuple[str, list[str]]:
     """Return a phase-aware ``(next_step, next_tools)`` for the wf_upgrade response (wave 1p8eu)."""
     if phase == "preflight_to_docs_gate":
         return (
-            "Run the agent editing pass (drift/journal/spec reconciliation per seed-160), then "
-            "call wf_upgrade(phase='update_index') and wf_upgrade(phase='cleanup').",
+            "Run the agent editing pass (drift/spec reconciliation per seed-160), then call "
+            "wf_upgrade(phase='cleanup'). A completed run already updated the index; call "
+            "wf_upgrade(phase='update_index') before cleanup only if the editing pass changed "
+            "indexed files or data.summary.index_update reports a publication failure.",
             ["wf_upgrade_status", "wf_reload_mcp"],
         )
     if phase in ("update_index", "rebuild_index"):

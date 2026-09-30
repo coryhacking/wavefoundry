@@ -1234,6 +1234,41 @@ class PhaseCleanupLockStateTests(unittest.TestCase):
         self.assertIn("Docs gate:", out)
         self.assertIn("PASSED", out)
 
+    def test_a_successful_cleanup_does_not_list_itself_as_a_next_step(self):
+        # 1zf1u: cleanup used to end with "5. Index update ... 6. Cleanup lock",
+        # both already done, so a finished upgrade read as unfinished.
+        self.lib.write_upgrade_lock(self.root, "2026-05-10a", "2026-05-19a")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            # The --cleanup branch passes whether the lock records a published index.
+            self.mod.phase_cleanup(
+                root=self.root, from_version=None, to_version=None, zip_path=None,
+                pruned_count=0, ran_index_rebuild=True, failed_phase=None, lock_present=True,
+            )
+        out = buf.getvalue()
+        self.assertIn("docs and code layers complete", out)
+        self.assertIn("Agent editing pass, if not done yet:", out)
+        self.assertNotIn("wf upgrade --cleanup", out)
+        index_lines = [line for line in out.splitlines() if "--update-index" in line]
+        self.assertEqual(index_lines, ["  5. Only if those edits changed indexed files: wf upgrade --update-index"])
+        sentinel = self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL
+        self.assertLess(out.index(sentinel), out.index("Agent editing pass, if not done yet:"))
+
+    def test_a_failed_cleanup_prints_its_recovery_without_the_editing_pass(self):
+        self.lib.write_upgrade_lock(self.root, "2026-05-10a", "2026-05-19a")
+        self.lib.update_upgrade_lock(self.root, failed_phase="docs_gate")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), self.assertRaises(SystemExit):
+            self.mod.phase_cleanup(
+                root=self.root, from_version=None, to_version=None, zip_path=None,
+                pruned_count=0, ran_index_rebuild=False, failed_phase="docs_gate", lock_present=True,
+            )
+        out = buf.getvalue()
+        self.assertIn("--resume-after-gate", out)
+        self.assertIn(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL, out)
+        self.assertNotIn("Agent editing pass, if not done yet:", out)
+        self.assertNotIn("wf upgrade --update-index", out)
+
     def test_failed_lock_marks_incomplete(self):
         self.lib.write_upgrade_lock(self.root, "2026-05-10a", "2026-05-19a")
         self.lib.update_upgrade_lock(self.root, failed_phase="docs_gate")
@@ -2053,6 +2088,21 @@ class UpgradeManifestRecoveryTests(unittest.TestCase):
         self.assertFalse((framework / "seeds/retired.md").exists())
         self.assertEqual((framework / "seeds/project.md").read_text(), "project-owned\n")
         self.assertFalse(mod._old_manifest_snapshot(root).exists())
+
+    def test_the_extraction_log_names_the_withheld_members(self):
+        # 1zf1u: "Withheld N member(s)" now says which.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "target"; pack = self._fixture(root)
+            with zipfile.ZipFile(pack, "a") as archive:
+                archive.writestr("install-wavefoundry.md", "bootstrap\n")
+                archive.writestr("__main__.py", "# runner\n")
+            self._attempt(root, pack)
+            log = (root / ".wavefoundry" / "logs" / "upgrade.log").read_text(encoding="utf-8")
+            self.assertIn(
+                "Withheld 2 non-feature or preexisting project-owned member(s) from extraction: "
+                "install-wavefoundry.md, __main__.py.",
+                log,
+            )
 
     def test_a_post_docs_gate_hook_crash_is_labelled_as_its_own_phase(self):
         # Wave 1zeyo (1zeyn AC-1): not the memory-pause label.
@@ -6108,6 +6158,28 @@ class ExtractFeatureMembersTests(unittest.TestCase):
         for name in self.RUNNER_MEMBERS:
             self.assertFalse((self.proj / name).exists(), f"{name} must not be extracted")
         self.assertFalse((self.proj / "payload").exists(), "payload/ must not be extracted")
+
+    def test_withheld_members_are_named_and_match_the_count(self) -> None:
+        # 1zf1u: the extraction log names what it withheld, not just how many.
+        zp = self._combined_bundle_zip()
+        skipped = self._extract(zp)
+        with zipfile.ZipFile(zp, "r") as zf:
+            names = self.mod._withheld_member_names(zf)
+        payload = self._payload_prefix()
+        self.assertEqual(len(names), skipped)
+        self.assertEqual(
+            set(names),
+            {"install-wavefoundry.md", *self.RUNNER_MEMBERS,
+             payload + "selection.json", payload + "bridge.zip", payload + "feature.zip"},
+        )
+        for name in names:
+            self.assertFalse((self.proj / name).exists(), name)
+        self.assertEqual(self.mod._describe_withheld_members(names), ", ".join(names))
+        many = [f"m{i}" for i in range(13)]
+        self.assertEqual(
+            self.mod._describe_withheld_members(many),
+            ", ".join(many[:10]) + ", and 3 more",
+        )
 
     def test_feature_members_extract_without_fresh_install_bootstrap(self) -> None:
         self._extract(self._combined_bundle_zip())
@@ -11000,7 +11072,7 @@ class EditingPassStepsAreCurrentTests(unittest.TestCase):
         joined = "\n".join(self._steps())
         # Non-vacuous: the block itself must still be emitted, or the absence
         # assertion below would pass on an empty output.
-        self.assertIn("Next steps for agent editing pass:", joined)
+        self.assertIn("Agent editing pass, if not done yet:", joined)
         self.assertNotIn("Journal reconciliation", joined)
         self.assertNotIn("Reconcile journals", joined)
 

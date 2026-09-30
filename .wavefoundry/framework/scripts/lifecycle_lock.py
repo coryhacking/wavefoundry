@@ -59,11 +59,24 @@ def lifecycle_mutation_lock(
             raise
         yield
         return
+    # Everything after a successful acquire sits inside the release-protected
+    # region, so an interrupt at any point still releases the OS lock.
+    metadata: dict = {}
     try:
-        lock.write_metadata({"pid": os.getpid(), "acquired_at": time.time()})
+        metadata = {"pid": os.getpid(), "acquired_at": time.time()}
+        lock.write_metadata(metadata)
         yield
     finally:
-        lock.release()
+        # The carrier persists by design; stamp the release so a reader can
+        # tell a finished owner from a crashed one. Best-effort: it must never
+        # replace the body's outcome or skip the release.
+        try:
+            try:
+                lock.write_metadata({**metadata, "released_at": time.time()})
+            except Exception:  # noqa: BLE001
+                pass
+        finally:
+            lock.release()
 
 
 @contextmanager

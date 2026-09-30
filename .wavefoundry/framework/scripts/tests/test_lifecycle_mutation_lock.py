@@ -318,3 +318,116 @@ class SubprocessBoundsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LockReleaseRecordTests(unittest.TestCase):
+    """1zf1u: the persisted lock carrier records its release, so a reader can
+    tell a finished owner from a crashed one. Liveness stays the OS lock."""
+
+    def setUp(self):
+        sys.path.insert(0, str(SCRIPTS_ROOT))
+        import lifecycle_lock
+        import runtime_lock
+
+        self.lifecycle_lock = lifecycle_lock
+        self.runtime_lock = runtime_lock
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / ".wavefoundry").mkdir()
+        self.path = self.root / lifecycle_lock.LIFECYCLE_MUTATION_LOCK_REL
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _metadata(self) -> dict:
+        return json.loads(self.path.read_text(encoding="utf-8"))
+
+    def _free(self) -> bool:
+        with self.lifecycle_lock.lifecycle_mutation_lock(self.root):
+            return True
+
+    def test_a_normal_exit_stamps_the_release(self):
+        with self.lifecycle_lock.lifecycle_mutation_lock(self.root):
+            held = self._metadata()
+        self.assertNotIn("released_at", held)
+        after = self._metadata()
+        self.assertEqual(after["pid"], held["pid"])
+        self.assertEqual(after["acquired_at"], held["acquired_at"])
+        self.assertGreaterEqual(after["released_at"], after["acquired_at"])
+        self.assertTrue(self._free())
+
+    def test_a_raising_body_keeps_its_exception_and_is_stamped(self):
+        with self.assertRaisesRegex(ValueError, "body failed"):
+            with self.lifecycle_lock.lifecycle_mutation_lock(self.root):
+                raise ValueError("body failed")
+        self.assertIn("released_at", self._metadata())
+        self.assertTrue(self._free())
+
+    def test_a_failed_release_stamp_still_releases_and_keeps_the_outcome(self):
+        real_write = self.runtime_lock.RuntimeFileLock.write_metadata
+
+        def write(lock, payload):
+            if "released_at" in payload:
+                raise self.runtime_lock.RuntimeLockError(5, "injected")
+            return real_write(lock, payload)
+
+        real_release = self.runtime_lock.RuntimeFileLock.release
+        released = []
+
+        def release(lock):
+            released.append(True)
+            return real_release(lock)
+
+        with patch.object(self.runtime_lock.RuntimeFileLock, "write_metadata", write), \
+             patch.object(self.runtime_lock.RuntimeFileLock, "release", release):
+            with self.assertRaisesRegex(ValueError, "body failed"):
+                with self.lifecycle_lock.lifecycle_mutation_lock(self.root):
+                    raise ValueError("body failed")
+        self.assertEqual(released, [True])
+        self.assertNotIn("released_at", self._metadata())
+
+    def test_an_interrupt_during_the_stamp_still_releases(self):
+        real_release = self.runtime_lock.RuntimeFileLock.release
+        real_write = self.runtime_lock.RuntimeFileLock.write_metadata
+        released = []
+
+        def write(lock, payload):
+            if "released_at" in payload:
+                raise KeyboardInterrupt
+            return real_write(lock, payload)
+
+        def release(lock):
+            released.append(True)
+            return real_release(lock)
+
+        with patch.object(self.runtime_lock.RuntimeFileLock, "write_metadata", write), \
+             patch.object(self.runtime_lock.RuntimeFileLock, "release", release):
+            with self.assertRaises(KeyboardInterrupt):
+                with self.lifecycle_lock.lifecycle_mutation_lock(self.root):
+                    pass
+        self.assertEqual(released, [True])
+
+    def test_an_interrupt_while_building_the_acquire_metadata_still_releases(self):
+        # DEL-1ZF1U-ACQUIRE-METADATA: nothing between a successful acquire and
+        # the release-protected region may skip release().
+        real_release = self.runtime_lock.RuntimeFileLock.release
+        released = []
+        calls = []
+
+        def release(lock):
+            released.append(True)
+            return real_release(lock)
+
+        def interrupting_time():
+            calls.append(True)
+            if len(calls) == 1:
+                raise KeyboardInterrupt
+            return 0.0
+
+        fake_time = SimpleNamespace(time=interrupting_time)
+        with patch.object(self.lifecycle_lock, "time", fake_time), \
+             patch.object(self.runtime_lock.RuntimeFileLock, "release", release):
+            with self.assertRaises(KeyboardInterrupt):
+                with self.lifecycle_lock.lifecycle_mutation_lock(self.root):
+                    self.fail("the body must not run")
+        self.assertEqual(released, [True])

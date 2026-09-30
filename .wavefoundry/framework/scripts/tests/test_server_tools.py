@@ -6216,6 +6216,37 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         self.assertEqual(result["data"]["state"], "awaiting_memory_validation")
         self.assertIn("resume_after_memory", result.get("next_step", ""))
 
+    def test_the_primary_next_step_goes_to_cleanup_without_a_second_index_update(self):
+        """1zf1u: the primary run already updates the index; the next step must
+        not send every agent through update_index again."""
+        import importlib
+
+        handlers = importlib.import_module("wf_server.upgrade_handlers")
+        step, _tools = handlers._upgrade_next_step("preflight_to_docs_gate")
+        self.assertIn("wf_upgrade(phase='cleanup')", step)
+        self.assertIn(
+            "only if the editing pass changed indexed files or data.summary.index_update reports a publication failure",
+            step,
+        )
+        self.assertLess(step.index("wf_upgrade(phase='cleanup')"), step.index("update_index"))
+        self.assertNotIn("journal", step)
+
+    def test_a_dependency_failure_next_step_does_not_claim_the_index_ran(self):
+        """1zf1u DEL-1ZF1U-D1: when dependency provisioning failed the index did
+        not run, and the envelope's next step must not say it did."""
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "Dependency provisioning FAILED: the index update did not run.\n"
+        mock_proc.stderr = ""
+        with patch("subprocess.run", return_value=mock_proc):
+            result = self.srv.wf_upgrade_response(self.root, phase="preflight_to_docs_gate")
+        codes = [d["code"] for d in result.get("diagnostics", [])]
+        self.assertIn("dependency_provisioning_failed", codes)
+        step = result.get("next_step", "")
+        self.assertIn("wf_upgrade(phase='cleanup')", step)
+        self.assertNotIn("This run already updated the index", step)
+        self.assertIn("A completed run already updated the index", step)
+
     def test_a_real_preflight_failure_keeps_its_label(self):
         mock_proc = MagicMock()
         mock_proc.returncode = 3
