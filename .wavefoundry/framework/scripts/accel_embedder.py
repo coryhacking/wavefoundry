@@ -18,8 +18,10 @@ offload nor an INT8-CPU clean-export source is available for the requested model
 from __future__ import annotations
 
 import glob
+import hashlib
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Iterable, Iterator, Optional
@@ -477,6 +479,76 @@ def _safe(model_name: str) -> str:
     return model_name.replace("/", "__")
 
 
+# Wave 1zf1w: ONNX Runtime names a CoreML cache entry from a hash of the ONNX
+# path only, so an ONNX Runtime upgrade that partitioned the graph differently
+# loaded the old compile (the reranker's stale partition 0 had no ``logits``
+# output). The directory is therefore keyed by the ONNX Runtime version and a
+# digest of the provider options and the static graph, and creating a new key
+# removes the superseded entries for that model.
+_COREML_FORMAT = "MLProgram"
+_COREML_UNITS = "ALL"
+_static_digest_memo: dict[tuple[str, int, int], str] = {}
+
+
+def _static_graph_digest(path: Path) -> str:
+    stat_result = os.stat(path)
+    memo_key = (str(path), stat_result.st_size, stat_result.st_mtime_ns)
+    digest = _static_digest_memo.get(memo_key)
+    if digest is None:
+        hasher = hashlib.sha256(f"{_COREML_FORMAT}|{_COREML_UNITS}|".encode("ascii"))
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                hasher.update(chunk)
+        digest = _static_digest_memo[memo_key] = hasher.hexdigest()[:16]
+    return digest
+
+
+def _coreml_cache_dir(model_name: str, static_path: Path, ort_version: str) -> Path:
+    """The CoreML ``ModelCacheDirectory`` for ``static_path`` under this ONNX Runtime."""
+    variant = _COREML_CACHE / _safe(model_name) / f"{_COREML_FORMAT}_{_COREML_UNITS}"
+    version = re.sub(r"[^A-Za-z0-9._+-]", "_", str(ort_version))
+    key = variant / f"ort-{version}-{_static_graph_digest(static_path)}"
+    os.makedirs(variant, exist_ok=True)
+    try:
+        # The creating mkdir decides who prunes, so two starts never both prune.
+        os.mkdir(key)
+    except FileExistsError:
+        return key
+    _prune_superseded_coreml_entries(model_name, variant, keep=key.name)
+    return key
+
+
+def _prune_superseded_coreml_entries(model_name: str, variant: Path, *, keep: str) -> None:
+    """Remove every entry of ``variant`` except ``keep``; best-effort and contained."""
+    safe_name = _safe(model_name)
+    if safe_name in {"", ".", ".."} or os.sep in safe_name or (
+        os.altsep and os.altsep in safe_name
+    ):
+        return
+    try:
+        model_dir = variant.parent
+        if model_dir.is_symlink() or variant.is_symlink():
+            return
+        real_model_dir = os.path.realpath(model_dir)
+        if os.path.dirname(real_model_dir) != os.path.realpath(_COREML_CACHE):
+            return
+        if os.path.realpath(variant) != os.path.join(real_model_dir, variant.name):
+            return
+        entries = list(os.scandir(variant))
+    except OSError:
+        return
+    for entry in entries:
+        if entry.name == keep:
+            continue
+        try:
+            if entry.is_symlink() or not entry.is_dir(follow_symlinks=False):
+                os.unlink(entry.path)
+            else:
+                shutil.rmtree(entry.path)
+        except OSError:
+            continue
+
+
 def build_static_onnx(
     src_onnx: str,
     out_path: str,
@@ -564,20 +636,17 @@ class StaticShapeEmbedder:
             if files is None:
                 raise FileNotFoundError(f"No cached ONNX/tokenizer for {model_name!r}")
             src_onnx, tok_path = files
-            # COREML_CACHE_KEY: model + provider + format + compute-units in the path, so any
-            # change uses a fresh cache dir (ORT does no automatic staleness check).
-            compute_units = "ALL"
-            model_format = "MLProgram"
             static_path = _ONNX_CACHE / _safe(model_name) / f"static_{STATIC_BATCH}x{STATIC_SEQ}.onnx"
             if not static_path.exists():
                 build_static_onnx(src_onnx, str(static_path))
             provs: list = []
             if gpu == COREML_PROVIDER:
-                coreml_cache = _COREML_CACHE / _safe(model_name) / f"{model_format}_{compute_units}"
-                os.makedirs(coreml_cache, exist_ok=True)
+                # ORT does no staleness check of its own; the key carries the ORT version and
+                # a digest of the options and graph (see _coreml_cache_dir).
+                coreml_cache = _coreml_cache_dir(model_name, static_path, ort.__version__)
                 provs.append((COREML_PROVIDER, {
-                    "ModelFormat": model_format,
-                    "MLComputeUnits": compute_units,
+                    "ModelFormat": _COREML_FORMAT,
+                    "MLComputeUnits": _COREML_UNITS,
                     "ModelCacheDirectory": str(coreml_cache),
                 }))
             else:  # CUDA / ROCm / DirectML — static shapes help; no compiled-model cache option
@@ -832,11 +901,10 @@ class StaticShapeReranker:
                 build_static_onnx(src_onnx, str(static_path), output_is_logit=True, batch=RERANK_STATIC_BATCH)
             provs: list = []
             if gpu == COREML_PROVIDER:
-                coreml_cache = _COREML_CACHE / _safe(model_name) / "MLProgram_ALL"
-                os.makedirs(coreml_cache, exist_ok=True)
+                coreml_cache = _coreml_cache_dir(model_name, static_path, ort.__version__)
                 provs.append((COREML_PROVIDER, {
-                    "ModelFormat": "MLProgram",
-                    "MLComputeUnits": "ALL",
+                    "ModelFormat": _COREML_FORMAT,
+                    "MLComputeUnits": _COREML_UNITS,
                     "ModelCacheDirectory": str(coreml_cache),
                 }))
             else:  # CUDA / ROCm / DirectML

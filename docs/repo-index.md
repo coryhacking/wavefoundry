@@ -35,29 +35,29 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 16003 |
-| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1372 |
-| graph | `.wavefoundry/framework/scripts` | code | 390 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 367 |
-| upgrade | `.wavefoundry/framework/scripts` | code | 352 |
-| framework/scripts | `.wavefoundry/framework/scripts` | code | 303 |
-| chunker | `.wavefoundry/framework/scripts` | code | 283 |
-| scripts/run_tests | `.wavefoundry/framework/scripts` | code | 273 |
-| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 258 |
-| build_pack | `.wavefoundry/framework/scripts` | code | 243 |
-| scripts/commit_provenance | `.wavefoundry/framework/scripts` | code | 239 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 16018 |
+| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1460 |
+| scripts/commit_provenance | `.wavefoundry/framework/scripts` | code | 436 |
+| graph | `.wavefoundry/framework/scripts` | code | 395 |
+| upgrade | `.wavefoundry/framework/scripts` | code | 334 |
+| docs | `docs` | code | 323 |
+| chunker | `.wavefoundry/framework/scripts` | code | 285 |
+| scripts/run_tests | `.wavefoundry/framework/scripts` | code | 265 |
+| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 236 |
 | framework/dashboard | `.wavefoundry/framework/dashboard` | code | 223 |
-| indexer | `.wavefoundry/framework/scripts` | code | 201 |
-| render_platform_surfaces | `.wavefoundry/framework/scripts` | code | 148 |
-| retrieval_eval | `.wavefoundry/framework/scripts` | code | 104 |
+| framework/scripts | `.wavefoundry/framework/scripts` | code | 216 |
+| render_platform_surfaces | `.wavefoundry/framework/scripts` | code | 187 |
+| retrieval_eval | `.wavefoundry/framework/scripts` | code | 142 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 108 |
+| build_pack | `.wavefoundry/framework/scripts` | code | 99 |
+| memory_records | `.wavefoundry/framework/scripts` | code | 72 |
+| upgrade_extensions | `.wavefoundry/framework/scripts` | code | 69 |
 | run_tests | `.wavefoundry/framework/scripts` | code | 59 |
-| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 53 |
+| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 57 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 46 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
 | evidence | `docs/waves/1yzd0 server-package-boundary/evidence` | code | 36 |
 | m | `docs/waves/1yzd0 server-package-boundary/evidence/m` | code | 36 |
-| r | `docs/waves/1yxyw retire-optional-server-aliases/evidence/r` | code | 33 |
-| design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
 | configuration | `(root)` | config | 27 |
 <!-- wave:repo-index-modules end -->
 

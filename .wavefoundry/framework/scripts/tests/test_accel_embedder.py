@@ -713,7 +713,11 @@ class AccelEmbedderTests(unittest.TestCase):
         """AC-1 precision + supply-chain integrity for the ACTIVE reranker (RERANKER_MODEL): its GPU
         FP16 export's raw logits match the SAME model's FP32 export within 0.05 across ≥3 queries — so
         the FP16 export didn't corrupt scores and the confidence bands stay valid. GPU+models-gated
-        (operator machine); a tampered/divergent FP16 export would fail. Skipped in CI (no GPU)."""
+        (operator machine); a tampered/divergent FP16 export would fail. Skipped in CI (no GPU).
+
+        Uses the REAL home cache (the isolated probe child imports accel_embedder
+        afresh), so run it under the wavefoundry tool venv: another onnxruntime
+        version would key and prune the operator's CoreML compiles (wave 1zf1w)."""
         if not self.ae._available_gpu_providers():
             self.skipTest("no GPU provider")
         # Active reranker logical name → its clean FP16 source.
@@ -1385,3 +1389,152 @@ class AccelCuda12WarnTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CoreMLCacheKeyTests(unittest.TestCase):
+    """Wave 1zf1w: the CoreML compiled-model cache is keyed by ONNX Runtime
+    version and graph content, and a new key removes superseded compiles."""
+
+    MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+    def setUp(self):
+        self.ae = load_accel()
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.cache = self.tmp / "coreml"
+        self.cache.mkdir()
+        patcher = patch.object(self.ae, "_COREML_CACHE", self.cache)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self._tmp.cleanup)
+        self.graph = self.tmp / "rerank_static_40x512.onnx"
+        self.graph.write_bytes(b"graph v1")
+
+    def _variant(self, model=None):
+        return self.cache / self.ae._safe(model or self.MODEL) / "MLProgram_ALL"
+
+    def test_the_key_carries_the_runtime_version_and_graph_digest(self):
+        first = self.ae._coreml_cache_dir(self.MODEL, self.graph, "1.27.0")
+        self.assertEqual(first.parent, self._variant())
+        self.assertTrue(first.name.startswith("ort-1.27.0-"))
+        self.assertTrue(first.is_dir())
+        self.assertEqual(self.ae._coreml_cache_dir(self.MODEL, self.graph, "1.27.0"), first)
+        other_runtime = self.ae._coreml_cache_dir(self.MODEL, self.graph, "1.26.0")
+        self.assertNotEqual(other_runtime, first)
+        self.graph.write_bytes(b"graph v2, rebuilt")
+        other_graph = self.ae._coreml_cache_dir(self.MODEL, self.graph, "1.26.0")
+        self.assertNotEqual(other_graph, other_runtime)
+
+    def test_a_new_key_removes_superseded_compiles_only(self):
+        variant = self._variant()
+        legacy = variant / "10771544046940853843"
+        (legacy / "0_dynamic_mlprogram").mkdir(parents=True)
+        (legacy / "model.txt").write_text("/x/rerank_static_40x512.onnx")
+        older_key = variant / "ort-1.20.0-0123456789abcdef"
+        older_key.mkdir()
+        (variant / "stray.bin").write_bytes(b"x")
+        outside = self.tmp / "outside"
+        outside.mkdir()
+        (outside / "keep.txt").write_text("keep")
+        (variant / "linked").symlink_to(outside, target_is_directory=True)
+        neighbour = self._variant("Snowflake/snowflake-arctic-embed-s") / "123"
+        neighbour.mkdir(parents=True)
+
+        key = self.ae._coreml_cache_dir(self.MODEL, self.graph, "1.27.0")
+
+        self.assertEqual(sorted(p.name for p in variant.iterdir()), [key.name])
+        self.assertEqual((outside / "keep.txt").read_text(), "keep")
+        self.assertTrue(neighbour.is_dir())
+
+    def test_an_existing_key_does_not_prune(self):
+        key = self.ae._coreml_cache_dir(self.MODEL, self.graph, "1.27.0")
+        late = self._variant() / "999"
+        late.mkdir()
+        self.assertEqual(self.ae._coreml_cache_dir(self.MODEL, self.graph, "1.27.0"), key)
+        self.assertTrue(late.is_dir())
+
+    def test_only_the_creating_mkdir_prunes(self):
+        # A racer that sees the key as missing but loses the mkdir must not prune.
+        key = self.ae._coreml_cache_dir(self.MODEL, self.graph, "1.27.0")
+        late = self._variant() / "999"
+        late.mkdir()
+        with patch.object(self.ae.os.path, "exists", return_value=False), \
+             patch.object(Path, "exists", return_value=False):
+            self.assertEqual(self.ae._coreml_cache_dir(self.MODEL, self.graph, "1.27.0"), key)
+        self.assertTrue(late.is_dir())
+
+    def test_an_escaping_model_name_is_never_pruned(self):
+        # _safe only replaces "/", so ".." would resolve outside the cache root.
+        escaped = self.cache.parent / "MLProgram_ALL"
+        (escaped / "precious").mkdir(parents=True)
+        self.ae._coreml_cache_dir("..", self.graph, "1.27.0")
+        self.assertTrue((escaped / "precious").is_dir())
+
+    def test_a_symlinked_variant_directory_is_never_pruned(self):
+        elsewhere = self.tmp / "elsewhere"
+        (elsewhere / "precious").mkdir(parents=True)
+        model_dir = self.cache / self.ae._safe(self.MODEL)
+        model_dir.mkdir()
+        (model_dir / "MLProgram_ALL").symlink_to(elsewhere, target_is_directory=True)
+        self.ae._coreml_cache_dir(self.MODEL, self.graph, "1.27.0")
+        self.assertTrue((elsewhere / "precious").is_dir())
+
+    def test_a_removal_error_still_yields_the_cache_directory(self):
+        (self._variant() / "555").mkdir(parents=True)
+        with patch.object(self.ae.shutil, "rmtree", side_effect=OSError("busy")):
+            key = self.ae._coreml_cache_dir(self.MODEL, self.graph, "1.27.0")
+        self.assertTrue(key.is_dir())
+        self.assertTrue((self._variant() / "555").is_dir())
+
+    def _construct(self, cls, model, provider, resolver, static_name):
+        ae = self.ae
+        ort = MagicMock()
+        ort.__version__ = "1.27.0"
+        session = MagicMock()
+        session.get_inputs.return_value = [type("I", (), {"name": "input_ids"})]
+        session.get_outputs.return_value = [type("O", (), {"name": "logits"})]
+        ort.InferenceSession.return_value = session
+        onnx_cache = self.tmp / "onnx"
+
+        def publish(source, destination, **kwargs):
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"static graph")
+
+        with patch.dict(sys.modules, {"onnxruntime": ort, "tokenizers": MagicMock()}), \
+             patch.object(ae, "_coreml_static_probe_passes", return_value=True), \
+             patch.object(ae, resolver, return_value=("src.onnx", "tok.json")), \
+             patch.object(ae, "_ONNX_CACHE", onnx_cache), \
+             patch.object(ae, "build_static_onnx", side_effect=publish), \
+             patch.object(ae, "_coreml_cache_dir", wraps=ae._coreml_cache_dir) as keyed:
+            cls(model, [provider, "CPUExecutionProvider"])
+        providers = ort.InferenceSession.call_args.kwargs["providers"]
+        static_path = onnx_cache / ae._safe(model) / static_name
+        return providers, keyed, static_path
+
+    def test_both_classes_hand_the_keyed_directory_to_coreml(self):
+        ae = self.ae
+        for cls, model, static_name in (
+            (ae.StaticShapeReranker, self.MODEL, f"rerank_static_{ae.RERANK_STATIC_BATCH}x{ae.STATIC_SEQ}.onnx"),
+            (ae.StaticShapeEmbedder, "Snowflake/snowflake-arctic-embed-s", f"static_{ae.STATIC_BATCH}x{ae.STATIC_SEQ}.onnx"),
+        ):
+            with self.subTest(cls=cls.__name__):
+                providers, keyed, static_path = self._construct(
+                    cls, model, ae.COREML_PROVIDER, "_resolve_model_files", static_name
+                )
+                name, options = providers[0]
+                self.assertEqual(name, ae.COREML_PROVIDER)
+                self.assertEqual(options["ModelFormat"], "MLProgram")
+                self.assertEqual(options["MLComputeUnits"], "ALL")
+                keyed.assert_called_once_with(model, static_path, "1.27.0")
+                expected = self._variant(model) / f"ort-1.27.0-{ae._static_graph_digest(static_path)}"
+                self.assertEqual(options["ModelCacheDirectory"], str(expected))
+                self.assertTrue(expected.is_dir())
+
+    def test_other_gpu_providers_get_no_cache_directory(self):
+        ae = self.ae
+        providers, keyed, _ = self._construct(
+            ae.StaticShapeReranker, self.MODEL, ae.CUDA_PROVIDER, "_resolve_model_files",
+            f"rerank_static_{ae.RERANK_STATIC_BATCH}x{ae.STATIC_SEQ}.onnx",
+        )
+        self.assertEqual(providers, [ae.CUDA_PROVIDER, "CPUExecutionProvider"])
+        keyed.assert_not_called()
