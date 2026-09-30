@@ -313,6 +313,73 @@ def _record_runner_identity() -> Optional[str]:
         )
 
 
+# Wave 1zf1y: the only fingerprinted source an in-process reload re-executes. The
+# root ``server_impl.py`` shim is aliased to it, never re-executed, so it keeps its
+# launch value like every other source.
+_RELOADED_SOURCES = ("wf_server/server_impl.py",)
+
+
+def _reloaded_source_digests() -> dict[str, str]:
+    """Current disk digests of the reload-executed sources; empty on any failure."""
+    try:
+        fresh = setup_readiness.capture_loaded_identity().get("sources") or {}
+        return {name: fresh[name] for name in _RELOADED_SOURCES if isinstance(fresh.get(name), str)}
+    except Exception:  # noqa: BLE001 - bookkeeping must never fail a reload
+        return {}
+
+
+def _bytecode_cache_absent(module: Any) -> bool:
+    """True when ``module`` has no bytecode cache file on disk. Never raises."""
+    try:
+        cached = getattr(getattr(module, "__spec__", None), "cached", None)
+        return not cached or not os.path.exists(cached)
+    except Exception:  # noqa: BLE001 - bookkeeping must never fail a reload
+        return False
+
+
+def _discard_reloaded_bytecode(module: Any) -> bool:
+    """Remove ``module``'s cached bytecode so its reload compiles the source it reads.
+
+    A timestamp ``.pyc`` stays valid when replacement source has the same size and
+    whole-second mtime, and ``-B`` does not stop Python reading it; the reload would
+    then execute the old bytecode while the source hash says new. Returns True only
+    when no bytecode cache for the module remains. Never raises.
+    """
+    try:
+        cached = getattr(getattr(module, "__spec__", None), "cached", None)
+        if not cached:
+            return True
+        try:
+            os.unlink(cached)
+        except FileNotFoundError:
+            pass
+        return not os.path.exists(cached)
+    except Exception:  # noqa: BLE001 - bookkeeping must never fail a reload
+        return False
+
+
+def _refresh_reloaded_source_identity(before_reload: dict[str, str]) -> None:
+    """Mark the re-executed implementation module current in the launch identity.
+
+    Updates the runner's identity dict IN PLACE: the implementation module and the
+    next handler share this object, and the next reload copies it again, so the
+    update survives. Every other source (and the launch ``errors``) keeps its launch
+    value. An entry is recorded only when its digest is the same before and after
+    the reload, so a file rewritten while the reload read it is never marked current.
+    Never raises; an entry whose hash fails is left unchanged.
+    """
+    try:
+        sources = _SETUP_LOADED_IDENTITY.get("sources")
+        if not isinstance(sources, dict):
+            return
+        after_reload = _reloaded_source_digests()
+        for name, digest in after_reload.items():
+            if digest and before_reload.get(name) == digest:
+                sources[name] = digest
+    except Exception:  # noqa: BLE001 - bookkeeping must never fail a reload
+        return
+
+
 def __getattr__(name: str) -> Any:
     """Re-export server_impl symbols for tests and legacy ``import server`` callers."""
     return getattr(server_impl, name)
@@ -546,7 +613,15 @@ def perform_mcp_reload(*, notify: str = "schedule") -> dict[str, Any]:
         for _key in list(_sys.modules):
             if _key.startswith("wave_lint_lib"):
                 del _sys.modules[_key]
+        # Only a reload that compiled the source it read may mark that source current.
+        before_reload = _reloaded_source_digests() if _discard_reloaded_bytecode(server_impl) else {}
         server_impl = importlib.reload(server_impl)
+        # The reloaded spec may name a different cache (a changed pycache prefix), and
+        # another process may have written one meanwhile; either makes the executed
+        # bytes unknown, so record nothing.
+        if not _bytecode_cache_absent(server_impl):
+            before_reload = {}
+        _refresh_reloaded_source_identity(before_reload)
         identity_warning = _record_runner_identity()
         if identity_warning:
             close_warnings.append(

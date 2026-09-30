@@ -2656,6 +2656,187 @@ class SetupReadinessOnStartAndReloadTests(unittest.TestCase):
         self.assertFalse(getattr(tool.fn, "_wf_setup_noticed", False))
 
 
+class ReloadedSourceIdentityTests(unittest.TestCase):
+    """1zf1y: after a reload re-executes wf_server/server_impl.py, the launch
+    identity marks that file current (in the runner's own dict, so the next
+    reload keeps it), and every non-reloaded source keeps its launch value."""
+
+    def setUp(self):
+        import copy
+        import setup_readiness
+
+        self.srv = load_server()
+        self.runner = load_thin_runner()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = _make_repo(Path(self.tmp.name))
+        saved = (self.runner._handler, self.runner._root, self.runner._mcp,
+                 self.runner._SETUP_LOADED_IDENTITY)
+
+        def restore():
+            (self.runner._handler, self.runner._root, self.runner._mcp,
+             self.runner._SETUP_LOADED_IDENTITY) = saved
+            import server_impl as impl
+            impl._SETUP_LOADED_IDENTITY = saved[3]
+
+        self.addCleanup(restore)
+        self.setup_readiness = setup_readiness
+        self.launch = copy.deepcopy(setup_readiness.capture_loaded_identity())
+        self.runner._SETUP_LOADED_IDENTITY = copy.deepcopy(self.launch)
+        try:
+            self.runner.build_server(self.root)
+        except ImportError:
+            self.skipTest("mcp package not installed")
+
+    def _disk(self, **changed):
+        import copy
+        disk = copy.deepcopy(self.launch)
+        disk["sources"].update(changed)
+        return disk
+
+    def _reload(self, disk):
+        with patch.object(self.setup_readiness, "capture_loaded_identity", return_value=disk):
+            result = self.runner.perform_mcp_reload()
+        self.assertEqual(result["status"], "ok", result)
+        return result
+
+    def _stale(self, disk):
+        with patch.object(self.setup_readiness, "capture_loaded_identity", return_value=disk):
+            assessed = self.setup_readiness.assess_setup(
+                self.root, loaded_identity=self.runner._SETUP_LOADED_IDENTITY
+            )
+        return "loaded_code_stale" in [reason["code"] for reason in assessed["reasons"]]
+
+    def test_a_reload_marks_only_the_reexecuted_module_current(self):
+        disk = self._disk(**{"wf_server/server_impl.py": "new-impl", "server_impl.py": "new-shim"})
+        self.assertTrue(self._stale(disk))
+        self._reload(disk)
+        sources = self.runner._SETUP_LOADED_IDENTITY["sources"]
+        self.assertEqual(sources["wf_server/server_impl.py"], "new-impl")
+        self.assertEqual(sources["server_impl.py"], self.launch["sources"]["server_impl.py"])
+        import server_impl as impl
+        self.assertIs(impl._SETUP_LOADED_IDENTITY, self.runner._SETUP_LOADED_IDENTITY)
+        self.assertIs(self.runner._get_handler()._setup_loaded_identity, self.runner._SETUP_LOADED_IDENTITY)
+
+    def test_an_implementation_only_change_is_not_stale_across_two_reloads(self):
+        disk = self._disk(**{"wf_server/server_impl.py": "new-impl"})
+        self.assertTrue(self._stale(disk))
+        self._reload(disk)
+        self.assertFalse(self._stale(disk))
+        self._reload(disk)
+        self.assertFalse(self._stale(disk))
+
+    def test_a_change_to_a_module_the_reload_does_not_reexecute_stays_stale(self):
+        disk = self._disk(**{"wf_server/server_impl.py": "new-impl", "indexer.py": "new-indexer"})
+        self._reload(disk)
+        self.assertEqual(
+            self.runner._SETUP_LOADED_IDENTITY["sources"]["indexer.py"], self.launch["sources"]["indexer.py"]
+        )
+        self.assertTrue(self._stale(disk))
+
+    def test_a_file_rewritten_during_the_reload_is_not_marked_current(self):
+        # The digest must match before and after the reload, or the version the
+        # reload actually executed is unknown.
+        import copy
+        before = copy.deepcopy(self.runner._SETUP_LOADED_IDENTITY)
+        read_before = self._disk(**{"wf_server/server_impl.py": "impl-as-executed"})
+        read_after = self._disk(**{"wf_server/server_impl.py": "impl-rewritten-meanwhile"})
+        calls = []
+
+        def capture():
+            calls.append(True)
+            return read_before if len(calls) == 1 else read_after
+
+        with patch.object(self.setup_readiness, "capture_loaded_identity", side_effect=capture):
+            result = self.runner.perform_mcp_reload()
+        self.assertEqual(result["status"], "ok", result)
+        self.assertEqual(self.runner._SETUP_LOADED_IDENTITY, before)
+        self.assertTrue(self._stale(read_after))
+
+    def _stale_bytecode_module(self):
+        """A real module whose same-size, same-mtime rewrite keeps a valid timestamp .pyc."""
+        import importlib
+        pkg = Path(self.tmp.name) / "bytecode_probe"
+        pkg.mkdir()
+        source = pkg / "probe_module_1zf1y.py"
+        source.write_text('MARK = "old"\n', encoding="utf-8")
+        stat = source.stat()
+        sys.path.insert(0, str(pkg))
+        self.addCleanup(sys.path.remove, str(pkg))
+        self.addCleanup(sys.modules.pop, "probe_module_1zf1y", None)
+        with patch.object(sys, "dont_write_bytecode", False):
+            module = importlib.import_module("probe_module_1zf1y")
+        if not module.__spec__.cached or not Path(module.__spec__.cached).exists():
+            self.skipTest("no bytecode cache written in this environment")
+        source.write_text('MARK = "new"\n', encoding="utf-8")
+        os.utime(source, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        return module
+
+    def test_a_reload_without_discarding_bytecode_runs_stale_code(self):
+        # The hazard this guards against is real on this interpreter.
+        import importlib
+        module = self._stale_bytecode_module()
+        importlib.reload(module)
+        self.assertEqual(module.MARK, "old")
+
+    def test_discarding_bytecode_makes_the_reload_run_the_current_source(self):
+        import importlib
+        module = self._stale_bytecode_module()
+        self.assertTrue(self.runner._discard_reloaded_bytecode(module))
+        importlib.reload(module)
+        self.assertEqual(module.MARK, "new")
+
+    def test_bytecode_that_cannot_be_removed_is_reported(self):
+        module = self._stale_bytecode_module()
+        with patch.object(self.runner.os, "unlink", side_effect=PermissionError("locked")):
+            self.assertFalse(self.runner._discard_reloaded_bytecode(module))
+
+    def test_nothing_is_recorded_when_the_executed_bytes_are_unknown(self):
+        import copy
+        before = copy.deepcopy(self.runner._SETUP_LOADED_IDENTITY)
+        disk = self._disk(**{"wf_server/server_impl.py": "new-impl"})
+        with patch.object(self.runner, "_discard_reloaded_bytecode", return_value=False):
+            self._reload(disk)
+        self.assertEqual(self.runner._SETUP_LOADED_IDENTITY, before)
+        self.assertTrue(self._stale(disk))
+
+    def test_a_bytecode_cache_present_after_the_reload_records_nothing(self):
+        # Another process (or a changed pycache prefix) left a cache the reload may have used.
+        import copy
+        before = copy.deepcopy(self.runner._SETUP_LOADED_IDENTITY)
+        disk = self._disk(**{"wf_server/server_impl.py": "new-impl"})
+        answers = iter([False])
+        with patch.object(self.runner, "_bytecode_cache_absent", side_effect=lambda _m: next(answers, False)):
+            self._reload(disk)
+        self.assertEqual(self.runner._SETUP_LOADED_IDENTITY, before)
+        self.assertTrue(self._stale(disk))
+
+    def test_the_cleanup_next_step_names_the_restart_signal(self):
+        import importlib
+        handlers = importlib.import_module("wf_server.upgrade_handlers")
+        step, _tools = handlers._upgrade_next_step("cleanup")
+        self.assertIn("loaded_code_stale", step)
+        self.assertIn("restart the host", step)
+
+    def test_a_failed_capture_leaves_the_identity_and_the_reload_intact(self):
+        import copy
+        before = copy.deepcopy(self.runner._SETUP_LOADED_IDENTITY)
+        with patch.object(self.setup_readiness, "capture_loaded_identity", side_effect=OSError("unreadable")):
+            result = self.runner.perform_mcp_reload()
+        self.assertEqual(result["status"], "ok", result)
+        self.assertEqual(self.runner._SETUP_LOADED_IDENTITY, before)
+
+    def test_a_reload_that_fails_before_reexecution_records_nothing(self):
+        import copy
+        before = copy.deepcopy(self.runner._SETUP_LOADED_IDENTITY)
+        disk = self._disk(**{"wf_server/server_impl.py": "new-impl"})
+        with patch.object(self.setup_readiness, "capture_loaded_identity", return_value=disk), \
+             patch.object(self.runner.importlib, "reload", side_effect=RuntimeError("broken module")):
+            with self.assertRaises(RuntimeError):
+                self.runner.perform_mcp_reload()
+        self.assertEqual(self.runner._SETUP_LOADED_IDENTITY, before)
+
+
 class RunnerIdentitySetterCompatibilityTests(unittest.TestCase):
     """Wave 1u2b0 repair: a torn mid-upgrade tree (this runner + an OLDER server_impl whose
     ``set_server_runner_version`` takes only the version argument) must keep serving.

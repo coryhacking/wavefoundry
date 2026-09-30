@@ -1088,7 +1088,9 @@ def _upgrade_next_step(phase: str) -> tuple[str, list[str]]:
     if phase == "cleanup":
         return (
             "Upgrade complete. Call wf_reload_mcp() if the in-process server code is not yet "
-            "reloaded; review the summary's reconciliation findings and resolve stale references.",
+            "reloaded; a reload refreshes the tool layer only, so if setup readiness then reports "
+            "loaded_code_stale, restart the host to load the upgraded indexing, storage and setup "
+            "code. Review the summary's reconciliation findings and resolve stale references.",
             ["wf_reload_mcp", "wf_upgrade_status"],
         )
     if phase == "resume_after_gate":
