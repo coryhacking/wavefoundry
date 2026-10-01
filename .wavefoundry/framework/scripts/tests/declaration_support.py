@@ -34,7 +34,12 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from record_layout_support import SHIPPED_DECLARATION, load_profile, profile_names  # noqa: E402
+from record_layout_support import (  # noqa: E402
+    SHIPPED_DECLARATION,
+    ExpectedProfile,
+    ProfileInvalid,  # noqa: F401 (re-exported: the guard's callers resolve here)
+    expected_profile,  # noqa: F401
+)
 
 DECLARATION_MODULE = "mcp_tool_extensions"
 DECLARATION_CONSTANTS: tuple[str, ...] = tuple(SHIPPED_DECLARATION)
@@ -102,25 +107,24 @@ def _normalized(value: Any) -> Any:
     return json.loads(json.dumps(value))
 
 
-def declaration_profile_match() -> "str | None":
-    """Which declaration the loaded module copies hold: ``"shipped"`` for the
-    shipped empty one, the asset's name when they equal the empty one
-    overlaid with an asset's ``mcp_tool_extensions`` entry in the profile
-    assets, else ``None`` (a shipped declaration changed, or a distribution
-    declaration with no asset). Mirrors ``declared_profile_match``."""
-    loaded = [_normalized({name: getattr(module, name, None) for name in DECLARATION_CONSTANTS})
-              for module in _declaration_modules()]
-
-    def matches(expected: "dict[str, Any]") -> bool:
-        return all(values == _normalized(expected) for values in loaded)
-
-    if matches(SHIPPED_DECLARATION):
-        return "shipped"
-    for name in profile_names():
-        declared = load_profile(name)["modules"].get(DECLARATION_MODULE)
-        if declared and matches({**SHIPPED_DECLARATION, **declared}):
-            return name
-    return None
+def declaration_profile_mismatch(expected: ExpectedProfile) -> "str | None":
+    """``None`` when every loaded copy of the declaration module holds
+    ``expected``'s declaration exactly (the shipped empty one overlaid with
+    each layer's ``mcp_tool_extensions`` entry, in JSON form); else a message
+    naming each layer, its source and each differing constant. Resolve
+    ``expected`` with :func:`expected_profile` (imported from
+    ``record_layout_support``, the one reader of ``WAVEFOUNDRY_TEST_PROFILE``).
+    Mirrors ``expected_profile_mismatch``."""
+    want = _normalized(expected.declaration())
+    differences: list[str] = []
+    for module in _declaration_modules():
+        loaded = _normalized({name: getattr(module, name, None) for name in DECLARATION_CONSTANTS})
+        for name in DECLARATION_CONSTANTS:
+            if loaded[name] != want[name]:
+                differences.append(f"{DECLARATION_MODULE}.{name} is {loaded[name]!r}, expected {want[name]!r}")
+    if not differences:
+        return None
+    return expected.mismatch_message("tool declarations", list(dict.fromkeys(differences)))
 
 
 def base_declaration_source(**declaration: Any) -> str:

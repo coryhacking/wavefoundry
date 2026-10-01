@@ -969,11 +969,18 @@ class StockSurfaceTests(unittest.TestCase):
 
     def test_declaration_module_ships_empty(self):
         # The module ships the empty declaration; a distribution that edits it
-        # adds its declaration as a profile asset (change 1zim4), as it does
-        # for a record profile, so this fails loudly on any other change.
-        from declaration_support import base_declaration, declaration_profile_match
-        self.assertIsNotNone(declaration_profile_match(),
-                             "the loaded declaration is neither the shipped empty one nor a profile asset's")
+        # marks its own profile asset active (changes 1zim4, 1zima), and a run
+        # mode names its asset in WAVEFOUNDRY_TEST_PROFILE, so the loaded
+        # declaration is exactly the expected profile's and any other change
+        # fails loudly.
+        from declaration_support import (ProfileInvalid, base_declaration, declaration_profile_mismatch,
+                                         expected_profile)
+        try:
+            expected = expected_profile()
+        except ProfileInvalid as exc:
+            self.fail(str(exc))
+        problem = declaration_profile_mismatch(expected)
+        self.assertIsNone(problem, problem)
         import mcp_tool_extensions
         with base_declaration():
             self.assertFalse(mcp_tool_extensions.declared())

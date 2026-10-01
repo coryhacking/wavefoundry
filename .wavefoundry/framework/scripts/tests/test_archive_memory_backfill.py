@@ -30,17 +30,17 @@ for extra in (SCRIPTS_DIR, SCRIPTS_DIR / "tests"):
 
 import record_paths  # noqa: E402
 import vocabulary_profile  # noqa: E402
-from record_layout_support import patch_layout  # noqa: E402
+from record_layout_support import load_profile, patch_layout  # noqa: E402
 from server_tools_support import _make_repo, load_server  # noqa: E402
 
 ARCHIVE_REL = "docs/archive/records"
 # The configured live waves root (the shipped layout, or a profile's); this
 # file sets only its own archive root.
 LIVE_REL = record_paths.WAVES_ROOT
-SECOND = dict(zip(vocabulary_profile.FIELD_NAMES, (
-    "Set", "Sets", "Member", "Members", "set.md", "set-id", "# Set Record", "## Set Summary",
-    "## Members", "Member ID", "Member Status", "Set",
-)))
+# The archived records' vocabulary: the shared second profile's live names,
+# read from its asset (change 1zima), so the suite has one Set/Wave profile.
+SECOND = {name: value for name, value in load_profile("second")["modules"]["vocabulary_profile"].items()
+          if name in vocabulary_profile.FIELD_NAMES}
 ARCHIVED_WAVE = "1a000 old-set"
 ARCHIVED_CHANGE = "1a001-feat old-thing"
 DECISION_DOC = (
@@ -66,8 +66,9 @@ def _write_wave(folder: Path, *, archived: bool, status: str = "closed",
     written in the archived (second) or the live vocabulary."""
     folder.mkdir(parents=True)
     if archived:
+        v = SECOND
         record, title, id_key, label, status_label = (
-            "set.md", "# Set Record", "set-id", "Member ID", "Member Status")
+            v["RECORD_FILENAME"], v["RECORD_TITLE"], v["ID_KEY"], v["MEMBER_ID_LABEL"], v["MEMBER_STATUS_LABEL"])
     else:
         v = vocabulary_profile
         record, title, id_key, label, status_label = (

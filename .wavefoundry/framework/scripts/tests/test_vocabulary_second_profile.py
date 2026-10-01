@@ -1,10 +1,12 @@
 """Readers follow a second vocabulary profile (wave 1z8mm, change 1z826, AC-2).
 
 The scripts tree is copied and the shared second-profile asset
-(``tests/fixtures/profiles/second.json``, change 1zim1) applied to it the way
-a fork edits it at merge time; the docs-lint fixture is localized into the
-second profile's names (``set.md``, ``set-id``, ``## Members``, ``Member ID``,
-``Member Status`` and so on) and its nested live root. A fresh interpreter
+(``tests/fixtures/profiles/second.json``, changes 1zim1 and 1zima) applied to
+it the way a fork edits it at merge time; the docs-lint fixture is localized
+into the second profile's names, read from the asset (Set records holding
+Waves: ``set.md``, ``set-id``, ``## Waves``, ``Wave ID``, ``Wave Status`` and
+so on, mirroring a distribution that renamed its tiers to Set and Wave) and
+its nested live root. A fresh interpreter
 over the copied tree then runs discovery, docs-lint, ``list_waves``,
 ``wf_get_change``, dashboard parsing, memory backfill and the review-policy
 digest against those records.
@@ -104,8 +106,8 @@ def _second_profile_records(dest: Path) -> Path:
     path = sorted((dest / WAVE_DIR_REL).glob("00058-*.md"))[0]
     # A status line the dashboard and the digest must both read.
     text = path.read_text(encoding="utf-8")
-    path.write_text(text.replace("Status: active\n", "Status: active\nMember Status: `planned`\n", 1),
-                    encoding="utf-8")
+    status = f"Status: active\n{SECOND_PROFILE['MEMBER_STATUS_LABEL']}: `planned`\n"
+    path.write_text(text.replace("Status: active\n", status, 1), encoding="utf-8")
     return dest
 
 

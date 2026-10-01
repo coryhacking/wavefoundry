@@ -23,6 +23,19 @@ _spec.loader.exec_module(_mod)
 run_tests = _mod
 
 
+def setUpModule() -> None:  # noqa: N802 (unittest name)
+    """These tests drive full runs of a stubbed runner, which refuse while
+    WAVEFOUNDRY_TEST_PROFILE is set (change 1zima); a profile run sets it for
+    the whole copy, so it is unset here for the module and restored after."""
+    import os
+    from record_layout_support import TEST_PROFILE_ENV
+
+    environ = patch.dict(os.environ)
+    environ.start()
+    unittest.addModuleCleanup(environ.stop)
+    os.environ.pop(TEST_PROFILE_ENV, None)
+
+
 class HashInputsTests(unittest.TestCase):
     """Tests for _hash_inputs()."""
 

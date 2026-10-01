@@ -31,14 +31,14 @@ for extra in (SCRIPTS_DIR, SCRIPTS_DIR / "tests"):
 
 import record_paths  # noqa: E402
 import vocabulary_profile  # noqa: E402
-from record_layout_support import patch_layout, run_script_with_layout  # noqa: E402
+from record_layout_support import load_profile, patch_layout, run_script_with_layout  # noqa: E402
 from server_tools_support import _make_repo, load_server  # noqa: E402
 
 ARCHIVE_REL = "docs/archive/records"
-SECOND = dict(zip(vocabulary_profile.FIELD_NAMES, (
-    "Set", "Sets", "Member", "Members", "set.md", "set-id", "# Set Record", "## Set Summary",
-    "## Members", "Member ID", "Member Status", "Set",
-)))
+# The archived records' vocabulary: the shared second profile's live names,
+# read from its asset (change 1zima), so the suite has one Set/Wave profile.
+SECOND = {name: value for name, value in load_profile("second")["modules"]["vocabulary_profile"].items()
+          if name in vocabulary_profile.FIELD_NAMES}
 ARCHIVED_WAVE = "1a000 old-set"
 ARCHIVED_CHANGE = "1a001-feat old-thing"
 
@@ -83,15 +83,17 @@ def _module_copies(srv=None):
 def _write_archive(root: Path) -> Path:
     folder = root / ARCHIVE_REL / ARCHIVED_WAVE
     folder.mkdir(parents=True)
-    (folder / "set.md").write_text(
-        "# Set Record\n\nStatus: closed\n\n"
-        f"set-id: `{ARCHIVED_WAVE}`\n\n## Members\n\n"
-        f"Member ID: `{ARCHIVED_CHANGE}`\nMember Status: `complete`\n",
+    v = SECOND
+    (folder / v["RECORD_FILENAME"]).write_text(
+        f"{v['RECORD_TITLE']}\n\nStatus: closed\n\n"
+        f"{v['ID_KEY']}: `{ARCHIVED_WAVE}`\n\n{v['MEMBER_HEADING']}\n\n"
+        f"{v['MEMBER_ID_LABEL']}: `{ARCHIVED_CHANGE}`\n{v['MEMBER_STATUS_LABEL']}: `complete`\n",
         encoding="utf-8",
     )
     (folder / f"{ARCHIVED_CHANGE}.md").write_text(
         # A stale Last verified line the gardener would rewrite if it reached the file.
-        f"# Old Thing\n\nLast verified: 2020-01-01\n\nMember ID: `{ARCHIVED_CHANGE}`\nMember Status: `complete`\n",
+        f"# Old Thing\n\nLast verified: 2020-01-01\n\n"
+        f"{v['MEMBER_ID_LABEL']}: `{ARCHIVED_CHANGE}`\n{v['MEMBER_STATUS_LABEL']}: `complete`\n",
         encoding="utf-8",
     )
     return folder
@@ -154,7 +156,7 @@ class ArchiveReadTests(_ArchiveCase):
     def test_symlinked_archive_document_is_not_served(self) -> None:
         # N1: an archived file that resolves outside the archive is skipped.
         outside = self.root / "secret.md"
-        outside.write_text("Member ID: `1a099-feat leak`\n", encoding="utf-8")
+        outside.write_text(f"{SECOND['MEMBER_ID_LABEL']}: `1a099-feat leak`\n", encoding="utf-8")
         (self.archived_folder / "1a099-feat leak.md").symlink_to(outside)
         got = self.srv.wf_get_change_response(self.root, "1a099")
         self.assertIsNone(got["data"]["change"])
@@ -467,7 +469,7 @@ class ArchiveLintTests(unittest.TestCase):
         self.assertIn(f"{ARCHIVE_REL}/{ARCHIVED_WAVE}/notes.md", control.stderr)
 
     def test_unreadable_archived_record_is_an_advisory_warning(self) -> None:
-        (self.folder / "set.md").write_bytes(b"\xff\xfe not utf-8")
+        (self.folder / SECOND["RECORD_FILENAME"]).write_bytes(b"\xff\xfe not utf-8")
         result = self._lint()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertRegex(result.stderr, r"(?m)^WARNING: .*archived record cannot be read.*archive_record_unreadable")

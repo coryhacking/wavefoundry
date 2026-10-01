@@ -163,7 +163,8 @@ Run the framework test suite, one subprocess per test file.
 
   (no option)               full run; skipped when the last green receipt
                             matches the framework tree, and a green run
-                            writes the receipt (test-cache.json)
+                            writes the receipt (test-cache.json); refused
+                            (exit 2) while WAVEFOUNDRY_TEST_PROFILE is set
   --no-cache                full run even when the receipt is current
   --file NAME               focused run of one discovered test_*.py file
                             (repeatable); writes no receipt and is not
@@ -176,7 +177,9 @@ Run the framework test suite, one subprocess per test file.
                             mcp_tool_extensions.py, write
                             the configured waves-root README, and run the
                             suite there as a focused run (all files, or the
-                            --file selection). Reports a per-file result,
+                            --file selection) with WAVEFOUNDRY_TEST_PROFILE=NAME
+                            set for the copy, so its guards expect the
+                            profile. Reports a per-file result,
                             never writes this tree's receipt, and is not
                             delivery evidence. On demand and at release.
   --schedule-control MODE   benchmark-only run (bootstrap|alphabetical|timing);
@@ -1235,10 +1238,13 @@ def _profile_run_report(output: str) -> "list[dict]":
     return sorted(rows.values(), key=lambda r: (-((r["failures"] or 0) + (r["errors"] or 0)), r["name"]))
 
 
-def _print_profile_report(name: str, rows: "list[dict]") -> None:
+def _print_profile_report(name: str, rows: "list[dict]", expected: str = "") -> None:
+    """The per-file result. ``expected`` names the expected profile the
+    copy's guards check, with each layer's source (change 1zima)."""
     failing = [r for r in rows if r["status"] != "ok"]
     print(f"\n{'-' * 70}")
-    print(f"Second-profile per-file result (profile {name!r}): "
+    where = f"; expected profile: {expected}" if expected else ""
+    print(f"Second-profile per-file result (profile {name!r}{where}): "
           f"{len(failing)} of {len(rows)} files failed")
     for row in failing:
         counts = ("no unittest summary" if row["failures"] is None
@@ -1274,11 +1280,15 @@ def _remove_work_tree(path: Path) -> None:
         shutil.rmtree(path, **kwargs)
 
 
-def _child_runner_env() -> dict:
+def _child_runner_env(profile_env: "dict[str, str] | None" = None) -> dict:
     """The copy's runner environment: UTF-8, no bytecode, and no inherited
-    ``GIT_*`` repository selection, so its tests read the temporary repository."""
+    ``GIT_*`` repository selection, so its tests read the temporary repository.
+    ``profile_env`` names the run-mode profile (change 1zima:
+    ``WAVEFOUNDRY_TEST_PROFILE``), so the copy's guards expect the profile
+    the run applied."""
     env = subprocess_util.utf8_child_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env.update(profile_env or {})
     return env
 
 
@@ -1357,7 +1367,8 @@ def _profile_run_in(work: Path, name: str, profile: dict, profiles, scripts_rel:
     # Its own process group, so the cleanup can end the runner and its workers together.
     group = ({"creationflags": int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))}
              if os.name == "nt" else {"start_new_session": True})
-    proc = subprocess.Popen(cmd, cwd=str(repo), env=_child_runner_env(), stdin=subprocess.DEVNULL,
+    proc = subprocess.Popen(cmd, cwd=str(repo), env=_child_runner_env({profiles.TEST_PROFILE_ENV: name}),
+                            stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, encoding="utf-8", errors="replace", **group)
     state["proc"] = proc
@@ -1383,6 +1394,9 @@ def _run_profile(name: str, selectors: "list[str]") -> int:
         return 2
     try:
         profile = profiles.load_profile(name)
+        # What the copy's guards will expect (change 1zima): the base (the
+        # active asset, else the shipped defaults) with this profile over it.
+        expected = profiles.expected_profile({profiles.TEST_PROFILE_ENV: name}).describe()
     except profiles.ProfileInvalid as exc:
         print(f"run_tests: {exc}", file=sys.stderr)
         return 2
@@ -1393,6 +1407,7 @@ def _run_profile(name: str, selectors: "list[str]") -> int:
         return 2
     receipt_before = _CACHE_FILE.read_bytes() if _CACHE_FILE.exists() else None
     print(_PROFILE_NOT_EVIDENCE.format(name=name), flush=True)
+    print(f"Expected profile: {expected}.", flush=True)
     work = Path(tempfile.mkdtemp(prefix="wf-profile-run-"))
     state: dict = {"proc": None}
     previous = _install_sigterm_as_interrupt()
@@ -1414,9 +1429,30 @@ def _run_profile(name: str, selectors: "list[str]") -> int:
         print(f"run_tests: {_CACHE_FILE} changed during the second-profile run", file=sys.stderr)
         rc = 1
     if ran:
-        _print_profile_report(name, _profile_run_report(output))
+        _print_profile_report(name, _profile_run_report(output), expected)
         print(_PROFILE_NOT_EVIDENCE.format(name=name))
     return rc
+
+
+def _profile_support():
+    """The test support's profile helpers (test infrastructure, like this runner)."""
+    if str(_SCRIPT_DIR) not in sys.path:
+        sys.path.insert(0, str(_SCRIPT_DIR))
+    from tests import record_layout_support
+    return record_layout_support
+
+
+def _stray_profile_refusal(environ=None) -> "str | None":
+    """The refusal message when ``WAVEFOUNDRY_TEST_PROFILE`` is set for a run
+    that can write the receipt, else ``None``. The variable is read through
+    the test support's one reader."""
+    profiles = _profile_support()
+    name = profiles.run_mode_profile_name(environ)
+    if name is None:
+        return None
+    return (f"run_tests: {profiles.TEST_PROFILE_ENV} is set ({name!r}); a full run writes the framework test "
+            f"receipt, so it does not run under a run-mode profile. Unset {profiles.TEST_PROFILE_ENV}, or use "
+            "--profile NAME (or --file NAME for a focused run).")
 
 
 def main() -> int:
@@ -1434,6 +1470,15 @@ def main() -> int:
 
     if opts["profile"] is not None:
         return _run_profile(opts["profile"], opts["files"])
+
+    if not opts["files"] and opts["schedule_control"] is None:
+        # A run that can write the receipt (change 1zima, Requirement 10):
+        # refused before anything is hashed, read or run while a run-mode
+        # profile is named, so a stray variable never yields a green receipt.
+        refusal = _stray_profile_refusal()
+        if refusal is not None:
+            print(refusal, file=sys.stderr)
+            return 2
 
     test_files = sorted(_TESTS_DIR.glob("test_*.py"))
 

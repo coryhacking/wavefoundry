@@ -18,11 +18,20 @@ fork edits it at merge time. :class:`RecordTreeBuilder` and
 and :func:`default_profile_only` marks a test whose subject is the default
 profile. A profile may also declare distribution tool extensions in
 ``mcp_tool_extensions`` (change 1zim4); those never change the profile the
-marker sees. This module is test support: production code never imports it.
+marker sees.
+
+The expected profile (change 1zima). :func:`expected_profile` resolves which
+profile the loaded constants must be: the single asset marked
+``"active": true`` (a distribution's own), else the shipped defaults, with
+the asset named by ``WAVEFOUNDRY_TEST_PROFILE`` (the run mode) overlaid on
+top. It is the one reader of that variable. :func:`expected_profile_mismatch`
+compares the loaded record constants with it exactly. This module is test
+support: production code never imports it.
 """
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import functools
 import json
 import os
@@ -199,15 +208,18 @@ class ProfileInvalid(ValueError):
     """A profile asset, or its application to a copied tree, is unusable."""
 
 
-def profile_names() -> list[str]:
-    """The profile assets shipped with the tests, by name."""
-    return sorted(p.stem for p in PROFILES_DIR.glob("*.json"))
+def profile_names(profiles_dir: "Path | None" = None) -> list[str]:
+    """The profile assets in ``profiles_dir`` (default: the tests' own), by name."""
+    directory = PROFILES_DIR if profiles_dir is None else Path(profiles_dir)
+    return sorted(p.stem for p in directory.glob("*.json"))
 
 
 def _profile_errors(data: Any) -> list[str]:
     if not isinstance(data, dict) or not isinstance(data.get("modules"), dict) or not data["modules"]:
         return ["a profile needs a non-empty 'modules' object"]
     errors: list[str] = []
+    if "active" in data and not isinstance(data["active"], bool):
+        errors.append(f"'active' must be true or false, not {data['active']!r}")
     for module, values in data["modules"].items():
         if module not in PROFILE_MODULES:
             errors.append(f"unknown module {module!r} (expected one of {', '.join(PROFILE_MODULES)})")
@@ -220,13 +232,15 @@ def _profile_errors(data: Any) -> list[str]:
     return errors
 
 
-def load_profile(name: str) -> dict:
-    """The profile asset ``tests/fixtures/profiles/<name>.json``, validated."""
+def load_profile(name: str, profiles_dir: "Path | None" = None) -> dict:
+    """The profile asset ``<name>.json`` in ``profiles_dir`` (default:
+    ``tests/fixtures/profiles``), validated."""
     if not isinstance(name, str) or not _PROFILE_NAME_RE.match(name):
         raise ProfileInvalid(f"a profile name is lower-case letters, digits and '-': {name!r}")
-    path = PROFILES_DIR / f"{name}.json"
+    directory = PROFILES_DIR if profiles_dir is None else Path(profiles_dir)
+    path = directory / f"{name}.json"
     if not path.is_file():
-        known = ", ".join(profile_names()) or "none"
+        known = ", ".join(profile_names(directory)) or "none"
         raise ProfileInvalid(f"no profile asset named {name!r} (known: {known})")
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -266,7 +280,7 @@ def copy_scripts_tree(dest: Path, *, with_support: bool = True) -> Path:
     if with_support:
         tests = scripts / "tests"
         tests.mkdir()
-        for name in ("__init__.py", "record_layout_support.py"):
+        for name in ("__init__.py", "record_layout_support.py", "declaration_support.py"):
             shutil.copy2(SCRIPTS_DIR / "tests" / name, tests / name)
         for rel in ("docs_lint", "profiles"):
             shutil.copytree(SCRIPTS_DIR / "tests" / "fixtures" / rel, tests / "fixtures" / rel)
@@ -639,25 +653,133 @@ def waves_rel(*parts: str) -> str:
     return "/".join([base, *parts])
 
 
-def declared_profile_match() -> "str | None":
-    """Which declared profile the loaded constants are: ``"shipped"`` when
-    they equal ``SHIPPED_DEFAULTS``, the asset's name when they equal
-    ``SHIPPED_DEFAULTS`` overlaid with an asset in ``PROFILES_DIR``, else
-    ``None`` (a shipped default changed without the snapshot, or a profile
-    with no asset)."""
-    loaded = {module: [_constants_of(mod, module) for mod in _loaded_modules(module)] for module in SHIPPED_DEFAULTS}
+# --- Expected profile (change 1zima) -----------------------------------------
 
-    def matches(expected: "dict[str, dict[str, Any]]") -> bool:
-        return all(values == expected[module] for module, copies in loaded.items() for values in copies)
+# The run mode's profile name. ``run_tests.py --profile NAME`` sets it in the
+# copy's runner environment; read only by :func:`run_mode_profile_name`.
+TEST_PROFILE_ENV = "WAVEFOUNDRY_TEST_PROFILE"
 
-    if matches(SHIPPED_DEFAULTS):
-        return "shipped"
-    for name in profile_names():
-        modules = load_profile(name)["modules"]
-        overlaid = {module: {**defaults, **modules.get(module, {})} for module, defaults in SHIPPED_DEFAULTS.items()}
-        if matches(overlaid):
-            return name
-    return None
+
+def run_mode_profile_name(environ: "Any | None" = None) -> "str | None":
+    """The profile named by ``WAVEFOUNDRY_TEST_PROFILE`` in ``environ``
+    (default: ``os.environ``), or ``None`` when it is not set. The one reader
+    of the variable: the expected-profile resolver and the runner's refusal of
+    a receipt-writing run both ask here."""
+    return (os.environ if environ is None else environ).get(TEST_PROFILE_ENV)
+
+
+@dataclasses.dataclass(frozen=True)
+class ProfileLayer:
+    """One layer of the expected profile: its name, where it came from
+    (``shipped``, ``active asset`` or ``run mode``) and the constants it sets
+    per module (empty for the shipped defaults)."""
+
+    name: str
+    kind: str
+    origin: str
+    modules: "dict[str, dict[str, Any]]"
+
+    def describe(self) -> str:
+        if self.kind == "shipped":
+            return "the shipped defaults"
+        return f"{self.name!r} from {self.origin}"
+
+
+@dataclasses.dataclass(frozen=True)
+class ExpectedProfile:
+    """The profile the loaded constants must be: the base layer (the active
+    asset, else the shipped defaults) and the optional run-mode layer over it,
+    overlaid constant by constant the way :func:`apply_profile` edits a copy."""
+
+    base: ProfileLayer
+    run_mode: "ProfileLayer | None" = None
+
+    @property
+    def layers(self) -> "tuple[ProfileLayer, ...]":
+        return (self.base,) if self.run_mode is None else (self.base, self.run_mode)
+
+    @property
+    def source(self) -> str:
+        """Where the expected profile comes from: ``run mode``, ``active
+        asset`` or ``shipped`` (the top layer's kind)."""
+        return self.layers[-1].kind
+
+    def describe(self) -> str:
+        return ", then ".join(layer.describe() for layer in self.layers)
+
+    def _overlay(self, module: str, shipped: "dict[str, Any]") -> "dict[str, Any]":
+        values = dict(shipped)
+        for layer in self.layers:
+            values.update(layer.modules.get(module, {}))
+        return values
+
+    def constants(self) -> "dict[str, dict[str, Any]]":
+        """The expected record constants: ``SHIPPED_DEFAULTS`` overlaid with each layer."""
+        return {module: self._overlay(module, shipped) for module, shipped in SHIPPED_DEFAULTS.items()}
+
+    def declaration(self) -> "dict[str, Any]":
+        """The expected tool declaration: ``SHIPPED_DECLARATION`` overlaid with each layer."""
+        return self._overlay("mcp_tool_extensions", SHIPPED_DECLARATION)
+
+    def mismatch_message(self, subject: str, differences: "list[str]") -> str:
+        return (f"the loaded {subject} are not the expected profile ({self.describe()}): "
+                + "; ".join(differences)
+                + f". A distribution marks its own asset \"active\": true; a run mode sets {TEST_PROFILE_ENV}.")
+
+
+def expected_profile(environ: "Any | None" = None, profiles_dir: "Path | None" = None) -> ExpectedProfile:
+    """Resolve the expected profile from ``profiles_dir`` (default:
+    ``PROFILES_DIR``) and ``environ`` (default: ``os.environ``).
+
+    The base is the single asset marked ``"active": true``, else the shipped
+    defaults; when ``WAVEFOUNDRY_TEST_PROFILE`` names a profile, that asset is
+    the run-mode layer over it. Raises :class:`ProfileInvalid`, naming every
+    layer and its source, when more than one asset is active, when the
+    variable names no usable asset, or when an asset is invalid. Never falls
+    back to another profile."""
+    directory = PROFILES_DIR if profiles_dir is None else Path(profiles_dir)
+    name = run_mode_profile_name(environ)
+    run_mode = "" if name is None else f"; run-mode layer: {name!r} from {TEST_PROFILE_ENV}"
+    try:
+        active = [(asset, data) for asset in profile_names(directory)
+                  for data in (load_profile(asset, directory),) if data.get("active") is True]
+    except ProfileInvalid as exc:
+        raise ProfileInvalid(f"{exc}{run_mode}") from exc
+    if len(active) > 1:
+        raise ProfileInvalid(
+            "more than one profile asset is marked active in "
+            f"{directory}: {', '.join(f'{asset}.json' for asset, _ in active)}; at most one may be "
+            f"(a distribution marks its own){run_mode}")
+    base = (ProfileLayer(active[0][0], "active asset", f"the active asset {active[0][0]}.json",
+                         active[0][1]["modules"])
+            if active else ProfileLayer("shipped", "shipped", "the shipped defaults", {}))
+    if name is None:
+        return ExpectedProfile(base)
+    try:
+        data = load_profile(name, directory)
+    except ProfileInvalid as exc:
+        raise ProfileInvalid(
+            f"{TEST_PROFILE_ENV}={name!r} names no usable profile asset ({exc}); "
+            f"base layer: {base.describe()}") from exc
+    return ExpectedProfile(base, ProfileLayer(name, "run mode", TEST_PROFILE_ENV, data["modules"]))
+
+
+def expected_profile_mismatch(expected: ExpectedProfile) -> "str | None":
+    """``None`` when every loaded copy of ``vocabulary_profile`` and
+    ``record_paths`` equals ``expected``'s record constants exactly; else a
+    message naming each layer, its source and each differing constant."""
+    want = expected.constants()
+    differences: list[str] = []
+    for module_name, values in want.items():
+        for module in _loaded_modules(module_name):
+            loaded = _constants_of(module, module_name)
+            for name, value in values.items():
+                if loaded[name] != value:
+                    got = "missing" if loaded[name] is _MISSING else repr(loaded[name])
+                    differences.append(f"{module_name}.{name} is {got}, expected {value!r}")
+    if not differences:
+        return None
+    return expected.mismatch_message("record constants", list(dict.fromkeys(differences)))
 
 
 def write_waves_readme(root: Path, *, vocabulary: "dict[str, Any] | None" = None,

@@ -10,6 +10,10 @@
   repository, applies the asset, runs the copy's runner as a focused run,
   reports per file, and leaves this tree's receipt byte-identical.
 * The shared apply function: exactly-once replacement and import validation.
+* Change 1zima: the expected profile (the active asset, else the shipped
+  defaults, with the run-mode asset named by ``WAVEFOUNDRY_TEST_PROFILE`` over
+  it) and the exact guards against it, in scratch trees; a receipt-writing
+  run refuses while the variable is set.
 """
 from __future__ import annotations
 
@@ -31,13 +35,16 @@ import record_layout_support
 import record_paths
 import vocabulary_profile
 from record_layout_support import (
+    PROFILES_DIR,
     SHIPPED_DECLARATION,
     SHIPPED_DEFAULTS,
+    TEST_PROFILE_ENV,
     ProfileInvalid,
     apply_profile,
     copy_scripts_tree,
-    declared_profile_match,
     default_profile_only,
+    expected_profile,
+    expected_profile_mismatch,
     load_profile,
     localize_record_text,
     localized_docs_lint_fixture,
@@ -55,6 +62,26 @@ SHIPPED_VOCABULARY = {k: v for k, v in SHIPPED_DEFAULTS["vocabulary_profile"].it
 _spec = importlib.util.spec_from_file_location("run_tests", SCRIPTS_DIR / "run_tests.py")
 run_tests = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(run_tests)
+
+# The framework's own profile assets (change 1zima): copied into a temporary
+# directory, so a test that resolves the expected profile from them holds
+# whatever asset a distribution marks active beside them.
+FRAMEWORK_ASSETS = ("second", "declared")
+# The second profile's live vocabulary, read from its asset.
+SECOND_VOCABULARY = load_profile("second")["modules"]["vocabulary_profile"]
+
+
+@contextlib.contextmanager
+def framework_profiles(**extra: dict):
+    """A temporary profiles directory holding the framework's own assets plus
+    ``extra`` (``name=asset``), for the resolver's ``profiles_dir``."""
+    with tempfile.TemporaryDirectory() as tmp:
+        directory = Path(tmp)
+        for name in FRAMEWORK_ASSETS:
+            shutil.copy2(PROFILES_DIR / f"{name}.json", directory / f"{name}.json")
+        for name, asset in extra.items():
+            (directory / f"{name}.json").write_text(json.dumps(asset), encoding="utf-8")
+        yield directory
 
 
 def _driver(code: str, *args: str) -> dict:
@@ -157,17 +184,18 @@ class BuilderLintTests(unittest.TestCase):
 
     def test_second_profile_records_follow_the_profile(self) -> None:
         run = self.runs["second"]
-        self.assertEqual(run["live"], ["docs/delivery/sets/2026/00070 built-wave",
-                                       "docs/delivery/sets/change-2026-03"])
-        self.assertIn("set.md", run["record_files"])
+        v = SECOND_VOCABULARY
+        root = load_profile("second")["modules"]["record_paths"]["WAVES_ROOT"]
+        self.assertEqual(run["live"], [f"{root}/2026/00070 built-wave", f"{root}/change-2026-03"])
+        self.assertIn(v["RECORD_FILENAME"], run["record_files"])
         self.assertNotIn("wave.md", run["record_files"])
-        self.assertIn("set-id: `00070 built-wave`", run["record_text"])
-        self.assertIn("## Members\n", run["record_text"])
-        self.assertIn("Member ID: `00071-enh built-member`", run["record_text"])
-        self.assertIn("Member Status: `complete`", run["record_text"])
-        self.assertIn("Member ID: `00071-enh built-member`", run["member_text"])
-        self.assertIn("Set: 00070 built-wave", run["member_text"])
-        self.assertIn("Set: TBD", run["plan_text"])
+        self.assertIn(f"{v['ID_KEY']}: `00070 built-wave`", run["record_text"])
+        self.assertIn(f"{v['MEMBER_HEADING']}\n", run["record_text"])
+        self.assertIn(f"{v['MEMBER_ID_LABEL']}: `00071-enh built-member`", run["record_text"])
+        self.assertIn(f"{v['MEMBER_STATUS_LABEL']}: `complete`", run["record_text"])
+        self.assertIn(f"{v['MEMBER_ID_LABEL']}: `00071-enh built-member`", run["member_text"])
+        self.assertIn(f"{v['BACKREF_LABEL']}: 00070 built-wave", run["member_text"])
+        self.assertIn(f"{v['BACKREF_LABEL']}: TBD", run["plan_text"])
         self.assertNotIn("Change ID", run["record_text"] + run["member_text"] + run["plan_text"])
 
     def test_second_profile_archive_is_in_the_default_vocabulary(self) -> None:
@@ -316,29 +344,45 @@ class DefaultProfileOnlyMarkerTests(unittest.TestCase):
         for name, value in SHIPPED_DEFAULTS["vocabulary_profile"].items():
             setattr(copy, name, value)
         copy.RECORD_FILENAME = "set.md"
+        with framework_profiles() as profiles_dir:
+            shipped = expected_profile({}, profiles_dir)
         with self._loaded(), mock.patch.dict(sys.modules, {"elsewhere.vocabulary_profile": copy}):
             self.assertEqual(profile_differences(), ["vocabulary_profile.RECORD_FILENAME"])
-            self.assertIsNone(declared_profile_match())
+            self.assertIn("vocabulary_profile.RECORD_FILENAME is 'set.md'", expected_profile_mismatch(shipped))
 
-    def test_loaded_constants_are_shipped_or_a_declared_profile(self) -> None:
-        # A shipped default changed without SHIPPED_DEFAULTS, or a distribution
-        # profile with no asset in tests/fixtures/profiles/, fails here loudly
-        # rather than silently skipping every marked test.
-        self.assertIsNotNone(declared_profile_match(),
-                             f"loaded constants differ from SHIPPED_DEFAULTS and match no profile asset: "
-                             f"{profile_differences()}")
+    def test_loaded_constants_are_the_expected_profile(self) -> None:
+        # The loaded constants are exactly the expected profile: the shipped
+        # defaults, or the asset marked active, with the run mode's asset
+        # (WAVEFOUNDRY_TEST_PROFILE) over it. A shipped default changed
+        # without SHIPPED_DEFAULTS, or a tree left on another profile, fails
+        # here loudly rather than silently skipping marked tests.
+        try:
+            expected = expected_profile()
+        except ProfileInvalid as exc:
+            self.fail(str(exc))
+        problem = expected_profile_mismatch(expected)
+        self.assertIsNone(problem, problem)
 
     def test_declared_profile_match(self) -> None:
+        with framework_profiles() as profiles_dir:
+            shipped = expected_profile({}, profiles_dir)
+            run_second = expected_profile({TEST_PROFILE_ENV: "second"}, profiles_dir)
         with self._loaded():
-            self.assertEqual(declared_profile_match(), "shipped")
+            self.assertIsNone(expected_profile_mismatch(shipped))
+            self.assertIn("'second' from WAVEFOUNDRY_TEST_PROFILE", expected_profile_mismatch(run_second))
         second = {f"{module}__{name}": value
                   for module, values in load_profile("second")["modules"].items() for name, value in values.items()}
         with self._loaded(**second):
-            self.assertEqual(declared_profile_match(), "second")
+            self.assertIsNone(expected_profile_mismatch(run_second))
+            # The second profile's values with no marker and no run mode: named, never matched.
+            message = expected_profile_mismatch(shipped)
+            self.assertIn("(the shipped defaults)", message)
+            self.assertIn(f"vocabulary_profile.ITEM_NAME is {SECOND_VOCABULARY['ITEM_NAME']!r}, expected 'Change'",
+                          message)
         with self._loaded(**dict(second, record_paths__MAX_DEPTH=3)):
-            self.assertIsNone(declared_profile_match())
+            self.assertIn("record_paths.MAX_DEPTH is 3, expected 4", expected_profile_mismatch(run_second))
         with self._loaded(record_paths__PLANS_ROOT="docs/proposals"):
-            self.assertIsNone(declared_profile_match())
+            self.assertIn("record_paths.PLANS_ROOT", expected_profile_mismatch(shipped))
 
     def test_reason_is_required_and_recorded(self) -> None:
         for bad in ("", "   ", "two\nlines", None):
@@ -358,10 +402,12 @@ class DefaultProfileOnlyMarkerTests(unittest.TestCase):
     def test_a_declaration_leaves_the_marker_and_the_match_alone(self) -> None:
         # A declaration changes the tool surface, not the record profile.
         import mcp_tool_extensions
+        with framework_profiles() as profiles_dir:
+            shipped = expected_profile({}, profiles_dir)
         with mock.patch.object(mcp_tool_extensions, "EXTENSION_TOOL_ALIASES", {"wf_alias_help": "wf_help"}), \
                 self._loaded():
             self.assertEqual(profile_differences(), [])
-            self.assertEqual(declared_profile_match(), "shipped")
+            self.assertIsNone(expected_profile_mismatch(shipped))
 
     def test_snapshot_covers_every_editable_constant(self) -> None:
         # Names are not edited by a fork, so this pin holds under any profile.
@@ -401,21 +447,23 @@ class LocalizationHelperTests(unittest.TestCase):
     def test_localize_record_text_rewrites_markers_labels_and_back_references(self) -> None:
         text = ("# Wave Record\nwave-id: `w`\n\n## Wave Summary\n\n## Changes\n\nChange ID: `x`\n"
                 "Previous Change Status: `planned`\nChange Status: `complete`\nWave: w\nA Wave: stays\n")
-        self.assertEqual(localize_record_text(text, vocabulary=self.SECOND["vocabulary_profile"]), (
-            "# Set Record\nset-id: `w`\n\n## Set Summary\n\n## Members\n\nMember ID: `x`\n"
-            "Previous Member Status: `planned`\nMember Status: `complete`\nSet: w\nA Wave: stays\n"))
+        v = self.SECOND["vocabulary_profile"]
+        self.assertEqual(localize_record_text(text, vocabulary=v), (
+            f"{v['RECORD_TITLE']}\n{v['ID_KEY']}: `w`\n\n{v['SUMMARY_HEADING']}\n\n{v['MEMBER_HEADING']}\n\n"
+            f"{v['MEMBER_ID_LABEL']}: `x`\nPrevious {v['MEMBER_STATUS_LABEL']}: `planned`\n"
+            f"{v['MEMBER_STATUS_LABEL']}: `complete`\n{v['BACKREF_LABEL']}: w\nA Wave: stays\n"))
         self.assertEqual(localize_record_text(text, vocabulary=SHIPPED_VOCABULARY), text)
 
     def test_localized_fixture_readme_follows_the_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             second = localized_docs_lint_fixture(Path(tmp) / "second", vocabulary=self.SECOND["vocabulary_profile"],
                                                  layout=self.SECOND["record_paths"])
-            readme = (second / "docs" / "delivery" / "sets" / "README.md").read_text(encoding="utf-8")
+            readme = (second / self.SECOND["record_paths"]["WAVES_ROOT"] / "README.md").read_text(encoding="utf-8")
             shipped = localized_docs_lint_fixture(Path(tmp) / "shipped", vocabulary=SHIPPED_VOCABULARY,
                                                   layout=SHIPPED_DEFAULTS["record_paths"])
             same = ((shipped / "docs" / "waves" / "README.md").read_bytes()
                     == (record_layout_support.DOCS_LINT_FIXTURE / "docs" / "waves" / "README.md").read_bytes())
-        self.assertIn("# Sets", readme)
+        self.assertIn(f"# {self.SECOND['vocabulary_profile']['CONTAINER_NAME_PLURAL']}", readme)
         self.assertNotIn("Wave", readme)
         self.assertTrue(same)
 
@@ -709,6 +757,8 @@ facts = {
     "record": vocabulary_profile.RECORD_FILENAME, "waves_root": record_paths.WAVES_ROOT,
     "readme": (repo / record_paths.WAVES_ROOT / "README.md").is_file(),
     "git_env": sorted(k for k in os.environ if k.startswith("GIT_")),
+    # The run-mode name the copy's guards resolve (change 1zima).
+    "run_mode": os.environ.get("WAVEFOUNDRY_TEST_PROFILE"),
 }
 print("FACTS " + json.dumps(facts))
 (here.parent / "test-cache.json").write_text('{"result": "ok", "written": "by the copy"}\n')
@@ -755,6 +805,11 @@ class ProfileRunTests(unittest.TestCase):
         (repo / "ignored.txt").write_text("ignored\n", encoding="utf-8")
         return repo
 
+    @staticmethod
+    def _expected(name: str) -> str:
+        # The canonical assets, as the run resolves them.
+        return expected_profile({TEST_PROFILE_ENV: name}).describe()
+
     def _run(self, repo: Path, selectors=()) -> "tuple[int, str]":
         scripts = repo / ".wavefoundry" / "framework" / "scripts"
         out = io.StringIO()
@@ -790,7 +845,12 @@ class ProfileRunTests(unittest.TestCase):
         # All discovered files, as a focused run.
         self.assertEqual(facts["files"], ["test_alpha.py", "test_beta.py"])
         # Per-file report; a quoted progress line inside a failure block is not counted.
-        self.assertIn("Second-profile per-file result (profile 'second'): 1 of 2 files failed", output)
+        # The run-mode name reaches the copy, and the report names the
+        # expected profile's layers and sources beside the profile (change 1zima).
+        self.assertEqual(facts["run_mode"], "second")
+        self.assertIn(f"Expected profile: {self._expected('second')}.", output)
+        self.assertIn(f"Second-profile per-file result (profile 'second'; expected profile: "
+                      f"{self._expected('second')}): 1 of 2 files failed", output)
         self.assertIn("test_beta.py", output.split("Second-profile per-file result", 1)[1])
         self.assertIn("failures=2 errors=1", output)
         self.assertIn("Total failures and errors: 3 in 1 files; 1 files passed", output)
@@ -921,6 +981,288 @@ class ProfileRunTests(unittest.TestCase):
         self.assertEqual((rows[0]["failures"], rows[0]["errors"], rows[0]["tests"]), (1, 4, 6))
         self.assertEqual(rows[1]["status"], "ok")
         self.assertIsNone(rows[2]["failures"])
+
+
+
+# ---------------------------------------------------------------------------
+# Change 1zima: the expected profile and the exact guards
+# ---------------------------------------------------------------------------
+
+# Runs the guards in a fresh interpreter over a copied scripts tree, once per
+# case: ``[environ, profiles_dir]``. The resolver is injected, so no case
+# reads this process's WAVEFOUNDRY_TEST_PROFILE.
+GUARD_DRIVER = r"""
+import json, sys
+from pathlib import Path
+scripts = Path(sys.argv[1])
+sys.path.insert(0, str(scripts / "tests"))
+sys.path.insert(0, str(scripts))
+import record_layout_support as s
+import declaration_support as d
+results = []
+for environ, profiles_dir in json.loads(sys.argv[2]):
+    out = {}
+    try:
+        expected = s.expected_profile(environ, profiles_dir)
+    except s.ProfileInvalid as exc:
+        out["error"] = str(exc)
+    else:
+        out["layers"] = expected.describe()
+        out["record"] = s.expected_profile_mismatch(expected)
+        out["declaration"] = d.declaration_profile_mismatch(expected)
+    results.append(out)
+print(json.dumps(results))
+"""
+
+
+def _asset(profile: dict, *, active: "bool | None" = None) -> dict:
+    asset = {"description": "A distribution's own profile (test).", "modules": profile["modules"]}
+    if active is not None:
+        asset["active"] = active
+    return asset
+
+
+class ExpectedProfileTests(unittest.TestCase):
+    """The active marker, the resolver and the report's source."""
+
+    def test_active_must_be_a_boolean(self) -> None:
+        modules = {"record_paths": {"MAX_DEPTH": 3}}
+        for value in (True, False):
+            self.assertEqual(record_layout_support._profile_errors({"active": value, "modules": modules}), [])
+        for value in ("yes", 1, None, [True]):
+            with self.subTest(active=value):
+                errors = record_layout_support._profile_errors({"active": value, "modules": modules})
+                self.assertEqual(len(errors), 1)
+                self.assertIn("'active' must be true or false", errors[0])
+        with framework_profiles(dist={"active": "true", "modules": modules}) as profiles_dir:
+            with self.assertRaisesRegex(ProfileInvalid, "'active' must be true or false"):
+                load_profile("dist", profiles_dir)
+            # An invalid asset fails the resolution; it never falls back.
+            with self.assertRaisesRegex(ProfileInvalid, "'active' must be true or false"):
+                expected_profile({}, profiles_dir)
+
+    def test_framework_assets_are_never_marked_active(self) -> None:
+        for name in FRAMEWORK_ASSETS:
+            with self.subTest(asset=name):
+                self.assertNotIn("active", json.loads((PROFILES_DIR / f"{name}.json").read_text(encoding="utf-8")))
+
+    def test_layers_and_sources(self) -> None:
+        second = load_profile("second")
+        with framework_profiles() as plain, framework_profiles(dist=_asset(second, active=True)) as active:
+            shipped = expected_profile({}, plain)
+            run_mode = expected_profile({TEST_PROFILE_ENV: "declared"}, plain)
+            distribution = expected_profile({}, active)
+            layered = expected_profile({TEST_PROFILE_ENV: "declared"}, active)
+        self.assertEqual((shipped.source, shipped.describe()), ("shipped", "the shipped defaults"))
+        self.assertEqual((run_mode.source, run_mode.describe()),
+                         ("run mode", "the shipped defaults, then 'declared' from WAVEFOUNDRY_TEST_PROFILE"))
+        self.assertEqual((distribution.source, distribution.describe()),
+                         ("active asset", "'dist' from the active asset dist.json"))
+        self.assertEqual(layered.describe(),
+                         "'dist' from the active asset dist.json, then 'declared' from WAVEFOUNDRY_TEST_PROFILE")
+        # The run mode overlays the base constant by constant, as apply_profile edits the copy.
+        self.assertEqual(layered.constants()["vocabulary_profile"]["ITEM_NAME"], SECOND_VOCABULARY["ITEM_NAME"])
+        self.assertEqual(layered.constants()["record_paths"]["PLANS_ROOT"], "docs/plans")
+        self.assertEqual(layered.declaration()["EXTENSION_TOOL_ALIASES"],
+                         load_profile("declared")["modules"]["mcp_tool_extensions"]["EXTENSION_TOOL_ALIASES"])
+        self.assertEqual(shipped.constants(), SHIPPED_DEFAULTS)
+        self.assertEqual(shipped.declaration(), SHIPPED_DECLARATION)
+
+    def test_the_variable_is_read_from_the_given_environment(self) -> None:
+        with framework_profiles() as plain, \
+                mock.patch.dict(os.environ, {TEST_PROFILE_ENV: "second"}):
+            self.assertIsNone(expected_profile({}, plain).run_mode)
+            self.assertEqual(expected_profile(None, plain).run_mode.name, "second")
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(TEST_PROFILE_ENV, None)
+            self.assertIsNone(record_layout_support.run_mode_profile_name())
+        self.assertEqual(record_layout_support.run_mode_profile_name({TEST_PROFILE_ENV: "x"}), "x")
+
+    def test_the_report_states_the_expected_profile_and_its_source(self) -> None:
+        with framework_profiles(dist=_asset(load_profile("second"), active=True)) as active:
+            described = expected_profile({TEST_PROFILE_ENV: "declared"}, active).describe()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            run_tests._print_profile_report("declared", [], described)
+        self.assertIn("Second-profile per-file result (profile 'declared'; expected profile: 'dist' from the "
+                      "active asset dist.json, then 'declared' from WAVEFOUNDRY_TEST_PROFILE): 0 of 0 files failed",
+                      out.getvalue())
+
+    def test_the_copy_runner_environment_names_the_run_mode(self) -> None:
+        with mock.patch.dict(os.environ, {TEST_PROFILE_ENV: "stray", "GIT_DIR": "elsewhere"}):
+            env = run_tests._child_runner_env({TEST_PROFILE_ENV: "second"})
+        self.assertEqual(env[TEST_PROFILE_ENV], "second")
+        self.assertNotIn("GIT_DIR", env)
+
+
+class ExpectedProfileScratchTreeTests(unittest.TestCase):
+    """AC-3 (a) to (e) and (g): the guards in scratch canonical trees, each
+    reset to the shipped defaults and the empty declaration first (the suite
+    may itself run under a profile), with the resolver injected."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._tmp = tempfile.TemporaryDirectory()
+        base = Path(cls._tmp.name)
+        second, declared = load_profile("second"), load_profile("declared")
+
+        def tree(name: str, *profiles: dict) -> Path:
+            scripts = copy_scripts_tree(base / name)
+            apply_profile(scripts, shipped_default_profile())
+            apply_profile(scripts, {"modules": {"mcp_tool_extensions": json.loads(json.dumps(SHIPPED_DECLARATION))}})
+            for profile in profiles:
+                apply_profile(scripts, profile)
+            return scripts
+
+        cls.trees = {"shipped": tree("shipped"), "second": tree("second", second),
+                     "declared": tree("declared", declared), "layered": tree("layered", second, declared)}
+        cls.dirs = {}
+        for name, extra in (("plain", {}), ("active", {"dist": _asset(second, active=True)}),
+                            ("two-active", {"dist": _asset(second, active=True),
+                                            "dist2": _asset(declared, active=True)}),
+                            ("inactive", {"dist": _asset(second, active=False)})):
+            directory = base / "profiles" / name
+            directory.mkdir(parents=True)
+            for asset in FRAMEWORK_ASSETS:
+                shutil.copy2(PROFILES_DIR / f"{asset}.json", directory / f"{asset}.json")
+            for asset, data in extra.items():
+                (directory / f"{asset}.json").write_text(json.dumps(data), encoding="utf-8")
+            cls.dirs[name] = str(directory)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._tmp.cleanup()
+
+    def _guards(self, tree: str, *cases: "tuple[dict, str]") -> list:
+        return _driver(GUARD_DRIVER, str(self.trees[tree]),
+                       json.dumps([[environ, self.dirs[d]] for environ, d in cases]))
+
+    def test_a_tree_with_the_second_vocabulary_and_no_marker_fails(self) -> None:
+        # (a): no active asset, no run-mode name.
+        (out,) = self._guards("second", ({}, "plain"))
+        self.assertIn("(the shipped defaults)", out["record"])
+        self.assertIn(f"vocabulary_profile.ITEM_NAME is {SECOND_VOCABULARY['ITEM_NAME']!r}, expected 'Change'",
+                      out["record"])
+        self.assertIn("record_paths.WAVES_ROOT", out["record"])
+        self.assertIsNone(out["declaration"])
+        # An asset present but not active is not a marker.
+        (out,) = self._guards("second", ({}, "inactive"))
+        self.assertIn("(the shipped defaults)", out["record"])
+
+    def test_a_tree_with_the_declared_declaration_and_no_marker_fails(self) -> None:
+        # (b)
+        (out,) = self._guards("declared", ({}, "plain"))
+        self.assertIsNone(out["record"])
+        self.assertIn("(the shipped defaults)", out["declaration"])
+        self.assertIn("mcp_tool_extensions.EXTENSION_TOOL_ALIASES is", out["declaration"])
+        self.assertIn("mcp_tool_extensions.EXTENSION_TOOL_PARAMETERS is", out["declaration"])
+
+    def test_an_active_asset_must_match_the_tree(self) -> None:
+        # (c): fails when the tree differs from its active asset, passes when it matches.
+        (differs,) = self._guards("shipped", ({}, "active"))
+        self.assertIn("('dist' from the active asset dist.json)", differs["record"])
+        self.assertIn("vocabulary_profile.ITEM_NAME is 'Change', expected "
+                      f"{SECOND_VOCABULARY['ITEM_NAME']!r}", differs["record"])
+        (matches,) = self._guards("second", ({}, "active"))
+        self.assertEqual((matches["record"], matches["declaration"]), (None, None))
+
+    def test_two_active_assets_fail(self) -> None:
+        # (d)
+        (out,) = self._guards("shipped", ({}, "two-active"))
+        self.assertIn("more than one profile asset is marked active", out["error"])
+        self.assertIn("dist.json, dist2.json", out["error"])
+        # With a run mode named, the failure names that layer too.
+        (out,) = self._guards("shipped", ({TEST_PROFILE_ENV: "second"}, "two-active"))
+        self.assertIn("more than one profile asset is marked active", out["error"])
+        self.assertIn("run-mode layer: 'second' from WAVEFOUNDRY_TEST_PROFILE", out["error"])
+
+    def test_a_run_mode_name_with_no_asset_fails(self) -> None:
+        # (e): never a fallback to any match.
+        (out,) = self._guards("shipped", ({TEST_PROFILE_ENV: "absent"}, "plain"))
+        self.assertIn("WAVEFOUNDRY_TEST_PROFILE='absent' names no usable profile asset", out["error"])
+        self.assertIn("no profile asset named 'absent'", out["error"])
+        self.assertIn("base layer: the shipped defaults", out["error"])
+
+    def test_the_shipped_tree_and_each_run_mode_pass(self) -> None:
+        for tree, environ in (("shipped", {}), ("second", {TEST_PROFILE_ENV: "second"}),
+                              ("declared", {TEST_PROFILE_ENV: "declared"})):
+            with self.subTest(tree=tree):
+                (out,) = self._guards(tree, (environ, "plain"))
+                self.assertEqual((out["record"], out["declaration"]), (None, None), out)
+        # A run mode on the wrong tree fails, naming the run-mode layer.
+        (out,) = self._guards("shipped", ({TEST_PROFILE_ENV: "second"}, "plain"))
+        self.assertIn("'second' from WAVEFOUNDRY_TEST_PROFILE", out["record"])
+
+    def test_an_active_asset_with_a_run_mode_is_the_layering(self) -> None:
+        # (g): the copy equals the active asset with the run mode over it.
+        run_mode = {TEST_PROFILE_ENV: "declared"}
+        layered, unlayered = self._guards("layered", (run_mode, "active"), ({}, "active"))
+        self.assertEqual((layered["record"], layered["declaration"]), (None, None), layered)
+        self.assertEqual(layered["layers"],
+                         "'dist' from the active asset dist.json, then 'declared' from WAVEFOUNDRY_TEST_PROFILE")
+        self.assertIsNone(unlayered["record"])
+        self.assertIn("EXTENSION_TOOL_ALIASES", unlayered["declaration"])
+        (base_only,) = self._guards("second", (run_mode, "active"))
+        self.assertIsNone(base_only["record"])
+        self.assertIn("('dist' from the active asset dist.json, then 'declared' from WAVEFOUNDRY_TEST_PROFILE)",
+                      base_only["declaration"])
+        (run_only,) = self._guards("declared", (run_mode, "active"))
+        self.assertIn("vocabulary_profile.ITEM_NAME is 'Change'", run_only["record"])
+
+
+class ReceiptRunRefusalTests(unittest.TestCase):
+    """AC-3 (f): a run that can write the receipt refuses while
+    WAVEFOUNDRY_TEST_PROFILE is set, before anything runs. The runner under
+    test is a scratch copy, so even a regression writes only the copy's
+    receipt, never this tree's."""
+
+    def test_a_receipt_writing_run_refuses_while_the_variable_is_set(self) -> None:
+        real_receipt = SCRIPTS_DIR.parent / "test-cache.json"
+        before = real_receipt.read_bytes() if real_receipt.exists() else None
+        with tempfile.TemporaryDirectory() as tmp:
+            framework = Path(tmp) / ".wavefoundry" / "framework"
+            scripts = copy_scripts_tree(framework)
+            ran = Path(tmp) / "ran"
+            (scripts / "tests" / "test_planted.py").write_text(
+                "import pathlib, unittest\n"
+                f"pathlib.Path({str(ran)!r}).write_text('ran')\n"
+                "class Planted(unittest.TestCase):\n"
+                "    def test_planted(self):\n"
+                "        pass\n", encoding="utf-8")
+            env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+            env[TEST_PROFILE_ENV] = "second"
+            for argv in ([], ["--no-cache"]):
+                with self.subTest(argv=argv):
+                    result = subprocess.run(
+                        [sys.executable, "-B", str(scripts / "run_tests.py"), *argv], cwd=tmp, env=env,
+                        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
+                    )
+                    self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                    self.assertIn("WAVEFOUNDRY_TEST_PROFILE is set ('second')", result.stderr)
+                    self.assertFalse((framework / "test-cache.json").exists())
+                    self.assertFalse(ran.exists(), "a test ran before the refusal")
+        after = real_receipt.read_bytes() if real_receipt.exists() else None
+        self.assertEqual(after, before)
+
+    def test_only_receipt_writing_runs_consult_the_variable(self) -> None:
+        self.assertIsNone(run_tests._stray_profile_refusal({}))
+        self.assertIn("Unset WAVEFOUNDRY_TEST_PROFILE", run_tests._stray_profile_refusal({TEST_PROFILE_ENV: "x"}))
+        # Focused and help runs never reach the refusal.
+        with mock.patch.object(run_tests, "_stray_profile_refusal", side_effect=AssertionError("consulted")), \
+                mock.patch.object(run_tests, "_execute_files", return_value=(0, [])), \
+                mock.patch.object(sys, "argv", ["run_tests.py", "--file", "test_profile_support.py"]), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(run_tests.main(), 0)
+
+    def test_the_refusal_comes_before_any_hashing(self) -> None:
+        err = io.StringIO()
+        with mock.patch.dict(os.environ, {TEST_PROFILE_ENV: "second"}), \
+                mock.patch.object(run_tests, "_hash_inputs", side_effect=AssertionError("hashed")), \
+                mock.patch.object(run_tests, "_execute_files", side_effect=AssertionError("ran")), \
+                mock.patch.object(sys, "argv", ["run_tests.py"]), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            self.assertEqual(run_tests.main(), 2)
+        self.assertIn("WAVEFOUNDRY_TEST_PROFILE", err.getvalue())
 
 
 class ProfileArgumentTests(unittest.TestCase):

@@ -28,6 +28,19 @@ _spec = importlib.util.spec_from_file_location("run_tests_repo_guard_subject", S
 run_tests = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(run_tests)
 
+
+def setUpModule() -> None:  # noqa: N802 (unittest name)
+    """These tests drive full runs of a stubbed runner, which refuse while
+    WAVEFOUNDRY_TEST_PROFILE is set (change 1zima); a profile run sets it for
+    the whole copy, so it is unset here for the module and restored after."""
+    import os
+    from record_layout_support import TEST_PROFILE_ENV
+
+    environ = patch.dict(os.environ)
+    environ.start()
+    unittest.addModuleCleanup(environ.stop)
+    os.environ.pop(TEST_PROFILE_ENV, None)
+
 _MUTANT_TEMPLATE = '''\
 import os
 import unittest

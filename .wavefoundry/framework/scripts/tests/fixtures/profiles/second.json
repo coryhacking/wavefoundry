@@ -1,18 +1,18 @@
 {
-  "description": "A second vocabulary and layout profile (change 1zim1): Set records holding Members, a nested live root, and the pre-adoption records kept as a read-only archive in the default vocabulary at docs/waves.",
+  "description": "A second vocabulary and layout profile (changes 1zim1, 1zima) mirroring a distribution that renamed its tiers to Set and Wave: Set records holding Waves, a nested live root, and the pre-adoption records kept as a read-only archive in the default vocabulary at docs/waves.",
   "modules": {
     "vocabulary_profile": {
       "CONTAINER_NAME": "Set",
       "CONTAINER_NAME_PLURAL": "Sets",
-      "ITEM_NAME": "Member",
-      "ITEM_NAME_PLURAL": "Members",
+      "ITEM_NAME": "Wave",
+      "ITEM_NAME_PLURAL": "Waves",
       "RECORD_FILENAME": "set.md",
       "ID_KEY": "set-id",
       "RECORD_TITLE": "# Set Record",
       "SUMMARY_HEADING": "## Set Summary",
-      "MEMBER_HEADING": "## Members",
-      "MEMBER_ID_LABEL": "Member ID",
-      "MEMBER_STATUS_LABEL": "Member Status",
+      "MEMBER_HEADING": "## Waves",
+      "MEMBER_ID_LABEL": "Wave ID",
+      "MEMBER_STATUS_LABEL": "Wave Status",
       "BACKREF_LABEL": "Set",
       "ARCHIVE_PROFILE": {
         "CONTAINER_NAME": "Wave",

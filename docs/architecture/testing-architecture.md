@@ -168,10 +168,13 @@ four pieces, all test infrastructure in
 
 - **Profile asset.** `tests/fixtures/profiles/<name>.json` names
   fork-editable constants per module. `second.json` is the shared second
-  profile: Set records (`set.md`, `set-id`, `## Members`, `Member ID`,
-  `Member Status`, back-reference `Set`), a nested live root
+  profile, mirroring a distribution that renamed its tiers to Set and Wave:
+  Set records holding Waves (`set.md`, `set-id`, `## Waves`, `Wave ID`,
+  `Wave Status`, back-reference `Set`), a nested live root
   `docs/delivery/sets`, and the pre-adoption records kept as a read-only
-  archive at `docs/waves` in the default vocabulary (`ARCHIVE_PROFILE`).
+  archive at `docs/waves` in the default vocabulary (`ARCHIVE_PROFILE`), so
+  the live item label Wave shares its name with the archive's container
+  label. Tests that pin its values read them from `load_profile("second")`.
   `apply_profile` edits a COPIED scripts tree the way a fork does: each
   constant's assignment must match exactly once, then a fresh interpreter
   imports both modules, checks the loaded values and, given a repository,
@@ -200,20 +203,42 @@ four pieces, all test infrastructure in
   and skips with the reason and the differing constants. On a method the skip
   is decided before `setUp` runs; on a class, before `setUpClass`. A test pins
   the snapshot's key sets to the modules' own name lists, and
-  `test_loaded_constants_are_shipped_or_a_declared_profile` requires the
-  loaded constants to equal the snapshot or the snapshot overlaid with one of
-  the assets in `tests/fixtures/profiles/`. A shipped default changed without
-  the snapshot therefore fails loudly instead of skipping every marked test,
-  and a distribution adds its own profile asset there so its suite passes
-  that check.
+  `test_loaded_constants_are_the_expected_profile` requires the loaded
+  constants to equal the expected profile exactly (below). A shipped default
+  changed without the snapshot, or a tree left on another profile, therefore
+  fails loudly instead of skipping every marked test.
+- **Expected profile (change 1zima).** `expected_profile(environ,
+  profiles_dir)` resolves the profile the loaded constants must be, as
+  layers. The base is the single asset marked `"active": true` (a boolean;
+  any other value is an invalid asset), else the shipped defaults. When
+  `WAVEFOUNDRY_TEST_PROFILE` names a profile, that asset is the run-mode
+  layer, overlaid on the base constant by constant the way `apply_profile`
+  edits the copy (which in a distribution already carries its active
+  profile). More than one active asset, or a variable value with no asset, is
+  an error that fails the guards; nothing falls back to another match. The
+  variable is read only by `run_mode_profile_name` in
+  `record_layout_support`, which `declaration_support` and the runner use.
+  `expected_profile_mismatch(expected)` (record constants) and
+  `declaration_profile_mismatch(expected)` (tool declarations) compare every
+  loaded copy with the shipped values overlaid with each layer, and a
+  mismatch names each layer, its source (`WAVEFOUNDRY_TEST_PROFILE`, the
+  active asset, or the shipped defaults) and each differing constant. The
+  framework's own assets (`second.json`, `declared.json`) are never marked
+  active, and a test pins that. A distribution commits its own asset (for
+  example `waveforge.json`) beside them with `"active": true` and its
+  constants, so its default run checks its intended profile and a run mode
+  layers the framework's assets over it.
 - **Second-profile run.** `run_tests.py --profile NAME [--file NAME ...]`,
   exclusive with `--no-cache` and the schedule-control options, copies
   `git ls-files -co --exclude-standard` into a temporary git repository
   (committed, so the copy's repository guard and git-reading tests see a
   clean checkout), applies the asset, writes the configured waves-root README,
-  and runs the copy's own runner there as a focused run. It streams that
-  output, prints a per-file result (failures and errors per failing file and
-  a total), checks that this tree's `test-cache.json` is byte-identical
+  and runs the copy's own runner there as a focused run with
+  `WAVEFOUNDRY_TEST_PROFILE=NAME` in its environment, so the copy's guards
+  expect that profile over the base. It streams that output, prints a
+  per-file result (failures and errors per failing file and a total) beside
+  the profile name and the expected profile with each layer's source, checks
+  that this tree's `test-cache.json` is byte-identical
   afterwards, and states that the result is not delivery evidence. It runs on
   demand and at release, never as part of the default run. The asset format
   also takes distribution tool declarations (below). Malformed `--file` selectors are
@@ -227,7 +252,10 @@ four pieces, all test infrastructure in
   but every file the run writes into the copy (the edited modules and the
   waves-root README) replaces the path rather than following it, and a write
   whose directory resolves outside the copy is refused, so the run never
-  modifies anything outside its temporary repository.
+  modifies anything outside its temporary repository. A run that can write
+  the receipt (no `--file`, `--profile` or `--schedule-control`) refuses with exit 2, naming
+  `WAVEFOUNDRY_TEST_PROFILE`, while that variable is set, before anything is
+  hashed or run, so a stray value in a shell never produces a green receipt.
 
 **Declared-alias run (change 1zim4).** A distribution also edits the tool
 declarations in `mcp_tool_extensions.py`, so a profile asset may name that
@@ -239,7 +267,7 @@ present. `apply_profile` writes the constants exactly once each (tuple-typed
 ones as tuples), and the fresh interpreter also checks the declaration as the
 roster does, refusing an invalid one; a tree without the module still takes
 a record-only profile. A declaration never changes what the
-default-profile-only marker or `declared_profile_match` compare: the frozen
+default-profile-only marker or `expected_profile_mismatch` compare: the frozen
 declaration `SHIPPED_DECLARATION` is kept apart from `SHIPPED_DEFAULTS`.
 Tests whose subject is the shipped tool surface (tool lists, tiers, rosters,
 provenance) and tests that exercise the declaration machinery with their own
@@ -250,14 +278,16 @@ or a subprocess) sets every declaration constant, on every loaded copy of the
 module, to the shipped empty value plus the test's own declaration, clears
 the provenance and replaced-core state a server built from a declaration, and
 restores both afterwards. Apply it after anything that re-imports the module
-(`load_server`) and before the surface is built. `declaration_profile_match`
-pins the shipped declaration the way `declared_profile_match` pins the record
-profile: the loaded declaration is the empty one or a profile asset's.
+(`load_server`) and before the surface is built.
+`declaration_profile_mismatch` pins the declaration the way
+`expected_profile_mismatch` pins the record profile: the loaded declaration
+is exactly the expected profile's (the empty one, overlaid with the active
+asset's and the run mode's declarations).
 
 The run does lint this repository's own documents where a test does, and
 they do not lint clean under the second profile: the copy keeps them
 unchanged, so the live plans root holds plans in the default vocabulary
-(without a `Member ID:` line) and the prompt-surface manifest names
+(without a `Wave ID:` line) and the prompt-surface manifest names
 `docs/waves/` rather than the configured waves root. Tests over this
 repository's own documents are therefore default-profile subjects.
 

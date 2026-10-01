@@ -26,10 +26,16 @@ from declaration_support import (  # noqa: E402
     apply_base_declaration,
     base_declaration,
     base_declaration_source,
-    declaration_profile_match,
+    declaration_profile_mismatch,
     served_functions,
 )
-from record_layout_support import SHIPPED_DECLARATION, load_profile  # noqa: E402
+from record_layout_support import (  # noqa: E402
+    PROFILES_DIR,
+    SHIPPED_DECLARATION,
+    TEST_PROFILE_ENV,
+    expected_profile,
+    load_profile,
+)
 
 AMBIENT = {"wf_ambient_help": "wf_help"}
 
@@ -105,12 +111,28 @@ class BaseDeclarationTests(unittest.TestCase):
                          {**SHIPPED_DECLARATION, "EXTENSION_TOOL_TIERS": {"acme_x": "read"}})
 
     def test_declaration_profile_match(self):
+        # The resolver is injected (an explicit environment and a directory
+        # holding only the framework's assets), so this holds under every run
+        # mode and beside any asset a distribution marks active (change 1zima).
+        import shutil
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("second", "declared"):
+                shutil.copy2(PROFILES_DIR / f"{name}.json", Path(tmp) / f"{name}.json")
+            shipped = expected_profile({}, tmp)
+            run_declared = expected_profile({TEST_PROFILE_ENV: "declared"}, tmp)
         with base_declaration():
-            self.assertEqual(declaration_profile_match(), "shipped")
+            self.assertIsNone(declaration_profile_mismatch(shipped))
+            self.assertIn("'declared' from WAVEFOUNDRY_TEST_PROFILE", declaration_profile_mismatch(run_declared))
         declared = load_profile("declared")["modules"]["mcp_tool_extensions"]
         with base_declaration(**declared):
-            self.assertEqual(declaration_profile_match(), "declared")
-        self.assertIsNone(declaration_profile_match())  # the ambient declaration has no asset
+            self.assertIsNone(declaration_profile_mismatch(run_declared))
+            self.assertIn("(the shipped defaults)", declaration_profile_mismatch(shipped))
+        # The ambient declaration has no asset: named, with each copy's differing constant.
+        message = declaration_profile_mismatch(shipped)
+        self.assertIn("mcp_tool_extensions.EXTENSION_TOOL_ALIASES is {'wf_ambient_help': 'wf_help'}, expected {}",
+                      message)
+        self.assertIn("mcp_tool_extensions.EXTENSION_HIDDEN_TOOLS is ['wf_help'], expected []", message)
 
 
 class RecordingFastMCPTests(unittest.TestCase):
