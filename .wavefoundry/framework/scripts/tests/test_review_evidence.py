@@ -21,6 +21,17 @@ sys.path.insert(0, str(SCRIPTS_ROOT))
 import review_evidence as subject  # noqa: E402
 import review_policy  # noqa: E402
 from wave_lint_lib.wave_validators import check_wave_docs  # noqa: E402
+import record_paths  # noqa: E402
+import vocabulary_profile  # noqa: E402
+from record_layout_support import default_profile_only, write_waves_readme  # noqa: E402
+
+# The record filename the loaded vocabulary profile writes and reads.
+RECORD = vocabulary_profile.RECORD_FILENAME
+
+
+def waves_dir(root: Path | str) -> Path:
+    """The configured live waves root under ``root``."""
+    return Path(root).joinpath(*record_paths.WAVES_ROOT.split("/"))
 
 
 def integrity_checks(**overrides: object) -> dict[str, object]:
@@ -2133,9 +2144,9 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
     def make_external_wave(
         self, root: Path, records: tuple[dict[str, object], ...] = ()
     ) -> Path:
-        wave_dir = root / "docs" / "waves" / "1test sample"
+        wave_dir = waves_dir(root) / "1test sample"
         wave_dir.mkdir(parents=True, exist_ok=True)
-        wave = wave_dir / "wave.md"
+        wave = wave_dir / RECORD
         wave.write_text(
             # component-fixture: make_external_wave exercises this input representation directly
             "# Wave\nreview-evidence-source: events.jsonl\n\n"
@@ -2204,20 +2215,20 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
         ):
             _, errors = subject.parse_review_evidence_source(f"# Wave\n{malformed}\n\n## Objective\n")
             self.assertTrue(errors, malformed)
-        wave = Path("docs/waves/1test sample/wave.md")
+        wave = waves_dir("") / "1test sample" / RECORD
         self.assertEqual(
             subject.review_event_path(wave),
-            Path("docs/waves/1test sample/events.jsonl"),
+            waves_dir("") / "1test sample" / "events.jsonl",
         )
         with self.assertRaises(ValueError):
             subject.review_event_path(wave.parent / "chosen.jsonl")
 
     def test_external_validation_reads_events_not_projection(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            wave_dir = Path(temp_dir) / "docs" / "waves" / "1test sample"
+            wave_dir = waves_dir(temp_dir) / "1test sample"
             wave_dir.mkdir(parents=True)
             projection = subject.empty_external_finding_synthesis_section()
-            wave = wave_dir / "wave.md"
+            wave = wave_dir / RECORD
             wave.write_text(
                 # component-fixture: test_external_validation_reads_events_not_projection exercises this input representation directly
                 "# Wave\nreview-evidence-source: events.jsonl\n\n" + projection,
@@ -2254,10 +2265,10 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
         retained-fence rejections are the live consumers of the module's
         marker and jsonl-fence patterns after the inline reader's deletion."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            wave_dir = Path(temp_dir) / "docs" / "waves" / "1test sample"
+            wave_dir = waves_dir(temp_dir) / "1test sample"
             wave_dir.mkdir(parents=True)
             (wave_dir / "events.jsonl").write_bytes(b"")
-            wave = wave_dir / "wave.md"
+            wave = wave_dir / RECORD
             projection = subject.empty_external_finding_synthesis_section()
             wave.write_text(
                 # negative-fixture: test_declared_wave_must_not_retain_inline_marker_or_fence deliberately supplies invalid or unreadable authority
@@ -2302,9 +2313,9 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
         no sibling ledger) fails closed with the actionable manual migration
         message and never silently reclassifies as legacy prose."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            wave_dir = Path(temp_dir) / "docs" / "waves" / "1test sample"
+            wave_dir = waves_dir(temp_dir) / "1test sample"
             wave_dir.mkdir(parents=True)
-            wave = wave_dir / "wave.md"
+            wave = wave_dir / RECORD
             wave.write_text(
                 "# Wave\nreview-evidence-protocol: 1\n\n"
                 "## Finding Synthesis\n\n"
@@ -3494,7 +3505,7 @@ class ReviewEvidenceLintIntegrationTests(unittest.TestCase):
     def test_external_ledger_symlink_is_rejected_as_authority(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            wave = root / "docs" / "waves" / "1test unsafe-ledger" / "wave.md"
+            wave = waves_dir(root) / "1test unsafe-ledger" / RECORD
             wave.parent.mkdir(parents=True)
             wave.write_text(
                 "# Wave\n\nStatus: implementing\n"
@@ -3518,16 +3529,16 @@ class ReviewEvidenceLintIntegrationTests(unittest.TestCase):
     def test_wave_docs_routes_marked_records_through_shared_validator(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            wave = root / "docs" / "waves" / "1test integration" / "wave.md"
+            wave = waves_dir(root) / "1test integration" / RECORD
             wave.parent.mkdir(parents=True)
             wave.write_text(
-                "# Wave Record\n\n"
+                f"{vocabulary_profile.RECORD_TITLE}\n\n"
                 "Owner: Engineering\nStatus: planned\nLast verified: 2026-07-14\n"
                 # negative-fixture: test_wave_docs_routes_marked_records_through_shared_validator deliberately supplies invalid or unreadable authority
                 "review-evidence-source: events.jsonl\n"
-                "wave-id: `1test integration`\nTitle: Integration\n\n"
+                f"{vocabulary_profile.ID_KEY}: `1test integration`\nTitle: Integration\n\n"
                 "## Objective\n\nExercise lint routing.\n\n"
-                "## Changes\n\n"
+                f"{vocabulary_profile.MEMBER_HEADING}\n\n"
                 "## Journal Watchpoints\n\n- test\n\n"
                 "## Participants\n\n- Coordinator: test\n\n"
                 + subject.empty_external_finding_synthesis_section(),
@@ -4326,6 +4337,7 @@ class RepairReverificationIndependenceTests(unittest.TestCase):
         self.assertIn("DERIVED", joined)
 
 
+@default_profile_only("a census of this repository's own closed wave records, which are written in the default profile")
 class RealCorpusRegressionTests(unittest.TestCase):
     """1tmb2 AC-5: executed over the real corpus, not a fixture.
 
@@ -4518,9 +4530,9 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
 
     def test_resolve_reads_ledger_for_declared_wave(self):
         with tempfile.TemporaryDirectory() as tmp:
-            wave_dir = Path(tmp) / "docs" / "waves" / "1test sample"
+            wave_dir = waves_dir(tmp) / "1test sample"
             wave_dir.mkdir(parents=True)
-            wave_md = wave_dir / "wave.md"
+            wave_md = wave_dir / RECORD
             records = (
                 executable_evidence("dedup-run-readiness", "dedup-run-readiness", claim_kind="dedup"),
                 review_run("run-readiness", kind="readiness", candidates=[]),
@@ -4551,9 +4563,9 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
     @staticmethod
     def _declared_wave(tmp: str) -> Path:
         """A minimal declared wave directory whose record starts out readable."""
-        wave_dir = Path(tmp) / "docs" / "waves" / "1test sample"
+        wave_dir = waves_dir(tmp) / "1test sample"
         wave_dir.mkdir(parents=True)
-        (wave_dir / "wave.md").write_text(
+        (wave_dir / RECORD).write_text(
             # negative-fixture: _declared_wave deliberately supplies invalid or unreadable authority
             "# Wave\nreview-evidence-source: events.jsonl\n", encoding="utf-8"
         )
@@ -4596,7 +4608,7 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
         the silent legacy-prose downgrade."""
         with tempfile.TemporaryDirectory() as tmp:
             wave_dir = self._declared_wave(tmp)
-            wave_md = wave_dir / "wave.md"
+            wave_md = wave_dir / RECORD
             os.chmod(wave_md, 0)
             try:
                 # Reach guard: the record is demonstrably unreadable.
@@ -4607,7 +4619,7 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
             finally:
                 os.chmod(wave_md, stat.S_IRUSR | stat.S_IWUSR)
             self.assertIn("wave record is unreadable", message)
-            self.assertIn("wave.md", message)
+            self.assertIn(RECORD, message)
             self.assertIn("Permission denied", message)
             self.assertNotIn(tmp, message, "authority errors must stay path-free")
             self.assertNotIn(str(Path(tmp).resolve()), message)
@@ -4617,7 +4629,7 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
         out of the facade uncaught."""
         with tempfile.TemporaryDirectory() as tmp:
             wave_dir = self._declared_wave(tmp)
-            wave_md = wave_dir / "wave.md"
+            wave_md = wave_dir / RECORD
             wave_md.write_bytes(b"\xff\xfe not valid utf-8 \xff")
             # Reach guard: the record is demonstrably undecodable.
             with self.assertRaises(UnicodeDecodeError):
@@ -4625,7 +4637,7 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
             authority = subject.resolve_review_authority(Path(tmp), wave_dir)
             message = self._assert_fails_closed_with_errors(authority)
             self.assertIn("wave record is unreadable", message)
-            self.assertIn("wave.md", message)
+            self.assertIn(RECORD, message)
             self.assertIn("UnicodeDecodeError", message)
             self.assertNotIn(tmp, message, "authority errors must stay path-free")
             self.assertNotIn(str(Path(tmp).resolve()), message)
@@ -4635,14 +4647,14 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
         the absolute path; the decode cause named no file at all."""
         with tempfile.TemporaryDirectory() as tmp:
             wave_dir = self._declared_wave(tmp)
-            wave_md = wave_dir / "wave.md"
+            wave_md = wave_dir / RECORD
             wave_md.write_bytes(b"\xff\xfe not valid utf-8 \xff")
             decode_result = subject.validate_external_review_evidence(wave_md)
             self.assertFalse(decode_result.ok)
             decode_message = " ".join(decode_result.authority_errors)
             # Reach guard: the unreadable branch, not the declaration branch.
             self.assertIn("wave record is unreadable", decode_message)
-            self.assertIn("wave.md", decode_message)
+            self.assertIn(RECORD, decode_message)
             self.assertIn("UnicodeDecodeError", decode_message)
             self.assertNotIn(tmp, decode_message)
             self.assertNotIn(str(Path(tmp).resolve()), decode_message)
@@ -4661,7 +4673,7 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
             self.assertFalse(permission_result.ok)
             permission_message = " ".join(permission_result.authority_errors)
             self.assertIn("wave record is unreadable", permission_message)
-            self.assertIn("wave.md", permission_message)
+            self.assertIn(RECORD, permission_message)
             self.assertIn("Permission denied", permission_message)
             self.assertNotIn(tmp, permission_message)
             self.assertNotIn(str(Path(tmp).resolve()), permission_message)
@@ -4676,7 +4688,7 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
             resolved_tmp = str(Path(tmp).resolve())
 
             wave_dir = self._declared_wave(tmp)
-            wave_md = wave_dir / "wave.md"
+            wave_md = wave_dir / RECORD
             os.chmod(wave_dir, 0)
             try:
                 _records, dir_ledger_errors = subject.read_review_event_ledger(
@@ -4689,7 +4701,7 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
                 os.chmod(wave_dir, stat.S_IRWXU)
             loop = Path(tmp) / "loop"
             os.symlink("loop", loop)
-            loop_wave_md = loop / "waves" / "wave.md"
+            loop_wave_md = loop / "waves" / RECORD
             _records, loop_ledger_errors = subject.read_review_event_ledger(
                 loop_wave_md
             )

@@ -1106,20 +1106,10 @@ class GraphFailureRecoveryTests(_RootCase):
     def test_registered_graph_resources_preserve_storage_recovery(self):
         from types import SimpleNamespace
         import sqlite_runtime
-        captured = {}
-        class Recorder:
-            _tool_manager = SimpleNamespace(_tools={})
-            def resource(self, uri, **kwargs):
-                def deco(fn):
-                    captured[fn.__name__] = fn
-                    return fn
-                return deco
-            def tool(self, *args, **kwargs):
-                def deco(fn):
-                    self._tool_manager._tools[kwargs.get("name", fn.__name__)] = fn
-                    return fn
-                return deco(args[0]) if args and callable(args[0]) else deco
-        self.srv.register_mcp_surface(Recorder(), lambda: SimpleNamespace(root=self.root))
+        from declaration_support import RecordingFastMCP  # shared FastMCP-backed double (change 1zim4)
+        recorder = RecordingFastMCP()
+        captured = recorder.resource_functions
+        self.srv.register_mcp_surface(recorder, lambda: SimpleNamespace(root=self.root))
         with patch.object(index_state_store, "open_read_only", side_effect=sqlite_runtime.RuntimeUnavailable("binding unavailable")):
             for name in ("resource_graph_status", "resource_graph_communities"):
                 with self.subTest(resource=name):

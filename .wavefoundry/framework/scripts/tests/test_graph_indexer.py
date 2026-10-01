@@ -12309,13 +12309,17 @@ class MemoryGraphExtractionTests(unittest.TestCase):
         self.assertIn((record_id, "src/tools.py", "memory_targets"), edges)
 
     def test_wave_refs_never_become_edges(self):
-        # docs/waves/ is scan-excluded; a wave-id evidence ref must not mint a
-        # node or edge even when the wave doc exists on disk.
-        self._write("docs/waves/1abcd w/wave.md", "# Wave record\n")
+        # The configured waves root is scan-excluded; a wave-id evidence ref
+        # must not mint a node or edge even when the wave doc exists on disk.
+        import vocabulary_profile
+        from record_layout_support import waves_rel
+
+        wave_doc = waves_rel("1abcd w", vocabulary_profile.RECORD_FILENAME)
+        self._write(wave_doc, "# Wave record\n")
         self._write("src/tools.py", "def process():\n    return 1\n")
         record = self.RECORD.replace(
             "- `1abcd-bug tool-regression` — the regression wave",
-            "- `docs/waves/1abcd w/wave.md` — the wave record",
+            f"- `{wave_doc}` — the wave record",
         )
         self._write("docs/agents/memory/mem-fragile-tools.md", record)
         payload = self._update(
@@ -12323,8 +12327,8 @@ class MemoryGraphExtractionTests(unittest.TestCase):
             {"src/tools.py", "docs/agents/memory/mem-fragile-tools.md"},
         )
         nodes, edges = self._payload_parts(payload)
-        self.assertNotIn("docs/waves/1abcd w/wave.md", nodes)
-        self.assertFalse([e for e in edges if "docs/waves/" in e[1]],
+        self.assertNotIn(wave_doc, nodes)
+        self.assertFalse([e for e in edges if e[1].startswith(waves_rel() + "/")],
                          "wave docs must never be edge targets")
 
     def test_query_cache_serves_memory_node_after_a_write(self):

@@ -240,6 +240,15 @@ class CarrierContaminationTests(unittest.TestCase):
 
     EXPECTED = [".wavefoundry/framework/scripts/indexer.py"]
 
+    def setUp(self):
+        # A record in the configured live waves root, under the profile's
+        # record filename (the shipped layout, or a profile's).
+        import record_paths
+        import vocabulary_profile
+
+        self.wave_dir = f"{record_paths.WAVES_ROOT}/1abc thing"
+        self.record = f"{self.wave_dir}/{vocabulary_profile.RECORD_FILENAME}"
+
     def test_only_the_apparatus_counts_as_a_carrier(self):
         self.assertIsNone(subject.classify_carrier(
             ".wavefoundry/framework/scripts/indexer.py"))
@@ -248,8 +257,8 @@ class CarrierContaminationTests(unittest.TestCase):
             ("docs/evals/retrieval-quality-golden.json", "fixture_source"),
             ("docs/reports/retrieval-quality-post.json", "generated_report"),
             (".wavefoundry/framework/scripts/retrieval_eval.py", "evaluator_source"),
-            ("docs/waves/1abc thing/wave.md", "wave_record"),
-            ("docs/waves/1abc thing/events.jsonl", "review_commentary"),
+            (self.record, "wave_record"),
+            (f"{self.wave_dir}/events.jsonl", "review_commentary"),
         ):
             with self.subTest(path=path):
                 self.assertEqual(kind, subject.classify_carrier(path))
@@ -260,7 +269,7 @@ class CarrierContaminationTests(unittest.TestCase):
 
     def test_a_carrier_above_the_expected_target_displaced_it(self):
         rows = subject.carrier_rows(
-            ["docs/waves/1abc thing/wave.md"] + self.EXPECTED,
+            [self.record] + self.EXPECTED,
             self.EXPECTED)
         self.assertEqual(1, len(rows))
         self.assertEqual("displaced_expected", rows[0]["effect"])
@@ -270,9 +279,9 @@ class CarrierContaminationTests(unittest.TestCase):
 
     def test_a_carrier_below_the_expected_target_is_neutral(self):
         rows = subject.carrier_rows(
-            self.EXPECTED + ["docs/waves/1abc thing/wave.md"],
+            self.EXPECTED + [self.record],
             self.EXPECTED,
-            approved=["docs/waves/1abc thing/wave.md"])
+            approved=[self.record])
         self.assertEqual("none", rows[0]["effect"])
         self.assertEqual("approved", rows[0]["approval_state"])
         self.assertEqual([], subject.carrier_contamination_violations(rows))

@@ -690,6 +690,11 @@ def migrate_memory_ids_to_lifecycle_naming(root: Path) -> dict[str, Any]:
         if path.is_relative_to(memory_root):
             if path.parent != memory_root:
                 continue  # Archived memories retain their historical ids.
+        elif roots.archive is not None and path.is_relative_to(roots.archive):
+            # The read-only archive root keeps its records byte for byte
+            # (change 1zim7). Decided after the memory-root branch so live
+            # memory records are never skipped.
+            continue
         elif path.is_relative_to(roots.waves):
             owner = next((parent for parent in path.parents if parent in wave_statuses), None)
             if owner is None or wave_statuses[owner] in (None, "closed"):

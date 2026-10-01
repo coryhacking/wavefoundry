@@ -24,13 +24,18 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from record_layout_support import apply_layout, patch_layout
+from record_layout_support import SHIPPED_DEFAULTS, apply_layout, patch_layout
 from server_tools_support import _make_repo, load_server, load_thin_runner
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+import vocabulary_profile as vp  # noqa: E402
+
+RECORD = vp.RECORD_FILENAME
+# The record title's words, as the resources serve them.
+RECORD_TITLE_TEXT = vp.RECORD_TITLE.lstrip("#").strip()
 WAVES_REL = "project/records/waves"
 PLANS_REL = "project/records/plans"
 NESTED_LAYOUT = {"waves_root": WAVES_REL, "plans_root": PLANS_REL, "nested": True, "max_depth": 4}
@@ -123,7 +128,7 @@ class NestedLifecycleTests(_NestedRepo):
         import _tag_utils
 
         prefix = self.srv.record_paths.load_record_roots(self.root).waves_prefix
-        deep = f"{WAVES_REL}/team/feature/{w3}/wave.md"
+        deep = f"{WAVES_REL}/team/feature/{w3}/{RECORD}"
         self.assertIn("wave", _tag_utils.infer_tags(deep, waves_prefix=prefix))
         self.assertIn("wave", self.srv._infer_tags(deep, root=self.root))
 
@@ -136,12 +141,12 @@ class NestedLifecycleTests(_NestedRepo):
         deep = self.waves / "a" / "b" / w1
         deep.parent.mkdir(parents=True)
         shutil.move(str(d1), str(deep))
-        self.assertEqual(self.srv._find_wave_md(self.root, w1), deep / "wave.md")
+        self.assertEqual(self.srv._find_wave_md(self.root, w1), deep / RECORD)
         got = self.srv.wf_get_change_response(self.root, change_id)
         self.assertEqual(got["status"], "ok", got)
         current = self.srv.wf_current_wave_response(self.root)
         self.assertEqual([w["wave_id"] for w in current["data"]["waves"]], [w1])
-        self.assertIn(f"{WAVES_REL}/a/b/{w1}/wave.md", current["data"]["waves"][0]["path"])
+        self.assertIn(f"{WAVES_REL}/a/b/{w1}/{RECORD}", current["data"]["waves"][0]["path"])
 
     def test_flat_layout_default_ignores_nested_folders(self):
         # AC-1: with NESTED false, a wave placed one level deeper is invisible.
@@ -265,7 +270,7 @@ class AmbiguousWaveResourceTests(_NestedRepo):
         return ""
 
     def _activate(self, wave_dir: Path) -> None:
-        wave_md = wave_dir / "wave.md"
+        wave_md = wave_dir / RECORD
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8").replace("Status: planned", "Status: active"),
             encoding="utf-8",
@@ -286,7 +291,7 @@ class AmbiguousWaveResourceTests(_NestedRepo):
                 self.assertIn(f"ambiguous_wave_id: {wid} at ", text)
                 self.assertIn(f"{WAVES_REL}/{w1}", text)
                 self.assertIn(f"{WAVES_REL}/team/{w1}", text)
-                self.assertNotIn("Wave Record", text, "one twin must not be served as the wave")
+                self.assertNotIn(RECORD_TITLE_TEXT, text, "one twin must not be served as the wave")
                 self.assertNotIn(f"## {w1}", text)
         self.assertEqual(before, self._snapshot(), "a read-only resource writes nothing")
 
@@ -295,7 +300,7 @@ class AmbiguousWaveResourceTests(_NestedRepo):
         w2, d2 = self._create_wave("deep", "team")
         self._activate(d2)
         current = self._read("wavefoundry://wave/current")
-        self.assertIn("Wave Record", current)
+        self.assertIn(RECORD_TITLE_TEXT, current)
         self.assertNotIn("Ambiguous Wave", current)
         listing = self._read("wavefoundry://waves")
         self.assertTrue(listing.startswith("# Waves"), listing)
@@ -306,7 +311,7 @@ class AmbiguousWaveResourceTests(_NestedRepo):
     def test_no_waves_message_names_the_resolved_root(self):
         listing = self._read("wavefoundry://waves")
         self.assertIn(f"No wave records found in `{WAVES_REL}/`.", listing)
-        self.assertNotIn("docs/waves", listing)
+        self.assertNotIn(SHIPPED_DEFAULTS["record_paths"]["WAVES_ROOT"], listing)
 
 
 class NestedStateSourcesTests(_NestedRepo):
@@ -344,17 +349,17 @@ class FlatDepthRuleTests(_NestedRepo):
     def test_flat_layout_allows_only_a_direct_child_wave_folder(self):
         # Finding `cycle2-adjacent-gaps` (d): the containment guard keeps the
         # direct-child rule (`allowed_depth = 1`) when NESTED is false, so a
-        # depth-two wave.md is refused even though it exists.
+        # depth-two record file is refused even though it exists.
         w1, deep = self._create_wave("deep", "team")
         with self._patched(nested=False):
             with self.assertRaises(ValueError) as ctx:
-                self.srv._contained_wave_review_paths(self.root, deep / "wave.md")
+                self.srv._contained_wave_review_paths(self.root, deep / RECORD)
             self.assertIn("within 1 level(s) of", str(ctx.exception))
-            direct, _events = self.srv._contained_wave_review_paths(self.root, self.waves / "x" / "wave.md")
-            self.assertEqual(direct, (self.waves / "x" / "wave.md").resolve())
+            direct, _events = self.srv._contained_wave_review_paths(self.root, self.waves / "x" / RECORD)
+            self.assertEqual(direct, (self.waves / "x" / RECORD).resolve())
         # The same path is accepted under the nested layout.
-        accepted, _events = self.srv._contained_wave_review_paths(self.root, deep / "wave.md")
-        self.assertEqual(accepted, (deep / "wave.md").resolve())
+        accepted, _events = self.srv._contained_wave_review_paths(self.root, deep / RECORD)
+        self.assertEqual(accepted, (deep / RECORD).resolve())
 
 
 class NestedPlanDocsTests(_NestedRepo):
@@ -380,7 +385,7 @@ class SingleWalkTests(_NestedRepo):
         self._create_wave("hidden", ".hidden")
         evidence = d1 / "evidence" / "nested"
         evidence.mkdir(parents=True)
-        (evidence / "wave.md").write_text("# Evidence, not a wave", encoding="utf-8")
+        (evidence / RECORD).write_text("# Evidence, not a wave", encoding="utf-8")
         real_rglob = Path.rglob
         waves_root = self.waves.resolve()
 
@@ -455,14 +460,14 @@ class SingleWalkTests(_NestedRepo):
         deep = self.waves / "a" / "b" / w1
         deep.parent.mkdir(parents=True)
         shutil.move(str(self.waves / w1), str(deep))
-        # A rename keeps wave.md's mtime and the count: the old key alone
+        # A rename keeps the record file's mtime and the count: the old key alone
         # cannot see the move.
         self.assertEqual(cache._wave_fingerprint(), fingerprint_before)
         moved = self.srv.wf_current_wave_response(self.root, cache)
         self.assertEqual(moved["status"], "ok", moved)
         paths = {w["wave_id"]: w["path"].replace("\\", "/") for w in moved["data"]["waves"]}
-        self.assertIn(f"{WAVES_REL}/a/b/{w1}/wave.md", paths[w1])
-        self.assertEqual(self.srv._find_wave_md(self.root, w1, cache.wave_dirs_cached()), deep / "wave.md")
+        self.assertIn(f"{WAVES_REL}/a/b/{w1}/{RECORD}", paths[w1])
+        self.assertEqual(self.srv._find_wave_md(self.root, w1, cache.wave_dirs_cached()), deep / RECORD)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-29
+Last verified: 2026-10-01
 
 ## Runtime advisory boundary
 
@@ -193,7 +193,7 @@ operator-driven behavior. Persistent lock-file presence alone never blocks work.
 2. Script reads `docs/workflow-config.json` `dashboard` settings to determine host, preferred port, fallback range, poll interval, and optional `include_dirs` for file-activity metrics
 3. Script resolves the runtime port using a preference-then-fallback strategy across a configured range; reuses the recorded port from `.wavefoundry/locks/dashboard-server.lock` when available and free
 4. Script holds `.wavefoundry/locks/dashboard-server.lock` for its lifetime and writes endpoint metadata into that same persistent inode (pid, host, port, url, started_at); launchers serialize the check/spawn/readiness handoff through `.wavefoundry/locks/dashboard-start.lock`
-5. Browser loads `dashboard.html` (shell), `dashboard.css` (design system tokens + layout), and `dashboard.js` (React application) from the loopback server; pinned React, React DOM, force-graph, and elkjs load from unpkg CDN URLs embedded in the HTML. No build toolchain required in target repos; graph scripts need network (or cache) on first load.
+5. Browser loads `dashboard.html` (shell), `dashboard.css` (design system tokens + layout), `dashboard.js` (React application), and the pinned React, React DOM, and elkjs bundles vendored under `dashboard/vendor/`, all from the loopback server's own origin; no network access is needed and no build toolchain is required in target repos. The server answers only requests whose `Host` is a loopback name (`localhost`, `127.0.0.1`, `::1`, any port) or the explicitly bound host, sent as a single `Host` header with a path-only request target (421 otherwise); a wildcard bind records a `127.0.0.1` URL. Every response carries a same-origin Content-Security-Policy and `X-Content-Type-Options: nosniff` (wave `1zim2`).
 6. Browser React app polls `/api/dashboard` on a graduated backoff schedule (2 → 5 → 8 → 13 → 21 → 30 s); resets to 2 s when the snapshot hash changes; UI state (selected agent, scroll) stays in browser memory
 7. On each poll, `dashboard_lib.collect_dashboard_snapshot` assembles the snapshot from:
    - `docs/waves/` and `docs/plans/` — wave and change records (status, tasks, AC counts, progress logs, participants, review evidence)

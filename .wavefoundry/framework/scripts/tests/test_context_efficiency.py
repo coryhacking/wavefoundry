@@ -23,6 +23,19 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import context_efficiency as ce  # noqa: E402
 import exploration_avoided as exploration  # noqa: E402
 import score_context_efficiency_pairs as scorer  # noqa: E402
+import record_paths  # noqa: E402
+import vocabulary_profile  # noqa: E402
+from record_layout_support import default_profile_only  # noqa: E402
+
+
+def _waves_dir(root: Path) -> Path:
+    """The configured waves root under ``root``."""
+    return root.joinpath(*record_paths.WAVES_ROOT.split("/"))
+
+
+def _record_path(root: Path, name: str) -> Path:
+    """The record file of container folder ``name`` under the waves root."""
+    return _waves_dir(root) / name / vocabulary_profile.RECORD_FILENAME
 
 
 class TempRootTest(unittest.TestCase):
@@ -1433,10 +1446,10 @@ class OpenWaveAttributionTests(TempRootTest):
         self.addCleanup(ce._reset_open_wave_cache)
 
     def _wave(self, wave_id: str, status: str = "implementing") -> Path:
-        wave_dir = self.root / "docs" / "waves" / wave_id
+        wave_dir = _waves_dir(self.root) / wave_id
         wave_dir.mkdir(parents=True)
-        (wave_dir / "wave.md").write_text(
-            f"# Wave Record\n\nStatus: {status}\n", encoding="utf-8"
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
+            f"{vocabulary_profile.RECORD_TITLE}\n\nStatus: {status}\n", encoding="utf-8"
         )
         return wave_dir
 
@@ -1463,6 +1476,7 @@ class OpenWaveAttributionTests(TempRootTest):
             ce.resolve_open_wave(self.root), ("1aaaa open-wave", "review")
         )
 
+    @default_profile_only("reads this repository's own live wave ledgers under the shipped waves root")
     def test_stage_derivation_parses_real_canonical_ledger(self):
         """1t3el repair: derivation must work against the ACTUAL canonical
         writer's output. Uses the real repository's live ledger (which holds
@@ -1485,8 +1499,8 @@ class OpenWaveAttributionTests(TempRootTest):
         ce._reset_open_wave_cache()
         # Closed waves are never attribution targets.
         for name in ("1aaaa first", "1aaab second"):
-            wave_md = self.root / "docs" / "waves" / name / "wave.md"
-            wave_md.write_text("# Wave\n\nStatus: closed\n", encoding="utf-8")
+            wave_md = _record_path(self.root, name)
+            wave_md.write_text(f"# {vocabulary_profile.CONTAINER_NAME}\n\nStatus: closed\n", encoding="utf-8")
         self.assertIsNone(ce.resolve_open_wave(self.root))
 
     def test_focusless_retrieval_attributes_to_open_wave(self):
@@ -1609,9 +1623,9 @@ class OpenWaveAttributionTests(TempRootTest):
         # A peer with general work that exits (lease released).
         # Record BEFORE the wave exists so the events stay general.
         peer_root = self.root  # same store
-        wave_md = self.root / "docs" / "waves" / "1aaaa open-wave" / "wave.md"
+        wave_md = _record_path(self.root, "1aaaa open-wave")
         original = wave_md.read_text(encoding="utf-8")
-        wave_md.write_text("# Wave\n\nStatus: closed\n", encoding="utf-8")
+        wave_md.write_text(f"# {vocabulary_profile.CONTAINER_NAME}\n\nStatus: closed\n", encoding="utf-8")
         ce._reset_open_wave_cache()
         peer = ce.ProcessTelemetry(peer_root)
         peer.record_retrieval(_metric(source_id="peer-src"), event_id="peer-1")
@@ -1703,10 +1717,10 @@ def _hold_then_release(path: Path, hold_seconds: float) -> threading.Thread:
 
 
 def _write_wave(root: Path, name: str, status: str) -> None:
-    wave_dir = root / "docs" / "waves" / name
-    wave_dir.mkdir(parents=True, exist_ok=True)
-    (wave_dir / "wave.md").write_text(
-        f"# Wave\n\nStatus: {status}\n", encoding="utf-8"
+    record = _record_path(root, name)
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(
+        f"# {vocabulary_profile.CONTAINER_NAME}\n\nStatus: {status}\n", encoding="utf-8"
     )
 
 

@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-21
+Last verified: 2026-10-01
 
 Reference doc covering how the local dashboard feature moves from the Wavefoundry framework pack into target repositories. Addresses packaging (build_pack.py), install (seed-010), upgrade (seed-160), and the sibling-directory runtime option.
 
 ## Overview
 
-The dashboard is a framework feature, not a per-repo app. Its assets (HTML shell, CSS, application JS) and server scripts are packaged into the semver framework zip distribution and seeded into target repositories through the standard install and upgrade flows. React, React DOM, force-graph, and elkjs load from pinned unpkg CDN URLs in `dashboard.html`; `dashboard.js` and `dashboard.css` are still served locally by the dashboard server. No Node.js, npm, or build toolchain is required in target repos at install or runtime. The dashboard graph view requires network access on first load (or a warm browser cache) for those CDN scripts.
+The dashboard is a framework feature, not a per-repo app. Its assets (HTML shell, CSS, application JS) and server scripts are packaged into the semver framework zip distribution and seeded into target repositories through the standard install and upgrade flows. React, React DOM, and elkjs are vendored at pinned versions under `dashboard/vendor/` (licences, sources, and SHA-256 hashes in `dashboard/vendor/README.md`) and are served, like `dashboard.js` and `dashboard.css`, from the dashboard's own origin, so the dashboard needs no network access. No Node.js, npm, or build toolchain is required in target repos at install or runtime. The server answers only requests addressed to a loopback host name or the explicitly bound host, and sends a same-origin Content-Security-Policy on every response (wave `1zim2`).
 
 ## Packaging (build_pack.py)
 
@@ -19,6 +19,7 @@ The dashboard is a framework feature, not a per-repo app. Its assets (HTML shell
 dashboard/dashboard.html
 dashboard/dashboard.css
 dashboard/dashboard.js
+dashboard/vendor/  (React, React DOM, elkjs, licences, README.md)
 scripts/dashboard_lib.py
 scripts/dashboard_server.py
 seeds/152-start-dashboard.prompt.md
@@ -74,7 +75,7 @@ The install seed does not backfill dashboard fields. For display-label keys, nor
 The `Upgrade Wavefoundry` flow (seed-160) adopts the new framework zip automatically — root-zip extraction is built into the upgrade, not a manual `unzip` step — overwriting dashboard assets in place. After the upgrade extracts the pack:
 
 1. The server script (`dashboard_server.py`) and shared reader (`dashboard_lib.py`) are replaced with the new version.
-2. The browser assets (`dashboard.js`, `dashboard.css`, `dashboard.html`, React bundles) are replaced.
+2. The browser assets (`dashboard.js`, `dashboard.css`, `dashboard.html`, and the vendored React, React DOM, and elkjs bundles under `dashboard/vendor/`) are replaced. The Host check and response headers take effect when a running dashboard restarts on the new release.
 3. The `docs/prompts/start-dashboard.prompt.md`, `docs/prompts/stop-dashboard.prompt.md`, and `docs/prompts/restart-dashboard.prompt.md` public prompt docs are refreshed if the seed content changed.
 4. No dashboard-block seeding or field backfill is performed by seed-160; absent settings use reader defaults. Review any existing operator-authored block against the current [adapter contract](dashboard-adapter-model.md#terminology-register).
 

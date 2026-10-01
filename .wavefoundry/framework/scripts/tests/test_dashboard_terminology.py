@@ -14,9 +14,16 @@ from pathlib import Path
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS_ROOT))
 import dashboard_lib
+import vocabulary_profile
 
 DASHBOARD_JS = SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js"
-DEFAULTS = {key: key for key in ("wave", "change", "task")}
+# The register keys stay canonical; their default labels follow the loaded
+# vocabulary profile (the shipped profile's are the keys themselves).
+DEFAULTS = {
+    "wave": vocabulary_profile.CONTAINER_NAME.lower(),
+    "change": vocabulary_profile.ITEM_NAME.lower(),
+    "task": "task",
+}
 
 # Skip comments and regex literals before examining strings, including templates.
 # Hyphen/underscore-bound identifiers (CSS classes) are not display nouns.
@@ -101,7 +108,7 @@ class DashboardTerminologyTests(unittest.TestCase):
         for supplied, expected, ignored in [
             ({"wave": "Sprint", "change": "Story", "task": "Step"}, {"wave": "Sprint", "change": "Story", "task": "Step"}, []),
             (None, DEFAULTS, []),
-            ({"feature": "Feature", "set": "Set", "wave": "Wave", "task": "Task"}, {"wave": "Wave", "change": "change", "task": "Task"}, ["feature", "set"]),
+            ({"feature": "Feature", "set": "Set", "wave": "Wave", "task": "Task"}, {"wave": "Wave", "change": DEFAULTS["change"], "task": "Task"}, ["feature", "set"]),
         ]:
             with self.subTest(supplied=supplied), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)

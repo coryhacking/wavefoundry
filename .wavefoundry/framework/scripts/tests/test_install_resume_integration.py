@@ -12,20 +12,21 @@ from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 FRAMEWORK = SCRIPTS.parent
-BASE = SCRIPTS / "tests/fixtures/docs_lint/base"
 sys.path.insert(0, str(SCRIPTS))
 
 import wf_server.docs_handlers as docs_handlers  # noqa: E402
 import review_policy  # noqa: E402
 import server_impl  # noqa: E402
+from record_layout_support import localized_docs_lint_fixture  # noqa: E402
 
 
 class PartialPromptInstallIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
-        shutil.copytree(BASE, self.root, dirs_exist_ok=True)
+        self.root = Path(self.temp.name) / "repo"
+        # The docs-lint fixture in the loaded profile's layout and vocabulary.
+        localized_docs_lint_fixture(self.root)
         target = self.root / ".wavefoundry/framework"
         shutil.copytree(
             SCRIPTS, target / "scripts",

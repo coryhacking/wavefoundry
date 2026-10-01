@@ -8,6 +8,7 @@ the advisory ``record_file_not_found`` diagnostic from ``list_waves``,
 """
 from __future__ import annotations
 
+import re
 import shutil
 import sys
 import tempfile
@@ -21,11 +22,17 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 import record_paths  # noqa: E402
 import vocabulary_profile  # noqa: E402
-from record_layout_support import patch_layout  # noqa: E402
+from record_layout_support import apply_layout, patch_layout  # noqa: E402
 from server_tools_support import _make_repo, load_server  # noqa: E402
 import test_docs_lint as _docs_lint  # noqa: E402  (module import keeps its tests out of this module)
 from wave_lint_lib.constants import SENSOR_POLARITY_REGISTRY  # noqa: E402
 from wave_lint_lib.wave_validators import record_discovery_findings  # noqa: E402
+
+
+# The configured record filename, and a name a record written under another
+# profile could carry instead.
+RECORD = vocabulary_profile.RECORD_FILENAME
+OTHER_RECORD = "other-record.md"
 
 
 def _errors(**overrides) -> list[str]:
@@ -139,20 +146,23 @@ class ValidationTests(unittest.TestCase):
                            PREVIOUS_STATUS_LABEL="Previous stat")
 
     def test_labels_must_differ_from_each_other(self) -> None:
-        self.assertRefused("BACKREF_LABEL", BACKREF_LABEL="Change ID")
-        self.assertRefused("ID_KEY", ID_KEY="Wave")
+        self.assertRefused("BACKREF_LABEL", BACKREF_LABEL=vocabulary_profile.MEMBER_ID_LABEL)
+        self.assertRefused("ID_KEY", ID_KEY=vocabulary_profile.BACKREF_LABEL)
 
     def test_labels_differing_only_in_case_are_refused(self) -> None:
         # AC-3: duplicates are compared casefolded.
-        self.assertRefused("BACKREF_LABEL", BACKREF_LABEL="change id")
-        self.assertRefused("ID_KEY", ID_KEY="WAVE")
+        self.assertRefused("BACKREF_LABEL", BACKREF_LABEL=vocabulary_profile.MEMBER_ID_LABEL.lower())
+        self.assertRefused("ID_KEY", ID_KEY=vocabulary_profile.BACKREF_LABEL.upper())
 
 
 class DiscoveryDiagnosticTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
-        self.waves = self.root / "docs" / "waves"
+        roots = record_paths.load_record_roots(self.root)
+        self.waves, self.waves_rel = roots.waves, roots.waves_rel
+        # The flat layout unless a test patches it: the nested cases say so.
+        apply_layout(self, modules=(record_paths,), nested=False)
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -172,16 +182,17 @@ class DiscoveryDiagnosticTests(unittest.TestCase):
         self.assertEqual(record_discovery_findings(self.root), [])
 
     def test_matching_record_is_silent(self) -> None:
-        self._folder("1abcd first", "wave.md")
-        self._folder("1abce second", "set.md")
+        self._folder("1abcd first", RECORD)
+        self._folder("1abce second", OTHER_RECORD)
         self.assertIsNone(record_paths.record_discovery_mismatch(self.root))
 
     def test_other_record_filename_reports(self) -> None:
-        self._folder("1abcd first", "set.md")
-        self._folder("1abce second", "set.md")
+        self._folder("1abcd first", OTHER_RECORD)
+        self._folder("1abce second", OTHER_RECORD)
         message = record_paths.record_discovery_mismatch(self.root)
-        self.assertRegex(message, r"^record_file_not_found: the waves root has 2 folder\(s\) but none holds `wave\.md`")
-        self.assertEqual(record_discovery_findings(self.root), [f"docs/waves/: {message}"])
+        self.assertRegex(
+            message, rf"^record_file_not_found: the waves root has 2 folder\(s\) but none holds `{re.escape(RECORD)}`")
+        self.assertEqual(record_discovery_findings(self.root), [f"{self.waves_rel}/: {message}"])
 
     # Change 1z8ql: candidates without a (non-dot) file are ignored.
     def _fileless_shapes(self) -> None:
@@ -203,14 +214,14 @@ class DiscoveryDiagnosticTests(unittest.TestCase):
 
     def test_renamed_record_beside_fileless_folders_reports_only_counted_folders(self) -> None:
         self._fileless_shapes()
-        self._folder("1abce renamed", "set.md")
+        self._folder("1abce renamed", OTHER_RECORD)
         message = record_paths.record_discovery_mismatch(self.root)
         self.assertRegex(message, r"^record_file_not_found: the waves root has 1 folder\(s\) ")
 
     def test_renamed_nested_leaf_under_fileless_group_reports(self) -> None:
         leaf = self.waves / "group" / "1abcd renamed"
         leaf.mkdir(parents=True)
-        (leaf / "set.md").write_text("# Set Record\n", encoding="utf-8")
+        (leaf / OTHER_RECORD).write_text("# Set Record\n", encoding="utf-8")
         with patch_layout(modules=(record_paths,), nested=True, max_depth=4):
             message = record_paths.record_discovery_mismatch(self.root)
         self.assertRegex(message, r"^record_file_not_found: the waves root has 1 folder\(s\) ")
@@ -218,7 +229,7 @@ class DiscoveryDiagnosticTests(unittest.TestCase):
         self.assertIsNone(record_paths.record_discovery_mismatch(self.root))
 
     def test_unlistable_folder_counts_as_fileless(self) -> None:
-        self._folder("1abcd renamed", "set.md")
+        self._folder("1abcd renamed", OTHER_RECORD)
         leaf = (self.waves / "1abcd renamed").resolve()
         real_scandir = record_paths.os.scandir
 
@@ -237,7 +248,7 @@ class DiscoveryDiagnosticTests(unittest.TestCase):
 
     def test_server_listing_and_current_wave_report(self) -> None:
         srv = load_server()
-        self._folder("1abcd first", "set.md")
+        self._folder("1abcd first", OTHER_RECORD)
         listed = srv.wf_list_waves_response(self.root)
         current = srv.wf_current_wave_response(self.root)
         for response in (listed, current):
@@ -258,16 +269,17 @@ class DiscoveryLintTests(unittest.TestCase):
     def test_lint_warns_when_records_use_another_filename(self) -> None:
         root = self.helper.copy_fixture()
         try:
-            records = sorted((root / "docs" / "waves").rglob("wave.md"))
-            self.assertTrue(records, "fixture holds no wave record")
+            waves_rel = record_paths.load_record_roots(root).waves_rel
+            records = sorted(record_paths.load_record_roots(root).waves.rglob(RECORD))
+            self.assertTrue(records, "fixture holds no container record")
             for record in records:
-                record.rename(record.with_name("set.md"))
+                record.rename(record.with_name(OTHER_RECORD))
             result = self.helper.run_docs_lint(root)
         finally:
             shutil.rmtree(root)
         self.assertRegex(
             result.stderr,
-            r"(?m)^WARNING: docs/waves/: record_file_not_found: .*advisory sensor `record_file_not_found`",
+            rf"(?m)^WARNING: {re.escape(waves_rel)}/: record_file_not_found: .*advisory sensor `record_file_not_found`",
         )
         self.assertNotRegex(result.stderr, r"(?m)^ERROR: .*record_file_not_found")
 

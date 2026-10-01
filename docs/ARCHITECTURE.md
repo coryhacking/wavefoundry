@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-10-01
 
 Hub index for Wavefoundry architecture documentation. Child docs provide detail; this file provides scope, update triggers, and cross-links.
 
@@ -14,7 +14,7 @@ At runtime a reader meets four pieces: `wf setup` bootstraps the shared tool ven
 
 The framework's write footprint in a target is documented and code-scoped: `.wavefoundry/framework/` on install and upgrade, rendered host surfaces, marker-bounded regions and explicit lifecycle records under `docs/`, and ignored host-local state under `.wavefoundry/`; it never writes `.github/workflows/` or `.git/hooks/`, project-authored bytes outside marker regions, or any path outside the repository root (`render_platform_surfaces._PLATFORM_WRITE_ROOTS`, lines 130-137; `_preflight_platform_render_paths`, lines 140-176; `server_impl.resolve_path_under_root`, lines 3283-3309; [Layering rules](architecture/layering-rules.md), Boundary Invariants).
 
-The documented principle (repository `AGENTS.md`) is that no network call is required at runtime for install, upgrade, validation, indexing, or packaging; the two network touchpoints to know are these: setup may download Python dependencies and embedding models before verifying the cache offline, and the dashboard's browser assets load from unpkg on first load (`setup_index._offline_env`, lines 597-607; [Data and control flow](architecture/data-and-control-flow.md), Path 5 steps 2-3 and Path 7 step 5). Everything runs with the operator's own authority: the MCP server speaks stdio to its host process and opens no listener, the dashboard binds loopback by default and warns on any other host, and neither carries authentication; the [threat model](architecture/threat-model.md) names the promotion triggers that would re-scope that (Trust Boundaries, Promotion Triggers).
+The documented principle (repository `AGENTS.md`) is that no network call is required at runtime for install, upgrade, validation, indexing, or packaging; the one network touchpoint to know is that setup may download Python dependencies and embedding models before verifying the cache offline (`setup_index._offline_env`, lines 597-607; [Data and control flow](architecture/data-and-control-flow.md), Path 5 steps 2-3); the dashboard's browser assets are vendored and served from its own origin (Path 7 step 5). Everything runs with the operator's own authority: the MCP server speaks stdio to its host process and opens no listener, the dashboard binds loopback by default, warns on any other host, and answers only requests addressed to a loopback host name or the bound host, and neither carries authentication; the [threat model](architecture/threat-model.md) names the promotion triggers that would re-scope that (Trust Boundaries, Promotion Triggers).
 
 The review-authority tables (Boundary Invariants and Allowed Dependencies in the layering rules, Interaction Edges and Dependency Direction Rules in the domain map, State Ownership in data-and-control-flow) are the structural authority; this hub summarizes and links to them and does not restate their rows.
 

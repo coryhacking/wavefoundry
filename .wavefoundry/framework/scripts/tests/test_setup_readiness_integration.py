@@ -219,17 +219,9 @@ class SharedAssessmentTests(unittest.TestCase):
         import server_impl
         from unittest.mock import Mock
 
-        tools = {}
-
-        class Registry:
-            def tool(self, *args, **kwargs):
-                def register(function):
-                    tools[function.__name__] = function
-                    return function
-                return register
-
-            def resource(self, *args, **kwargs):
-                return lambda function: function
+        from declaration_support import RecordingFastMCP  # shared FastMCP-backed double (change 1zim4)
+        registry = RecordingFastMCP()
+        tools = registry.tools
 
         handler = Mock()
         assessment = result("indeterminate")
@@ -240,7 +232,7 @@ class SharedAssessmentTests(unittest.TestCase):
         handler.assess_setup.side_effect = lambda **kwargs: calls.append("assessment") or assessment
         handler.background_monitor_status.side_effect = lambda: calls.append("snapshot") or {"setup_readiness": assessment}
         with patch.object(server_impl, "index_health_response", return_value={"status": "ok", "data": {}}):
-            server_impl.register_mcp_surface(Registry(), lambda: handler)
+            server_impl.register_mcp_surface(registry, lambda: handler)
             response = tools["index_health"]()
         self.assertEqual(calls, ["assessment", "snapshot"])
         self.assertEqual(response["data"]["setup_readiness"], assessment)

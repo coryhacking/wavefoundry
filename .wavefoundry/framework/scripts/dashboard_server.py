@@ -682,6 +682,73 @@ class SnapshotStore:
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", ""})
 
+# Wave 1zim2: request Host names always answered, on any port (port forwards keep working).
+_LOOPBACK_HOST_NAMES = frozenset({"localhost", "127.0.0.1", "::1"})
+# Wildcard binds name no host, so they admit loopback names only.
+_WILDCARD_BIND_HOSTS = frozenset({"", "0.0.0.0", "::"})
+
+# Wave 1zim2: sent on every response. Scripts, styles and fetches come only from the
+# dashboard's own origin (the third-party scripts are vendored under dashboard/vendor/).
+_SECURITY_HEADERS = (
+    (
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; "
+        "base-uri 'none'; frame-ancestors 'none'",
+    ),
+    ("X-Content-Type-Options", "nosniff"),
+)
+
+
+def _normalize_host_name(name: str) -> str:
+    """Lowercase, strip IPv6 brackets and one trailing dot."""
+    name = name.strip().lower()
+    if name.startswith("[") and name.endswith("]"):
+        name = name[1:-1]
+    if name.endswith("."):
+        name = name[:-1]
+    return name
+
+
+def _request_host_name(header: str | None) -> str | None:
+    """The hostname of a ``Host`` header value without its port, or None when malformed."""
+    if not header:
+        return None
+    value = header.strip()
+    if value.startswith("["):
+        end = value.find("]")
+        if end < 0:
+            return None
+        rest = value[end + 1:]
+        if rest and not (rest.startswith(":") and rest[1:].isdigit()):
+            return None
+        return _normalize_host_name(value[: end + 1])
+    name, sep, port = value.rpartition(":")
+    if not sep:
+        name = value
+    elif not port.isdigit() or ":" in name:
+        # An unbracketed IPv6 literal is not a valid Host value.
+        return None
+    return _normalize_host_name(name) or None
+
+
+def _host_allowed(header: str | None, bound_host: str | None) -> bool:
+    name = _request_host_name(header)
+    if name is None:
+        return False
+    if name in _LOOPBACK_HOST_NAMES:
+        return True
+    bound = _normalize_host_name(bound_host or "")
+    return bound not in _WILDCARD_BIND_HOSTS and name == bound
+
+
+def _advertised_host(bind_host: str) -> str:
+    """The host name the recorded dashboard URL uses for ``bind_host``.
+
+    A wildcard bind is reached through IPv4 loopback: the server socket is IPv4, so ``0.0.0.0``
+    and ``""`` listen on 127.0.0.1, and a browser sending ``Host: 0.0.0.0`` would be refused.
+    """
+    return "127.0.0.1" if _normalize_host_name(bind_host) in _WILDCARD_BIND_HOSTS else bind_host
+
 
 def _asset_path(name: str) -> Path:
     asset_root = ASSET_ROOT.resolve()
@@ -767,6 +834,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def _store(self) -> SnapshotStore:
         return self.server.snapshot_store  # type: ignore[attr-defined]
 
+    def end_headers(self) -> None:
+        # Wave 1zim2: every response (JSON, assets, SSE, redirect, send_error) carries these.
+        for name, value in _SECURITY_HEADERS:
+            self.send_header(name, value)
+        super().end_headers()
+
     def _send_json(self, payload: Any, status: int = 200) -> None:
         data = json.dumps(payload).encode("utf-8")
         self.send_response(status)
@@ -831,7 +904,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
         finally:
             self._store.unregister_sse_client(client)
 
+    def _request_addressed_here(self) -> bool:
+        """Wave 1zim2: exactly one Host naming a loopback name or the bound host, origin-form target."""
+        hosts = self.headers.get_all("Host") or []
+        if len(hosts) != 1 or not self.path.startswith("/") or urlparse(self.path).netloc:
+            return False
+        return _host_allowed(hosts[0], getattr(self.server, "bound_host", None))
+
     def do_GET(self) -> None:  # noqa: N802
+        if not self._request_addressed_here():
+            # Wave 1zim2: answer only requests addressed to a loopback name or the bound host.
+            return self.send_error(HTTPStatus.MISDIRECTED_REQUEST, "Host not served by this dashboard")
         path = urlparse(self.path).path
         if path in ("/", ""):
             self.send_response(HTTPStatus.FOUND)
@@ -1088,11 +1171,14 @@ def main(argv: list[str] | None = None) -> int:
 
     httpd = _QuietThreadingHTTPServer((host, port), DashboardHandler)
     httpd.repo_root = root  # type: ignore[attr-defined]
+    # Wave 1zim2: an explicit non-loopback bind also answers its own host name.
+    httpd.bound_host = host  # type: ignore[attr-defined]
 
     # Write metadata immediately after binding so MCP callers can detect the URL
     # without waiting for the (potentially slow) initial snapshot build.
     entrypoint = cfg["entrypoint"]
-    url = f"http://{host}:{port}/{entrypoint}"
+    # Wave 1zim2: a wildcard bind advertises a loopback URL the Host check admits.
+    url = f"http://{_advertised_host(host)}:{port}/{entrypoint}"
     dashboard_lib.write_dashboard_metadata(
         root,
         {

@@ -1598,6 +1598,14 @@ class DanglingEndpointFilterTests(_IncrementalMergeBase):
         presence assertions on BOTH payloads, because the differential is
         blind to an exemption the oracle applies too."""
         d = self.driver
+        # A document under the configured live waves root (excluded from the
+        # doc scan), whatever the profile's layout.
+        import posixpath
+
+        import record_paths
+
+        wave_doc = f"{record_paths.WAVES_ROOT}/w.md"
+        wave_link = posixpath.relpath(wave_doc, "docs")
         d.write(
             "com/x/Repo.java",
             "package com.x;\nimport org.ext.BaseRepo;\n"
@@ -1605,11 +1613,11 @@ class DanglingEndpointFilterTests(_IncrementalMergeBase):
             "  public void run() { helper(); }\n}\n",
         )
         d.write(".gitignore", "*.pyc\n")
-        d.write("docs/waves/w.md", "## Wave\n\nexcluded from the doc scan.\n")
-        d.write("docs/gi.md", "## GI\n\nSee [ignore](../.gitignore) and [wave](waves/w.md).\n")
+        d.write(wave_doc, "## Wave\n\nexcluded from the doc scan.\n")
+        d.write("docs/gi.md", f"## GI\n\nSee [ignore](../.gitignore) and [wave]({wave_link}).\n")
         d.write(
             "docs/agents/memory/mem-1.md",
-            "# Mem\n\n## Targets\n\n- `docs/waves/w.md`\n\n## Body\n\ntext\n",
+            f"# Mem\n\n## Targets\n\n- `{wave_doc}`\n\n## Body\n\ntext\n",
         )
         incremental = d.build_incremental(set(d.files))
         # An unrelated edit so the served payload is a re-emission of stored
@@ -1622,8 +1630,8 @@ class DanglingEndpointFilterTests(_IncrementalMergeBase):
             ("com/x/Repo.java", "external::Runnable", "implements"),
             ("com/x/Repo.java::Repo.run", "external::Repo.helper", "calls"),
             ("docs/gi.md", ".gitignore", "doc_references_doc"),
-            ("docs/gi.md", "docs/waves/w.md", "doc_references_doc"),
-            ("docs/agents/memory/mem-1.md", "docs/waves/w.md", "memory_targets"),
+            ("docs/gi.md", wave_doc, "doc_references_doc"),
+            ("docs/agents/memory/mem-1.md", wave_doc, "memory_targets"),
         }
         for label, payload in (("incremental", incremental), ("oracle", oracle)):
             ids = self._node_ids(payload)
@@ -1635,7 +1643,7 @@ class DanglingEndpointFilterTests(_IncrementalMergeBase):
                 expected <= keys,
                 f"[{label}] missing exempt endpoint edges: {sorted(expected - keys)}",
             )
-            for tgt in (".gitignore", "docs/waves/w.md"):
+            for tgt in (".gitignore", wave_doc):
                 self.assertNotIn(tgt, ids, f"[{label}] {tgt} must stay node-less (the exemption is what keeps its edge)")
         self.assert_equivalent(incremental, oracle, "exempt endpoints")
 

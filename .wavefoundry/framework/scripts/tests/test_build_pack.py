@@ -13,6 +13,10 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 import build_pack  # noqa: E402
 import model_bundle  # noqa: E402
+import vocabulary_profile  # noqa: E402
+
+sys.path.insert(0, str(SCRIPTS_DIR / "tests"))
+from record_layout_support import waves_dir  # noqa: E402
 
 FAKE_PREFIX = "2tm5"
 FAKE_VERSION = "1.0.0"
@@ -326,6 +330,27 @@ class BuildPackTests(unittest.TestCase):
         self.assertIn("def repair_independence_violations", writer)
         self.assertIn("REVIEW_EVIDENCE_INDEPENDENCE_INVALID", server)
 
+    def test_install_pack_carries_the_vendored_dashboard_scripts(self):
+        # Wave 1zim2 (1zilx): the dashboard loads its scripts from its own origin,
+        # so the vendored copies, their licences and the notice ship byte-for-byte.
+        path = self._build()
+        vendor = SCRIPTS_DIR.parent / "dashboard" / "vendor"
+        members = (
+            "react/react.production.min.js", "react/LICENSE",
+            "react-dom/react-dom.production.min.js", "react-dom/LICENSE",
+            "elkjs/elk.bundled.js", "elkjs/LICENSE.md", "README.md",
+        )
+        with zipfile.ZipFile(path, "r") as archive:
+            names = set(archive.namelist())
+            html = archive.read(".wavefoundry/framework/dashboard/dashboard.html").decode("utf-8")
+            for rel in members:
+                arcname = ".wavefoundry/framework/dashboard/vendor/" + rel
+                with self.subTest(member=rel):
+                    self.assertIn(arcname, names)
+                    self.assertEqual(archive.read(arcname), (vendor / rel).read_bytes())
+        self.assertIn('src="/vendor/elkjs/elk.bundled.js"', html)
+        self.assertNotIn("unpkg.com", html)
+
     def test_install_pack_carries_dashboard_document_renderer_and_memory_backfill(self):
         path = self._build()
         with zipfile.ZipFile(path, "r") as archive:
@@ -381,11 +406,16 @@ class BuildPackTests(unittest.TestCase):
                 }),
                 encoding="utf-8",
             )
+            # Records in the packaged tree's layout and vocabulary (the pack
+            # carries the loaded record_paths and vocabulary_profile).
+            import vocabulary_profile as vp
+            from record_layout_support import RecordTreeBuilder
+
             for wave_id in ("1aaaa other-wave", "1bbbb target-wave"):
-                wave_md = target / "docs" / "waves" / wave_id / "wave.md"
+                wave_md = RecordTreeBuilder(target).waves_dir / wave_id / vp.RECORD_FILENAME
                 wave_md.parent.mkdir(parents=True)
                 wave_md.write_text(
-                    f"# Wave Record\n\nStatus: planned\n\nwave-id: `{wave_id}`\n",
+                    f"{vp.RECORD_TITLE}\n\nStatus: planned\n\n{vp.ID_KEY}: `{wave_id}`\n",
                     encoding="utf-8",
                 )
             probe = r"""
@@ -447,7 +477,7 @@ print(json.dumps({
             target.mkdir()
             with zipfile.ZipFile(path, "r") as archive:
                 archive.extractall(target)
-            (target / "docs" / "waves").mkdir(parents=True)
+            waves_dir(target).mkdir(parents=True)
             scripts = target / ".wavefoundry" / "framework" / "scripts"
             python_probe = r"""
 import json, sys
@@ -564,7 +594,7 @@ process.stdout.write(JSON.stringify(rendered.map(text)));
     def test_extracting_install_pack_does_not_mutate_historical_waves(self):
         path = self._build()
         target = self.tmp / "target"
-        legacy_wave = target / "docs" / "waves" / "legacy-wave" / "wave.md"
+        legacy_wave = waves_dir(target) / "legacy-wave" / vocabulary_profile.RECORD_FILENAME
         legacy_wave.parent.mkdir(parents=True)
         sentinel = b"# Historical wave\n\nLegacy narrative remains byte-stable.\n"
         legacy_wave.write_bytes(sentinel)

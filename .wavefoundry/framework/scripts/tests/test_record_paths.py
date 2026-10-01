@@ -17,7 +17,8 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import record_paths as rp  # noqa: E402
-from record_layout_support import apply_layout, patch_layout  # noqa: E402
+import vocabulary_profile as vp  # noqa: E402
+from record_layout_support import apply_layout, default_profile_only, patch_layout  # noqa: E402
 
 
 class _TempRoot(unittest.TestCase):
@@ -30,6 +31,7 @@ class _TempRoot(unittest.TestCase):
 
 
 class ShippedLayoutTests(_TempRoot):
+    @default_profile_only("pins the shipped layout constants and their historical joins")
     def test_shipped_constants_are_the_historical_layout_byte_identical(self):
         # The constants ARE the layout; the historical literal joins must be reproduced exactly.
         self.assertEqual(rp.WAVES_ROOT, "docs/waves")
@@ -54,7 +56,9 @@ class ShippedLayoutTests(_TempRoot):
             '{"record_layout": {"waves_root": "elsewhere"}, "wave_implement": {"wave_root": "legacy/"}}',
             encoding="utf-8",
         )
-        self.assertEqual(rp.load_record_roots(self.root).waves_rel, "docs/waves")
+        waves_rel = rp.load_record_roots(self.root).waves_rel
+        self.assertEqual(waves_rel, rp.WAVES_ROOT)
+        self.assertNotIn(waves_rel, ("elsewhere", "legacy"))
         self.assertFalse(hasattr(rp, "read_record_layout"))
         self.assertFalse(hasattr(rp, "legacy_key_hint"))
 
@@ -86,7 +90,8 @@ class ShippedLayoutTests(_TempRoot):
     def test_layout_constants_are_read_at_call_time(self):
         before = rp.layout_constants()
         with patch_layout(modules=(rp,), waves_root="records/waves", nested=True, max_depth=2):
-            self.assertEqual(rp.layout_constants(), ("records/waves", "docs/plans", True, 2))
+            # The archive root is appended only when set; this patch leaves it as loaded.
+            self.assertEqual(rp.layout_constants(), ("records/waves", rp.PLANS_ROOT, True, 2) + before[4:])
         self.assertEqual(rp.layout_constants(), before)
 
 
@@ -323,14 +328,17 @@ class NestedDiscoveryTests(_TempRoot):
 
     def setUp(self):
         super().setUp()
-        self.waves = self.root / "docs" / "waves"
+        self.waves = self.root.joinpath(*rp.WAVES_ROOT.split("/"))
         self.waves.mkdir(parents=True)
 
     def _wave(self, rel: str) -> Path:
         d = self.waves.joinpath(*rel.split("/"))
         d.mkdir(parents=True, exist_ok=True)
-        (d / "wave.md").write_text("# Wave Record\n\nStatus: planned\n", encoding="utf-8")
+        (d / vp.RECORD_FILENAME).write_text(f"{vp.RECORD_TITLE}\n\nStatus: planned\n", encoding="utf-8")
         return d
+
+    def _flat(self):
+        apply_layout(self, modules=(rp,), nested=False)
 
     def _nested(self, max_depth=None):
         layout = {"nested": True}
@@ -339,21 +347,24 @@ class NestedDiscoveryTests(_TempRoot):
         apply_layout(self, modules=(rp,), **layout)
 
     def test_flat_returns_immediate_children_with_wave_md_only(self):
+        self._flat()
         a = self._wave("1aaaa one")
         self._wave("group/1bbbb two")  # nested: invisible in flat mode
-        (self.waves / "loose").mkdir()  # no wave.md
+        (self.waves / "loose").mkdir()  # no record file
         self.assertEqual(rp.discover_wave_dirs(self.root), [a])
         self.assertEqual(rp.walk_wave_candidates(self.root), [a, self.waves / "group", self.waves / "loose"])
         roots = rp.load_record_roots(self.root)
         self.assertFalse(roots.nested)
-        self.assertEqual(roots.max_depth, 4)
+        self.assertEqual(roots.max_depth, rp.MAX_DEPTH)
 
     def test_flat_never_lists_a_file_as_a_candidate(self):
         # Review finding: the is_dir filter had no discriminating test.
+        self._flat()
         a = self._wave("1aaaa one")
         (self.waves / "1zzzz stray.md").write_text("x", encoding="utf-8")
         self.assertEqual(rp.walk_wave_candidates(self.root), [a])
 
+    @default_profile_only("pins the shipped MAX_DEPTH default of four")
     def test_default_max_depth_is_four_and_finds_a_depth_four_wave(self):
         # Review finding: the default was pinned tautologically.
         apply_layout(self, modules=(rp,), nested=True)
@@ -390,7 +401,7 @@ class NestedDiscoveryTests(_TempRoot):
         outside = tempfile.TemporaryDirectory()
         self.addCleanup(outside.cleanup)
         (Path(outside.name) / "1ssss linked").mkdir()
-        (Path(outside.name) / "1ssss linked" / "wave.md").write_text("x", encoding="utf-8")
+        (Path(outside.name) / "1ssss linked" / vp.RECORD_FILENAME).write_text("x", encoding="utf-8")
         os.symlink(outside.name, self.waves / "linked")
         self.assertEqual(rp.discover_wave_dirs(self.root), [a])
 
@@ -399,10 +410,11 @@ class NestedDiscoveryTests(_TempRoot):
         # AC-1: the flat layout matches the pre-change ``iterdir`` enumeration,
         # so a symlinked wave folder is found here and refused downstream by the
         # record-writer path-escape guards (pinned in the lifecycle suite).
+        self._flat()
         a = self._wave("1aaaa one")
         outside = tempfile.TemporaryDirectory()
         self.addCleanup(outside.cleanup)
-        (Path(outside.name) / "wave.md").write_text("x", encoding="utf-8")
+        (Path(outside.name) / vp.RECORD_FILENAME).write_text("x", encoding="utf-8")
         os.symlink(outside.name, self.waves / "1ssss linked")
         self.assertEqual(rp.discover_wave_dirs(self.root), [a, self.waves / "1ssss linked"])
 
@@ -438,8 +450,9 @@ class NestedDiscoveryTests(_TempRoot):
         lines = rp.ambiguous_wave_id_diagnostics(self.root, dirs)
         self.assertEqual(len(lines), 1)
         self.assertTrue(lines[0].startswith("ambiguous_wave_id: 1aaaa at "))
-        self.assertIn("docs/waves/1aaaa one", lines[0])
-        self.assertIn("docs/waves/team/1aaaa one-again", lines[0])
+        prefix = rp.load_record_roots(self.root).waves_prefix
+        self.assertIn(f"{prefix}1aaaa one", lines[0])
+        self.assertIn(f"{prefix}team/1aaaa one-again", lines[0])
 
     def test_ambiguity_diagnostics_tolerate_a_resolved_path_against_an_unresolved_root(self):
         # Review finding F3: /var vs /private/var.
@@ -449,7 +462,8 @@ class NestedDiscoveryTests(_TempRoot):
         dirs = [d.resolve() for d in rp.discover_wave_dirs(self.root)]
         lines = rp.ambiguous_wave_id_diagnostics(self.root, dirs)
         self.assertEqual(len(lines), 1)
-        self.assertIn("docs/waves/1aaaa one, docs/waves/team/1aaaa one-again", lines[0])
+        prefix = rp.load_record_roots(self.root).waves_prefix
+        self.assertIn(f"{prefix}1aaaa one, {prefix}team/1aaaa one-again", lines[0])
 
     def test_wave_id_of_lower_cases_the_token(self):
         self.assertEqual(rp.wave_id_of(Path("1ABCD Slug")), "1abcd")

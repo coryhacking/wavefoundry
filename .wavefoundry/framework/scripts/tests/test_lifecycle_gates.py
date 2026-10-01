@@ -11,6 +11,8 @@ from unittest.mock import patch
 
 import lifecycle_gates as gates
 import lifecycle_gate_support as support
+import record_paths
+import vocabulary_profile
 from server_tools_support import load_server
 from test_lifecycle_golden import (
     build_fixtures, _APPROVAL_INTEGRITY, _approval_evidence, _stub_validate,
@@ -21,6 +23,17 @@ PHASE_TUPLES = (
     'PREPARE_ACTIVATION_GATES', 'PREPARE_READINESS_GATES',
     'REVIEW_GATES', 'CLOSE_SHARED_GATES', 'CLOSE_HARD_GATES',
 )
+
+
+def _wave_record(root, wave_id):
+    """The fixture's container record, found the way the framework finds it."""
+    folder = next(d for d in record_paths.discover_wave_dirs(root) if d.name == wave_id)
+    return vocabulary_profile.record_file(folder)
+
+
+def _member_doc(wave_md):
+    """The one change document beside a container record."""
+    return next(path for path in wave_md.parent.glob('*.md') if path.name != wave_md.name)
 
 
 def polarity(gate_name):
@@ -54,7 +67,7 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
 
     def context(self, name='active_typed_approvals', *, phase='prepare', mode='ready'):
         root, wave_id = self.fixtures[name]
-        wave_md = root / 'docs' / 'waves' / wave_id / 'wave.md'
+        wave_md = _wave_record(root, wave_id)
         return gates.GateContext(root, wave_md, wave_md.read_text(encoding='utf-8'),
                                  mode, _stub_validate(root), phase)
 
@@ -347,7 +360,7 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
         # only reading the source: a clause that parses but fails at runtime,
         # carries the wrong payload, or is marked advisory would pass an AST pin.
         ctx = self.context(phase='close')
-        change = next(q for q in ctx.wave_md.parent.glob('*.md') if q.name != 'wave.md')
+        change = _member_doc(ctx.wave_md)
         with patch.object(srv, '_publish_prepare_policy_state',
                           side_effect=review_evidence.ProjectPublicationUnavailable('lock held')):
             response = srv._mark_change_item_response(
@@ -441,7 +454,7 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
     def test_close_checkbox_gate_pass_fail(self):
         ctx = self.context(phase='close')
         self.assertEqual(self.codes(gates.close_checkbox_gate(ctx)), [])
-        change = next(path for path in ctx.wave_md.parent.glob('*.md') if path.name != 'wave.md')
+        change = _member_doc(ctx.wave_md)
         change.write_text(change.read_text(encoding='utf-8').replace('- [x] AC-1:', '- [ ] AC-1:'), encoding='utf-8')
         result = gates.close_checkbox_gate(ctx)
         self.assertEqual(self.codes(result), ['silent_unchecked_items_at_close'])
@@ -527,12 +540,12 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
     @polarity('change_location_gate')
     def test_change_location_gate_pass_fail(self):
         ctx = self.context()
-        change = next(path for path in ctx.wave_md.parent.glob('*.md') if path.name != 'wave.md')
+        change = _member_doc(ctx.wave_md)
         accepted = gates.change_location_gate(ctx, admitted_change=change.stem)
         self.assertEqual(self.codes(accepted), [])
         self.assertEqual(accepted.data['change_path'], change)
         self.assertFalse(accepted.data['skip'])
-        staged = ctx.root / 'docs' / 'plans' / change.name
+        staged = record_paths.load_record_roots(ctx.root).plans / change.name
         staged.parent.mkdir(parents=True, exist_ok=True)
         staged.write_bytes(change.read_bytes())
         duplicate = gates.change_location_gate(ctx, admitted_change=change.stem)
@@ -551,7 +564,7 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
     @polarity('change_sections_gate')
     def test_change_sections_gate_pass_fail(self):
         ctx = self.context()
-        change = next(path for path in ctx.wave_md.parent.glob('*.md') if path.name != 'wave.md')
+        change = _member_doc(ctx.wave_md)
         text = change.read_text(encoding='utf-8')
         self.assertEqual(self.codes(gates.change_sections_gate(ctx, admitted_change=change.stem, change_text=text)), [])
         missing = gates.change_sections_gate(ctx, admitted_change=change.stem, change_text=text.replace('## Requirements', '## Removed'))
@@ -575,7 +588,7 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
     def test_policy_advisory_gate_pass_fail(self):
         ctx = self.context(mode='dry_run')
         self.assertEqual(self.codes(gates.policy_advisory_gate(ctx, policy_state={})), [])
-        change = next(path for path in ctx.wave_md.parent.glob('*.md') if path.name != 'wave.md')
+        change = _member_doc(ctx.wave_md)
         change.write_text(change.read_text(encoding='utf-8').replace('Fixture requirement.', 'Changed requirement.'), encoding='utf-8')
         rejected = gates.policy_advisory_gate(ctx, policy_state={})
         self.assertEqual(self.codes(rejected), ['review_policy_receipt_stale'])
@@ -595,10 +608,13 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
     def test_single_open_gate_pass_fail(self):
         ctx = self.context('planned_with_verdict', mode='create')
         self.assertEqual(self.codes(gates.single_open_gate(ctx, other_active=None)), [])
-        other = {'wave_id': 'other-wave', 'path': str(ctx.root / 'docs' / 'waves' / 'other-wave' / 'wave.md')}
+        roots = record_paths.load_record_roots(ctx.root)
+        other_md = vocabulary_profile.record_file(roots.waves / 'other-wave')
+        other = {'wave_id': 'other-wave', 'path': str(other_md)}
         rejected = gates.single_open_gate(ctx, other_active=other)
         self.assertEqual(self.codes(rejected), ['another_wave_active'])
-        self.assertEqual(rejected.data, {'active_wave_id': 'other-wave', 'active_wave_path': 'docs/waves/other-wave/wave.md'})
+        self.assertEqual(rejected.data, {'active_wave_id': 'other-wave',
+                                         'active_wave_path': f'{roots.waves_rel}/other-wave/{other_md.name}'})
         self.assertEqual(self.codes(gates.single_open_gate(replace(ctx, mode='ready'), other_active=other)), [])
 
     @polarity('readiness_gate')

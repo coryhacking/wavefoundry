@@ -10,7 +10,9 @@ import tokenize
 import unittest
 from unittest.mock import patch
 
+import record_paths
 import review_evidence
+import vocabulary_profile
 from server_tools_support import (
     _make_repo, load_server, declared_wave_doc_gates, make_declared_wave,
     review_policy_config,
@@ -34,6 +36,11 @@ def declaration_sites(source):
         valid = any(CLASSIFICATION.fullmatch(comment) for comment in adjacent)
         sites.append((token.start[0], valid))
     return sites
+
+
+def _wave_record(root, wave_id):
+    """A created container's record under the configured waves root."""
+    return vocabulary_profile.record_file(record_paths.load_record_roots(root).waves / wave_id)
 
 
 def fixture_doc_stubs():
@@ -103,7 +110,7 @@ class DeclaredWaveFixtureTests(unittest.TestCase):
                 def record(*args, _real=real, _name=name, **kwargs):
                     calls.append((_name, kwargs.get('event')))
                     if _name != names[0]:
-                        wave_md = self.root / 'docs/waves' / args[1] / 'wave.md'
+                        wave_md = _wave_record(self.root, args[1])
                         self.assertRegex(wave_md.read_text(), r'(?m)^Status: planned$')
                     return _real(*args, **kwargs)
                 stack.enter_context(patch.object(self.srv, name, side_effect=record))
@@ -182,7 +189,7 @@ class DeclaredWaveFixtureTests(unittest.TestCase):
 
                 def prepare_then_corrupt(*args, **kwargs):
                     result = real_prepare(*args, **kwargs)
-                    wave_md = self.root / 'docs/waves' / args[1] / 'wave.md'
+                    wave_md = _wave_record(self.root, args[1])
                     records, errors = self.srv.read_review_event_ledger(wave_md)
                     self.assertFalse(errors, errors)
                     receipts = [r for r in records if r.get('record_type') == 'review_policy_receipt']

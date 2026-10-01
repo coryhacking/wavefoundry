@@ -44,6 +44,20 @@ from server_tools_support import (  # noqa: F401 — shared server-test fixtures
     _write_sqlite_index,
 )
 from framework_files import framework_source_files, source_path  # wf_server-aware source locations (wave 1yzd0)
+from declaration_support import apply_base_declaration, base_declaration  # shared base-declaration helper (change 1zim4)
+import record_paths
+import vocabulary_profile as _V
+
+# Record locations and markers follow the loaded profile (wave 1zim5).
+_RECORD = _V.RECORD_FILENAME
+_TITLE = _V.RECORD_TITLE
+_ID_KEY = _V.ID_KEY
+_BACKREF = _V.BACKREF_LABEL
+
+
+def _waves_dir(root: Path) -> Path:
+    """The configured waves root under ``root``."""
+    return Path(root).joinpath(*record_paths.WAVES_ROOT.split("/"))
 
 
 class McpSubprocessHelperTests(unittest.TestCase):
@@ -1227,7 +1241,7 @@ class AutoLintAtMcpGatesTests(unittest.TestCase):
         admitted = self.srv.wf_add_change_response(self.root, wave_id, change_id, mode="create")
         self.assertEqual(admitted["status"], "ok")
         admitted_doc = self.root / admitted["data"]["target_path"]
-        self.assertIn(f"Wave: {wave_id}", admitted_doc.read_text(encoding="utf-8"))
+        self.assertIn(f"{_BACKREF}: {wave_id}", admitted_doc.read_text(encoding="utf-8"))
         lint = admitted["data"]["lint"]
         self.assertEqual(lint["error_count"], 0, lint["first_errors"])
 
@@ -1661,7 +1675,7 @@ class McpRepoCacheTests(unittest.TestCase):
         plans_dir = self.root / "docs" / "plans"
         plans_dir.mkdir(parents=True, exist_ok=True)
         (plans_dir / "1000-feat x.md").write_text(
-            "# X\n\nChange ID: `1000-feat x`\nChange Status: `planned`\n",
+            _V.localize_template("# X\n\nChange ID: `1000-feat x`\nChange Status: `planned`\n"),
             encoding="utf-8",
         )
         a = cache.list_plans_cached()
@@ -1673,12 +1687,12 @@ class McpRepoCacheTests(unittest.TestCase):
         plans_dir = self.root / "docs" / "plans"
         plans_dir.mkdir(parents=True, exist_ok=True)
         (plans_dir / "1000-feat x.md").write_text(
-            "# X\n\nChange ID: `1000-feat x`\nChange Status: `planned`\n",
+            _V.localize_template("# X\n\nChange ID: `1000-feat x`\nChange Status: `planned`\n"),
             encoding="utf-8",
         )
         first = cache.list_plans_cached()
         (plans_dir / "1001-feat y.md").write_text(
-            "# Y\n\nChange ID: `1001-feat y`\nChange Status: `planned`\n",
+            _V.localize_template("# Y\n\nChange ID: `1001-feat y`\nChange Status: `planned`\n"),
             encoding="utf-8",
         )
         second = cache.list_plans_cached()
@@ -1689,7 +1703,7 @@ class McpRepoCacheTests(unittest.TestCase):
         plans_dir = self.root / "docs" / "plans"
         plans_dir.mkdir(parents=True, exist_ok=True)
         (plans_dir / "1000-feat x.md").write_text(
-            "# X\n\nChange ID: `1000-feat x`\nChange Status: `planned`\n",
+            _V.localize_template("# X\n\nChange ID: `1000-feat x`\nChange Status: `planned`\n"),
             encoding="utf-8",
         )
         a = cache.list_plans_cached()
@@ -1697,6 +1711,68 @@ class McpRepoCacheTests(unittest.TestCase):
         b = cache.list_plans_cached()
         self.assertIsNot(a, b)
         self.assertEqual([p["id"] for p in a], [p["id"] for p in b])
+
+
+class HarnessabilityDebtScanFailureTests(unittest.TestCase):
+    """Wave 1zim2 (1zilz): the debt dimension reads git grep's exit code, so a
+    failed scan reports "unknown" rather than the best score. Real temp dirs."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self.tmp.name).resolve()
+        # No parent repository may be found, and no inherited GIT_DIR may redirect git.
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env["GIT_CEILING_DIRECTORIES"] = str(self.base)
+        patcher = patch.dict(os.environ, env, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self.tmp.cleanup)
+
+    def _debt(self, root: Path) -> dict:
+        return self.srv._audit_harnessability(root)["dimensions"]["debt_density"]
+
+    def _git_repo(self, files: dict[str, str]) -> Path:
+        root = self.base / "repo"
+        root.mkdir()
+        for name, text in files.items():
+            (root / name).write_text(text, encoding="utf-8")
+        for cmd in (["git", "init", "-q"], ["git", "add", "."]):
+            subprocess.run(cmd, cwd=root, check=True, capture_output=True)
+        return root
+
+    def test_non_git_directory_reports_unknown_with_exit_code(self):
+        root = self.base / "plain"
+        root.mkdir()
+        (root / "a.py").write_text("x = 1\n", encoding="utf-8")
+        dim = self._debt(root)
+        self.assertEqual(dim["score"], "unknown")
+        self.assertRegex(dim["evidence"], r"exited \d+")
+        self.assertNotIn("exited 0", dim["evidence"])
+        self.assertNotIn("exited 1 ", dim["evidence"])
+
+    def test_tracked_files_without_markers_report_high(self):
+        root = self._git_repo({"a.py": "x = 1\n"})
+        dim = self._debt(root)
+        self.assertEqual(dim["score"], "high")
+        self.assertIn("0 TODO", dim["evidence"])
+
+    def test_tracked_markers_report_by_count(self):
+        root = self._git_repo({"a.py": "# TODO one\n# FIXME two\n", "b.py": "# HACK three\n"})
+        dim = self._debt(root)
+        self.assertEqual(dim["score"], "medium")
+        self.assertIn("3 TODO", dim["evidence"])
+
+    def test_exception_fallback_names_the_exception(self):
+        root = self.base / "plain"
+        root.mkdir()
+        with patch.object(self.srv, "_mcp_subprocess_run", side_effect=FileNotFoundError("git")):
+            dim = self._debt(root)
+        self.assertEqual(dim["score"], "unknown")
+        self.assertIn("FileNotFoundError", dim["evidence"])
 
 
 # ---------------------------------------------------------------------------
@@ -2339,6 +2415,9 @@ class ServerToolRegistrationTests(unittest.TestCase):
 
     def test_agents_available_tools_census_matches_registration(self):
         """The root guide labels this list exhaustive, so keep it executable."""
+        # The guide lists the shipped surface: boot it on the shipped empty
+        # declaration, whatever a distribution declares (change 1zim4).
+        apply_base_declaration(self)
         try:
             mcp = load_thin_runner().build_server(self.root)
         except ImportError:
@@ -3596,7 +3675,7 @@ class WaveMcpReloadTests(unittest.TestCase):
             self.root, "reload-resource-current", mode="create"
         )
         wave_id = wave_result["data"]["wave_id"]
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / _RECORD
         text = wave_md.read_text(encoding="utf-8").replace(
             "Status: planned", "Status: implementing"
         )
@@ -3750,48 +3829,48 @@ class WavePlaceholderRepairTests(unittest.TestCase):
         change_id = self.srv.new_change(self.root, "bug", "sample")["id"]
         plan = self.root / "docs" / "plans" / f"{change_id}.md"
         text = plan.read_text(encoding="utf-8")
-        text = re.sub(r"(?m)^Wave: .*$", wave_line, text, count=1)
+        text = re.sub(rf"(?m)^{re.escape(_BACKREF)}: .*$", wave_line, text, count=1)
         plan.write_text(text, encoding="utf-8")
         result = self.srv.wf_add_change_response(
             self.root, self.wave_id, change_id, mode=mode
         )
         self.assertEqual(result["status"], "dry_run" if mode == "dry_run" else "ok", result)
         target = (
-            self.root / "docs" / "waves" / self.wave_id / f"{change_id}.md"
+            _waves_dir(self.root) / self.wave_id / f"{change_id}.md"
             if mode == "create" else plan
         )
         return next(
             l for l in target.read_text(encoding="utf-8").splitlines()
-            if l.startswith("Wave:")
+            if l.startswith(f"{_BACKREF}:")
         )
 
     def test_angle_bracket_placeholders_are_repaired(self):
-        for supplied in ("Wave: <wave-id>", "Wave: `<wave-id>`"):
+        for supplied in (f"{_BACKREF}: <wave-id>", f"{_BACKREF}: `<wave-id>`"):
             with self.subTest(supplied=supplied):
                 self.setUp()
                 self.assertEqual(
-                    self._admit_with_wave_line(supplied), f"Wave: {self.wave_id}"
+                    self._admit_with_wave_line(supplied), f"{_BACKREF}: {self.wave_id}"
                 )
 
     def test_the_scaffold_forms_still_repair(self):
-        for supplied in ("Wave: [wave-id or TBD]", "Wave: TBD"):
+        for supplied in (f"{_BACKREF}: [wave-id or TBD]", f"{_BACKREF}: TBD"):
             with self.subTest(supplied=supplied):
                 self.setUp()
                 self.assertEqual(
-                    self._admit_with_wave_line(supplied), f"Wave: {self.wave_id}"
+                    self._admit_with_wave_line(supplied), f"{_BACKREF}: {self.wave_id}"
                 )
 
     def test_an_operator_authored_value_is_never_overwritten(self):
         """The control. Widening to any unrecognized value would fail here."""
         self.assertEqual(
-            self._admit_with_wave_line("Wave: my-own-tracking-note"),
-            "Wave: my-own-tracking-note",
+            self._admit_with_wave_line(f"{_BACKREF}: my-own-tracking-note"),
+            f"{_BACKREF}: my-own-tracking-note",
         )
 
     def test_dry_run_writes_nothing(self):
         self.assertEqual(
-            self._admit_with_wave_line("Wave: <wave-id>", mode="dry_run"),
-            "Wave: <wave-id>",
+            self._admit_with_wave_line(f"{_BACKREF}: <wave-id>", mode="dry_run"),
+            f"{_BACKREF}: <wave-id>",
         )
 
 
@@ -3819,8 +3898,8 @@ class WaveAddChangeSectionPlacementTests(unittest.TestCase):
     def _changes_section_and_after(self, wave_md_text: str) -> tuple[str, str]:
         """Return (text inside ## Changes, text after it) split at next ## heading."""
         import re
-        m = re.search(r"^## Changes[ \t]*\n", wave_md_text, re.MULTILINE)
-        assert m is not None, "## Changes section missing"
+        m = re.search(rf"^{re.escape(_V.MEMBER_HEADING)}[ \t]*\n", wave_md_text, re.MULTILINE)
+        assert m is not None, f"{_V.MEMBER_HEADING} section missing"
         rest = wave_md_text[m.end():]
         next_m = re.search(r"^## ", rest, re.MULTILINE)
         if next_m:
@@ -3832,11 +3911,11 @@ class WaveAddChangeSectionPlacementTests(unittest.TestCase):
         change_id = self._create_change("feat", "first-change")
         result = self.srv.wf_add_change_response(self.root, wave_id, change_id, mode="create")
         self.assertEqual(result["status"], "ok")
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / _RECORD
         text = wave_md.read_text(encoding="utf-8")
         inside, after = self._changes_section_and_after(text)
-        self.assertIn(f"Change ID: `{change_id}`", inside)
-        self.assertNotIn(f"Change ID: `{change_id}`", after)
+        self.assertIn(f"{_V.MEMBER_ID_LABEL}: `{change_id}`", inside)
+        self.assertNotIn(f"{_V.MEMBER_ID_LABEL}: `{change_id}`", after)
 
     def test_wf_add_change_preserves_order(self):
         wave_id = self._create_wave("order-test")
@@ -3846,12 +3925,12 @@ class WaveAddChangeSectionPlacementTests(unittest.TestCase):
         for cid in (first, second, third):
             result = self.srv.wf_add_change_response(self.root, wave_id, cid, mode="create")
             self.assertEqual(result["status"], "ok", msg=f"admission failed for {cid}: {result}")
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / _RECORD
         text = wave_md.read_text(encoding="utf-8")
         inside, _ = self._changes_section_and_after(text)
-        idx_first = inside.find(f"Change ID: `{first}`")
-        idx_second = inside.find(f"Change ID: `{second}`")
-        idx_third = inside.find(f"Change ID: `{third}`")
+        idx_first = inside.find(f"{_V.MEMBER_ID_LABEL}: `{first}`")
+        idx_second = inside.find(f"{_V.MEMBER_ID_LABEL}: `{second}`")
+        idx_third = inside.find(f"{_V.MEMBER_ID_LABEL}: `{third}`")
         self.assertGreaterEqual(idx_first, 0)
         self.assertGreater(idx_second, idx_first)
         self.assertGreater(idx_third, idx_second)
@@ -3862,10 +3941,10 @@ class WaveAddChangeSectionPlacementTests(unittest.TestCase):
         """
         wave_id = self._create_wave("legacy-layout")
         legacy_change_id = "99legacy-feat pre-existing-block"
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / _RECORD
         text = wave_md.read_text(encoding="utf-8")
         # Simulate the legacy buggy layout: blocks before ## Dependencies.
-        legacy_block = f"\nChange ID: `{legacy_change_id}`\nChange Status: `planned`\n\n"
+        legacy_block = f"\n{_V.MEMBER_ID_LABEL}: `{legacy_change_id}`\n{_V.MEMBER_STATUS_LABEL}: `planned`\n\n"
         text = text.replace("## Dependencies", legacy_block + "## Dependencies", 1)
         wave_md.write_text(text, encoding="utf-8")
         # Also create a change doc the admit path can find (so the admit doesn't fail).
@@ -3874,26 +3953,26 @@ class WaveAddChangeSectionPlacementTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok", msg=f"admission failed: {result}")
         text_after = wave_md.read_text(encoding="utf-8")
         # Legacy block still present in its original position.
-        self.assertIn(f"Change ID: `{legacy_change_id}`", text_after)
+        self.assertIn(f"{_V.MEMBER_ID_LABEL}: `{legacy_change_id}`", text_after)
         # New block landed inside ## Changes.
         inside, _ = self._changes_section_and_after(text_after)
-        self.assertIn(f"Change ID: `{new_change}`", inside)
+        self.assertIn(f"{_V.MEMBER_ID_LABEL}: `{new_change}`", inside)
 
     def test_wf_add_change_missing_changes_section_guard(self):
         """When ## Changes is missing (operator edit), create it above the next ## heading."""
         wave_id = self._create_wave("missing-section")
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / _RECORD
         text = wave_md.read_text(encoding="utf-8")
         # Remove the ## Changes heading to simulate operator-edited wave.
-        text = text.replace("## Changes\n\n", "", 1)
+        text = text.replace(f"{_V.MEMBER_HEADING}\n\n", "", 1)
         wave_md.write_text(text, encoding="utf-8")
         change_id = self._create_change("feat", "guard-test")
         result = self.srv.wf_add_change_response(self.root, wave_id, change_id, mode="create")
         self.assertEqual(result["status"], "ok", msg=f"admission failed: {result}")
         text_after = wave_md.read_text(encoding="utf-8")
-        self.assertIn("## Changes", text_after)
+        self.assertIn(_V.MEMBER_HEADING, text_after)
         inside, _ = self._changes_section_and_after(text_after)
-        self.assertIn(f"Change ID: `{change_id}`", inside)
+        self.assertIn(f"{_V.MEMBER_ID_LABEL}: `{change_id}`", inside)
 
 
 class WaveAddChangeBrokenLinksTests(unittest.TestCase):
@@ -4149,19 +4228,19 @@ class McpResourceReadTests(unittest.TestCase):
         # Create a wave and mark it active
         wave_result = self.srv.wf_create_wave_response(self.root, "resource-test", mode="create")
         wave_id = wave_result["data"]["wave_id"]
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / _RECORD
         text = wave_md.read_text(encoding="utf-8")
         text = text.replace("Status: planned", "Status: active")
         wave_md.write_text(text, encoding="utf-8")
         result_text = self._read_resource("wavefoundry://wave/current")
-        self.assertIn("Wave Record", result_text)
+        self.assertIn(_TITLE.lstrip("# "), result_text)
 
     def test_current_wave_resource_derives_stale_projection_and_fails_closed_on_bad_authority(self):
         wave_result = self.srv.wf_create_wave_response(
             self.root, "resource-event-state", mode="create"
         )
         wave_id = wave_result["data"]["wave_id"]
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / _RECORD
         text = wave_md.read_text(encoding="utf-8").replace("Status: planned", "Status: active")
         text = text.replace("Machine review state — 0 findings", "Machine review state — 999 findings")
         wave_md.write_text(text, encoding="utf-8")
@@ -4183,7 +4262,7 @@ class McpResourceReadTests(unittest.TestCase):
             self.root, "resource-missing-projection", mode="create"
         )
         wave_id = wave_result["data"]["wave_id"]
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / _RECORD
         text = wave_md.read_text(encoding="utf-8").replace("Status: planned", "Status: active")
         text = re.sub(
             r"(?ms)^## Finding Synthesis\n.*?(?=^## )",
@@ -4245,7 +4324,7 @@ class McpResourceTemplateReadTests(unittest.TestCase):
         result = self.srv.new_change(self.root, "feat", "resource-read-test")
         change_id = result["id"]
         text = self._read_resource(f"wavefoundry://change/{change_id}")
-        self.assertIn("Change ID", text)
+        self.assertIn(_V.MEMBER_ID_LABEL, text)
 
     def test_wave_template_returns_not_found_for_unknown_id(self):
         text = self._read_resource("wavefoundry://wave/zzzzz-unknown")
@@ -4255,7 +4334,7 @@ class McpResourceTemplateReadTests(unittest.TestCase):
         wave_result = self.srv.wf_create_wave_response(self.root, "tpl-test", mode="create")
         wave_id = wave_result["data"]["wave_id"]
         text = self._read_resource(f"wavefoundry://wave/{wave_id}")
-        self.assertIn("Wave Record", text)
+        self.assertIn(_TITLE.lstrip("# "), text)
 
     def test_architecture_template_returns_not_found_when_missing(self):
         text = self._read_resource("wavefoundry://architecture/nonexistent-doc")
@@ -5295,7 +5374,9 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         """
         import mcp_tool_roster
 
-        added = list(mcp_tool_roster.allow_rules(include_write=True))
+        # The count pins the shipped roster: the shipped empty declaration (change 1zim4).
+        with base_declaration():
+            added = list(mcp_tool_roster.allow_rules(include_write=True))
         removed = [
             "mcp__wavefoundry__wave_close",
             "mcp__wavefoundry__wave_review",
@@ -6375,9 +6456,9 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         import upgrade_lib
         import upgrade_wavefoundry
 
-        wave = self.root / "docs" / "waves" / "1old closed"
+        wave = _waves_dir(self.root) / "1old closed"
         wave.mkdir(parents=True)
-        wave.joinpath("wave.md").write_text("# Wave\n\nStatus: closed\n", encoding="utf-8")
+        wave.joinpath(_RECORD).write_text(f"{_TITLE}\n\nStatus: closed\n", encoding="utf-8")
         upgrade_lib.write_upgrade_lock(self.root, "1.27.0", "1.28.0")
         upgrade_lib.update_upgrade_lock(
             self.root, current_phase="docs_gate_complete", failed_phase="post_docs_gate", failed_at="t"
@@ -6806,17 +6887,18 @@ class WaveCodeFootprintTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
-        wave_dir = root / "docs" / "waves" / "0aaaa sample"
+        wave_dir = _waves_dir(root) / "0aaaa sample"
         wave_dir.mkdir(parents=True)
-        wave_md = wave_dir / "wave.md"
+        wave_md = wave_dir / _RECORD
         wave_md.write_text(
-            "# Wave Record\n\nStatus: implementing\n"
-            "wave-id: `0aaaa sample`\n\n"
-            "## Changes\n\nChange ID: `1200a-feat sample`\nChange Status: `active`\n",
+            f"{_TITLE}\n\nStatus: implementing\n"
+            f"{_ID_KEY}: `0aaaa sample`\n\n"
+            f"{_V.MEMBER_HEADING}\n\n{_V.MEMBER_ID_LABEL}: `1200a-feat sample`\n"
+            f"{_V.MEMBER_STATUS_LABEL}: `active`\n",
             encoding="utf-8",
         )
         (wave_dir / "1200a-feat sample.md").write_text(
-            "# Change\nChange ID: `1200a-feat sample`\n\n"
+            f"# Change\n{_V.MEMBER_ID_LABEL}: `1200a-feat sample`\n\n"
             f"## Serialization Points\n\n{declared}\n",
             encoding="utf-8",
         )

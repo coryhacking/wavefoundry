@@ -11,6 +11,7 @@ the last green run, the suite is skipped and the cached count is reported.
 
     python3 run_tests.py              # skip if nothing has changed
     python3 run_tests.py --no-cache   # force a full run regardless
+    python3 run_tests.py --help       # every option
 
 The hash covers every file under ``.wavefoundry/framework/`` except packaging
 artifacts (``VERSION``, ``MANIFEST``), the cache file itself, and the binary
@@ -154,6 +155,34 @@ _FILE_TIMEOUT_SECONDS = 600
 
 # Benchmark-only schedule-control modes (Requirement 4 of 1tm6d).
 _SCHEDULE_MODES = ("bootstrap", "alphabetical", "timing")
+
+_USAGE = """usage: run_tests.py [--no-cache | --file NAME ... | --profile NAME [--file NAME ...]
+                    | --schedule-control MODE --timings-file PATH]
+
+Run the framework test suite, one subprocess per test file.
+
+  (no option)               full run; skipped when the last green receipt
+                            matches the framework tree, and a green run
+                            writes the receipt (test-cache.json)
+  --no-cache                full run even when the receipt is current
+  --file NAME               focused run of one discovered test_*.py file
+                            (repeatable); writes no receipt and is not
+                            delivery evidence
+  --profile NAME            second-profile run (change 1zim1): copy the
+                            git-tracked and untracked non-ignored files into a
+                            temporary git repository, apply the profile asset
+                            tests/fixtures/profiles/NAME.json to its
+                            vocabulary_profile.py, record_paths.py and
+                            mcp_tool_extensions.py, write
+                            the configured waves-root README, and run the
+                            suite there as a focused run (all files, or the
+                            --file selection). Reports a per-file result,
+                            never writes this tree's receipt, and is not
+                            delivery evidence. On demand and at release.
+  --schedule-control MODE   benchmark-only run (bootstrap|alphabetical|timing);
+                            needs --timings-file PATH
+  --help                    show this message
+"""
 
 
 def _hash_inputs() -> str:
@@ -615,13 +644,23 @@ def _parse_args(argv: list[str]) -> dict:
     census (2026-08-27) confirmed every in-tree invocation is the bare form
     or ``--no-cache`` only, so this narrowing strands no caller.
     """
-    opts: dict = {"no_cache": False, "files": [], "schedule_control": None, "timings_file": None}
+    opts: dict = {"no_cache": False, "files": [], "schedule_control": None, "timings_file": None,
+                  "profile": None, "help": False}
     args = argv[1:]
     i = 0
     while i < len(args):
         arg = args[i]
         if arg == "--no-cache":
             opts["no_cache"] = True
+        elif arg in ("--help", "-h"):
+            opts["help"] = True
+        elif arg == "--profile":
+            if i + 1 >= len(args):
+                raise _UsageError("--profile requires a value (a profile asset name under tests/fixtures/profiles)")
+            if opts["profile"] is not None:
+                raise _UsageError("--profile may be given only once")
+            opts["profile"] = args[i + 1]
+            i += 1
         elif arg == "--file":
             if i + 1 >= len(args):
                 raise _UsageError("--file requires a value (a discovered test_*.py basename)")
@@ -650,6 +689,12 @@ def _parse_args(argv: list[str]) -> dict:
             kind = "unknown option" if arg.startswith("-") else "positional argument"
             raise _UsageError(f"{kind} {arg!r} is not accepted")
         i += 1
+    if opts["profile"] is not None and (
+        opts["no_cache"] or opts["schedule_control"] is not None or opts["timings_file"] is not None
+    ):
+        raise _UsageError(
+            "--profile is mutually exclusive with --no-cache, --schedule-control and --timings-file"
+        )
     if opts["files"] and opts["no_cache"]:
         raise _UsageError(
             "--file and --no-cache are mutually exclusive (focused runs never touch the cache)"
@@ -664,6 +709,23 @@ def _parse_args(argv: list[str]) -> dict:
     return opts
 
 
+def _selector_format_error(selectors: list[str]) -> str | None:
+    """The first ``--file`` selector that is not a unique ``test_*.py``
+    basename, as a message; ``None`` when every selector is well-formed.
+    Needs no discovered set, so the second-profile run checks it before it
+    copies the tree."""
+    seen: set[str] = set()
+    for raw in selectors:
+        if raw in seen:
+            return f"duplicate --file selector {raw!r}"
+        seen.add(raw)
+        if not raw or "/" in raw or "\\" in raw or Path(raw).is_absolute() or Path(raw).name != raw:
+            return f"--file takes an exact test file basename, not a path: {raw!r}"
+        if not (raw.startswith("test_") and raw.endswith(".py")):
+            return f"--file selector {raw!r} is not a test_*.py basename"
+    return None
+
+
 def _validate_focus_selectors(selectors: list[str],
                               test_files: list[Path]) -> tuple[list[Path] | None, str | None]:
     """Validate ``--file`` selectors against the discovered direct-child set.
@@ -673,17 +735,12 @@ def _validate_focus_selectors(selectors: list[str],
     (Requirement 9 of 1tm6d). Validation runs before any hashing, cache, or
     timing-map access — focused runs never reach those seams at all.
     """
+    error = _selector_format_error(selectors)
+    if error is not None:
+        return None, error
     discovered = {p.name: p for p in test_files}
-    seen: set[str] = set()
     selected: list[Path] = []
     for raw in selectors:
-        if raw in seen:
-            return None, f"duplicate --file selector {raw!r}"
-        seen.add(raw)
-        if not raw or "/" in raw or "\\" in raw or Path(raw).is_absolute() or Path(raw).name != raw:
-            return None, f"--file takes an exact test file basename, not a path: {raw!r}"
-        if not (raw.startswith("test_") and raw.endswith(".py")):
-            return None, f"--file selector {raw!r} is not a test_*.py basename"
         if raw not in discovered:
             return None, f"--file selector {raw!r} is not a discovered test file under {_TESTS_DIR}"
         selected.append(discovered[raw])
@@ -1062,6 +1119,306 @@ def _run_schedule_control(mode: str, timings_file: str, test_files: list[Path]) 
     return rc
 
 
+# Change 1zim1 (wave 1zim5): the second-profile run. The copy's own runner is
+# launched as a focused run, so the copy never writes a receipt, and this
+# tree's receipt is checked byte-for-byte before and after.
+_PROFILE_GIT_TIMEOUT_SECONDS = 300
+_PROFILE_NOT_EVIDENCE = (
+    "SECOND-PROFILE run ({name}): not delivery evidence; this tree's framework "
+    "test receipt is never written."
+)
+# The copy's per-file progress line: ``  [3/146] test_x.py <dash> 12 tests FAIL (1.2s)``.
+_PROFILE_PROGRESS_RE = re.compile(r"^\s*\[\d+/\d+\] (test_\S+\.py) \S+ (\d+) tests? (ok|FAIL) \(", re.M)
+_PROFILE_FAILED_HEADER_RE = re.compile(r"^={70}\nFAILED: (test_\S+\.py)\n={70}\n", re.M)
+_PROFILE_SUMMARY_RE = re.compile(r"^FAILED \(([^)]*)\)\s*$", re.M)
+_PROFILE_CLOSING_RE = re.compile(r"^-{70}\nSlowest files \(top", re.M)
+
+
+def _git_env() -> dict:
+    """The environment for git in the temporary repository: no inherited
+    repository selection (a hook's ``GIT_DIR``), no system configuration."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
+    return env
+
+
+def _beneath_copied_symlink(dest: Path, dst: Path) -> bool:
+    """Whether a directory between ``dest`` and ``dst`` is a symlink in the copy."""
+    current = dest
+    for part in dst.relative_to(dest).parts[:-1]:
+        current = current / part
+        if os.path.islink(current):
+            return True
+        if not os.path.lexists(current):
+            return False
+    return False
+
+
+def _copy_listed_tree(source: Path, dest: Path) -> "tuple[int, str | None]":
+    """Copy ``git ls-files -co --exclude-standard`` of ``source`` into ``dest``.
+
+    Returns (files copied, error). A listed path that is gone from disk (a
+    tracked deletion) is skipped; a symlink is copied as a symlink, or as its
+    target's content where symlinks cannot be created. The profile's writes
+    into the copy replace a symlinked file instead of following it and refuse
+    a directory that resolves outside the copy, so a kept symlink never
+    carries a write out of the temporary repository."""
+    import shutil
+    try:
+        listing = _run_tree_kill(
+            ["git", "-C", str(source), "ls-files", "-z", "-co", "--exclude-standard"],
+            capture_output=True, timeout=_PROFILE_GIT_TIMEOUT_SECONDS, env=_git_env(),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return 0, f"git ls-files failed: {exc}"
+    if listing.returncode != 0:
+        detail = listing.stderr.decode("utf-8", "replace") if isinstance(listing.stderr, bytes) else listing.stderr
+        return 0, f"git ls-files failed: {(detail or '').strip()}"
+    raw = listing.stdout if isinstance(listing.stdout, bytes) else listing.stdout.encode("utf-8")
+    copied = 0
+    for rel in sorted({p for p in raw.decode("utf-8", "surrogateescape").split("\0") if p}):
+        src = source / rel
+        dst = dest / rel
+        if not os.path.lexists(src) or (src.is_dir() and not src.is_symlink()):
+            continue
+        if _beneath_copied_symlink(dest, dst):
+            # A listed file under a directory the copy already holds as a
+            # symlink (a tracked directory replaced on disk by a link): the
+            # link carries what the working tree shows, and writing through
+            # it could land outside the temporary repository.
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        if src.is_symlink():
+            try:
+                os.symlink(os.readlink(src), dst)
+                copied += 1
+                continue
+            except OSError:
+                if not src.exists():
+                    continue
+        shutil.copy2(src, dst)
+        copied += 1
+    return copied, None
+
+
+def _profile_run_report(output: str) -> "list[dict]":
+    """Per-file results parsed from the copy's focused-run output: name,
+    status, tests, failures and errors (``None`` when the file has no unittest
+    summary, for example a timeout), sorted by failures plus errors, then name.
+
+    The progress lines are read only before the first failure block and each
+    block only up to the runner's closing summary, so test output that quotes
+    runner-style lines is never counted."""
+    closing = list(_PROFILE_CLOSING_RE.finditer(output))
+    body = output[:closing[-1].start()] if closing else output
+    headers = list(_PROFILE_FAILED_HEADER_RE.finditer(body))
+    progress = body[:headers[0].start()] if headers else body
+    rows: dict[str, dict] = {}
+    for match in _PROFILE_PROGRESS_RE.finditer(progress):
+        rows[match.group(1)] = {"name": match.group(1), "tests": int(match.group(2)),
+                                "status": match.group(3), "failures": 0, "errors": 0}
+    seen: set[str] = set()
+    for index, header in enumerate(headers):
+        name = header.group(1)
+        row = rows.get(name)
+        if row is None or row["status"] != "FAIL" or name in seen:
+            continue
+        seen.add(name)
+        end = headers[index + 1].start() if index + 1 < len(headers) else len(body)
+        summaries = _PROFILE_SUMMARY_RE.findall(body[header.end():end])
+        if not summaries:
+            row["failures"] = row["errors"] = None
+            continue
+        counts = dict(re.findall(r"(\w+)=(\d+)", summaries[-1]))
+        row["failures"] = int(counts.get("failures", 0))
+        row["errors"] = int(counts.get("errors", 0))
+    return sorted(rows.values(), key=lambda r: (-((r["failures"] or 0) + (r["errors"] or 0)), r["name"]))
+
+
+def _print_profile_report(name: str, rows: "list[dict]") -> None:
+    failing = [r for r in rows if r["status"] != "ok"]
+    print(f"\n{'-' * 70}")
+    print(f"Second-profile per-file result (profile {name!r}): "
+          f"{len(failing)} of {len(rows)} files failed")
+    for row in failing:
+        counts = ("no unittest summary" if row["failures"] is None
+                  else f"failures={row['failures']} errors={row['errors']}")
+        print(f"  {row['name']:<52} {row['tests']:>5} tests  {counts}")
+    total = sum((r["failures"] or 0) + (r["errors"] or 0) for r in failing)
+    print(f"Total failures and errors: {total} in {len(failing)} files; "
+          f"{len(rows) - len(failing)} files passed")
+
+
+def _remove_work_tree(path: Path) -> None:
+    """Remove the run's temporary tree, read-only entries included.
+
+    Git writes its object files read-only, and on Windows ``rmtree`` cannot
+    delete a read-only file, so a plain ``ignore_errors`` removal would leave
+    the whole copy behind. The retry clears the read-only bit on the entry and
+    makes its parent writable (a read-only directory blocks deleting its
+    entries on POSIX), the pattern ``setup_index`` uses for the venv."""
+    import shutil
+    import stat
+
+    def _clear_readonly_and_retry(func, entry, _exc):
+        try:
+            os.chmod(os.path.dirname(entry) or ".", stat.S_IRWXU)
+            os.chmod(entry, stat.S_IWRITE | stat.S_IREAD | (stat.S_IXUSR if os.path.isdir(entry) else 0))
+            func(entry)
+        except OSError:
+            pass
+
+    kwargs = ({"onexc": _clear_readonly_and_retry} if sys.version_info >= (3, 12)
+              else {"onerror": _clear_readonly_and_retry})
+    if os.path.lexists(path):
+        shutil.rmtree(path, **kwargs)
+
+
+def _child_runner_env() -> dict:
+    """The copy's runner environment: UTF-8, no bytecode, and no inherited
+    ``GIT_*`` repository selection, so its tests read the temporary repository."""
+    env = subprocess_util.utf8_child_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    return env
+
+
+def _install_sigterm_as_interrupt():
+    """Make SIGTERM raise ``KeyboardInterrupt`` so the run's cleanup runs;
+    returns the previous handler, or ``None`` when not installed (Windows, or
+    not the main thread)."""
+    import signal
+    import threading
+
+    if os.name == "nt" or not hasattr(signal, "SIGTERM") or threading.current_thread() is not threading.main_thread():
+        return None
+
+    def _interrupt(_signum, _frame):
+        raise KeyboardInterrupt
+
+    return signal.signal(signal.SIGTERM, _interrupt)
+
+
+def _restore_sigterm(previous) -> None:
+    if previous is not None:
+        import signal
+        signal.signal(signal.SIGTERM, previous)
+
+
+def _profile_run_in(work: Path, name: str, profile: dict, profiles, scripts_rel: Path,
+                    selectors: "list[str]", state: dict) -> "tuple[int, str, bool]":
+    """Copy, apply, commit and run inside ``work``: (rc, output, ran). The
+    child process is kept in ``state['proc']`` so the caller can end it."""
+    repo = work / "repo"
+    repo.mkdir()
+    copied, error = _copy_listed_tree(_REPO_ROOT, repo)
+    if error is not None:
+        print(f"run_tests: {error}", file=sys.stderr)
+        return 1, "", False
+    scripts = repo / scripts_rel
+    copied_tests = sorted((scripts / "tests").glob("test_*.py"))
+    names = [p.name for p in copied_tests]
+    if selectors:
+        selected, error = _validate_focus_selectors(selectors, copied_tests)
+        if error is not None:
+            print(f"run_tests: {error}", file=sys.stderr)
+            return 2, "", False
+        names = [p.name for p in selected]
+    try:
+        loaded = profiles.apply_profile(scripts, profile, repo_root=repo, python=_test_runner_python())
+    except profiles.ProfileInvalid as exc:
+        print(f"run_tests: profile {name!r} does not apply: {exc}", file=sys.stderr)
+        return 1, "", False
+    try:
+        readme = profiles.write_waves_readme(
+            repo, vocabulary=loaded["vocabulary_profile"], layout=loaded["record_paths"])
+    except profiles.ProfileInvalid as exc:
+        print(f"run_tests: profile {name!r} does not apply: {exc}", file=sys.stderr)
+        return 1, "", False
+    # No background gc or maintenance: it could outlive the run and hold the tree.
+    git = ["git", "-C", str(repo), "-c", "user.name=wf-profile-run",
+           "-c", "user.email=wf-profile-run@localhost", "-c", "commit.gpgsign=false",
+           "-c", "gc.auto=0", "-c", "maintenance.auto=false"]
+    for args in (["init", "-q"], ["add", "-A"],
+                 ["commit", "-q", "--no-verify", "-m", f"Second-profile run ({name})"]):
+        done = _run_tree_kill(git + args, capture_output=True, text=True,
+                              timeout=_PROFILE_GIT_TIMEOUT_SECONDS, env=_git_env())
+        if done.returncode != 0:
+            print(f"run_tests: git {args[0]} failed in the temporary repository: "
+                  f"{(done.stderr or '').strip()}", file=sys.stderr)
+            return 1, "", False
+    print(
+        f"Copied {copied} files into a temporary git repository; applied profile {name!r}; "
+        f"waves root {loaded['record_paths']['WAVES_ROOT']} (README {readme.relative_to(repo).as_posix()}).",
+        flush=True,
+    )
+    cmd = [_test_runner_python(), "-B", str(scripts / "run_tests.py")]
+    for test_name in names:
+        cmd += ["--file", test_name]
+    # Its own process group, so the cleanup can end the runner and its workers together.
+    group = ({"creationflags": int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))}
+             if os.name == "nt" else {"start_new_session": True})
+    proc = subprocess.Popen(cmd, cwd=str(repo), env=_child_runner_env(), stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, encoding="utf-8", errors="replace", **group)
+    state["proc"] = proc
+    lines: list[str] = []
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+        lines.append(line)
+    return proc.wait(), "".join(lines), True
+
+
+def _run_profile(name: str, selectors: "list[str]") -> int:
+    """The second-profile run (change 1zim1, Requirement 4)."""
+    import tempfile
+    # The runner is test infrastructure, so it may use the test support's
+    # profile helpers; production code never imports them.
+    from tests import record_layout_support as profiles
+
+    error = _selector_format_error(selectors)
+    if error is not None:
+        print(f"run_tests: {error}", file=sys.stderr)
+        return 2
+    try:
+        profile = profiles.load_profile(name)
+    except profiles.ProfileInvalid as exc:
+        print(f"run_tests: {exc}", file=sys.stderr)
+        return 2
+    try:
+        scripts_rel = _SCRIPT_DIR.relative_to(_REPO_ROOT)
+    except ValueError:
+        print(f"run_tests: {_SCRIPT_DIR} is not inside {_REPO_ROOT}", file=sys.stderr)
+        return 2
+    receipt_before = _CACHE_FILE.read_bytes() if _CACHE_FILE.exists() else None
+    print(_PROFILE_NOT_EVIDENCE.format(name=name), flush=True)
+    work = Path(tempfile.mkdtemp(prefix="wf-profile-run-"))
+    state: dict = {"proc": None}
+    previous = _install_sigterm_as_interrupt()
+    rc, output, ran = 1, "", False
+    try:
+        rc, output, ran = _profile_run_in(work, name, profile, profiles, scripts_rel, selectors, state)
+    finally:
+        proc = state["proc"]
+        try:
+            if proc is not None and proc.returncode is None:
+                # Interrupted while the copy's runner was going: end its group, then reap it.
+                subprocess_util._kill_process_tree(proc)
+                proc.wait()
+        finally:
+            _remove_work_tree(work)
+            _restore_sigterm(previous)
+    receipt_after = _CACHE_FILE.read_bytes() if _CACHE_FILE.exists() else None
+    if receipt_after != receipt_before:
+        print(f"run_tests: {_CACHE_FILE} changed during the second-profile run", file=sys.stderr)
+        rc = 1
+    if ran:
+        _print_profile_report(name, _profile_run_report(output))
+        print(_PROFILE_NOT_EVIDENCE.format(name=name))
+    return rc
+
+
 def main() -> int:
     # Strict mode validation first (Requirement 9 of 1tm6d): every flag is
     # parsed and validated before any input hashing, cache, or timing read.
@@ -1070,6 +1427,13 @@ def main() -> int:
     except _UsageError as exc:
         print(f"run_tests: {exc}", file=sys.stderr)
         return 2
+
+    if opts["help"]:
+        print(_USAGE, end="")
+        return 0
+
+    if opts["profile"] is not None:
+        return _run_profile(opts["profile"], opts["files"])
 
     test_files = sorted(_TESTS_DIR.glob("test_*.py"))
 

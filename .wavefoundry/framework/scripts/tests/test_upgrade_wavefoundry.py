@@ -198,7 +198,7 @@ def _blocking_acquirer_worker(
     )
     lock.acquire()
     try:
-        waves = root_path / "docs" / "waves"
+        waves = root_path / _live_waves_rel()
         observed = {
             "adoptions": (waves / "review-evidence-adoptions.json").exists(),
             "migration": (waves / "review-evidence-migration.json").exists(),
@@ -209,6 +209,28 @@ def _blocking_acquirer_worker(
     finally:
         lock.release()
     outcomes.put(("acquirer", observed))
+
+
+def _live_waves_rel() -> str:
+    """The configured live waves root (the shipped layout, or a profile's),
+    read at call time."""
+    import record_paths
+
+    return record_paths.WAVES_ROOT
+
+
+def _record_name() -> str:
+    """The loaded profile's record filename."""
+    import vocabulary_profile
+
+    return vocabulary_profile.RECORD_FILENAME
+
+
+def _member_id_label() -> str:
+    """The loaded profile's member id label."""
+    import vocabulary_profile
+
+    return vocabulary_profile.MEMBER_ID_LABEL
 
 
 def _make_zip(entries: dict[str, str], prefix: str = ".wavefoundry/framework/seeds/") -> bytes:
@@ -1519,8 +1541,17 @@ class PhaseCleanupSetupBaselineTests(unittest.TestCase):
             planned = results[len(calls) - 1] if len(calls) <= len(results) else None
             return real(root, **kwargs) if planned is None else planned
 
+        def record(seconds):
+            # Only the retry loop's own waits: a subprocess waited on with a
+            # timeout during cleanup also polls through time.sleep under load.
+            frame = sys._getframe(1)
+            while frame is not None and frame.f_globals.get("__name__") == "unittest.mock":
+                frame = frame.f_back
+            if frame is not None and frame.f_code.co_name == "_record_setup_baseline":
+                waits.append(seconds)
+
         with patch.object(self.readiness, "assess_setup", side_effect=assess), \
-                patch("time.sleep", side_effect=waits.append):
+                patch("time.sleep", side_effect=record):
             out = self._cleanup()
         return out, calls, waits
 
@@ -3467,7 +3498,7 @@ class RetiredModelCleanupTests(unittest.TestCase):
 
         lib = _load_upgrade_lib()
         (self.root / ".wavefoundry" / "index").mkdir(parents=True, exist_ok=True)
-        (self.root / "docs" / "waves").mkdir(parents=True, exist_ok=True)
+        (self.root / _live_waves_rel()).mkdir(parents=True, exist_ok=True)
         run_id = memory_backfill.ensure_run(self.root, "upgrade")
         memory_backfill.sync_inventory(self.root, run_id)
         memory_backfill.mark_indexed(self.root, run_id)
@@ -4070,7 +4101,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
             _stage_review_protocol_seeds(root)
             (root / "docs").mkdir()
             (root / "docs" / "workflow-config.json").write_text("{}\n", encoding="utf-8")
-            historical = root / "docs" / "waves" / "abcde historical" / "wave.md"
+            historical = root / _live_waves_rel() / "abcde historical" / _record_name()
             historical.parent.mkdir(parents=True)
             historical.write_bytes(
                 b"# Historical target wave\n\nproject-authored bytes: do not parse or rewrite\n"
@@ -4217,7 +4248,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
             scripts.mkdir(parents=True)
             scripts.joinpath("review_evidence.py").write_text("# old protocol\n", encoding="utf-8")
             scripts.joinpath("server_impl.py").write_text("# old server\n", encoding="utf-8")
-            historical = root / "docs" / "waves" / "abcde historical" / "wave.md"
+            historical = root / _live_waves_rel() / "abcde historical" / _record_name()
             historical.parent.mkdir(parents=True)
             historical.write_bytes(b"# Historical target wave\n\nopaque sentinel\n")
             historical_snapshot = historical.read_bytes()
@@ -7507,7 +7538,7 @@ class DelegatedSummaryContractTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
         (root / ".wavefoundry" / "index").mkdir(parents=True, exist_ok=True)
-        (root / "docs" / "waves").mkdir(parents=True, exist_ok=True)
+        (root / _live_waves_rel()).mkdir(parents=True, exist_ok=True)
         run_id = memory_backfill.ensure_run(root, "upgrade")
         memory_backfill.sync_inventory(root, run_id)
         memory_backfill.mark_indexed(root, run_id)
@@ -8198,7 +8229,7 @@ class ReviewEvidenceSidecarCleanupTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        (self.root / "docs" / "waves").mkdir(parents=True)
+        (self.root / _live_waves_rel()).mkdir(parents=True)
         (self.root / ".wavefoundry").mkdir()
         self.mod = load_upgrade_module()
         if str(SCRIPTS_ROOT) not in sys.path:
@@ -8216,14 +8247,14 @@ class ReviewEvidenceSidecarCleanupTests(unittest.TestCase):
         import review_evidence as re_
 
         # v1.12 shape: prose-only wave, no ledger.
-        prose = self.root / "docs" / "waves" / "1v12a prose-only" / "wave.md"
+        prose = self.root / _live_waves_rel() / "1v12a prose-only" / _record_name()
         prose.parent.mkdir(parents=True)
         prose.write_bytes(
             b"# Wave\n\nStatus: closed\n\n## Review Evidence\n\n"
             b"- operator-signoff: approved\n"
         )
         # v1.13+ shape: declared wave with a canonical external ledger.
-        external_dir = self.root / "docs" / "waves" / "1v13a external"
+        external_dir = self.root / _live_waves_rel() / "1v13a external"
         external_dir.mkdir()
         records = [
             {
@@ -8246,18 +8277,18 @@ class ReviewEvidenceSidecarCleanupTests(unittest.TestCase):
         text = re_.render_review_status_projection(
             text, records, ["operator-signoff"]
         )
-        (external_dir / "wave.md").write_bytes(text.encode("utf-8"))
+        (external_dir / _record_name()).write_bytes(text.encode("utf-8"))
         (external_dir / "events.jsonl").write_bytes(
             re_.canonical_review_events_bytes(records)
         )
-        validation = re_.validate_external_review_evidence(external_dir / "wave.md")
+        validation = re_.validate_external_review_evidence(external_dir / _record_name())
         assert validation.ok, validation.errors
         # Both retired sidecars, deliberately unparseable: the cleanup must
         # not read them as authority or migration input.
-        (self.root / "docs" / "waves" / "review-evidence-adoptions.json").write_bytes(
+        (self.root / _live_waves_rel() / "review-evidence-adoptions.json").write_bytes(
             b"{not json"
         )
-        (self.root / "docs" / "waves" / "review-evidence-migration.json").write_bytes(
+        (self.root / _live_waves_rel() / "review-evidence-migration.json").write_bytes(
             b"{also not json"
         )
         return {
@@ -8273,7 +8304,7 @@ class ReviewEvidenceSidecarCleanupTests(unittest.TestCase):
 
         self.assertEqual(counts["removed_sidecars"], 2)
         self.assertTrue(counts["restart_required"])
-        waves = self.root / "docs" / "waves"
+        waves = self.root / _live_waves_rel()
         self.assertFalse((waves / "review-evidence-adoptions.json").exists())
         self.assertFalse((waves / "review-evidence-migration.json").exists())
         for path, payload in preserved.items():
@@ -8422,7 +8453,7 @@ class ReviewEvidenceSidecarCleanupTests(unittest.TestCase):
         finally:
             holder.release()
         self.assertIn("held by a running process", str(raised.exception))
-        waves = self.root / "docs" / "waves"
+        waves = self.root / _live_waves_rel()
         self.assertTrue((waves / "review-evidence-adoptions.json").exists())
         self.assertTrue((waves / "review-evidence-migration.json").exists())
 
@@ -8448,7 +8479,7 @@ class ReviewEvidenceSidecarCleanupTests(unittest.TestCase):
             outside.mkdir()
             sentinel = outside / "review-evidence-adoptions.json"
             sentinel.write_bytes(b"outside sentinel")
-            waves = self.root / "docs" / "waves"
+            waves = self.root / _live_waves_rel()
             shutil.rmtree(waves)
             try:
                 waves.symlink_to(outside, target_is_directory=True)
@@ -8466,7 +8497,7 @@ class ReviewEvidenceSidecarCleanupTests(unittest.TestCase):
             target = Path(outside_tmp) / "elsewhere.json"
             target.write_bytes(b"outside sentinel")
             candidate = (
-                self.root / "docs" / "waves" / "review-evidence-adoptions.json"
+                self.root / _live_waves_rel() / "review-evidence-adoptions.json"
             )
             try:
                 candidate.symlink_to(target)
@@ -8505,7 +8536,7 @@ class ReviewEvidenceSidecarCleanupTests(unittest.TestCase):
         counts = self.mod.phase_review_evidence_sidecar_cleanup(self.root)
         self.assertEqual(counts["removed_sidecars"], 2)
 
-        wave_md = self.root / "docs" / "waves" / "1v13a external" / "wave.md"
+        wave_md = self.root / _live_waves_rel() / "1v13a external" / _record_name()
         before = re_.validate_external_review_evidence(wave_md)
         self.assertTrue(before.ok, before.errors)
 
@@ -8548,7 +8579,7 @@ class MaterializeLifecyclePolicyTests(unittest.TestCase):
         return json.loads(self.cfg.read_text(encoding="utf-8"))["lifecycle_id_policy"]
 
     def test_v1_repo_migrates_to_v2_with_scanned_offset(self):
-        (self.root / "docs" / "waves" / "1p9pk example-wave").mkdir(parents=True)
+        (self.root / _live_waves_rel() / "1p9pk example-wave").mkdir(parents=True)
         self._write_cfg({"lifecycle_id_policy": {"epoch_utc": "1999-05-01T00:00:00Z",
                                                  "hour_offset": 0}})
         msg = self.mod.materialize_lifecycle_policy(self.root)
@@ -8626,7 +8657,7 @@ class MaterializeLifecyclePolicyTests(unittest.TestCase):
         loud backstop naming the max prefix token (word-like false matches on
         6-char tokens are already excluded by the 5-char-only scan)."""
         # decode("w0000") = 53,747,712 → offset 54,063,936 > 36^5 − 1826×4096.
-        (self.root / "docs" / "waves" / "w0000 anomalous").mkdir(parents=True)
+        (self.root / _live_waves_rel() / "w0000 anomalous").mkdir(parents=True)
         self._write_cfg({})
         msg = self.mod.materialize_lifecycle_policy(self.root)
         self.assertIn("WARNING", msg)
@@ -8636,13 +8667,13 @@ class MaterializeLifecyclePolicyTests(unittest.TestCase):
         """Just under the 5-year threshold from the other side: a large-but-legal
         scanned max that still leaves 5+ years emits no warning."""
         # decode("j0000") = 31,912,704 → offset 32,228,928 ≪ threshold 52,986,880.
-        (self.root / "docs" / "waves" / "j0000 large-legit").mkdir(parents=True)
+        (self.root / _live_waves_rel() / "j0000 large-legit").mkdir(parents=True)
         self._write_cfg({})
         msg = self.mod.materialize_lifecycle_policy(self.root)
         self.assertNotIn("WARNING", msg)
 
     def test_normal_migration_emits_no_horizon_warning(self):
-        (self.root / "docs" / "waves" / "1p9pk example-wave").mkdir(parents=True)
+        (self.root / _live_waves_rel() / "1p9pk example-wave").mkdir(parents=True)
         self._write_cfg({})
         msg = self.mod.materialize_lifecycle_policy(self.root)
         self.assertNotIn("WARNING", msg)
@@ -8689,7 +8720,7 @@ class MaterializeLifecyclePolicyTests(unittest.TestCase):
     def test_written_config_is_valid_json_and_loader_accepts_it(self):
         """End-to-end: the written policy round-trips through the strict loader
         and the first mint decodes above the scanned pre-migration max."""
-        (self.root / "docs" / "waves" / "1p9pk example-wave").mkdir(parents=True)
+        (self.root / _live_waves_rel() / "1p9pk example-wave").mkdir(parents=True)
         self._write_cfg({"lifecycle_id_policy": {"epoch_utc": "1999-05-01T00:00:00Z"}})
         self.mod.materialize_lifecycle_policy(self.root)
         spec = importlib.util.spec_from_file_location(
@@ -8776,7 +8807,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         (self.root / ".wavefoundry" / "index").mkdir(parents=True)
-        (self.root / "docs" / "waves").mkdir(parents=True)
+        (self.root / _live_waves_rel()).mkdir(parents=True)
         sys.path.insert(0, str(SCRIPTS_ROOT))
         import memory_backfill
         import upgrade_lib
@@ -8801,11 +8832,11 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
         import server_impl
 
         self.root.joinpath("foo.py").write_text("LOCAL = True\n", encoding="utf-8")
-        wave = self.root / "docs" / "waves" / "1abc closed"
+        wave = self.root / _live_waves_rel() / "1abc closed"
         wave.mkdir()
         change_id = "1abd-enh durable-choice"
-        wave.joinpath("wave.md").write_text(
-            f"# Wave\n\nStatus: closed\n\nChange ID: `{change_id}`\n",
+        wave.joinpath(_record_name()).write_text(
+            f"# Wave\n\nStatus: closed\n\n{_member_id_label()}: `{change_id}`\n",
             encoding="utf-8",
         )
         wave.joinpath(f"{change_id}.md").write_text(
@@ -9225,8 +9256,8 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
         def phase(_root):
             index_dir = self.root / ".wavefoundry" / "index"
             attempt = index_state_store.begin_build_epoch(index_dir, "all")
-            wave.joinpath("wave.md").write_text(
-                wave.joinpath("wave.md").read_text(encoding="utf-8")
+            wave.joinpath(_record_name()).write_text(
+                wave.joinpath(_record_name()).read_text(encoding="utf-8")
                 + "\nchanged during publication\n",
                 encoding="utf-8",
             )
@@ -9471,9 +9502,9 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
     def test_old_shaped_lock_bootstraps_new_migrations_before_update_index(self):
         legacy_root = Path(self.tmp.name) / "legacy-target"
         (legacy_root / ".wavefoundry").mkdir(parents=True)
-        wave = legacy_root / "docs" / "waves" / "1old closed"
+        wave = legacy_root / _live_waves_rel() / "1old closed"
         wave.mkdir(parents=True)
-        wave.joinpath("wave.md").write_text(
+        wave.joinpath(_record_name()).write_text(
             "# Wave\n\nStatus: closed\n", encoding="utf-8"
         )
         self.upgrade_lib.write_upgrade_lock(legacy_root, "1.0.0", "1.1.0")
@@ -9955,7 +9986,7 @@ class CurrentLineageMemoryCheckpointPauseTests(unittest.TestCase):
             root = Path(temp_dir).resolve()
             (root / ".wavefoundry").mkdir()
             _stage_review_protocol_seeds(root)
-            (root / "docs" / "waves").mkdir(parents=True)
+            (root / _live_waves_rel()).mkdir(parents=True)
             (root / "docs" / "workflow-config.json").write_text(
                 "{}\n", encoding="utf-8"
             )
@@ -10039,7 +10070,7 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         (self.root / ".wavefoundry" / "index").mkdir(parents=True)
-        (self.root / "docs" / "waves").mkdir(parents=True)
+        (self.root / _live_waves_rel()).mkdir(parents=True)
         (self.root / ".wavefoundry" / "upgrade-in-progress.json").write_text(
             "{}\n", encoding="utf-8"
         )
@@ -10269,9 +10300,9 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         self.assertEqual(lock["docs_scalar_claims_pre_extract"], {"docs embedding model": "docs-v1"})
 
     def test_post_docs_gate_pauses_pre_upgrade_runner_before_index(self):
-        wave = self.root / "docs" / "waves" / "1old closed"
+        wave = self.root / _live_waves_rel() / "1old closed"
         wave.mkdir()
-        wave.joinpath("wave.md").write_text(
+        wave.joinpath(_record_name()).write_text(
             "# Wave\n\nStatus: closed\n", encoding="utf-8"
         )
         with patch.object(
@@ -10288,9 +10319,9 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         self.assertEqual(lock["memory_backfill_pending"], 1)
 
     def test_post_docs_gate_leaves_protocol_two_runner_to_process_bounded_batch(self):
-        wave = self.root / "docs" / "waves" / "1old closed"
+        wave = self.root / _live_waves_rel() / "1old closed"
         wave.mkdir()
-        wave.joinpath("wave.md").write_text(
+        wave.joinpath(_record_name()).write_text(
             "# Wave\n\nStatus: closed\n", encoding="utf-8"
         )
         self.ctx.runner_protocol = 2
@@ -10312,16 +10343,16 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         scripts.mkdir(parents=True)
         shutil.copy2(UPGRADE_PATH, scripts / "upgrade_wavefoundry.py")
 
-        wave_dir = self.root / "docs" / "waves" / "1hist external"
+        wave_dir = self.root / _live_waves_rel() / "1hist external"
         wave_dir.mkdir()
         wave_bytes = (
             # component-fixture: test_pre_docs_gate_loads_new_module_and_runs_sidecar_cleanup_for_old_runner preserves historical representation as the compatibility subject
             b"# Wave\nreview-evidence-source: events.jsonl\n\n"
             b"## Finding Synthesis\n\nHistorical narrative.\n"
         )
-        (wave_dir / "wave.md").write_bytes(wave_bytes)
+        (wave_dir / _record_name()).write_bytes(wave_bytes)
         (wave_dir / "events.jsonl").write_bytes(b"")
-        waves = self.root / "docs" / "waves"
+        waves = self.root / _live_waves_rel()
         (waves / "review-evidence-adoptions.json").write_bytes(b"{not json")
         (waves / "review-evidence-migration.json").write_bytes(b"{also not json")
 
@@ -10329,7 +10360,7 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
 
         self.assertFalse((waves / "review-evidence-adoptions.json").exists())
         self.assertFalse((waves / "review-evidence-migration.json").exists())
-        self.assertEqual((wave_dir / "wave.md").read_bytes(), wave_bytes)
+        self.assertEqual((wave_dir / _record_name()).read_bytes(), wave_bytes)
         self.assertEqual((wave_dir / "events.jsonl").read_bytes(), b"")
         lock = json.loads(
             (
@@ -10379,7 +10410,7 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
             sys.path.insert(0, str(SCRIPTS_ROOT))
         import review_evidence
 
-        waves = self.root / "docs" / "waves"
+        waves = self.root / _live_waves_rel()
         (waves / "review-evidence-adoptions.json").write_bytes(b"{not json")
 
         original = review_evidence.PROJECT_STATE_PUBLICATION_LOCK_REL
@@ -10453,7 +10484,7 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         sys.modules.pop("vocabulary_profile", None)
         self.assertFalse(hasattr(old.load_record_roots(self.root), "archive"))
         wave = self.root / "docs" / "waves" / "1old closed"
-        wave.mkdir()
+        wave.mkdir(parents=True)
         wave.joinpath("wave.md").write_text("# Wave\n\nStatus: closed\n", encoding="utf-8")
         self.ctx.runner_protocol = 2
 
@@ -10500,9 +10531,9 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
                 record_paths.load_record_roots(self.root)
 
     def test_memory_bootstrap_on_current_modules_is_unchanged(self):
-        wave = self.root / "docs" / "waves" / "1old closed"
+        wave = self.root / _live_waves_rel() / "1old closed"
         wave.mkdir()
-        wave.joinpath("wave.md").write_text("# Wave\n\nStatus: closed\n", encoding="utf-8")
+        wave.joinpath(_record_name()).write_text("# Wave\n\nStatus: closed\n", encoding="utf-8")
         self.ctx.runner_protocol = 2
         self.assertIsNone(self.ext.post_docs_gate(self.ctx))
         lock = json.loads(
@@ -10531,6 +10562,7 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
                 import record_paths
 
                 self.assertTrue(hasattr(record_paths.load_record_roots(self.root), "archive"))
+                # The record the v1.27 preload wrote, in that runner's layout.
                 (self.root / "docs" / "waves" / "1old closed" / "wave.md").unlink()
                 (self.root / "docs" / "waves" / "1old closed").rmdir()
 
@@ -10637,11 +10669,11 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         import server_impl
 
         self.root.joinpath("foo.py").write_text("LOCAL = True\n", encoding="utf-8")
-        wave = self.root / "docs" / "waves" / "1old closed"
+        wave = self.root / _live_waves_rel() / "1old closed"
         wave.mkdir()
         change_id = "1old1-enh local-choice"
-        wave.joinpath("wave.md").write_text(
-            f"# Wave\n\nStatus: closed\n\nChange ID: `{change_id}`\n",
+        wave.joinpath(_record_name()).write_text(
+            f"# Wave\n\nStatus: closed\n\n{_member_id_label()}: `{change_id}`\n",
             encoding="utf-8",
         )
         wave.joinpath(f"{change_id}.md").write_text(
@@ -10708,7 +10740,7 @@ class JournalMigrationTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.journals = self.root / "docs" / "agents" / "journals"
         self.journals.mkdir(parents=True)
-        (self.root / "docs" / "waves").mkdir(parents=True)
+        (self.root / _live_waves_rel()).mkdir(parents=True)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -10755,17 +10787,17 @@ class JournalMigrationTests(unittest.TestCase):
         name, text = self._write_pristine(wave_id, "demo-wave", "2026-01-05")
         edited = text + "\n- Real observation captured mid-wave.\n"
         (self.journals / name).write_text(edited, encoding="utf-8")
-        (self.root / "docs" / "waves" / wave_id).mkdir()
+        (self.root / _live_waves_rel() / wave_id).mkdir()
         report = self._run()
-        destination = self.root / "docs" / "waves" / wave_id / "1aaac-jrnl demo-wave.md"
+        destination = self.root / _live_waves_rel() / wave_id / "1aaac-jrnl demo-wave.md"
         self.assertFalse((self.journals / name).exists())
         self.assertFalse(
-            (self.root / "docs" / "waves" / wave_id / name).exists(),
+            (self.root / _live_waves_rel() / wave_id / name).exists(),
             "relocation must not use the bare scaffold name",
         )
         self.assertEqual(destination.read_text(encoding="utf-8"), edited)
         self.assertIn("moved 1 wave journal(s)", report)
-        self.assertIn(f"{name} -> docs/waves/{wave_id}/1aaac-jrnl demo-wave.md", report)
+        self.assertIn(f"{name} -> {_live_waves_rel()}/{wave_id}/1aaac-jrnl demo-wave.md", report)
 
     def test_old_journal_without_template_fields_still_relocates(self):
         """Live-caught: relocation must need only the wave identity — older
@@ -10777,11 +10809,11 @@ class JournalMigrationTests(unittest.TestCase):
             f"# Old journal\n\nwave-id: `{wave_id}`\n\n- Historical note.\n",
             encoding="utf-8",
         )
-        (self.root / "docs" / "waves" / wave_id).mkdir()
+        (self.root / _live_waves_rel() / wave_id).mkdir()
         self._run()
         self.assertFalse((self.journals / name).exists())
         self.assertTrue(
-            (self.root / "docs" / "waves" / wave_id / "1aaad-jrnl old-wave.md").exists()
+            (self.root / _live_waves_rel() / wave_id / "1aaad-jrnl old-wave.md").exists()
         )
 
     def test_role_journal_referencing_wave_id_stays_in_place(self):
@@ -10790,7 +10822,7 @@ class JournalMigrationTests(unittest.TestCase):
         filename equals its wave id is a wave journal."""
 
         wave_id = "1aaae other-wave"
-        (self.root / "docs" / "waves" / wave_id).mkdir()
+        (self.root / _live_waves_rel() / wave_id).mkdir()
         (self.journals / "guru.md").write_text(
             "# Journal - guru\n\n"
             f"wave-id: `{wave_id}`\n\n"
@@ -10800,7 +10832,7 @@ class JournalMigrationTests(unittest.TestCase):
         report = self._run()
         self.assertTrue((self.journals / "guru.md").exists())
         self.assertEqual(
-            list((self.root / "docs" / "waves" / wave_id).iterdir()), []
+            list((self.root / _live_waves_rel() / wave_id).iterdir()), []
         )
         self.assertIn("left guru.md in place", report)
 
@@ -11452,7 +11484,7 @@ class PermissionsRenderBackstopTests(unittest.TestCase):
 
         lib = _load_upgrade_lib()
         (self.root / ".wavefoundry" / "index").mkdir(parents=True, exist_ok=True)
-        (self.root / "docs" / "waves").mkdir(parents=True, exist_ok=True)
+        (self.root / _live_waves_rel()).mkdir(parents=True, exist_ok=True)
         run_id = memory_backfill.ensure_run(self.root, "upgrade")
         memory_backfill.sync_inventory(self.root, run_id)
         memory_backfill.mark_indexed(self.root, run_id)

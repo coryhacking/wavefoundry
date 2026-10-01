@@ -16,6 +16,11 @@ from unittest.mock import Mock, patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 SETUP_WF_PATH = SCRIPTS_ROOT / "setup_wavefoundry.py"
+for _p in (str(SCRIPTS_ROOT), str(SCRIPTS_ROOT / "tests")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+from record_layout_support import waves_dir  # noqa: E402
+import vocabulary_profile  # noqa: E402
 REVIEW_PROTOCOL_SEEDS = (
     "209-agent-harness-core.prompt.md",
     "221-code-reviewer.prompt.md",
@@ -685,7 +690,7 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
                 json.dumps({"lifecycle_id_policy": {"scheme_version": "v2"}}),
                 encoding="utf-8",
             )
-            historical = root / "docs" / "waves" / "abcde historical" / "wave.md"
+            historical = waves_dir(root) / "abcde historical" / vocabulary_profile.RECORD_FILENAME
             historical.parent.mkdir(parents=True)
             historical.write_bytes(
                 b"# Historical target wave\n\nproject-authored bytes: do not parse or rewrite\n"

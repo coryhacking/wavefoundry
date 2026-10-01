@@ -483,14 +483,28 @@ class ScaffoldingIntegrityTests(unittest.TestCase):
     """AC-5: fixtures are this session's actual defect shapes."""
 
     def _wave(self, root: Path, wave_id: str, status: str, signoff_line: str) -> Path:
-        d = root / "docs" / "waves" / wave_id
+        # The configured waves root and record vocabulary (the shipped
+        # profile, or a profile's).
+        import vocabulary_profile as vp
+        from record_layout_support import RecordTreeBuilder
+
+        d = RecordTreeBuilder(root).waves_dir / wave_id
         d.mkdir(parents=True, exist_ok=True)
-        (d / "wave.md").write_text(
-            f"# Wave Record\n\nStatus: {status}\n\nwave-id: `{wave_id}`\n\n"
+        (d / vp.RECORD_FILENAME).write_text(
+            f"{vp.RECORD_TITLE}\n\nStatus: {status}\n\n{vp.ID_KEY}: `{wave_id}`\n\n"
             f"## Review Evidence\n\n{signoff_line}\n",
             encoding="utf-8",
         )
         return d
+
+    @staticmethod
+    def _change_doc(directory: Path, change_id: str, wave_value: str) -> None:
+        import vocabulary_profile as vp
+
+        (directory / f"{change_id}.md").write_text(
+            f"# T\n\n{vp.MEMBER_ID_LABEL}: `{change_id}`\n{vp.BACKREF_LABEL}: {wave_value}\n",
+            encoding="utf-8",
+        )
 
     def test_unbracketed_preapproval_signoff_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -523,15 +537,12 @@ class ScaffoldingIntegrityTests(unittest.TestCase):
             root = Path(tmp)
             d = self._wave(root, "1x live", "active",
                            "- operator-signoff: <approved when operator confirms closure>")
-            (d / "1abcd-enh thing.md").write_text(
-                "# T\n\nChange ID: `1abcd-enh thing`\nWave: TBD\n", encoding="utf-8"
-            )
-            (d / "1abce-enh other.md").write_text(
-                "# T\n\nChange ID: `1abce-enh other`\nWave: `1zzzz wrong-wave`\n",
-                encoding="utf-8",
-            )
+            import vocabulary_profile as vp
+
+            self._change_doc(d, "1abcd-enh thing", "TBD")
+            self._change_doc(d, "1abce-enh other", "`1zzzz wrong-wave`")
             failures = check_wave_scaffolding_integrity(root)
-            self.assertTrue(any("Wave: TBD" in f for f in failures), failures)
+            self.assertTrue(any(f"{vp.BACKREF_LABEL}: TBD" in f for f in failures), failures)
             self.assertTrue(any("does not match the containing" in f for f in failures), failures)
 
     def test_matching_wave_reference_passes(self):
@@ -539,9 +550,7 @@ class ScaffoldingIntegrityTests(unittest.TestCase):
             root = Path(tmp)
             d = self._wave(root, "1x live", "active",
                            "- operator-signoff: <approved when operator confirms closure>")
-            (d / "1abcd-enh thing.md").write_text(
-                "# T\n\nChange ID: `1abcd-enh thing`\nWave: `1x live`\n", encoding="utf-8"
-            )
+            self._change_doc(d, "1abcd-enh thing", "`1x live`")
             self.assertEqual(check_wave_scaffolding_integrity(root), [])
 
     def test_live_repo_is_clean(self):

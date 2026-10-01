@@ -511,6 +511,7 @@ TEST_DIR_NAMES = {"test", "tests", "__tests__"}
 #                                secret-scan findings ledger). Also re-enforced
 #                                on the `files=` build seam that bypasses the walk.
 #   4. Prefix exclusions       — `HARDCODED_EXCLUDE_PREFIXES` (index/logs/locks).
+#                                and `VENDORED_ASSET_PREFIXES` (dashboard/vendor/).
 #   5. Name layer              — `HARDCODED_EXCLUDE_FILENAMES` (exact names) and
 #                                `HARDCODED_EXCLUDE_FILENAME_SUFFIXES` (bounded
 #                                generated patterns, e.g. minified assets). This
@@ -628,6 +629,13 @@ HARDCODED_EXCLUDE_FILENAMES = frozenset({
 # noise. Matched by filename suffix; the re-include hatch can subtract an exact
 # filename from this layer too.
 HARDCODED_EXCLUDE_FILENAME_SUFFIXES = (".min.js", ".min.css")
+
+# Wave 1zim2: third-party scripts vendored for the dashboard (React, ReactDOM,
+# elkjs) are unmodified upstream bundles with no retrieval value; `elk.bundled.js`
+# is not `.min.js`, so the suffix layer above would not catch it. Applied with
+# the prefix layer and on the `files=` seam; not re-includable. No WALKER_VERSION
+# bump: the directory is new, so no existing index holds rows to evict.
+VENDORED_ASSET_PREFIXES = (".wavefoundry/framework/dashboard/vendor/",)
 
 # Extensions for machine-generated files that are valid text but have no code semantics.
 # .drawio and .excalidraw LEFT this set in wave 1wl7w (1wl7v): their earlier
@@ -892,6 +900,13 @@ def _filter_secret_scan_findings(files: list[Path], root: Path) -> list[Path]:
     ]
 
 
+def _filter_vendored_assets(files: list[Path], root: Path) -> list[Path]:
+    return [
+        path for path in files
+        if not str(path.relative_to(root)).replace("\\", "/").startswith(VENDORED_ASSET_PREFIXES)
+    ]
+
+
 def walk_repo(
     root: Path,
     *,
@@ -993,6 +1008,8 @@ def walk_repo(
 
             # Check hardcoded prefix excludes
             if any(rel_str.startswith(prefix) for prefix in HARDCODED_EXCLUDE_PREFIXES):
+                continue
+            if rel_str.startswith(VENDORED_ASSET_PREFIXES):
                 continue
 
             parts = rel_str.split("/")
@@ -4457,6 +4474,7 @@ def _build_index_locked(
         files = _filter_memory_archive_bodies(files, root)
         files = _filter_legacy_memory_pointers(files, root)
         files = _filter_secret_scan_findings(files, root)
+        files = _filter_vendored_assets(files, root)
         if str(index_dir).replace("\\", "/").endswith("/.wavefoundry/framework/index"):
             files = _filter_framework_pack_artifacts(files, root)
         graph_layer = _graph_layer_for_index_dir(index_dir)

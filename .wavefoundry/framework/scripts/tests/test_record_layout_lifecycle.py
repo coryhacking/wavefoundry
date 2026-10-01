@@ -21,10 +21,19 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from record_layout_support import apply_layout, patch_layout
+from record_layout_support import SHIPPED_DEFAULTS, apply_layout, default_profile_only, patch_layout
 from server_tools_support import _make_repo, load_server, load_thin_runner
 
 TESTS_DIR = Path(__file__).resolve().parent
+SCRIPTS_DIR = TESTS_DIR.parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+import vocabulary_profile as vp  # noqa: E402
+
+# The shipped default roots, which a relocated layout must leave untouched.
+SHIPPED_WAVES_ROOT = SHIPPED_DEFAULTS["record_paths"]["WAVES_ROOT"]
+SHIPPED_PLANS_ROOT = SHIPPED_DEFAULTS["record_paths"]["PLANS_ROOT"]
 GOLDEN_PATH = TESTS_DIR / "fixtures" / "tool-surface-golden.json"
 
 RELOCATED = {"waves_root": "project/records/waves", "plans_root": "project/records/plans"}
@@ -56,8 +65,8 @@ class _RepoCase(unittest.TestCase):
                         normalized.startswith(prefix) or f"/{prefix}" in normalized,
                         f"{value!r} not under {prefix!r}",
                     )
-                    self.assertNotIn("docs/waves/", normalized)
-                    self.assertNotIn("docs/plans/", normalized)
+                    self.assertNotIn(f"{SHIPPED_WAVES_ROOT}/", normalized)
+                    self.assertNotIn(f"{SHIPPED_PLANS_ROOT}/", normalized)
                 else:
                     self._all_paths_under(value, prefix)
         elif isinstance(payload, list):
@@ -76,9 +85,9 @@ class RelocatedRootsLifecycleTests(_RepoCase):
         created = self.srv.wf_create_wave_response(self.root, "relocated-demo", mode="create")
         self.assertEqual(created["status"], "ok", created)
         wave_id = created["data"]["wave_id"]
-        wave_md = self.root / "project" / "records" / "waves" / wave_id / "wave.md"
+        wave_md = self.root / "project" / "records" / "waves" / wave_id / vp.RECORD_FILENAME
         self.assertTrue(wave_md.is_file(), "wave record must be created under the configured waves root")
-        self.assertFalse((self.root / "docs" / "waves").exists(), "nothing may be written under the default root")
+        self.assertFalse((self.root / SHIPPED_WAVES_ROOT).exists(), "nothing may be written under the default root")
 
         plan = self.srv.change_create(self.root, "enh", "relocated-change", mode="create")
         change_id = plan["id"]
@@ -154,6 +163,7 @@ class RelocatedRootsLifecycleTests(_RepoCase):
 class DefaultLayoutUnchangedTests(_RepoCase):
     """AC-1: path identity on the shipped layout."""
 
+    @default_profile_only("pins path identity on the shipped layout")
     def test_default_paths_are_byte_identical(self):
         roots = self.srv.record_paths.load_record_roots(self.root)
         self.assertEqual(roots.waves, self.root / "docs" / "waves")

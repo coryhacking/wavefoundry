@@ -4,7 +4,8 @@ AC-1: under the default profile the shipped change template renders unchanged,
 and the Stop-hook body differs from its pre-change form only by the runtime
 profile import and the routed name references (pinned below).
 AC-2: over a copied scripts tree with a second profile, a scratch repository
-runs create wave, admit change, prepare, readiness and delivery review
+(the shared asset of change 1zim1, nested live root included) runs create
+wave, admit change, prepare, readiness and delivery review
 evidence, a member-status advance after the approvals, and close. Discovery,
 ``list_waves`` and docs-lint find the records, and no default vocabulary
 marker (the census matcher) appears anywhere under the waves or plans root.
@@ -36,8 +37,14 @@ import render_platform_surfaces  # noqa: E402
 import test_vocabulary_census as _census  # noqa: E402  (module imports keep their tests out of this module)
 import test_vocabulary_second_profile as _second  # noqa: E402
 import vocabulary_profile  # noqa: E402
+from record_layout_support import (  # noqa: E402
+    DOCS_LINT_FIXTURE, SHIPPED_DEFAULTS, default_profile_only, shipped_default_profile,
+)
 
 FIXTURE_WAVE = "change-2026-03"
+# The control tree is the shipped default profile, whatever profile this run loaded.
+SHIPPED_RECORD = SHIPPED_DEFAULTS["vocabulary_profile"]["RECORD_FILENAME"]
+SHIPPED_WAVES_ROOT = SHIPPED_DEFAULTS["record_paths"]["WAVES_ROOT"]
 
 # Runs in a fresh interpreter with the scripts tree under test first on sys.path.
 LIFECYCLE_DRIVER = r'''
@@ -138,10 +145,10 @@ def _lifecycle_repo(dest: Path, *, second: bool) -> Path:
     own wave paused so a new one can open and a lifecycle-id policy set."""
     if second:
         _second._second_profile_records(dest)
-        record = dest / "docs" / "waves" / FIXTURE_WAVE / _second.SECOND_PROFILE["RECORD_FILENAME"]
+        record = dest / _second.WAVE_DIR_REL / _second.SECOND_PROFILE["RECORD_FILENAME"]
     else:
-        shutil.copytree(_second.FIXTURE_ROOT, dest)
-        record = dest / "docs" / "waves" / FIXTURE_WAVE / "wave.md"
+        shutil.copytree(DOCS_LINT_FIXTURE, dest)
+        record = dest / SHIPPED_WAVES_ROOT / FIXTURE_WAVE / SHIPPED_RECORD
     text, count = re.subn(r"(?m)^Status: active$", "Status: paused", record.read_text(encoding="utf-8"), count=1)
     assert count == 1
     record.write_text(text, encoding="utf-8")
@@ -152,7 +159,9 @@ def _lifecycle_repo(dest: Path, *, second: bool) -> Path:
     return dest
 
 
-def _run_lifecycle(scripts: Path, root: Path) -> dict:
+def _run_lifecycle(scripts: Path, root: Path, layout: dict) -> dict:
+    """``layout`` is the tree's ``record_paths`` constants: the census scans
+    its waves and plans roots."""
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
     result = subprocess.run(
         [sys.executable, "-B", "-c", LIFECYCLE_DRIVER, str(scripts), str(root)],
@@ -169,8 +178,8 @@ def _run_lifecycle(scripts: Path, root: Path) -> dict:
     )
     out["lint_rc"], out["lint_stderr"] = lint.returncode, lint.stderr
     hits = []
-    for top in ("waves", "plans"):
-        for path in sorted((root / "docs" / top).rglob("*")):
+    for top in (layout["WAVES_ROOT"], layout["PLANS_ROOT"]):
+        for path in sorted((root / top).rglob("*")):
             if not path.is_file():
                 continue
             for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
@@ -186,12 +195,14 @@ class SecondProfileLifecycleTests(unittest.TestCase):
         cls._tmp = tempfile.TemporaryDirectory()
         base = Path(cls._tmp.name)
         cls.second = _run_lifecycle(
-            _second._copy_tree(base / "second-tree", _second.SECOND_PROFILE),
+            _second._copy_tree(base / "second-tree", _second.SECOND),
             _lifecycle_repo(base / "second-repo", second=True),
+            {**SHIPPED_DEFAULTS["record_paths"], **_second.LAYOUT},
         )
         cls.control = _run_lifecycle(
-            _second._copy_tree(base / "default-tree", None),
+            _second._copy_tree(base / "default-tree", shipped_default_profile()),
             _lifecycle_repo(base / "default-repo", second=False),
+            SHIPPED_DEFAULTS["record_paths"],
         )
 
     @classmethod
@@ -223,12 +234,13 @@ class SecondProfileLifecycleTests(unittest.TestCase):
         self.assertEqual((self.control["close_status"], self.control["close_codes"]), ("ok", []))
         self.assertEqual(self._new_wave(self.control)["status"], "closed")
         self.assertEqual(self.control["lint_rc"], 0, self.control["lint_stderr"])
-        self.assertTrue(any("vocab-e2e/wave.md" in hit for hit in self.control["marker_hits"]))
+        self.assertTrue(any(f"vocab-e2e/{SHIPPED_RECORD}" in hit for hit in self.control["marker_hits"]))
 
 
 class DefaultProfileWriterTests(unittest.TestCase):
     TEMPLATE = SCRIPTS_DIR.parent / "install" / "plan-template.md"
 
+    @default_profile_only("pins the shipped template as the identity of localize_template under the shipped labels")
     def test_shipped_template_is_unchanged_under_the_default_profile(self) -> None:
         text = self.TEMPLATE.read_text(encoding="utf-8")
         self.assertEqual(vocabulary_profile.localize_template(text), text)

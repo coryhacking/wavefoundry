@@ -1,0 +1,17 @@
+{
+  "description": "The shipped vocabulary and layout with a sample distribution tool declaration (change 1zim4): one plain alias and one parameter-mapped alias (a renamed parameter and a pinned one) on stock tools, so the suite runs with declarations present.",
+  "modules": {
+    "mcp_tool_extensions": {
+      "EXTENSION_TOOL_ALIASES": {
+        "wf_alias_help": "wf_help",
+        "wf_alias_read_raw": "code_read"
+      },
+      "EXTENSION_TOOL_PARAMETERS": {
+        "wf_alias_read_raw": {
+          "rename": {"file": "path"},
+          "fixed": {"with_line_numbers": false}
+        }
+      }
+    }
+  }
+}

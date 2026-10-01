@@ -20,6 +20,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import commit_provenance as cp  # noqa: E402
 
 
+def _waves_root() -> str:
+    """The configured live waves root, read from the module copy ``cp`` holds
+    (the shipped layout, or a profile's)."""
+    return cp.record_paths.WAVES_ROOT
+
+
+def _record(folder: str) -> str:
+    """The repo-relative record file of wave folder ``folder``."""
+    return f"{_waves_root()}/{folder}/{cp._vocab.RECORD_FILENAME}"
+
+
 def _git(repo: Path, *args: str) -> str:
     env = dict(os.environ)
     env.update(
@@ -56,17 +67,17 @@ class _RepoCase(unittest.TestCase):
     def _wave(self, wave_id: str, slug: str, decisions: list[str], group: str = "") -> None:
         rows = "\n".join(f"| 2026-01-0{i+1} | {d} | reason | alt |"
                          for i, d in enumerate(decisions))
-        folder = f"docs/waves/{group + '/' if group else ''}{wave_id} {slug}"
+        folder = f"{_waves_root()}/{group + '/' if group else ''}{wave_id} {slug}"
         change = (
-            f"# {slug}\n\nChange ID: `{wave_id}a-feat {slug}`\n\n"
+            f"# {slug}\n\n{cp._vocab.MEMBER_ID_LABEL}: `{wave_id}a-feat {slug}`\n\n"
             "## Decision Log\n\n"
             "| Date | Decision | Reason | Alternatives |\n"
             "| ---- | -------- | ------ | ------------ |\n"
             f"{rows}\n"
         )
         self._write(f"{folder}/{wave_id}a-feat {slug}.md", change)
-        self._write(f"{folder}/wave.md",
-                    f"# Wave Record\n\nwave-id: `{wave_id} {slug}`\n")
+        self._write(f"{folder}/{cp._vocab.RECORD_FILENAME}",
+                    f"{cp._vocab.RECORD_TITLE}\n\n{cp._vocab.ID_KEY}: `{wave_id} {slug}`\n")
 
 
 class ResolutionTests(_RepoCase):
@@ -93,7 +104,7 @@ class ResolutionTests(_RepoCase):
         self._write("f.txt", "x\n")
         sha = self._commit("fix: something unconventional")
         # an explicit typed landing association (generic SHA prose is not authority)
-        self._write("docs/waves/1zzzz slug/wave.md",
+        self._write(_record("1zzzz slug"),
                     f"# Wave\n\nlanding-commit: {sha[:7]}\n")
         self._commit("Land wave 1zzzz: record the sha")
         v = cp.resolve_commit_to_waves(self.root, sha)
@@ -103,7 +114,7 @@ class ResolutionTests(_RepoCase):
     def test_conflict_reports_both_never_reconciles(self):
         self._write("f.txt", "x\n")
         sha = self._commit("Land wave 1aaaa: msg says aaaa")
-        self._write("docs/waves/1bbbb slug/wave.md",
+        self._write(_record("1bbbb slug"),
                     f"# Wave\n\nlanding-commit: {sha[:7]}\n")
         self._commit("Land wave 1bbbb: evidence says bbbb")
         v = cp.resolve_commit_to_waves(self.root, sha)
@@ -121,7 +132,7 @@ class ResolutionTests(_RepoCase):
     def test_generic_sha_mention_is_not_authority(self):
         self._write("f.txt", "x\n")
         sha = self._commit("chore: no wave here")
-        self._write("docs/waves/1zzzz slug/wave.md",
+        self._write(_record("1zzzz slug"),
                     f"# Wave\n\nUnrelated fixture commit `{sha[:7]}`\n")
         self.assertEqual(cp.resolve_via_evidence(self.root, sha), [])
 
@@ -129,14 +140,14 @@ class ResolutionTests(_RepoCase):
         self._write("f.txt", "x\n")
         sha = self._commit("chore: no wave here")
         self._write(
-            "docs/waves/1zzzz slug/wave.md",
+            _record("1zzzz slug"),
             f"# Wave\n\n```text\nlanding-commit: {sha}\n```\n",
         )
         self.assertEqual(cp.resolve_via_evidence(self.root, sha), [])
 
     def test_nonexistent_sha_cannot_resolve_from_prose(self):
         sha = "deadbee"
-        self._write("docs/waves/1zzzz slug/wave.md",
+        self._write(_record("1zzzz slug"),
                     f"# Wave\n\nlanding-commit: {sha}\n")
         self.assertFalse(cp.resolve_commit_to_waves(self.root, sha)["resolved"])
 
@@ -180,21 +191,26 @@ class ReasoningSurfacingTests(_RepoCase):
         self._wave("1abce", "deep", ["deep decision"], group="team")
         sha = self._commit("Land wave 1abce: deep")
         deep_dir = cp._wave_dir_for_id(self.root, "1abce")
-        self.assertEqual(deep_dir, self.root / "docs" / "waves" / "team" / "1abce deep")
-        self.assertEqual(cp._wave_dir_for_id(self.root, "1abcd"), self.root / "docs" / "waves" / "1abcd flat")
+        waves = self.root / _waves_root()
+        self.assertEqual(deep_dir, waves / "team" / "1abce deep")
+        self.assertEqual(cp._wave_dir_for_id(self.root, "1abcd"), waves / "1abcd flat")
         self.assertIsNone(cp._wave_dir_for_id(self.root, "1abc"), "the id token matches exactly, not by prefix")
         v = cp.provenance_for_sha(self.root, sha)
         self.assertEqual(v["waves"], ["1abce"])
         rows = v["provenance"]
         self.assertTrue(rows, "the deep wave's rows must be non-empty")
         self.assertEqual(sorted(r["path"] for r in rows), [
-            "docs/waves/team/1abce deep/1abcea-feat deep.md",
-            "docs/waves/team/1abce deep/wave.md",
+            f"{_waves_root()}/team/1abce deep/1abcea-feat deep.md",
+            _record("team/1abce deep"),
         ])
         self.assertIn("deep decision", "\n".join(rows[0]["decisions"] + rows[1]["decisions"]))
 
     def test_flat_layout_does_not_see_a_grouped_wave(self):
-        # Under the shipped flat layout the grouped folder is not a wave.
+        # Under a flat layout (the shipped one) the grouped folder is not a
+        # wave; set flat explicitly so a nested profile still tests it.
+        from record_layout_support import apply_layout
+
+        apply_layout(self, modules=(cp.record_paths,), nested=False)
         self._wave("1abce", "deep", ["deep decision"], group="team")
         sha = self._commit("Land wave 1abce: deep")
         self.assertIsNone(cp._wave_dir_for_id(self.root, "1abce"))
@@ -272,7 +288,7 @@ class ResolutionSignalTests(_RepoCase):
     def test_conflict_signal(self):
         self._write("f.txt", "x\n")
         sha = self._commit("Land wave 1aaaa: msg")
-        self._write("docs/waves/1bbbb slug/wave.md",
+        self._write(_record("1bbbb slug"),
                     f"# Wave\n\nlanding-commit: {sha[:7]}\n")
         self._commit("Land wave 1bbbb: evidence")
         self.assertEqual(self._resolution(commit=sha), "conflict")

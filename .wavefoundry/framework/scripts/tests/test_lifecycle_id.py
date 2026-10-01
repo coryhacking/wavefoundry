@@ -6,6 +6,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -16,6 +17,12 @@ from unittest.mock import patch
 TESTS_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = TESTS_ROOT.parents[2]
 SCRIPT_PATH = PROJECT_ROOT / "framework" / "scripts" / "lifecycle_id.py"
+if str(TESTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TESTS_ROOT))
+if str(TESTS_ROOT.parent) not in sys.path:
+    sys.path.insert(0, str(TESTS_ROOT.parent))
+from record_layout_support import waves_dir  # noqa: E402
+import vocabulary_profile  # noqa: E402
 
 
 def _load_module():
@@ -220,7 +227,7 @@ class BorrowFromFutureTests(unittest.TestCase):
             encoding="utf-8",
         )
         (docs / "plans").mkdir()
-        (docs / "waves").mkdir()
+        waves_dir(docs.parent).mkdir(parents=True)
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
@@ -250,7 +257,7 @@ class BorrowFromFutureTests(unittest.TestCase):
 
     def test_existing_prefixes_union_of_plans_waves_adrs(self) -> None:  # 1p45b AC-5
         (self.repo_root / "docs" / "plans" / "aaaaa-enh p.md").touch()
-        (self.repo_root / "docs" / "waves" / "bbbbb w").mkdir()
+        (waves_dir(self.repo_root) / "bbbbb w").mkdir()
         adr = self.repo_root / "docs" / "architecture" / "decisions"
         adr.mkdir(parents=True)
         (adr / "ccccc-adr-x.md").touch()
@@ -309,7 +316,7 @@ class BorrowFromFutureTests(unittest.TestCase):
 
     def test_borrow_skips_taken_change_doc_in_waves(self) -> None:
         mod = self.mod
-        wave_dir = self.repo_root / "docs" / "waves" / "0b2w6 test-wave"
+        wave_dir = waves_dir(self.repo_root) / "0b2w6 test-wave"
         wave_dir.mkdir(parents=True)
         (wave_dir / "0b2w6-enh foo.md").touch()
         ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)
@@ -338,7 +345,7 @@ class BorrowFromFutureTests(unittest.TestCase):
         # AC-8: wave IDs must also go through collision checking
         mod = self.mod
         # Simulate an existing wave directory that owns '0b2w6'
-        wave_dir = self.repo_root / "docs" / "waves" / "0b2w6 old-wave"
+        wave_dir = waves_dir(self.repo_root) / "0b2w6 old-wave"
         wave_dir.mkdir(parents=True)
         ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)
         result = mod.build_id("wave", "new-wave", legacy=False, timestamp=ts, repo_root=self.repo_root, policy=self._policy())
@@ -354,7 +361,7 @@ class BorrowFromFutureTests(unittest.TestCase):
         mod = self.mod
         plans = self.repo_root / "docs" / "plans"
         (plans / "0b2w6-enh plan-doc.md").touch()
-        wave_dir = self.repo_root / "docs" / "waves" / "0b33r old-wave"
+        wave_dir = waves_dir(self.repo_root) / "0b33r old-wave"
         wave_dir.mkdir(parents=True)
         prefixes = mod._existing_prefixes(self.repo_root)
         self.assertIn("0b2w6", prefixes)
@@ -363,9 +370,9 @@ class BorrowFromFutureTests(unittest.TestCase):
     def test_existing_prefixes_ignores_wave_dot_md(self) -> None:
         # wave.md itself should not produce a spurious prefix entry
         mod = self.mod
-        wave_dir = self.repo_root / "docs" / "waves" / "0b2w6 my-wave"
+        wave_dir = waves_dir(self.repo_root) / "0b2w6 my-wave"
         wave_dir.mkdir(parents=True)
-        (wave_dir / "wave.md").touch()
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).touch()
         prefixes = mod._existing_prefixes(self.repo_root)
         # 'wave' stem doesn't match _PREFIX_RE → not added
         self.assertNotIn("wave.", prefixes)
@@ -410,7 +417,7 @@ class PeekWithoutConsumeTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.repo_root = Path(self.temp_dir.name)
         (self.repo_root / "docs" / "plans").mkdir(parents=True)
-        (self.repo_root / "docs" / "waves").mkdir()
+        waves_dir(self.repo_root).mkdir(parents=True)
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
@@ -763,7 +770,7 @@ class V2ProvisioningHelperTests(unittest.TestCase):
 
     def test_migrated_offset_clears_scanned_max_plus_margin(self) -> None:  # AC-3
         mod = self.mod
-        wave_dir = self.repo_root / "docs" / "waves" / "1p9pk example-wave"
+        wave_dir = waves_dir(self.repo_root) / "1p9pk example-wave"
         wave_dir.mkdir(parents=True)
         scanned = mod.scan_max_prefix_value(self.repo_root)
         self.assertEqual(scanned, mod.decode_base36("1p9pk"))  # 2,858,600
@@ -777,7 +784,7 @@ class V2ProvisioningHelperTests(unittest.TestCase):
         self.assertGreaterEqual(self.mod.V1_MERGE_MARGIN, 288 * 365)
 
     def test_legacy_baseline_prefix_does_not_count_as_history(self) -> None:
-        (self.repo_root / "docs" / "waves" / "00000 wave-zero").mkdir(parents=True)
+        (waves_dir(self.repo_root) / "00000 wave-zero").mkdir(parents=True)
         self.assertIsNone(self.mod.scan_max_prefix_value(self.repo_root))
 
     def test_fresh_offset_band_and_second_char(self) -> None:  # AC-3b
@@ -843,7 +850,7 @@ class V2ProvisioningHelperTests(unittest.TestCase):
         self.assertEqual(fresh["epoch_utc"], "2026-07-03T00:00:00Z")
         self.assertIn("project_seed", fresh)
         self.assertLess(fresh["offset"], 619_520)
-        (self.repo_root / "docs" / "waves" / "1p9pk w").mkdir(parents=True)
+        (waves_dir(self.repo_root) / "1p9pk w").mkdir(parents=True)
         migrated = mod.compute_v2_policy_fields(self.repo_root, now, "proj")
         self.assertNotIn("project_seed", migrated)
         self.assertEqual(migrated["offset"],

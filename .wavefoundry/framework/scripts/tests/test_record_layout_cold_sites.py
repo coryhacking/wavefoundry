@@ -17,32 +17,38 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from record_layout_support import apply_layout, patch_layout
+from record_layout_support import SHIPPED_DEFAULTS, apply_layout, patch_layout
 from server_tools_support import _make_repo, load_server
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-RELOCATED = {"waves_root": "project/records/waves", "plans_root": "project/records/plans"}
+import vocabulary_profile as vp  # noqa: E402
 
-WAVE_MD = """# Wave Record
+# No archive root: these tests pin that the DEFAULT location stops being a
+# record location once the roots move, which an archive configured there
+# (a profile's pre-adoption records) would legitimately contradict.
+SHIPPED_WAVES_ROOT = SHIPPED_DEFAULTS["record_paths"]["WAVES_ROOT"]
+RELOCATED = {"waves_root": "project/records/waves", "plans_root": "project/records/plans", "archive_root": None}
+
+WAVE_MD = f"""{vp.RECORD_TITLE}
 
 Owner: Engineering
 Status: closed
 Last verified: 2026-09-17
 
-wave-id: `1abcd relocated-demo`
+{vp.ID_KEY}: `1abcd relocated-demo`
 Title: Relocated Demo
 
 ## Objective
 
 Demo.
 
-## Changes
+{vp.MEMBER_HEADING}
 
-Change ID: `1abce-enh demo`
-Change Status: `complete`
+{vp.MEMBER_ID_LABEL}: `1abce-enh demo`
+{vp.MEMBER_STATUS_LABEL}: `complete`
 """
 
 
@@ -54,8 +60,9 @@ class ColdSiteRelocatedRootTests(unittest.TestCase):
         apply_layout(self, modules=(self.srv.record_paths,), **RELOCATED)
         self.wave_dir = self.root / "project" / "records" / "waves" / "1abcd relocated-demo"
         self.wave_dir.mkdir(parents=True)
-        (self.wave_dir / "wave.md").write_text(WAVE_MD, encoding="utf-8")
-        (self.wave_dir / "1abce-enh demo.md").write_text("# Demo\n\nChange ID: `1abce-enh demo`\nChange Status: `complete`\n", encoding="utf-8")
+        (self.wave_dir / vp.RECORD_FILENAME).write_text(WAVE_MD, encoding="utf-8")
+        (self.wave_dir / "1abce-enh demo.md").write_text(
+            f"# Demo\n\n{vp.MEMBER_ID_LABEL}: `1abce-enh demo`\n{vp.MEMBER_STATUS_LABEL}: `complete`\n", encoding="utf-8")
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -71,7 +78,7 @@ class ColdSiteRelocatedRootTests(unittest.TestCase):
                 value = w.get(key)
                 if isinstance(value, str):
                     self.assertIn("project/records/waves/", value.replace("\\", "/"))
-                    self.assertNotIn("docs/waves/", value.replace("\\", "/"))
+                    self.assertNotIn(f"{SHIPPED_WAVES_ROOT}/", value.replace("\\", "/"))
 
     def test_memory_backfill_inventories_a_closed_wave_under_the_relocated_root(self):
         import memory_backfill
@@ -86,8 +93,8 @@ class ColdSiteRelocatedRootTests(unittest.TestCase):
 
         prefix = record_paths.load_record_roots(self.root).waves_prefix
         self.assertEqual(prefix, "project/records/waves/")
-        relocated = "project/records/waves/1abcd relocated-demo/wave.md"
-        shipped = "docs/waves/1abcd x/wave.md"
+        relocated = f"project/records/waves/1abcd relocated-demo/{vp.RECORD_FILENAME}"
+        shipped = f"{SHIPPED_WAVES_ROOT}/1abcd x/{vp.RECORD_FILENAME}"
         self.assertIn("wave", _tag_utils.infer_tags(relocated, waves_prefix=prefix))
         # Under the relocated layout the DEFAULT location is no longer a wave.
         self.assertNotIn("wave", _tag_utils.infer_tags(shipped, waves_prefix=prefix))
@@ -100,9 +107,9 @@ class ColdSiteRelocatedRootTests(unittest.TestCase):
     def test_server_infer_tags_derives_the_prefix_from_the_root(self):
         # The server's live path threads `_record_prefixes(root)` through;
         # without a root the `_tag_utils` call-time default applies.
-        relocated = "project/records/waves/1abcd relocated-demo/wave.md"
-        shipped = "docs/waves/1abcd x/wave.md"
-        other = "other/waves/1abcd x/wave.md"
+        relocated = f"project/records/waves/1abcd relocated-demo/{vp.RECORD_FILENAME}"
+        shipped = f"{SHIPPED_WAVES_ROOT}/1abcd x/{vp.RECORD_FILENAME}"
+        other = f"other/waves/1abcd x/{vp.RECORD_FILENAME}"
         self.assertIn("wave", self.srv._infer_tags(relocated, root=self.root))
         self.assertNotIn("wave", self.srv._infer_tags(shipped, root=self.root))
         self.assertNotIn("wave", self.srv._infer_tags(other, root=self.root))
@@ -121,7 +128,7 @@ class ColdSiteRelocatedRootTests(unittest.TestCase):
         # And without a root the tag follows the layout current now.
         self.assertIn("wave", self.srv._infer_tags(relocated))
         self.assertNotIn("wave", self.srv._infer_tags(shipped))
-        self.assertNotIn("wave", self.srv._infer_tags("elsewhere/waves/1abcd x/wave.md"))
+        self.assertNotIn("wave", self.srv._infer_tags(f"elsewhere/waves/1abcd x/{vp.RECORD_FILENAME}"))
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-30
+Last verified: 2026-10-01
 
 Shortcut: **`Package Wavefoundry`** | Legacy: **`Package wave framework`** / **`Package wave context`**
 
@@ -44,6 +44,14 @@ python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH
 ```bash
 python3 -B .wavefoundry/framework/scripts/run_tests.py
 ```
+
+   Then run the suite under the second vocabulary and layout profile, which copies the tree into a temporary repository and never writes the test receipt:
+
+```bash
+python3 -B .wavefoundry/framework/scripts/run_tests.py --profile second
+```
+
+   Every file must pass; a skip beyond the default run's must come from a test marked `default_profile_only`. This run is a release check, not delivery evidence for a wave. Then run `python3 -B .wavefoundry/framework/scripts/run_tests.py --profile declared` the same way, which runs the suite with a sample distribution tool declaration (a plain and a parameter-mapped alias) and must pass with no skips beyond the default run's.
 
 5. **Update root `CHANGELOG.md`** — the canonical release history. The wavefoundry repo's root `CHANGELOG.md` is the single source of truth; `build_pack.py` copies it into the pack zip at `.wavefoundry/CHANGELOG.md` so consumer projects receive an in-tree changelog on every upgrade (offline-readable, MCP-indexable, no GitHub fetch required). The wavefoundry repo does NOT carry `.wavefoundry/CHANGELOG.md` — root is the only place release history is maintained.
 

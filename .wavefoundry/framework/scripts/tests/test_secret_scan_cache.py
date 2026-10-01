@@ -24,6 +24,22 @@ from unittest.mock import patch
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS_ROOT))
 import index_paths  # noqa: E402 — one definition of the shared database name
+import record_paths  # noqa: E402
+import vocabulary_profile  # noqa: E402
+
+
+def _wave_paths() -> tuple[str, str, str]:
+    """A wave folder's ledger, a ``events.jsonl`` one folder deeper than the
+    layout's wave-folder depth (1 when flat, ``MAX_DEPTH`` when nested; such
+    a file is content), and the folder's record, under the configured live
+    waves root (the shipped layout, or a profile's)."""
+    folder = f"{record_paths.WAVES_ROOT}/renamed_wave"
+    depth = record_paths.MAX_DEPTH if record_paths.NESTED else 1
+    deeper = "/".join([folder] + ["nested"] * depth)
+    return f"{folder}/events.jsonl", f"{deeper}/events.jsonl", f"{folder}/{vocabulary_profile.RECORD_FILENAME}"
+
+
+_LEDGER, _DEEPER_LEDGER, _RECORD = _wave_paths()
 
 
 def _load(name):
@@ -109,7 +125,7 @@ class NonGitMachineAuthorityTests(_CacheCase):
         ".wavefoundry/locks/dashboard-server.lock",
         ".wavefoundry/guard-overrides.json",
         ".wavefoundry/memory-purge-dispositions.json",
-        "docs/waves/renamed_wave/events.jsonl",
+        _LEDGER,
         "docs/agents/memory/archive/old.md",
         "docs/agents/memory/pointers/old.md",
         "docs/scan-findings.json",
@@ -122,8 +138,8 @@ class NonGitMachineAuthorityTests(_CacheCase):
         "app.min.js",
         "build/output.txt",
         "events.jsonl",
-        "docs/waves/renamed_wave/nested/events.jsonl",
-        "docs/waves/renamed_wave/wave.md",
+        _DEEPER_LEDGER,
+        _RECORD,
         "docs/agents/memory/archive-index.md",
         "docs/agents/memory/pointers-note.md",
         "src/scan-findings.json",

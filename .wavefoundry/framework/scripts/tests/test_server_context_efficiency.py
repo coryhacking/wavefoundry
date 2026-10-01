@@ -27,6 +27,21 @@ import review_evidence
 import server_impl as srv
 import wf_server.context_efficiency_handlers as ce_handlers
 import score_context_efficiency_pairs as pair_scorer
+import record_paths
+import vocabulary_profile
+from declaration_support import RecordingFastMCP  # shared FastMCP-backed double (change 1zim4)
+
+# Record locations and markers follow the loaded profile (wave 1zim5).
+_WAVES_REL = record_paths.WAVES_ROOT
+_RECORD = vocabulary_profile.RECORD_FILENAME
+_TITLE = vocabulary_profile.RECORD_TITLE
+_ID_KEY = vocabulary_profile.ID_KEY
+_CONTAINER = vocabulary_profile.CONTAINER_NAME
+
+
+def _waves_dir(root: Path) -> Path:
+    """The configured waves root under ``root``."""
+    return Path(root).joinpath(*_WAVES_REL.split("/"))
 
 
 RETRIEVAL_TOOLS = {
@@ -91,19 +106,6 @@ def _repo(root: Path) -> None:
 class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
     def test_registered_code_read_excludes_sqlite_and_preserves_text_accounting(self):
         """Real producer reads reject database baselines but retain call costs."""
-        class Registry:
-            def __init__(self):
-                self.tools = {}
-
-            def tool(self, **_kwargs):
-                def register(fn):
-                    self.tools[fn.__name__] = fn
-                    return fn
-                return register
-
-            def resource(self, *_args, **_kwargs):
-                return lambda fn: fn
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _repo(root)
@@ -122,7 +124,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             telemetry = ce.ProcessTelemetry(root)
             self.addCleanup(telemetry.close)
             handler = SimpleNamespace(root=root, cache={}, telemetry=telemetry)
-            registry = Registry()
+            registry = RecordingFastMCP()
             srv.register_mcp_surface(registry, lambda: handler)
 
             for path, expected_credit in (
@@ -289,10 +291,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             _repo(root)
             telemetry = ce.ProcessTelemetry(root)
             for wave_id in ("1aaaa first", "1aaab second"):
-                wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+                wave_md = _waves_dir(root) / wave_id / _RECORD
                 wave_md.parent.mkdir(parents=True)
                 wave_md.write_text(
-                    f"# Wave\n\nwave-id: {wave_id}\n\noperator prose\n",
+                    f"{_TITLE}\n\n{_ID_KEY}: {wave_id}\n\noperator prose\n",
                     encoding="utf-8",
                 )
                 telemetry.set_focus(wave_id, "review", new_phase=True)
@@ -318,7 +320,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 projected["projected"], ["1aaaa first", "1aaab second"]
             )
             for wave_id in projected["projected"]:
-                wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+                wave_md = _waves_dir(root) / wave_id / _RECORD
                 text = wave_md.read_text(encoding="utf-8")
                 self.assertIn("operator prose", text)
                 self.assertIn("## Context Efficiency", text)
@@ -337,10 +339,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             _repo(root)
             telemetry = ce.ProcessTelemetry(root)
             real = "1aaaa real"
-            wave_md = root / "docs" / "waves" / real / "wave.md"
+            wave_md = _waves_dir(root) / real / _RECORD
             wave_md.parent.mkdir(parents=True)
             wave_md.write_text(
-                f"# Wave\n\nwave-id: {real}\n\noperator prose\n", encoding="utf-8"
+                f"{_TITLE}\n\n{_ID_KEY}: {real}\n\noperator prose\n", encoding="utf-8"
             )
             for wave_id in (real, "1zzzz-phantom-change-id"):
                 telemetry.set_focus(wave_id, "review", new_phase=True)
@@ -372,10 +374,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa quiet-projection"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
             wave_md.write_text(
-                f"# Wave\n\nStatus: implementing\n\nwave-id: `{wave_id}`\n",
+                f"{_TITLE}\n\nStatus: implementing\n\n{_ID_KEY}: `{wave_id}`\n",
                 encoding="utf-8",
             )
             telemetry = ce.ProcessTelemetry(root)
@@ -415,10 +417,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa changing-generation"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
             wave_md.write_text(
-                f"# Wave\n\nStatus: implementing\n\nwave-id: `{wave_id}`\n",
+                f"{_TITLE}\n\nStatus: implementing\n\n{_ID_KEY}: `{wave_id}`\n",
                 encoding="utf-8",
             )
             telemetry = ce.ProcessTelemetry(root)
@@ -458,10 +460,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa neutral-projector"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
             wave_md.write_text(
-                f"# Wave\n\nStatus: implementing\n\nwave-id: `{wave_id}`\n",
+                f"{_TITLE}\n\nStatus: implementing\n\n{_ID_KEY}: `{wave_id}`\n",
                 encoding="utf-8",
             )
             telemetry = ce.ProcessTelemetry(root)
@@ -515,10 +517,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa no-op"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
             wave_md.write_text(
-                f"# Wave\n\nStatus: implementing\n\nwave-id: `{wave_id}`\n",
+                f"{_TITLE}\n\nStatus: implementing\n\n{_ID_KEY}: `{wave_id}`\n",
                 encoding="utf-8",
             )
             before = wave_md.stat().st_mtime_ns
@@ -532,10 +534,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa projection-race"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
             wave_md.write_text(
-                f"# Wave\n\nStatus: implementing\n\nwave-id: `{wave_id}`\n",
+                f"{_TITLE}\n\nStatus: implementing\n\n{_ID_KEY}: `{wave_id}`\n",
                 encoding="utf-8",
             )
             telemetry = ce.ProcessTelemetry(root)
@@ -583,10 +585,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa close-race"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
             wave_md.write_text(
-                f"# Wave\n\nStatus: implementing\n\nwave-id: `{wave_id}`\n",
+                f"{_TITLE}\n\nStatus: implementing\n\n{_ID_KEY}: `{wave_id}`\n",
                 encoding="utf-8",
             )
             telemetry = ce.ProcessTelemetry(root)
@@ -724,10 +726,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             _repo(root)
             telemetry = ce.ProcessTelemetry(root)
             real = "1aaaa real"
-            wave_md = root / "docs" / "waves" / real / "wave.md"
+            wave_md = _waves_dir(root) / real / _RECORD
             wave_md.parent.mkdir(parents=True)
             wave_md.write_text(
-                f"# Wave\n\nwave-id: {real}\n\noperator prose\n", encoding="utf-8"
+                f"{_TITLE}\n\n{_ID_KEY}: {real}\n\noperator prose\n", encoding="utf-8"
             )
             telemetry.set_focus(real, "implement", new_phase=True)
             handler = SimpleNamespace(root=root, telemetry=telemetry, index=None, cache=None)
@@ -748,30 +750,13 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa focus-activation"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
-            wave_md.write_text("# Wave\n", encoding="utf-8")
+            wave_md.write_text(f"{_TITLE}\n", encoding="utf-8")
             telemetry = ce.ProcessTelemetry(root)
             handler = SimpleNamespace(root=root, cache={}, telemetry=telemetry)
 
-            class FakeMcp:
-                def __init__(self):
-                    self.tools = {}
-
-                def tool(self, **_kwargs):
-                    def register(fn):
-                        self.tools[fn.__name__] = fn
-                        return fn
-
-                    return register
-
-                def resource(self, *_args, **_kwargs):
-                    def register(fn):
-                        return fn
-
-                    return register
-
-            mcp = FakeMcp()
+            mcp = RecordingFastMCP()
             srv.register_mcp_surface(mcp, lambda: handler)
             cases = [
                 (
@@ -1617,10 +1602,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa context-telemetry"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
             wave_md.write_text(
-                "# Wave Record\n\nStatus: planned\n\n## Notes\n\nkeep-me\n",
+                f"{_TITLE}\n\nStatus: planned\n\n## Notes\n\nkeep-me\n",
                 encoding="utf-8",
             )
             prompt = root / "docs" / "prompts" / "prepare-wave.prompt.md"
@@ -1711,9 +1696,9 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa lifecycle-credit"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
-            wave_md.write_text("# Wave\n", encoding="utf-8")
+            wave_md.write_text(f"{_TITLE}\n", encoding="utf-8")
             prompt = root / "docs" / "prompts" / "prepare-wave.prompt.md"
             prompt.parent.mkdir(parents=True)
             prompt.write_text("prepare " * 100, encoding="utf-8")
@@ -1781,10 +1766,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa failed"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
             wave_md.write_text(
-                "# Wave Record\n\nStatus: planned\n", encoding="utf-8"
+                f"{_TITLE}\n\nStatus: planned\n", encoding="utf-8"
             )
             handler = SimpleNamespace(
                 root=root, telemetry=ce.ProcessTelemetry(root)
@@ -1838,9 +1823,9 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa review-focus"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
-            wave_md.write_text("# Wave\n", encoding="utf-8")
+            wave_md.write_text(f"{_TITLE}\n", encoding="utf-8")
             handler = SimpleNamespace(
                 root=root, telemetry=ce.ProcessTelemetry(root)
             )
@@ -1877,10 +1862,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa review-flush"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
             wave_md.write_text(
-                "# Wave Record\n\nStatus: implementing\n", encoding="utf-8"
+                f"{_TITLE}\n\nStatus: implementing\n", encoding="utf-8"
             )
             handler = SimpleNamespace(
                 root=root, telemetry=ce.ProcessTelemetry(root)
@@ -1950,10 +1935,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa review-norun"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
             wave_md.write_text(
-                "# Wave Record\n\nStatus: implementing\n", encoding="utf-8"
+                f"{_TITLE}\n\nStatus: implementing\n", encoding="utf-8"
             )
             handler = SimpleNamespace(
                 root=root, telemetry=ce.ProcessTelemetry(root)
@@ -2017,10 +2002,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
     def _posture_repo(self, tmp, *, wave_id="1aaaa posture-wave"):
         root = Path(tmp)
         _repo(root)
-        wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(root) / wave_id / _RECORD
         wave_md.parent.mkdir(parents=True)
         wave_md.write_text(
-            "# Wave Record\n\nStatus: implementing\n\n"
+            f"{_TITLE}\n\nStatus: implementing\n\n"
             "## Review Evidence\n\n- operator-signoff: approved\n",
             encoding="utf-8",
         )
@@ -2185,19 +2170,19 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             _repo(root)
             target = "1aaaa target-wave"
             ambient_wave = "1aaab ambient-wave"
-            target_dir = root / "docs" / "waves" / target
-            ambient_dir = root / "docs" / "waves" / ambient_wave
+            target_dir = _waves_dir(root) / target
+            ambient_dir = _waves_dir(root) / ambient_wave
             target_dir.mkdir(parents=True)
             ambient_dir.mkdir(parents=True)
-            target_md = target_dir / "wave.md"
+            target_md = target_dir / _RECORD
             target_md.write_text(
-                f"# Wave Record\n\nWave ID: {target}\nStatus: planned\n",
+                f"{_TITLE}\n\n{_CONTAINER} ID: {target}\nStatus: planned\n",
                 encoding="utf-8",
             )
             events_path = target_dir / "events.jsonl"
             events_path.write_text('{"seed":1}\n', encoding="utf-8")
-            (ambient_dir / "wave.md").write_text(
-                f"# Wave Record\n\nWave ID: {ambient_wave}\nStatus: implementing\n",
+            (ambient_dir / _RECORD).write_text(
+                f"{_TITLE}\n\n{_CONTAINER} ID: {ambient_wave}\nStatus: implementing\n",
                 encoding="utf-8",
             )
             calls = {"n": 0}
@@ -2217,9 +2202,9 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                             }
                         ],
                         "events_path": (
-                            f"docs/waves/{target}/events.jsonl"
+                            f"{_WAVES_REL}/{target}/events.jsonl"
                         ),
-                        "path": f"docs/waves/{target}/wave.md",
+                        "path": f"{_WAVES_REL}/{target}/{_RECORD}",
                     },
                 }
 
@@ -2235,13 +2220,13 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             self.assertEqual(handler.telemetry.focus, ambient)
 
             target_md.write_text(
-                f"# Wave Record\n\nWave ID: {target}\nStatus: paused\n",
+                f"{_TITLE}\n\n{_CONTAINER} ID: {target}\nStatus: paused\n",
                 encoding="utf-8",
             )
             wrapped(wave_id=target)
 
             target_md.write_text(
-                f"# Wave Record\n\nWave ID: {target}\nStatus: implementing\n",
+                f"{_TITLE}\n\n{_CONTAINER} ID: {target}\nStatus: implementing\n",
                 encoding="utf-8",
             )
             wrapped(wave_id=target)
@@ -2323,7 +2308,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             )
             frozen = ce.read_wave_snapshot(root, target)
             target_md.write_text(
-                f"# Wave Record\n\nWave ID: {target}\nStatus: closed\n",
+                f"{_TITLE}\n\n{_CONTAINER} ID: {target}\nStatus: closed\n",
                 encoding="utf-8",
             )
             wrapped(wave_id=target)
@@ -2343,18 +2328,18 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             _repo(root)
             target = "1aaaa target-wave"
             ambient_wave = "1aaab ambient-wave"
-            target_dir = root / "docs" / "waves" / target
-            ambient_dir = root / "docs" / "waves" / ambient_wave
+            target_dir = _waves_dir(root) / target
+            ambient_dir = _waves_dir(root) / ambient_wave
             target_dir.mkdir(parents=True)
             ambient_dir.mkdir(parents=True)
-            (target_dir / "wave.md").write_text(
-                f"# Wave Record\n\nWave ID: {target}\nStatus: implementing\n",
+            (target_dir / _RECORD).write_text(
+                f"{_TITLE}\n\n{_CONTAINER} ID: {target}\nStatus: implementing\n",
                 encoding="utf-8",
             )
             events_path = target_dir / "events.jsonl"
             events_path.write_text('{"seed":1}\n', encoding="utf-8")
-            (ambient_dir / "wave.md").write_text(
-                f"# Wave Record\n\nWave ID: {ambient_wave}\nStatus: implementing\n",
+            (ambient_dir / _RECORD).write_text(
+                f"{_TITLE}\n\n{_CONTAINER} ID: {ambient_wave}\nStatus: implementing\n",
                 encoding="utf-8",
             )
             calls = {"n": 0}
@@ -2373,7 +2358,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                                 "body": "x" * 400,
                             }
                         ],
-                        "events_path": f"docs/waves/{target}/events.jsonl",
+                        "events_path": f"{_WAVES_REL}/{target}/events.jsonl",
                     },
                 }
 
@@ -2511,16 +2496,16 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa credit-wave"
-            wave_dir = root / "docs" / "waves" / wave_id
+            wave_dir = _waves_dir(root) / wave_id
             wave_dir.mkdir(parents=True)
-            (wave_dir / "wave.md").write_text("# Wave\n\nStatus: implementing\n" + "w" * 400, encoding="utf-8")
+            (wave_dir / _RECORD).write_text(f"{_TITLE}\n\nStatus: implementing\n" + "w" * 400, encoding="utf-8")
             events = wave_dir / "events.jsonl"
             events.write_text('{"seed": 1}\n' + "e" * 400 + "\n", encoding="utf-8")
             canned = {"status": "ok", "data": {
                 "mode": "create", "replayed": False,
                 "appended_records": [{"request_digest": "s1", "body": "x" * 200}],
-                "events_path": f"docs/waves/{wave_id}/events.jsonl",
-                "path": f"docs/waves/{wave_id}/wave.md",
+                "events_path": f"{_WAVES_REL}/{wave_id}/events.jsonl",
+                "path": f"{_WAVES_REL}/{wave_id}/{_RECORD}",
             }}
             calls = {"n": 0}
             def fake_tool(wave_id="w", kwargs=None):
@@ -2632,19 +2617,19 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _repo(root)
-            live_dir = root / "docs" / "waves" / "1aaaa live"
+            live_dir = _waves_dir(root) / "1aaaa live"
             live_dir.mkdir(parents=True)
-            (live_dir / "wave.md").write_text("Status: active\n" + "w" * 900, encoding="utf-8")
-            closed_dir = root / "docs" / "waves" / "1aaab closed"
+            (live_dir / _RECORD).write_text("Status: active\n" + "w" * 900, encoding="utf-8")
+            closed_dir = _waves_dir(root) / "1aaab closed"
             closed_dir.mkdir(parents=True)
-            (closed_dir / "wave.md").write_text("Status: closed\n" + "z" * 900, encoding="utf-8")
+            (closed_dir / _RECORD).write_text("Status: closed\n" + "z" * 900, encoding="utf-8")
             wave_id = "1aaaa listing-credit"
             def fake_tool(kwargs=None):
                 return {"status": "ok", "data": {"waves": [
                     {"wave_id": "1aaaa", "status": "active",
-                     "path": "docs/waves/1aaaa live/wave.md"},
+                     "path": f"{_WAVES_REL}/1aaaa live/{_RECORD}"},
                     {"wave_id": "1aaab", "status": "closed",
-                     "path": "docs/waves/1aaab closed/wave.md"},
+                     "path": f"{_WAVES_REL}/1aaab closed/{_RECORD}"},
                 ], "total": 2, "has_more": False}}
             wrapped, handler = self._wrapped_registry(root, "wf_list_waves", fake_tool)
             handler.telemetry.set_focus(wave_id, "plan", new_phase=True)
@@ -2864,9 +2849,9 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa masked"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
-            wave_md.write_text("# Wave\n\nStatus: active\n", encoding="utf-8")
+            wave_md.write_text(f"{_TITLE}\n\nStatus: active\n", encoding="utf-8")
             telemetry = ce.ProcessTelemetry(root)
             telemetry.set_focus(wave_id, "implement", new_phase=True)
             def record(tool):
@@ -2931,10 +2916,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa reopen-me"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
             wave_md.write_text(
-                "# Wave\n\nStatus: closed\n\nwave-id: `1aaaa reopen-me`\n",
+                f"{_TITLE}\n\nStatus: closed\n\n{_ID_KEY}: `1aaaa reopen-me`\n",
                 encoding="utf-8",
             )
             with patch.object(srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
@@ -2985,9 +2970,9 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa wedged-focus"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
-            wave_md.write_text("# Wave\n", encoding="utf-8")
+            wave_md.write_text(f"{_TITLE}\n", encoding="utf-8")
 
             def fail_focus(*_args, **_kwargs):
                 raise RuntimeError("forced focus failure")
@@ -3022,9 +3007,9 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa wedged-buffer"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
-            wave_md.write_text("# Wave\n", encoding="utf-8")
+            wave_md.write_text(f"{_TITLE}\n", encoding="utf-8")
 
             def fail(*_args, **_kwargs):
                 raise RuntimeError("forced telemetry failure")
@@ -3039,24 +3024,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             self.assertFalse(state["current_process"]["available"])
             self.assertEqual(state["current_process"]["persistence"], "failed")
 
-            class FakeMcp:
-                def __init__(self):
-                    self.tools = {}
-
-                def tool(self, **_kwargs):
-                    def register(fn):
-                        self.tools[fn.__name__] = fn
-                        return fn
-
-                    return register
-
-                def resource(self, *_args, **_kwargs):
-                    def register(fn):
-                        return fn
-
-                    return register
-
-            mcp = FakeMcp()
+            mcp = RecordingFastMCP()
             srv.register_mcp_surface(mcp, lambda: handler)
             pause_core = {
                 "status": "ok",
@@ -3174,12 +3142,12 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa corrupt"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
             checkpoint = ce.empty_checkpoint(wave_id)
             checkpoint["generation"] = 7
             wave_md.write_text(
-                ce.replace_checkpoint_block("# Wave\n", checkpoint),
+                ce.replace_checkpoint_block(f"{_TITLE}\n", checkpoint),
                 encoding="utf-8",
             )
             sidecar = ce.store_path(root)
@@ -3239,10 +3207,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa concurrent"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
             wave_md.write_text(
-                "# Wave Record\n\nStatus: active\n\n## Notes\n\nkeep-me\n",
+                f"{_TITLE}\n\nStatus: active\n\n## Notes\n\nkeep-me\n",
                 encoding="utf-8",
             )
             script = """
@@ -3388,10 +3356,10 @@ if flushed is None or not flushed.success:
                 )
 
             wave_id = "1aaaa performance"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
             wave_md.write_text(
-                "# Wave Record\n\nStatus: active\n", encoding="utf-8"
+                f"{_TITLE}\n\nStatus: active\n", encoding="utf-8"
             )
             handler = SimpleNamespace(
                 root=root, telemetry=ce.ProcessTelemetry(root)
@@ -3459,10 +3427,10 @@ if flushed is None or not flushed.success:
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa closed"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
             wave_md.write_text(
-                "# Wave Record\n\nStatus: closed\n", encoding="utf-8"
+                f"{_TITLE}\n\nStatus: closed\n", encoding="utf-8"
             )
             handler = SimpleNamespace(
                 root=root, telemetry=ce.ProcessTelemetry(root)
@@ -3507,10 +3475,10 @@ if flushed is None or not flushed.success:
             root = Path(tmp)
             _repo(root)
             wave_id = "1aaaa retry"
-            wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
             wave_md.write_text(
-                "# Wave Record\n\nStatus: closed\n", encoding="utf-8"
+                f"{_TITLE}\n\nStatus: closed\n", encoding="utf-8"
             )
             handler = SimpleNamespace(
                 root=root, telemetry=ce.ProcessTelemetry(root)
@@ -3564,9 +3532,9 @@ class SpoolAtCloseTests(unittest.TestCase):
 
     def _closed_wave(self, root, wave_id):
         _repo(root)
-        wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(root) / wave_id / _RECORD
         wave_md.parent.mkdir(parents=True)
-        wave_md.write_text("# Wave Record\n\nStatus: closed\n", encoding="utf-8")
+        wave_md.write_text(f"{_TITLE}\n\nStatus: closed\n", encoding="utf-8")
         handler = SimpleNamespace(root=root, telemetry=ce.ProcessTelemetry(root))
         handler.telemetry.set_focus(wave_id, "review", new_phase=True)
         return handler
@@ -3650,29 +3618,12 @@ class LifecycleFocusReportingTests(unittest.TestCase):
     """1tmb3: stale-focus reporting, outcome classification, and the
     flush/focus asymmetry on ``ready_for_council_review``."""
 
-    class _FakeMcp:
-        def __init__(self):
-            self.tools = {}
-
-        def tool(self, **_kwargs):
-            def register(fn):
-                self.tools[fn.__name__] = fn
-                return fn
-
-            return register
-
-        def resource(self, *_args, **_kwargs):
-            def register(fn):
-                return fn
-
-            return register
-
     @staticmethod
     def _wave(root: Path, wave_id: str, status: str = "planned") -> Path:
-        wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(root) / wave_id / _RECORD
         wave_md.parent.mkdir(parents=True, exist_ok=True)
         wave_md.write_text(
-            f"# Wave Record\n\nStatus: {status}\n\nwave-id: `{wave_id}`\n",
+            f"{_TITLE}\n\nStatus: {status}\n\n{_ID_KEY}: `{wave_id}`\n",
             encoding="utf-8",
         )
         return wave_md
@@ -3749,7 +3700,7 @@ class LifecycleFocusReportingTests(unittest.TestCase):
             self._wave(root, "1bbbb blocked-wave")
             handler = self._handler(root)
             handler.telemetry.set_focus("1aaaa other-wave", "implement", new_phase=True)
-            mcp = self._FakeMcp()
+            mcp = RecordingFastMCP()
             srv.register_mcp_surface(mcp, lambda: handler)
             result = mcp.tools["wf_prepare_wave"]("1bbbb blocked-wave", mode="dry_run")
             self.assertEqual(result["status"], "error", result)
@@ -3917,8 +3868,8 @@ class LifecycleFocusReportingTests(unittest.TestCase):
             # suppressed); suppression now requires wave AND stage match, and
             # the mismatch quadrant is covered by
             # test_open_wave_fallback_stage_mismatch_is_not_suppressed.
-            (root / "docs" / "waves" / "1cccc unrelated-open" / "wave.md").write_text(
-                "# Wave Record\n\nStatus: closed\n", encoding="utf-8"
+            (_waves_dir(root) / "1cccc unrelated-open" / _RECORD).write_text(
+                f"{_TITLE}\n\nStatus: closed\n", encoding="utf-8"
             )
             self._wave(root, "1bbbb target-wave", status="active")
             self._reset_open_wave_caches()
@@ -4125,7 +4076,7 @@ class LifecycleFocusReportingTests(unittest.TestCase):
     # ---- pause clear-operation contract ------------------------------------
 
     def _registered(self, handler):
-        mcp = self._FakeMcp()
+        mcp = RecordingFastMCP()
         srv.register_mcp_surface(mcp, lambda: handler)
         return mcp
 

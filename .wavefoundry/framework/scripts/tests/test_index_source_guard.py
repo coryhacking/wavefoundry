@@ -27,9 +27,14 @@ class SourceGuardTests(unittest.TestCase):
         (self.root / 'docs').mkdir()
         (self.root / 'docs/workflow-config.json').write_text('{}')
         self.wave = '1aaaa automatic-source-guard'
-        self.wave_md = self.root / 'docs/waves' / self.wave / 'wave.md'
+        # The record in the configured layout and vocabulary (the shipped
+        # profile, or a profile's).
+        import record_paths
+        import vocabulary_profile as vp
+
+        self.wave_md = self.root / record_paths.WAVES_ROOT / self.wave / vp.RECORD_FILENAME
         self.wave_md.parent.mkdir(parents=True)
-        self.wave_md.write_text(f'# Wave\n\nStatus: implementing\n\nwave-id: `{self.wave}`\n')
+        self.wave_md.write_text(f'# Wave\n\nStatus: implementing\n\n{vp.ID_KEY}: `{self.wave}`\n')
         self.ce = server.context_efficiency
         self.telemetry = self.ce.ProcessTelemetry(self.root)
         self.telemetry.set_focus(self.wave, 'implement', new_phase=True)
@@ -206,19 +211,10 @@ with indexer._index_build_lock(root/'.wavefoundry/index'):
         self.assertEqual(self.wave_md.read_bytes(), self.before)
 
     def test_missing_map_resource_defers_both_outputs_then_retries(self):
-        class Registry:
-            def __init__(self):
-                self.resources = {}
-            def tool(self, **kwargs):
-                return lambda fn: fn
-            def resource(self, uri, **kwargs):
-                def register(fn):
-                    self.resources[uri] = fn
-                    return fn
-                return register
-        registry = Registry()
+        from declaration_support import RecordingFastMCP  # shared FastMCP-backed double (change 1zim4)
+        registry = RecordingFastMCP()
         server.register_mcp_surface(registry, lambda: SimpleNamespace(root=self.root))
-        read = registry.resources['wavefoundry://codebase-map']
+        read = registry.resource_uris['wavefoundry://codebase-map']
         gen = server._load_script('gen_codebase_map')
         repo_index = self.root / 'docs/repo-index.md'
         repo_index.write_text('# Index\n' + gen.REPO_INDEX_MARKER_BEGIN + '\nold\n' + gen.REPO_INDEX_MARKER_END)

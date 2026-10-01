@@ -26,6 +26,30 @@ SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 import index_paths  # noqa: E402 — one definition of the shared database name
+import record_paths  # noqa: E402
+import vocabulary_profile  # noqa: E402
+
+# Record filename and labels of the loaded vocabulary profile.
+RECORD = vocabulary_profile.RECORD_FILENAME
+ID_KEY = vocabulary_profile.ID_KEY
+MEMBER_ID = vocabulary_profile.MEMBER_ID_LABEL
+
+
+def waves_dir(root: Path) -> Path:
+    """The configured live waves root under ``root``."""
+    return Path(root).joinpath(*record_paths.WAVES_ROOT.split("/"))
+
+
+def _archived_record(root: Path, folder: str) -> "Path | None":
+    """A record path under the configured archive root, in the archive
+    profile's filename, with its folder created; ``None`` without an archive
+    root (the shipped layout)."""
+    if not record_paths.ARCHIVE_ROOT:
+        return None
+    archived_vocab = vocabulary_profile.ARCHIVE_PROFILE or {}
+    folder_path = Path(root).joinpath(*record_paths.ARCHIVE_ROOT.split("/"), folder)
+    folder_path.mkdir(parents=True, exist_ok=True)
+    return folder_path / archived_vocab.get("RECORD_FILENAME", RECORD)
 
 
 def integrity_checks() -> dict[str, object]:
@@ -443,15 +467,15 @@ class LifecycleMemoryIdTests(_MemoryCase):
             "See `mem-alpha-lesson` and the unknown `mem-nonexistent-thing`.\n",
             encoding="utf-8",
         )
-        closed = docs / "waves" / "1old closed"
+        closed = waves_dir(self.root) / "1old closed"
         closed.mkdir(parents=True)
-        (closed / "wave.md").write_text(
+        (closed / RECORD).write_text(
             "# Wave\n\nStatus: closed\n\nHistoric ref `mem-alpha-lesson`.\n",
             encoding="utf-8",
         )
-        active = docs / "waves" / "1act active"
+        active = waves_dir(self.root) / "1act active"
         active.mkdir(parents=True)
-        (active / "wave.md").write_text(
+        (active / RECORD).write_text(
             "# Wave\n\nStatus: implementing\n\nLive ref `mem-alpha-lesson`.\n",
             encoding="utf-8",
         )
@@ -461,15 +485,25 @@ class LifecycleMemoryIdTests(_MemoryCase):
         (self.root / "NOTES.md").write_text(
             "Root-level ref `mem-alpha-lesson`.\n", encoding="utf-8"
         )
+        # A profile with a read-only archive root keeps its records too.
+        archived = _archived_record(self.root, "1arc archived")
+        if archived is not None:
+            archived.write_text(
+                "# Wave\n\nStatus: closed\n\nArchived ref `mem-alpha-lesson`.\n",
+                encoding="utf-8",
+            )
+            archived_before = archived.read_bytes()
 
         result = self.mem.migrate_memory_ids_to_lifecycle_naming(self.root)
         new_id = result["mapping"]["mem-alpha-lesson"]
+        if archived is not None:
+            self.assertEqual(archived.read_bytes(), archived_before, "the archive root is read-only")
         self.assertIn(f"`{new_id}`", (docs / "live.md").read_text(encoding="utf-8"))
         self.assertNotIn("`mem-alpha-lesson`", (docs / "live.md").read_text(encoding="utf-8"))
         self.assertIn(
-            "`mem-alpha-lesson`", (closed / "wave.md").read_text(encoding="utf-8")
+            "`mem-alpha-lesson`", (closed / RECORD).read_text(encoding="utf-8")
         )
-        self.assertIn(f"`{new_id}`", (active / "wave.md").read_text(encoding="utf-8"))
+        self.assertIn(f"`{new_id}`", (active / RECORD).read_text(encoding="utf-8"))
         self.assertEqual(
             (active / "events.jsonl").read_text(encoding="utf-8"),
             '{"ref": "mem-alpha-lesson"}\n',
@@ -482,25 +516,78 @@ class LifecycleMemoryIdTests(_MemoryCase):
             [{"path": "docs/live.md", "token": "mem-nonexistent-thing"}],
         )
 
+    def test_migration_leaves_configured_archive_root_byte_identical(self):
+        """Change 1zim7: with an archive root inside ``docs/``, the reference
+        pass never rewrites an archived record, and still repairs the same
+        legacy reference in a live document and in the live memory root.
+        Runs under any profile by patching the archive root."""
+        self._v2_policy()
+        self._add("mem-alpha-lesson", "decision", created="2026-01-10")
+        for rel in (self.mem.record_paths.WAVES_ROOT, self.mem.record_paths.PLANS_ROOT):
+            Path(self.root).joinpath(*rel.split("/")).mkdir(parents=True, exist_ok=True)
+        archive_rel = "docs/archive-records"
+        archived = self.root / "docs" / "archive-records" / "1arc archived" / RECORD
+        archived.parent.mkdir(parents=True)
+        archived.write_text(
+            "# Wave\n\nStatus: closed\n\nArchived ref `mem-alpha-lesson`.\n",
+            encoding="utf-8",
+        )
+        archived_before = archived.read_bytes()
+        live = self.root / "docs" / "live.md"
+        live.write_text("Live ref `mem-alpha-lesson`.\n", encoding="utf-8")
+        with patch.object(self.mem.record_paths, "ARCHIVE_ROOT", archive_rel):
+            result = self.mem.migrate_memory_ids_to_lifecycle_naming(self.root)
+        new_id = result["mapping"]["mem-alpha-lesson"]
+        self.assertEqual(archived.read_bytes(), archived_before, "the archive root is read-only")
+        live_text = live.read_text(encoding="utf-8")
+        self.assertIn(f"`{new_id}`", live_text)
+        self.assertNotIn("`mem-alpha-lesson`", live_text)
+        self.assertEqual(result["residual_references"], [])
+
+    def test_migration_repairs_live_memory_records_inside_an_archive_root(self):
+        """Change 1zim7: the memory-root branch is decided before the archive
+        exclusion, so an archive root that contains the memory root (here
+        ``docs/agents``, a valid layout) never skips live memory records,
+        while other files under it stay byte-identical."""
+        self._v2_policy()
+        self._add("mem-alpha-lesson", "decision", created="2026-01-10")
+        beta = self._add("mem-beta-lesson", "decision", created="2026-01-11")
+        with beta.open("a", encoding="utf-8") as handle:
+            handle.write("\nRelated: `mem-alpha-lesson`.\n")
+        for rel in (self.mem.record_paths.WAVES_ROOT, self.mem.record_paths.PLANS_ROOT):
+            Path(self.root).joinpath(*rel.split("/")).mkdir(parents=True, exist_ok=True)
+        archived = self.root / "docs" / "agents" / "old-notes.md"
+        archived.write_text("Archived ref `mem-alpha-lesson`.\n", encoding="utf-8")
+        archived_before = archived.read_bytes()
+        with patch.object(self.mem.record_paths, "ARCHIVE_ROOT", "docs/agents"):
+            result = self.mem.migrate_memory_ids_to_lifecycle_naming(self.root)
+        alpha_id = result["mapping"]["mem-alpha-lesson"]
+        beta_path = self.mem._contained_record_path(self.root, result["mapping"]["mem-beta-lesson"])
+        beta_text = beta_path.read_text(encoding="utf-8")
+        self.assertIn(f"`{alpha_id}`", beta_text)
+        self.assertNotIn("`mem-alpha-lesson`", beta_text)
+        self.assertEqual(archived.read_bytes(), archived_before, "the archive root is read-only")
+
     def test_migration_configured_corpus_and_nested_wave_ownership(self):
         self._v2_policy()
         self._add("mem-alpha-lesson", "decision", created="2026-01-10")
         for waves, plans in (("project/waves", "project/plans"), ("docs/waves", "docs/plans")):
             with self.subTest(waves=waves), patch.multiple(
-                self.mem.record_paths, WAVES_ROOT=waves, PLANS_ROOT=plans, NESTED=True, MAX_DEPTH=3
+                self.mem.record_paths, WAVES_ROOT=waves, PLANS_ROOT=plans, NESTED=True, MAX_DEPTH=3,
+                ARCHIVE_ROOT=None,
             ):
                 live = [
-                    f"{waves}/1abcd flat/wave.md",
-                    f"{waves}/team/1abce nested/wave.md",
+                    f"{waves}/1abcd flat/{RECORD}",
+                    f"{waves}/team/1abce nested/{RECORD}",
                     f"{waves}/team/1abce nested/evidence/report.md",
                     f"{plans}/1abcf-enh plan.md", "docs/live.md", "NOTES.md",
                 ]
                 frozen = [
-                    f"{waves}/team/1abcg closed/wave.md",
+                    f"{waves}/team/1abcg closed/{RECORD}",
                     f"{waves}/team/1abcg closed/evidence/report.md",
-                    f"{waves}/team/1abch unknown/wave.md",
+                    f"{waves}/team/1abch unknown/{RECORD}",
                     f"{waves}/team/orphan.md",
-                    f"{waves}/a/b/c/1abci deep/wave.md",
+                    f"{waves}/a/b/c/1abci deep/{RECORD}",
                     "docs/agents/memory/archive/history.md",
                 ]
                 original = "`mem-alpha-lesson` and `mem-missing-lesson`\n"
@@ -537,11 +624,11 @@ class LifecycleMemoryIdTests(_MemoryCase):
         ):
             outside = Path(external)
             original = "Status: active\n`mem-alpha-lesson`\n"
-            (outside / "wave.md").write_text(original)
+            (outside / RECORD).write_text(original)
             for rel in ("docs/escape.md", "project/plans/escape.md", "NOTES.md"):
                 alias = self.root / rel
                 alias.parent.mkdir(parents=True, exist_ok=True)
-                alias.symlink_to(outside / "wave.md")
+                alias.symlink_to(outside / RECORD)
             wave_alias = self.root / "project/waves/1abcd linked"
             wave_alias.parent.mkdir(parents=True)
             wave_alias.symlink_to(outside, target_is_directory=True)
@@ -552,7 +639,7 @@ class LifecycleMemoryIdTests(_MemoryCase):
             result = self.mem.migrate_memory_ids_to_lifecycle_naming(self.root)
             self.assertEqual(result["renamed"], 1)
             self.assertEqual(result["references_repaired"], 0)
-            self.assertEqual((outside / "wave.md").read_text(), original)
+            self.assertEqual((outside / RECORD).read_text(), original)
             self.assertEqual(archive.read_text(), original)
 
 
@@ -2959,7 +3046,7 @@ class MemoryProposeTests(_MemoryCase):
         rows = "\n".join(f"| 2026-01-0{i + 1} | {dec} | {reason} | alt |"
                          for i, (dec, reason) in enumerate(decision_rows))
         change = (
-            f"# {slug}\n\nChange ID: `{change_id}`\n\n## Decision Log\n\n"
+            f"# {slug}\n\n{MEMBER_ID}: `{change_id}`\n\n## Decision Log\n\n"
             "| Date | Decision | Reason | Alternatives |\n"
             "| ---- | -------- | ------ | ------------ |\n" + rows + "\n"
         )
@@ -3033,7 +3120,7 @@ class MemoryProposeTests(_MemoryCase):
                 rows, errors = review.build_compact_review_event(records, event)
                 self.assertEqual(errors, ())
                 records = (*records, *rows)
-        events = self.root / "docs" / "waves" / f"{wave_id} {slug}" / "events.jsonl"
+        events = waves_dir(self.root) / f"{wave_id} {slug}" / "events.jsonl"
         events.write_text(
             "".join(
                 json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n"
@@ -3074,9 +3161,9 @@ class MemoryProposeTests(_MemoryCase):
             "1aaaa", "demo",
             decision_rows=[("Use `src/kept.py`", "admitted")],
         )
-        wave_dir = self.root / "docs" / "waves" / "1aaaa demo"
+        wave_dir = waves_dir(self.root) / "1aaaa demo"
         (wave_dir / "1zzzz-feat stray.md").write_text(
-            "# Stray\n\nChange ID: `1zzzz-feat stray`\n\n## Decision Log\n\n"
+            f"# Stray\n\n{MEMBER_ID}: `1zzzz-feat stray`\n\n## Decision Log\n\n"
             "| Date | Decision | Reason | Alternatives |\n"
             "| --- | --- | --- | --- |\n"
             "| 2026-01-01 | Use `src/stray.py` | unadmitted | none |\n",
@@ -3132,8 +3219,8 @@ class MemoryProposeTests(_MemoryCase):
         )
         conn.commit()
         conn.close()
-        wave_dir = self.root / "docs" / "waves" / "1aaaa demo"
-        self.assertEqual(self.supply.source_exploration_cost(wave_dir), 100)
+        wave_dir = waves_dir(self.root) / "1aaaa demo"
+        self.assertEqual(self.supply.source_exploration_cost(wave_dir, root=self.root), 100)
 
     def test_authoritative_zero_sqlite_cost_does_not_revive_stale_projection(self):
         self._wave(
@@ -3149,8 +3236,8 @@ class MemoryProposeTests(_MemoryCase):
         )
         conn.commit()
         conn.close()
-        wave_dir = self.root / "docs" / "waves" / "1aaaa demo"
-        self.assertEqual(self.supply.source_exploration_cost(wave_dir), 0)
+        wave_dir = waves_dir(self.root) / "1aaaa demo"
+        self.assertEqual(self.supply.source_exploration_cost(wave_dir, root=self.root), 0)
 
     def test_create_is_idempotent(self):
         self._wave("1aaaa", "demo", decision_rows=[("Fix `src/foo.py`", "reason")])
@@ -3364,7 +3451,7 @@ class MemoryProposeTests(_MemoryCase):
             rows, errors = review.build_compact_review_event(records, event)
             self.assertEqual(errors, ())
             records = (*records, *rows)
-        events = self.root / "docs" / "waves" / "1aaaa demo" / "events.jsonl"
+        events = waves_dir(self.root) / "1aaaa demo" / "events.jsonl"
         events.write_text(
             "".join(
                 json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n"
@@ -3431,7 +3518,7 @@ class MemoryProposeTests(_MemoryCase):
             rows, errors = review.build_compact_review_event(records, event)
             self.assertEqual(errors, ())
             records = (*records, *rows)
-        events = self.root / "docs" / "waves" / "1aaaa demo" / "events.jsonl"
+        events = waves_dir(self.root) / "1aaaa demo" / "events.jsonl"
         events.write_text(
             "".join(json.dumps(r, sort_keys=True, separators=(",", ":")) + "\n"
                     for r in records),
@@ -3749,10 +3836,10 @@ class ExplorationAvoidedTests(_MemoryCase):
         self.ea = _load("exploration_avoided")
 
     def _open_wave(self, wave_id="1zaaa demo", status="implementing"):
-        d = self.root / "docs" / "waves" / wave_id
+        d = waves_dir(self.root) / wave_id
         d.mkdir(parents=True, exist_ok=True)
-        (d / "wave.md").write_text(
-            f"# Wave\n\nStatus: {status}\nwave-id: `{wave_id}`\n", encoding="utf-8")
+        (d / RECORD).write_text(
+            f"# Wave\n\nStatus: {status}\n{ID_KEY}: `{wave_id}`\n", encoding="utf-8")
         return wave_id
 
     def _record(self, memory_id, *, cost, targets=("src/hot.py",)):
@@ -4017,7 +4104,7 @@ class ExplorationAvoidedTests(_MemoryCase):
         handler = type("Handler", (), {"root": self.root, "telemetry": Telemetry()})()
         result, _ = self.srv._flush_context_efficiency(handler, wid)
         self.assertEqual(result["projection"], "published")
-        wave_md = self.root / "docs" / "waves" / wid / "wave.md"
+        wave_md = waves_dir(self.root) / wid / RECORD
         text = wave_md.read_text(encoding="utf-8")
         self.assertIn("<!-- wave:exploration-avoided begin -->", text)
         self.assertIn("| 1 | 0 | 1 | 500 |", text)
@@ -4040,7 +4127,7 @@ class ExplorationAvoidedTests(_MemoryCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["projected"], [wid])
         text = (
-            self.root / "docs" / "waves" / wid / "wave.md"
+            waves_dir(self.root) / wid / RECORD
         ).read_text(encoding="utf-8")
         self.assertIn("<!-- wave:exploration-avoided begin -->", text)
 
@@ -4464,20 +4551,20 @@ class MemoryAutoPopulateTests(_MemoryCase):
         self.supply = _load("memory_supply")
 
     def _wave(self, wave_id, slug, decision_rows):
-        d = self.root / "docs" / "waves" / f"{wave_id} {slug}"
+        d = waves_dir(self.root) / f"{wave_id} {slug}"
         d.mkdir(parents=True)
         change_id = f"{wave_id}k-feat {slug}"
         rows = "\n".join(f"| 2026-01-0{i + 1} | {dec} | {reason} | alt |"
                          for i, (dec, reason) in enumerate(decision_rows))
         change = (
-            f"# {slug}\n\nChange ID: `{change_id}`\n\n## Decision Log\n\n"
+            f"# {slug}\n\n{MEMBER_ID}: `{change_id}`\n\n## Decision Log\n\n"
             "| Date | Decision | Reason | Alternatives |\n"
             "| ---- | -------- | ------ | ------------ |\n" + rows + "\n"
         )
         (d / f"{change_id}.md").write_text(change, encoding="utf-8")
-        (d / "wave.md").write_text(
-            f"# Wave\n\nwave-id: `{wave_id} {slug}`\n\n"
-            f"Change ID: `{change_id}`\n",
+        (d / RECORD).write_text(
+            f"# Wave\n\n{ID_KEY}: `{wave_id} {slug}`\n\n"
+            f"{MEMBER_ID}: `{change_id}`\n",
             encoding="utf-8",
         )
 
@@ -4739,19 +4826,19 @@ class MemoryAgentValidationTests(_MemoryCase):
         )
 
     def test_rejected_source_is_not_regenerated(self):
-        wave = self.root / "docs" / "waves" / "1aaaa demo"
+        wave = waves_dir(self.root) / "1aaaa demo"
         wave.mkdir(parents=True)
         change_id = "1aaaak-feat demo"
         (wave / f"{change_id}.md").write_text(
             "# Demo\n\n"
-            f"Change ID: `{change_id}`\n\n## Decision Log\n\n"
+            f"{MEMBER_ID}: `{change_id}`\n\n## Decision Log\n\n"
             "| Date | Decision | Reason | Alternatives |\n"
             "| --- | --- | --- | --- |\n"
             "| 2026-01-01 | Use `src/a.py` | grounded | none |\n",
             encoding="utf-8",
         )
-        (wave / "wave.md").write_text(
-            f"# Wave\n\nwave-id: `1aaaa demo`\n\nChange ID: `{change_id}`\n",
+        (wave / RECORD).write_text(
+            f"# Wave\n\n{ID_KEY}: `1aaaa demo`\n\n{MEMBER_ID}: `{change_id}`\n",
             encoding="utf-8",
         )
         created = self.srv.memory_propose_response(
@@ -4771,19 +4858,19 @@ class MemoryAgentValidationTests(_MemoryCase):
         self.assertEqual(rerun["data"]["skipped_dispositions"], 1)
 
     def test_purged_source_disposition_is_not_regenerated(self):
-        wave = self.root / "docs" / "waves" / "1aaaa demo"
+        wave = waves_dir(self.root) / "1aaaa demo"
         wave.mkdir(parents=True)
         change_id = "1aaaak-feat demo"
         (wave / f"{change_id}.md").write_text(
             "# Demo\n\n"
-            f"Change ID: `{change_id}`\n\n## Decision Log\n\n"
+            f"{MEMBER_ID}: `{change_id}`\n\n## Decision Log\n\n"
             "| Date | Decision | Reason | Alternatives |\n"
             "| --- | --- | --- | --- |\n"
             "| 2026-01-01 | Use `src/a.py` | grounded | none |\n",
             encoding="utf-8",
         )
-        (wave / "wave.md").write_text(
-            f"# Wave\n\nwave-id: `1aaaa demo`\n\nChange ID: `{change_id}`\n",
+        (wave / RECORD).write_text(
+            f"# Wave\n\n{ID_KEY}: `1aaaa demo`\n\n{MEMBER_ID}: `{change_id}`\n",
             encoding="utf-8",
         )
         created = self.srv.memory_propose_response(
@@ -4823,10 +4910,10 @@ class MemoryAgentValidationTests(_MemoryCase):
         self.assertEqual(rerun["data"]["skipped_dispositions"], 1)
 
     def test_corrupt_purge_disposition_authority_fails_proposal_closed(self):
-        wave = self.root / "docs" / "waves" / "1aaaa demo"
+        wave = waves_dir(self.root) / "1aaaa demo"
         wave.mkdir(parents=True)
-        (wave / "wave.md").write_text(
-            "# Wave\n\nwave-id: `1aaaa demo`\n", encoding="utf-8"
+        (wave / RECORD).write_text(
+            f"# Wave\n\n{ID_KEY}: `1aaaa demo`\n", encoding="utf-8"
         )
         authority = self.root / self.mem.MEMORY_PURGE_DISPOSITIONS
         authority.parent.mkdir(parents=True, exist_ok=True)
@@ -4836,10 +4923,10 @@ class MemoryAgentValidationTests(_MemoryCase):
         self.assertIn("memory_disposition_authority_unreadable", json.dumps(result))
 
     def test_non_string_purge_disposition_authority_fails_proposal_closed(self):
-        wave = self.root / "docs" / "waves" / "1aaaa demo"
+        wave = waves_dir(self.root) / "1aaaa demo"
         wave.mkdir(parents=True)
-        (wave / "wave.md").write_text(
-            "# Wave\n\nwave-id: `1aaaa demo`\n", encoding="utf-8"
+        (wave / RECORD).write_text(
+            f"# Wave\n\n{ID_KEY}: `1aaaa demo`\n", encoding="utf-8"
         )
         authority = self.root / self.mem.MEMORY_PURGE_DISPOSITIONS
         authority.parent.mkdir(parents=True, exist_ok=True)
@@ -4852,10 +4939,10 @@ class MemoryAgentValidationTests(_MemoryCase):
         self.assertIn("memory_disposition_authority_unreadable", json.dumps(result))
 
     def test_non_integer_purge_disposition_schema_fails_proposal_closed(self):
-        wave = self.root / "docs" / "waves" / "1aaaa demo"
+        wave = waves_dir(self.root) / "1aaaa demo"
         wave.mkdir(parents=True)
-        (wave / "wave.md").write_text(
-            "# Wave\n\nwave-id: `1aaaa demo`\n", encoding="utf-8"
+        (wave / RECORD).write_text(
+            f"# Wave\n\n{ID_KEY}: `1aaaa demo`\n", encoding="utf-8"
         )
         authority = self.root / self.mem.MEMORY_PURGE_DISPOSITIONS
         authority.parent.mkdir(parents=True, exist_ok=True)
@@ -4880,19 +4967,19 @@ class MemoryAgentValidationTests(_MemoryCase):
                 )
 
     def test_archived_source_disposition_is_not_regenerated(self):
-        wave = self.root / "docs" / "waves" / "1aaaa demo"
+        wave = waves_dir(self.root) / "1aaaa demo"
         wave.mkdir(parents=True)
         change_id = "1aaaak-feat demo"
         (wave / f"{change_id}.md").write_text(
             "# Demo\n\n"
-            f"Change ID: `{change_id}`\n\n## Decision Log\n\n"
+            f"{MEMBER_ID}: `{change_id}`\n\n## Decision Log\n\n"
             "| Date | Decision | Reason | Alternatives |\n"
             "| --- | --- | --- | --- |\n"
             "| 2026-01-01 | Use `src/a.py` | grounded | none |\n",
             encoding="utf-8",
         )
-        (wave / "wave.md").write_text(
-            f"# Wave\n\nwave-id: `1aaaa demo`\n\nChange ID: `{change_id}`\n",
+        (wave / RECORD).write_text(
+            f"# Wave\n\n{ID_KEY}: `1aaaa demo`\n\n{MEMBER_ID}: `{change_id}`\n",
             encoding="utf-8",
         )
         created = self.srv.memory_propose_response(
@@ -4924,19 +5011,19 @@ class MemoryAgentValidationTests(_MemoryCase):
         self.assertEqual(rerun["data"]["skipped_dispositions"], 1)
 
     def test_pending_archive_source_disposition_remains_history_and_is_not_regenerated(self):
-        wave = self.root / "docs" / "waves" / "1aaaa demo"
+        wave = waves_dir(self.root) / "1aaaa demo"
         wave.mkdir(parents=True)
         change_id = "1aaaak-feat demo"
         (wave / f"{change_id}.md").write_text(
             "# Demo\n\n"
-            f"Change ID: `{change_id}`\n\n## Decision Log\n\n"
+            f"{MEMBER_ID}: `{change_id}`\n\n## Decision Log\n\n"
             "| Date | Decision | Reason | Alternatives |\n"
             "| --- | --- | --- | --- |\n"
             "| 2026-01-01 | Use `src/a.py` | grounded | none |\n",
             encoding="utf-8",
         )
-        (wave / "wave.md").write_text(
-            f"# Wave\n\nwave-id: `1aaaa demo`\n\nChange ID: `{change_id}`\n",
+        (wave / RECORD).write_text(
+            f"# Wave\n\n{ID_KEY}: `1aaaa demo`\n\n{MEMBER_ID}: `{change_id}`\n",
             encoding="utf-8",
         )
         created = self.srv.memory_propose_response(
@@ -4988,19 +5075,19 @@ class MemoryAgentValidationTests(_MemoryCase):
         self.assertEqual(rerun["data"]["skipped_dispositions"], 1)
 
     def test_close_diagnostics_require_candidate_and_verdict_but_allow_zero_memory(self):
-        wave = self.root / "docs" / "waves" / "1valid validation"
+        wave = waves_dir(self.root) / "1valid validation"
         wave.mkdir(parents=True)
         change_id = "1validk-feat validation"
         (wave / f"{change_id}.md").write_text(
             "# Validation\n\n"
-            f"Change ID: `{change_id}`\n\n## Decision Log\n\n"
+            f"{MEMBER_ID}: `{change_id}`\n\n## Decision Log\n\n"
             "| Date | Decision | Reason | Alternatives |\n"
             "| --- | --- | --- | --- |\n"
             "| 2026-01-01 | Use `src/a.py` | owns the durable boundary | none |\n",
             encoding="utf-8",
         )
-        (wave / "wave.md").write_text(
-            f"# Wave\n\nwave-id: `1valid validation`\n\nChange ID: `{change_id}`\n",
+        (wave / RECORD).write_text(
+            f"# Wave\n\n{ID_KEY}: `1valid validation`\n\n{MEMBER_ID}: `{change_id}`\n",
             encoding="utf-8",
         )
         (self.root / "src" / "a.py").write_text("value = 1\n", encoding="utf-8")
@@ -5051,10 +5138,10 @@ class MemoryAgentValidationTests(_MemoryCase):
             [item["code"] for item in close_validated["diagnostics"]],
         )
 
-        empty = self.root / "docs" / "waves" / "1empty empty"
+        empty = waves_dir(self.root) / "1empty empty"
         empty.mkdir(parents=True)
-        (empty / "wave.md").write_text(
-            "# Wave\n\nwave-id: `1empty empty`\n",
+        (empty / RECORD).write_text(
+            f"# Wave\n\n{ID_KEY}: `1empty empty`\n",
             encoding="utf-8",
         )
         self.assertEqual(self.srv._memory_validation_diagnostics(self.root, "1empty"), [])

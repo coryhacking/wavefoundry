@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import email.message
 import errno
 import io
 import hashlib
@@ -12,6 +13,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import urlparse
 from unittest.mock import MagicMock, patch
 
 
@@ -23,6 +25,31 @@ if str(Path(__file__).resolve().parent) not in sys.path:
 
 import graph_fixture_support as gfs  # noqa: E402
 import graph_snapshot  # noqa: E402
+import record_paths  # noqa: E402
+import vocabulary_profile  # noqa: E402
+
+# Record locations and markers follow the loaded profile (wave 1zim5): fixtures
+# are written in the shipped labels and localized, never left as literals.
+_WAVES_REL = record_paths.WAVES_ROOT
+_RECORD = vocabulary_profile.RECORD_FILENAME
+_TITLE = vocabulary_profile.RECORD_TITLE
+_ID_KEY = vocabulary_profile.ID_KEY
+
+
+def _waves_dir(root: Path) -> Path:
+    """The configured waves root under ``root``."""
+    return Path(root).joinpath(*_WAVES_REL.split("/"))
+
+
+def _localize_record(text: str) -> str:
+    """``text`` written with the shipped record markers and member labels, in the
+    loaded profile's vocabulary (the identity under the shipped profile)."""
+    v = vocabulary_profile
+    for old, new in (("# Wave Record", v.RECORD_TITLE), ("## Wave Summary", v.SUMMARY_HEADING),
+                     ("wave-id:", f"{v.ID_KEY}:"), ("## Changes", v.MEMBER_HEADING),
+                     ("Change ID:", f"{v.MEMBER_ID_LABEL}:"), ("Change Status:", f"{v.MEMBER_STATUS_LABEL}:")):
+        text = text.replace(old, new)
+    return re.sub(r"(?m)^Wave:", f"{v.BACKREF_LABEL}:", text)
 
 DASHBOARD_LIB_PATH = SCRIPTS_ROOT / "dashboard_lib.py"
 DASHBOARD_SERVER_PATH = SCRIPTS_ROOT / "dashboard_server.py"
@@ -101,6 +128,24 @@ class _MockStore:
             pass
 
 
+def _html_resource_refs(html: str) -> list[tuple[str, str]]:
+    """Every (tag, url) a page loads through <script src> or <link href>, in order."""
+    from html.parser import HTMLParser
+
+    refs: list[tuple[str, str]] = []
+
+    class _Refs(HTMLParser):
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == "script" and attrs.get("src"):
+                refs.append(("script", attrs["src"]))
+            elif tag == "link" and attrs.get("href"):
+                refs.append(("link", attrs["href"]))
+
+    _Refs().feed(html)
+    return refs
+
+
 def _write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
@@ -141,7 +186,7 @@ def _make_wave(root: Path) -> None:
         made = srv.new_change(root, "enh", "sample-dashboard", change_id="12x1-enh sample-dashboard")
     change_path = root / made["path"]
     # Dashboard counts and activity are the subject of this custom change body.
-    change_path.write_text("""# Sample Dashboard Change
+    change_path.write_text(_localize_record("""# Sample Dashboard Change
 
 Change ID: `12x1-enh sample-dashboard`
 Change Status: `ready`
@@ -170,17 +215,17 @@ Wave: `12x test-wave`
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-05-08 | Added dashboard API. | test evidence |
-""", encoding="utf-8")
+"""), encoding="utf-8")
     # Deterministic ID seam preserves historical dashboard subjects; no record rewrite.
     with patch.object(srv._lifecycle_module(), "build_id", return_value="12x test-wave"):
         wave_id, wave_md = make_declared_wave(srv, root, "test-wave", status="active",
             change_ids=("12x1-enh sample-dashboard",), doc_gate_stubs=stubs)
-    assert wave_id == "12x test-wave" and wave_md == root / "docs/waves" / wave_id / "wave.md"
+    assert wave_id == "12x test-wave" and wave_md == _waves_dir(root) / wave_id / _RECORD
     # component-fixture: misleading prose is input to the dashboard authority reader.
     wave_md.write_text(wave_md.read_text() + "\n- wave-council-readiness: approved\n- code-reviewer: approved\n")
     _write(
         root / "docs" / "plans" / "12x2-enh staged-plan.md",
-        """# Staged Plan
+        _localize_record("""# Staged Plan
 
 Change ID: `12x2-enh staged-plan`
 Change Status: `planned`
@@ -189,7 +234,7 @@ Owner: Engineering
 ## Tasks
 
 - [ ] stage this later
-""",
+"""),
     )
 
 
@@ -245,10 +290,10 @@ def _write_dashboard_lance_index(root: Path, *, docs_chunks: list[dict] | None =
 
 
 def _make_planned_wave(root: Path) -> None:
-    wave_dir = root / "docs" / "waves" / "12y planned-wave"
+    wave_dir = _waves_dir(root) / "12y planned-wave"
     _write(
-        wave_dir / "wave.md",
-        """# Wave Record
+        wave_dir / _RECORD,
+        _localize_record("""# Wave Record
 
 wave-id: `12y planned-wave`
 Title: Planned Wave
@@ -277,11 +322,11 @@ Verify pending-scope dashboard rendering.
 
 Change ID: `12y1-enh planned-dashboard`
 Change Status: `ready`
-""",
+"""),
     )
     _write(
         wave_dir / "12y1-enh planned-dashboard.md",
-        """# Planned Dashboard Change
+        _localize_record("""# Planned Dashboard Change
 
 Change ID: `12y1-enh planned-dashboard`
 Change Status: `ready`
@@ -304,11 +349,11 @@ Wave: `12y planned-wave`
 
 - [ ] build shared readers
 - [ ] add more charts
-""",
+"""),
     )
     _write(
         root / "docs" / "plans" / "12y2-enh staged-plan.md",
-        """# Staged Plan
+        _localize_record("""# Staged Plan
 
 Change ID: `12y2-enh staged-plan`
 Change Status: `planned`
@@ -317,7 +362,7 @@ Owner: Engineering
 ## Tasks
 
 - [ ] stage this later
-""",
+"""),
     )
 
 
@@ -377,7 +422,7 @@ class DashboardSnapshotTests(unittest.TestCase):
 
     def test_closed_wave_review_status_is_historical_not_stale(self):
         """1tmb0: dashboard derivation must not reinterpret archived approvals."""
-        wave_md = self.root / "docs" / "waves" / "12x test-wave" / "wave.md"
+        wave_md = _waves_dir(self.root) / "12x test-wave" / _RECORD
         text = wave_md.read_text(encoding="utf-8")
         text = text.replace("Status: active", "Status: closed", 1).replace(
             "| wave-council-readiness | pending |",
@@ -395,7 +440,7 @@ class DashboardSnapshotTests(unittest.TestCase):
     def test_dashboard_approval_state_comes_from_validated_external_records(self):
         from review_evidence import build_compact_review_event, canonical_review_events_bytes
 
-        wave_dir = self.root / "docs" / "waves" / "12x test-wave"
+        wave_dir = _waves_dir(self.root) / "12x test-wave"
         records, errors = build_compact_review_event(
             (),
             {
@@ -455,7 +500,7 @@ class DashboardSnapshotTests(unittest.TestCase):
         )
 
     def test_valid_external_ledger_serves_derived_state_when_projection_is_stale(self):
-        wave_md = self.root / "docs" / "waves" / "12x test-wave" / "wave.md"
+        wave_md = _waves_dir(self.root) / "12x test-wave" / _RECORD
         stale = wave_md.read_text(encoding="utf-8").replace(
             "| — | — | — | — | — |", "| _Stale projection._ | — | — | — | — |"
         )
@@ -470,7 +515,7 @@ class DashboardSnapshotTests(unittest.TestCase):
         self.assertIn("derived from events.jsonl", wave["review_evidence_status"]["diagnostics"][0])
 
     def test_valid_external_ledger_serves_derived_state_when_projection_is_missing(self):
-        wave_md = self.root / "docs" / "waves" / "12x test-wave" / "wave.md"
+        wave_md = _waves_dir(self.root) / "12x test-wave" / _RECORD
         text = wave_md.read_text(encoding="utf-8")
         start = text.index("## Finding Synthesis\n")
         # negative-fixture: remove only the projection regardless of canonical section ordering.
@@ -485,7 +530,7 @@ class DashboardSnapshotTests(unittest.TestCase):
         self.assertIn("| — | — | — | — | — |", wave["review_evidence_projection"])
 
     def test_invalid_external_ledger_fails_closed_without_serving_projection(self):
-        ledger = self.root / "docs" / "waves" / "12x test-wave" / "events.jsonl"
+        ledger = _waves_dir(self.root) / "12x test-wave" / "events.jsonl"
         ledger.write_text('{"record_type":"review_run"}', encoding="utf-8")
 
         wave = self.lib.collect_waves(self.root)[0]
@@ -499,7 +544,7 @@ class DashboardSnapshotTests(unittest.TestCase):
         # Wave 1tomw (AC-2): the declaration alone marks applicability; a
         # declared wave whose sole-authority ledger is missing fails closed
         # with no receipt state consulted.
-        wave_dir = self.root / "docs" / "waves" / "12x test-wave"
+        wave_dir = _waves_dir(self.root) / "12x test-wave"
         (wave_dir / "events.jsonl").unlink()
 
         wave = self.lib.collect_waves(self.root)[0]
@@ -571,10 +616,10 @@ class DashboardSnapshotTests(unittest.TestCase):
         root = Path(self.tmp.name) / "visible-acs"
         root.mkdir(parents=True, exist_ok=True)
         _make_repo(root)
-        wave_dir = root / "docs" / "waves" / "12x test-wave"
+        wave_dir = _waves_dir(root) / "12x test-wave"
         _write(
-            wave_dir / "wave.md",
-            """# Wave Record
+            wave_dir / _RECORD,
+            _localize_record("""# Wave Record
 
 wave-id: `12x test-wave`
 Title: Test Wave
@@ -588,11 +633,11 @@ Verify visible AC counting.
 
 Change ID: `12x1-enh visible-acs`
 Change Status: `ready`
-""",
+"""),
         )
         _write(
             wave_dir / "12x1-enh visible-acs.md",
-            """# Visible ACs
+            _localize_record("""# Visible ACs
 
 Change ID: `12x1-enh visible-acs`
 Change Status: `ready`
@@ -607,7 +652,7 @@ Wave: `12x test-wave`
 ## Tasks
 
 - one task
-""",
+"""),
         )
         _write(root / "docs" / "agents" / "session-handoff.md", "# Session Handoff\n\n**Active wave:** *(none)*\n")
 
@@ -657,10 +702,10 @@ Wave: `12x test-wave`
         self.assertNotIn("framework", snapshot["health"]["index"])
 
     def test_collect_dashboard_snapshot_parses_plain_bullet_items_for_complete_change(self):
-        wave_dir = self.root / "docs" / "waves" / "12x test-wave"
+        wave_dir = _waves_dir(self.root) / "12x test-wave"
         _write(
             wave_dir / "12x1-enh sample-dashboard.md",
-            """# Sample Dashboard Change
+            _localize_record("""# Sample Dashboard Change
 
 Change ID: `12x1-enh sample-dashboard`
 Change Status: `complete`
@@ -687,7 +732,7 @@ Wave: `12x test-wave`
 
 - build shared readers
 - add more charts
-""",
+"""),
         )
 
         snapshot = self.lib.collect_dashboard_snapshot(self.root)
@@ -703,10 +748,10 @@ Wave: `12x test-wave`
         self.assertTrue(all(item["done"] for item in change["tasks_items"]))
 
     def test_collect_dashboard_snapshot_marks_plain_bullet_items_open_for_non_terminal_change(self):
-        wave_dir = self.root / "docs" / "waves" / "12x test-wave"
+        wave_dir = _waves_dir(self.root) / "12x test-wave"
         _write(
             wave_dir / "12x1-enh sample-dashboard.md",
-            """# Sample Dashboard Change
+            _localize_record("""# Sample Dashboard Change
 
 Change ID: `12x1-enh sample-dashboard`
 Change Status: `active`
@@ -733,7 +778,7 @@ Wave: `12x test-wave`
 
 - build shared readers
 - add more charts
-""",
+"""),
         )
 
         snapshot = self.lib.collect_dashboard_snapshot(self.root)
@@ -748,10 +793,10 @@ Wave: `12x test-wave`
         self.assertFalse(any(item["done"] for item in change["tasks_items"]))
 
     def test_collect_dashboard_snapshot_uses_priority_table_order_when_ac_ids_are_missing(self):
-        wave_dir = self.root / "docs" / "waves" / "12x test-wave"
+        wave_dir = _waves_dir(self.root) / "12x test-wave"
         _write(
             wave_dir / "12x1-enh sample-dashboard.md",
-            """# Sample Dashboard Change
+            _localize_record("""# Sample Dashboard Change
 
 Change ID: `12x1-enh sample-dashboard`
 Change Status: `complete`
@@ -773,7 +818,7 @@ Wave: `12x test-wave`
 ## Tasks
 
 - build shared readers
-""",
+"""),
         )
 
         snapshot = self.lib.collect_dashboard_snapshot(self.root)
@@ -788,10 +833,10 @@ Wave: `12x test-wave`
 
     def test_collect_dashboard_snapshot_parses_numbered_list_ac_items(self):
         """_AC_LINE_RE must match ordered-list prefixes like '1.' and '2.'."""
-        wave_dir = self.root / "docs" / "waves" / "12x test-wave"
+        wave_dir = _waves_dir(self.root) / "12x test-wave"
         _write(
             wave_dir / "12x1-enh sample-dashboard.md",
-            """# Sample Dashboard Change
+            _localize_record("""# Sample Dashboard Change
 
 Change ID: `12x1-enh sample-dashboard`
 Change Status: `active`
@@ -813,7 +858,7 @@ Wave: `12x test-wave`
 ## Tasks
 
 - [ ] build shared readers
-""",
+"""),
         )
 
         snapshot = self.lib.collect_dashboard_snapshot(self.root)
@@ -827,10 +872,10 @@ Wave: `12x test-wave`
 
     def test_collect_dashboard_snapshot_parses_unmarked_numbered_list_ac_items(self):
         """Numbered list items without checkboxes derive done-state from change status."""
-        wave_dir = self.root / "docs" / "waves" / "12x test-wave"
+        wave_dir = _waves_dir(self.root) / "12x test-wave"
         _write(
             wave_dir / "12x1-enh sample-dashboard.md",
-            """# Sample Dashboard Change
+            _localize_record("""# Sample Dashboard Change
 
 Change ID: `12x1-enh sample-dashboard`
 Change Status: `complete`
@@ -852,7 +897,7 @@ Wave: `12x test-wave`
 ## Tasks
 
 - [x] build shared readers
-""",
+"""),
         )
 
         snapshot = self.lib.collect_dashboard_snapshot(self.root)
@@ -982,10 +1027,10 @@ Wave: `12x test-wave`
         )
 
     def test_dashboard_snapshot_preserves_full_multiline_ac_and_task_text(self):
-        wave_dir = self.root / "docs" / "waves" / "12x test-wave"
+        wave_dir = _waves_dir(self.root) / "12x test-wave"
         _write(
             wave_dir / "12x1-enh sample-dashboard.md",
-            """# Sample Dashboard Change
+            _localize_record("""# Sample Dashboard Change
 
 Change ID: `12x1-enh sample-dashboard`
 Change Status: `active`
@@ -1011,7 +1056,7 @@ Wave: `12x test-wave`
   - [x] Parse hard-wrapped task prose and preserve every
     continuation line in the dashboard payload.
   - [ ] Keep the next task distinct.
-""",
+"""),
         )
 
         snapshot = self.lib.collect_dashboard_snapshot(self.root)
@@ -1194,10 +1239,10 @@ Wave: `12x test-wave`
         """Wave 1p458 (1p45a) AC-2/AC-5: for an OPEN wave, `[~]` deferred ACs/tasks sit in
         the denominator but do not count as done (they read as outstanding); `not-this-scope`
         items — including a `[~]` not-this-scope AC — stay fully excluded."""
-        wave_dir = self.root / "docs" / "waves" / "12x test-wave"
+        wave_dir = _waves_dir(self.root) / "12x test-wave"
         _write(
             wave_dir / "12x1-enh sample-dashboard.md",
-            """# Sample Dashboard Change
+            _localize_record("""# Sample Dashboard Change
 
 Change ID: `12x1-enh sample-dashboard`
 Change Status: `active`
@@ -1229,7 +1274,7 @@ Wave: `12x test-wave`
 - [x] task one
 - [ ] task two
 - [~] task three
-""",
+"""),
         )
 
         snapshot = self.lib.collect_dashboard_snapshot(self.root)
@@ -1347,12 +1392,12 @@ class UnreadableWaveRecordTests(unittest.TestCase):
 
     def _make_broken_wave(self, mode: str, dirname: str = "12z broken-wave") -> Path:
         """Break a wave record by `mode`: invalid UTF-8 bytes, or chmod 0."""
-        wave_md = self.root / "docs" / "waves" / dirname / "wave.md"
+        wave_md = _waves_dir(self.root) / dirname / _RECORD
         if mode == "decode":
             wave_md.parent.mkdir(parents=True, exist_ok=True)
             wave_md.write_bytes(b"\xff\xfe not valid utf-8 \xff")
         else:
-            _write(wave_md, f"# Wave Record\n\nwave-id: `{dirname}`\nStatus: active\n")
+            _write(wave_md, f"{_TITLE}\n\n{_ID_KEY}: `{dirname}`\nStatus: active\n")
             os.chmod(wave_md, 0)
             self.addCleanup(
                 lambda: wave_md.exists() and os.chmod(wave_md, 0o600))
@@ -1450,7 +1495,7 @@ class UnreadableWaveRecordTests(unittest.TestCase):
         a decode-broken admitted change doc raised UnicodeDecodeError out of
         `collect_changes`; post-fix the change renders with `read_error`
         bound to the record."""
-        change_path = (self.root / "docs" / "waves" / "12x test-wave"
+        change_path = (_waves_dir(self.root) / "12x test-wave"
                        / "12x1-enh sample-dashboard.md")
         change_path.write_bytes(b"\xff\xfe not valid utf-8 \xff")
         changes = self.lib.collect_changes(self.root)
@@ -1477,7 +1522,7 @@ class UnreadableWaveRecordTests(unittest.TestCase):
         change_id, status unknown, NO marker). A wrong fix that widens the
         wrap while keeping the substitution stays red here, because the
         assertion is bound to `read_error`, not to the misparse shape."""
-        change_path = (self.root / "docs" / "waves" / "12x test-wave"
+        change_path = (_waves_dir(self.root) / "12x test-wave"
                        / "12x1-enh sample-dashboard.md")
         os.chmod(change_path, 0)
         self.addCleanup(
@@ -1500,7 +1545,7 @@ class UnreadableWaveRecordTests(unittest.TestCase):
         enumeration and render must produce a degraded row, and the non-read
         touches (`stat()`) must stay quiet: pre-fix the FileNotFoundError hit
         `except OSError: continue` and the wave vanished."""
-        ghost = self.root / "docs" / "waves" / "12v ghost-wave" / "wave.md"
+        ghost = _waves_dir(self.root) / "12v ghost-wave" / _RECORD
         entry = {"wave_id": "12v ghost-wave", "status": "active",
                  "changes": [], "path": str(ghost)}
         with patch.object(self.lib.server, "list_waves", return_value=[entry]):
@@ -1521,7 +1566,7 @@ class UnreadableWaveRecordTests(unittest.TestCase):
         a re-reading implementation would render the row healthy and fail."""
         entry = {
             "wave_id": "12x test-wave", "status": "unknown", "changes": [],
-            "path": "docs/waves/12x test-wave/wave.md",
+            "path": f"{_WAVES_REL}/12x test-wave/{_RECORD}",
             "read_error": "PermissionError: Operation not permitted",
         }
         with patch.object(self.lib.server, "list_waves", return_value=[entry]):
@@ -1531,7 +1576,7 @@ class UnreadableWaveRecordTests(unittest.TestCase):
         self.assertEqual(row["read_error"],
                          "PermissionError: Operation not permitted")
         self.assertEqual(row["review_evidence_status"]["integrity"], "invalid")
-        self.assertEqual(row["path"], "docs/waves/12x test-wave/wave.md")
+        self.assertEqual(row["path"], f"{_WAVES_REL}/12x test-wave/{_RECORD}")
 
     def test_healthy_rows_and_records_carry_no_read_error_key(self):
         """1v1df AC-5 support: `read_error` appears ONLY on degraded output,
@@ -1551,13 +1596,23 @@ class UnreadableWaveRecordTests(unittest.TestCase):
 class _HandlerHarnessMixin:
     """Shared HTTP handler test harness. Subclasses must set self.srv and self.snapshot."""
 
-    def _make_handler(self, path: str):
+    _DEFAULT_HOST = object()
+
+    def _make_handler(self, path: str, host=_DEFAULT_HOST, bound_host: str = "127.0.0.1"):
         srv = self.srv
         store = _MockStore(self.snapshot, getattr(self, "root", None))
+        # Wave 1zim2: do_GET checks Host first; default to a loopback request. A list sends
+        # each value as its own Host header.
+        headers = email.message.Message()
+        if host is self._DEFAULT_HOST:
+            host = "127.0.0.1:43127"
+        for value in ([] if host is None else host if isinstance(host, list) else [host]):
+            headers["Host"] = value
 
         class Harness(srv.DashboardHandler):
             def __init__(self, snapshot_store, req_path):
-                self.server = SimpleNamespace(snapshot_store=snapshot_store)
+                self.server = SimpleNamespace(snapshot_store=snapshot_store, bound_host=bound_host)
+                self.headers = headers
                 self.path = req_path
                 self.wfile = io.BytesIO()
                 self.response_code = 0
@@ -1608,7 +1663,7 @@ class DashboardDocumentLayoutTests(_HandlerHarnessMixin, unittest.TestCase):
     def test_relocated_and_nested_wave_and_legacy_change_reads(self):
         for folder in ("1abcd direct", "team/1abce nested"):
             wave = self.root / "project/records/waves" / folder
-            _write(wave / "wave.md", "# " + folder)
+            _write(wave / _RECORD, "# " + folder)
             _write(wave / "1abcd-enh change.md", "# Change " + folder)
             for identifier in (wave.name, wave.name.split()[0]):
                 with self.subTest(folder=folder, identifier=identifier):
@@ -1630,16 +1685,17 @@ class DashboardDocumentLayoutTests(_HandlerHarnessMixin, unittest.TestCase):
 
     def test_nested_wave_under_docs_and_flat_default_control(self):
         for nested, rel in ((True, "team/1abcd wave"), (False, "1abcd wave")):
+            # Configured layout values; no archive root, as in the shipped default.
             with patch.multiple(self.srv.record_paths, WAVES_ROOT="docs/waves",
-                                PLANS_ROOT="docs/plans", NESTED=nested):
-                _write(self.root / "docs/waves" / rel / "wave.md", "# Control")
+                                PLANS_ROOT="docs/plans", NESTED=nested, ARCHIVE_ROOT=None):
+                _write(self.root / "docs/waves" / rel / _RECORD, "# Control")
                 h = self._get_doc(type="wave", id="1abcd wave")
                 self.assertEqual(h.response_code, 200)
                 self.assertEqual(h.wfile.getvalue(), b"# Control")
 
     def test_duplicate_wave_ids_refuse_even_exact_folder_name(self):
         for folder in ("a/1abcd first", "b/1abcd second"):
-            _write(self.root / "project/records/waves" / folder / "wave.md", "# Ambiguous")
+            _write(self.root / "project/records/waves" / folder / _RECORD, "# Ambiguous")
         for identifier in ("1abcd", "1abcd first", "1abcd second"):
             for kind in ("wave", "change"):
                 params = dict(type=kind, id=identifier) if kind == "wave" else dict(
@@ -1662,7 +1718,7 @@ class DashboardDocumentLayoutTests(_HandlerHarnessMixin, unittest.TestCase):
             self.assertEqual(h.response_code, 403)
 
     def test_wave_id_reads_obey_nested_depth_and_missing_record(self):
-        _write(self.root / "project/records/waves/team/1abcd wave/wave.md", "# Deep")
+        _write(self.root / "project/records/waves/team/1abcd wave" / _RECORD, "# Deep")
         with patch.object(self.srv.record_paths, "MAX_DEPTH", 1):
             h = self._get_doc(type="wave", id="1abcd wave")
             self.assertEqual(h.response_code, 404)
@@ -1674,7 +1730,7 @@ class DashboardDocumentLayoutTests(_HandlerHarnessMixin, unittest.TestCase):
         self.assertEqual(h.response_code, 404)
 
     def test_flat_wave_symlink_cannot_escape_allowed_document_roots(self):
-        secret = self.root / "private/wave.md"
+        secret = self.root / "private" / _RECORD
         _write(secret, "SECRET")
         alias = self.root / "project/records/waves/1abcd alias"
         alias.parent.mkdir(parents=True)
@@ -1806,17 +1862,116 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
         self.assertEqual(handler.response_code, 200)
         html = handler.wfile.getvalue().decode("utf-8")
         self.assertIn('<div id="app"></div>', html)
-        self.assertIn("https://unpkg.com/react@18.3.1/umd/react.production.min.js", html)
-        self.assertIn("https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js", html)
-        self.assertIn("https://unpkg.com/elkjs@0.10.0/lib/elk.bundled.js", html)
         self.assertNotIn("force-graph", html)
         self.assertIn('<script src="/dashboard.js"></script>', html)
 
-    def test_dashboard_html_loads_graph_libs_from_cdn_not_local_assets(self):
-        handler = self._make_handler("/dashboard.html")
+    def test_dashboard_html_loads_only_same_origin_vendored_scripts(self):
+        # Wave 1zim2 (1zilx AC-1): no external <script> or <link>; the vendored copies are pinned.
+        refs = _html_resource_refs((SCRIPTS_ROOT.parent / "dashboard" / "dashboard.html").read_text(encoding="utf-8"))
+        self.assertTrue(refs, "reach guard: the page must reference its scripts and stylesheet")
+        for tag, url in refs:
+            with self.subTest(tag=tag, url=url):
+                parsed = urlparse(url)
+                self.assertFalse(parsed.scheme or parsed.netloc, f"external {tag}: {url}")
+                self.assertTrue(url.startswith("/"), f"{tag} must be origin-absolute: {url}")
+        scripts = [url for tag, url in refs if tag == "script"]
+        self.assertEqual(scripts[:3], [
+            "/vendor/react/react.production.min.js",
+            "/vendor/react-dom/react-dom.production.min.js",
+            "/vendor/elkjs/elk.bundled.js",
+        ])
+        vendor = SCRIPTS_ROOT.parent / "dashboard" / "vendor"
+        pins = {
+            "react/react.production.min.js": ("react.production.min.js", "MIT", "react/LICENSE"),
+            "react-dom/react-dom.production.min.js": ("react-dom.production.min.js", "MIT", "react-dom/LICENSE"),
+        }
+        for rel, (banner, licence, licence_file) in pins.items():
+            text = (vendor / rel).read_text(encoding="utf-8")
+            self.assertTrue(text.startswith("/**\n * @license React\n * " + banner), rel)
+            self.assertIn("licensed under the " + licence, text)
+            self.assertIn("MIT License", (vendor / licence_file).read_text(encoding="utf-8"))
+        self.assertIn('reconcilerVersion:"18.3.1"', (vendor / "react-dom/react-dom.production.min.js").read_text(encoding="utf-8"))
+        self.assertIn("Eclipse Public License", (vendor / "elkjs/LICENSE.md").read_text(encoding="utf-8"))
+        notice = (vendor / "README.md").read_text(encoding="utf-8")
+        for pin in ("`react@18.3.1`", "`react-dom@18.3.1`", "`elkjs@0.10.0`",
+                    "https://github.com/kieler/elkjs", "tag `0.10.0`"):
+            self.assertIn(pin, notice)
+        # The recorded hashes are the shipped bytes.
+        for rel in ("react/react.production.min.js", "react-dom/react-dom.production.min.js", "elkjs/elk.bundled.js"):
+            digest = hashlib.sha256((vendor / rel).read_bytes()).hexdigest()
+            self.assertIn(f"| `{rel}` |", notice)
+            self.assertIn(digest, notice, rel)
+
+    def test_host_check_refuses_missing_and_foreign_hosts(self):
+        # Wave 1zim2 (1zilx AC-2): refused with 421 before any routing.
+        for path in ("/api/project", "/dashboard.html"):
+            for host in (None, "", "evil.example", "evil.example:43127", "127.0.0.2:43127",
+                         "localhost.evil.example", "::1", "[::1", "localhost:abc", "0.0.0.0:43127"):
+                with self.subTest(path=path, host=host):
+                    handler = self._make_handler(path, host=host)
+                    handler.do_GET()
+                    self.assertEqual(handler.response_code, 421)
+                    self.assertEqual(handler.wfile.getvalue(), b"")
+
+    def test_host_check_serves_loopback_names_on_any_port(self):
+        for path in ("/api/project", "/dashboard.html"):
+            for host in ("localhost", "localhost:43127", "127.0.0.1:8080", "[::1]:9000", "[::1]",
+                         "LOCALHOST:1", "localhost.:43127", "127.0.0.1."):
+                with self.subTest(path=path, host=host):
+                    handler = self._make_handler(path, host=host)
+                    handler.do_GET()
+                    self.assertEqual(handler.response_code, 200)
+
+    def test_host_check_accepts_an_explicit_non_loopback_bind(self):
+        handler = self._make_handler("/api/project", host="Dev-Box.lan:43127", bound_host="dev-box.lan")
         handler.do_GET()
-        html = handler.wfile.getvalue().decode("utf-8")
-        self.assertNotIn('src="/react.production.min.js"', html)
+        self.assertEqual(handler.response_code, 200)
+        handler = self._make_handler("/api/project", host="other.lan:43127", bound_host="dev-box.lan")
+        handler.do_GET()
+        self.assertEqual(handler.response_code, 421)
+        # A wildcard bind names no host: loopback names only.
+        for wildcard in ("0.0.0.0", "::", ""):
+            with self.subTest(bound=wildcard):
+                handler = self._make_handler("/api/project", host="dev-box.lan", bound_host=wildcard)
+                handler.do_GET()
+                self.assertEqual(handler.response_code, 421)
+                handler = self._make_handler("/api/project", host="localhost:1", bound_host=wildcard)
+                handler.do_GET()
+                self.assertEqual(handler.response_code, 200)
+
+    def test_host_check_on_a_wildcard_bind_admits_loopback_names_only(self):
+        # Wave 1zim2: a wildcard bind never admits its own wildcard name, a LAN address or a name.
+        for wildcard, own_name in (("0.0.0.0", "0.0.0.0:43127"), ("::", "[::]:43127"), ("", ":43127")):
+            for host in (own_name, "192.168.1.20:43127", "dev-box.lan:43127"):
+                with self.subTest(bound=wildcard, host=host):
+                    handler = self._make_handler("/api/project", host=host, bound_host=wildcard)
+                    handler.do_GET()
+                    self.assertEqual(handler.response_code, 421)
+            for host in ("localhost:43127", "127.0.0.1:43127", "[::1]:43127"):
+                with self.subTest(bound=wildcard, host=host):
+                    handler = self._make_handler("/api/project", host=host, bound_host=wildcard)
+                    handler.do_GET()
+                    self.assertEqual(handler.response_code, 200)
+
+    def test_absolute_form_targets_and_repeated_hosts_are_refused(self):
+        # Wave 1zim2: the Host check reads one Host header and an origin-form target only.
+        cases = (
+            ("http://evil.example/api/project", "127.0.0.1:43127"),
+            ("http://127.0.0.1:43127/api/project", "127.0.0.1:43127"),
+            ("//evil.example/api/project", "127.0.0.1:43127"),
+            ("api/project", "127.0.0.1:43127"),
+            ("/api/project", ["127.0.0.1:43127", "evil.example"]),
+            ("/api/project", ["127.0.0.1:43127", "127.0.0.1:43127"]),
+        )
+        for path, host in cases:
+            with self.subTest(path=path, host=host):
+                handler = self._make_handler(path, host=host)
+                handler.do_GET()
+                self.assertEqual(handler.response_code, 421)
+                self.assertEqual(handler.wfile.getvalue(), b"")
+        handler = self._make_handler("/api/project?x=1", host=["127.0.0.1:43127"])
+        handler.do_GET()
+        self.assertEqual(handler.response_code, 200)
 
     def test_dashboard_html_title_includes_repo_name(self):
         handler = self._make_handler("/dashboard.html")
@@ -2413,6 +2568,40 @@ class DashboardProcessControlTests(unittest.TestCase):
         self.assertIn("http://127.0.0.1:43127/dashboard.html", stdout.getvalue())
 
 
+    def test_dashboard_main_on_a_wildcard_bind_records_a_url_the_host_check_admits(self):
+        # Wave 1zim2: the recorded URL is what the browser and the readiness probe send as Host.
+        srv = self.srv
+
+        class FreeLock:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        class FakeServer:
+            def __init__(self, address, handler):
+                self.server_address = address
+
+            def serve_forever(self):
+                raise KeyboardInterrupt
+
+            def server_close(self):
+                return None
+
+        for wildcard in ("0.0.0.0", "::"):
+            with self.subTest(bound=wildcard):
+                with patch.object(srv.dashboard_lib, "dashboard_server_lock", return_value=FreeLock()), \
+                     patch.object(srv, "_QuietThreadingHTTPServer", FakeServer), \
+                     patch.object(srv, "SnapshotStore", MagicMock()), \
+                     patch("sys.stdout", new=io.StringIO()), patch("sys.stderr", new=io.StringIO()):
+                    rc = srv.main(["--root", str(self.root), "--host", wildcard, "--port", "43127"])
+                self.assertEqual(rc, 0)
+                url = srv.dashboard_lib.read_dashboard_metadata(self.root)["url"]
+                self.assertEqual(url, "http://127.0.0.1:43127/dashboard.html")
+                self.assertTrue(srv._host_allowed(urlparse(url).netloc, wildcard), url)
+
+
 class DashboardChildReapTests(unittest.TestCase):
     """Wave 1rswx: the long-lived MCP server reaps the dashboard children it spawns (mirroring the
     1p98u background-build reaper), and the stop/restart/status paths classify a recorded PID with the
@@ -2999,10 +3188,10 @@ class DashboardActivityTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _make_multi_entry_change(self):
-        wave_dir = self.root / "docs" / "waves" / "12x test-wave"
+        wave_dir = _waves_dir(self.root) / "12x test-wave"
         _write(
             wave_dir / "12x3-enh multi-log.md",
-            """# Multi Log Change
+            _localize_record("""# Multi Log Change
 
 Change ID: `12x3-enh multi-log`
 Change Status: `ready`
@@ -3026,11 +3215,11 @@ Wave: `12x test-wave`
 | 2026-05-07 | First entry | — |
 | 2026-05-08 | Second entry | ref-1 |
 | 2026-05-09 | Third entry | ref-2 |
-""",
+"""),
         )
-        wave_md = wave_dir / "wave.md"
+        wave_md = wave_dir / _RECORD
         text = wave_md.read_text(encoding="utf-8")
-        text += "\nChange ID: `12x3-enh multi-log`\nChange Status: `ready`\n"
+        text += _localize_record("\nChange ID: `12x3-enh multi-log`\nChange Status: `ready`\n")
         wave_md.write_text(text, encoding="utf-8")
 
     def test_all_progress_entries_collected_not_just_latest(self):
@@ -3461,7 +3650,7 @@ class DashboardWatcherHardeningTests(unittest.TestCase):
         import time
         store = self._make_store()
         store.stop()
-        base = self.root / "docs" / "waves"
+        base = _waves_dir(self.root)
         nested_dir = base / "12x test-wave"  # existing wave subdir from _make_wave
         nested_file = nested_dir / "change.md"
         nested_file.write_text("v1", encoding="utf-8")
@@ -4851,6 +5040,120 @@ document.querySelector("#frame").addEventListener("load", () => {{
                 self.assertGreater(result["tableCount"], 0)
                 self.assertTrue(result["tablesLocal"], result)
                 self.assertFalse(result["markerVisible"], result)
+
+
+class DashboardRealServerHeaderTests(unittest.TestCase):
+    """Wave 1zim2 (1zilx AC-3/AC-4): a real server on an ephemeral port."""
+
+    _CSP = ("default-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; "
+            "base-uri 'none'; frame-ancestors 'none'")
+
+    def setUp(self):
+        import threading as _threading
+
+        self.lib, self.srv = load_dashboard_modules()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+        _make_repo(self.root)
+        srv = self.srv
+
+        class _Store(_MockStore):
+            def register_sse_client(self):
+                client = srv._SseClient()
+                self._clients.append(client)
+                return client
+
+        heartbeat = patch.object(srv, "_SSE_HEARTBEAT", 0.1)
+        heartbeat.start()
+        self.addCleanup(heartbeat.stop)
+        self.httpd = srv._QuietThreadingHTTPServer(("127.0.0.1", 0), srv.DashboardHandler)
+        self.httpd.bound_host = "127.0.0.1"
+        self.httpd.snapshot_store = _Store(self.lib.collect_dashboard_snapshot(self.root), self.root)
+        self.port = self.httpd.server_address[1]
+        thread = _threading.Thread(target=self.httpd.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+        thread.start()
+        self.addCleanup(self.httpd.server_close)
+        self.addCleanup(self.httpd.shutdown)
+
+    def _request(self, method: str, path: str, host: str | None = "default"):
+        import http.client
+
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        self.addCleanup(conn.close)
+        conn.putrequest(method, path, skip_host=True)
+        if host == "default":
+            host = f"127.0.0.1:{self.port}"
+        if host is not None:
+            conn.putheader("Host", host)
+        conn.endheaders()
+        return conn.getresponse()
+
+    def _assert_security_headers(self, response, label):
+        self.assertEqual(response.getheader("Content-Security-Policy"), self._CSP, label)
+        self.assertEqual(response.getheader("X-Content-Type-Options"), "nosniff", label)
+
+    def test_every_response_kind_carries_the_security_headers(self):
+        cases = (
+            ("asset", "GET", "/dashboard.css", 200),
+            ("page", "GET", "/dashboard.html", 200),
+            ("json", "GET", "/api/project", 200),
+            ("sse", "GET", "/api/events", 200),
+            ("redirect", "GET", "/", 302),
+            ("send_error 404", "GET", "/api/nonexistent", 404),
+            ("unsupported method 501", "POST", "/api/project", 501),
+        )
+        for label, method, path, status in cases:
+            with self.subTest(kind=label):
+                response = self._request(method, path)
+                self.assertEqual(response.status, status, label)
+                self._assert_security_headers(response, label)
+                if label == "sse":
+                    self.assertTrue(response.getheader("Content-Type").startswith("text/event-stream"))
+                    response.close()
+                else:
+                    response.read()
+
+    def test_refused_host_gets_421_with_the_security_headers(self):
+        for host in (None, f"evil.example:{self.port}"):
+            with self.subTest(host=host):
+                response = self._request("GET", "/api/project", host=host)
+                self.assertEqual(response.status, 421)
+                self._assert_security_headers(response, "421")
+                response.read()
+
+    def test_absolute_form_target_and_repeated_host_get_421_on_a_real_server(self):
+        import http.client
+
+        loopback = f"127.0.0.1:{self.port}"
+        for target, hosts in ((f"http://{loopback}/api/project", [loopback]),
+                              ("/api/project", [loopback, "evil.example"])):
+            with self.subTest(target=target, hosts=hosts):
+                conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+                self.addCleanup(conn.close)
+                conn.putrequest("GET", target, skip_host=True)
+                for host in hosts:
+                    conn.putheader("Host", host)
+                conn.endheaders()
+                response = conn.getresponse()
+                self.assertEqual(response.status, 421)
+                response.read()
+
+    def test_every_page_script_and_link_is_served_from_the_same_origin(self):
+        response = self._request("GET", "/dashboard.html")
+        self.assertEqual(response.status, 200)
+        refs = _html_resource_refs(response.read().decode("utf-8"))
+        self.assertGreaterEqual(len(refs), 6)
+        for tag, url in refs:
+            with self.subTest(tag=tag, url=url):
+                self.assertFalse(urlparse(url).netloc, url)
+                asset = self._request("GET", url, host=f"localhost:{self.port}")
+                body = asset.read()
+                self.assertEqual(asset.status, 200, url)
+                self.assertTrue(body, url)
+                expected = "text/css" if tag == "link" else "application/javascript"
+                self.assertTrue(asset.getheader("Content-Type").startswith(expected), url)
+                self._assert_security_headers(asset, url)
 
 
 import threading  # noqa: E402 (already imported above, but needed in test scope)

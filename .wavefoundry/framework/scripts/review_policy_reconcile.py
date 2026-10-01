@@ -227,10 +227,11 @@ _LIVE_MARKDOWN_EXCLUDED_PREFIXES = (
 
 
 def _live_markdown_excluded_prefixes(root: Path) -> tuple[str, ...]:
-    """The static prefixes plus the resolved waves root (wave 1y0gz)."""
-    return _LIVE_MARKDOWN_EXCLUDED_PREFIXES + (
-        record_paths.load_record_roots(root).waves_prefix,
-    )
+    """The static prefixes plus the resolved waves root (wave 1y0gz) and the
+    read-only archive root when one is configured (change 1zim7)."""
+    roots = record_paths.load_record_roots(root)
+    archive = (roots.archive_rel + "/",) if roots.archive_rel else ()
+    return _LIVE_MARKDOWN_EXCLUDED_PREFIXES + (roots.waves_prefix,) + archive
 
 
 def _live_markdown_dir_excluded(relative_dir: str, prefixes: tuple[str, ...]) -> bool:

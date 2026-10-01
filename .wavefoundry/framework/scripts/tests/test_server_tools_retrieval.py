@@ -51,6 +51,13 @@ def _own_process_start() -> float:
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[3].parent
+
+import record_paths  # noqa: E402
+import vocabulary_profile  # noqa: E402
+
+# The configured waves root with a trailing slash (wave 1zim5): record paths in
+# framework-behaviour tests follow the loaded profile, never a literal default.
+_WAVES_PREFIX = record_paths.WAVES_ROOT.rstrip("/") + "/"
 _REPO_INDEX_COPY: "Path | None" = None
 
 
@@ -4774,9 +4781,9 @@ class CodeAskTests(unittest.TestCase):
     # --- _demote_doc_results unit tests (12q5v) ---
 
     def test_demote_waves_explanatory(self):
-        """docs/waves/ results get 0.75× when question_type == explanatory."""
+        """Waves-root results get 0.75× when question_type == explanatory."""
         srv = self.srv
-        results = [{"path": "docs/waves/12pn3/change.md", "kind": "doc", "score": 1.0}]
+        results = [{"path": f"{_WAVES_PREFIX}12pn3/change.md", "kind": "doc", "score": 1.0}]
         demoted, count = srv._demote_doc_results(results, "explanatory")
         self.assertEqual(count, 1)
         self.assertAlmostEqual(demoted[0]["score"], 0.75)
@@ -4810,7 +4817,7 @@ class CodeAskTests(unittest.TestCase):
         narrative/reference prose (was passthrough before this wave)."""
         srv = self.srv
         results = [
-            {"path": "docs/waves/12pn3/change.md", "kind": "doc", "score": 1.0},
+            {"path": f"{_WAVES_PREFIX}12pn3/change.md", "kind": "doc", "score": 1.0},
             {"path": "docs/agents/journals/wave-coordinator.md", "kind": "doc", "score": 0.9},
         ]
         demoted, count = srv._demote_doc_results(results, "navigational")
@@ -4836,19 +4843,19 @@ class CodeAskTests(unittest.TestCase):
         """After demotion, results are re-sorted descending by score."""
         srv = self.srv
         results = [
-            {"path": "docs/waves/12pn3/change.md", "kind": "doc", "score": 1.0},   # → 0.75
+            {"path": f"{_WAVES_PREFIX}12pn3/change.md", "kind": "doc", "score": 1.0},   # → 0.75
             {"path": "src/server.py", "kind": "code", "score": 0.8},               # → 0.80
         ]
         demoted, count = srv._demote_doc_results(results, "explanatory")
         self.assertEqual(count, 1)
         self.assertEqual(demoted[0]["path"], "src/server.py")    # 0.80 now first
-        self.assertEqual(demoted[1]["path"], "docs/waves/12pn3/change.md")  # 0.75 second
+        self.assertEqual(demoted[1]["path"], f"{_WAVES_PREFIX}12pn3/change.md")  # 0.75 second
 
     def test_demote_count_accurate(self):
         """demotion_count matches number of results with reduced score."""
         srv = self.srv
         results = [
-            {"path": "docs/waves/w1/c1.md", "kind": "doc", "score": 0.9},
+            {"path": f"{_WAVES_PREFIX}w1/c1.md", "kind": "doc", "score": 0.9},
             {"path": "docs/plans/p1.md", "kind": "doc", "score": 0.8},
             {"path": "src/impl.py", "kind": "code", "score": 0.7},
         ]
@@ -4863,7 +4870,7 @@ class CodeAskTests(unittest.TestCase):
 
     def test_assessment_evidence_prior_prefers_current_report_and_code_over_wave_history(self):
         results = [
-            {"path": "docs/waves/old-delivery/change.md", "kind": "doc", "score": 0.99},
+            {"path": f"{_WAVES_PREFIX}old-delivery/change.md", "kind": "doc", "score": 0.99},
             {"path": "docs/reports/search-audit.md", "kind": "doc", "score": 0.90},
             {"path": "src/search_adapter.py", "kind": "code", "score": 0.82},
         ]
@@ -4872,13 +4879,13 @@ class CodeAskTests(unittest.TestCase):
             demoted, "Assess cache-routing weaknesses.", "assessment"
         )
         paths = [item["path"] for item in adjusted]
-        self.assertLess(paths.index("docs/reports/search-audit.md"), paths.index("docs/waves/old-delivery/change.md"))
-        self.assertLess(paths.index("src/search_adapter.py"), paths.index("docs/waves/old-delivery/change.md"))
+        self.assertLess(paths.index("docs/reports/search-audit.md"), paths.index(f"{_WAVES_PREFIX}old-delivery/change.md"))
+        self.assertLess(paths.index("src/search_adapter.py"), paths.index(f"{_WAVES_PREFIX}old-delivery/change.md"))
         self.assertEqual(count, 2)
         self.assertEqual(len(adjusted), 3, "the assessment prior is score-only, never exclusion")
 
     def test_assessment_evidence_prior_preserves_named_path_and_other_question_types(self):
-        named = "docs/waves/old-delivery/change.md"
+        named = f"{_WAVES_PREFIX}old-delivery/change.md"
         self.assertEqual(
             self.srv._assessment_evidence_weight(named, f"Assess {named}."),
             1.0,
@@ -4887,7 +4894,7 @@ class CodeAskTests(unittest.TestCase):
             with self.subTest(question_type=question_type):
                 results = [
                     {"path": "docs/reports/search-audit.md", "score": 0.60},
-                    {"path": "docs/waves/old-delivery/change.md", "score": 0.50},
+                    {"path": f"{_WAVES_PREFIX}old-delivery/change.md", "score": 0.50},
                 ]
                 unchanged, count = self.srv._apply_assessment_evidence_prior(
                     results, "Explain cache routing.", question_type
@@ -5226,7 +5233,7 @@ class InferTagsServerTests(unittest.TestCase):
         self.srv = type(self).srv
 
     def test_infer_tags_wave(self):
-        tags = self.srv._infer_tags("docs/waves/12dv9 chunk-tags/wave.md")
+        tags = self.srv._infer_tags(f"{_WAVES_PREFIX}12dv9 chunk-tags/{vocabulary_profile.RECORD_FILENAME}")
         self.assertIn("wave", tags)
 
     def test_infer_tags_prompt_suffix(self):
@@ -6980,7 +6987,7 @@ class RerankerTests(unittest.TestCase):
                 "text": "Current cache-routing assessment evidence.", "lines": [1, 5],
             },
             {
-                "id": "historical-wave", "path": "docs/waves/old-delivery/change.md", "kind": "doc",
+                "id": "historical-wave", "path": f"{_WAVES_PREFIX}old-delivery/change.md", "kind": "doc",
                 "text": "Historical cache-routing delivery discussion.", "lines": [1, 5],
             },
         ]
@@ -6996,7 +7003,7 @@ class RerankerTests(unittest.TestCase):
                 "Assess cache-routing weaknesses.", top_n=5, question_type="assessment"
             )
         paths = [item.get("path") for item in results]
-        historical_rank = paths.index("docs/waves/old-delivery/change.md")
+        historical_rank = paths.index(f"{_WAVES_PREFIX}old-delivery/change.md")
         self.assertLess(paths.index("docs/reports/cache-audit.md"), historical_rank)
         self.assertLess(paths.index("src/cache_router.py"), historical_rank)
 
@@ -7006,7 +7013,7 @@ class RerankerTests(unittest.TestCase):
             code_chunks=[self._fake_code_chunk("placeholder")],
         )
         historical = {
-            "id": "historical", "path": "docs/waves/old-delivery/change.md", "kind": "doc",
+            "id": "historical", "path": f"{_WAVES_PREFIX}old-delivery/change.md", "kind": "doc",
             "text": "Historical cache routing discussion.", "lines": [1, 5], "score": 0.99,
         }
         current_report = {
@@ -13880,6 +13887,9 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
 
     def test_review_ergonomics_preserves_review_event_schema_and_tool_roster(self):
         """1tvbs schema guard, updated for 1ug66's two narrow mark tools."""
+        # The roster pinned here is the shipped one (change 1zim4).
+        from declaration_support import apply_base_declaration
+        apply_base_declaration(self)
         mcp = self._build_thin_runner.build_server(self.root)
         names = sorted(self.srv._registered_mcp_tool_names(mcp))
 
@@ -18179,7 +18189,7 @@ class NoReportPathPriorInOrganicOrderingTests(unittest.TestCase):
         results = [
             {"path": "docs/reports/retrieval-quality-baseline.json", "score": 0.50},
             {"path": ".wavefoundry/framework/scripts/server_impl.py", "score": 0.49},
-            {"path": "docs/waves/1abc wave/wave.md", "score": 0.48},
+            {"path": f"{_WAVES_PREFIX}1abc wave/{vocabulary_profile.RECORD_FILENAME}", "score": 0.48},
         ]
         for question_type in ("mechanism", "navigational", "definition",
                               "enumeration", "constant_value"):
@@ -18196,7 +18206,7 @@ class NoReportPathPriorInOrganicOrderingTests(unittest.TestCase):
     def test_the_prior_never_excludes_a_result(self):
         results = [
             {"path": "docs/reports/x.json", "score": 0.9},
-            {"path": "docs/waves/w/wave.md", "score": 0.8},
+            {"path": f"{_WAVES_PREFIX}w/{vocabulary_profile.RECORD_FILENAME}", "score": 0.8},
             {"path": "src/a.py", "score": 0.7},
         ]
         out, _ = self.srv._apply_assessment_evidence_prior(
@@ -18216,7 +18226,7 @@ class NoReportPathPriorInOrganicOrderingTests(unittest.TestCase):
         self.assertEqual(a, b)
         self.assertNotEqual(
             a, self.srv._assessment_evidence_weight(
-                "docs/waves/w/wave.md", "which areas are weakest"),
+                f"{_WAVES_PREFIX}w/{vocabulary_profile.RECORD_FILENAME}", "which areas are weakest"),
             "report and wave classes are meant to differ")
 
     def test_a_query_naming_the_path_is_exempt(self):

@@ -1,46 +1,45 @@
 """Readers follow a second vocabulary profile (wave 1z8mm, change 1z826, AC-2).
 
-The scripts tree is copied and its ``vocabulary_profile.py`` edited the way a
-fork edits it at merge time; the docs-lint fixture is rewritten into the second
-profile's names (``set.md``, ``set-id``, ``## Members``, ``Member ID``,
-``Member Status`` and so on). A fresh interpreter over the copied tree then
-runs discovery, docs-lint, ``list_waves``, ``wf_get_change``, dashboard
-parsing, memory backfill and the review-policy digest against those records.
+The scripts tree is copied and the shared second-profile asset
+(``tests/fixtures/profiles/second.json``, change 1zim1) applied to it the way
+a fork edits it at merge time; the docs-lint fixture is localized into the
+second profile's names (``set.md``, ``set-id``, ``## Members``, ``Member ID``,
+``Member Status`` and so on) and its nested live root. A fresh interpreter
+over the copied tree then runs discovery, docs-lint, ``list_waves``,
+``wf_get_change``, dashboard parsing, memory backfill and the review-policy
+digest against those records.
 
-Every assertion is paired with a control: the unedited tree over the same
-rewritten records finds nothing (or reads a different value), so a reader that
-still hard-codes a default marker fails here rather than passing vacuously.
+Every assertion is paired with a control: a tree with only the asset's layout
+applied (the default vocabulary) over the same records finds nothing (or reads
+a different value), so a reader that still hard-codes a default marker fails
+here rather than passing vacuously.
 """
 from __future__ import annotations
 
 import json
 import os
-import re
-import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
-FIXTURE_ROOT = SCRIPTS_ROOT / "tests" / "fixtures" / "docs_lint" / "base"
+from record_layout_support import (
+    apply_profile,
+    copy_scripts_tree,
+    load_profile,
+    localized_docs_lint_fixture,
+    shipped_default_profile,
+    with_vocabulary,
+)
+
 WAVE_FOLDER = "change-2026-03"
 
-SECOND_PROFILE = {
-    "CONTAINER_NAME": "Set", "CONTAINER_NAME_PLURAL": "Sets",
-    "ITEM_NAME": "Member", "ITEM_NAME_PLURAL": "Members",
-    "RECORD_FILENAME": "set.md", "ID_KEY": "set-id", "RECORD_TITLE": "# Set Record",
-    "SUMMARY_HEADING": "## Set Summary", "MEMBER_HEADING": "## Members",
-    "MEMBER_ID_LABEL": "Member ID", "MEMBER_STATUS_LABEL": "Member Status",
-    "BACKREF_LABEL": "Set",
-}
-
-RECORD_SUBSTITUTIONS = (
-    ("wave-id:", "set-id:"), ("# Wave Record", "# Set Record"),
-    ("## Wave Summary", "## Set Summary"), ("## Changes", "## Members"),
-    ("Change ID", "Member ID"), ("Change Status", "Member Status"),
-)
+SECOND = load_profile("second")
+SECOND_PROFILE = SECOND["modules"]["vocabulary_profile"]
+LAYOUT = SECOND["modules"]["record_paths"]
+# The fixture's wave folder under the asset's (nested) live root.
+WAVE_DIR_REL = f"{LAYOUT['WAVES_ROOT']}/{WAVE_FOLDER}"
 
 # Runs in a fresh interpreter with the scripts tree under test first on sys.path.
 DRIVER = r'''
@@ -69,7 +68,7 @@ out["get_change"] = {"status": got["status"], "change_id": (got["data"].get("cha
 # Lookup by wave reads the member list in the record, so only the profile finds it.
 by_wave = impl.wf_get_change_response(root, "", wave_id="00057")
 out["get_change_by_wave"] = sorted(c["id"] for c in by_wave["data"].get("changes", []))
-wave_dir = root / "docs" / "waves" / sys.argv[3]
+wave_dir = root / sys.argv[3]
 change = sorted(wave_dir.glob("00058-*.md"))[0]
 record = dashboard_lib.parse_change_doc(root, change)
 out["dashboard"] = {"change_id": record.change_id, "status": record.status, "wave_id": record.wave_id}
@@ -84,48 +83,35 @@ print(json.dumps(out))
 '''
 
 
-def _copy_tree(dest: Path, profile: dict[str, str] | None) -> Path:
-    """Copy the framework's ``scripts`` and ``install`` under ``dest``, apply
-    ``profile`` to the copied ``vocabulary_profile.py``, and return the copied
-    scripts directory."""
-    scripts = dest / "scripts"
-    shutil.copytree(
-        SCRIPTS_ROOT, scripts,
-        ignore=shutil.ignore_patterns("tests", "benchmarks", "__pycache__", ".pytest_cache", "*.pyc"),
-    )
-    shutil.copytree(SCRIPTS_ROOT.parent / "install", dest / "install")
-    if profile:
-        path = scripts / "vocabulary_profile.py"
-        text = path.read_text(encoding="utf-8")
-        for name, value in profile.items():
-            text, count = re.subn(rf'^{name} = "[^"]*"', f'{name} = "{value}"', text, flags=re.MULTILINE)
-            if count != 1:
-                raise AssertionError(f"{name} not found once in the copied profile")
-        path.write_text(text, encoding="utf-8")
+def _copy_tree(dest: Path, profile: dict, modules: "tuple[str, ...] | None" = None) -> Path:
+    """Copy the framework's ``scripts`` and ``install`` under ``dest``, reset
+    it to the shipped defaults (the suite may itself run under a profile),
+    apply ``profile`` (only ``modules`` of it, when given) the way a fork
+    does, and return the copied scripts directory."""
+    scripts = copy_scripts_tree(dest, with_support=False)
+    apply_profile(scripts, shipped_default_profile())
+    apply_profile(scripts, profile, modules=modules)
     return scripts
 
 
+def _layout_only(dest: Path) -> Path:
+    """The control tree: the asset's layout, the default vocabulary."""
+    return _copy_tree(dest, SECOND, modules=("record_paths",))
+
+
 def _second_profile_records(dest: Path) -> Path:
-    shutil.copytree(FIXTURE_ROOT, dest)
-    for path in (dest / "docs" / "waves").rglob("*.md"):
-        if path.name == "README.md":
-            continue
-        text = path.read_text(encoding="utf-8")
-        for old, new in RECORD_SUBSTITUTIONS:
-            text = text.replace(old, new)
-        text = re.sub(r"(?m)^Wave:", "Set:", text)
-        if path.name.startswith("00058-"):
-            # A status line the dashboard and the digest must both read.
-            text = text.replace("Status: active\n", "Status: active\nMember Status: `planned`\n", 1)
-        path.write_text(text, encoding="utf-8")
-        if path.name == "wave.md":
-            path.rename(path.with_name(SECOND_PROFILE["RECORD_FILENAME"]))
+    localized_docs_lint_fixture(dest, vocabulary=SECOND_PROFILE, layout=LAYOUT)
+    path = sorted((dest / WAVE_DIR_REL).glob("00058-*.md"))[0]
+    # A status line the dashboard and the digest must both read.
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text.replace("Status: active\n", "Status: active\nMember Status: `planned`\n", 1),
+                    encoding="utf-8")
     return dest
 
 
 def _run(tree: Path, root: Path) -> dict:
     result = subprocess.run(
-        [sys.executable, "-B", "-c", DRIVER, str(tree), str(root), WAVE_FOLDER,
+        [sys.executable, "-B", "-c", DRIVER, str(tree), str(root), WAVE_DIR_REL,
          SECOND_PROFILE["MEMBER_STATUS_LABEL"]],
         cwd=str(root), env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
         text=True, capture_output=True, check=False, timeout=300,
@@ -141,8 +127,8 @@ class SecondProfileReaderTests(unittest.TestCase):
         cls._tmp = tempfile.TemporaryDirectory()
         base = Path(cls._tmp.name)
         records = _second_profile_records(base / "records")
-        cls.second = _run(_copy_tree(base / "second", SECOND_PROFILE), records)
-        cls.control = _run(_copy_tree(base / "default", None), records)
+        cls.second = _run(_copy_tree(base / "second", SECOND), records)
+        cls.control = _run(_layout_only(base / "default"), records)
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -196,13 +182,15 @@ class SecondProfileReaderTests(unittest.TestCase):
 # bare form (`Wave`, `Wave ID`, `Wave Status`) but distinct in colon form.
 # BACKREF_LABEL equals the default, so the control discriminates on the
 # `Wave ID` and `Wave Status` lines.
-WAVE_SET_PROFILE = dict(
-    SECOND_PROFILE, ITEM_NAME="Wave", ITEM_NAME_PLURAL="Waves", MEMBER_HEADING="## Waves",
+WAVE_SET = with_vocabulary(
+    SECOND, ITEM_NAME="Wave", ITEM_NAME_PLURAL="Waves", MEMBER_HEADING="## Waves",
     MEMBER_ID_LABEL="Wave ID", MEMBER_STATUS_LABEL="Wave Status", BACKREF_LABEL="Wave",
 )
 # The suffix pair: `ID:` is a substring of `Wave ID:`, so only a line-anchored
 # reader tells them apart (the four ID_KEY record tests in docs-lint).
-SUFFIX_PAIR_PROFILE = dict(WAVE_SET_PROFILE, ID_KEY="ID")
+SUFFIX_PAIR = with_vocabulary(WAVE_SET, ID_KEY="ID")
+WAVE_SET_PROFILE = WAVE_SET["modules"]["vocabulary_profile"]
+SUFFIX_PAIR_PROFILE = SUFFIX_PAIR["modules"]["vocabulary_profile"]
 # A strict prefix of the folder name: docs-lint accepts it, and it differs from
 # the folder fallback the dashboard would otherwise report.
 BACKREF_VALUE = "change-2026"
@@ -237,7 +225,7 @@ Fixture plan admitted and removed by the prefix-label driver.
 WAVE_SET_DRIVER = r"""
 import importlib.util, json, os, subprocess, sys
 from pathlib import Path
-scripts, root, folder = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+scripts, root, wave_rel = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
 sys.path.insert(0, str(scripts))
 import dashboard_lib, record_paths
 out = {}
@@ -253,7 +241,7 @@ module = importlib.util.module_from_spec(spec)
 sys.modules["server"] = module
 spec.loader.exec_module(module)
 impl = sys.modules["server_impl"]
-wave_dir = root / "docs" / "waves" / folder
+wave_dir = root / wave_rel
 record = wave_dir / impl._vocab.RECORD_FILENAME
 out["list_waves"] = [
     {"wave_id": w.get("wave_id"), "status": w.get("status"), "changes": w.get("changes")}
@@ -283,28 +271,17 @@ print(json.dumps(out))
 
 
 def _wave_set_records(dest: Path, profile: dict[str, str]) -> Path:
-    """The docs-lint fixture rewritten into ``profile``'s names, with a
-    ``Wave:`` back-reference on one change doc and a ``Wave: TBD`` plan."""
-    shutil.copytree(FIXTURE_ROOT, dest)
-    substitutions = (
-        ("wave-id:", profile["ID_KEY"] + ":"), ("# Wave Record", profile["RECORD_TITLE"]),
-        ("## Wave Summary", profile["SUMMARY_HEADING"]), ("## Changes", profile["MEMBER_HEADING"]),
-        ("Change ID", profile["MEMBER_ID_LABEL"]), ("Change Status", profile["MEMBER_STATUS_LABEL"]),
-    )
-    for path in (dest / "docs" / "waves").rglob("*.md"):
-        if path.name == "README.md":
-            continue
-        text = path.read_text(encoding="utf-8")
-        for old, new in substitutions:
-            text = text.replace(old, new)
-        if path.name.startswith("00058-"):
-            text = text.replace("Status: active\n", f"Status: active\n{profile['MEMBER_STATUS_LABEL']}: `planned`\n", 1)
-            # After the `Wave ID:` line, so a reader of bare `Wave` finds the wrong line first.
-            id_line = f"{profile['MEMBER_ID_LABEL']}: `00058-bug fixture-core`\n"
-            text = text.replace(id_line, id_line + f"{profile['BACKREF_LABEL']}: `{BACKREF_VALUE}`\n", 1)
-        path.write_text(text, encoding="utf-8")
-        if path.name == "wave.md":
-            path.rename(path.with_name(profile["RECORD_FILENAME"]))
+    """The docs-lint fixture localized into ``profile``'s names and the
+    asset's layout, with a ``Wave:`` back-reference on one change doc and a
+    ``Wave: TBD`` plan."""
+    localized_docs_lint_fixture(dest, vocabulary=profile, layout=LAYOUT)
+    path = sorted((dest / WAVE_DIR_REL).glob("00058-*.md"))[0]
+    text = path.read_text(encoding="utf-8")
+    text = text.replace("Status: active\n", f"Status: active\n{profile['MEMBER_STATUS_LABEL']}: `planned`\n", 1)
+    # After the `Wave ID:` line, so a reader of bare `Wave` finds the wrong line first.
+    id_line = f"{profile['MEMBER_ID_LABEL']}: `00058-bug fixture-core`\n"
+    text = text.replace(id_line, id_line + f"{profile['BACKREF_LABEL']}: `{BACKREF_VALUE}`\n", 1)
+    path.write_text(text, encoding="utf-8")
     plans = dest / "docs" / "plans"
     plans.mkdir(parents=True, exist_ok=True)
     (plans / f"{PLAN_ID}.md").write_text(PLAN_DOC, encoding="utf-8")
@@ -313,7 +290,7 @@ def _wave_set_records(dest: Path, profile: dict[str, str]) -> Path:
 
 def _run_wave_set(tree: Path, root: Path, backref: str) -> dict:
     result = subprocess.run(
-        [sys.executable, "-B", "-c", WAVE_SET_DRIVER, str(tree), str(root), WAVE_FOLDER, PLAN_ID, backref],
+        [sys.executable, "-B", "-c", WAVE_SET_DRIVER, str(tree), str(root), WAVE_DIR_REL, PLAN_ID, backref],
         cwd=str(root), env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
         text=True, capture_output=True, check=False, timeout=300,
     )
@@ -330,11 +307,11 @@ class PrefixLabelProfileTests(unittest.TestCase):
         cls._tmp = tempfile.TemporaryDirectory()
         base = Path(cls._tmp.name)
         # Each run mutates its records (admission moves a document), so each gets its own copy.
-        cls.second = _run_wave_set(_copy_tree(base / "second", WAVE_SET_PROFILE),
+        cls.second = _run_wave_set(_copy_tree(base / "second", WAVE_SET),
                                    _wave_set_records(base / "records-second", WAVE_SET_PROFILE), "Wave")
-        cls.control = _run_wave_set(_copy_tree(base / "default", None),
+        cls.control = _run_wave_set(_layout_only(base / "default"),
                                     _wave_set_records(base / "records-control", WAVE_SET_PROFILE), "Wave")
-        cls.suffix = _run_wave_set(_copy_tree(base / "suffix", SUFFIX_PAIR_PROFILE),
+        cls.suffix = _run_wave_set(_copy_tree(base / "suffix", SUFFIX_PAIR),
                                    _wave_set_records(base / "records-suffix", SUFFIX_PAIR_PROFILE), "Wave")
 
     @classmethod

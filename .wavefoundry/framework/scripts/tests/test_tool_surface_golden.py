@@ -36,6 +36,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from server_tools_support import _make_repo, load_server, load_thin_runner
+from declaration_support import apply_base_declaration
 
 TESTS_DIR = Path(__file__).resolve().parent
 SCRIPTS_DIR = TESTS_DIR.parent
@@ -214,6 +215,9 @@ class _BootedSurface(unittest.TestCase):
     def setUp(self):
         self.impl = load_server()
         self.runner = load_thin_runner()
+        # The subject is the shipped surface: boot it on the shipped empty
+        # declaration, whatever a distribution declares (change 1zim4).
+        apply_base_declaration(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.root = _make_repo(Path(self.tmp.name))
         fw = self.root / ".wavefoundry" / "framework"

@@ -12,7 +12,9 @@ from unittest.mock import patch
 
 from server_tools_support import _make_repo, load_server
 import test_server_tools_lifecycle as fixtures
+import record_paths
 import review_evidence
+import vocabulary_profile
 
 
 class ReadinessSignalTests(unittest.TestCase):
@@ -50,7 +52,7 @@ class ReadinessSignalTests(unittest.TestCase):
             result = self.srv.wf_create_wave_response(self.root, 'empty-receipts', mode='create')
             self.assertEqual(result['status'], 'ok', result)
             wave_id = result['data']['wave_id']
-            wave_md = self.root / 'docs/waves' / wave_id / 'wave.md'
+            wave_md = vocabulary_profile.record_file(record_paths.load_record_roots(self.root).waves / wave_id)
             self.assertFalse(any(r['record_type'] == 'review_policy_receipt' for r in self._records(wave_md)))
             return wave_id, wave_md, None
         wave_id, wave_md, change = self._prepared_wave_with_change('receipt-count')

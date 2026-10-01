@@ -34,6 +34,9 @@ from record_layout_support import patch_layout  # noqa: E402
 from server_tools_support import _make_repo, load_server  # noqa: E402
 
 ARCHIVE_REL = "docs/archive/records"
+# The configured live waves root (the shipped layout, or a profile's); this
+# file sets only its own archive root.
+LIVE_REL = record_paths.WAVES_ROOT
 SECOND = dict(zip(vocabulary_profile.FIELD_NAMES, (
     "Set", "Sets", "Member", "Members", "set.md", "set-id", "# Set Record", "## Set Summary",
     "## Members", "Member ID", "Member Status", "Set",
@@ -89,7 +92,7 @@ class _ArchiveBackfillCase(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.root = _make_repo(Path(self._tmp.name).resolve() / "repo")
         (self.root / "foo.py").write_text("VALUE = 1\n", encoding="utf-8")
-        (self.root / "docs" / "waves").mkdir(parents=True, exist_ok=True)
+        (self.root / LIVE_REL).mkdir(parents=True, exist_ok=True)
         (self.root / "docs" / "plans").mkdir(parents=True, exist_ok=True)
         self.archived_folder = _write_wave(self.root / ARCHIVE_REL / ARCHIVED_WAVE, archived=True)
         self._enable(self.archive_enabled)
@@ -143,7 +146,7 @@ class _ArchiveBackfillCase(unittest.TestCase):
         """The same wave written live in a separate repository."""
         live_root = _make_repo(Path(self._tmp.name).resolve() / "live")
         (live_root / "foo.py").write_text("VALUE = 1\n", encoding="utf-8")
-        _write_wave(live_root / "docs" / "waves" / ARCHIVED_WAVE, archived=False)
+        _write_wave(live_root / LIVE_REL / ARCHIVED_WAVE, archived=False)
         return self.supply.draft_candidates(live_root, ARCHIVED_WAVE, limit=None)
 
 
@@ -151,7 +154,7 @@ class ArchiveUnsetTests(_ArchiveBackfillCase):
     archive_enabled = False
 
     def test_ac1_rows_unchanged_with_archive_unset(self) -> None:
-        live = _write_wave(self.root / "docs" / "waves" / "1b000 live-wave", archived=False,
+        live = _write_wave(self.root / LIVE_REL / "1b000 live-wave", archived=False,
                            change_id="1b001-feat live-thing")
         inventory = self.backfill.inventory_closed_waves(self.root)
         self.assertEqual([row["wave_id"] for row in inventory], [live.name])
@@ -204,7 +207,7 @@ class ArchiveBackfillTests(_ArchiveBackfillCase):
         self.assertEqual(got["data"]["records_proposed"], 1)
 
     def test_ac3_live_wave_with_same_id_token_shadows_the_archived_one(self) -> None:
-        live = _write_wave(self.root / "docs" / "waves" / "1a000 new-slug", archived=False,
+        live = _write_wave(self.root / LIVE_REL / "1a000 new-slug", archived=False,
                            change_id="1a002-feat new-thing")
         inventory = self.backfill.inventory_closed_waves(self.root)
         self.assertEqual([row["wave_id"] for row in inventory], [live.name])
@@ -218,7 +221,7 @@ class ArchiveBackfillTests(_ArchiveBackfillCase):
             self.assertEqual(diag["code"], "archived_wave_shadowed")
             self.assertTrue(diag["advisory"])
             self.assertIn(f"{ARCHIVE_REL}/{ARCHIVED_WAVE}", diag["message"])
-            self.assertIn(f"docs/waves/{live.name}", diag["message"])
+            self.assertIn(f"{LIVE_REL}/{live.name}", diag["message"])
         self.assertEqual(self._wave_rows(), [(live.name, "complete")])
         run_id = response["data"]["run_id"]
         self.assertEqual(self.backfill.sync_inventory(self.root, run_id)["archived_waves_shadowed"], 1)
@@ -227,14 +230,14 @@ class ArchiveBackfillTests(_ArchiveBackfillCase):
                          (None, "wave_not_found"))
 
     def test_ac3_prefix_related_id_does_not_shadow(self) -> None:
-        live = _write_wave(self.root / "docs" / "waves" / "1a0000 distinct", archived=False,
+        live = _write_wave(self.root / LIVE_REL / "1a0000 distinct", archived=False,
                            change_id="1a0001-feat distinct-thing")
         inventory = self.backfill.inventory_closed_waves(self.root)
         self.assertEqual([row["wave_id"] for row in inventory], [live.name, ARCHIVED_WAVE])
         self.assertEqual(self.backfill.shadowed_archive_waves(self.root), ())
 
     def test_ac4_archive_only_repository(self) -> None:
-        shutil.rmtree(self.root / "docs" / "waves")
+        shutil.rmtree(self.root / LIVE_REL)
         inventory = self.backfill.inventory_closed_waves(self.root)
         self.assertEqual([row["wave_id"] for row in inventory], [ARCHIVED_WAVE])
         self.assertEqual(self.supply.resolve_wave_dir(self.root, "1a000", include_archive=True),
@@ -250,11 +253,11 @@ class ArchiveBackfillTests(_ArchiveBackfillCase):
                          (None, "wave_not_found"))
         self.assertEqual(self.supply.resolve_wave_dir(self.root, "1a000", include_archive=True),
                          (self.archived_folder, None))
-        shutil.rmtree(self.root / "docs" / "waves")
+        shutil.rmtree(self.root / LIVE_REL)
         self.assertEqual(self.supply.resolve_wave_dir(self.root, "1a000"), (None, "wave_not_found"))
 
     def test_live_wave_wins_over_archive_in_resolution(self) -> None:
-        live = _write_wave(self.root / "docs" / "waves" / "1a000 new-slug", archived=False,
+        live = _write_wave(self.root / LIVE_REL / "1a000 new-slug", archived=False,
                            change_id="1a002-feat new-thing")
         self.assertEqual(self.supply.resolve_wave_dir(self.root, "1a000", include_archive=True),
                          (live, None))

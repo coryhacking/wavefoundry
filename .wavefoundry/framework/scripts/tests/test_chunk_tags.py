@@ -30,7 +30,7 @@ SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
-from record_layout_support import apply_layout, patch_layout  # noqa: E402
+from record_layout_support import apply_layout, patch_layout, waves_rel  # noqa: E402
 from server_tools_support import _make_repo, load_server  # noqa: E402
 
 
@@ -41,8 +41,13 @@ def setUpModule():
     # captured them, breaking a following `test_indexer` in one interpreter.
     load_server()
 
+import vocabulary_profile  # noqa: E402
+
+# The tagged wave record, under the configured waves root.
+WAVE_RECORD = waves_rel("1abcd tagged-demo", vocabulary_profile.RECORD_FILENAME)
+
 FIXTURE = {
-    "docs/waves/1abcd tagged-demo/wave.md": "# Wave Record\n\n## Objective\n\nTagged wave objective text.\n",
+    WAVE_RECORD: "# Wave Record\n\n## Objective\n\nTagged wave objective text.\n",
     "docs/agents/memory/mem-demo.md": "# Memory\n\nA remembered lesson about tagging.\n",
     "docs/references/guide.md": "# Guide\n\nReference guide text.\n",
     "docs/plain.md": "# Plain\n\nUntagged plain document text.\n",
@@ -126,10 +131,10 @@ class BuildWritesTagsTests(_BuildCase):
         rows = self._all_rows()
         self.assertTrue(rows)
         for row in rows:
-            expected = " ".join(_tag_utils.infer_tags(row["path"], waves_prefix="docs/waves/"))
+            expected = " ".join(_tag_utils.infer_tags(row["path"], waves_prefix=waves_rel() + "/"))
             self.assertEqual(str(row.get("tags") or ""), expected, row["path"])
         by_path = self._by_path()
-        self.assertIn("wave", by_path["docs/waves/1abcd tagged-demo/wave.md"])
+        self.assertIn("wave", by_path[WAVE_RECORD])
         self.assertIn("memory", by_path["docs/agents/memory/mem-demo.md"])
         self.assertIn("reference", by_path["docs/references/guide.md"])
         self.assertIn("test", by_path["src/tests/test_app.py"])
@@ -138,11 +143,11 @@ class BuildWritesTagsTests(_BuildCase):
     def test_incremental_build_tags_a_new_file(self):
         _make_repo(self.root, {"docs/plain.md": FIXTURE["docs/plain.md"]})
         self._build(full=True)
-        wave = self.root / "docs/waves/1abcd tagged-demo/wave.md"
+        wave = self.root / WAVE_RECORD
         wave.parent.mkdir(parents=True)
-        wave.write_text(FIXTURE["docs/waves/1abcd tagged-demo/wave.md"], encoding="utf-8")
+        wave.write_text(FIXTURE[WAVE_RECORD], encoding="utf-8")
         self._build()
-        self.assertIn("wave", self._by_path()["docs/waves/1abcd tagged-demo/wave.md"])
+        self.assertIn("wave", self._by_path()[WAVE_RECORD])
 
 
 class LayoutTaggingTests(_BuildCase):
@@ -228,7 +233,7 @@ class RechunkUpgradeTests(_BuildCase):
         self._build()  # the ordinary post-upgrade build at 43
         self.assertEqual(self.embedded, [], "the rechunk must reuse every embedding")
         by_path = self._by_path()
-        self.assertIn("wave", by_path["docs/waves/1abcd tagged-demo/wave.md"])
+        self.assertIn("wave", by_path[WAVE_RECORD])
         self.assertIn("memory", by_path["docs/agents/memory/mem-demo.md"])
         self.assertIn("test", by_path["src/tests/test_app.py"])
         self.assertIn("config", by_path["config/settings.yaml"])
@@ -279,7 +284,7 @@ class TagFilterEndToEndTests(_BuildCase):
         with patch.object(idx, "_get_reranker", return_value=None):
             results, _ = idx.search_docs("wave objective", tags=["wave"], top_n=10)
         paths = {r["path"] for r in results}
-        self.assertEqual(paths, {"docs/waves/1abcd tagged-demo/wave.md"})
+        self.assertEqual(paths, {WAVE_RECORD})
         with patch.object(idx, "_get_reranker", return_value=None):
             results, _ = idx.search_docs("lesson", tags=["memory"], top_n=10)
         self.assertEqual({r["path"] for r in results}, {"docs/agents/memory/mem-demo.md"})
@@ -312,7 +317,7 @@ class TagFilterEndToEndTests(_BuildCase):
                                                epoch_state=self._complete())
         self.assertEqual(result["data"]["search_mode"], "lexical_fallback")
         paths = {r["path"] for r in result["data"]["results"]}
-        self.assertEqual(paths, {"docs/waves/1abcd tagged-demo/wave.md"})
+        self.assertEqual(paths, {WAVE_RECORD})
 
     def test_code_fts_fallback_filters_by_tag(self):
         query = "app_handler test_app_handler"
@@ -328,7 +333,7 @@ class TagFilterEndToEndTests(_BuildCase):
     def test_live_walk_lexical_fallback_filters_by_tag(self):
         idx = self._index()
         results = idx.search_docs_lexical("wave objective text", tags=["wave"], top_n=10)
-        self.assertEqual({r["path"] for r in results}, {"docs/waves/1abcd tagged-demo/wave.md"})
+        self.assertEqual({r["path"] for r in results}, {WAVE_RECORD})
         results = idx.search_docs_lexical("remembered lesson", tags=["memory"], top_n=10)
         self.assertEqual({r["path"] for r in results}, {"docs/agents/memory/mem-demo.md"})
 
@@ -363,8 +368,15 @@ class CallTimeDefaultTests(unittest.TestCase):
     """AC-4: a module first imported under a patched layout follows the layout
     current at call time once the patch is gone."""
 
-    SHIPPED = "docs/waves/1abcd x/wave.md"
-    RELOCATED = "project/records/waves/1abcd x/wave.md"
+    def setUp(self):
+        # The configured layout (the shipped one, or a profile's) and the
+        # profile's record filename; RELOCATED is the patched layout.
+        import record_paths
+        import vocabulary_profile
+
+        self.configured_root = record_paths.WAVES_ROOT
+        self.CONFIGURED = f"{self.configured_root}/1abcd x/{vocabulary_profile.RECORD_FILENAME}"
+        self.RELOCATED = f"project/records/waves/1abcd x/{vocabulary_profile.RECORD_FILENAME}"
 
     def test_infer_tags_default_is_read_at_call_time(self):
         import record_paths
@@ -372,9 +384,9 @@ class CallTimeDefaultTests(unittest.TestCase):
         with patch_layout(waves_root="project/records/waves"):
             tag_utils = _fresh_copy(SCRIPTS_ROOT / "_tag_utils.py")
             self.assertIn("wave", tag_utils.infer_tags(self.RELOCATED))
-            self.assertNotIn("wave", tag_utils.infer_tags(self.SHIPPED))
-        self.assertEqual(record_paths.WAVES_ROOT, "docs/waves")
-        self.assertIn("wave", tag_utils.infer_tags(self.SHIPPED))
+            self.assertNotIn("wave", tag_utils.infer_tags(self.CONFIGURED))
+        self.assertEqual(record_paths.WAVES_ROOT, self.configured_root)
+        self.assertIn("wave", tag_utils.infer_tags(self.CONFIGURED))
         self.assertNotIn("wave", tag_utils.infer_tags(self.RELOCATED))
         self.assertFalse(hasattr(tag_utils, "_DEFAULT_WAVES_PREFIX"))
 
@@ -382,11 +394,11 @@ class CallTimeDefaultTests(unittest.TestCase):
         with patch_layout(waves_root="project/records/waves"):
             ev = _fresh_copy(SCRIPTS_ROOT / "retrieval_eval.py")
             self.assertEqual(ev.classify_carrier(self.RELOCATED), "wave_record")
-            self.assertIsNone(ev.classify_carrier(self.SHIPPED))
-        self.assertEqual(ev.classify_carrier(self.SHIPPED), "wave_record")
+            self.assertIsNone(ev.classify_carrier(self.CONFIGURED))
+        self.assertEqual(ev.classify_carrier(self.CONFIGURED), "wave_record")
         self.assertIsNone(ev.classify_carrier(self.RELOCATED))
-        rows = ev.carrier_rows([self.SHIPPED, self.RELOCATED], [])
-        self.assertEqual([r["path"] for r in rows], [self.SHIPPED])
+        rows = ev.carrier_rows([self.CONFIGURED, self.RELOCATED], [])
+        self.assertEqual([r["path"] for r in rows], [self.CONFIGURED])
         self.assertFalse(hasattr(ev, "_DEFAULT_WAVES_PREFIX"))
 
 

@@ -101,6 +101,30 @@ def _published_graph_payload(bi, root: Path) -> dict:
     return snapshot["payload"]
 
 
+def _waves(tail: str = "") -> str:
+    """``tail`` under the configured live waves root (the shipped layout, or a
+    profile's), read at call time."""
+    import record_paths
+
+    return f"{record_paths.WAVES_ROOT}/{tail}" if tail else record_paths.WAVES_ROOT
+
+
+def _record_name() -> str:
+    import vocabulary_profile
+
+    return vocabulary_profile.RECORD_FILENAME
+
+
+def _deeper(folder: str) -> str:
+    """A folder below wave folder ``folder`` past the layout's wave-folder
+    depth (one level when flat, ``MAX_DEPTH`` when nested), so its ledger is
+    not in the wave-folder role and stays eligible."""
+    import record_paths
+
+    depth = record_paths.MAX_DEPTH if record_paths.NESTED else 1
+    return "/".join([folder] + ["archive"] * depth)
+
+
 def _make_repo(tmp: Path, files: dict[str, str]) -> None:
     """Write files into a temp repo with a minimal workflow-config.json."""
     (tmp / "docs").mkdir(parents=True, exist_ok=True)
@@ -185,15 +209,18 @@ class FileWalkerTests(unittest.TestCase):
 
     def test_excludes_only_canonical_wave_event_ledgers(self):
         """1slep AC-8 / 1tomw AC-6: the fixed wave-folder role alone excludes."""
+        ledger = _waves("1slep external-ledger/events.jsonl")
+        record = _waves(f"1slep external-ledger/{_record_name()}")
+        deeper = _deeper(_waves("1slep external-ledger")) + "/events.jsonl"
         _make_repo(self.root, {
-            "docs/waves/1slep external-ledger/events.jsonl": '{"canonical":true}\n',
+            ledger: '{"canonical":true}\n',
             # component-fixture: test_excludes_only_canonical_wave_event_ledgers exercises this input representation directly
-            "docs/waves/1slep external-ledger/wave.md": "# Wave\nreview-evidence-source: events.jsonl\n\n# Searchable current-state projection\n",
+            record: "# Wave\nreview-evidence-source: events.jsonl\n\n# Searchable current-state projection\n",
             "events.jsonl": '{"root":"eligible"}\n',
             "audit/events.jsonl": '{"nested":"eligible"}\n',
-            "docs/waves/events.jsonl": '{"no-wave-directory":"eligible"}\n',
-            "docs/waves/notes/events.jsonl": '{"wave-folder-role":"excluded"}\n',
-            "docs/waves/1slep external-ledger/archive/events.jsonl": '{"deeper":"eligible"}\n',
+            _waves("events.jsonl"): '{"no-wave-directory":"eligible"}\n',
+            _waves("notes/events.jsonl"): '{"wave-folder-role":"excluded"}\n',
+            deeper: '{"deeper":"eligible"}\n',
         })
 
         rels = {
@@ -201,26 +228,26 @@ class FileWalkerTests(unittest.TestCase):
             for path in self.bi.walk_repo(self.root)
         }
 
-        self.assertNotIn("docs/waves/1slep external-ledger/events.jsonl", rels)
-        self.assertIn("docs/waves/1slep external-ledger/wave.md", rels)
+        self.assertNotIn(ledger, rels)
+        self.assertIn(record, rels)
         self.assertIn("events.jsonl", rels)
         self.assertIn("audit/events.jsonl", rels)
-        self.assertIn("docs/waves/events.jsonl", rels)
+        self.assertIn(_waves("events.jsonl"), rels)
         # FU4: position decides the role, not folder spelling. A ledger in ANY
         # direct child directory of docs/waves/ is excluded, so a renamed wave
         # folder cannot leak its raw ledger into retrieval. (Before FU4 this
         # asserted the opposite: the id-shape clause made "notes" eligible.)
-        self.assertNotIn("docs/waves/notes/events.jsonl", rels)
-        self.assertIn("docs/waves/1slep external-ledger/archive/events.jsonl", rels)
+        self.assertNotIn(_waves("notes/events.jsonl"), rels)
+        self.assertIn(deeper, rels)
         self.assertTrue(
             self.bi._is_canonical_wave_events_path(
-                r"docs\waves\1slep external-ledger\events.jsonl", self.root
+                ledger.replace("/", "\\"), self.root
             ),
             "Windows separators must normalize to the same exact path shape",
         )
         self.assertTrue(
             self.bi._is_canonical_wave_events_path(
-                "docs/waves/notes/events.jsonl", self.root
+                _waves("notes/events.jsonl"), self.root
             )
         )
 
@@ -244,7 +271,7 @@ class FileWalkerTests(unittest.TestCase):
             "notes",                       # bare non-id name
         ]
         _make_repo(self.root, {
-            f"docs/waves/{name}/events.jsonl": '{"renamed":true}\n'
+            _waves(f"{name}/events.jsonl"): '{"renamed":true}\n'
             for name in renamed
         })
 
@@ -253,7 +280,7 @@ class FileWalkerTests(unittest.TestCase):
             for path in self.bi.walk_repo(self.root)
         }
         for name in renamed:
-            rel = f"docs/waves/{name}/events.jsonl"
+            rel = _waves(f"{name}/events.jsonl")
             self.assertTrue(
                 review_evidence.is_canonical_wave_events_path(rel, self.root),
                 f"renamed wave folder {name!r} must still occupy the wave-folder role",
@@ -264,8 +291,8 @@ class FileWalkerTests(unittest.TestCase):
         # clause is dropped, so these stay eligible.
         for still_eligible in (
             "events.jsonl",
-            "docs/waves/events.jsonl",
-            "docs/waves/1slep external-ledger/archive/events.jsonl",
+            _waves("events.jsonl"),
+            _deeper(_waves("1slep external-ledger")) + "/events.jsonl",
         ):
             self.assertFalse(
                 review_evidence.is_canonical_wave_events_path(
@@ -280,6 +307,12 @@ class FileWalkerTests(unittest.TestCase):
         import review_evidence
 
         check = review_evidence.is_canonical_wave_events_path
+        # The root the records were relocated from: the configured one. No
+        # archive root, so only the relocated live root holds the role.
+        former = record_paths.WAVES_ROOT
+        no_archive = patch.object(record_paths, "ARCHIVE_ROOT", None)
+        no_archive.start()
+        self.addCleanup(no_archive.stop)
         with patch.object(record_paths, "WAVES_ROOT", "project/records/waves"), \
              patch.object(record_paths, "NESTED", True), \
              patch.object(record_paths, "MAX_DEPTH", 2):
@@ -287,9 +320,10 @@ class FileWalkerTests(unittest.TestCase):
             self.assertTrue(check("project/records/waves/group/1abc x/events.jsonl", self.root))
             self.assertFalse(check("project/records/waves/a/b/1abc x/events.jsonl", self.root))
             self.assertFalse(check("project/records/waves/events.jsonl", self.root))
-            self.assertFalse(check("docs/waves/1abc x/events.jsonl", self.root))
+            self.assertFalse(check(f"{former}/1abc x/events.jsonl", self.root))
             self.assertFalse(check("project/records/waves/1abc x/other.jsonl", self.root))
-        with patch.object(record_paths, "WAVES_ROOT", "project/records/waves"):
+        with patch.object(record_paths, "WAVES_ROOT", "project/records/waves"), \
+             patch.object(record_paths, "NESTED", False):
             # Flat: exactly one folder level.
             self.assertTrue(check("project/records/waves/1abc x/events.jsonl", self.root))
             self.assertFalse(check("project/records/waves/group/1abc x/events.jsonl", self.root))
@@ -302,40 +336,47 @@ class FileWalkerTests(unittest.TestCase):
 
         check = review_evidence.is_canonical_wave_events_path
         archived = "docs/archive/waves/1abc x/events.jsonl"
-        self.assertFalse(check(archived, self.root), "no archive root configured: unchanged")
+        archived_record = f"docs/archive/waves/1abc x/{_record_name()}"
+        # A flat layout unless a case below sets nested; the live root is the
+        # configured one (the shipped layout, or a profile's).
+        flat = patch.object(record_paths, "NESTED", False)
+        flat.start()
+        self.addCleanup(flat.stop)
+        with patch.object(record_paths, "ARCHIVE_ROOT", None):
+            self.assertFalse(check(archived, self.root), "no archive root configured: unchanged")
+            self.assertFalse(machine_authority.is_machine_authority_path(archived, self.root))
         with patch.object(record_paths, "ARCHIVE_ROOT", "docs/archive/waves"):
             self.assertTrue(check(archived, self.root))
             self.assertTrue(check(r"docs\archive\waves\1abc x\events.jsonl", self.root))
             self.assertFalse(check("docs/archive/waves/events.jsonl", self.root))
             self.assertFalse(check("docs/archive/waves/1abc x/other.jsonl", self.root))
             self.assertFalse(check("docs/archive/waves/group/1abc x/events.jsonl", self.root))
-            self.assertTrue(check("docs/waves/1abc x/events.jsonl", self.root), "live ledgers still qualify")
+            self.assertTrue(check(_waves("1abc x/events.jsonl"), self.root), "live ledgers still qualify")
             self.assertTrue(machine_authority.is_machine_authority_path(archived, self.root))
             with patch.object(record_paths, "NESTED", True), patch.object(record_paths, "MAX_DEPTH", 2):
                 self.assertTrue(check("docs/archive/waves/group/1abc x/events.jsonl", self.root))
                 self.assertFalse(check("docs/archive/waves/a/b/1abc x/events.jsonl", self.root))
             _make_repo(self.root, {
                 archived: '{"archived":true}\n',
-                "docs/archive/waves/1abc x/wave.md": "# Wave\n",
+                archived_record: "# Wave\n",
             })
             rels = {
                 str(path.relative_to(self.root)).replace("\\", "/")
                 for path in self.bi.walk_repo(self.root)
             }
             self.assertNotIn(archived, rels)
-            self.assertIn("docs/archive/waves/1abc x/wave.md", rels)
+            self.assertIn(archived_record, rels)
             filtered = self.bi._filter_canonical_wave_event_ledgers(
-                [self.root / archived, self.root / "docs/archive/waves/1abc x/wave.md"], self.root
+                [self.root / archived, self.root / archived_record], self.root
             )
-            self.assertEqual(filtered, [self.root / "docs/archive/waves/1abc x/wave.md"])
-        self.assertFalse(machine_authority.is_machine_authority_path(archived, self.root))
+            self.assertEqual(filtered, [self.root / archived_record])
 
     def test_ledger_role_reads_no_record(self):
         """Wave 1z8mm (1z8qj): the decision is position-only (the 1to78 property)."""
         import review_evidence
 
-        rel = "docs/waves/1zzzz never-created/events.jsonl"
-        self.assertFalse((self.root / "docs/waves/1zzzz never-created").exists())
+        rel = _waves("1zzzz never-created/events.jsonl")
+        self.assertFalse((self.root / _waves("1zzzz never-created")).exists())
         with patch.object(Path, "read_text", side_effect=AssertionError("no record read")), \
              patch.object(Path, "is_file", side_effect=AssertionError("no record probe")):
             self.assertTrue(review_evidence.is_canonical_wave_events_path(rel, self.root))
@@ -399,10 +440,12 @@ class FileWalkerTests(unittest.TestCase):
         """
         import review_evidence
 
-        wave_dir = self.root / "docs" / "waves" / "1test declared-ledger"
+        wave_rel = _waves("1test declared-ledger")
+        deeper = _deeper(wave_rel) + "/events.jsonl"
+        wave_dir = self.root / wave_rel
         _make_repo(self.root, {
-            "docs/waves/1test declared-ledger/events.jsonl": "",
-            "docs/waves/1test declared-ledger/wave.md": (
+            f"{wave_rel}/events.jsonl": "",
+            f"{wave_rel}/{_record_name()}": (
                 # component-fixture: test_ledger_stays_excluded_after_source_tamper_without_state_lookup exercises this input representation directly
                 "# Wave\nreview-evidence-source: events.jsonl\n\n"
                 + review_evidence.empty_external_finding_synthesis_section()
@@ -410,11 +453,11 @@ class FileWalkerTests(unittest.TestCase):
             # Eligible control. FU4 made folder spelling irrelevant to the
             # role, so the contrast is now DEPTH: a ledger nested below the
             # wave folder is not the fixed sibling and stays indexable.
-            "docs/waves/1test declared-ledger/archive/events.jsonl": (
+            deeper: (
                 '{"deeper":"eligible"}\n'
             ),
         })
-        wave_md = wave_dir / "wave.md"
+        wave_md = wave_dir / _record_name()
 
         for tampered in (
             "# Wave\n\n" + review_evidence.empty_external_finding_synthesis_section(),
@@ -427,10 +470,10 @@ class FileWalkerTests(unittest.TestCase):
                 for path in self.bi.walk_repo(self.root)
             }
             self.assertNotIn(
-                "docs/waves/1test declared-ledger/events.jsonl", rels
+                f"{wave_rel}/events.jsonl", rels
             )
             self.assertIn(
-                "docs/waves/1test declared-ledger/archive/events.jsonl", rels
+                deeper, rels
             )
 
     def test_excludes_git_directory(self):
@@ -1367,20 +1410,20 @@ class IncrementalBuildTests(unittest.TestCase):
 
     def test_explicit_initial_build_excludes_ledger_but_indexes_projection_and_same_name(self):
         """The caller-supplied files= seam cannot bypass the canonical-ledger boundary."""
-        canonical = "docs/waves/1slep external-ledger/events.jsonl"
-        projection = "docs/waves/1slep external-ledger/wave.md"
+        canonical = _waves("1slep external-ledger/events.jsonl")
+        projection = _waves(f"1slep external-ledger/{_record_name()}")
         unrelated = "audit/events.jsonl"
         # FU4: folder spelling no longer decides the wave-folder role, so a
         # ledger directly under ANY docs/waves child is excluded. The control
         # for "not the canonical authority, still searchable" is now DEPTH.
-        unrelated_wave_note = "docs/waves/notes/attachments/events.jsonl"
+        unrelated_wave_note = _deeper(_waves("notes")) + "/events.jsonl"
         _make_repo(self.root, {
             canonical: '{"finding":"superseded raw history"}\n',
             # component-fixture: test_explicit_initial_build_excludes_ledger_but_indexes_projection_and_same_name exercises this input representation directly
             projection: "# Wave\nreview-evidence-source: events.jsonl\n\n# Current findings\n\nSearchable head.\n",
             unrelated: '{"audit":"searchable"}\n',
             unrelated_wave_note: '{"note":"searchable"}\n',
-            "docs/waves/notes/wave.md": "# Design notes, not a Wavefoundry wave\n",
+            _waves(f"notes/{_record_name()}"): "# Design notes, not a Wavefoundry wave\n",
         })
 
         docs_mock = _make_embedder_mock(dim=4)
@@ -1443,22 +1486,49 @@ class IncrementalBuildTests(unittest.TestCase):
         self.assertIn(register, meta_paths)
         self.assertIn(register, chunk_paths)
 
+    def test_explicit_build_excludes_dashboard_vendor_scripts(self):
+        """Wave 1zim2: caller-supplied files cannot bypass the dashboard vendor boundary."""
+        dashboard = ".wavefoundry/framework/dashboard/"
+        vendored = [dashboard + "vendor/elkjs/elk.bundled.js",
+                    dashboard + "vendor/react/react.production.min.js"]
+        sibling = dashboard + "dashboard.js"
+        _make_repo(self.root, {rel: "function vendored() { return 1; }\n" for rel in vendored + [sibling]})
+
+        with patch.object(self.bi, "_get_embedder", return_value=_make_embedder_mock(dim=4)):
+            self.bi.build_index(
+                self.root,
+                full=False,
+                content="code",
+                project_include_prefixes=(".wavefoundry/framework/dashboard",),
+                files=[self.root / rel for rel in vendored + [sibling]],
+                verbose=False,
+            )
+
+        index_dir = self.root / ".wavefoundry" / "index"
+        meta_paths = set((_read_meta_store(index_dir).get("file_meta") or {}).keys())
+        chunk_paths = {row["path"] for row in _read_index_chunks(index_dir, "code")}
+        self.assertIn(sibling, meta_paths)
+        self.assertIn(sibling, chunk_paths)
+        for rel in vendored:
+            self.assertNotIn(rel, meta_paths)
+            self.assertNotIn(rel, chunk_paths)
+
     def test_incremental_exclusion_reaps_previously_indexed_canonical_ledger(self):
         """A pre-cutover row becomes a removal and is evicted from metadata and Lance."""
-        canonical = "docs/waves/1slep external-ledger/events.jsonl"
-        projection = "docs/waves/1slep external-ledger/wave.md"
+        canonical = _waves("1slep external-ledger/events.jsonl")
+        projection = _waves(f"1slep external-ledger/{_record_name()}")
         unrelated = "audit/events.jsonl"
         # FU4: folder spelling no longer decides the wave-folder role, so a
         # ledger directly under ANY docs/waves child is excluded. The control
         # for "not the canonical authority, still searchable" is now DEPTH.
-        unrelated_wave_note = "docs/waves/notes/attachments/events.jsonl"
+        unrelated_wave_note = _deeper(_waves("notes")) + "/events.jsonl"
         _make_repo(self.root, {
             canonical: '{"finding":"old indexed authority"}\n',
             # component-fixture: test_incremental_exclusion_reaps_previously_indexed_canonical_ledger exercises this input representation directly
             projection: "# Wave\nreview-evidence-source: events.jsonl\n\n# Current findings\n\nSearchable head.\n",
             unrelated: '{"audit":"still searchable"}\n',
             unrelated_wave_note: '{"note":"still searchable"}\n',
-            "docs/waves/notes/wave.md": "# Design notes, not a Wavefoundry wave\n",
+            _waves(f"notes/{_record_name()}"): "# Design notes, not a Wavefoundry wave\n",
         })
 
         # Simulate a prior build that admitted and emitted a docs row for the
@@ -1548,10 +1618,11 @@ class IncrementalBuildTests(unittest.TestCase):
 
     def test_incremental_ledger_add_modify_delete_are_semantic_noops(self):
         """Canonical machine-state churn never enters incremental docs/code state."""
-        canonical = self.root / "docs/waves/1slep external-ledger/events.jsonl"
+        rel = _waves("1slep external-ledger/events.jsonl")
+        canonical = self.root / rel
         _make_repo(self.root, {
             # component-fixture: test_incremental_ledger_add_modify_delete_are_semantic_noops exercises this input representation directly
-            "docs/waves/1slep external-ledger/wave.md": "# Wave\nreview-evidence-source: events.jsonl\n\n# Searchable current head\n",
+            _waves(f"1slep external-ledger/{_record_name()}"): "# Wave\nreview-evidence-source: events.jsonl\n\n# Searchable current head\n",
             "src/app.py": "def app():\n    return 1\n",
         })
         self._run_build(full=True)
@@ -1571,7 +1642,6 @@ class IncrementalBuildTests(unittest.TestCase):
         meta_paths = set((_read_meta_store(index_dir).get("file_meta") or {}).keys())
         docs_paths = {row["path"] for row in _read_index_chunks(index_dir, "docs")}
         code_paths = {row["path"] for row in _read_index_chunks(index_dir, "code")}
-        rel = "docs/waves/1slep external-ledger/events.jsonl"
         self.assertNotIn(rel, meta_paths)
         self.assertNotIn(rel, docs_paths)
         self.assertNotIn(rel, code_paths)
@@ -4176,13 +4246,13 @@ class CorpusExclusionCensusTests(unittest.TestCase):
 
     def test_reinclude_hatch_cannot_resurrect_machine_authority_paths(self):
         self._write_fixture()
-        (self.root / "docs" / "waves" / "1abcd test-wave").mkdir(parents=True)
-        (self.root / "docs" / "waves" / "1abcd test-wave" / "events.jsonl").write_text(
+        (self.root / _waves("1abcd test-wave")).mkdir(parents=True)
+        (self.root / _waves("1abcd test-wave/events.jsonl")).write_text(
             '{"record_type":"executable_evidence"}\n', encoding="utf-8")
         self._reinclude_config(["events.jsonl", "scan-findings.json",
                                 "docs/scan-findings.json"])
         rels = self._walk_rels()
-        self.assertNotIn("docs/waves/1abcd test-wave/events.jsonl", rels,
+        self.assertNotIn(_waves("1abcd test-wave/events.jsonl"), rels,
                          "canonical wave ledger must never be re-includable")
         self.assertNotIn("docs/scan-findings.json", rels,
                          "secret-scan findings ledger must never be re-includable")
@@ -4202,6 +4272,25 @@ class CorpusExclusionCensusTests(unittest.TestCase):
         )
         rels = {str(p.relative_to(self.root)).replace("\\", "/") for p in filtered}
         self.assertEqual(rels, {"package.json"})
+
+    def test_dashboard_vendor_scripts_are_excluded_from_walk_and_files_seam(self):
+        # Wave 1zim2 (1zilx): vendored React/ReactDOM/elkjs never enter the corpus,
+        # including elk.bundled.js, which the .min.js suffix layer does not catch.
+        vendor = ".wavefoundry/framework/dashboard/vendor/"
+        vendored = [vendor + "elkjs/elk.bundled.js", vendor + "react/react.production.min.js",
+                    vendor + "README.md"]
+        sibling = ".wavefoundry/framework/dashboard/dashboard.js"
+        _make_repo(self.root, {rel: "var a = 1;\n" for rel in vendored + [sibling]})
+        rels = self._walk_rels()
+        self.assertIn(sibling, rels)
+        for rel in vendored:
+            self.assertNotIn(rel, rels)
+        filtered = self.bi._filter_vendored_assets(
+            [self.root / rel for rel in vendored + [sibling]], self.root)
+        self.assertEqual({str(p.relative_to(self.root)).replace("\\", "/") for p in filtered}, {sibling})
+        # The hatch subtracts exact names at the name layer only; it cannot re-admit these.
+        self._reinclude_config(["elk.bundled.js"])
+        self.assertNotIn(vendor + "elkjs/elk.bundled.js", self._walk_rels())
 
     def test_walker_version_bumped_for_filter_logic_change(self):
         self.assertGreaterEqual(int(self.bi.WALKER_VERSION), 12)

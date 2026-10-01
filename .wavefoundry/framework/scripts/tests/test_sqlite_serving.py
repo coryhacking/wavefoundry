@@ -56,20 +56,10 @@ class SQLiteServingTests(unittest.TestCase):
         self.assertEqual(result[0]['lines'], [2, 4])
 
     def _registered_epoch_tools(self):
-        class Recorder:
-            def __init__(self):
-                self._tool_manager = SimpleNamespace(_tools={})
-
-            def tool(self, *args, **kwargs):
-                def register(fn):
-                    self._tool_manager._tools[kwargs.get("name", fn.__name__)] = fn
-                    return fn
-                return register(args[0]) if args and callable(args[0]) else register
-
-            def resource(self, *args, **kwargs):
-                return lambda fn: fn
-
-        recorder = Recorder()
+        # The shared FastMCP-backed double (change 1zim4): a distribution's
+        # declaration machinery runs against it as against the server.
+        from declaration_support import RecordingFastMCP
+        recorder = RecordingFastMCP()
         handler = SimpleNamespace(
             root=self.root, index=self.index, background_monitor_status=lambda: {},
             assess_setup=lambda *, force=False: {
@@ -79,7 +69,7 @@ class SQLiteServingTests(unittest.TestCase):
             },
         )
         server.register_mcp_surface(recorder, lambda: handler)
-        return recorder._tool_manager._tools
+        return recorder.tools
 
     def test_coverage_uses_vector_rows_without_legacy_alias(self):
         import index_state_store as iss

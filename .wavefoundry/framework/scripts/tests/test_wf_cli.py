@@ -12,6 +12,11 @@ from unittest.mock import MagicMock, patch
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 WF_CLI_PATH = SCRIPTS_ROOT / "wf_cli.py"
 REPO_ROOT = SCRIPTS_ROOT.parents[2]  # scripts -> framework -> .wavefoundry -> repo root
+for _p in (str(SCRIPTS_ROOT), str(SCRIPTS_ROOT / "tests")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+from record_layout_support import waves_rel  # noqa: E402
+import vocabulary_profile  # noqa: E402
 
 
 def load_wf_cli():
@@ -880,7 +885,7 @@ class RetiredContentReferenceScanTests(unittest.TestCase):
 
     def test_wave_archives_are_not_reported(self):
         """AC-8: historical records legitimately narrate the retired system."""
-        self._write("docs/waves/1abcd wave/wave.md", "Stop and journal when:\n")
+        self._write(waves_rel("1abcd wave", vocabulary_profile.RECORD_FILENAME), "Stop and journal when:\n")
         self._write("docs/agents/memory/1abcd-mem note.md", "Associated journal\n")
         self.assertEqual(self.scan.scan_repo(self.root), [])
 

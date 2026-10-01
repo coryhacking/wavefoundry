@@ -20,28 +20,38 @@ from framework_files import source_path  # wf_server-aware source locations (wav
 # Extracted handlers resolve the public composition-root module per call.
 # Use the shared loader so patches target that exact module identity.
 from server_tools_support import load_server
+from record_layout_support import RecordTreeBuilder
+import vocabulary_profile
 
 
 srv = load_server()
 
 
 def _repo(root: Path) -> None:
-    (root / "docs" / "waves").mkdir(parents=True, exist_ok=True)
-    (root / "docs" / "plans").mkdir(parents=True, exist_ok=True)
+    builder = RecordTreeBuilder(root)
+    builder.waves_dir.mkdir(parents=True, exist_ok=True)
+    builder.plans_dir.mkdir(parents=True, exist_ok=True)
     (root / ".wavefoundry").mkdir(parents=True, exist_ok=True)
 
 
 def _wave(root: Path, wave_id: str, *, status: str = "active", changes: str = "") -> Path:
-    d = root / "docs" / "waves" / wave_id
+    """A minimal container record in the loaded profile; ``changes`` is
+    written with the shipped labels and localized."""
+    d = RecordTreeBuilder(root).waves_dir / wave_id
     d.mkdir(parents=True, exist_ok=True)
-    wave_md = d / "wave.md"
+    wave_md = vocabulary_profile.record_file(d)
     wave_md.write_text(
-        f"# Wave Record\n\nOwner: Engineering\nStatus: {status}\n"
-        f"Last verified: 2026-07-20\n\nwave-id: `{wave_id}`\n\n"
-        f"## Changes\n{changes}\n\n## Wave Summary\n\nsummary\n",
+        f"{vocabulary_profile.RECORD_TITLE}\n\nOwner: Engineering\nStatus: {status}\n"
+        f"Last verified: 2026-07-20\n\n{vocabulary_profile.id_line(wave_id)}\n\n"
+        f"{vocabulary_profile.MEMBER_HEADING}\n{vocabulary_profile.localize_template(changes)}\n\n"
+        f"{vocabulary_profile.SUMMARY_HEADING}\n\nsummary\n",
         encoding="utf-8",
     )
     return wave_md
+
+
+def _change_doc_text(change_id: str) -> str:
+    return vocabulary_profile.localize_template(f"# T\n\nChange ID: `{change_id}`\n")
 
 
 class MutationLockTests(unittest.TestCase):
@@ -165,8 +175,8 @@ class ForwardRecoverabilityTests(unittest.TestCase):
             root = Path(tmp)
             _repo(root)
             wave_md = _wave(root, "1aaaa demo")
-            doc = root / "docs" / "waves" / "1aaaa demo" / "1abcd-enh thing.md"
-            doc.write_text("# T\n\nChange ID: `1abcd-enh thing`\n", encoding="utf-8")
+            doc = wave_md.parent / "1abcd-enh thing.md"
+            doc.write_text(_change_doc_text("1abcd-enh thing"), encoding="utf-8")
             # Interrupted state: doc already moved into the wave folder, but
             # wave.md does not list it. Retry the SAME call.
             with patch.object(srv, "_attach_lint_to_response", side_effect=lambda e, *a, **k: e):
@@ -185,8 +195,8 @@ class ForwardRecoverabilityTests(unittest.TestCase):
             )
             # Interrupted state: doc already moved back to plans, wave.md still
             # lists it. Retry the SAME call.
-            (root / "docs" / "plans" / "1abcd-enh thing.md").write_text(
-                "# T\n\nChange ID: `1abcd-enh thing`\n", encoding="utf-8"
+            (RecordTreeBuilder(root).plans_dir / "1abcd-enh thing.md").write_text(
+                _change_doc_text("1abcd-enh thing"), encoding="utf-8"
             )
             with patch.object(srv, "_attach_lint_to_response", side_effect=lambda e, *a, **k: e):
                 out = srv.wf_remove_change_response(root, "1aaaa", "1abcd-enh thing", mode="create")

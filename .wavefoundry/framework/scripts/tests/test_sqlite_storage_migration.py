@@ -1703,10 +1703,15 @@ class SchemaEightKindTests(unittest.TestCase):
             self.assertEqual(state.read_build_state(other)["status"], "building")
             self.assertFalse(parent.exists())
             import memory_backfill
-            wave = other.parent.parent / "docs/waves/1aaaa closed"
+            import record_paths
+            import vocabulary_profile
+            # The closed record sits in the live waves root and vocabulary,
+            # so it does not depend on an archive root being configured.
+            wave = other.parent.parent.joinpath(*record_paths.WAVES_ROOT.split("/"), "1aaaa closed")
             wave.mkdir(parents=True)
-            (wave / "wave.md").write_text(
-                "# Wave\n\nStatus: closed\n\nChange ID: `1aaab-enh historical`\n", encoding="utf-8")
+            (wave / vocabulary_profile.RECORD_FILENAME).write_text(
+                f"# {vocabulary_profile.CONTAINER_NAME}\n\nStatus: closed\n\n"
+                f"{vocabulary_profile.MEMBER_ID_LABEL}: `1aaab-enh historical`\n", encoding="utf-8")
             (wave / "1aaab-enh historical.md").write_text(
                 "# Change\n\n## Decision Log\n\n"
                 "| Date | Decision | Reason | Alternatives |\n"

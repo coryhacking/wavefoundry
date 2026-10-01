@@ -51,6 +51,14 @@ def load_store_module():
     return mod
 
 
+def _wave_rel(iss, folder: str) -> str:
+    """The repo-relative record file of wave folder ``folder`` under the
+    configured live waves root (the shipped layout, or a profile's)."""
+    import vocabulary_profile
+
+    return f"{iss.record_paths.WAVES_ROOT}/{folder}/{vocabulary_profile.RECORD_FILENAME}"
+
+
 def _init_git_repo(root: Path) -> None:
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     subprocess.run(["git", "-C", str(root), "config", "user.email", "t@t"], check=True)
@@ -182,7 +190,7 @@ class WaveAttributionDerivationTests(unittest.TestCase):
             # 1p9hi closed with the implementation code, no Land commit.
             ("Close wave 1p9hi python3-prereq-stop: fail setup", ["setup.py"]),
             # 1p9gr landed separately; its close is docs-only bookkeeping.
-            ("Close wave 1p9gr setup proxy defaults", ["docs/waves/1p9gr x/wave.md"]),
+            ("Close wave 1p9gr setup proxy defaults", [_wave_rel(self.iss, "1p9gr x")]),
             ("Land 1p9gr setup proxy and index defaults", ["proxy.py"]),
         ])
         by_wave = {w: sha for w, sha, _t in landings}
@@ -191,14 +199,14 @@ class WaveAttributionDerivationTests(unittest.TestCase):
         self.assertIn(("1p9hi", "setup.py"), files)
         self.assertIn(("1p9gr", "proxy.py"), files)
         # The close commit's docs-only diff must NOT be attributed to 1p9gr.
-        self.assertNotIn(("1p9gr", "docs/waves/1p9gr x/wave.md"), files)
+        self.assertNotIn(("1p9gr", _wave_rel(self.iss, "1p9gr x")), files)
 
     def test_lifecycle_noise_is_excluded(self):
         landings, _ = self._derive([
             ("Bump VERSION to 1.11.2+pahu after release", ["VERSION"]),
             ("Advance wave 1seav: mid-wave checkpoint (implementing)", ["s.py"]),
             ("Plan wave 1zzzz for later", ["docs/plans/p.md"]),
-            ("Ready wave 1zzzz", ["docs/waves/w/wave.md"]),
+            ("Ready wave 1zzzz", [_wave_rel(self.iss, "w")]),
             ("Update session handoff: wave 1seav closed", ["docs/agents/session-handoff.md"]),
         ])
         self.assertEqual(landings, [])
@@ -380,29 +388,29 @@ class HistoricalClassTests(_DriftCase):
     def _seed_waves(self):
         _init_git_repo(self.root)
         self._write("src/a.py", "x = 1\n")
-        self._write("docs/waves/1aaaa first-wave/wave.md", "# Wave 1aaaa\n")
+        self._write(_wave_rel(self.iss, "1aaaa first-wave"), "# Wave 1aaaa\n")
         _commit_all_at(self.root, "Land wave 1aaaa: ship the feature", _T0)
         # Later wave touches the same change set (src/a.py) → 1aaaa is behind.
         self._write("src/a.py", "x = 2\n")
-        self._write("docs/waves/1bbbb second-wave/wave.md", "# Wave 1bbbb\n")
+        self._write(_wave_rel(self.iss, "1bbbb second-wave"), "# Wave 1bbbb\n")
         _commit_all_at(self.root, "Land wave 1bbbb: rework the feature", _T0 + 5000)
 
     def test_landing_anchor_waves_behind_and_no_drift_flag(self):
         self._seed_waves()
         docs = [
-            "docs/waves/1aaaa first-wave/wave.md",
-            "docs/waves/1bbbb second-wave/wave.md",
+            _wave_rel(self.iss, "1aaaa first-wave"),
+            _wave_rel(self.iss, "1bbbb second-wave"),
         ]
         self._update(docs, docs + ["src/a.py"])
         old = self.iss.doc_drift_for_path(
-            self.index_dir, "docs/waves/1aaaa first-wave/wave.md"
+            self.index_dir, _wave_rel(self.iss, "1aaaa first-wave")
         )
         self.assertTrue(old["historical"])
         self.assertFalse(old["drifted"])
         self.assertEqual(old["waves_behind"], 1)
         self.assertGreaterEqual(old["commits_since"], 1)
         new = self.iss.doc_drift_for_path(
-            self.index_dir, "docs/waves/1bbbb second-wave/wave.md"
+            self.index_dir, _wave_rel(self.iss, "1bbbb second-wave")
         )
         self.assertTrue(new["historical"])
         self.assertEqual(new["waves_behind"], 0)
@@ -412,14 +420,16 @@ class HistoricalClassTests(_DriftCase):
         from record_layout_support import patch_layout
 
         self._seed_waves()
-        direct = self.root / "docs/waves"
+        direct = self.root / self.iss.record_paths.WAVES_ROOT
         grouped = self.root / "records/waves/team"
         grouped.mkdir(parents=True)
         for name in ("1aaaa first-wave", "1bbbb second-wave"):
             shutil.move(str(direct / name), str(grouped / name))
+        import vocabulary_profile
+
         docs = [
-            "records/waves/team/1aaaa first-wave/wave.md",
-            "records/waves/team/1bbbb second-wave/wave.md",
+            f"records/waves/team/1aaaa first-wave/{vocabulary_profile.RECORD_FILENAME}",
+            f"records/waves/team/1bbbb second-wave/{vocabulary_profile.RECORD_FILENAME}",
         ]
         with patch_layout(modules=(self.iss.record_paths,), waves_root="records/waves", nested=True):
             self._update(docs, docs + ["src/a.py"])
@@ -433,14 +443,14 @@ class HistoricalClassTests(_DriftCase):
 
     def test_wave_without_derivable_landing_keeps_historical_marker(self):
         _init_git_repo(self.root)
-        self._write("docs/waves/1cccc quiet-wave/wave.md", "# Wave 1cccc\n")
+        self._write(_wave_rel(self.iss, "1cccc quiet-wave"), "# Wave 1cccc\n")
         _commit_all_at(self.root, "checkpoint without landing convention", _T0)
         self._update(
-            ["docs/waves/1cccc quiet-wave/wave.md"],
-            ["docs/waves/1cccc quiet-wave/wave.md"],
+            [_wave_rel(self.iss, "1cccc quiet-wave")],
+            [_wave_rel(self.iss, "1cccc quiet-wave")],
         )
         drift = self.iss.doc_drift_for_path(
-            self.index_dir, "docs/waves/1cccc quiet-wave/wave.md"
+            self.index_dir, _wave_rel(self.iss, "1cccc quiet-wave")
         )
         self.assertTrue(drift["historical"])
         self.assertFalse(drift["drifted"])
@@ -456,8 +466,8 @@ class HistoricalClassTests(_DriftCase):
             self._write("src/a.py", f"x = {i + 10}\n")
             _commit_all_at(self.root, f"churn {i}", _T0 + 7000 + i * 100)
         docs = [
-            "docs/waves/1aaaa first-wave/wave.md",
-            "docs/waves/1bbbb second-wave/wave.md",
+            _wave_rel(self.iss, "1aaaa first-wave"),
+            _wave_rel(self.iss, "1bbbb second-wave"),
             "docs/guide.md",
         ]
         self._update(docs, docs + ["src/a.py"])
@@ -524,22 +534,22 @@ class BatchedRetrievalReadTests(_DriftCase):
         _init_git_repo(self.root)
         self._write("src/a.py", "x = 1\n")
         self._write("docs/guide.md", "See `src/a.py`.\n")
-        self._write("docs/waves/1aaaa w/wave.md", "# W\n")
+        self._write(_wave_rel(self.iss, "1aaaa w"), "# W\n")
         _commit_all_at(self.root, "Land wave 1aaaa: ship", _T0)
         for i in range(3):
             self._write("src/a.py", f"x = {i + 2}\n")
             _commit_all_at(self.root, f"churn {i}", _T0 + (i + 1) * 100)
         self.iss.update_freshness_from_build(
             self.root, self.index_dir,
-            ["src/a.py", "docs/guide.md", "docs/waves/1aaaa w/wave.md"],
+            ["src/a.py", "docs/guide.md", _wave_rel(self.iss, "1aaaa w")],
         )
         self._update(
-            ["docs/guide.md", "docs/waves/1aaaa w/wave.md"],
-            ["src/a.py", "docs/guide.md", "docs/waves/1aaaa w/wave.md"],
+            ["docs/guide.md", _wave_rel(self.iss, "1aaaa w")],
+            ["src/a.py", "docs/guide.md", _wave_rel(self.iss, "1aaaa w")],
         )
         out = self.iss.freshness_for_paths(
             self.index_dir,
-            ["src/a.py", "docs/guide.md", "docs/waves/1aaaa w/wave.md", "missing.py"],
+            ["src/a.py", "docs/guide.md", _wave_rel(self.iss, "1aaaa w"), "missing.py"],
         )
         self.assertIn("src/a.py", out)
         self.assertIn("churn_score", out["src/a.py"])
@@ -547,9 +557,9 @@ class BatchedRetrievalReadTests(_DriftCase):
         self.assertNotIn("drifted", out["src/a.py"])  # code: freshness only
         self.assertTrue(out["docs/guide.md"]["drifted"])
         self.assertEqual(out["docs/guide.md"]["commits_since_verified"], 3)
-        self.assertTrue(out["docs/waves/1aaaa w/wave.md"]["historical"])
-        self.assertIn("waves_behind", out["docs/waves/1aaaa w/wave.md"])
-        self.assertNotIn("drifted", out["docs/waves/1aaaa w/wave.md"])
+        self.assertTrue(out[_wave_rel(self.iss, "1aaaa w")]["historical"])
+        self.assertIn("waves_behind", out[_wave_rel(self.iss, "1aaaa w")])
+        self.assertNotIn("drifted", out[_wave_rel(self.iss, "1aaaa w")])
         self.assertNotIn("missing.py", out)
 
     def test_absent_store_returns_empty(self):
@@ -655,15 +665,15 @@ class TopologyNotTimestampTests(_DriftCase):
     def test_historical_waves_behind_skewed_timestamps(self):
         _init_git_repo(self.root)
         self._write("src/a.py", "x = 1\n")
-        self._write("docs/waves/1aaaa first/wave.md", "# 1aaaa\n")
+        self._write(_wave_rel(self.iss, "1aaaa first"), "# 1aaaa\n")
         _commit_all_at(self.root, "Land wave 1aaaa: ship", _T0)
         # A later wave landing touching the same change set, timestamped BEFORE.
         self._write("src/a.py", "x = 2\n")
-        self._write("docs/waves/1bbbb second/wave.md", "# 1bbbb\n")
+        self._write(_wave_rel(self.iss, "1bbbb second"), "# 1bbbb\n")
         _commit_all_at(self.root, "Land wave 1bbbb: rework", _T0 - 9000)
-        docs = ["docs/waves/1aaaa first/wave.md", "docs/waves/1bbbb second/wave.md"]
+        docs = [_wave_rel(self.iss, "1aaaa first"), _wave_rel(self.iss, "1bbbb second")]
         self._update(docs, docs + ["src/a.py"])
-        old = self.iss.doc_drift_for_path(self.index_dir, "docs/waves/1aaaa first/wave.md")
+        old = self.iss.doc_drift_for_path(self.index_dir, _wave_rel(self.iss, "1aaaa first"))
         self.assertEqual(old["waves_behind"], 1,
                          "1bbbb landed later by topology even though timestamped earlier")
         self.assertGreaterEqual(old["commits_since"], 1)

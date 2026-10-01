@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-30
+Last verified: 2026-10-01
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -126,7 +126,8 @@ merge time; the shipped declarations are empty and change nothing.
 | `EXTENSION_TOOL_TIERS` | Permission tier (`read` or `write`) for every new extension tool. |
 | `EXTENSION_OVERRIDES` | Core tools each module replaces, keyed by module name. |
 | `EXTENSION_TOOL_ALIASES` | Additional served names, `{alias: canonical_name}` (wave `1z8oz`). |
-| `EXTENSION_HIDDEN_TOOLS` | Canonical names that are not served; each must have an alias. |
+| `EXTENSION_TOOL_PARAMETERS` | Parameter mappings for declared aliases, `{alias: {"rename": {alias_param: canonical_param}, "fixed": {canonical_param: value}}}` (wave `1zim3`). |
+| `EXTENSION_HIDDEN_TOOLS` | Canonical names that are not served; each must have an alias without fixed parameters. |
 | `EXTENSION_REPLACEMENTS` | Core names a module reuses with an incompatible handler, `{module: {core_name: {"alias_for_core": name, "tier": optional "read" or "write"}}}`. |
 
 **Registration.** `register(mcp, get_handler)` receives a staging FastMCP surface: `@mcp.tool()`
@@ -156,7 +157,11 @@ so widening a type (for example `str` to `str | None`) is refused too. Returning
 for undeclared arguments is the extension's obligation: pass `kwargs` to
 `server_impl._ensure_no_extra_args(tool_name, kwargs)` and return its envelope when it is not
 `None`. Replacing the MCP tool does not change the server's internal callers of core response
-functions.
+functions. To delegate to the core tool, call `mcp.core_handler(name)` during `register` (wave
+`1zim3`): it returns the core tool's handler as registered, before argument normalization and the
+`MIDDLEWARE` chain, so calling it from the override takes the lifecycle lock and records cost once,
+through the override's own name-keyed wrappers. Asking for a name the module did not declare as an
+override raises, which refuses registration.
 
 **Aliases and hidden names (wave `1z8oz`).** A distribution can serve a tool under its own
 vocabulary. Each alias is installed after the `MIDDLEWARE` chain as a copy of the canonical
@@ -170,6 +175,32 @@ core tool or a declared extension tool; it may not be a runner tool, another ali
 `alias_for_core`. A hidden name may be declared once. A name in `EXTENSION_HIDDEN_TOOLS` is removed from the
 served table after its aliases are installed, so it is neither listed nor callable over MCP; internal
 callers of the response functions are unaffected. Runner tools cannot be hidden.
+
+**Parameter-mapped aliases (wave `1zim3`).** `EXTENSION_TOOL_PARAMETERS` lets an alias use the
+distribution's parameter names. `rename` lists only renamed parameters; every other canonical
+parameter that is not fixed passes through under its own name, and `fixed` pins canonical
+parameters to declared values. The alias's argument model is derived from the canonical tool's
+normalized argument model: fields are renamed or removed (fixed), and annotations, metadata,
+defaults, descriptions and the required list carry over, so its published schema is the canonical
+schema renamed. Its callable is a translator wrapping the canonical tool's callable as served,
+captured at install: it refuses any argument outside the alias's parameters with the
+`unknown_arguments` diagnostic, whose `data.supported_arguments` and message name the alias's
+parameters, and never forwards one, so an extra can neither reach a renamed-away parameter nor
+override a pinned value. Otherwise it renames the arguments in one pass, adds the fixed values and
+calls the canonical callable, so the lock, guard, cost accounting, extractors and setup notice
+apply once and stay keyed on the canonical name. The alias takes the canonical tier and
+annotations; its description is the canonical text and keeps canonical parameter names. An alias
+parameter may reuse a canonical name only when that name is renamed away, so a swap such as
+`{"set_id": "wave_id", "wave_id": "change_id"}` is valid. A declaration is refused when a mapping
+names something that is not an alias, has a key other than `rename` and `fixed`, renames from a
+name that is not a canonical parameter or renames one canonical parameter twice, fixes a name that
+is not a canonical parameter or that it also renames, fixes a value the canonical field rejects,
+serves a parameter name twice, uses a parameter name that is not an identifier, starts with an
+underscore, is a Python keyword, is `kwargs`, starts with `model_` or is a model attribute, or maps
+an alias of a runner or edit-gate tool. Fixed values are validated by the server in strict mode
+against the live canonical argument model, so `"false"` for a boolean or `"3"` for an integer is
+refused rather than coerced, and the alias forwards the validated value, copied for each call. The stdlib roster checks only the declaration's shape, so the permission
+allowlist may carry a rule for an alias the server later refuses; nothing is served under it.
 
 **Replacements (wave `1z8oz`).** A replacement reuses a core name with a handler whose schema
 differs, for example a distribution whose `wf_close_wave` closes one work item, while the core
@@ -197,7 +228,9 @@ code in the server process, so they are not a sandbox.
 
 **Response hints.** When a declaration aliases or replaces a name, a `rewrite` wrapper is appended
 to the chain at registration (never to the static `MIDDLEWARE` tuple). It maps each canonical name
-to its first-declared alias, and each replaced core name to its `alias_for_core`, in `next_tools`,
+to its first-declared plain alias, else its first-declared alias without fixed parameters (a name
+whose only aliases are pinned keeps its canonical name), and each replaced core name to its
+`alias_for_core`, in `next_tools`,
 `usage`, `diagnostics[].recovery_tools` and `diagnostics[].recovery_usage`: exact matches for list
 items and whole-name matches inside strings, on a copy of the response. It skips runner tools,
 coroutine handlers and replacing handlers. It does apply to the distribution's own new tools and
@@ -208,6 +241,30 @@ diagnostic messages, docstrings, tool descriptions and FastMCP argument-validati
 canonical: a canonical name in prose always means the core behaviour. `wf_server_info` publishes the
 full map under `extensions.served_names`, so an agent can translate prose deterministically. With
 no declaration nothing is appended and responses are unchanged.
+
+For a canonical name with a parameter-mapped alias (wave `1zim3`), a call is never given the
+alias name with canonical parameter names. In `usage` and `recovery_usage`, each call
+`canonical(param=value, ...)` that parses as a Python call with keyword arguments only is rewritten
+first: aliases are tried in preference order (plain aliases, which count as identity mappings,
+then other aliases without fixed parameters, then pinned aliases, each in declaration order), and
+keyword names are renamed in place in one pass, keeping every other byte of the argument text
+(values, parentheses, comments, newlines), so values need not be literals. A pinned alias qualifies
+only when every fixed parameter is present with a literal equal to the pinned value or absent with
+an equal canonical default; its fixed keywords are removed with their separating comma, and a call
+where that removal would touch a comment keeps the canonical form.
+`canonical(...)` names no parameter, so it is rewritten only to an alias without fixed parameters.
+After that, the name where no `(` follows (prose) maps to the same preferred alias without fixed
+parameters, and list hints name it too. The canonical form remains only in call text that cannot be
+rewritten: an unparseable call, any positional argument other than a lone `...` (so
+`canonical(..., key=value)` keeps the canonical form), a canonical call nested inside another
+call's argument, a newline between the name and `(`, duplicate keywords, `**` unpacking, or a call no alias qualifies for (only possible when every alias of the name is pinned,
+in which case the canonical name cannot be hidden and stays served). For a hidden name, such
+remaining call text names a tool that is not served. Argument values are never rewritten: in any
+call text (any callee), only the callee and, for a mapped alias, keyword names change, and an
+unparseable call's text is left unchanged up to its matching `)` (quote- and comment-aware), or to
+the end of the string when there is none. Call parsing is bounded: a hint string over 8192
+characters is left unchanged, and after 64 call candidates in one string the rest of it is left
+unchanged.
 
 **New tools.** Every new tool name starts with a declared extension prefix and has a declared
 tier. Since wave `1yyoj`, extension prefixes may equal or overlap core prefixes, so a distribution
@@ -260,7 +317,10 @@ owns project state.
   hidden name has no alias, is a runner tool or is a replaced core name; a replacement names an
   undeclared module, a runner tool, a tool core does not register or an override target, declares
   an unknown key or a tier other than `read`/`write`, is declared twice, is not registered by its
-  module, or does not reject undeclared arguments.
+  module, or does not reject undeclared arguments;
+- a parameter mapping breaks a rule under **Parameter-mapped aliases**, a hidden name has only
+  aliases with fixed parameters, or a module asks `core_handler` for a name it did not declare as
+  an override.
 
 An aliases-only or hide-only declaration with no module is validated and served, not ignored. Any
 failure between core registration and the installed aliases and hidden names, including the core
@@ -279,8 +339,10 @@ Undeclared helper modules an extension imports are not purged.
 path, SHA-256, declared prefixes and tiers), `modules` (for each loaded module its path, the
 SHA-256 of the exact bytes executed, its new tools with tiers, the core tools it overrides and the
 core names it replaces), `aliases`, `hidden`, `replacements` (core name, module, `alias_for_core`
-and served tier) and `served_names` (the canonical-to-served map the hint rewrite uses). With no
-declarations, `modules`, `aliases`, `hidden`, `replacements` and `served_names` are empty.
+and served tier), `parameters` (for each mapped alias its canonical name, `rename` and `fixed`;
+wave `1zim3`) and `served_names` (the canonical-to-served map the hint rewrite uses for list
+hints and whole names). With no declarations, `modules`, `aliases`, `hidden`, `replacements`,
+`parameters` and `served_names` are empty.
 
 **Trust boundary.** Extension modules are distribution code and run with the server's authority.
 Nothing is loaded from a target repository. An extension that rebinds existing tool objects, their handlers or wrapper

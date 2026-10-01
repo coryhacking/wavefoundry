@@ -2962,7 +2962,13 @@ class InferTagsTests(unittest.TestCase):
         self.tag_utils = _tag_utils
 
     def test_wave_tag(self):
-        tags = self.tag_utils.infer_tags("docs/waves/12dv9 chunk-tags/wave.md")
+        # The configured live waves root (a root-less call carries no archive
+        # prefix, so the path is built from the loaded layout).
+        import record_paths
+        import vocabulary_profile
+
+        tags = self.tag_utils.infer_tags(
+            f"{record_paths.WAVES_ROOT}/12dv9 chunk-tags/{vocabulary_profile.RECORD_FILENAME}")
         self.assertIn("wave", tags)
 
     def test_agent_tag_from_prompts_agents(self):

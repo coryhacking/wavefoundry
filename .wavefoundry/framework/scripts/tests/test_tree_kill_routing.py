@@ -118,6 +118,9 @@ ROUTED = {
     ("render_platform_surfaces.py", "tracked_runtime_diagnostics.git", "_run_tree_kill"): 1,
     ("retrieval_eval.py", "_git_output", "_run_tree_kill"): 1,
     ("run_tests.py", "repo_state_snapshot", "_run_tree_kill"): 1,
+    # The second-profile run's git listing and temporary-repository commands (change 1zim1).
+    ("run_tests.py", "_copy_listed_tree", "_run_tree_kill"): 1,
+    ("run_tests.py", "_profile_run_in", "_run_tree_kill"): 1,
     ("run_secrets_scan.py", "_physical_perf_core_count", "_run_tree_kill"): 1,
     ("scan_secrets.py", "_physical_perf_core_count", "_run_tree_kill"): 1,
     ("sqlite_storage_migration.py", "_process_cwds", "_run_tree_kill"): 1,

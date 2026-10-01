@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 from contextlib import ExitStack
 from server_tools_support import load_server
+import vocabulary_profile
 from test_lifecycle_golden import (_make_repo, _build_one, _write_config, _WAVE_REVIEW_CONFIG,
     seed_state, _stub_validate, _stub_garden)
 
@@ -62,10 +63,11 @@ class PhaseGateTests(unittest.TestCase):
         helper.srv = self.srv
         helper.delivery_approvals(ctx)
         text = self.wave_md.read_text()
-        self.wave_md.write_text(text.replace('Change Status: `planned`', 'Change Status: `complete`'))
+        label = vocabulary_profile.MEMBER_STATUS_LABEL
+        self.wave_md.write_text(text.replace(f'{label}: `planned`', f'{label}: `complete`'))
 
     def change_doc(self):
-        return next(p for p in self.wave_md.parent.glob('*.md') if p.name != 'wave.md')
+        return next(p for p in self.wave_md.parent.glob('*.md') if p.name != self.wave_md.name)
 
     def codes(self, response):
         return [d['code'] for d in response.get('diagnostics', [])]
@@ -226,7 +228,8 @@ class PhaseGateTests(unittest.TestCase):
         helper.delivery_approvals(ctx)
         # The producer admits a planned change; this fixture represents completed delivery.
         text = self.wave_md.read_text()
-        self.wave_md.write_text(text.replace('Change Status: `planned`', 'Change Status: `complete`'))
+        label = vocabulary_profile.MEMBER_STATUS_LABEL
+        self.wave_md.write_text(text.replace(f'{label}: `planned`', f'{label}: `complete`'))
         with patch.object(self.srv, '_auto_populate_memory_for_wave', return_value={}) as memory, \
              patch.object(self.srv, '_maybe_optimize_index_on_close', return_value={}) as optimize:
             response = self.srv.wf_close_wave_response(self.root, self.wave, mode='create')

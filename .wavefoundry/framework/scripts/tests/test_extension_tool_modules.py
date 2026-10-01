@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 SCRIPTS = Path(__file__).resolve().parents[1]
@@ -185,6 +186,90 @@ def register(mcp, get_handler):
         return {"status": "ok", "data": {"fork_scope": scope}}
 """
 
+# Wave 1zim3 fixtures: parameter-mapped aliases and an override delegating to
+# the core handler.
+PARAM_DECL = """
+EXTENSION_MODULES = ("fork_delegate",)
+EXTENSION_TOOL_PREFIXES = ("fork_",)
+EXTENSION_TOOL_TIERS = {"fork_echo": "read"}
+EXTENSION_OVERRIDES = {"fork_delegate": ("wf_remove_change",)}
+EXTENSION_TOOL_ALIASES = {
+    "fork_say": "fork_echo",
+    "fork_say_whole": "fork_echo",
+    "fork_read_raw": "code_read",
+    "fork_add_wave": "wf_add_change",
+    "fork_add_wave_now": "wf_add_change",
+    "fork_review_prepare": "wf_review_wave",
+}
+EXTENSION_TOOL_PARAMETERS = {
+    "fork_say": {"rename": {"words": "text"}},
+    "fork_say_whole": {"fixed": {"ratio": 1, "tags": ["a"]}},
+    "fork_read_raw": {"fixed": {"with_line_numbers": False}},
+    "fork_add_wave": {"rename": {"set_id": "wave_id", "wave_id": "change_id"}},
+    "fork_add_wave_now": {"rename": {"set_id": "wave_id", "wave_id": "change_id"}, "fixed": {"mode": "create"}},
+    "fork_review_prepare": {"fixed": {"phase": "prepare"}},
+}
+"""
+
+DELEGATE = """
+from typing import Annotated, Optional
+from pydantic import Field
+import server_impl
+
+STAGING = None
+
+def register(mcp, get_handler):
+    global STAGING
+    STAGING = mcp
+    core = mcp.core_handler("wf_remove_change")
+
+    @mcp.tool()
+    def fork_echo(text: Annotated[str, Field(description="Text to echo.", min_length=2)], count: int = 3,
+                  ratio: float = 1.0, tags: Optional[list[str]] = None, **kwargs):
+        bad = server_impl._ensure_no_extra_args("fork_echo", kwargs)
+        if bad is not None:
+            return bad
+        if tags is not None:
+            tags.append("seen")
+        return {"status": "ok", "data": {"text": text, "count": count, "ratio_type": type(ratio).__name__,
+                                         "tags": list(tags) if tags is not None else None}}
+
+    @mcp.tool()
+    def wf_remove_change(wave_id: str, change_id: str, mode: str = "dry_run", **kwargs):
+        result = core(wave_id=wave_id, change_id=change_id, mode=mode, **kwargs)
+        return {**result, "delegated": True}
+"""
+
+def spy_response(impl, name, calls):
+    """Replace a core response function; record its arguments and the lock state."""
+    def spy(root, *args, **kwargs):
+        probe = getattr(impl, "_WF_LOCK_PROBE", None) or {}
+        calls.append({"args": list(args), "kwargs": {k: v for k, v in kwargs.items() if k != "cache"},
+                      "lock_held": probe.get("held"), "acquired": probe.get("acquired")})
+        return {"status": "ok", "data": {"spied": name}}
+    setattr(impl, name, spy)
+
+def install_counting_lock_probe(impl):
+    install_lock_probe(impl)
+    state = impl._WF_LOCK_PROBE
+    state["acquired"] = 0
+    probe = impl._lifecycle_mutation_lock
+
+    @contextlib.contextmanager
+    def counting(root):
+        state["acquired"] += 1
+        with probe(root):
+            yield
+
+    impl._lifecycle_mutation_lock = counting
+
+def normalized(schema):
+    if isinstance(schema, dict):
+        return {k: normalized(v) for k, v in schema.items() if k != "title"}
+    if isinstance(schema, list):
+        return [normalized(v) for v in schema]
+    return schema
+
 MEMORY_VALIDATE_ARGS = {
     "memory_id": "mem-x", "verdict": "promote", "action_delta": "a", "rationale": "r",
     "evidence_verified": True, "current_target_verified": True, "canonical_overlap": "none",
@@ -219,6 +304,18 @@ def hints(result):
         "recovery_tools": [d.get("recovery_tools") for d in diagnostics],
         "recovery_usage": [d.get("recovery_usage") for d in diagnostics],
     }
+
+# Wave 1zim3 repair: hint calls whose argument values are tool names.
+VALUE_HINT_USAGE = "wf_add_change(wave_id='wf_add_change', change_id='fork_add_wave') then wf_review_wave(wave_id='wf_add_change')"
+VALUE_HINT_RECOVERY = "dict(x='wf_add_change') or wf_add_change(wave_id=f(wf_add_change)); retry wf_add_change"
+
+def value_hints(impl, mcp):
+    """Recovery hints from the canonical body, read back through the served alias."""
+    impl.wf_add_change_response = lambda root, *a, **k: {
+        "status": "error", "data": {}, "usage": VALUE_HINT_USAGE,
+        "diagnostics": [{"code": "probe", "message": "probe", "recovery_tools": [], "recovery_usage": VALUE_HINT_RECOVERY}],
+    }
+    return hints(ccall(mcp, "fork_add_wave", {"set_id": "1abcd", "wave_id": "1abce-feat x"}))
 
 def observe_surface(impl, mcp, roster):
     reg = impl._TOOL_REGISTRY
@@ -350,6 +447,143 @@ with tempfile.TemporaryDirectory() as tmp:
         out["reload_replaced_call"] = ccall(mcp, "wf_close_wave", {"item": "task-9"})["data"]
         out["reload_core_markers"] = markers(mcp, "fork_close_container")
         handler.close()
+
+    elif MODE == "params":
+        DECL.write_text(DECL_ORIG + PARAM_DECL)
+        write_module("fork_delegate", DELEGATE)
+        load_server(); runner = load_thin_runner()
+        mcp = runner.build_server(root)
+        impl = runner.server_impl
+        import mcp_tool_roster
+        from unittest import mock
+        out.update(observe_surface(impl, mcp, mcp_tool_roster))
+        tools = table(mcp)
+        out["schemas"] = {n: normalized(tools[n].parameters) for n in (
+            "wf_add_change", "fork_add_wave", "fork_add_wave_now", "wf_review_wave", "fork_review_prepare",
+            "fork_echo", "fork_say")}
+        out["say_call"] = ccall(mcp, "fork_say", {"words": "hello"})["data"]
+        # A pin reaches the body as the strictly validated value, copied per call.
+        out["whole_calls"] = [ccall(mcp, "fork_say_whole", {"text": "hey"})["data"] for _ in range(2)]
+        (root / "notes.txt").write_text("alpha\nbeta\n")
+        out["read_raw"] = ccall(mcp, "fork_read_raw", {"path": "notes.txt"})["data"].get("content")
+        out["read_canonical"] = ccall(mcp, "code_read", {"path": "notes.txt", "with_line_numbers": False})["data"].get("content")
+        try:
+            sys.modules["fork_delegate"].STAGING.core_handler("wf_remove_change")
+            out["late_core_handler"] = "returned"
+        except Exception as exc:
+            out["late_core_handler"] = type(exc).__name__ + ": " + str(exc)
+        try:
+            ccall(mcp, "fork_say", {"words": "h"})
+            out["say_short"] = "accepted"
+        except Exception as exc:
+            out["say_short"] = type(exc).__name__ + ": " + str(exc)
+        out["descriptions_equal"] = {n: tools[n].description == tools[c].description for n, c in (
+            ("fork_add_wave", "wf_add_change"), ("fork_review_prepare", "wf_review_wave"))}
+        out["annotations_equal"] = {n: tools[n].annotations == tools[c].annotations for n, c in (
+            ("fork_add_wave", "wf_add_change"), ("fork_review_prepare", "wf_review_wave"))}
+        out["markers"] = {n: markers(mcp, n) for n in (
+            "wf_add_change", "fork_add_wave", "fork_add_wave_now", "wf_review_wave", "fork_review_prepare", "wf_remove_change")}
+        out["wraps_canonical"] = tools["fork_add_wave"].fn.__wrapped__ is tools["wf_add_change"].fn
+        install_counting_lock_probe(impl)
+        add_calls, review_calls, remove_calls = [], [], []
+        spy_response(impl, "wf_add_change_response", add_calls)
+        spy_response(impl, "wf_review_wave_response", review_calls)
+        spy_response(impl, "wf_remove_change_response", remove_calls)
+        handler = runner._get_handler()
+        costs = []
+        with mock.patch.object(handler.telemetry, "record_tool_cost", lambda name, **kw: costs.append(name)):
+            out["swap_call"] = ccall(mcp, "fork_add_wave", {"set_id": "1abcd", "wave_id": "1abce-feat x"})["data"]
+            out["swap_cost"] = list(costs)
+            out["swap_lock_acquired"] = impl._WF_LOCK_PROBE["acquired"]
+            out["pinned_add_call"] = ccall(mcp, "fork_add_wave_now", {"set_id": "1abcd", "wave_id": "1abce-feat x"})["data"]
+            out["review_call"] = ccall(mcp, "fork_review_prepare", {"wave_id": "1abcd"})
+            del costs[:]
+            impl._WF_LOCK_PROBE["acquired"] = 0
+            out["delegate_call"] = ccall(mcp, "wf_remove_change", {"wave_id": "1abcd", "change_id": "1abce-feat x"})
+            out["delegate_cost"] = list(costs)
+            out["delegate_lock_acquired"] = impl._WF_LOCK_PROBE["acquired"]
+        out["add_calls"] = list(add_calls)
+        out["review_calls"] = list(review_calls)
+        out["remove_calls"] = list(remove_calls)
+        before = (len(add_calls), len(review_calls))
+        extras = {}
+        for label, name, args in (
+            ("renamed_away", "fork_add_wave", {"set_id": "1abcd", "wave_id": "1abce-feat x", "change_id": "other"}),
+            ("pinned_override", "fork_add_wave_now", {"set_id": "1abcd", "wave_id": "1abce-feat x", "mode": "dry_run"}),
+            ("pinned_phase", "fork_review_prepare", {"wave_id": "1abcd", "phase": "implementation"}),
+            ("nested_kwargs", "fork_add_wave", {"set_id": "1abcd", "wave_id": "1abce-feat x", "kwargs": {"mode": "create"}}),
+            ("stranger", "fork_review_prepare", {"wave_id": "1abcd", "bogus": 1}),
+        ):
+            result = ccall(mcp, name, args)
+            extras[label] = {"codes": codes(result), "data": result.get("data"),
+                             "message": [d.get("message") for d in result.get("diagnostics", [])]}
+        out["extras"] = extras
+        out["extras_reached_canonical"] = [len(add_calls), len(review_calls)] != list(before)
+        out["empty_kwargs_call"] = codes(ccall(mcp, "fork_add_wave", {"set_id": "1abcd", "wave_id": "1abce-feat x", "kwargs": {}}))
+        checkpoint = root / ".wavefoundry" / "upgrade-in-progress.json"
+        checkpoint.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint.write_text(json.dumps({"current_phase": "extracting"}))
+        calls_before = len(add_calls)
+        out["guarded"] = codes(ccall(mcp, "fork_add_wave", {"set_id": "1abcd", "wave_id": "1abce-feat x"}))
+        out["guarded_reached_canonical"] = len(add_calls) != calls_before
+        checkpoint.unlink()
+        with busy_lock(impl):
+            out["busy"] = hints(ccall(mcp, "fork_add_wave", {"set_id": "1abcd", "wave_id": "1abce-feat x"}))
+        out["value_hints"] = value_hints(impl, mcp)
+        ext = sys.modules["mcp_tool_extensions"]
+        specs = impl._alias_call_specs(tools)
+        out["call_specs"] = {k: {"aliases": [list(a) for a in v["aliases"]], "defaults": v["defaults"]} for k, v in specs.items()}
+        served = ext.served_name_map()
+        prepare_only = {"wf_review_wave": specs["wf_review_wave"]}
+        delivery = {"wf_review_wave": {"aliases": specs["wf_review_wave"]["aliases"] + [("fork_review_delivery", {}, {"phase": "implementation"})],
+                                       "defaults": specs["wf_review_wave"]["defaults"]}}
+        rewrite = lambda usage, calls=specs: impl._rewrite_served_names({"usage": usage}, served, calls)["usage"]
+        out["hint_lists"] = impl._rewrite_served_names({"next_tools": ["wf_review_wave", "wf_add_change"],
+                                                         "diagnostics": [{"recovery_tools": ["wf_review_wave"]}]}, served, specs)
+        out["hint_usage"] = {
+            "pin_present_equal": rewrite("wf_review_wave(wave_id='1abcd', phase='prepare')"),
+            "pin_present_differs": rewrite("wf_review_wave(wave_id='1abcd', phase='implementation')"),
+            "pin_absent_default_differs": rewrite("wf_review_wave(wave_id='1abcd')", prepare_only),
+            "pin_absent_default_equal": rewrite("wf_review_wave(wave_id='1abcd')", delivery),
+            "swap": rewrite("then wf_add_change(wave_id='1abcd', change_id='1abce-feat x', mode='create') now"),
+            "unparseable": rewrite("wf_add_change(wave_id='1abcd', change_id="),
+            "non_literal": rewrite("wf_add_change(wave_id=wave, change_id=change)"),
+            "duplicate": rewrite("wf_add_change(wave_id='a', wave_id='b')"),
+            "star_star": rewrite("wf_add_change(**opts)"),
+            "pinned_non_literal_value": rewrite("wf_review_wave(wave_id=w, phase='prepare')"),
+            "pinned_non_literal_pin": rewrite("wf_review_wave(wave_id='w', phase=p)"),
+            "prose": rewrite("retry wf_add_change after the lock clears"),
+            "placeholder": rewrite("wf_add_change(...) once free"),
+            "pinned_placeholder": rewrite("wf_review_wave(...)"),
+        }
+        out["extensions"] = impl.wf_server_info_response(root)["data"]["extensions"]
+        result = runner.perform_mcp_reload()
+        out["reload_status"] = result["status"]
+        out["reload_schema"] = normalized(table(mcp)["fork_add_wave"].parameters)
+        out["reload_wraps_canonical"] = table(mcp)["fork_add_wave"].fn.__wrapped__ is table(mcp)["wf_add_change"].fn
+        handler.close()
+
+    elif MODE == "params_hidden":
+        # Wave 1zim3 repair: a hidden canonical name whose only unpinned alias is a rename.
+        DECL.write_text(DECL_ORIG + PARAM_DECL + '\nEXTENSION_HIDDEN_TOOLS = ("wf_add_change",)\n')
+        write_module("fork_delegate", DELEGATE)
+        load_server(); runner = load_thin_runner()
+        mcp = runner.build_server(root)
+        impl = runner.server_impl
+        out["hidden_served"] = "wf_add_change" in table(mcp)
+        with busy_lock(impl):
+            out["busy"] = hints(ccall(mcp, "fork_add_wave", {"set_id": "1abcd", "wave_id": "1abce-feat x"}))
+        out["value_hints"] = value_hints(impl, mcp)
+        ext = sys.modules["mcp_tool_extensions"]
+        specs = impl._alias_call_specs(table(mcp))
+        served = ext.served_name_map()
+        rewritten = impl._rewrite_served_names({
+            "next_tools": ["wf_add_change"],
+            "usage": "wf_add_change is hidden; call wf_add_change(wave_id=w, change_id=c) or wf_add_change (wave_id='a')",
+            "diagnostics": [{"recovery_tools": ["wf_add_change"], "recovery_usage": "retry wf_add_change later"}],
+        }, served, specs)
+        out["rewritten"] = rewritten
+        runner._get_handler().close()
 
     elif MODE == "ext":
         DECL.write_text(DECL_ORIG + GOOD_DECL)
@@ -522,6 +756,14 @@ with tempfile.TemporaryDirectory() as tmp:
             "        return {'status': 'ok', 'data': {'item': item}}\n"
         ))
         write_module("open_replacement", "def register(mcp, get_handler):\n    @mcp.tool()\n    def wf_close_wave(item: str):\n        return {}\n")
+        write_module("ask_undeclared", "def register(mcp, get_handler):\n    mcp.core_handler('wf_help')\n")
+        write_module("echo_tool", (
+            "import server_impl\n"
+            "def register(mcp, get_handler):\n"
+            "    @mcp.tool()\n"
+            "    def acme_echo(text: str = '', count: int = 3, **kwargs):\n"
+            "        return {'status': 'ok'}\n"
+        ))
         outside = Path(tmp) / "outside"
         outside.mkdir()
         (outside / "escaped.py").write_text("def register(mcp, get_handler):\n    pass\n")
@@ -585,9 +827,33 @@ with tempfile.TemporaryDirectory() as tmp:
             "override_gate": dict(EXTENSION_MODULES=("replace_close",), EXTENSION_OVERRIDES={"replace_close": ("wf_open_gate",)}),
             "replace_gate": dict(EXTENSION_MODULES=("replace_close",), EXTENSION_REPLACEMENTS={"replace_close": {"wf_close_gate": {"alias_for_core": "wf_core_close_gate"}}}),
             "hidden_gate": dict(EXTENSION_TOOL_ALIASES={"wf_alias_open_gate": "wf_open_gate"}, EXTENSION_HIDDEN_TOOLS=("wf_open_gate",)),
+            # Wave 1zim3: parameter mappings and core_handler.
+            "params_not_alias": dict(EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"set_id": "wave_id"}}}),
+            "params_unknown_key": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {}, "pin": {}}}),
+            "params_rename_unknown": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"set_id": "set_id"}}}),
+            "params_rename_twice": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"set_id": "wave_id", "box_id": "wave_id"}}}),
+            "params_fixed_unknown": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"fixed": {"force": True}}}),
+            "params_fixed_renamed": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"how": "mode"}, "fixed": {"mode": "create"}}}),
+            "params_fixed_type": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"fixed": {"mode": 5}}}),
+            "params_kwargs_name": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"kwargs": "wave_id"}}}),
+            "params_model_prefix": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"model_id": "wave_id"}}}),
+            "params_model_attribute": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"copy": "wave_id"}}}),
+            "params_duplicate_name": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"change_id": "wave_id"}}}),
+            "params_runner": dict(EXTENSION_TOOL_ALIASES={"wf_alias_reload": "wf_reload_mcp"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_reload": {}}),
+            "params_edit_gate": dict(EXTENSION_TOOL_ALIASES={"wf_alias_gate": "wf_open_gate"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_gate": {"rename": {"name": "gate"}}}),
+            "params_hide_pinned_only": dict(EXTENSION_TOOL_ALIASES={"wf_alias_review": "wf_review_wave"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_review": {"fixed": {"phase": "prepare"}}}, EXTENSION_HIDDEN_TOOLS=("wf_review_wave",)),
+            "params_swap_valid": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"set_id": "wave_id", "wave_id": "change_id"}}}),
+            "core_handler_undeclared": dict(EXTENSION_MODULES=("ask_undeclared",)),
+            # Wave 1zim3 repair: strict fixed values, name rules, extension-tool targets.
+            "params_bool_string": dict(EXTENSION_TOOL_ALIASES={"wf_alias_read": "code_read"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_read": {"fixed": {"with_line_numbers": "false"}}}),
+            "params_int_string": dict(EXTENSION_TOOL_ALIASES={"wf_alias_waves": "wf_list_waves"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_waves": {"fixed": {"limit": "3"}}}),
+            "params_underscore_name": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"_x": "wave_id"}}}),
+            "params_keyword_name": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"class": "wave_id"}}}),
+            "params_ext_rename_unknown": dict(EXTENSION_MODULES=("echo_tool",), EXTENSION_TOOL_PREFIXES=("acme_",), EXTENSION_TOOL_TIERS={"acme_echo": "read"}, EXTENSION_TOOL_ALIASES={"acme_say": "acme_echo"}, EXTENSION_TOOL_PARAMETERS={"acme_say": {"rename": {"words": "nope"}}}),
+            "params_ext_fixed_type": dict(EXTENSION_MODULES=("echo_tool",), EXTENSION_TOOL_PREFIXES=("acme_",), EXTENSION_TOOL_TIERS={"acme_echo": "read"}, EXTENSION_TOOL_ALIASES={"acme_say": "acme_echo"}, EXTENSION_TOOL_PARAMETERS={"acme_say": {"fixed": {"count": "3"}}}),
         }
         empty = dict(EXTENSION_MODULES=(), EXTENSION_TOOL_PREFIXES=(), EXTENSION_TOOL_TIERS={}, EXTENSION_OVERRIDES={},
-                     EXTENSION_TOOL_ALIASES={}, EXTENSION_HIDDEN_TOOLS=(), EXTENSION_REPLACEMENTS={})
+                     EXTENSION_TOOL_ALIASES={}, EXTENSION_TOOL_PARAMETERS={}, EXTENSION_HIDDEN_TOOLS=(), EXTENSION_REPLACEMENTS={})
         results = {}
         for label, attrs in cases.items():
             for key, value in {**empty, **attrs}.items():
@@ -595,7 +861,7 @@ with tempfile.TemporaryDirectory() as tmp:
             for mod in ("acme_tools", "no_register", "raiser", "undeclared_override", "bad_compat", "twin_a", "twin_b", "unprefixed", "escaped", "not_there",
                         "async_tools", "bypass_manager", "bypass_table", "tamperer", "resource_tools", "prompt_tools",
                         "withdrawer", "served_writer", "type_change", "default_change", "extended_tools",
-                        "wf_fork", "retired_name", "reserved_name", "replace_close", "open_replacement"):
+                        "wf_fork", "retired_name", "reserved_name", "replace_close", "open_replacement", "ask_undeclared", "echo_tool"):
                 if getattr(sys.modules.get(mod), "__wf_extension__", False):
                     sys.modules.pop(mod, None)
             mcp = FastMCP("case")
@@ -617,6 +883,8 @@ with tempfile.TemporaryDirectory() as tmp:
                     results[label]["shares_fn"] = table(mcp)["wf_alias_help"].fn is table(mcp)["wf_help"].fn
                     results[label]["parity_defects"] = [d.name for d in impl._TOOL_REGISTRY.parity_defects]
                     results[label]["read_rule"] = "mcp__wavefoundry__wf_alias_help" in mcp_tool_roster.allow_rules(False)
+                if label == "params_swap_valid":
+                    results[label]["parameters"] = normalized(table(mcp)["wf_alias_add"].parameters)
                 if label == "extended_override":
                     results[label]["with_team"] = ccall(mcp, "wf_create_wave", {"slug": "probe", "team": "blue"})["data"]
                     results[label]["core_call"] = ccall(mcp, "wf_create_wave", {"slug": "probe"})["data"]
@@ -668,6 +936,10 @@ def _run(mode: str) -> dict:
     with tempfile.TemporaryDirectory() as temp:
         scratch = Path(temp) / "scripts"
         shutil.copytree(SCRIPTS, scratch, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        # Every mode starts from the shipped empty declaration, whatever this
+        # tree declares (change 1zim4); a mode appends its own declaration.
+        with (scratch / "mcp_tool_extensions.py").open("a", encoding="utf-8") as decl:
+            decl.write(base_declaration_source())
         result = subprocess.run(
             [sys.executable, "-B", "-c", _DRIVER, mode],
             cwd=scratch,
@@ -696,9 +968,16 @@ class StockSurfaceTests(unittest.TestCase):
         self.assertTrue(ext["declaration"]["sha256"])
 
     def test_declaration_module_ships_empty(self):
+        # The module ships the empty declaration; a distribution that edits it
+        # adds its declaration as a profile asset (change 1zim4), as it does
+        # for a record profile, so this fails loudly on any other change.
+        from declaration_support import base_declaration, declaration_profile_match
+        self.assertIsNotNone(declaration_profile_match(),
+                             "the loaded declaration is neither the shipped empty one nor a profile asset's")
         import mcp_tool_extensions
-        self.assertFalse(mcp_tool_extensions.declared())
-        self.assertEqual(mcp_tool_extensions.served_name_map(), {})
+        with base_declaration():
+            self.assertFalse(mcp_tool_extensions.declared())
+            self.assertEqual(mcp_tool_extensions.served_name_map(), {})
 
     def test_empty_declaration_reports_no_served_names(self):
         # Wave 1z8oz: the new provenance fields exist and are empty.
@@ -706,6 +985,7 @@ class StockSurfaceTests(unittest.TestCase):
         self.assertEqual(ext["aliases"], {})
         self.assertEqual(ext["hidden"], [])
         self.assertEqual(ext["replacements"], [])
+        self.assertEqual(ext["parameters"], {})
         self.assertEqual(ext["served_names"], {})
 
 
@@ -888,6 +1168,208 @@ class ReplacementServingTests(unittest.TestCase):
         self.assertEqual(module["replacements"], ["memory_validate", "wf_close_wave", "wf_current_wave", "wf_help", "wf_review_event"])
 
 
+def _renamed_schema(canonical: dict, rename: dict, fixed: dict) -> dict:
+    """The canonical (title-normalized) schema with fields renamed and fixed ones removed."""
+    to_alias = {c: a for a, c in rename.items()}
+    props = {to_alias.get(k, k): v for k, v in canonical["properties"].items() if k not in fixed}
+    required = [to_alias.get(k, k) for k in canonical.get("required", []) if k not in fixed]
+    return {**canonical, "properties": props, "required": required}
+
+
+class ParameterMappedAliasTests(unittest.TestCase):
+    """Wave 1zim3 AC-1, AC-2 and AC-4 through the real build_server and FastMCP call_tool."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.stock = _run("stock")
+        cls.out = _run("params")
+
+    def test_alias_schema_is_the_renamed_canonical_schema(self):
+        schemas = self.out["schemas"]
+        swap = {"set_id": "wave_id", "wave_id": "change_id"}
+        self.assertEqual(schemas["fork_add_wave"], _renamed_schema(schemas["wf_add_change"], swap, {}))
+        self.assertEqual(schemas["fork_add_wave_now"], _renamed_schema(schemas["wf_add_change"], swap, {"mode": "create"}))
+        self.assertEqual(schemas["fork_review_prepare"], _renamed_schema(schemas["wf_review_wave"], {}, {"phase": "prepare"}))
+        self.assertEqual(schemas["fork_say"], _renamed_schema(schemas["fork_echo"], {"words": "text"}, {}))
+        # Annotated metadata and descriptions are carried, not re-derived.
+        self.assertEqual(schemas["fork_say"]["properties"]["words"], {"description": "Text to echo.", "minLength": 2, "type": "string"})
+        self.assertEqual(schemas["fork_add_wave"]["required"], ["set_id", "wave_id"])
+        self.assertIs(schemas["fork_add_wave"]["additionalProperties"], False)
+
+    def test_alias_keeps_canonical_description_annotations_and_wrappers(self):
+        self.assertEqual(self.out["descriptions_equal"], {"fork_add_wave": True, "fork_review_prepare": True})
+        self.assertEqual(self.out["annotations_equal"], {"fork_add_wave": True, "fork_review_prepare": True})
+        self.assertTrue(self.out["wraps_canonical"])
+        for alias, canonical in (("fork_add_wave", "wf_add_change"), ("fork_add_wave_now", "wf_add_change"),
+                                 ("fork_review_prepare", "wf_review_wave")):
+            self.assertEqual(self.out["markers"][alias], self.out["markers"][canonical], alias)
+
+    def test_calls_reach_the_canonical_body_with_translated_arguments(self):
+        self.assertEqual(self.out["swap_call"], {"spied": "wf_add_change_response"})
+        swap, pinned = self.out["add_calls"]
+        self.assertEqual(swap["args"], ["1abcd", "1abce-feat x"])
+        self.assertEqual(swap["kwargs"], {"mode": "dry_run"})
+        self.assertEqual(pinned["args"], ["1abcd", "1abce-feat x"])
+        self.assertEqual(pinned["kwargs"], {"mode": "create"})
+        (review,) = self.out["review_calls"]
+        self.assertEqual(review["args"], ["1abcd"])
+        self.assertEqual(review["kwargs"], {"phase": "prepare"})
+        self.assertEqual(self.out["say_call"], {"text": "hello", "count": 3, "ratio_type": "float", "tags": None})
+        self.assertIn("String should have at least 2 characters", self.out["say_short"])
+
+    def test_a_pin_is_forwarded_as_its_validated_value(self):
+        # The declared int 1 for a float field reaches the body as the validated 1.0.
+        first, second = self.out["whole_calls"]
+        self.assertEqual(first["ratio_type"], "float")
+        self.assertEqual(first["tags"], ["a", "seen"])
+
+    def test_a_mutable_pin_mutated_by_the_body_does_not_leak(self):
+        self.assertEqual(self.out["whole_calls"][1]["tags"], ["a", "seen"])
+
+    def test_a_valid_pin_behaves_like_the_canonical_call(self):
+        self.assertEqual(self.out["read_raw"], self.out["read_canonical"])
+        self.assertTrue(self.out["read_raw"].startswith("alpha"), self.out["read_raw"])
+
+    def test_core_handler_refuses_after_register_returns(self):
+        self.assertIn("ExtensionLoadError: core_handler is available only while a module registers",
+                      self.out["late_core_handler"])
+
+    def test_extra_arguments_are_refused_and_never_forwarded(self):
+        extras = self.out["extras"]
+        for label, rejected in (("renamed_away", ["change_id"]), ("pinned_override", ["mode"]),
+                                ("pinned_phase", ["phase"]), ("nested_kwargs", ["mode"]), ("stranger", ["bogus"])):
+            with self.subTest(case=label):
+                self.assertEqual(extras[label]["codes"], ["error", "unknown_arguments"])
+                self.assertEqual(extras[label]["data"]["rejected_arguments"], rejected)
+        self.assertEqual(extras["pinned_override"]["data"]["supported_arguments"], ["set_id", "wave_id"])
+        self.assertIn("Supported parameters: set_id, wave_id.", extras["pinned_override"]["message"][0])
+        self.assertEqual(extras["pinned_phase"]["data"]["supported_arguments"], ["wave_id"])
+        self.assertFalse(self.out["extras_reached_canonical"])
+        # The empty compatibility payload is accepted, as on canonical tools.
+        self.assertEqual(self.out["empty_kwargs_call"], ["ok"])
+
+    def test_lock_taken_once_inside_the_canonical_body(self):
+        swap = self.out["add_calls"][0]
+        self.assertTrue(swap["lock_held"])
+        self.assertEqual(swap["acquired"], 1)
+        self.assertEqual(self.out["swap_lock_acquired"], 1)
+
+    def test_upgrade_checkpoint_fails_fast(self):
+        self.assertEqual(self.out["guarded"], ["error", "upgrade_in_progress"])
+        self.assertFalse(self.out["guarded_reached_canonical"])
+
+    def test_cost_recorded_once_under_the_canonical_name(self):
+        self.assertEqual(self.out["swap_cost"], ["wf_add_change"])
+
+    def test_aliases_take_the_canonical_tier_in_allow_rules(self):
+        self.assertEqual(self.out["parity_defects"], [])
+        self.assertEqual(self.out["served_vs_tiers"], [])
+        for alias in ("fork_add_wave", "fork_add_wave_now", "fork_review_prepare"):
+            self.assertEqual(self.out["tiers"][alias], "write", alias)
+            self.assertIn(alias, self.out["write_rules"])
+            self.assertNotIn(alias, self.out["read_rules"])
+
+    def test_busy_hints_name_the_unpinned_alias(self):
+        busy = self.out["busy"]
+        self.assertEqual(busy["codes"], ["error", "lifecycle_mutation_locked"])
+        self.assertEqual(busy["next_tools"], ["fork_add_wave", "wf_current_wave"])
+        self.assertEqual(busy["recovery_usage"], ["fork_add_wave(...) once the concurrent mutation completes"])
+        # Prose names the preferred unpinned alias too.
+        self.assertEqual(busy["usage"], "retry fork_add_wave after the concurrent lifecycle mutation completes")
+
+    def test_served_call_hints_never_rewrite_argument_values(self):
+        _assert_value_hints_kept(self, self.out["value_hints"])
+
+    def test_hint_rules_on_the_live_call_specs(self):
+        specs = self.out["call_specs"]
+        self.assertEqual(specs["wf_add_change"]["aliases"][0][0], "fork_add_wave")
+        self.assertEqual(specs["wf_review_wave"]["defaults"], {"phase": "implementation"})
+        lists = self.out["hint_lists"]
+        self.assertEqual(lists["next_tools"], ["wf_review_wave", "fork_add_wave"])
+        self.assertEqual(lists["diagnostics"][0]["recovery_tools"], ["wf_review_wave"])
+        usage = self.out["hint_usage"]
+        self.assertEqual(usage["pin_present_equal"], "fork_review_prepare(wave_id='1abcd')")
+        self.assertEqual(usage["pin_present_differs"], "wf_review_wave(wave_id='1abcd', phase='implementation')")
+        self.assertEqual(usage["pin_absent_default_differs"], "wf_review_wave(wave_id='1abcd')")
+        self.assertEqual(usage["pin_absent_default_equal"], "fork_review_delivery(wave_id='1abcd')")
+        self.assertEqual(usage["swap"], "then fork_add_wave(set_id='1abcd', wave_id='1abce-feat x', mode='create') now")
+        self.assertEqual(usage["unparseable"], "wf_add_change(wave_id='1abcd', change_id=")
+        self.assertEqual(usage["non_literal"], "fork_add_wave(set_id=wave, wave_id=change)")
+        self.assertEqual(usage["duplicate"], "wf_add_change(wave_id='a', wave_id='b')")
+        self.assertEqual(usage["star_star"], "wf_add_change(**opts)")
+        self.assertEqual(usage["pinned_non_literal_value"], "fork_review_prepare(wave_id=w)")
+        self.assertEqual(usage["pinned_non_literal_pin"], "wf_review_wave(wave_id='w', phase=p)")
+        self.assertEqual(usage["prose"], "retry fork_add_wave after the lock clears")
+        self.assertEqual(usage["placeholder"], "fork_add_wave(...) once free")
+        self.assertEqual(usage["pinned_placeholder"], "wf_review_wave(...)")
+
+    def test_override_delegates_to_the_core_handler(self):
+        call = self.out["delegate_call"]
+        self.assertEqual(call["data"], {"spied": "wf_remove_change_response"})
+        self.assertTrue(call["delegated"])
+        (remove,) = self.out["remove_calls"]
+        self.assertTrue(remove["lock_held"])
+        self.assertEqual(self.out["delegate_lock_acquired"], 1)
+        self.assertEqual(self.out["delegate_cost"], ["wf_remove_change"])
+        # The override gets the canonical name-keyed wrappers once; the core handler none.
+        self.assertEqual(self.out["markers"]["wf_remove_change"], ["cost", "lock", "guard", "setup", "rewrite"])
+
+    def test_provenance_lists_parameter_mappings(self):
+        params = self.out["extensions"]["parameters"]
+        self.assertEqual(params["fork_add_wave_now"], {
+            "canonical": "wf_add_change", "rename": {"set_id": "wave_id", "wave_id": "change_id"}, "fixed": {"mode": "create"},
+        })
+        self.assertEqual(params["fork_review_prepare"], {"canonical": "wf_review_wave", "rename": {}, "fixed": {"phase": "prepare"}})
+        # A pinned-only canonical name keeps its canonical served name.
+        self.assertNotIn("wf_review_wave", self.out["extensions"]["served_names"])
+        self.assertEqual(self.out["extensions"]["served_names"]["wf_add_change"], "fork_add_wave")
+
+    def test_reload_rebuilds_the_translator(self):
+        self.assertEqual(self.out["reload_status"], "ok")
+        self.assertEqual(self.out["reload_schema"], self.out["schemas"]["fork_add_wave"])
+        self.assertTrue(self.out["reload_wraps_canonical"])
+
+
+_VALUE_HINTS_SERVED = {
+    "usage": "fork_add_wave(set_id='wf_add_change', wave_id='fork_add_wave') then wf_review_wave(wave_id='wf_add_change')",
+    "recovery_usage": ["dict(x='wf_add_change') or fork_add_wave(set_id=f(wf_add_change)); retry fork_add_wave"],
+}
+
+
+def _assert_value_hints_kept(case, value_hints):
+    # Wave 1zim3 repair: only callee and keyword names change; argument values
+    # (including ones equal to a canonical or alias tool name) are byte-identical.
+    case.assertEqual(value_hints["usage"], _VALUE_HINTS_SERVED["usage"])
+    case.assertEqual(value_hints["recovery_usage"], _VALUE_HINTS_SERVED["recovery_usage"])
+
+
+class HiddenMappedAliasHintTests(unittest.TestCase):
+    """Wave 1zim3 repair: a hidden canonical name with only a rename-only alias."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.out = _run("params_hidden")
+
+    def test_busy_hints_name_only_served_tools(self):
+        self.assertFalse(self.out["hidden_served"])
+        busy = self.out["busy"]
+        self.assertEqual(busy["codes"], ["error", "lifecycle_mutation_locked"])
+        self.assertEqual(busy["next_tools"], ["fork_add_wave", "wf_current_wave"])
+        self.assertEqual(busy["recovery_tools"], [["fork_add_wave", "wf_current_wave"]])
+        self.assertEqual(busy["usage"], "retry fork_add_wave after the concurrent lifecycle mutation completes")
+        self.assertEqual(busy["recovery_usage"], ["fork_add_wave(...) once the concurrent mutation completes"])
+
+    def test_served_call_hints_never_rewrite_argument_values(self):
+        _assert_value_hints_kept(self, self.out["value_hints"])
+
+    def test_prose_lists_and_calls_name_the_alias(self):
+        out = self.out["rewritten"]
+        self.assertEqual(out["next_tools"], ["fork_add_wave"])
+        self.assertEqual(out["usage"], "fork_add_wave is hidden; call fork_add_wave(set_id=w, wave_id=c) or fork_add_wave(set_id='a')")
+        self.assertEqual(out["diagnostics"][0]["recovery_tools"], ["fork_add_wave"])
+        self.assertEqual(out["diagnostics"][0]["recovery_usage"], "retry fork_add_wave later")
+
+
 class ServedNameRewriteTests(unittest.TestCase):
     """Wave 1z8oz Requirement 6: the four hint fields, exact and whole-name."""
 
@@ -924,6 +1406,198 @@ class ServedNameRewriteTests(unittest.TestCase):
     def test_empty_map_returns_the_same_object(self):
         result = {"next_tools": ["wf_close_wave"]}
         self.assertIs(self.impl._rewrite_served_names(result, {}), result)
+
+    def test_a_plain_alias_beside_a_pinned_one_is_an_identity_mapping(self):
+        # Wave 1zim3: the plain alias is preferred; canonical parameters keep their names.
+        calls = {"wf_review_wave": {"aliases": [("fork_review", {}, {}), ("fork_review_prepare", {}, {"phase": "prepare"})],
+                                    "defaults": {"phase": "implementation"}}}
+        names = {"wf_review_wave": "fork_review"}
+        out = self.impl._rewrite_served_names(
+            {"next_tools": ["wf_review_wave"], "usage": "wf_review_wave(wave_id='w', phase='prepare'); wf_review_wave is read-only"},
+            names, calls)
+        self.assertEqual(out["next_tools"], ["fork_review"])
+        self.assertEqual(out["usage"], "fork_review(wave_id='w', phase='prepare'); fork_review is read-only")
+
+    def test_call_rewrite_handles_parentheses_in_values_and_unrelated_names(self):
+        calls = {"wf_add_change": {"aliases": [("fork_add_wave", {"wave_id": "set_id", "change_id": "wave_id"}, {})],
+                                   "defaults": {"mode": "dry_run"}}}
+        out = self.impl._rewrite_served_names(
+            {"usage": "wf_add_change(wave_id='a)b', change_id=\"c\") then wf_add_change_x(wave_id='a') or wf_close_wave()"},
+            {"wf_close_wave": "fork_close"}, calls)
+        self.assertEqual(out["usage"], "fork_add_wave(set_id='a)b', wave_id=\"c\") then wf_add_change_x(wave_id='a') or fork_close()")
+
+    def test_whitespace_before_the_call_parenthesis_is_still_a_call(self):
+        # Wave 1zim3 reverification: prose mapping must not give the alias name to
+        # call text whose `(` follows after spaces or a newline.
+        calls = {"wf_add_change": {"aliases": [("fork_add_wave", {"wave_id": "set_id", "change_id": "wave_id"}, {})],
+                                   "defaults": {"mode": "dry_run"}}}
+        names = {"wf_add_change": "fork_add_wave"}
+        rewrite = lambda usage: self.impl._rewrite_served_names({"usage": usage}, names, calls)["usage"]
+        self.assertEqual(rewrite("wf_add_change (wave_id='a')"), "fork_add_wave(set_id='a')")
+        # A newline before `(` is not parsed as a call, so the text stays canonical rather
+        # than pairing the alias name with canonical parameters.
+        self.assertEqual(rewrite("wf_add_change\n(wave_id='a')"), "wf_add_change\n(wave_id='a')")
+        # A placeholder beside keywords keeps the canonical text (spec).
+        for usage in ("wf_add_change(..., mode='create')",):
+            with self.subTest(usage=usage):
+                self.assertEqual(self.impl._rewrite_served_names({"usage": usage}, names, calls)["usage"], usage)
+
+    def test_present_pin_must_match_type_as_well_as_value(self):
+        calls = {"wf_x": {"aliases": [("fork_x", {}, {"flag": True})], "defaults": {}}}
+        rewrite = lambda usage: self.impl._rewrite_served_names({"usage": usage}, {}, calls)["usage"]
+        self.assertEqual(rewrite("wf_x(flag=1)"), "wf_x(flag=1)")
+        self.assertEqual(rewrite("wf_x(flag=True, n=2)"), "fork_x(n=2)")
+        self.assertEqual(rewrite("wf_x(n=2)"), "wf_x(n=2)")  # absent with no canonical default
+        self.assertEqual(rewrite("wf_x(**opts)"), "wf_x(**opts)")
+
+    def _value_rewrite(self, usage, names=None, calls=None):
+        names = {"wf_close_wave": "fork_close"} if names is None else names
+        return self.impl._rewrite_served_names({"usage": usage}, names, calls)["usage"]
+
+    def test_mapped_calls_keep_argument_values(self):
+        # Wave 1zim3 repair: a value equal to a tool name, or holding `name(`, is not a name.
+        calls = {"wf_add_change": {"aliases": [("fork_add_wave", {"wave_id": "set_id", "change_id": "wave_id"}, {})],
+                                   "defaults": {"mode": "dry_run"}}}
+        for usage, expected in (
+            ("wf_add_change(wave_id='wf_add_change')", "fork_add_wave(set_id='wf_add_change')"),
+            ("wf_add_change(wave_id='wf_close_wave', change_id=wf_close_wave)",
+             "fork_add_wave(set_id='wf_close_wave', wave_id=wf_close_wave)"),
+            ("wf_add_change(wave_id='wf_add_change(', change_id='x')", "fork_add_wave(set_id='wf_add_change(', wave_id='x')"),
+            ("wf_add_change(wave_id=wf_add_change(change_id='wf_close_wave'))",
+             "fork_add_wave(set_id=wf_add_change(change_id='wf_close_wave'))"),
+            # Unmapped (pinned-only, non-literal pin) keeps the canonical callee and the values.
+            ("wf_add_change(**{'wave_id': 'wf_close_wave'})", "wf_add_change(**{'wave_id': 'wf_close_wave'})"),
+        ):
+            with self.subTest(usage=usage):
+                self.assertEqual(self._value_rewrite(usage, calls=calls), expected)
+
+    def test_whole_name_calls_keep_argument_values(self):
+        # The 1z8oz plain-alias path: only the callee is renamed.
+        for usage, expected in (
+            ("wf_close_wave(wave_id='wf_close_wave')", "fork_close(wave_id='wf_close_wave')"),
+            ("wf_close_wave (wave_id=wf_close_wave)", "fork_close (wave_id=wf_close_wave)"),
+            ("wf_close_wave(wave_id=wf_close_wave(...))", "fork_close(wave_id=wf_close_wave(...))"),
+            ("wf_close_wave(note='wf_close_wave(x)')", "fork_close(note='wf_close_wave(x)')"),
+            ("wf_close_wave(note=\"a ) wf_close_wave\")", "fork_close(note=\"a ) wf_close_wave\")"),
+            # Any parsed callee's values are protected, not only served names.
+            ("dict(x='wf_close_wave') then wf_close_wave()", "dict(x='wf_close_wave') then fork_close()"),
+        ):
+            with self.subTest(usage=usage):
+                self.assertEqual(self._value_rewrite(usage), expected)
+
+    def test_unparseable_call_arguments_are_left_unchanged(self):
+        for usage, expected in (
+            # Bounded by the matching parenthesis: text after it is still rewritten.
+            ("wf_close_wave(path=<wf_close_wave>) then wf_close_wave", "fork_close(path=<wf_close_wave>) then fork_close"),
+            # No matching parenthesis: the rest of the string is left unchanged.
+            ("wf_close_wave(note='wf_close_wave", "fork_close(note='wf_close_wave"),
+            ("wf_close_wave(a=(wf_close_wave", "fork_close(a=(wf_close_wave"),
+        ):
+            with self.subTest(usage=usage):
+                self.assertEqual(self._value_rewrite(usage), expected)
+
+    def test_unparseable_call_bound_respects_quotes_and_escapes(self):
+        for usage, expected in (
+            ("wf_close_wave(p=<a ')' wf_close_wave>)", "fork_close(p=<a ')' wf_close_wave>)"),
+            ("wf_close_wave(p=<'it\\'s )' wf_close_wave>) then wf_close_wave",
+             "fork_close(p=<'it\\'s )' wf_close_wave>) then fork_close"),
+            # An unknown name whose call text does not parse is prose, so a served name after it maps.
+            ("a(1 wf_close_wave", "a(1 fork_close"),
+            # A `)` inside a comment does not close the call; a comment without a newline runs to the end.
+            ("wf_close_wave(p=<1, # )\n wf_close_wave>) after wf_close_wave",
+             "fork_close(p=<1, # )\n wf_close_wave>) after fork_close"),
+            ("wf_close_wave(p=<1 # ) wf_close_wave", "fork_close(p=<1 # ) wf_close_wave"),
+            # A `)` and a lone quote inside a triple-quoted string do not end it.
+            ("wf_close_wave(p=<'''a ) ' wf_close_wave'''>) then wf_close_wave",
+             "fork_close(p=<'''a ) ' wf_close_wave'''>) then fork_close"),
+            ('wf_close_wave(p=<"""x ) " wf_close_wave""">) then wf_close_wave',
+             'fork_close(p=<"""x ) " wf_close_wave""">) then fork_close'),
+        ):
+            with self.subTest(usage=usage):
+                self.assertEqual(self._value_rewrite(usage), expected)
+
+    def test_call_parsing_is_bounded(self):
+        # Wave 1zim3 repair (NEW-1): at most one parse per candidate and a fixed
+        # number of candidates per string, whatever the nesting.
+        from unittest import mock
+        import ast as ast_module
+        limit = self.impl._HINT_CALL_ATTEMPTS
+        real_parse = ast_module.parse
+        count = [0]
+
+        def counting_parse(*args, **kwargs):
+            count[0] += 1
+            if count[0] > limit:
+                raise AssertionError(f"more than {limit} parses for one hint")
+            return real_parse(*args, **kwargs)
+
+        cases = (
+            "a(" * 400 + ")" * 400,
+            "a(" * 1600 + ")" * 1600,
+            "code_list_files(glob='x' " + "a(" * 380 + ")" * 380 + "/**')",
+            "wf_close_wave(" * 300 + ")" * 300,
+        )
+        for usage in cases:
+            with self.subTest(length=len(usage), head=usage[:20]):
+                count[0] = 0
+                with mock.patch.object(self.impl.ast, "parse", counting_parse):
+                    started = time.monotonic()
+                    out = self._value_rewrite(usage)
+                    elapsed = time.monotonic() - started
+                self.assertLessEqual(count[0], limit)
+                self.assertLess(elapsed, 5.0)
+                if usage.startswith("wf_close_wave"):
+                    self.assertEqual(out, "fork_close" + usage[len("wf_close_wave"):])
+                else:
+                    self.assertEqual(out, usage)
+
+    def test_hint_strings_over_the_length_cap_are_unchanged(self):
+        usage = "retry wf_close_wave(wave_id='w') " * 3000
+        self.assertGreater(len(usage), self.impl._HINT_CALL_TEXT_LIMIT)
+        self.assertEqual(self._value_rewrite(usage), usage)
+
+    def test_mapped_calls_keep_every_byte_but_keyword_names(self):
+        # Wave 1zim3 repair (NEW-2): parentheses, comments and newlines survive.
+        swap = {"wf_add_change": {"aliases": [("fork_add_wave", {"wave_id": "set_id", "change_id": "wave_id"}, {})],
+                                  "defaults": {}}}
+        for usage, expected in (
+            ("wf_add_change(wave_id=(x:=1))", "fork_add_wave(set_id=(x:=1))"),
+            ("wf_add_change(wave_id=(a), change_id=( 'b' ))", "fork_add_wave(set_id=(a), wave_id=( 'b' ))"),
+            ("wf_add_change(\n    wave_id='w',  # the wave\n    change_id='c',\n)",
+             "fork_add_wave(\n    set_id='w',  # the wave\n    wave_id='c',\n)"),
+            ("wf_add_change(wave_id='été', change_id='c')", "fork_add_wave(set_id='été', wave_id='c')"),
+        ):
+            with self.subTest(usage=usage):
+                self.assertEqual(self._value_rewrite(usage, names={}, calls=swap), expected)
+
+    def test_pinned_keywords_are_removed_in_any_position(self):
+        calls = {
+            "wf_x": {"aliases": [("fork_x", {"a": "b"}, {"mode": "create"})], "defaults": {}},
+            "wf_y": {"aliases": [("fork_y", {"a": "b"}, {"mode": "create", "n": 1})], "defaults": {}},
+        }
+        for usage, expected in (
+            ("wf_x(mode='create', a=1, c=2)", "fork_x(b=1, c=2)"),
+            ("wf_x(a=1, mode='create', c=2)", "fork_x(b=1, c=2)"),
+            ("wf_x(a=1, c=2, mode='create')", "fork_x(b=1, c=2)"),
+            ("wf_x(a=1, c=2, mode='create',)", "fork_x(b=1, c=2,)"),
+            ("wf_x(mode='create')", "fork_x()"),
+            ("wf_y(a=1, mode='create', n=1)", "fork_y(b=1)"),
+            ("wf_y(mode='create', a=1, n=1)", "fork_y(b=1)"),
+            ("wf_y(n=1, mode='create', a=(1))", "fork_y(b=(1))"),
+            ("wf_x(a=(1), mode=('create'))", "fork_x(b=(1))"),
+            # A comment where a pinned keyword would be removed keeps the canonical form.
+            ("wf_x(a=1,  # keep\n mode='create')", "wf_x(a=1,  # keep\n mode='create')"),
+        ):
+            with self.subTest(usage=usage):
+                self.assertEqual(self._value_rewrite(usage, names={}, calls=calls), expected)
+
+    def test_prose_outside_calls_still_maps(self):
+        calls = {"wf_add_change": {"aliases": [("fork_add_wave", {"wave_id": "set_id"}, {})], "defaults": {}}}
+        self.assertEqual(
+            self._value_rewrite("retry wf_close_wave; or wf_add_change later (see wf_close_wave)", calls=calls),
+            "retry fork_close; or fork_add_wave later (see fork_close)")
+        self.assertEqual(self._value_rewrite("wf_add_change(wave_id='w') after wf_add_change", calls=calls),
+                         "fork_add_wave(set_id='w') after fork_add_wave")
 
 
 class ExtensionServingTests(unittest.TestCase):
@@ -1069,6 +1743,28 @@ class ExtensionRefusalTests(unittest.TestCase):
         "replace_alias_retired": "alias_for_core of 'wf_close_wave' 'wf_review_evidence' is a name reserved by core _RENAMED_MCP_TOOLS",
         "replace_open_schema": "replacement 'wf_close_wave' does not reject undeclared arguments",
         "replace_not_registered": "declares replacement 'wf_close_wave' but does not register it",
+        # Wave 1zim3.
+        "params_not_alias": "parameter mapping for 'wf_alias_add', which is not an alias",
+        "params_unknown_key": "parameter mapping for 'wf_alias_add' has unknown keys ['pin']",
+        "params_rename_unknown": "renames 'set_id', which is not a parameter of 'wf_add_change'",
+        "params_rename_twice": "renames canonical parameter 'wave_id' twice",
+        "params_fixed_unknown": "fixes 'force', which is not a parameter of 'wf_add_change'",
+        "params_fixed_renamed": "fixes 'mode', which it also renames",
+        "params_fixed_type": "fixes 'mode' to 5, which 'wf_add_change' rejects",
+        "params_kwargs_name": "renames to reserved parameter name 'kwargs'",
+        "params_model_prefix": "renames to reserved parameter name 'model_id'",
+        "params_model_attribute": "renames to 'copy', which collides with a model attribute",
+        "params_duplicate_name": "serves parameter names more than once: ['change_id']",
+        "params_runner": "maps an alias of runner tool 'wf_reload_mcp'",
+        "params_edit_gate": "maps an alias of edit-gate tool 'wf_open_gate'",
+        "params_hide_pinned_only": "hidden name 'wf_review_wave' has only aliases with fixed parameters",
+        "core_handler_undeclared": "asks for core_handler('wf_help') but does not declare it as an override",
+        "params_bool_string": "fixes 'with_line_numbers' to 'false', which 'code_read' rejects",
+        "params_int_string": "fixes 'limit' to '3', which 'wf_list_waves' rejects",
+        "params_underscore_name": "renames to '_x', which is not a parameter name",
+        "params_keyword_name": "renames to 'class', which is a Python keyword",
+        "params_ext_rename_unknown": "renames 'nope', which is not a parameter of 'acme_echo'",
+        "params_ext_fixed_type": "fixes 'count' to '3', which 'acme_echo' rejects",
         # Wave 1zicq.
         "replace_downgrade": "replacement 'wf_close_wave' may not lower its tier from 'write' to 'read'",
         "override_gate": "may not override edit-gate tool 'wf_open_gate'",
@@ -1112,6 +1808,12 @@ class ExtensionRefusalTests(unittest.TestCase):
         self.assertTrue(result["shares_fn"])
         self.assertEqual(result["parity_defects"], [])
         self.assertTrue(result["read_rule"])
+
+    def test_a_parameter_swap_is_a_valid_mapping(self):
+        # Wave 1zim3: an alias parameter may reuse a canonical name that is renamed away.
+        result = self.out["cases"]["params_swap_valid"]
+        self.assertIsNone(result["raised"], result)
+        self.assertEqual(sorted(result["parameters"]["properties"]), ["mode", "set_id", "wave_id"])
 
     def test_changed_default_alone_is_call_compatible(self):
         # A different default changes behavior, not the values callers may send.
@@ -1224,6 +1926,10 @@ def _tool_name_collections() -> set[tuple[str, str]]:
             refs |= {n.attr for n in ast.walk(node.value) if isinstance(n, ast.Attribute)}
             if literals & names or (refs & classified) - {target_names[0]}:
                 rel = path.relative_to(SCRIPTS).as_posix()
+                if rel == "mcp_tool_extensions.py" and target_names[0] in DECLARATION_CONSTANTS:
+                    # A distribution's own declaration names tools by design;
+                    # DeclarationConstantCensusTests classifies these (change 1zim4).
+                    continue
                 found.add((rel, target_names[0]))
     return found
 
@@ -1269,19 +1975,42 @@ class ReservedNameCensusTests(unittest.TestCase):
         self.assertEqual(labels, expected)
 
 
+# Every distribution-edited declaration constant: the helpers below save and
+# restore exactly these, the refusal driver resets them, and declared() counts
+# each. The census test keeps this tuple equal to the module's EXTENSION_* names.
+# The shared base-declaration helper's names (change 1zim4 promoted them to
+# declaration_support, so the helper and this census use one list).
+from declaration_support import DECLARATION_CONSTANTS, apply_base_declaration, base_declaration_source  # noqa: E402
+
+
+class DeclarationConstantCensusTests(unittest.TestCase):
+    """Wave 1zim3 AC-5: a new declaration constant cannot be missed by the save/restore helpers."""
+
+    def test_every_declaration_constant_is_classified(self):
+        import ast
+        tree = ast.parse((SCRIPTS / "mcp_tool_extensions.py").read_text(encoding="utf-8"))
+        names = set()
+        for node in tree.body:
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+            names |= {t.id for t in targets if isinstance(t, ast.Name) and t.id.startswith("EXTENSION_")}
+        self.assertEqual(names, set(DECLARATION_CONSTANTS))
+
+    def test_the_refusal_driver_resets_every_declaration_constant(self):
+        start = _DRIVER.index("empty = dict(")
+        empty_line = _DRIVER[start:_DRIVER.index(")\n", _DRIVER.index("EXTENSION_REPLACEMENTS", start))]
+        for name in DECLARATION_CONSTANTS:
+            self.assertIn(f"{name}=", empty_line, name)
+
+
 class DeclarationValidationTests(unittest.TestCase):
     """Pure helper coverage for the stdlib declaration module."""
 
     def setUp(self):
         import mcp_tool_extensions
         self.ext = mcp_tool_extensions
-        self.saved = {k: getattr(mcp_tool_extensions, k) for k in (
-            "EXTENSION_MODULES", "EXTENSION_TOOL_PREFIXES", "EXTENSION_TOOL_TIERS", "EXTENSION_OVERRIDES",
-            "EXTENSION_TOOL_ALIASES", "EXTENSION_HIDDEN_TOOLS", "EXTENSION_REPLACEMENTS")}
-
-    def tearDown(self):
-        for key, value in self.saved.items():
-            setattr(self.ext, key, value)
+        # Each test declares on the shipped empty base, never on the ambient
+        # declaration a distribution ships (change 1zim4).
+        apply_base_declaration(self)
 
     def test_core_prefixes_are_the_server_prefix_contract(self):
         from server_tools_support import load_server
@@ -1312,10 +2041,11 @@ class DeclarationValidationTests(unittest.TestCase):
             ("EXTENSION_TOOL_ALIASES", {"wf_alias_help": "wf_help"}),
             ("EXTENSION_HIDDEN_TOOLS", ("wf_help",)),
             ("EXTENSION_REPLACEMENTS", {"m": {"wf_help": {"alias_for_core": "wf_core_help"}}}),
+            ("EXTENSION_TOOL_PARAMETERS", {"wf_alias_help": {"fixed": {"goal": "x"}}}),
         ):
             with self.subTest(key=key):
-                for name in self.saved:
-                    setattr(self.ext, name, type(self.saved[name])())
+                for name in DECLARATION_CONSTANTS:
+                    setattr(self.ext, name, type(getattr(self.ext, name))())
                 setattr(self.ext, key, value)
                 self.assertTrue(self.ext.declared())
 
@@ -1328,6 +2058,39 @@ class DeclarationValidationTests(unittest.TestCase):
         })
         core = {"wf_help", "wf_current_wave", "wf_close_wave"}
         self.assertEqual(self.ext.declaration_problems(core_tools=core, runner_tools={"wf_reload_mcp"}), [])
+
+    def test_served_name_map_skips_pinned_aliases(self):
+        # Wave 1zim3: a name-only hint never selects a pinned alias.
+        self.ext.EXTENSION_TOOL_ALIASES = {"wf_pinned": "wf_help", "wf_renamed": "wf_help", "wf_only_pinned": "wf_current_wave"}
+        self.ext.EXTENSION_TOOL_PARAMETERS = {
+            "wf_pinned": {"fixed": {"goal": "x"}},
+            "wf_renamed": {"rename": {"topic": "goal"}},
+            "wf_only_pinned": {"fixed": {"scope": "x"}},
+        }
+        self.assertEqual(self.ext.served_name_map(), {"wf_help": "wf_renamed"})
+        self.assertEqual(self.ext.pinned_aliases(), frozenset({"wf_pinned", "wf_only_pinned"}))
+        core = {"wf_help", "wf_current_wave"}
+        self.assertEqual(self.ext.declaration_problems(core_tools=core, runner_tools=set()), [])
+        self.ext.EXTENSION_HIDDEN_TOOLS = ("wf_help",)
+        self.assertEqual(self.ext.declaration_problems(core_tools=core, runner_tools=set()), [])
+        self.ext.EXTENSION_HIDDEN_TOOLS = ("wf_current_wave",)
+        self.assertEqual(self.ext.declaration_problems(core_tools=core, runner_tools=set()),
+                         ["hidden name 'wf_current_wave' has only aliases with fixed parameters"])
+
+    def test_served_name_map_prefers_a_plain_alias(self):
+        # Wave 1zim3 repair: a plain alias is preferred over an unpinned mapped one.
+        self.ext.EXTENSION_TOOL_ALIASES = {"wf_renamed": "wf_help", "wf_plain": "wf_help"}
+        self.ext.EXTENSION_TOOL_PARAMETERS = {"wf_renamed": {"rename": {"topic": "goal"}}}
+        self.assertEqual(self.ext.served_name_map(), {"wf_help": "wf_plain"})
+
+    def test_the_roster_validates_parameter_mappings_and_tiers_aliases(self):
+        import mcp_tool_roster
+        self.ext.EXTENSION_TOOL_ALIASES = {"wf_alias_add": "wf_add_change"}
+        self.ext.EXTENSION_TOOL_PARAMETERS = {"wf_alias_add": {"rename": {"kwargs": "wave_id"}}}
+        with self.assertRaises(self.ext.ExtensionDeclarationError):
+            mcp_tool_roster.all_tool_tiers()
+        self.ext.EXTENSION_TOOL_PARAMETERS = {"wf_alias_add": {"rename": {"set_id": "wave_id"}}}
+        self.assertEqual(mcp_tool_roster.all_tool_tiers()["wf_alias_add"], mcp_tool_roster.TOOL_TIERS["wf_add_change"])
 
     def test_a_replacement_may_not_lower_a_write_tool_to_read(self):
         # Wave 1zicq: same tier and read-to-write stay allowed.

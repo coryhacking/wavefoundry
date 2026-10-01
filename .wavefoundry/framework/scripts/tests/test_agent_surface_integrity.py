@@ -12,6 +12,9 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 import agent_surface_integrity as subject
 import render_agent_surfaces as renderer
+
+sys.path.insert(0, str(SCRIPTS / "tests"))
+from record_layout_support import waves_dir  # noqa: E402
 from wave_lint_lib.wave_validators import _check_agent_category_metadata, _check_agent_role_metadata
 
 
@@ -135,7 +138,7 @@ class UpgradeSurfacesTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 root = _forked_role_root(Path(tmp))
                 (root / ".wavefoundry" / "index").mkdir(parents=True)
-                (root / "docs" / "waves").mkdir(parents=True, exist_ok=True)
+                waves_dir(root).mkdir(parents=True, exist_ok=True)
                 # the zip that delivered this upgrade carries the CURRENT extension module
                 zp = root / "wavefoundry-1.17.1.zip"
                 with zipfile.ZipFile(zp, "w") as zf:

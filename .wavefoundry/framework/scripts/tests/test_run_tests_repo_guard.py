@@ -251,7 +251,14 @@ class WaveRecordProjectionTests(RepoGuardTestBase):
 
     def setUp(self):
         super().setUp()
-        self.record_rel = "docs/waves/1abcd example/wave.md"
+        # A live record in the configured layout and vocabulary (the shipped
+        # profile, or a profile's); the projection writes only live records.
+        if str(SCRIPTS_DIR) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_DIR))
+        import record_paths
+        import vocabulary_profile
+
+        self.record_rel = f"{record_paths.WAVES_ROOT}/1abcd example/{vocabulary_profile.RECORD_FILENAME}"
         self.record = self.repo / self.record_rel
         self.record.parent.mkdir(parents=True)
         self.before_text = _projected_record(_RECORD_BODY)

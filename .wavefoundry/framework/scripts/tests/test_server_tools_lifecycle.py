@@ -39,22 +39,62 @@ from server_tools_support import (  # noqa: F401 — shared server-test fixtures
     _write_sqlite_index,
 )
 from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
+import record_paths
+import vocabulary_profile
+from record_layout_support import apply_layout, default_profile_only
+
+
+# Profile-aware record helpers (change 1zim6). Fixtures are written in the
+# shipped labels and passed through ``_loc``; paths come from the loaded
+# ``record_paths`` and ``vocabulary_profile``, so under a second profile the
+# records land in the configured live root with the profile's markers.
+_SHIPPED_RECORD_LINES = (
+    ("# Wave Record", "RECORD_TITLE"),
+    ("## Wave Summary", "SUMMARY_HEADING"),
+    ("## Changes", "MEMBER_HEADING"),
+)
+
+
+def _waves_dir(root: Path) -> Path:
+    """The configured live waves root under ``root``."""
+    path = Path(root)
+    for part in record_paths.WAVES_ROOT.split("/"):
+        path = path / part
+    return path
+
+
+def _waves_rel(*parts: str) -> str:
+    """A repository-relative POSIX path under the configured waves root."""
+    return "/".join((record_paths.WAVES_ROOT, *parts))
+
+
+def _loc(text: str) -> str:
+    """``text`` written in the shipped record markers and labels, in the
+    loaded profile's vocabulary (the identity under the shipped profile)."""
+    vp = vocabulary_profile
+    for shipped, name in _SHIPPED_RECORD_LINES:
+        text = re.sub(rf"(?m)^{re.escape(shipped)}$", lambda _m, n=name: getattr(vp, n), text)
+    text = re.sub(r"(?m)^wave-id:", lambda _m: vp.ID_KEY + ":", text)
+    text = re.sub(r"(?m)^(Previous )?Change Status:",
+                  lambda m: (m.group(1) or "") + vp.MEMBER_STATUS_LABEL + ":", text)
+    text = re.sub(r"(?m)^Change ID:", lambda _m: vp.MEMBER_ID_LABEL + ":", text)
+    return re.sub(r"(?m)^Wave:", lambda _m: vp.BACKREF_LABEL + ":", text)
 
 
 def _make_wave(tmp: Path, wave_id: str, status: str, changes: list[dict]) -> Path:
     """Write a wave.md into docs/waves/<wave_id>/."""
-    wave_dir = tmp / "docs" / "waves" / wave_id
+    wave_dir = _waves_dir(tmp) / wave_id
     wave_dir.mkdir(parents=True, exist_ok=True)
     lines = [
-        "# Wave Record\n",
-        f"wave-id: `{wave_id}`\n",
+        _loc("# Wave Record\n"),
+        _loc(f"wave-id: `{wave_id}`\n"),
         f"Status: {status}\n",
-        "\n## Changes\n\n",
+        _loc("\n## Changes\n\n"),
     ]
     for c in changes:
-        lines.append(f"Change ID: `{c['id']}`\n")
-        lines.append(f"Change Status: `{c['status']}`\n\n")
-    (wave_dir / "wave.md").write_text("".join(lines), encoding="utf-8")
+        lines.append(_loc(f"Change ID: `{c['id']}`\n"))
+        lines.append(_loc(f"Change Status: `{c['status']}`\n\n"))
+    (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text("".join(lines), encoding="utf-8")
     return wave_dir
 
 
@@ -78,7 +118,7 @@ def _prepare_council_verdict_line(
 
 def _append_review_run(root: Path, wave_id: str, *, kind: str = "readiness") -> None:
     """Append a minimal executable lifecycle run to a new external-ledger wave."""
-    wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+    wave_md = _waves_dir(root) / wave_id / vocabulary_profile.RECORD_FILENAME
     short_id = wave_id.split()[0]
     evidence_id = f"dedup-{kind}-{short_id}"
     run_id = f"{kind}-{short_id}"
@@ -147,7 +187,7 @@ def _append_typed_approval(
     actor: str,
 ) -> None:
     """Append one typed approval through the canonical external-ledger shape."""
-    wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+    wave_md = _waves_dir(root) / wave_id / vocabulary_profile.RECORD_FILENAME
     review = sys.modules["review_evidence"]
     existing, errors = review.read_review_event_ledger(wave_md)
     assert not errors, errors
@@ -237,9 +277,9 @@ class ListWavesTests(unittest.TestCase):
     def test_legacy_baseline_sorts_first_and_unprefixed_last(self):
         _make_wave(self.root, "00000 wave-zero", "closed", [])
         _make_wave(self.root, "1200a normal", "active", [])
-        (self.root / "docs" / "waves" / "unprefixed-dir").mkdir(parents=True, exist_ok=True)
-        (self.root / "docs" / "waves" / "unprefixed-dir" / "wave.md").write_text(
-            "# Wave Record\n\nwave-id: `unprefixed-dir`\nStatus: closed\n",
+        (_waves_dir(self.root) / "unprefixed-dir").mkdir(parents=True, exist_ok=True)
+        (_waves_dir(self.root) / "unprefixed-dir" / vocabulary_profile.RECORD_FILENAME).write_text(
+            _loc("# Wave Record\n\nwave-id: `unprefixed-dir`\nStatus: closed\n"),
             encoding="utf-8",
         )
         waves = self.srv.list_waves(self.root)
@@ -298,9 +338,9 @@ class ListPlansTests(unittest.TestCase):
     def test_parses_plan_id_status_title_and_path(self):
         _make_repo(self.root, {
             "docs/plans/1234-feat sample.md": (
-                "# Sample Plan\n\n"
+                _loc("# Sample Plan\n\n"
                 "Change ID: `1234-feat sample`\n"
-                "Change Status: `planned`\n"
+                "Change Status: `planned`\n")
             ),
         })
 
@@ -314,7 +354,7 @@ class ListPlansTests(unittest.TestCase):
 
     def test_ignores_plan_template(self):
         _make_repo(self.root, {
-            "docs/plans/plan-template.md": "# Template\n\nChange ID: `<id>`\n",
+            "docs/plans/plan-template.md": _loc("# Template\n\nChange ID: `<id>`\n"),
             "docs/plans/1234-feat sample.md": "# Sample\n",
         })
 
@@ -327,10 +367,10 @@ class ListPlansTests(unittest.TestCase):
         (post-overflow) plan lists after every 5-char plan and v1/v2 5-char
         plans interleave by value."""
         _make_repo(self.root, {
-            "docs/plans/zzzzz-enh last-five.md": "# Last Five\n\nChange ID: `zzzzz-enh last-five`\n",
-            "docs/plans/100000-bug first-six.md": "# First Six\n\nChange ID: `100000-bug first-six`\n",
-            "docs/plans/1p9pk-enh mid-v1.md": "# Mid V1\n\nChange ID: `1p9pk-enh mid-v1`\n",
-            "docs/plans/1w1zk-bug early-v2.md": "# Early V2\n\nChange ID: `1w1zk-bug early-v2`\n",
+            "docs/plans/zzzzz-enh last-five.md": _loc("# Last Five\n\nChange ID: `zzzzz-enh last-five`\n"),
+            "docs/plans/100000-bug first-six.md": _loc("# First Six\n\nChange ID: `100000-bug first-six`\n"),
+            "docs/plans/1p9pk-enh mid-v1.md": _loc("# Mid V1\n\nChange ID: `1p9pk-enh mid-v1`\n"),
+            "docs/plans/1w1zk-bug early-v2.md": _loc("# Early V2\n\nChange ID: `1w1zk-bug early-v2`\n"),
         })
         plans = self.srv.list_plans(self.root)
         self.assertEqual(
@@ -395,7 +435,7 @@ class GetChangeTests(unittest.TestCase):
 
     def test_finds_change_by_prefix_in_waves(self):
         _make_repo(self.root, {
-            "docs/waves/1200a wave/1234-feat foo.md": "# Change\n\nsome content",
+            _waves_rel("1200a wave", "1234-feat foo.md"): "# Change\n\nsome content",
         })
         text = self.srv.get_change(self.root, "1234")
         self.assertIsNotNone(text)
@@ -407,7 +447,7 @@ class GetChangeTests(unittest.TestCase):
 
     def test_case_insensitive_match(self):
         _make_repo(self.root, {
-            "docs/waves/1200a wave/1234-feat Foo.md": "# Change\n",
+            _waves_rel("1200a wave", "1234-feat Foo.md"): "# Change\n",
         })
         text = self.srv.get_change(self.root, "1234-FEAT")
         self.assertIsNotNone(text)
@@ -493,7 +533,7 @@ class NewChangeTests(unittest.TestCase):
         plans_dir = self.root / "docs" / "plans"
         plans_dir.mkdir(parents=True, exist_ok=True)
         (plans_dir / "plan-template.md").write_text(
-            "# Template\n\nChange ID: `<id>`\nCustom field: yes\n",
+            _loc("# Template\n\nChange ID: `<id>`\nCustom field: yes\n"),
             encoding="utf-8",
         )
         result = self.srv.new_change(self.root, "feat", "from-template")
@@ -617,7 +657,7 @@ class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
         # Order check: Title line precedes ## Objective which precedes ## Changes
         title_idx = text.find("Title:")
         obj_idx = text.find("## Objective")
-        changes_idx = text.find("## Changes")
+        changes_idx = text.find(_loc("## Changes"))
         self.assertLess(title_idx, obj_idx)
         self.assertLess(obj_idx, changes_idx)
 
@@ -637,10 +677,10 @@ class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
         self.assertTrue(validation.ok, validation.errors)
         # Wave 1tomw (AC-1): creation writes no receipt sidecar of any kind.
         self.assertFalse(
-            (self.root / "docs" / "waves" / "review-evidence-adoptions.json").exists()
+            (_waves_dir(self.root) / "review-evidence-adoptions.json").exists()
         )
         self.assertFalse(
-            (self.root / "docs" / "waves" / "review-evidence-migration.json").exists()
+            (_waves_dir(self.root) / "review-evidence-migration.json").exists()
         )
 
     def test_source_removal_is_the_documented_undetectable_boundary(self):
@@ -844,7 +884,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         _make_wave(self.root, "1200a test-wave", "planned", [])
         _make_repo(self.root, {
             "docs/plans/1200a-feat sample.md": (
-                "# Sample\n\n"
+                _loc("# Sample\n\n"
                 "Change ID: `1200a-feat sample`\n"
                 "Change Status: `planned`\n"
                 "## Rationale\n\nWhy.\n\n"
@@ -852,7 +892,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 "## Scope\n\nIn scope.\n\n"
                 "## Acceptance Criteria\n\n- One.\n\n"
                 "## Tasks\n\n- One.\n\n"
-                "## AC Priority\n\n| AC | Priority | Rationale |\n| ---- | ---- | ---- |\n| AC-1 | required | Core behavior. |\n"
+                "## AC Priority\n\n| AC | Priority | Rationale |\n| ---- | ---- | ---- |\n| AC-1 | required | Core behavior. |\n")
             ),
         })
 
@@ -904,7 +944,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
         wave_id = created["data"]["wave_id"]
         _append_review_run(self.root, wave_id, kind="initial_delivery")
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         approval = self._approval_record(
             signoff_key, actor=actor, fresh=fresh, independent=independent
         )
@@ -932,10 +972,10 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         with patch.object(self.srv, "_trigger_background_index_refresh_for_paths") as trigger:
             add = self.srv.wf_add_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
         self.assertEqual(add["status"], "ok")
-        wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
+        wave_md = _waves_dir(self.root) / "1200a test-wave" / vocabulary_profile.RECORD_FILENAME
         self.assertIn("1200a-feat sample", wave_md.read_text(encoding="utf-8"))
         self.assertFalse((self.root / "docs" / "plans" / "1200a-feat sample.md").exists())
-        self.assertTrue((self.root / "docs" / "waves" / "1200a test-wave" / "1200a-feat sample.md").exists())
+        self.assertTrue((_waves_dir(self.root) / "1200a test-wave" / "1200a-feat sample.md").exists())
         trigger.assert_called_once()
 
         with patch.object(self.srv, "_trigger_background_index_refresh_for_paths") as trigger:
@@ -943,15 +983,15 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertEqual(remove["status"], "ok")
         self.assertNotIn("1200a-feat sample", wave_md.read_text(encoding="utf-8"))
         self.assertTrue((self.root / "docs" / "plans" / "1200a-feat sample.md").exists())
-        self.assertFalse((self.root / "docs" / "waves" / "1200a test-wave" / "1200a-feat sample.md").exists())
+        self.assertFalse((_waves_dir(self.root) / "1200a test-wave" / "1200a-feat sample.md").exists())
         trigger.assert_called_once()
 
     def test_wf_add_change_rejects_ambiguous_prefix(self):
         _make_repo(self.root, {
             "docs/plans/1200a-feat sample-two.md": (
-                "# Sample Two\n\n"
+                _loc("# Sample Two\n\n"
                 "Change ID: `1200a-feat sample-two`\n"
-                "Change Status: `planned`\n"
+                "Change Status: `planned`\n")
             ),
         })
         result = self.srv.wf_add_change_response(self.root, "1200a test-wave", "1200a", mode="dry_run")
@@ -959,9 +999,9 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertEqual(result["diagnostics"][0]["code"], "ambiguous_change_id")
 
     def test_wf_add_change_is_safe_if_doc_already_relocated_to_target_wave(self):
-        relocated = self.root / "docs" / "waves" / "1200a test-wave" / "1200a-feat sample.md"
+        relocated = _waves_dir(self.root) / "1200a test-wave" / "1200a-feat sample.md"
         relocated.write_text(
-            "# Sample\n\nChange ID: `1200a-feat sample`\nChange Status: `planned`\n",
+            _loc("# Sample\n\nChange ID: `1200a-feat sample`\nChange Status: `planned`\n"),
             encoding="utf-8",
         )
         plan_path = self.root / "docs" / "plans" / "1200a-feat sample.md"
@@ -971,7 +1011,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "ok")
         self.assertTrue(relocated.exists())
-        self.assertIn("1200a-feat sample", (self.root / "docs" / "waves" / "1200a test-wave" / "wave.md").read_text(encoding="utf-8"))
+        self.assertIn("1200a-feat sample", (_waves_dir(self.root) / "1200a test-wave" / vocabulary_profile.RECORD_FILENAME).read_text(encoding="utf-8"))
 
     def test_wf_prepare_wave_requires_admitted_changes(self):
         result = self.srv.wf_prepare_wave_response(self.root, "1200a test-wave", mode="dry_run")
@@ -979,13 +1019,13 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertEqual(result["diagnostics"][0]["code"], "no_admitted_changes")
 
     def test_marked_review_evidence_is_enforced_by_prepare_review_and_close(self):
-        wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
+        wave_md = _waves_dir(self.root) / "1200a test-wave" / vocabulary_profile.RECORD_FILENAME
         review = sys.modules["review_evidence"]
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8").replace(
-                "# Wave Record\n",
+                _loc("# Wave Record\n"),
                 # negative-fixture: test_marked_review_evidence_is_enforced_by_prepare_review_and_close deliberately supplies invalid or unreadable authority
-                "# Wave Record\n\nreview-evidence-source: events.jsonl\n",
+                _loc("# Wave Record\n\nreview-evidence-source: events.jsonl\n"),
                 1,
             )
             + "\n"
@@ -1015,7 +1055,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         # Wave 1tomw (AC-7): the retired sidecar is dead state. Even a
         # syntactically broken copy neither blocks nor influences lifecycle
         # validation, because no code path opens it.
-        adoption = self.root / "docs" / "waves" / "review-evidence-adoptions.json"
+        adoption = _waves_dir(self.root) / "review-evidence-adoptions.json"
         adoption.write_text("{broken", encoding="utf-8")
 
         result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
@@ -1029,7 +1069,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
 
     def test_bullet_participants_are_enforced_by_public_review(self):
-        wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
+        wave_md = _waves_dir(self.root) / "1200a test-wave" / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
             + "\n## Participants\n\n"
@@ -1051,7 +1091,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         """Wave 1wuju (1wujs AC-1): an advisory sensor's finding is rendered at every
         lifecycle gate as `docs_lint_warning` with `advisory: true`, never as an error."""
         advisory = {"passed": True, "errors": [],
-                    "warnings": ["WARNING: docs/waves/1200a test-wave/x.md: AC-1 asserts repository-wide state "
+                    "warnings": [f"WARNING: {_waves_rel('1200a test-wave', 'x.md')}: AC-1 asserts repository-wide state "
                                  "('full test suite') [advisory sensor `ac_asserts_repository_state`]"],
                     "output": ""}
         calls = {
@@ -1085,7 +1125,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
         wave_id = created["data"]["wave_id"]
         _append_review_run(self.root, wave_id, kind="initial_delivery")
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8").replace(
                 "operator-signoff: <approved when operator confirms closure>",
@@ -1290,7 +1330,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             self.root, "legacy-form-diag", mode="create"
         )
         wave_id = created["data"]["wave_id"]
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         written = self.srv.wf_review_event_response(
             self.root,
             wave_id,
@@ -1332,7 +1372,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             self.root, "closed-review-status", mode="create"
         )
         wave_id = created["data"]["wave_id"]
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         text = wave_md.read_text(encoding="utf-8")
         text = text.replace("Status: planned", "Status: closed", 1).replace(
             "| wave-council-readiness | pending |",
@@ -1352,7 +1392,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             self.root, "typed-review-run", mode="create"
         )
         wave_id = created["data"]["wave_id"]
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         before = wave_md.read_text(encoding="utf-8")
         preview = self.srv.wf_review_event_response(
             self.root,
@@ -1392,7 +1432,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             self.root, "typed-review-invalid", mode="create"
         )
         wave_id = created["data"]["wave_id"]
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         before = wave_md.read_text(encoding="utf-8")
         response = self.srv.wf_review_event_response(
             self.root,
@@ -1415,7 +1455,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             self.root, "typed-review-collision", mode="create"
         )
         wave_id = created["data"]["wave_id"]
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         before = wave_md.read_text(encoding="utf-8")
 
         response = self.srv.wf_review_event_response(
@@ -1447,7 +1487,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             self.root, "typed-review-reserved", mode="create"
         )
         wave_id = created["data"]["wave_id"]
-        events_path = self.root / "docs" / "waves" / wave_id / "events.jsonl"
+        events_path = _waves_dir(self.root) / wave_id / "events.jsonl"
         for evidence in (
             {"event_identity": {"actor": "attacker"}},
             {"request_digest": "0" * 64},
@@ -1482,11 +1522,15 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertFalse(clean["data"]["replayed"])
 
     def test_typed_review_writer_rejects_symlinked_wave_directory_escape(self):
+        # The flat walk lists a symlinked wave folder so the writer guard
+        # refuses it; a nested walk never enters a symlink (record_paths), so
+        # this test fixes the flat layout over the configured waves root.
+        apply_layout(self, nested=False)
         created = self.srv.wf_create_wave_response(
             self.root, "typed-review-symlink", mode="create"
         )
         wave_id = created["data"]["wave_id"]
-        wave_dir = self.root / "docs" / "waves" / wave_id
+        wave_dir = _waves_dir(self.root) / wave_id
         with tempfile.TemporaryDirectory() as outside_tmp:
             outside = Path(outside_tmp) / wave_id
             shutil.move(str(wave_dir), outside)
@@ -1545,7 +1589,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             },
         )
         self.assertEqual(response["status"], "ok", response)
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         text = wave_md.read_text(encoding="utf-8")
         self.assertIn(
             "| qa-reviewer | approved | current executed approval, not receipt-bound, follows every affected repair | none |",
@@ -1567,13 +1611,13 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             self.root, "typed-review-rollback", mode="create"
         )
         wave_id = created["data"]["wave_id"]
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         before = wave_md.read_text(encoding="utf-8")
         events_path = sys.modules["review_evidence"].review_event_path(wave_md)
         real_replace = self.srv._atomic_replace_text
 
         def fail_projection(path, text, label):
-            if Path(path).name == "wave.md":
+            if Path(path).name == vocabulary_profile.RECORD_FILENAME:
                 raise OSError("forced projection failure")
             return real_replace(path, text, label)
 
@@ -2291,7 +2335,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             self.root, "readiness-only-close", mode="create"
         )
         wave_id = created["data"]["wave_id"]
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         review = sys.modules["review_evidence"]
         records = (evidence, run)
         review.review_event_path(wave_md).write_bytes(
@@ -2328,7 +2372,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
         wave_id = created["data"]["wave_id"]
         _append_review_run(self.root, wave_id, kind="initial_delivery")
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8").replace(
                 "operator-signoff: <approved when operator confirms closure>",
@@ -2347,11 +2391,11 @@ class WaveLifecycleMutationTests(unittest.TestCase):
 
     def test_wf_prepare_wave_repairs_staged_doc_when_wave_copy_missing(self):
         self.srv.wf_add_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
-        wave_doc = self.root / "docs" / "waves" / "1200a test-wave" / "1200a-feat sample.md"
+        wave_doc = _waves_dir(self.root) / "1200a test-wave" / "1200a-feat sample.md"
         staged_doc = self.root / "docs" / "plans" / "1200a-feat sample.md"
         wave_doc.rename(staged_doc)
         # Add prepare-council verdict so the council gate passes
-        wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
+        wave_md = _waves_dir(self.root) / "1200a test-wave" / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
             + f"\n## Review Checkpoints\n\n{_prepare_council_verdict_line()}\n",
@@ -2378,7 +2422,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         # Wave 1p601 AC-2b: a successful prepare (mode=create) refreshes the
         # codebase map at the prepare-wave lifecycle checkpoint, fail-safe.
         self.srv.wf_add_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
-        wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
+        wave_md = _waves_dir(self.root) / "1200a test-wave" / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
             + f"\n## Review Checkpoints\n\n{_prepare_council_verdict_line()}\n",
@@ -2403,7 +2447,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
 
     def test_wf_prepare_wave_reports_duplicate_change_doc_locations(self):
         self.srv.wf_add_change_response(self.root, "1200a test-wave", "1200a-feat sample", mode="create")
-        wave_doc = self.root / "docs" / "waves" / "1200a test-wave" / "1200a-feat sample.md"
+        wave_doc = _waves_dir(self.root) / "1200a test-wave" / "1200a-feat sample.md"
         staged_doc = self.root / "docs" / "plans" / "1200a-feat sample.md"
         staged_doc.write_text(wave_doc.read_text(encoding="utf-8"), encoding="utf-8")
 
@@ -2434,7 +2478,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertIn("1200a test-wave", text)
 
     def test_wf_review_wave_reports_ok_when_lint_passes(self):
-        wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
+        wave_md = _waves_dir(self.root) / "1200a test-wave" / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8") + "\n## Review Evidence\n\n- operator-signoff: approved\n",
             encoding="utf-8",
@@ -2455,10 +2499,10 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertNotIn("persist_adoption", evidence_diagnostics.call_args.kwargs)
 
     def test_wf_review_wave_ok_when_signoffs_recorded(self):
-        wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
+        wave_md = _waves_dir(self.root) / "1200a test-wave" / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             (
-                "# Wave Record\n"
+                _loc("# Wave Record\n"
                 "wave-id: `1200a test-wave`\n"
                 "Status: active\n\n"
                 "## Participants\n\n"
@@ -2471,7 +2515,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 "## Review Evidence\n\n"
                 "- operator-signoff: approved\n"
                 "- architecture-reviewer sign-off: approved\n"
-                "- code-reviewer sign-off: approved\n"
+                "- code-reviewer sign-off: approved\n")
             ),
             encoding="utf-8",
         )
@@ -2480,10 +2524,10 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
 
     def test_wf_review_wave_requires_per_lane_evidence_not_global_checkpoint(self):
-        wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
+        wave_md = _waves_dir(self.root) / "1200a test-wave" / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             (
-                "# Wave Record\n"
+                _loc("# Wave Record\n"
                 "wave-id: `1200a test-wave`\n"
                 "Status: active\n\n"
                 "## Participants\n\n"
@@ -2494,7 +2538,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 "## Review Checkpoints\n\n"
                 "- Wave approved globally with one sign-off line.\n\n"
                 "## Review Evidence\n\n"
-                "- architecture-reviewer sign-off: approved\n"
+                "- architecture-reviewer sign-off: approved\n")
             ),
             encoding="utf-8",
         )
@@ -2514,10 +2558,10 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertIn("missing_signoff_evidence", codes)
 
     def test_wf_close_wave_create_succeeds_when_requirements_met(self):
-        wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
+        wave_md = _waves_dir(self.root) / "1200a test-wave" / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             (
-                "# Wave Record\n"
+                _loc("# Wave Record\n"
                 "wave-id: `1200a test-wave`\n"
                 "Status: active\n\n"
                 "## Changes\n\n"
@@ -2529,14 +2573,14 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 "- code-reviewer: approved\n"
                 "- qa-reviewer: approved\n"
                 "- security-reviewer: approved\n"
-                "- performance-reviewer: approved\n"
+                "- performance-reviewer: approved\n")
             ),
             encoding="utf-8",
         )
         # 1v0lx: close blocks on a missing admitted document; model it on disk.
         for cid in self.srv._CHANGE_ID_PATTERN.findall(wave_md.read_text(encoding="utf-8")):
             (wave_md.parent / f"{cid}.md").write_text(
-                f"# Sample\n\nChange ID: `{cid}`\n", encoding="utf-8")
+                _loc(f"# Sample\n\nChange ID: `{cid}`\n"), encoding="utf-8")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
                 result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="create")
@@ -2545,10 +2589,10 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertNotIn("archive_path", result["data"])
 
     def test_wf_close_wave_dry_run_fails_when_participants_missing_lane_in_evidence(self):
-        wave_md = self.root / "docs" / "waves" / "1200a test-wave" / "wave.md"
+        wave_md = _waves_dir(self.root) / "1200a test-wave" / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             (
-                "# Wave Record\n"
+                _loc("# Wave Record\n"
                 "wave-id: `1200a test-wave`\n"
                 "Status: active\n\n"
                 "## Changes\n\n"
@@ -2560,7 +2604,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 "| architecture-reviewer | review | x |\n"
                 "| code-reviewer | review | x |\n\n"
                 "## Review Evidence\n\n"
-                "- architecture-reviewer sign-off: approved\n"
+                "- architecture-reviewer sign-off: approved\n")
             ),
             encoding="utf-8",
         )
@@ -2576,19 +2620,19 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         Writes a wave + change doc with the supplied AC/Task content; sets up sign-offs
         so other gates pass and only the close-time hard gate is in play.
         """
-        wave_dir = self.root / "docs" / "waves" / "1200a test-wave"
+        wave_dir = _waves_dir(self.root) / "1200a test-wave"
         wave_dir.mkdir(parents=True, exist_ok=True)
-        wave_md = wave_dir / "wave.md"
+        wave_md = wave_dir / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             (
-                "# Wave Record\n"
+                _loc("# Wave Record\n"
                 "wave-id: `1200a test-wave`\n"
                 "Status: active\n\n"
                 "## Changes\n\n"
                 "Change ID: `1200a-feat sample`\n"
                 "Change Status: `complete`\n\n"
                 "## Review Evidence\n\n"
-                "- operator-signoff: approved\n"
+                "- operator-signoff: approved\n")
             ),
             encoding="utf-8",
         )
@@ -2598,7 +2642,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
     def test_close_gate_passes_when_all_ac_and_tasks_checked(self):
         """Wave 1p31b (1p32k) AC-23(a): wave with all `[x]` items closes cleanly."""
         change_doc = (
-            "# Sample\n\n"
+            _loc("# Sample\n\n"
             "Change ID: `1200a-feat sample`\n"
             "Change Status: `implemented`\n\n"
             "## Rationale\n\nWhy.\n\n"
@@ -2606,7 +2650,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "## Scope\n\nIn scope.\n\n"
             "## Acceptance Criteria\n\n- [x] AC-1: First criterion met.\n- [x] AC-2: Second criterion met.\n\n"
             "## Tasks\n\n- [x] Implement first.\n- [x] Implement second.\n\n"
-            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Core. |\n| AC-2 | important | Polish. |\n"
+            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Core. |\n| AC-2 | important | Polish. |\n")
         )
         self._setup_close_gate_wave(change_doc)
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
@@ -2618,7 +2662,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
     def test_close_gate_passes_with_mix_of_checked_and_tilde(self):
         """Wave 1p31b (1p32k) AC-23(b): wave with `[x]` + `[~]` items closes cleanly."""
         change_doc = (
-            "# Sample\n\n"
+            _loc("# Sample\n\n"
             "Change ID: `1200a-feat sample`\n"
             "Change Status: `implemented`\n\n"
             "## Rationale\n\nWhy.\n\n"
@@ -2628,7 +2672,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "- [x] AC-1: First criterion met.\n"
             "- [~] AC-2: Removed mid-implementation per operator direction. *See Decision Log entry on 2026-06-03 explaining the operator-directed removal of this AC.*\n\n"
             "## Tasks\n\n- [x] Implement first.\n- [~] Bench against synthetic fixture — covered by unit-test path.\n\n"
-            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Core. |\n| AC-2 | required | Polish. |\n"
+            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Core. |\n| AC-2 | required | Polish. |\n")
         )
         self._setup_close_gate_wave(change_doc)
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
@@ -2640,7 +2684,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
     def test_close_gate_blocks_on_silent_required_ac(self):
         """Wave 1p31b (1p32k) AC-23(c): one silent `[ ]` required AC blocks close."""
         change_doc = (
-            "# Sample\n\n"
+            _loc("# Sample\n\n"
             "Change ID: `1200a-feat sample`\n"
             "Change Status: `implemented`\n\n"
             "## Rationale\n\nWhy.\n\n"
@@ -2648,7 +2692,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "## Scope\n\nIn scope.\n\n"
             "## Acceptance Criteria\n\n- [x] AC-1: First criterion met.\n- [ ] AC-2: Second criterion silent at close.\n\n"
             "## Tasks\n\n- [x] Implement first.\n\n"
-            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Core. |\n| AC-2 | required | Polish. |\n"
+            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Core. |\n| AC-2 | required | Polish. |\n")
         )
         self._setup_close_gate_wave(change_doc)
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
@@ -2663,7 +2707,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
     def test_close_gate_blocks_on_silent_task(self):
         """Wave 1p31b (1p32k) AC-23(d): one silent `[ ]` task blocks close."""
         change_doc = (
-            "# Sample\n\n"
+            _loc("# Sample\n\n"
             "Change ID: `1200a-feat sample`\n"
             "Change Status: `implemented`\n\n"
             "## Rationale\n\nWhy.\n\n"
@@ -2671,7 +2715,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "## Scope\n\nIn scope.\n\n"
             "## Acceptance Criteria\n\n- [x] AC-1: First criterion met.\n\n"
             "## Tasks\n\n- [x] Implement first.\n- [ ] Run a missing bench fixture\n\n"
-            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Core. |\n"
+            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Core. |\n")
         )
         self._setup_close_gate_wave(change_doc)
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
@@ -2686,7 +2730,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
     def test_close_gate_exempts_not_this_scope_priority_ac(self):
         """Wave 1p31b (1p32k) AC-23(e): silent `[ ]` `not-this-scope` AC closes cleanly."""
         change_doc = (
-            "# Sample\n\n"
+            _loc("# Sample\n\n"
             "Change ID: `1200a-feat sample`\n"
             "Change Status: `implemented`\n\n"
             "## Rationale\n\nWhy.\n\n"
@@ -2694,7 +2738,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "## Scope\n\nIn scope.\n\n"
             "## Acceptance Criteria\n\n- [x] AC-1: First criterion met.\n- [ ] AC-2: Out-of-scope-by-design criterion.\n\n"
             "## Tasks\n\n- [x] Implement first.\n\n"
-            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Core. |\n| AC-2 | not-this-scope | Bound check. |\n"
+            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Core. |\n| AC-2 | not-this-scope | Bound check. |\n")
         )
         self._setup_close_gate_wave(change_doc)
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
@@ -2939,12 +2983,12 @@ class FrameworkTestReceiptGateTests(unittest.TestCase):
         # green. This pins the wiring at the tool boundary.
         self._install_runner()
         self._write_receipt()
-        wave_dir = self.root / "docs" / "waves" / "1200a test-wave"
+        wave_dir = _waves_dir(self.root) / "1200a test-wave"
         wave_dir.mkdir(parents=True)
-        (wave_dir / "wave.md").write_text(
-            "# Wave Record\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-09-01\n"
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
+            _loc("# Wave Record\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-09-01\n"
             "wave-id: `1200a test-wave`\nTitle: Test Wave\n\n## Objective\n\nObjective.\n\n"
-            "## Changes\n\n## Wave Summary\n\nSummary.\n",
+            "## Changes\n\n## Wave Summary\n\nSummary.\n"),
             encoding="utf-8")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
@@ -2973,25 +3017,25 @@ class WaveReopenTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         _make_repo(self.root)
-        wave_dir = self.root / "docs" / "waves" / "1200a test-wave"
+        wave_dir = _waves_dir(self.root) / "1200a test-wave"
         wave_dir.mkdir(parents=True, exist_ok=True)
-        self.wave_md = wave_dir / "wave.md"
+        self.wave_md = wave_dir / vocabulary_profile.RECORD_FILENAME
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def _write_wave(self, status: str, completed_at: bool = False) -> None:
         text = (
-            "# Wave Record\n"
+            _loc("# Wave Record\n"
             "wave-id: `1200a test-wave`\n"
             f"Status: {status}\n\n"
             "## Changes\n\n"
             "Change ID: `1200a-feat sample`\n"
-            "Change Status: `done`\n\n"
+            "Change Status: `done`\n\n")
         )
         if completed_at:
             text += "Completed At: 2026-05-06\n\n"
-        text += "## Wave Summary\n\nSome summary.\n"
+        text += _loc("## Wave Summary\n\nSome summary.\n")
         self.wave_md.write_text(text, encoding="utf-8")
 
     def test_reopen_closed_wave_sets_status_active(self):
@@ -3042,9 +3086,9 @@ class OperatorSignoffTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         _make_repo(self.root)
-        wave_dir = self.root / "docs" / "waves" / "1200a test-wave"
+        wave_dir = _waves_dir(self.root) / "1200a test-wave"
         wave_dir.mkdir(parents=True, exist_ok=True)
-        self.wave_md = wave_dir / "wave.md"
+        self.wave_md = wave_dir / vocabulary_profile.RECORD_FILENAME
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -3054,12 +3098,12 @@ class OperatorSignoffTests(unittest.TestCase):
         if with_operator_signoff:
             review += "- operator-signoff: approved\n"
         return (
-            "# Wave Record\n"
+            _loc("# Wave Record\n"
             "wave-id: `1200a test-wave`\n"
             "Status: active\n\n"
             "## Changes\n\n"
             "Change ID: `1200a-feat sample`\n"
-            "Change Status: `done`\n\n"
+            "Change Status: `done`\n\n")
             + review
         )
 
@@ -3098,7 +3142,7 @@ class OperatorSignoffTests(unittest.TestCase):
         text = self.wave_md.read_text(encoding="utf-8")
         for cid in self.srv._CHANGE_ID_PATTERN.findall(text):
             (self.wave_md.parent / f"{cid}.md").write_text(
-                f"# Sample\n\nChange ID: `{cid}`\n", encoding="utf-8")
+                _loc(f"# Sample\n\nChange ID: `{cid}`\n"), encoding="utf-8")
 
     def test_wf_close_wave_succeeds_with_operator_signoff(self):
         self.wave_md.write_text(self._base_wave(with_operator_signoff=True), encoding="utf-8")
@@ -3140,14 +3184,14 @@ class OperatorSignoffTests(unittest.TestCase):
         # Regression: "<approved when operator confirms closure>" contains "approved"
         # but is a template placeholder, not a real signoff.
         text = (
-            "# Wave Record\n"
+            _loc("# Wave Record\n"
             "wave-id: `1200a test-wave`\n"
             "Status: active\n\n"
             "## Changes\n\n"
             "Change ID: `1200a-feat sample`\n"
             "Change Status: `done`\n\n"
             "## Review Evidence\n\n"
-            "- operator-signoff: <approved when operator confirms closure>\n"
+            "- operator-signoff: <approved when operator confirms closure>\n")
         )
         self.wave_md.write_text(text, encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
@@ -3158,14 +3202,14 @@ class OperatorSignoffTests(unittest.TestCase):
 
     def test_placeholder_signoff_blocks_wf_close_wave(self):
         text = (
-            "# Wave Record\n"
+            _loc("# Wave Record\n"
             "wave-id: `1200a test-wave`\n"
             "Status: active\n\n"
             "## Changes\n\n"
             "Change ID: `1200a-feat sample`\n"
             "Change Status: `done`\n\n"
             "## Review Evidence\n\n"
-            "- operator-signoff: <approved when operator confirms closure>\n"
+            "- operator-signoff: <approved when operator confirms closure>\n")
         )
         self.wave_md.write_text(text, encoding="utf-8")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
@@ -3322,11 +3366,11 @@ class RunValidateTests(unittest.TestCase):
                 with self.subTest(runner=runner_name, spelling=spelled):
                     crashed = MagicMock(returncode=1, stdout="", stderr=(
                         "Traceback (most recent call last):\n"
-                        f"PermissionError: [Errno 13] Permission denied: '{spelled}/docs/waves/w/c.md'\n"))
+                        f"PermissionError: [Errno 13] Permission denied: '{spelled}/{_waves_rel('w', 'c.md')}'\n"))
                     with patch.object(self.srv, "_mcp_subprocess_run", return_value=crashed):
                         result = getattr(self.srv, runner_name)(self.root)
                     message = result["errors"][0]
-                    self.assertIn("Permission denied: 'docs/waves/w/c.md'", message)
+                    self.assertIn(f"Permission denied: '{_waves_rel('w', 'c.md')}'", message)
                     self.assertNotIn(str(self.root), message)
                     self.assertNotIn(resolved, message)
 
@@ -3344,7 +3388,7 @@ class RunValidateTests(unittest.TestCase):
         # Wave 1wybs (1wybr AC-1; readiness RT-RDY-4): a root spelling that is its
         # own parent would rewrite every separator, and a relative spelling would
         # delete a bare segment wherever it occurs; both leave the line byte-identical.
-        cause = "PermissionError: [Errno 13] Permission denied: '/Users/x/repo/docs/waves/w/c.md'"
+        cause = f"PermissionError: [Errno 13] Permission denied: '/Users/x/repo/{_waves_rel('w', 'c.md')}'"
         for spelling in (Path("/"), Path("repo"), Path("."), Path("docs")):
             with self.subTest(root=str(spelling)):
                 self.assertEqual(cause, self.srv._strip_repository_root(cause, spelling))
@@ -3631,7 +3675,7 @@ class WaveAuditTests(unittest.TestCase):
             "status": "active",
             "changes": [],
             "title": "Wave",
-            "path": "docs/waves/w1/wave.md",
+            "path": _waves_rel("w1", vocabulary_profile.RECORD_FILENAME),
         }
         with patch.object(self.srv, "current_wave", return_value=wave_record), \
              patch.object(self.srv, "run_validate", return_value=self._passing_validate()), \
@@ -3691,7 +3735,7 @@ class WaveAuditTests(unittest.TestCase):
 
     def _advisory_validate(self):
         return {"passed": True, "errors": [],
-                "warnings": ["WARNING: docs/waves/1w test/1w-enh x.md: AC-1 asserts repository-wide state "
+                "warnings": [f"WARNING: {_waves_rel('1w test', '1w-enh x.md')}: AC-1 asserts repository-wide state "
                              "('full framework test suite') [advisory sensor `ac_asserts_repository_state`]"],
                 "output": ""}
 
@@ -3756,7 +3800,7 @@ class WaveAuditTests(unittest.TestCase):
             "status": "active",
             "changes": [],
             "title": "Wave",
-            "path": "docs/waves/w1/wave.md",
+            "path": _waves_rel("w1", vocabulary_profile.RECORD_FILENAME),
         }
         with patch.object(self.srv, "current_wave", return_value=wave_record), \
              patch.object(self.srv, "run_validate", return_value=self._passing_validate()), \
@@ -3783,7 +3827,7 @@ class WaveAuditTests(unittest.TestCase):
             "status": "active",
             "changes": [],
             "title": "Wave",
-            "path": "docs/waves/w1/wave.md",
+            "path": _waves_rel("w1", vocabulary_profile.RECORD_FILENAME),
         }
         with patch.object(self.srv, "current_wave", return_value=wave_record), \
              patch.object(self.srv, "run_validate", return_value=self._passing_validate()), \
@@ -3953,7 +3997,7 @@ class RepairIndependenceBoundaryTests(unittest.TestCase):
             self.root, "independence-fixture", mode="create"
         )
         self.wave_id = created["data"]["wave_id"]
-        self.wave_md = self.root / "docs" / "waves" / self.wave_id / "wave.md"
+        self.wave_md = _waves_dir(self.root) / self.wave_id / vocabulary_profile.RECORD_FILENAME
         self.re_mod = sys.modules["review_evidence"]
         self.events_path = self.re_mod.review_event_path(self.wave_md)
 
@@ -4213,7 +4257,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         self.root = _make_repo(Path(self.tmp.name))
         created = self.srv.wf_create_wave_response(self.root, "list-fixture", mode="create")
         self.wave_id = created["data"]["wave_id"]
-        self.wave_md = self.root / "docs" / "waves" / self.wave_id / "wave.md"
+        self.wave_md = _waves_dir(self.root) / self.wave_id / vocabulary_profile.RECORD_FILENAME
         self.events_path = sys.modules["review_evidence"].review_event_path(self.wave_md)
 
     def tearDown(self):
@@ -4590,7 +4634,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
                     root, "repair-actor-overlap", mode="create"
                 )
                 wave_id = created["data"]["wave_id"]
-                wave_md = root / "docs" / "waves" / wave_id / "wave.md"
+                wave_md = _waves_dir(root) / wave_id / vocabulary_profile.RECORD_FILENAME
                 events_path = sys.modules["review_evidence"].review_event_path(wave_md)
                 judgment, evidence = self._finding_payloads()
                 initial = self.srv.wf_review_event_response(
@@ -4784,7 +4828,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         fixed_dir = self.wave_md.parent.parent / fixed_wave_id
         self.wave_md.parent.rename(fixed_dir)
         self.wave_id = fixed_wave_id
-        self.wave_md = fixed_dir / "wave.md"
+        self.wave_md = fixed_dir / vocabulary_profile.RECORD_FILENAME
         self.wave_md.write_text(
             self.wave_md.read_text(encoding="utf-8").replace(
                 generated_wave_id, fixed_wave_id
@@ -5293,7 +5337,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         fixed_dir = self.wave_md.parent.parent / fixed_wave_id
         self.wave_md.parent.rename(fixed_dir)
         self.wave_id = fixed_wave_id
-        self.wave_md = fixed_dir / "wave.md"
+        self.wave_md = fixed_dir / vocabulary_profile.RECORD_FILENAME
         self.wave_md.write_text(
             self.wave_md.read_text(encoding="utf-8").replace(
                 generated_wave_id, fixed_wave_id
@@ -5650,9 +5694,9 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.wave_id = "1200w-mark-recovery"
-        self.wave_dir = self.root / "docs" / "waves" / self.wave_id
+        self.wave_dir = _waves_dir(self.root) / self.wave_id
         self.wave_dir.mkdir(parents=True)
-        (self.wave_dir / "wave.md").write_text(
+        (self.wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
             f"# Wave\n\nWave ID: `{self.wave_id}`\nStatus: implementing\n",
             encoding="utf-8",
         )
@@ -5776,7 +5820,7 @@ class MarkAcReceiptRefreshTests(unittest.TestCase):
         staged = self.root / "docs" / "plans" / f"{self.change_id}.md"
         staged.parent.mkdir(parents=True, exist_ok=True)
         staged.write_text(
-            "# Receipt refresh\n\n"
+            _loc("# Receipt refresh\n\n"
             f"Change ID: `{self.change_id}`\n"
             "Change Status: `planned`\n"
             "Owner: Engineering\nStatus: planned\nLast verified: 2026-08-05\n"
@@ -5797,14 +5841,14 @@ class MarkAcReceiptRefreshTests(unittest.TestCase):
             "## Progress Log\n\n| Date | Update | Evidence |\n| --- | --- | --- |\n\n"
             "## Decision Log\n\n| Date | Decision | Reason | Alternatives |\n| --- | --- | --- | --- |\n\n"
             "## Risks\n\n| Risk | Mitigation |\n| --- | --- |\n\n"
-            "## Session Handoff\n\nSee `docs/agents/session-handoff.md` for current session state.\n",
+            "## Session Handoff\n\nSee `docs/agents/session-handoff.md` for current session state.\n"),
             encoding="utf-8",
         )
         added = self.srv.wf_add_change_response(
             self.root, self.wave_id, self.change_id, mode="create"
         )
         self.assertEqual(added["status"], "ok", added)
-        self.wave_md = self.root / "docs" / "waves" / self.wave_id / "wave.md"
+        self.wave_md = _waves_dir(self.root) / self.wave_id / vocabulary_profile.RECORD_FILENAME
         self.change_path = self.wave_md.parent / f"{self.change_id}.md"
         _append_review_run(self.root, self.wave_id, kind="readiness")
         wave_text = self.wave_md.read_text(encoding="utf-8")
@@ -6007,7 +6051,7 @@ class WaveCreateWaveTemplateTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         wave_md = self.root / result["data"]["path"]
         text = wave_md.read_text(encoding="utf-8")
-        self.assertIn("## Wave Summary", text)
+        self.assertIn(_loc("## Wave Summary"), text)
 
     def test_wave_md_contains_watchpoints_section(self):
         result = self.srv.wf_create_wave_response(self.root, "test-wave", mode="create")
@@ -6120,29 +6164,29 @@ class WaveStatusDriftDetectionTests(unittest.TestCase):
 
     def _make_wave_with_drift(self):
         """Create a wave with one change whose file status differs from wave.md."""
-        wave_dir = self.root / "docs" / "waves" / "test-wave"
+        wave_dir = _waves_dir(self.root) / "test-wave"
         wave_dir.mkdir(parents=True, exist_ok=True)
-        wave_md = wave_dir / "wave.md"
+        wave_md = wave_dir / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
-            "# Wave Record\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-01-01\n\nwave-id: `test-wave`\nTitle: Test Wave\n\n## Changes\n\nChange ID: `abc12-feat my-change`\nChange Status: `in-progress`\n",
+            _loc("# Wave Record\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-01-01\n\nwave-id: `test-wave`\nTitle: Test Wave\n\n## Changes\n\nChange ID: `abc12-feat my-change`\nChange Status: `in-progress`\n"),
             encoding="utf-8",
         )
         change_doc = wave_dir / "abc12-feat my-change.md"
         change_doc.write_text(
-            "# My Change\n\nChange ID: `abc12-feat my-change`\nChange Status: `complete`\n",
+            _loc("# My Change\n\nChange ID: `abc12-feat my-change`\nChange Status: `complete`\n"),
             encoding="utf-8",
         )
         return wave_dir
 
     def test_no_drift_no_diagnostic(self):
-        wave_dir = self.root / "docs" / "waves" / "test-wave"
+        wave_dir = _waves_dir(self.root) / "test-wave"
         wave_dir.mkdir(parents=True, exist_ok=True)
-        (wave_dir / "wave.md").write_text(
-            "# Wave Record\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-01-01\n\nwave-id: `test-wave`\nTitle: Test Wave\n\n## Changes\n\nChange ID: `abc12-feat my-change`\nChange Status: `in-progress`\n",
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
+            _loc("# Wave Record\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-01-01\n\nwave-id: `test-wave`\nTitle: Test Wave\n\n## Changes\n\nChange ID: `abc12-feat my-change`\nChange Status: `in-progress`\n"),
             encoding="utf-8",
         )
         (wave_dir / "abc12-feat my-change.md").write_text(
-            "# My Change\n\nChange ID: `abc12-feat my-change`\nChange Status: `in-progress`\n",
+            _loc("# My Change\n\nChange ID: `abc12-feat my-change`\nChange Status: `in-progress`\n"),
             encoding="utf-8",
         )
         resp = self.srv.wf_current_wave_response(self.root)
@@ -6289,10 +6333,10 @@ class GateAutoCloseTests(unittest.TestCase):
         return json.loads(path.read_text(encoding="utf-8")).get(gate, {}).get("enabled", False)
 
     def _make_active_wave(self):
-        wave_dir = self.root / "docs" / "waves" / "test-wave"
+        wave_dir = _waves_dir(self.root) / "test-wave"
         wave_dir.mkdir(parents=True, exist_ok=True)
-        (wave_dir / "wave.md").write_text(
-            "# Wave Record\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-05-01\n\nwave-id: `test-wave`\nTitle: Test Wave\n\n## Changes\n\n## Wave Summary\n\nTest.\n\n## Journal Watchpoints\n\n- Test.\n",
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
+            _loc("# Wave Record\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-05-01\n\nwave-id: `test-wave`\nTitle: Test Wave\n\n## Changes\n\n## Wave Summary\n\nTest.\n\n## Journal Watchpoints\n\n- Test.\n"),
             encoding="utf-8",
         )
 
@@ -6319,7 +6363,7 @@ class GateAutoCloseTests(unittest.TestCase):
         self._make_active_wave()
         self._open_gate("seed_edit_allowed")
         # Add minimal review evidence so wf_close_wave can pass validation
-        wave_md = self.root / "docs" / "waves" / "test-wave" / "wave.md"
+        wave_md = _waves_dir(self.root) / "test-wave" / vocabulary_profile.RECORD_FILENAME
         text = wave_md.read_text(encoding="utf-8")
         wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- operator-signoff: approved\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
@@ -6331,7 +6375,7 @@ class GateAutoCloseTests(unittest.TestCase):
 
     def test_wf_close_wave_with_no_open_gates_has_no_gate_diagnostic(self):
         self._make_active_wave()
-        wave_md = self.root / "docs" / "waves" / "test-wave" / "wave.md"
+        wave_md = _waves_dir(self.root) / "test-wave" / vocabulary_profile.RECORD_FILENAME
         text = wave_md.read_text(encoding="utf-8")
         wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- operator-signoff: approved\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
@@ -6358,10 +6402,10 @@ class WaveCloseHandoffPreservationTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _make_active_wave(self):
-        wave_dir = self.root / "docs" / "waves" / "hw-test"
+        wave_dir = _waves_dir(self.root) / "hw-test"
         wave_dir.mkdir(parents=True, exist_ok=True)
-        (wave_dir / "wave.md").write_text(
-            "# Wave Record\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-05-01\n\nwave-id: `hw-test`\nTitle: HW Test\n\n## Changes\n\n## Wave Summary\n\nTest.\n\n## Journal Watchpoints\n\n- Test.\n",
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
+            _loc("# Wave Record\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-05-01\n\nwave-id: `hw-test`\nTitle: HW Test\n\n## Changes\n\n## Wave Summary\n\nTest.\n\n## Journal Watchpoints\n\n- Test.\n"),
             encoding="utf-8",
         )
 
@@ -6375,7 +6419,7 @@ class WaveCloseHandoffPreservationTests(unittest.TestCase):
 
     def test_close_updates_wave_md_status(self):
         self._make_active_wave()
-        wave_md = self.root / "docs" / "waves" / "hw-test" / "wave.md"
+        wave_md = _waves_dir(self.root) / "hw-test" / vocabulary_profile.RECORD_FILENAME
         text = wave_md.read_text(encoding="utf-8")
         wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- operator-signoff: approved\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
@@ -6385,7 +6429,7 @@ class WaveCloseHandoffPreservationTests(unittest.TestCase):
         self.assertIn("Status: closed", content)
         self.assertIn("Completed At:", content)
         # No archive folder should be created
-        self.assertFalse((self.root / "docs" / "waves" / "hw-test" / "archive").exists())
+        self.assertFalse((_waves_dir(self.root) / "hw-test" / "archive").exists())
 
     def test_wf_close_wave_preserves_handoff_content_outside_active_wave(self):
         self._make_active_wave()
@@ -6394,7 +6438,7 @@ class WaveCloseHandoffPreservationTests(unittest.TestCase):
             f"# Session Handoff\n\nOwner: wave-coordinator\nStatus: active\nLast verified: 2026-05-01\n\n"
             f"## Current Session\n\n**Active wave:** `hw-test`\n\n{custom_section}"
         )
-        wave_md = self.root / "docs" / "waves" / "hw-test" / "wave.md"
+        wave_md = _waves_dir(self.root) / "hw-test" / vocabulary_profile.RECORD_FILENAME
         text = wave_md.read_text(encoding="utf-8")
         wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- operator-signoff: approved\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
@@ -6420,7 +6464,7 @@ class WaveCloseHandoffPreservationTests(unittest.TestCase):
         handoff = self.root / "docs" / "agents" / "session-handoff.md"
         if handoff.exists():
             handoff.unlink()
-        wave_md = self.root / "docs" / "waves" / "hw-test" / "wave.md"
+        wave_md = _waves_dir(self.root) / "hw-test" / vocabulary_profile.RECORD_FILENAME
         text = wave_md.read_text(encoding="utf-8")
         wave_md.write_text(text + "\n## Review Signoff Evidence\n\n- operator-signoff: approved\n- 2026-05-01: approved and signoff complete.\n", encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": []}):
@@ -6448,18 +6492,18 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _setup_wave(self):
-        wave_dir = self.root / "docs" / "waves" / "bulk-wave"
+        wave_dir = _waves_dir(self.root) / "bulk-wave"
         wave_dir.mkdir(parents=True, exist_ok=True)
-        (wave_dir / "wave.md").write_text(
-            "# Wave Record\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-01-01\n\nwave-id: `bulk-wave`\nTitle: Bulk Wave\n\n## Changes\n\nChange ID: `ch1xx-feat first`\nChange Status: `in-progress`\n\nChange ID: `ch2xx-feat second`\nChange Status: `planned`\n",
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
+            _loc("# Wave Record\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-01-01\n\nwave-id: `bulk-wave`\nTitle: Bulk Wave\n\n## Changes\n\nChange ID: `ch1xx-feat first`\nChange Status: `in-progress`\n\nChange ID: `ch2xx-feat second`\nChange Status: `planned`\n"),
             encoding="utf-8",
         )
         (wave_dir / "ch1xx-feat first.md").write_text(
-            "# First\n\nChange ID: `ch1xx-feat first`\nChange Status: `in-progress`\n",
+            _loc("# First\n\nChange ID: `ch1xx-feat first`\nChange Status: `in-progress`\n"),
             encoding="utf-8",
         )
         (wave_dir / "ch2xx-feat second.md").write_text(
-            "# Second\n\nChange ID: `ch2xx-feat second`\nChange Status: `planned`\n",
+            _loc("# Second\n\nChange ID: `ch2xx-feat second`\nChange Status: `planned`\n"),
             encoding="utf-8",
         )
 
@@ -6495,7 +6539,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         self._setup_wave()
         (self.root / "docs" / "plans").mkdir(parents=True, exist_ok=True)
         other = self.root / "docs" / "plans" / "ch1xx-bug collision.md"
-        other.write_text("# Collision\n\nChange ID: `ch1xx-bug collision`\n", encoding="utf-8")
+        other.write_text(_loc("# Collision\n\nChange ID: `ch1xx-bug collision`\n"), encoding="utf-8")
         resp = self.srv.wf_get_change_response(self.root, change_id="ch1xx")
         self.assertEqual(resp["status"], "ok")
         self.assertIsNone(resp["data"]["change"])
@@ -6506,7 +6550,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
 
     def test_single_mode_excludes_wave_md_from_change_lookup(self):
         self._setup_wave()
-        wave_text = (self.root / "docs" / "waves" / "bulk-wave" / "wave.md").read_text(encoding="utf-8")
+        wave_text = (_waves_dir(self.root) / "bulk-wave" / vocabulary_profile.RECORD_FILENAME).read_text(encoding="utf-8")
         self.assertIn("ch1xx-feat first", wave_text)
         matches = self.srv._resolve_change_doc_matches(self.root, "bulk-wave")
         self.assertEqual(matches, [])
@@ -6515,7 +6559,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         plans = self.root / "docs" / "plans"
         plans.mkdir(parents=True, exist_ok=True)
         (plans / "zzzzz-bug mentions-ch1xx.md").write_text(
-            "# Mention\n\nChange ID: `zzzzz-bug mentions-ch1xx`\n",
+            _loc("# Mention\n\nChange ID: `zzzzz-bug mentions-ch1xx`\n"),
             encoding="utf-8",
         )
         resp = self.srv.wf_get_change_response(self.root, change_id="ch1xx")
@@ -6525,10 +6569,10 @@ class BulkWaveGetChangeTests(unittest.TestCase):
 
     def test_ambiguous_wave_lookup_returns_all_matches(self):
         self._setup_wave()
-        second = self.root / "docs" / "waves" / "bulk-wave-extra"
+        second = _waves_dir(self.root) / "bulk-wave-extra"
         second.mkdir(parents=True, exist_ok=True)
-        (second / "wave.md").write_text(
-            "# Wave Record\n\nOwner: Engineering\nStatus: planned\nLast verified: 2026-01-01\n\nwave-id: `bulk-wave-extra`\nTitle: Extra\n\n## Changes\n\nChange ID: `ch3xx-feat third`\nChange Status: `planned`\n",
+        (second / vocabulary_profile.RECORD_FILENAME).write_text(
+            _loc("# Wave Record\n\nOwner: Engineering\nStatus: planned\nLast verified: 2026-01-01\n\nwave-id: `bulk-wave-extra`\nTitle: Extra\n\n## Changes\n\nChange ID: `ch3xx-feat third`\nChange Status: `planned`\n"),
             encoding="utf-8",
         )
         resp = self.srv.wf_get_change_response(self.root, wave_id="bulk-wave")
@@ -6544,7 +6588,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         plans = self.root / "docs" / "plans"
         plans.mkdir(parents=True, exist_ok=True)
         (plans / "bulk-wave-bug same-token.md").write_text(
-            "# Same Token\n\nChange ID: `bulk-wave-bug same-token`\n",
+            _loc("# Same Token\n\nChange ID: `bulk-wave-bug same-token`\n"),
             encoding="utf-8",
         )
         change_resp = self.srv.wf_get_change_response(self.root, change_id="bulk-wave")
@@ -6593,7 +6637,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         reads any change document.
         """
         self._setup_wave()
-        wave_md = self.root / "docs" / "waves" / "bulk-wave" / "wave.md"
+        wave_md = _waves_dir(self.root) / "bulk-wave" / vocabulary_profile.RECORD_FILENAME
         if council:
             wave_md.write_text(
                 wave_md.read_text(encoding="utf-8")
@@ -6602,7 +6646,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
                 + "\n",
                 encoding="utf-8")
         return self._make_unreadable(
-            self.root / "docs" / "waves" / "bulk-wave" / "ch1xx-feat first.md", mode)
+            _waves_dir(self.root) / "bulk-wave" / "ch1xx-feat first.md", mode)
 
     def test_close_blocks_on_an_unreadable_admitted_change(self):
         """1uu9z AC-4: VISIBLE, not silently dropped.
@@ -6618,7 +6662,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
             with self.subTest(cause=mode):
                 self._fresh_root()
                 bad = self._unreadable_admitted_wave(mode=mode)
-                wave_md = self.root / "docs" / "waves" / "bulk-wave" / "wave.md"
+                wave_md = _waves_dir(self.root) / "bulk-wave" / vocabulary_profile.RECORD_FILENAME
                 findings = self.srv.lifecycle_gate_support._collect_silent_unchecked_items_for_close(
                     wave_md, wave_md.read_text(encoding="utf-8"))
                 unreadable = [f for f in findings
@@ -6691,10 +6735,10 @@ class BulkWaveGetChangeTests(unittest.TestCase):
                 plans.mkdir(parents=True, exist_ok=True)
                 src = plans / "ch9xx-feat unreadable.md"
                 src.write_text(
-                    "# U\n\nChange ID: `ch9xx-feat unreadable`\n"
-                    "Change Status: `planned`\n", encoding="utf-8")
+                    _loc("# U\n\nChange ID: `ch9xx-feat unreadable`\n"
+                    "Change Status: `planned`\n"), encoding="utf-8")
                 self._make_unreadable(src, mode)
-                target = (self.root / "docs" / "waves" / "bulk-wave"
+                target = (_waves_dir(self.root) / "bulk-wave"
                           / "ch9xx-feat unreadable.md")
                 for call_mode in ("dry_run", "create"):
                     resp = self.srv.wf_add_change_response(
@@ -6784,10 +6828,10 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         """
         from unittest.mock import patch as _patch
 
-        wave_dir = self.root / "docs" / "waves" / "race-wave"
+        wave_dir = _waves_dir(self.root) / "race-wave"
         wave_dir.mkdir(parents=True, exist_ok=True)
-        (wave_dir / "wave.md").write_text(
-            "# Wave Record\n"
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
+            _loc("# Wave Record\n"
             "wave-id: `race-wave`\n"
             "Status: active\n\n"
             "## Changes\n\n"
@@ -6797,7 +6841,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
             "- operator-signoff: approved\n"
             "- architecture-reviewer: approved\n"
             "- code-reviewer: approved\n"
-            "- qa-reviewer: approved\n",
+            "- qa-reviewer: approved\n"),
             encoding="utf-8",
         )
         (wave_dir / "ch9ra-feat racer.md").write_bytes(b"\xff\xfe not utf-8")
@@ -6840,7 +6884,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
                 self.assertIsNone(
                     self.srv._wave_code_footprint(
                         self.root,
-                        self.root / "docs" / "waves" / "bulk-wave" / "wave.md"),
+                        _waves_dir(self.root) / "bulk-wave" / vocabulary_profile.RECORD_FILENAME),
                     "the footprint advisory must degrade, not raise",
                 )
 
@@ -6860,10 +6904,10 @@ class BulkWaveGetChangeTests(unittest.TestCase):
 
     def _ghost_wave(self) -> "Path":
         """A resolvable wave whose sole admitted change has no file on disk."""
-        wave_dir = self.root / "docs" / "waves" / "ghost-wave"
+        wave_dir = _waves_dir(self.root) / "ghost-wave"
         wave_dir.mkdir(parents=True, exist_ok=True)
-        (wave_dir / "wave.md").write_text(
-            "# Wave Record\n"
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
+            _loc("# Wave Record\n"
             "wave-id: `ghost-wave`\n"
             "Status: active\n\n"
             "## Changes\n\n"
@@ -6873,7 +6917,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
             "- operator-signoff: approved\n"
             "- architecture-reviewer: approved\n"
             "- code-reviewer: approved\n"
-            "- qa-reviewer: approved\n",
+            "- qa-reviewer: approved\n"),
             encoding="utf-8",
         )
         return wave_dir
@@ -6888,8 +6932,8 @@ class BulkWaveGetChangeTests(unittest.TestCase):
 
         wave_dir = self._ghost_wave()
         items = self.srv.lifecycle_gate_support._collect_silent_unchecked_items_for_close(
-            wave_dir / "wave.md",
-            (wave_dir / "wave.md").read_text(encoding="utf-8"),
+            wave_dir / vocabulary_profile.RECORD_FILENAME,
+            (wave_dir / vocabulary_profile.RECORD_FILENAME).read_text(encoding="utf-8"),
         )
         self.assertTrue(
             any(i["item_type"] == "change document" and i["item_id"] == "missing"
@@ -6920,7 +6964,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         naming the artifact, its purpose, and the cause."""
         from unittest.mock import patch as _patch
 
-        artifact = self.root / "docs" / "waves" / "bulk-wave" / "artifact-a.txt"
+        artifact = _waves_dir(self.root) / "bulk-wave" / "artifact-a.txt"
 
         def boom(path, payload, purpose):
             raise PermissionError(13, "Permission denied", str(path))
@@ -6943,7 +6987,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         path anywhere in the composed detail."""
         from unittest.mock import patch as _patch
 
-        wave_dir = self.root / "docs" / "waves" / "bulk-wave"
+        wave_dir = _waves_dir(self.root) / "bulk-wave"
         wave_dir.mkdir(parents=True, exist_ok=True)
         first = wave_dir / "artifact-a.txt"
         second = wave_dir / "artifact-b.txt"
@@ -7017,10 +7061,10 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         pre-fix: returned 'delivered one change' describing a document that
         does not exist."""
         wave_dir = self._ghost_wave()
-        text = (wave_dir / "wave.md").read_text(encoding="utf-8")
+        text = (wave_dir / vocabulary_profile.RECORD_FILENAME).read_text(encoding="utf-8")
         with self.assertRaises(ValueError) as ctx:
             self.srv._generate_wf_close_wave_summary(
-                "ghost-wave", text, wave_dir / "wave.md")
+                "ghost-wave", text, wave_dir / vocabulary_profile.RECORD_FILENAME)
         self.assertIn("ch9gh-feat ghost", str(ctx.exception))
         self.assertIn("wf_remove_change", str(ctx.exception))
         self.assertNotIn(str(self.root), str(ctx.exception))
@@ -7037,8 +7081,8 @@ class BulkWaveGetChangeTests(unittest.TestCase):
                 plans = self.root / "docs" / "plans"
                 plans.mkdir(parents=True, exist_ok=True)
                 (plans / "ch8ok-feat readable.md").write_text(
-                    "# OK\n\nChange ID: `ch8ok-feat readable`\n"
-                    "Change Status: `planned`\n", encoding="utf-8")
+                    _loc("# OK\n\nChange ID: `ch8ok-feat readable`\n"
+                    "Change Status: `planned`\n"), encoding="utf-8")
                 bad = plans / "ch8xx-feat unreadable.md"
                 self._make_unreadable(bad, mode)
                 try:
@@ -7073,9 +7117,9 @@ class BulkWaveGetChangeTests(unittest.TestCase):
                 try:
                     self.srv._generate_wf_close_wave_summary(
                         "bulk-wave",
-                        (self.root / "docs" / "waves" / "bulk-wave" / "wave.md").read_text(
+                        (_waves_dir(self.root) / "bulk-wave" / vocabulary_profile.RECORD_FILENAME).read_text(
                             encoding="utf-8"),
-                        self.root / "docs" / "waves" / "bulk-wave" / "wave.md",
+                        _waves_dir(self.root) / "bulk-wave" / vocabulary_profile.RECORD_FILENAME,
                     )
                 except ValueError as exc:
                     self.assertIn("bulk-wave/ch1xx-feat first.md", str(exc))
@@ -7113,10 +7157,10 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         for mode in ("decode", "permission"):
             with self.subTest(cause=mode):
                 self._fresh_root()
-                wave_dir = self.root / "docs" / "waves" / "bulk-wave"
+                wave_dir = _waves_dir(self.root) / "bulk-wave"
                 wave_dir.mkdir(parents=True, exist_ok=True)
-                wave_md = wave_dir / "wave.md"
-                wave_md.write_text("# Wave Record\n", encoding="utf-8")
+                wave_md = wave_dir / vocabulary_profile.RECORD_FILENAME
+                wave_md.write_text(_loc("# Wave Record\n"), encoding="utf-8")
                 self._make_unreadable(wave_dir / "a-unreadable.md", mode)
                 (wave_dir / "z-note.md").write_text(
                     "# Later\n\nGapfill: retrieval posture recorded.\n",
@@ -7135,40 +7179,19 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         the FastMCP surface is the only way to exercise the real function that
         the `wavefoundry://change/{change_id}` URI resolves to.
         """
-        captured = {}
+        # The shared FastMCP-backed double (change 1zim4): a distribution's
+        # declaration machinery runs against it as against the server.
+        from declaration_support import RecordingFastMCP
+        recorder = RecordingFastMCP()
+        captured = recorder.resource_functions
         root = self.root
-
-        class _ToolManager:
-            # register_mcp_surface probes mcp._tool_manager._tools; model that
-            # shape rather than a catch-all __getattr__, which hands the probe a
-            # function where it expects a mapping.
-            def __init__(self):
-                self._tools = {}
-
-        class _Recorder:
-            def __init__(self):
-                self._tool_manager = _ToolManager()
-
-            def resource(self, uri, **kwargs):
-                def deco(fn):
-                    captured[fn.__name__] = fn
-                    return fn
-                return deco
-
-            def tool(self, *args, **kwargs):
-                def deco(fn):
-                    self._tool_manager._tools[kwargs.get("name", fn.__name__)] = fn
-                    return fn
-                if args and callable(args[0]):
-                    return deco(args[0])
-                return deco
 
         class _Handler:
             pass
 
         handler = _Handler()
         handler.root = root
-        self.srv.register_mcp_surface(_Recorder(), lambda: handler)
+        self.srv.register_mcp_surface(recorder, lambda: handler)
         self.assertIn(
             "resource_change", captured,
             "register_mcp_surface no longer registers resource_change; this "
@@ -7221,14 +7244,14 @@ class BulkWaveGetChangeTests(unittest.TestCase):
             _json.dumps({"wave_review": {"enabled": True, "delivery_mode": "targeted"}}),
             encoding="utf-8",
         )
-        wave_md = self.root / "docs" / "waves" / "bulk-wave" / "wave.md"
+        wave_md = _waves_dir(self.root) / "bulk-wave" / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8").replace(
-                "# Wave Record\n",
+                _loc("# Wave Record\n"),
                 # negative-fixture: test_no_read_failure_message_leaks_the_absolute_path deliberately supplies invalid or unreadable authority
-                "# Wave Record\n\nreview-evidence-source: events.jsonl\n", 1),
+                _loc("# Wave Record\n\nreview-evidence-source: events.jsonl\n"), 1),
             encoding="utf-8")
-        (self.root / "docs" / "waves" / "bulk-wave" / "events.jsonl").write_text(
+        (_waves_dir(self.root) / "bulk-wave" / "events.jsonl").write_text(
             "", encoding="utf-8")
         prepare_resp = self.srv.wf_prepare_wave_response(
             self.root, wave_id="bulk-wave", mode="dry_run")
@@ -7281,7 +7304,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
     def test_undecodable_change_is_reported_in_bulk_and_single_lookup(self):
         """1uu9z AC-2b: the recovery tool must not turn decode failure into a crash."""
         self._setup_wave()
-        bad = self.root / "docs" / "waves" / "bulk-wave" / "ch1xx-feat first.md"
+        bad = _waves_dir(self.root) / "bulk-wave" / "ch1xx-feat first.md"
         bad.write_bytes(b"\x80not utf-8")
 
         bulk = self.srv.wf_get_change_response(self.root, wave_id="bulk-wave")
@@ -7324,14 +7347,14 @@ class UnreadableWaveRecordTests(unittest.TestCase):
         self.tmp.cleanup()
 
     _WAVE_TEXT = (
-        "# Wave Record\n\nOwner: Engineering\nStatus: active\n"
+        _loc("# Wave Record\n\nOwner: Engineering\nStatus: active\n"
         "Last verified: 2026-01-01\n\nwave-id: `seam-wave`\nTitle: Seam Wave\n\n"
-        "## Changes\n\nChange ID: `ch1sm-feat first`\nChange Status: `planned`\n"
+        "## Changes\n\nChange ID: `ch1sm-feat first`\nChange Status: `planned`\n")
     )
     _CHANGE_TEXT = (
-        "# First\n\nChange ID: `ch1sm-feat first`\nChange Status: `planned`\n\n"
+        _loc("# First\n\nChange ID: `ch1sm-feat first`\nChange Status: `planned`\n\n"
         "## Acceptance Criteria\n\n- [ ] AC-1: the seam holds\n\n"
-        "## Tasks\n\n- [ ] Route the read\n"
+        "## Tasks\n\n- [ ] Route the read\n")
     )
 
     def _fresh_root(self):
@@ -7359,9 +7382,9 @@ class UnreadableWaveRecordTests(unittest.TestCase):
 
     def _wave(self, name="seam-wave"):
         """A readable governed wave with one admitted change carrying AC and task items."""
-        wave_dir = self.root / "docs" / "waves" / name
+        wave_dir = _waves_dir(self.root) / name
         wave_dir.mkdir(parents=True, exist_ok=True)
-        wave_md = wave_dir / "wave.md"
+        wave_md = wave_dir / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             self._WAVE_TEXT.replace("seam-wave", name), encoding="utf-8")
         (wave_dir / "ch1sm-feat first.md").write_text(
@@ -7410,7 +7433,7 @@ class UnreadableWaveRecordTests(unittest.TestCase):
                     self._fresh_root()
                     self._wave()
                     self._make_unreadable(
-                        self.root / "docs" / "waves" / "seam-wave" / "wave.md",
+                        _waves_dir(self.root) / "seam-wave" / vocabulary_profile.RECORD_FILENAME,
                         cause)
                     try:
                         resp = call()
@@ -7431,7 +7454,7 @@ class UnreadableWaveRecordTests(unittest.TestCase):
                         d["message"] for d in resp["diagnostics"]
                         if d["code"] == "wave_record_unreadable")
                     self.assertIn(
-                        "wave.md", message,
+                        vocabulary_profile.RECORD_FILENAME, message,
                         "the diagnostic must name the wave record")
                     self.assertIn("seam-wave", message)
                     self.assertIn(
@@ -7481,10 +7504,10 @@ class UnreadableWaveRecordTests(unittest.TestCase):
                     plans = self.root / "docs" / "plans"
                     plans.mkdir(parents=True, exist_ok=True)
                     (plans / "chadd-feat plan.md").write_text(
-                        "# Plan\n\nChange ID: `chadd-feat plan`\n"
-                        "Change Status: `planned`\n", encoding="utf-8")
+                        _loc("# Plan\n\nChange ID: `chadd-feat plan`\n"
+                        "Change Status: `planned`\n"), encoding="utf-8")
                     self._make_unreadable(
-                        self.root / "docs" / "waves" / "seam-wave" / "wave.md",
+                        _waves_dir(self.root) / "seam-wave" / vocabulary_profile.RECORD_FILENAME,
                         cause)
                     try:
                         resp = call()
@@ -7500,7 +7523,7 @@ class UnreadableWaveRecordTests(unittest.TestCase):
                     message = " ".join(
                         d["message"] for d in resp["diagnostics"]
                         if d["code"] == "wave_record_unreadable")
-                    self.assertIn("wave.md", message)
+                    self.assertIn(vocabulary_profile.RECORD_FILENAME, message)
                     self.assertIn("Error", message)
                     blob = json.dumps(resp.get("diagnostics") or []) + json.dumps(
                         resp.get("data") or {})
@@ -7517,8 +7540,8 @@ class UnreadableWaveRecordTests(unittest.TestCase):
         for cause in ("decode", "permission"):
             with self.subTest(cause=cause):
                 self._fresh_root()
-                wave_md = (self.root / "docs" / "waves"
-                           / "seamzz seam-probe" / "wave.md")
+                wave_md = (_waves_dir(self.root)
+                           / "seamzz seam-probe" / vocabulary_profile.RECORD_FILENAME)
                 wave_md.parent.mkdir(parents=True, exist_ok=True)
                 self._make_unreadable(wave_md, cause)
                 try:
@@ -7552,9 +7575,9 @@ class UnreadableWaveRecordTests(unittest.TestCase):
                 with self.subTest(cause=cause, tool=name):
                     self._fresh_root()
                     self._wave()
-                    sibling = self.root / "docs" / "waves" / "aa-broken"
+                    sibling = _waves_dir(self.root) / "aa-broken"
                     sibling.mkdir(parents=True, exist_ok=True)
-                    self._make_unreadable(sibling / "wave.md", cause)
+                    self._make_unreadable(sibling / vocabulary_profile.RECORD_FILENAME, cause)
                     fn = (self.srv.wf_list_waves_response
                           if name == "list_waves"
                           else self.srv.wf_current_wave_response)
@@ -7593,9 +7616,9 @@ class UnreadableWaveRecordTests(unittest.TestCase):
         for cause in ("decode", "permission"):
             with self.subTest(cause=cause):
                 self._fresh_root()
-                wave_dir = self.root / "docs" / "waves" / "only-wave"
+                wave_dir = _waves_dir(self.root) / "only-wave"
                 wave_dir.mkdir(parents=True, exist_ok=True)
-                self._make_unreadable(wave_dir / "wave.md", cause)
+                self._make_unreadable(wave_dir / vocabulary_profile.RECORD_FILENAME, cause)
                 try:
                     resp = self.srv.wf_current_wave_response(self.root)
                 except (OSError, UnicodeError) as exc:
@@ -7628,9 +7651,9 @@ class UnreadableWaveRecordTests(unittest.TestCase):
             with self.subTest(cause=cause):
                 self._fresh_root()
                 self._wave()
-                sibling = self.root / "docs" / "waves" / "aa-broken"
+                sibling = _waves_dir(self.root) / "aa-broken"
                 sibling.mkdir(parents=True, exist_ok=True)
-                self._make_unreadable(sibling / "wave.md", cause)
+                self._make_unreadable(sibling / vocabulary_profile.RECORD_FILENAME, cause)
                 try:
                     resp = self.srv.wf_get_change_response(
                         self.root, wave_id="seam-wave")
@@ -7664,9 +7687,9 @@ class UnreadableWaveRecordTests(unittest.TestCase):
         for cause in ("decode", "permission"):
             with self.subTest(cause=cause):
                 self._fresh_root()
-                renamed = self.root / "docs" / "waves" / "renamed-dir"
+                renamed = _waves_dir(self.root) / "renamed-dir"
                 renamed.mkdir(parents=True, exist_ok=True)
-                self._make_unreadable(renamed / "wave.md", cause)
+                self._make_unreadable(renamed / vocabulary_profile.RECORD_FILENAME, cause)
                 try:
                     resp = self.srv.wf_prepare_wave_response(
                         self.root, wave_id="mystery-wave", mode="dry_run")
@@ -7922,18 +7945,18 @@ class WavePrepareACPriorityWarningTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _make_wave_with_change(self, ac_text: str) -> Path:
-        wave_dir = self.root / "docs" / "waves" / "ac-wave"
+        wave_dir = _waves_dir(self.root) / "ac-wave"
         wave_dir.mkdir(parents=True, exist_ok=True)
-        (wave_dir / "wave.md").write_text(
-            "# Wave Record\n\nOwner: Engineering\nStatus: planned\nLast verified: 2026-01-01\n\nwave-id: `ac-wave`\nTitle: AC Wave\n\n## Changes\n\nChange ID: `acx01-feat ac-test`\nChange Status: `planned`\n\n## Wave Summary\n\nTest wave.\n\n## Journal Watchpoints\n\n- Watch this.\n",
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
+            _loc("# Wave Record\n\nOwner: Engineering\nStatus: planned\nLast verified: 2026-01-01\n\nwave-id: `ac-wave`\nTitle: AC Wave\n\n## Changes\n\nChange ID: `acx01-feat ac-test`\nChange Status: `planned`\n\n## Wave Summary\n\nTest wave.\n\n## Journal Watchpoints\n\n- Watch this.\n"),
             encoding="utf-8",
         )
         change_doc = wave_dir / "acx01-feat ac-test.md"
         change_doc.write_text(
-            "# AC Test\n\nChange ID: `acx01-feat ac-test`\nChange Status: `planned`\nOwner: Engineering\nWave: `ac-wave`\n\n"
+            _loc("# AC Test\n\nChange ID: `acx01-feat ac-test`\nChange Status: `planned`\nOwner: Engineering\nWave: `ac-wave`\n\n"
             "## Rationale\n\nNeeded.\n\n## Requirements\n\n1. Do the thing.\n\n## Scope\n\nIn scope.\n\n"
             "## Acceptance Criteria\n\n- AC-1: Does the thing.\n\n## Tasks\n\n- Implement it.\n\n"
-            f"## AC Priority\n\n| AC | Priority | Rationale |\n| -- | -------- | --------- |\n{ac_text}\n",
+            f"## AC Priority\n\n| AC | Priority | Rationale |\n| -- | -------- | --------- |\n{ac_text}\n"),
             encoding="utf-8",
         )
         return wave_dir
@@ -8007,11 +8030,11 @@ class WavePauseStatusTransitionTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _make_wave(self, wave_id: str, status: str) -> Path:
-        wave_dir = self.root / "docs" / "waves" / wave_id
+        wave_dir = _waves_dir(self.root) / wave_id
         wave_dir.mkdir(parents=True, exist_ok=True)
-        wave_md = wave_dir / "wave.md"
+        wave_md = wave_dir / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
-            "# Wave Record\n\n"
+            _loc("# Wave Record\n\n"
             "Owner: Engineering\n"
             f"Status: {status}\n"
             "Last verified: 2026-05-01\n\n"
@@ -8020,7 +8043,7 @@ class WavePauseStatusTransitionTests(unittest.TestCase):
             "## Changes\n\n"
             "## Wave Summary\n\nTest.\n\n"
             "## Journal Watchpoints\n\n- Test.\n\n"
-            "## Dependencies\n\n- None.\n",
+            "## Dependencies\n\n- None.\n"),
             encoding="utf-8",
         )
         return wave_md
@@ -8085,7 +8108,7 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
         change = self.srv.new_change(self.root, "feat", f"{slug}-change")
         change_id = change["id"]
         self.srv.wf_add_change_response(self.root, wave_id, change_id, mode="create")
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         text = wave_md.read_text(encoding="utf-8")
         if status != "planned":
             text = text.replace("Status: planned", f"Status: {status}")
@@ -8093,7 +8116,7 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
         # Add journal reference so lint passes
         journal = self.root / "docs" / "agents" / "journals" / "wave-coordinator.md"
         prior = journal.read_text(encoding="utf-8") if journal.exists() else "# Journal\n"
-        journal.write_text(prior + f"\nwave-id: `{wave_id}`\n", encoding="utf-8")
+        journal.write_text(prior + _loc(f"\nwave-id: `{wave_id}`\n"), encoding="utf-8")
         return wave_id, change_id
 
     def _add_council_verdict(self, wave_id: str) -> None:
@@ -8105,7 +8128,7 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
             "wave-council-readiness",
             actor="wave-council",
         )
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
             + f"\n## Review Checkpoints\n\n{_prepare_council_verdict_line()}\n",
@@ -8121,7 +8144,7 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
         self.assertIn("another_wave_active", codes)
         self.assertEqual(result["data"].get("active_wave_id"), active_wave)
         # target wave still planned
-        target_md = self.root / "docs" / "waves" / target_wave / "wave.md"
+        target_md = _waves_dir(self.root) / target_wave / vocabulary_profile.RECORD_FILENAME
         self.assertIn("Status: planned", target_md.read_text(encoding="utf-8"))
 
     def test_wf_prepare_wave_dry_run_not_guarded_by_other_open_wave(self):
@@ -8171,7 +8194,7 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
         codes = [d.get("code") for d in result.get("diagnostics", [])]
         self.assertNotIn("another_wave_active", codes)
         # Target wave transitioned to active
-        target_md = self.root / "docs" / "waves" / target_wave / "wave.md"
+        target_md = _waves_dir(self.root) / target_wave / vocabulary_profile.RECORD_FILENAME
         self.assertIn("Status: active", target_md.read_text(encoding="utf-8"))
 
     def test_wf_prepare_wave_resumes_paused_wave(self):
@@ -8182,7 +8205,7 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
                 result = self.srv.wf_prepare_wave_response(self.root, paused_wave, mode="create")
         codes = [d.get("code") for d in result.get("diagnostics", [])]
         self.assertNotIn("another_wave_active", codes)
-        wave_md = self.root / "docs" / "waves" / paused_wave / "wave.md"
+        wave_md = _waves_dir(self.root) / paused_wave / vocabulary_profile.RECORD_FILENAME
         self.assertIn("Status: active", wave_md.read_text(encoding="utf-8"))
 
     def test_wf_prepare_wave_ready_succeeds_while_other_wave_open_and_stays_planned(self):
@@ -8198,7 +8221,7 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
         self.assertNotIn("another_wave_active", codes)
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"].get("readied"))
-        target_md = self.root / "docs" / "waves" / target_wave / "wave.md"
+        target_md = _waves_dir(self.root) / target_wave / vocabulary_profile.RECORD_FILENAME
         self.assertIn("Status: planned", target_md.read_text(encoding="utf-8"))
 
     def test_wf_implement_wave_opens_readied_planned_wave(self):
@@ -8209,7 +8232,7 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
         result = self.srv.wf_implement_wave_response(self.root, target_wave, mode="create")
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["status_transition"], {"from": "planned", "to": "implementing"})
-        wave_md = self.root / "docs" / "waves" / target_wave / "wave.md"
+        wave_md = _waves_dir(self.root) / target_wave / vocabulary_profile.RECORD_FILENAME
         self.assertIn("Status: implementing", wave_md.read_text(encoding="utf-8"))
 
     def test_wf_implement_wave_guarded_when_another_wave_open(self):
@@ -8222,7 +8245,7 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
         result = self.srv.wf_implement_wave_response(self.root, target_wave, mode="create")
         self.assertEqual(result["status"], "error")
         self.assertIn("another_wave_active", [d.get("code") for d in result.get("diagnostics", [])])
-        target_md = self.root / "docs" / "waves" / target_wave / "wave.md"
+        target_md = _waves_dir(self.root) / target_wave / vocabulary_profile.RECORD_FILENAME
         self.assertIn("Status: planned", target_md.read_text(encoding="utf-8"))
 
     def test_wf_reopen_wave_guarded_when_another_wave_open(self):
@@ -8239,7 +8262,7 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
             self.srv.wf_pause_wave_response(self.root, blocked["data"]["active_wave_id"], mode="create")
             ok = self.srv.wf_reopen_wave_response(self.root, closed_wave)
         self.assertEqual(ok["status"], "ok")
-        self.assertIn("Status: active", (self.root / "docs" / "waves" / closed_wave / "wave.md").read_text(encoding="utf-8"))
+        self.assertIn("Status: active", (_waves_dir(self.root) / closed_wave / vocabulary_profile.RECORD_FILENAME).read_text(encoding="utf-8"))
 
     def test_wf_prepare_wave_aggregates_active_wave_and_lint_diagnostics(self):
         """AC-6: when another wave is active AND lint fails, both diagnostics appear."""
@@ -8265,7 +8288,7 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
         codes = [d.get("code") for d in result.get("diagnostics", [])]
         self.assertIn("another_wave_active", codes)
         # Paused wave still paused
-        wave_md = self.root / "docs" / "waves" / paused_wave / "wave.md"
+        wave_md = _waves_dir(self.root) / paused_wave / vocabulary_profile.RECORD_FILENAME
         self.assertIn("Status: paused", wave_md.read_text(encoding="utf-8"))
 
 
@@ -8285,10 +8308,10 @@ class WaveCurrentListEnvelopeTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _make_wave(self, wave_id: str, status: str) -> None:
-        wave_dir = self.root / "docs" / "waves" / wave_id
+        wave_dir = _waves_dir(self.root) / wave_id
         wave_dir.mkdir(parents=True, exist_ok=True)
-        (wave_dir / "wave.md").write_text(
-            f"# Wave Record\n\nStatus: {status}\nwave-id: `{wave_id}`\n\n## Changes\n\n",
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
+            _loc(f"# Wave Record\n\nStatus: {status}\nwave-id: `{wave_id}`\n\n## Changes\n\n"),
             encoding="utf-8",
         )
 
@@ -8385,10 +8408,10 @@ class WaveAuditUnaffectedByCurrentEnvelopeTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _make_wave(self, wave_id: str, status: str) -> None:
-        wave_dir = self.root / "docs" / "waves" / wave_id
+        wave_dir = _waves_dir(self.root) / wave_id
         wave_dir.mkdir(parents=True, exist_ok=True)
-        (wave_dir / "wave.md").write_text(
-            f"# Wave Record\n\nStatus: {status}\nwave-id: `{wave_id}`\n\n## Changes\n\n",
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
+            _loc(f"# Wave Record\n\nStatus: {status}\nwave-id: `{wave_id}`\n\n## Changes\n\n"),
             encoding="utf-8",
         )
 
@@ -8441,11 +8464,11 @@ class WaveValidateAcceptsPausedTests(unittest.TestCase):
         sections) may still fail for unrelated reasons — those are excluded from the
         assertion.
         """
-        wave_dir = self.root / "docs" / "waves" / "1200a paused-lint-check"
+        wave_dir = _waves_dir(self.root) / "1200a paused-lint-check"
         wave_dir.mkdir(parents=True, exist_ok=True)
-        wave_md = wave_dir / "wave.md"
+        wave_md = wave_dir / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
-            "# Wave Record\n\n"
+            _loc("# Wave Record\n\n"
             "Owner: Engineering\n"
             "Status: paused\n"
             "Last verified: 2026-05-01\n\n"
@@ -8454,7 +8477,7 @@ class WaveValidateAcceptsPausedTests(unittest.TestCase):
             "## Changes\n\n"
             "## Wave Summary\n\nTest.\n\n"
             "## Journal Watchpoints\n\n- Paused wave testing.\n\n"
-            "## Dependencies\n\n- None.\n",
+            "## Dependencies\n\n- None.\n"),
             encoding="utf-8",
         )
         result = self.srv.run_validate(self.root)
@@ -8554,16 +8577,16 @@ class RequiredReviewLanesTests(unittest.TestCase):
         )
 
     def _make_wave_with_evidence(self, evidence_lines):
-        wave_dir = self.root / "docs" / "waves" / "1200a test-wave"
+        wave_dir = _waves_dir(self.root) / "1200a test-wave"
         wave_dir.mkdir(parents=True, exist_ok=True)
-        (wave_dir / "wave.md").write_text(
-            "# Wave Record\n"
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
+            _loc("# Wave Record\n"
             "wave-id: `1200a test-wave`\n"
             "Status: active\n\n"
             "## Changes\n\n"
             "Change ID: `1200a-feat sample`\n"
             "Change Status: `complete`\n\n"
-            "## Review Evidence\n\n"
+            "## Review Evidence\n\n")
             + "\n".join(evidence_lines) + "\n",
             encoding="utf-8",
         )
@@ -8626,16 +8649,16 @@ class SeverityTriageTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _make_wave_with_evidence(self, evidence_lines):
-        wave_dir = self.root / "docs" / "waves" / "1200a test-wave"
+        wave_dir = _waves_dir(self.root) / "1200a test-wave"
         wave_dir.mkdir(parents=True, exist_ok=True)
-        (wave_dir / "wave.md").write_text(
-            "# Wave Record\n"
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
+            _loc("# Wave Record\n"
             "wave-id: `1200a test-wave`\n"
             "Status: active\n\n"
             "## Changes\n\n"
             "Change ID: `1200a-feat sample`\n"
             "Change Status: `complete`\n\n"
-            "## Review Evidence\n\n"
+            "## Review Evidence\n\n")
             + "\n".join(evidence_lines) + "\n",
             encoding="utf-8",
         )
@@ -8758,10 +8781,10 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         (self.root / "docs" / "workflow-config.json").write_text(json.dumps(cfg), encoding="utf-8")
 
     def _make_change_doc(self, change_id: str):
-        wave_dir = self.root / "docs" / "waves" / "1200a test-wave"
+        wave_dir = _waves_dir(self.root) / "1200a test-wave"
         wave_dir.mkdir(parents=True, exist_ok=True)
         (wave_dir / f"{change_id}.md").write_text(
-            "# Sample Change\n\n"
+            _loc("# Sample Change\n\n"
             f"Change ID: `{change_id}`\n"
             "Change Status: `planned`\n"
             "## Rationale\n\nwhy\n\n"
@@ -8772,17 +8795,17 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             "## AC Priority\n\n"
             "| AC | Priority | Rationale |\n"
             "| -- | -------- | --------- |\n"
-            "| AC-1 | required | x |\n",
+            "| AC-1 | required | x |\n"),
             encoding="utf-8",
         )
 
     def _make_wave(self, status="planned", evidence_lines=None):
         if evidence_lines is None:
             evidence_lines = []
-        wave_dir = self.root / "docs" / "waves" / "1200a test-wave"
+        wave_dir = _waves_dir(self.root) / "1200a test-wave"
         wave_dir.mkdir(parents=True, exist_ok=True)
-        (wave_dir / "wave.md").write_text(
-            "# Wave Record\n"
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
+            _loc("# Wave Record\n"
             "Owner: Engineering\n"
             f"Status: {status}\n"
             "Last verified: 2026-05-08\n\n"
@@ -8795,7 +8818,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             "| Role | Lane | Scope |\n"
             "|------|------|-------|\n"
             "| code-reviewer | review | sample |\n\n"
-            "## Review Evidence\n\n"
+            "## Review Evidence\n\n")
             + "\n".join(evidence_lines) + "\n",
             encoding="utf-8",
         )
@@ -8898,7 +8921,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             )
             self.assertEqual(created["status"], "ok", created)
             wave_id = created["data"]["wave_id"]
-            wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+            wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
             wave_text = wave_md.read_text(encoding="utf-8")
             brief = self.srv.lifecycle_gate_support._build_prepare_council_brief(wave_id, wave_text, [])
             policy_state, policy_errors = self.srv.lifecycle_gate_support._prepare_policy_state(
@@ -9016,7 +9039,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         created = self.srv.wf_create_wave_response(self.root, slug, mode="create")
         self.assertEqual(created["status"], "ok", created)
         wave_id = created["data"]["wave_id"]
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         wave_text = wave_md.read_text(encoding="utf-8")
         brief = self.srv.lifecycle_gate_support._build_prepare_council_brief(wave_id, wave_text, [])
         policy_state, policy_errors = self.srv.lifecycle_gate_support._prepare_policy_state(
@@ -9100,7 +9123,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         )
         self.assertEqual(created["status"], "ok", created)
         wave_md = (
-            self.root / "docs" / "waves" / created["data"]["wave_id"] / "wave.md"
+            _waves_dir(self.root) / created["data"]["wave_id"] / vocabulary_profile.RECORD_FILENAME
         )
         self.assertNotIn(
             "wave-council-readiness",
@@ -9117,7 +9140,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             made = self.srv.new_change(self.root, "bug", "sample", change_id=change_id)
         change_path = self.root / made["path"]
         change_path.write_text(
-            "# Sample Change\n\n"
+            _loc("# Sample Change\n\n"
             f"Change ID: `{change_id}`\n"
             "Change Status: `planned`\n\n"
             "## Rationale\n\nwhy\n\n"
@@ -9127,7 +9150,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             "## Tasks\n\n- [ ] do it.\n\n"
             "## AC Priority\n\n\n| AC | Priority | Rationale |\n| ---- | -------- | --------- |\n"
             "| AC-1 | required | the thing. |\n\n\n"
-            "## Progress Log\n\n| Date | Update | Evidence |\n| --- | --- | --- |\n| d | u | e |\n",
+            "## Progress Log\n\n| Date | Update | Evidence |\n| --- | --- | --- |\n| d | u | e |\n"),
             encoding="utf-8",
         )
         wave_id, wave_md = make_declared_wave(self.srv, self.root, slug,
@@ -10951,7 +10974,7 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         self.srv.wf_add_change_response(self.root, wave_id, change["id"], mode="create")
         journal = self.root / "docs" / "agents" / "journals" / "wave-coordinator.md"
         prior = journal.read_text(encoding="utf-8") if journal.exists() else "# Journal\n"
-        journal.write_text(prior + f"\nwave-id: `{wave_id}`\n", encoding="utf-8")
+        journal.write_text(prior + _loc(f"\nwave-id: `{wave_id}`\n"), encoding="utf-8")
         return wave_id
 
     def _add_verdict(self, wave_id: str) -> None:
@@ -10962,7 +10985,7 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
             "wave-council-readiness",
             actor="wave-council",
         )
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
             + f"\n## Review Checkpoints\n\n{_prepare_council_verdict_line()}\n",
@@ -10970,7 +10993,7 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         )
 
     def _add_invalid_verdict(self, wave_id: str) -> None:
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
             + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (moderator: wave-council; seats: red-team; rotating-seat: none)\n",
@@ -10988,7 +11011,7 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         self.assertIn("missing_wave_council_signoff", codes)
         self.assertIn("council_brief", result["data"])
         # Wave must not have transitioned to active
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         self.assertNotIn("Status: active", wave_md.read_text(encoding="utf-8"))
 
     def test_prepare_create_succeeds_with_council_verdict(self):
@@ -10999,7 +11022,7 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
                 result = self.srv.wf_prepare_wave_response(self.root, wave_id, mode="create")
         self.assertEqual(result["status"], "ok")
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         self.assertIn("Status: active", wave_md.read_text(encoding="utf-8"))
 
     def test_prepare_create_blocks_on_malformed_council_verdict(self):
@@ -11035,11 +11058,11 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         """AC-2: docs-contract-reviewer is selected for waves referencing seed/prompt changes."""
         wave_id = self._make_wave("seed-prompt-wave")
         # Append seed/prompt keywords to the wave change doc
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8").replace(
-                "## Wave Summary",
-                "## Wave Summary\n\nThis wave authors new seed prompts and updates prompt templates.\n",
+                _loc("## Wave Summary"),
+                _loc("## Wave Summary\n\nThis wave authors new seed prompts and updates prompt templates.\n"),
             ),
             encoding="utf-8",
         )
@@ -11052,11 +11075,11 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
     def test_rotating_seat_selected_for_security_wave(self):
         """AC-2: security-reviewer is selected for waves referencing auth/trust boundary changes."""
         wave_id = self._make_wave("auth-security-wave")
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8").replace(
-                "## Wave Summary",
-                "## Wave Summary\n\nThis wave updates authentication middleware and trust boundary checks.\n",
+                _loc("## Wave Summary"),
+                _loc("## Wave Summary\n\nThis wave updates authentication middleware and trust boundary checks.\n"),
             ),
             encoding="utf-8",
         )
@@ -11098,7 +11121,7 @@ class ReviewPhaseAliasTests(unittest.TestCase):
         with declared_wave_doc_gates(self.srv, stubs):
             made = self.srv.new_change(self.root, "feat", "sample", change_id="1200a-feat sample")
         (self.root / made["path"]).write_text(
-            "# Change\nChange ID: `1200a-feat sample`\n\n## Scope\n\nWork.\n", encoding="utf-8")
+            _loc("# Change\nChange ID: `1200a-feat sample`\n\n## Scope\n\nWork.\n"), encoding="utf-8")
         self.wave_id, self.wave_md = make_declared_wave(self.srv, self.root, "sample",
             status="implementing", change_ids=("1200a-feat sample",), doc_gate_stubs=stubs)
 
@@ -11181,10 +11204,10 @@ class ReceiptSemanticCanonicalInputTests(unittest.TestCase):
         row = "| 2026-08-06 | Repaired the windows path handling. | log |"
         scope = "Portable work." if trigger_in_progress_log else "Rework the windows path handling."
         return (
-            f"# Change\nChange ID: `{self.CHANGE_ID}`\n\n"
+            _loc(f"# Change\nChange ID: `{self.CHANGE_ID}`\n\n"
             f"## Scope\n\n{scope}\n\n"
             "## Progress Log\n\n| Date | Update | Evidence |\n| --- | --- | --- |\n"
-            f"{row if trigger_in_progress_log else '| 2026-08-06 | Did work. | log |'}\n"
+            f"{row if trigger_in_progress_log else '| 2026-08-06 | Did work. | log |'}\n")
         )
 
     def _policy_state(self, doc_text: str):
@@ -11199,14 +11222,14 @@ class ReceiptSemanticCanonicalInputTests(unittest.TestCase):
             }),
             encoding="utf-8",
         )
-        wave_dir = root / "docs" / "waves" / "0aaaa sample"
+        wave_dir = _waves_dir(root) / "0aaaa sample"
         wave_dir.mkdir(parents=True)
-        wave_md = wave_dir / "wave.md"
+        wave_md = wave_dir / vocabulary_profile.RECORD_FILENAME
         wave_text = (
             # component-fixture: _policy_state exercises this input representation directly
-            "# Wave Record\n\nStatus: implementing\nreview-evidence-source: events.jsonl\n"
+            _loc("# Wave Record\n\nStatus: implementing\nreview-evidence-source: events.jsonl\n"
             "wave-id: `0aaaa sample`\n\n"
-            f"## Changes\n\nChange ID: `{self.CHANGE_ID}`\nChange Status: `active`\n"
+            f"## Changes\n\nChange ID: `{self.CHANGE_ID}`\nChange Status: `active`\n")
         )
         wave_md.write_text(wave_text, encoding="utf-8")
         (wave_dir / f"{self.CHANGE_ID}.md").write_text(doc_text, encoding="utf-8")
@@ -11259,10 +11282,10 @@ class ReceiptSemanticCanonicalInputTests(unittest.TestCase):
             scope = "Portable work." if in_progress_log else word
             row = word if in_progress_log else "Did work."
             return (
-                f"# Change\nChange ID: `{self.CHANGE_ID}`\n\n"
+                _loc(f"# Change\nChange ID: `{self.CHANGE_ID}`\n\n"
                 f"## Scope\n\n{scope}\n\n"
                 "## Progress Log\n\n| Date | Update | Evidence |\n| --- | --- | --- |\n"
-                f"| 2026-08-06 | {row} | log |\n"
+                f"| 2026-08-06 | {row} | log |\n")
             )
 
         excluded = self._policy_state(doc(in_progress_log=True))
@@ -11450,17 +11473,17 @@ class WaveImplementTests(unittest.TestCase):
         wave_id = wave_result["data"]["wave_id"]
         change = self.srv.new_change(self.root, "feat", f"{slug}-change")
         self.srv.wf_add_change_response(self.root, wave_id, change["id"], mode="create")
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         if status != "planned":
             wave_md.write_text(wave_md.read_text(encoding="utf-8").replace("Status: planned", f"Status: {status}"), encoding="utf-8")
         journal = self.root / "docs" / "agents" / "journals" / "wave-coordinator.md"
         prior = journal.read_text(encoding="utf-8") if journal.exists() else "# Journal\n"
-        journal.write_text(prior + f"\nwave-id: `{wave_id}`\n", encoding="utf-8")
+        journal.write_text(prior + _loc(f"\nwave-id: `{wave_id}`\n"), encoding="utf-8")
         return wave_id
 
     def _add_council_verdict(self, wave_id: str) -> None:
         self._add_prepare_review_signoffs(wave_id, ["wave-council-readiness"])
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
             + f"\n## Review Checkpoints\n\n{_prepare_council_verdict_line()}\n",
@@ -11479,7 +11502,7 @@ class WaveImplementTests(unittest.TestCase):
         projections.
         """
         _append_review_run(self.root, wave_id, kind="readiness")
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         review = sys.modules["review_evidence"]
         records, errors = review.read_review_event_ledger(wave_md)
         assert not errors, errors
@@ -11532,7 +11555,7 @@ class WaveImplementTests(unittest.TestCase):
         self._reproject(wave_id)
 
     def _add_participants(self, wave_id: str, review_lanes: list) -> None:
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         rows = "\n".join(f"| {lane} | review | scope |" for lane in review_lanes)
         roster = (
             "- Requested review lanes: "
@@ -11555,7 +11578,7 @@ class WaveImplementTests(unittest.TestCase):
         the 1t3dm contract requires the projection to stay fresh whenever the
         derived signoff keys change (1t3gu: the scaffold now bakes the block,
         so key-changing edits must re-render it the same way an agent must)."""
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         text = wave_md.read_text(encoding="utf-8")
         wave_md.write_text(
             self.srv._project_current_review_status(self.root, wave_md, text),
@@ -11566,7 +11589,7 @@ class WaveImplementTests(unittest.TestCase):
 
     def test_create_wave_emits_discoverable_empty_roster_both_parsers_agree_on(self):
         wave_id = self._make_wave("empty-roster-producer", status="planned")
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         text = wave_md.read_text(encoding="utf-8")
         self.assertIn("## Participants", text)
         self.assertEqual(self.srv.lifecycle_gate_support._extract_required_review_lanes(text), [])
@@ -11606,6 +11629,7 @@ class WaveImplementTests(unittest.TestCase):
         self.assertEqual(server_lanes, ["qa-reviewer", "code-reviewer", "security-reviewer"])
         self.assertEqual(projection_lanes, server_lanes)
 
+    @default_profile_only("census of this repository's own wave records")
     def test_roster_extractors_agree_over_current_wave_corpus(self):
         repo = self.srv.SCRIPTS_DIR.parents[2]
         wave_paths = sorted((repo / "docs" / "waves").glob("*/wave.md"))
@@ -11666,7 +11690,7 @@ class WaveImplementTests(unittest.TestCase):
         """AC-1: prepare phase does not interact with ## Review Evidence."""
         wave_id = self._make_wave("review-prepare-isolation")
         # Add an operator-signoff to Review Evidence (implementation phase style)
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(wave_md.read_text(encoding="utf-8").replace(
             "- operator-signoff: <approved when operator confirms closure>",
             "- operator-signoff: approved",
@@ -11694,7 +11718,7 @@ class WaveImplementTests(unittest.TestCase):
         self._add_council_verdict(wave_id)
         # Retain the Council approval but remove the independently required
         # lane so this fixture exercises the incomplete-roster branch.
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         review = sys.modules["review_evidence"]
         records, errors = review.read_review_event_ledger(wave_md)
         self.assertEqual(errors, ())
@@ -11749,17 +11773,17 @@ class WaveImplementTests(unittest.TestCase):
         self._add_council_verdict(wave_id)
         result = self.srv.wf_implement_wave_response(self.root, wave_id, mode="create")
         self.assertEqual(result["status"], "ok")
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         self.assertIn("Status: implementing", wave_md.read_text(encoding="utf-8"))
 
     def test_wf_implement_wave_dry_run_does_not_write(self):
         """AC-7: wf_implement_wave(mode='dry_run') validates readiness without writing."""
         wave_id = self._make_wave("impl-dry-run")
         self._add_council_verdict(wave_id)
-        original_text = (self.root / "docs" / "waves" / wave_id / "wave.md").read_text(encoding="utf-8")
+        original_text = (_waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME).read_text(encoding="utf-8")
         result = self.srv.wf_implement_wave_response(self.root, wave_id, mode="dry_run")
         self.assertEqual(result["status"], "dry_run")
-        self.assertEqual((self.root / "docs" / "waves" / wave_id / "wave.md").read_text(encoding="utf-8"), original_text)
+        self.assertEqual((_waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME).read_text(encoding="utf-8"), original_text)
 
     # --- AC-8: implementing status handling ---
 
@@ -11776,7 +11800,7 @@ class WaveImplementTests(unittest.TestCase):
         wave_id = self._make_wave("ac8-pause-impl", status="implementing")
         result = self.srv.wf_pause_wave_response(self.root, wave_id, mode="create")
         self.assertEqual(result["status"], "ok")
-        wave_md = self.root / "docs" / "waves" / wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         self.assertIn("Status: paused", wave_md.read_text(encoding="utf-8"))
 
     def test_wf_implement_wave_already_implementing_returns_ok(self):
@@ -11813,11 +11837,11 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _make_closeable_wave(self, wave_id: str, change_id: str, completed_acs: list[str] | None = None, decisions: list[str] | None = None) -> Path:
-        wave_dir = self.root / "docs" / "waves" / wave_id
+        wave_dir = _waves_dir(self.root) / wave_id
         wave_dir.mkdir(parents=True, exist_ok=True)
-        wave_md = wave_dir / "wave.md"
+        wave_md = wave_dir / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
-            f"# Wave Record\n"
+            _loc(f"# Wave Record\n"
             f"wave-id: `{wave_id}`\n"
             f"Title: Test Wave Title\n"
             f"Status: active\n\n"
@@ -11827,7 +11851,7 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
             f"## Wave Summary\n\n"
             f"*(Populated at closure.)*\n\n"
             f"## Review Evidence\n\n"
-            f"- operator-signoff: approved\n",
+            f"- operator-signoff: approved\n"),
             encoding="utf-8",
         )
         # Write a minimal change doc
@@ -11841,11 +11865,11 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
         ) if decisions else ""
         change_doc = wave_dir / f"{change_id}.md"
         change_doc.write_text(
-            f"# Change Title For {change_id}\n\n"
+            _loc(f"# Change Title For {change_id}\n\n"
             f"Change ID: `{change_id}`\n"
             f"Change Status: `complete`\n\n"
             f"## Acceptance Criteria\n\n{ac_lines}\n\n"
-            f"{decision_table}",
+            f"{decision_table}"),
             encoding="utf-8",
         )
         return wave_md
@@ -11862,7 +11886,7 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
         # Placeholder replaced
         self.assertNotIn("*(Populated at closure.)*", closed_text)
         # Summary contains wave_id or title
-        wave_summary_body = closed_text.split("## Wave Summary")[1].split("## ")[0] if "## Wave Summary" in closed_text else ""
+        wave_summary_body = closed_text.split(_loc("## Wave Summary"))[1].split("## ")[0] if _loc("## Wave Summary") in closed_text else ""
         self.assertTrue(len(wave_summary_body.strip()) > 0, "Wave Summary section must be populated")
 
     def test_wf_close_wave_summary_includes_change_details(self):
@@ -12046,6 +12070,7 @@ class SignoffLatestStateTests(unittest.TestCase):
         for ev, lane, expect in cases:
             self.assertIs(self._check(ev, lane), expect, (lane, ev.splitlines()[0]))
 
+    @default_profile_only("reads this repository's own closed wave records")
     def test_live_wave_records_parse_correctly(self):
         """The real records: closed 1seav/1sed7/1sc7c all parse as approved
         (1seav's final APPROVED verdict and operator closure direction were
@@ -12121,7 +12146,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         )
         created = self.srv.wf_create_wave_response(self.root, "typed-gates", mode="create")
         self.wave_id = created["data"]["wave_id"]
-        self.wave_md = self.root / "docs" / "waves" / self.wave_id / "wave.md"
+        self.wave_md = _waves_dir(self.root) / self.wave_id / vocabulary_profile.RECORD_FILENAME
         # Operator-authored configuration sections: populate the scaffolded
         # roster in place, then append the narrative council checkpoint.
         _scaffold = self.wave_md.read_text(encoding="utf-8")
@@ -12145,7 +12170,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         # recruit code-reviewer.
         (self.root / "docs" / "plans").mkdir(exist_ok=True)
         (self.root / "docs" / "plans" / "1200a-feat sample.md").write_text(
-            "# Sample\n\n"
+            _loc("# Sample\n\n"
             "Change ID: `1200a-feat sample`\n"
             "Change Status: `planned`\n"
             "Last verified: 2026-07-29\n\n"
@@ -12155,7 +12180,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
             "## Acceptance Criteria\n\n- [x] AC-1: Criterion met.\n\n"
             "## Tasks\n\n- [x] Implement.\n\n"
             "## Serialization Points\n\n- .wavefoundry/framework/scripts/server_impl.py\n\n"
-            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Core. |\n",
+            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Core. |\n"),
             encoding="utf-8",
         )
         add = self.srv.wf_add_change_response(self.root, self.wave_id, "1200a-feat sample", mode="create")
@@ -12256,7 +12281,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         for path in (self.wave_md, self.wave_md.parent / "1200a-feat sample.md"):
             path.write_text(
                 path.read_text(encoding="utf-8").replace(
-                    "Change Status: `planned`", "Change Status: `complete`"
+                    _loc("Change Status: `planned`"), _loc("Change Status: `complete`")
                 ),
                 encoding="utf-8",
             )
@@ -13136,7 +13161,7 @@ class LegacyProseGateParityTests(unittest.TestCase):
         self.root = _make_repo(Path(self.tmp.name))
 
     def _write_wave(self, *, evidence_lines, prepare_lines=(), checkpoint_lines=()):
-        wave_dir = self.root / "docs" / "waves" / "1200a legacy-wave"
+        wave_dir = _waves_dir(self.root) / "1200a legacy-wave"
         wave_dir.mkdir(parents=True, exist_ok=True)
         prepare_section = (
             "## Prepare Review Evidence\n\n" + "\n".join(prepare_lines) + "\n\n"
@@ -13146,8 +13171,8 @@ class LegacyProseGateParityTests(unittest.TestCase):
             "## Review Checkpoints\n\n" + "\n".join(checkpoint_lines) + "\n\n"
             if checkpoint_lines else ""
         )
-        (wave_dir / "wave.md").write_text(
-            "# Wave Record\n"
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
+            _loc("# Wave Record\n"
             "wave-id: `1200a legacy-wave`\n"
             "Status: active\n\n"
             "## Changes\n\n"
@@ -13156,7 +13181,7 @@ class LegacyProseGateParityTests(unittest.TestCase):
             "## Participants\n\n"
             "| Role | Lane | Owns |\n"
             "|------|------|------|\n"
-            "| code-reviewer | review | x |\n\n"
+            "| code-reviewer | review | x |\n\n")
             + prepare_section +
             checkpoint_section +
             "## Review Evidence\n\n"
@@ -13164,14 +13189,14 @@ class LegacyProseGateParityTests(unittest.TestCase):
             encoding="utf-8",
         )
         (wave_dir / "1200a-feat sample.md").write_text(
-            "# Sample\n\nChange ID: `1200a-feat sample`\nChange Status: `complete`\n\n"
+            _loc("# Sample\n\nChange ID: `1200a-feat sample`\nChange Status: `complete`\n\n"
             "## Rationale\n\nx\n\n## Requirements\n\n1. x\n\n## Scope\n\nx\n\n"
             "## Acceptance Criteria\n\n- [x] x\n\n## Tasks\n\n- [x] x\n\n"
             "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n"
-            "| AC-1 | required | x |\n",
+            "| AC-1 | required | x |\n"),
             encoding="utf-8",
         )
-        return wave_dir / "wave.md"
+        return wave_dir / vocabulary_profile.RECORD_FILENAME
 
     def _run(self, fn, *args, **kwargs):
         with patch.object(self.srv, "run_validate", return_value=self.LINT_OK), \
@@ -13213,7 +13238,7 @@ class LegacyProseGateParityTests(unittest.TestCase):
             prepare_lines=["- code-reviewer: approved"],
         )
         advisory = {"passed": True, "errors": [],
-                    "warnings": ["WARNING: docs/waves/1200a legacy-wave/1200a-feat sample.md: AC-1 asserts "
+                    "warnings": [f"WARNING: {_waves_rel('1200a legacy-wave', '1200a-feat sample.md')}: AC-1 asserts "
                                  "repository-wide state ('full test suite') [advisory sensor "
                                  "`ac_asserts_repository_state`, introduced in wave `1wur7`]"],
                     "output": ""}
@@ -13354,7 +13379,8 @@ class LegacyProseGateParityTests(unittest.TestCase):
             if d["code"] == "missing_required_lane"
         ]
         self.assertIn(
-            "Record each lane signoff in the `## Prepare Review Evidence` section of wave.md before running wf_implement_wave.",
+            "Record each lane signoff in the `## Prepare Review Evidence` section of "
+            f"{vocabulary_profile.RECORD_FILENAME} before running wf_implement_wave.",
             prepare_message,
         )
         self.assertNotIn("wf_review_event", prepare_message)
@@ -13373,7 +13399,7 @@ class LegacyProseGateParityTests(unittest.TestCase):
             if d["code"] == "missing_operator_signoff"
         ]
         self.assertIn(
-            "Add `operator-signoff: approved` to `## Review Evidence` in wave.md.",
+            f"Add `operator-signoff: approved` to `## Review Evidence` in {vocabulary_profile.RECORD_FILENAME}.",
             operator_message,
         )
         self.assertNotIn("wf_review_event", operator_message)
@@ -13389,6 +13415,7 @@ class LegacyProseGateParityTests(unittest.TestCase):
         self.assertEqual(review_impl["data"]["max_severity"], "high")
 
 
+@default_profile_only("census of this repository's own closed wave records")
 class DeclaredWaveTreeSweepTests(unittest.TestCase):
     """Wave 1to78 AC-1(c): tree sweep over every CLOSED wave in this
     repository whose parsed header (canonical declaration parser, never grep)
@@ -13521,17 +13548,17 @@ class ReopenWavePurposeStageTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = _make_repo(Path(self.tmp.name))
         self.wave_id = "1200a test-wave"
-        wave_dir = self.root / "docs" / "waves" / self.wave_id
+        wave_dir = _waves_dir(self.root) / self.wave_id
         wave_dir.mkdir(parents=True, exist_ok=True)
-        self.wave_md = wave_dir / "wave.md"
+        self.wave_md = wave_dir / vocabulary_profile.RECORD_FILENAME
         self.wave_md.write_text(
-            "# Wave Record\n"
+            _loc("# Wave Record\n"
             f"wave-id: `{self.wave_id}`\n"
             "Status: closed\n\n"
             "## Changes\n\n"
             "Change ID: `1200a-feat sample`\n"
             "Change Status: `implemented`\n\n"
-            "## Wave Summary\n\nSome summary.\n",
+            "## Wave Summary\n\nSome summary.\n"),
             encoding="utf-8",
         )
         try:
@@ -14245,7 +14272,7 @@ Status: in-progress
         lint-errors path, and it advances the audit either way."""
         from unittest.mock import patch
         self._write_log(self._MINIMAL_LOG)
-        warning = ("WARNING: docs/waves/1w test/1w-enh x.md: AC-1 asserts repository-wide state "
+        warning = (f"WARNING: {_waves_rel('1w test', '1w-enh x.md')}: AC-1 asserts repository-wide state "
                    "('full test suite') [advisory sensor `ac_asserts_repository_state`]")
         with patch.object(self.srv, "run_validate", return_value={
             "passed": True, "errors": [], "warnings": [warning], "output": "ok"
@@ -14792,14 +14819,14 @@ class SeedGetCoverageTest(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 _WAVE_CLOSE_READY_TEXT = (
-    "# Wave Record\n"
+    _loc("# Wave Record\n"
     "wave-id: `{wave_id}`\n"
     "Status: active\n\n"
     "## Changes\n\n"
     "Change ID: `{wave_id}-feat sample`\n"
     "Change Status: `complete`\n\n"
     "## Review Evidence\n\n"
-    "- operator-signoff: approved\n"
+    "- operator-signoff: approved\n")
 )
 
 _MOCK_PASS = {"passed": True, "errors": [], "warnings": [], "output": ""}
@@ -14814,15 +14841,15 @@ class WaveCloseSecretsGateTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.root = _make_repo(self.tmp)
         self.wave_id = "1200b secrets-gate-test"
-        wave_dir = self.root / "docs" / "waves" / self.wave_id
+        wave_dir = _waves_dir(self.root) / self.wave_id
         wave_dir.mkdir(parents=True, exist_ok=True)
         wave_text = _WAVE_CLOSE_READY_TEXT.format(wave_id=self.wave_id)
-        (wave_dir / "wave.md").write_text(wave_text, encoding="utf-8")
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(wave_text, encoding="utf-8")
         # 1v0lx: close blocks on a missing admitted document; the close-ready
         # fixture models a valid wave, so its docs exist on disk.
         for cid in self.srv._CHANGE_ID_PATTERN.findall(wave_text):
             (wave_dir / f"{cid}.md").write_text(
-                f"# Sample\n\nChange ID: `{cid}`\n", encoding="utf-8")
+                _loc(f"# Sample\n\nChange ID: `{cid}`\n"), encoding="utf-8")
 
     def tearDown(self):
         import shutil
@@ -15028,11 +15055,11 @@ class WaveCloseSecretsGateTests(unittest.TestCase):
             "rule_id": "r", "matched_text": "****",
             "status": "pending", "confirmations": [],
         }])
-        wave_md = self.root / "docs" / "waves" / self.wave_id / "wave.md"
+        wave_md = _waves_dir(self.root) / self.wave_id / vocabulary_profile.RECORD_FILENAME
         before = wave_md.read_text(encoding="utf-8")
         self._close(mode="create")
         after = wave_md.read_text(encoding="utf-8")
-        self.assertEqual(before, after, "wave.md was mutated despite gate block")
+        self.assertEqual(before, after, "the wave record was mutated despite gate block")
 
     def test_false_positive_status_does_not_trigger_gate(self):
         # false-positive entries are not a gate concern and produce no reminder
@@ -15655,7 +15682,7 @@ class ImplementDependencyProducerTests(unittest.TestCase):
 
     def declare(self, owner, tokens):
         text = self.wave_md.read_text()
-        anchor = f"Change ID: `{owner}`\n"
+        anchor = _loc(f"Change ID: `{owner}`\n")
         self.wave_md.write_text(text.replace(anchor, anchor + "Depends On: " + ", ".join(f"`{t}`" for t in tokens) + "\n"))
 
     def test_authoritative_edges_ignore_prose_and_offer_marks(self):

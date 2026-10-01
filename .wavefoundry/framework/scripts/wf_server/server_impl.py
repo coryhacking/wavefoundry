@@ -9178,17 +9178,27 @@ def _audit_harnessability(root: Path) -> dict[str, Any]:
             ["git", "grep", "-c", "-E", "TODO|FIXME|HACK|XXX"],
             cwd=str(root), timeout=10,
         )
-        todo_count = sum(int(l.split(":")[-1]) for l in result.stdout.splitlines() if ":" in l and l.split(":")[-1].isdigit())
-        if todo_count == 0:
-            debt_score = "high"
-        elif todo_count < 20:
-            debt_score = "medium"
+        # git grep exits 1 for "no matches"; any other non-zero code means the
+        # scan failed (not a repository, dubious ownership), so fail closed.
+        if result.returncode not in (0, 1):
+            stderr_lines = (result.stderr or "").strip().splitlines()
+            first_line = stderr_lines[0].strip() if stderr_lines else "no stderr"
+            debt_score = "unknown"
+            debt_evidence = (
+                f"Debt marker scan failed: git grep exited {result.returncode} ({first_line})"
+            )
         else:
-            debt_score = "low"
-        debt_evidence = f"{todo_count} TODO/FIXME/HACK markers found"
-    except Exception:
+            todo_count = sum(int(l.split(":")[-1]) for l in result.stdout.splitlines() if ":" in l and l.split(":")[-1].isdigit())
+            if todo_count == 0:
+                debt_score = "high"
+            elif todo_count < 20:
+                debt_score = "medium"
+            else:
+                debt_score = "low"
+            debt_evidence = f"{todo_count} TODO/FIXME/HACK markers found"
+    except Exception as exc:
         debt_score = "unknown"
-        debt_evidence = "Could not scan for debt markers"
+        debt_evidence = f"Could not scan for debt markers: {type(exc).__name__}"
 
     scores = {"high": 3, "medium": 2, "low": 1, "unknown": 0}
     dims = [type_score, boundary_score, debt_score]
@@ -16801,6 +16811,11 @@ def _extension_provenance_for_response(root: Path) -> dict[str, Any]:
         "aliases": dict(provenance.get("aliases") or {}),
         "hidden": list(provenance.get("hidden") or []),
         "replacements": [dict(entry) for entry in provenance.get("replacements") or []],
+        # Wave 1zim3: parameter mappings, each with its canonical name.
+        "parameters": {
+            alias: {key: dict(value) if isinstance(value, Mapping) else value for key, value in entry.items()}
+            for alias, entry in (provenance.get("parameters") or {}).items()
+        },
         "served_names": dict(provenance.get("served_names") or {}),
     }
 
@@ -17544,24 +17559,254 @@ _HINT_LIST_FIELDS = ("next_tools",)
 _HINT_TEXT_FIELDS = ("usage",)
 
 
-def _rewrite_served_names(result: Any, served_names: Mapping[str, str]) -> Any:
+def _same_literal(left: Any, right: Any) -> bool:
+    return type(left) is type(right) and left == right
+
+
+def _alias_call_text(call: Any, source: str, spec: Mapping[str, Any]) -> Optional[str]:
+    """The alias form of one parsed canonical call, or None to keep it (wave 1zim3).
+
+    ``spec`` lists the canonical name's aliases in preference order (plain,
+    then other aliases without fixed parameters, then pinned ones), each as
+    ``(alias, {canonical_param: alias_param}, fixed)``, plus the canonical
+    ``defaults``. Keyword names are renamed in place in one pass and fixed
+    keywords are removed with their separating comma; every other byte of
+    the argument text (values, parentheses, comments, newlines) is kept. A
+    removal that would touch a comment keeps the canonical form. A pinned
+    alias qualifies only when every fixed parameter is present with a
+    literal equal to the pinned value or absent with an equal canonical
+    default. ``name(...)`` names no parameter, so only an alias without
+    fixed parameters can take it. Duplicate keywords and ``**`` keep the
+    canonical form.
+    """
+    aliases = spec["aliases"]
+    if call.args:
+        placeholder = (
+            len(call.args) == 1 and not call.keywords
+            and isinstance(call.args[0], ast.Constant) and call.args[0].value is Ellipsis
+        )
+        unpinned = [alias for alias, _rename, fixed in aliases if not fixed]
+        return f"{unpinned[0]}(...)" if placeholder and unpinned else None
+    keywords = list(call.keywords)
+    names = [keyword.arg for keyword in keywords]
+    if None in names or len(set(names)) != len(names):
+        return None
+    line_starts = [0] + [match.end() for match in re.finditer(r"\r\n|\r|\n", source)]
+
+    def offset(lineno: int, col: int) -> int:
+        line_start = line_starts[lineno - 1]
+        return line_start + len(source[line_start:].encode("utf-8")[:col].decode("utf-8"))
+
+    try:
+        spans = [
+            (offset(keyword.lineno, keyword.col_offset), offset(keyword.end_lineno, keyword.end_col_offset))
+            for keyword in keywords
+        ]
+        open_index = source.index("(", offset(call.func.end_lineno, call.func.end_col_offset))
+        close_index = offset(call.end_lineno, call.end_col_offset) - 1
+    except (IndexError, UnicodeDecodeError, ValueError, TypeError):
+        return None
+    if source[close_index:close_index + 1] != ")" or any(
+        not source.startswith(name, start) for name, (start, _end) in zip(names, spans)
+    ):
+        return None
+    nodes = {keyword.arg: keyword.value for keyword in keywords}
+    defaults = spec["defaults"]
+
+    def pinned_matches(param: str, value: Any) -> bool:
+        if param not in nodes:
+            return param in defaults and _same_literal(defaults[param], value)
+        try:
+            return _same_literal(ast.literal_eval(nodes[param]), value)
+        except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+            return False
+
+    for alias, rename, fixed in aliases:
+        if not all(pinned_matches(param, value) for param, value in fixed.items()):
+            continue
+        kept = [index for index, name in enumerate(names) if name not in fixed]
+        edits: list[tuple[int, int, str]] = []
+        last_kept = kept[-1] if kept else None
+        for index, name in enumerate(names):
+            start, end = spans[index]
+            if name not in fixed:
+                edits.append((start, start + len(name), rename.get(name, name)))
+            elif last_kept is None:
+                if index == 0:
+                    edits.append((open_index + 1, close_index, ""))
+            elif index < last_kept:
+                edits.append((start, spans[index + 1][0], ""))
+            elif index == last_kept + 1:
+                edits.append((spans[last_kept][1], spans[-1][1], ""))
+        if any("#" in source[start:end] for start, end, text in edits if not text):
+            return None
+        text = source[open_index:]
+        for start, end, replacement in sorted(edits, reverse=True):
+            text = text[:start - open_index] + replacement + text[end - open_index:]
+        return alias + text
+    return None
+
+
+# Wave 1zim3 repair: bounds on call parsing per hint string. A longer string,
+# or the text from the candidate past the attempt budget on, is left unchanged.
+_HINT_CALL_TEXT_LIMIT = 8192
+_HINT_CALL_ATTEMPTS = 64
+_HINT_CALL_START = re.compile(r"(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)(\s*)\(")
+
+
+def _call_text_end(value: str, open_index: int) -> tuple[int, bool]:
+    """End of the parenthesised text opening at ``open_index``, and whether it closed (wave 1zim3 repair).
+
+    One linear pass counting depth outside quotes (single, double and
+    triple, with backslash escapes) and ``#`` comments; with no matching
+    ``)`` the rest of the string is the call text.
+    """
+    depth = 0
+    quote = None
+    index = open_index
+    length = len(value)
+    while index < length:
+        char = value[index]
+        if quote is not None:
+            if char == "\\":
+                index += 1
+            elif value.startswith(quote, index):
+                index += len(quote) - 1
+                quote = None
+        elif char in "'\"":
+            quote = char * 3 if value.startswith(char * 3, index) else char
+            index += len(quote) - 1
+        elif char == "#":
+            newline = value.find("\n", index)
+            if newline == -1:
+                break
+            index = newline
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index + 1, True
+        index += 1
+    return length, False
+
+
+def _hint_calls(value: str, known: Collection[str]) -> Optional[list[tuple[int, int, int, Any, str]]]:
+    """Top-level call spans in a hint string as ``(start, name_end, end, call, source)`` (wave 1zim3 repair).
+
+    A call is any ``name(`` that parses as a call of that name, and any
+    ``name`` in ``known`` followed by ``(`` after optional whitespace; an
+    unknown name needs ``(`` directly after it, so prose such as
+    ``later (see x)`` stays prose. Each candidate's text ends at its matching
+    ``)`` (``_call_text_end``) and is parsed at most once; ``call`` is None
+    for known call text that does not parse, which keeps that whole extent.
+    Calls inside a span are part of it. Bounded: None for a string over
+    ``_HINT_CALL_TEXT_LIMIT``, and past ``_HINT_CALL_ATTEMPTS`` candidates
+    the rest of the string is one span with an empty name (left unchanged).
+    """
+    if len(value) > _HINT_CALL_TEXT_LIMIT:
+        return None
+    spans: list[tuple[int, int, int, Any, str]] = []
+    position = 0
+    attempts = 0
+    while True:
+        match = _HINT_CALL_START.search(value, position)
+        if match is None:
+            return spans
+        name, gap = match.group(1), match.group(2)
+        if gap and name not in known:
+            position = match.end() - 1
+            continue
+        start = match.start()
+        attempts += 1
+        if attempts > _HINT_CALL_ATTEMPTS:
+            spans.append((start, start, len(value), None, value[start:]))
+            return spans
+        end, closed = _call_text_end(value, match.end() - 1)
+        call = None
+        if closed:
+            try:
+                node = ast.parse(value[start:end], mode="eval").body
+            except (SyntaxError, ValueError, MemoryError, RecursionError):
+                node = None
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == name:
+                call = node
+        if call is None and name not in known:
+            position = match.end() - 1
+            continue
+        spans.append((start, start + len(name), end, call, value[start:end]))
+        position = end
+
+
+def _rewrite_served_names(
+    result: Any,
+    served_names: Mapping[str, str],
+    alias_calls: Optional[Mapping[str, Mapping[str, Any]]] = None,
+) -> Any:
     """A copy of ``result`` whose structured hints name the served tools (wave 1z8oz).
 
     Rewrites ``next_tools``, ``usage``, ``diagnostics[].recovery_tools`` and
     ``diagnostics[].recovery_usage`` only: exact match for list items, and
     whole-name matches inside strings. Prose, ``data`` and messages keep
-    canonical names. ``result`` itself is never mutated.
+    canonical names. ``result`` itself is never mutated. For a canonical name
+    with a parameter-mapped alias (``alias_calls``, wave 1zim3), parseable
+    calls are rewritten parameter by parameter; outside calls the whole-name
+    match maps the name to its preferred alias without fixed parameters, so
+    a call never gets the alias name with canonical parameter names. An
+    unparseable call keeps the canonical form. Argument values are never
+    rewritten: a call (``_hint_calls``) changes only its callee and, for a
+    mapped alias, its keyword names, and name matching applies only to the
+    text between calls.
     """
-    if not isinstance(result, dict) or not served_names:
+    alias_calls = alias_calls or {}
+    if not isinstance(result, dict) or not (served_names or alias_calls):
         return result
-    pattern = re.compile(
-        r"(?<![A-Za-z0-9_])("
-        + "|".join(re.escape(name) for name in sorted(served_names, key=len, reverse=True))
-        + r")(?![A-Za-z0-9_])"
-    )
+    whole_names = {name: served for name, served in served_names.items() if name not in alias_calls}
+    prose_names = {
+        name: unpinned[0]
+        for name, spec in alias_calls.items()
+        for unpinned in ([alias for alias, _rename, fixed in spec["aliases"] if not fixed],)
+        if unpinned
+    }
+
+    def alternation(names: Mapping[str, str]) -> str:
+        return "|".join(re.escape(name) for name in sorted(names, key=len, reverse=True))
+
+    branches = []
+    if whole_names:
+        branches.append(r"(?P<whole>" + alternation(whole_names) + r")(?![A-Za-z0-9_])")
+    if prose_names:
+        branches.append(r"(?P<prose>" + alternation(prose_names) + r")(?![A-Za-z0-9_])(?!\s*\()")
+    pattern = re.compile(r"(?<![A-Za-z0-9_])(?:" + "|".join(branches) + ")") if branches else None
+
+    known = frozenset(whole_names) | frozenset(alias_calls)
+
+    def replace(match: Any) -> str:
+        whole = match.groupdict().get("whole")
+        return whole_names[whole] if whole else prose_names[match.group("prose")]
 
     def text(value: Any) -> Any:
-        return pattern.sub(lambda m: served_names[m.group(1)], value) if isinstance(value, str) else value
+        if not isinstance(value, str):
+            return value
+        def prose(segment: str) -> str:
+            return pattern.sub(replace, segment) if pattern is not None else segment
+
+        spans = _hint_calls(value, known)
+        if spans is None:
+            return value
+        parts: list[str] = []
+        position = 0
+        for start, name_end, end, call, source in spans:
+            name = value[start:name_end]
+            replacement = None
+            if call is not None and name in alias_calls:
+                replacement = _alias_call_text(call, source, alias_calls[name])
+            if replacement is None:
+                replacement = whole_names.get(name, name) + value[name_end:end]
+            parts.append(prose(value[position:start]) + replacement)
+            position = end
+        parts.append(prose(value[position:]))
+        return "".join(parts)
 
     def names(value: Any) -> Any:
         if not isinstance(value, list):
@@ -17592,6 +17837,7 @@ def _rewrite_served_names(result: Any, served_names: Mapping[str, str]) -> Any:
 
 def _wrap_served_name_hints(
     mcp: Any, get_handler: Any, *, served_names: Mapping[str, str], skip: Collection[str] = (),
+    alias_calls: Optional[Mapping[str, Mapping[str, Any]]] = None,
 ) -> None:
     """Rewrite response hints to the served names (wave 1z8oz).
 
@@ -17600,7 +17846,7 @@ def _wrap_served_name_hints(
     handlers (``skip``), whose own hints name the distribution's tool.
     """
     registry = getattr(getattr(mcp, "_tool_manager", None), "_tools", None)
-    if not isinstance(registry, dict) or not served_names:
+    if not isinstance(registry, dict) or not (served_names or alias_calls):
         return
     try:
         skipped = set(_load_script("mcp_tool_roster").RUNNER_TOOLS)
@@ -17608,6 +17854,7 @@ def _wrap_served_name_hints(
         skipped = set()
     skipped |= set(skip)
     names = dict(served_names)
+    calls = dict(alias_calls or {})
     for name, tool in registry.items():
         if name in skipped:
             continue
@@ -17622,7 +17869,7 @@ def _wrap_served_name_hints(
         def _make(fn: Any) -> Any:
             @functools.wraps(fn)
             def rewritten_call(*args: Any, **kwargs: Any) -> Any:
-                return _rewrite_served_names(fn(*args, **kwargs), names)
+                return _rewrite_served_names(fn(*args, **kwargs), names, calls)
 
             rewritten_call._wf_hints_rewritten = True  # type: ignore[attr-defined]
             return rewritten_call
@@ -17678,11 +17925,15 @@ _CORE_BEHAVIOUR_MIDDLEWARE: tuple[tuple[str, Any], ...] = (
 )
 
 
-def _served_name_rewrite(served_names: Mapping[str, str], skip: Collection[str] = ()) -> tuple[str, Any]:
+def _served_name_rewrite(
+    served_names: Mapping[str, str],
+    skip: Collection[str] = (),
+    alias_calls: Optional[Mapping[str, Mapping[str, Any]]] = None,
+) -> tuple[str, Any]:
     return (
         "rewrite",
         lambda mcp, get_handler: _wrap_served_name_hints(
-            mcp, get_handler, served_names=served_names, skip=skip,
+            mcp, get_handler, served_names=served_names, skip=skip, alias_calls=alias_calls,
         ),
     )
 
@@ -17817,6 +18068,7 @@ def _empty_extension_provenance() -> dict[str, Any]:
         "aliases": {},
         "hidden": [],
         "replacements": [],
+        "parameters": {},
         "served_names": {},
     }
 
@@ -17851,11 +18103,15 @@ def _reserved_tool_name_collections() -> dict[str, frozenset[str]]:
     return reserved
 
 
-def _extension_staging_surface() -> Any:
+def _extension_staging_surface(core_table: Optional[Mapping[str, Any]] = None) -> Any:
     """A throwaway FastMCP whose ``add_tool`` records every attempted name.
 
     ``FastMCP.tool()`` routes each decorator through ``add_tool``, so attempts
     FastMCP would silently ignore (a duplicate name) are still recorded.
+    ``core_handler(name)`` (wave 1zim3) returns the served core handler of a
+    name the registering module declares as an override; staging runs before
+    argument normalization and the MIDDLEWARE chain, so that handler carries
+    no wrapper and the override's own name-keyed wrappers apply once.
     """
     from mcp.server.fastmcp import FastMCP
 
@@ -17863,10 +18119,24 @@ def _extension_staging_surface() -> Any:
         def __init__(self) -> None:
             super().__init__("wavefoundry_extension_staging")
             self.wf_attempts: list[str] = []
+            self.wf_registering: Optional[str] = None
 
         def add_tool(self, fn: Any, name: Optional[str] = None, *args: Any, **kwargs: Any) -> Any:
             self.wf_attempts.append(name or getattr(fn, "__name__", repr(fn)))
             return super().add_tool(fn, name, *args, **kwargs)
+
+        def core_handler(self, name: str) -> Any:
+            module_name = self.wf_registering
+            if module_name is None:
+                raise ExtensionLoadError("core_handler is available only while a module registers")
+            if name not in tuple(mcp_tool_extensions.EXTENSION_OVERRIDES.get(module_name, ()) or ()):
+                raise ExtensionLoadError(
+                    f"{module_name!r} asks for core_handler({name!r}) but does not declare it as an override"
+                )
+            handler = getattr((core_table or {}).get(name), "fn", None)
+            if handler is None:
+                raise ExtensionLoadError(f"core tool {name!r} has no handler to delegate to")
+            return handler
 
     return _RecordingSurface()
 
@@ -17989,7 +18259,7 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
     prefixes = tuple(mcp_tool_extensions.EXTENSION_TOOL_PREFIXES)
     reserved = _reserved_tool_name_collections()
 
-    staging = _extension_staging_surface()
+    staging = _extension_staging_surface(table)
     staged_by: dict[str, str] = {}
     problems: list[str] = []
     for module_name in mcp_tool_extensions.EXTENSION_MODULES:
@@ -18004,10 +18274,13 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
             len(staging._resource_manager._resources) + len(staging._resource_manager._templates)
         )
         prompts_before = len(staging._prompt_manager._prompts)
+        staging.wf_registering = module_name
         try:
             register(staging, get_handler)
         except Exception as exc:
             raise ExtensionLoadError(f"extension module {module_name!r} raised during register: {exc!r}") from exc
+        finally:
+            staging.wf_registering = None
         attempts = staging.wf_attempts[start:]
         # The staged table itself is authoritative: anything that reached it
         # without passing FastMCP.add_tool, or that replaced or removed an
@@ -18119,6 +18392,10 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
                     f"replacement {name!r} does not reject undeclared arguments; its handler must "
                     "accept **kwargs and pass them to _ensure_no_extra_args"
                 )
+    # Wave 1zim3: parameter mappings checked against the live canonical models.
+    problems.extend(_alias_parameter_problems(
+        lambda name: staged_table[name] if name in staged_table else table.get(name)
+    ))
     if problems:
         raise ExtensionLoadError("MCP tool extensions refused: " + "; ".join(problems))
 
@@ -18139,8 +18416,222 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
         }
         for core_name, (module_name, spec) in sorted(replacement_targets.items())
     ]
+    provenance["parameters"] = {
+        alias: {
+            "canonical": mcp_tool_extensions.EXTENSION_TOOL_ALIASES[alias],
+            "rename": dict(spec.get("rename") or {}),
+            "fixed": dict(spec.get("fixed") or {}),
+        }
+        for alias, spec in sorted(mcp_tool_extensions.EXTENSION_TOOL_PARAMETERS.items())
+    }
     provenance["served_names"] = mcp_tool_extensions.served_name_map()
     return provenance
+
+
+def _canonical_argument_fields(tool: Any) -> dict[str, tuple[str, Any]]:
+    """Public parameter name to ``(field name, FieldInfo)`` of a tool's argument model."""
+    model = getattr(getattr(tool, "fn_metadata", None), "arg_model", None)
+    fields: dict[str, tuple[str, Any]] = {}
+    for field_name, info in (getattr(model, "model_fields", None) or {}).items():
+        if field_name == "kwargs":
+            continue
+        fields[info.alias or field_name] = (field_name, info)
+    return fields
+
+
+def _validated_fixed_value(info: Any, value: Any) -> Any:
+    """``value`` validated strictly against a canonical field; raises when it is rejected (wave 1zim3).
+
+    Strict, so a pin is never coerced (``"false"`` for a bool or ``"3"`` for
+    an int is refused); the returned value is the one the alias forwards.
+    """
+    from pydantic import TypeAdapter
+    from typing import Annotated
+
+    annotation = Annotated[(info.annotation, *info.metadata)] if info.metadata else info.annotation
+    return TypeAdapter(annotation).validate_python(value, strict=True)
+
+
+def _validated_fixed_values(canonical_tool: Any, fixed: Mapping[str, Any]) -> dict[str, Any]:
+    fields = _canonical_argument_fields(canonical_tool)
+    return {param: _validated_fixed_value(fields[param][1], value) for param, value in fixed.items()}
+
+
+def _alias_parameter_problems(resolve: Callable[[str], Any]) -> list[str]:
+    """Server-side parameter-mapping checks against the canonical model (wave 1zim3).
+
+    The stdlib declaration module has already checked the shape; these need
+    the canonical tool's argument model: rename and fixed names must be
+    canonical parameters, a fixed value must validate against its field,
+    strictly, and the alias's parameter names (renamed plus pass-through)
+    must be unique and must not shadow a model attribute.
+    """
+    from pydantic import BaseModel
+
+    problems: list[str] = []
+    aliases = mcp_tool_extensions.EXTENSION_TOOL_ALIASES
+    for alias, spec in mcp_tool_extensions.EXTENSION_TOOL_PARAMETERS.items():
+        canonical = aliases.get(alias)
+        tool = resolve(canonical) if canonical is not None else None
+        if tool is None or not isinstance(spec, Mapping):
+            continue  # refused by the declaration checks
+        label = f"parameter mapping for {alias!r}"
+        fields = _canonical_argument_fields(tool)
+        rename = dict(spec.get("rename") or {})
+        fixed = dict(spec.get("fixed") or {})
+        for alias_param, canonical_param in rename.items():
+            if canonical_param not in fields:
+                problems.append(f"{label} renames {canonical_param!r}, which is not a parameter of {canonical!r}")
+            if isinstance(alias_param, str) and hasattr(BaseModel, alias_param):
+                problems.append(f"{label} renames to {alias_param!r}, which collides with a model attribute")
+        for canonical_param, value in fixed.items():
+            if canonical_param not in fields:
+                problems.append(f"{label} fixes {canonical_param!r}, which is not a parameter of {canonical!r}")
+                continue
+            try:
+                _validated_fixed_value(fields[canonical_param][1], value)
+            except Exception:
+                problems.append(f"{label} fixes {canonical_param!r} to {value!r}, which {canonical!r} rejects")
+        renamed_away = set(rename.values())
+        names = list(rename) + [
+            param for param in fields if param not in fixed and param not in renamed_away
+        ]
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        if duplicates:
+            problems.append(f"{label} serves parameter names more than once: {duplicates}")
+    return problems
+
+
+def _alias_call_specs(table: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    """Per canonical name with a parameter-mapped alias, its usage-rewrite spec (wave 1zim3).
+
+    ``aliases`` lists every alias of that name as ``(alias,
+    {canonical_param: alias_param}, fixed)`` in preference order: plain
+    aliases (identity mappings), then mapped aliases without fixed
+    parameters, then pinned ones, each in declaration order. Fixed values
+    are the validated ones the alias forwards. ``defaults`` holds the
+    canonical parameter defaults.
+    """
+    parameters = mcp_tool_extensions.EXTENSION_TOOL_PARAMETERS
+    aliases = mcp_tool_extensions.EXTENSION_TOOL_ALIASES
+    mapped = {aliases[alias] for alias in parameters if alias in aliases}
+    specs: dict[str, dict[str, Any]] = {}
+    for canonical in sorted(mapped):
+        tool = table.get(canonical)
+        defaults = {
+            param: info.default
+            for param, (_field, info) in _canonical_argument_fields(tool).items()
+            if not info.is_required() and info.default_factory is None
+        }
+        candidates = []
+        for alias, target in aliases.items():
+            if target != canonical:
+                continue
+            spec = parameters.get(alias) or {}
+            rename = {canonical_param: alias_param for alias_param, canonical_param in (spec.get("rename") or {}).items()}
+            fixed = spec.get("fixed") or {}
+            # A hidden canonical name is no longer in the table once installed.
+            candidates.append((alias, rename, _validated_fixed_values(tool, fixed) if tool is not None else dict(fixed)))
+        candidates.sort(key=lambda candidate: (bool(candidate[2]), candidate[0] in parameters))
+        specs[canonical] = {"aliases": candidates, "defaults": defaults}
+    return specs
+
+
+def _alias_argument_model(alias: str, canonical_tool: Any, rename: Mapping[str, str], fixed: Mapping[str, Any]) -> Any:
+    """The alias's argument model, derived from the canonical exact model (wave 1zim3).
+
+    Fields are renamed or dropped (fixed); annotations, metadata, defaults,
+    descriptions and the required list carry over. Like the exact model it
+    collects undeclared keys, so the translator can refuse them itself.
+    """
+    import copy
+    from pydantic import ConfigDict, create_model
+    from mcp.server.fastmcp.utilities.func_metadata import ArgModelBase
+
+    to_alias = {canonical_param: alias_param for alias_param, canonical_param in rename.items()}
+    definitions: dict[str, Any] = {}
+    for param, (field_name, info) in _canonical_argument_fields(canonical_tool).items():
+        if param in fixed:
+            continue
+        field = copy.copy(info)
+        if param in to_alias:
+            field.alias = field.validation_alias = field.serialization_alias = None
+            definitions[to_alias[param]] = (info.annotation, field)
+        else:
+            definitions[field_name] = (info.annotation, field)
+
+    def model_dump_one_level(self: Any) -> dict[str, Any]:
+        dumped = ArgModelBase.model_dump_one_level(self)
+        dumped.update(getattr(self, "__pydantic_extra__", {}) or {})
+        return dumped
+
+    base = type(
+        f"{alias}ArgumentsBase",
+        (ArgModelBase,),
+        {
+            "model_config": ConfigDict(arbitrary_types_allowed=True, extra="allow"),
+            "model_dump_one_level": model_dump_one_level,
+            "_wf_exact_args": True,
+        },
+    )
+    return create_model(f"{alias}Arguments", __base__=base, **definitions)
+
+
+def _mapped_alias_tool(
+    alias: str,
+    canonical_tool: Any,
+    spec: Mapping[str, Any],
+    served_names: Mapping[str, str],
+    alias_calls: Mapping[str, Mapping[str, Any]],
+) -> Any:
+    """A served alias that translates its arguments into the canonical call (wave 1zim3).
+
+    The translator wraps the canonical tool's callable as served (captured
+    here, after the MIDDLEWARE chain), so the lock, guard, cost accounting,
+    extractors and hint rewrite stay keyed on the canonical name and run
+    once. It refuses any argument outside the alias's parameters and never
+    forwards one, so an extra can neither reach a renamed-away name nor
+    override a pinned value.
+    """
+    import copy
+
+    rename = dict(spec.get("rename") or {})
+    fixed = _validated_fixed_values(canonical_tool, spec.get("fixed") or {})
+    renamed_away = set(rename.values())
+    to_canonical = {
+        param: param for param in _canonical_argument_fields(canonical_tool)
+        if param not in fixed and param not in renamed_away
+    }
+    to_canonical.update(rename)
+    accepted = frozenset(to_canonical)
+    target = canonical_tool.fn
+    model = _alias_argument_model(alias, canonical_tool, rename, fixed)
+    schema = model.model_json_schema()
+    schema["additionalProperties"] = False
+
+    @functools.wraps(target)
+    def translated(**arguments: Any) -> Any:
+        extras = {key: value for key, value in arguments.items() if key not in accepted}
+        refused = _ensure_no_extra_args(alias, extras) if extras else None
+        if refused is not None:
+            refused = dict(refused)
+            refused["data"] = {**(refused.get("data") or {}), "supported_arguments": sorted(accepted)}
+            refused["diagnostics"] = [
+                {**item, "message": f"{item.get('message', '')} Supported parameters: {', '.join(sorted(accepted)) or 'none'}."}
+                if isinstance(item, dict) and item.get("code") == "unknown_arguments" else item
+                for item in refused.get("diagnostics") or []
+            ]
+            return _rewrite_served_names(refused, served_names, alias_calls)
+        call = {to_canonical[key]: value for key, value in arguments.items() if key in accepted}
+        call.update(copy.deepcopy(fixed))
+        return target(**call)
+
+    return canonical_tool.model_copy(update={
+        "name": alias,
+        "fn": translated,
+        "fn_metadata": canonical_tool.fn_metadata.model_copy(update={"arg_model": model}),
+        "parameters": schema,
+    })
 
 
 def _install_served_names(mcp: Any, get_handler: Any) -> None:
@@ -18154,18 +18645,25 @@ def _install_served_names(mcp: Any, get_handler: Any) -> None:
     """
     table = mcp._tool_manager._tools
     served_names = mcp_tool_extensions.served_name_map()
+    alias_calls = _alias_call_specs(table)
     targets = mcp_tool_extensions.replacement_targets()
     for core_name, captured in _EXTENSION_REPLACED_CORE.items():
         surface = types.SimpleNamespace(_tool_manager=types.SimpleNamespace(_tools={core_name: captured}))
         mcp_tool_registry.apply_middleware(
-            surface, get_handler, _CORE_BEHAVIOUR_MIDDLEWARE + (_served_name_rewrite(served_names),),
+            surface, get_handler,
+            _CORE_BEHAVIOUR_MIDDLEWARE + (_served_name_rewrite(served_names, alias_calls=alias_calls),),
         )
         alias_for_core = targets[core_name][1]["alias_for_core"]
         table[alias_for_core] = surface._tool_manager._tools[core_name].model_copy(
             update={"name": alias_for_core}
         )
+    parameters = mcp_tool_extensions.EXTENSION_TOOL_PARAMETERS
     for alias, canonical in mcp_tool_extensions.EXTENSION_TOOL_ALIASES.items():
-        table[alias] = table[canonical].model_copy(update={"name": alias})
+        if alias in parameters:
+            # Wave 1zim3: a translator into the canonical callable as served.
+            table[alias] = _mapped_alias_tool(alias, table[canonical], parameters[alias], served_names, alias_calls)
+        else:
+            table[alias] = table[canonical].model_copy(update={"name": alias})
     for name in mcp_tool_extensions.EXTENSION_HIDDEN_TOOLS:
         mcp.remove_tool(name)
 
@@ -22486,11 +22984,15 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         # writing CE telemetry into the protected transaction. MIDDLEWARE declares
         # that order.
         chain = MIDDLEWARE
-        served_names = mcp_tool_extensions.served_name_map() if mcp_tool_extensions.declared() else {}
-        if served_names:
+        declared = mcp_tool_extensions.declared()
+        served_names = mcp_tool_extensions.served_name_map() if declared else {}
+        alias_calls = _alias_call_specs(mcp._tool_manager._tools) if declared else {}
+        if served_names or alias_calls:
             # Wave 1z8oz: appended only when declared, so the stock chain and
             # responses stay unchanged; replacing handlers keep their hints.
-            chain = MIDDLEWARE + (_served_name_rewrite(served_names, frozenset(_EXTENSION_REPLACED_CORE)),)
+            chain = MIDDLEWARE + (
+                _served_name_rewrite(served_names, frozenset(_EXTENSION_REPLACED_CORE), alias_calls),
+            )
         mcp_tool_registry.apply_middleware(mcp, get_handler, chain)
         if mcp_tool_extensions.declared():
             _install_served_names(mcp, get_handler)

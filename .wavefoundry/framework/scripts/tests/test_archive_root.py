@@ -43,6 +43,21 @@ ARCHIVED_WAVE = "1a000 old-set"
 ARCHIVED_CHANGE = "1a001-feat old-thing"
 
 
+def _live_roots(root: Path, rp=record_paths):
+    """The live waves and plans roots of the loaded layout under ``root``."""
+    roots = rp.load_record_roots(root)
+    return roots.waves, roots.plans
+
+
+def _live_record(folder: Path, wave_id: str, *, status: str, title: str = "", vp=vocabulary_profile) -> None:
+    """A minimal live container record in the loaded vocabulary."""
+    folder.mkdir(parents=True)
+    text = f"{vp.RECORD_TITLE}\n\nStatus: {status}\n\n{vp.id_line(wave_id)}\n"
+    if title:
+        text += f"Title: {title}\n\n{vp.MEMBER_HEADING}\n"
+    (folder / vp.RECORD_FILENAME).write_text(text, encoding="utf-8")
+
+
 def _tree_digest(path: Path) -> str:
     digest = hashlib.sha256()
     for item in sorted(path.rglob("*")):
@@ -92,8 +107,9 @@ class _ArchiveCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.root = _make_repo(Path(self._tmp.name).resolve())
-        (self.root / "docs" / "waves").mkdir(parents=True, exist_ok=True)
-        (self.root / "docs" / "plans").mkdir(parents=True, exist_ok=True)
+        self.waves, self.plans = _live_roots(self.root, self.srv.record_paths)
+        self.waves.mkdir(parents=True, exist_ok=True)
+        self.plans.mkdir(parents=True, exist_ok=True)
         self.archived_folder = _write_archive(self.root)
         self._enable(self.archive_enabled)
 
@@ -123,7 +139,7 @@ class ArchiveReadTests(_ArchiveCase):
 
     def test_wave_found_by_id_with_members_from_the_archive_only(self) -> None:
         # A live plan with the member's id must not be mixed in (N2).
-        (self.root / "docs" / "plans" / f"{ARCHIVED_CHANGE}.md").write_text("# live copy\n", encoding="utf-8")
+        (self.plans / f"{ARCHIVED_CHANGE}.md").write_text("# live copy\n", encoding="utf-8")
         got = self.srv.wf_get_change_response(self.root, "", wave_id="1a000")
         data = got["data"]
         self.assertTrue(data["archived"])
@@ -144,9 +160,7 @@ class ArchiveReadTests(_ArchiveCase):
         self.assertIsNone(got["data"]["change"])
 
     def test_live_record_wins_over_the_archive(self) -> None:
-        live = self.root / "docs" / "waves" / "1a000 new-set"
-        live.mkdir(parents=True)
-        (live / "wave.md").write_text("# Wave Record\n\nStatus: active\n\nwave-id: `1a000 new-set`\n", encoding="utf-8")
+        _live_record(self.waves / "1a000 new-set", "1a000 new-set", status="active", vp=self.srv._vocab)
         got = self.srv.wf_get_change_response(self.root, "", wave_id="1a000")
         self.assertNotIn("archived", got["data"])
 
@@ -231,11 +245,7 @@ class ArchiveWriterRefusalTests(_ArchiveCase):
         self.assertEqual(_tree_digest(self.root / ARCHIVE_REL), before)
 
     def test_add_change_refuses_an_archived_change(self) -> None:
-        live = self.root / "docs" / "waves" / "1b000 live"
-        live.mkdir(parents=True)
-        (live / "wave.md").write_text(
-            "# Wave Record\n\nStatus: planned\n\nwave-id: `1b000 live`\nTitle: Live\n\n## Changes\n",
-            encoding="utf-8")
+        _live_record(self.waves / "1b000 live", "1b000 live", status="planned", title="Live", vp=self.srv._vocab)
         before = _tree_digest(self.root / ARCHIVE_REL)
         response = self.srv.wf_add_change_response(self.root, "1b000", "1a001", mode="create")
         self.assertIn("archived_record_read_only", [d["code"] for d in response["diagnostics"]])
@@ -300,7 +310,7 @@ class ArchiveUntouchedByLiveLifecycleTests(_ArchiveCase):
         with patch.multiple(srv, **stubs):
             wave_id = ok("create", srv.wf_create_wave_response(root, "live-work", mode="create"))["wave_id"]
             change_id = srv.new_change(root, "feat", "live-thing")["id"]
-            plan = root / "docs" / "plans" / f"{change_id}.md"
+            plan = self.plans / f"{change_id}.md"
             text = plan.read_text(encoding="utf-8")
             for old, new in (("- [ ] AC-1: [Testable outcome]", "- [x] AC-1: Works."),
                              ("- [ ] [Concrete implementation step]", "- [x] Do it."),
@@ -318,7 +328,7 @@ class ArchiveUntouchedByLiveLifecycleTests(_ArchiveCase):
                   signoff_key="wave-council-readiness", approval_phase="readiness")
             ok("prepare create", srv.wf_prepare_wave_response(root, wave_id, mode="create"))
             status_label = srv._vocab.MEMBER_STATUS_LABEL
-            record = next((root / "docs" / "waves").glob(f"{wave_id.split()[0]} */{srv._vocab.RECORD_FILENAME}"))
+            record = next(self.waves.glob(f"{wave_id.split()[0]} */{srv._vocab.RECORD_FILENAME}"))
             for path in (record, record.parent / f"{change_id}.md"):
                 path.write_text(path.read_text(encoding="utf-8").replace(
                     f"{status_label}: `planned`", f"{status_label}: `complete`"), encoding="utf-8")
@@ -351,8 +361,11 @@ class ArchiveLayoutValidationTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name).resolve()
-        (self.root / "docs" / "waves").mkdir(parents=True)
-        (self.root / "docs" / "plans").mkdir(parents=True)
+        self.waves, self.plans = _live_roots(self.root)
+        self.waves.mkdir(parents=True)
+        self.plans.mkdir(parents=True)
+        self.waves_rel = record_paths.load_record_roots(self.root).waves_rel
+        self.plans_rel = record_paths.load_record_roots(self.root).plans_rel
 
     def _errors(self, archive_root) -> list[str]:
         with patch_layout(modules=(record_paths,), archive_root=archive_root):
@@ -372,7 +385,8 @@ class ArchiveLayoutValidationTests(unittest.TestCase):
                     record_paths.load_record_roots(self.root)
 
     def test_overlapping_or_escaping_roots_refuse(self) -> None:
-        self._assert_refused(("docs/waves", "docs/waves/old", "docs", "docs/plans", "/abs/archive", "../x"))
+        # The live roots, a folder inside one, their common parent, an absolute and an escaping path.
+        self._assert_refused((self.waves_rel, self.waves_rel + "/old", "docs", self.plans_rel, "/abs/archive", "../x"))
 
     @unittest.skipIf(os.name == "nt", "creating symlinks needs a privilege on Windows")
     def test_symlink_escape_or_alias_roots_refuse(self) -> None:
@@ -380,7 +394,7 @@ class ArchiveLayoutValidationTests(unittest.TestCase):
         outside.mkdir()
         self.addCleanup(shutil.rmtree, outside, True)
         (self.root / "docs" / "escape").symlink_to(outside, target_is_directory=True)
-        (self.root / "docs" / "alias").symlink_to(self.root / "docs" / "waves", target_is_directory=True)
+        (self.root / "docs" / "alias").symlink_to(self.waves, target_is_directory=True)
         self._assert_refused(("docs/escape", "docs/alias"))
 
 
@@ -443,7 +457,8 @@ class ArchiveLintTests(unittest.TestCase):
         env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True, env=env)
-        subprocess.run(["git", "add", "-A", "--", "docs/waves", "docs/workflow-config.json"], cwd=self.root,
+        waves_rel = record_paths.load_record_roots(self.root).waves_rel
+        subprocess.run(["git", "add", "-A", "--", waves_rel, "docs/workflow-config.json"], cwd=self.root,
                        check=True, env=env)
         subprocess.run(["git", "commit", "-qm", "base"], cwd=self.root, check=True, env=env)
         result = self._lint("--changed")

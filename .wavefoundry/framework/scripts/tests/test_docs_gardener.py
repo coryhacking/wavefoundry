@@ -480,17 +480,19 @@ class RecordLayoutGardenerTests(unittest.TestCase):
         from record_layout_support import patch_layout
 
         (self.root / "project" / "records" / "waves").mkdir(parents=True)
+        # The configured layout (the shipped one, or a profile's).
+        configured = dg.record_paths.WAVES_ROOT
         # 1z8tw: patch the gardener's own copy; a prior `load_server()` in this
         # interpreter replaces the `record_paths` that sys.modules holds.
         with patch_layout(modules=(dg.record_paths,), **self.LAYOUT):
             artifacts = dg.default_manifest_payload(self.root)["generated_artifacts"]
         self.assertIn(f"{self.WAVES}/", artifacts)
         self.assertIn(f"{self.WAVES}/README.md", artifacts)
-        self.assertFalse(any(entry.startswith("docs/waves") for entry in artifacts), artifacts)
-        # The shipped layout is unchanged.
+        self.assertFalse(any(entry.startswith(configured) for entry in artifacts), artifacts)
+        # The configured layout is unchanged.
         default = dg.default_manifest_payload(self.root)["generated_artifacts"]
-        self.assertIn("docs/waves/", default)
-        self.assertIn("docs/waves/README.md", default)
+        self.assertIn(f"{configured}/", default)
+        self.assertIn(f"{configured}/README.md", default)
 
     def test_paths_accepts_a_doc_under_the_relocated_waves_root(self) -> None:
         rel = f"{self.WAVES}/1abcd wave/wave.md"

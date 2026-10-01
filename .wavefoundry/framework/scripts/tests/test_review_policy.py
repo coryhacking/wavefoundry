@@ -24,6 +24,25 @@ import index_state_store
 import gardener_metadata
 import publication_control
 from wave_lint_lib.core_validators import check_review_policy_carriers
+import record_paths
+import vocabulary_profile
+from record_layout_support import default_profile_only
+
+# The record filename and the live waves root the loaded profile uses.
+RECORD = vocabulary_profile.RECORD_FILENAME
+WAVES_REL = record_paths.WAVES_ROOT
+# The member status label of a change document in the loaded profile.
+STATUS_LABEL = vocabulary_profile.MEMBER_STATUS_LABEL
+
+
+def _archived_record_rel() -> "str | None":
+    """A record path under the configured read-only archive root, in the
+    archive profile's filename; ``None`` without an archive root (the shipped
+    layout)."""
+    if not record_paths.ARCHIVE_ROOT:
+        return None
+    archived_vocab = vocabulary_profile.ARCHIVE_PROFILE or {}
+    return f"{record_paths.ARCHIVE_ROOT}/1arc archived/{archived_vocab.get('RECORD_FILENAME', RECORD)}"
 
 
 class ReviewPolicyReconcilerTests(unittest.TestCase):
@@ -196,12 +215,21 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
                 "# Council\n\nRun the pre-implementation review gate.\n",
                 encoding="utf-8",
             )
-            historical = root / "docs/waves/1old closed/wave.md"
+            historical = root / f"{WAVES_REL}/1old closed/{RECORD}"
             historical.parent.mkdir(parents=True)
             historical.write_text(
                 "# Historical\n\nRun the pre-implementation review gate.\n",
                 encoding="utf-8",
             )
+            # A profile's read-only archive root holds historical records too.
+            archived_rel = _archived_record_rel()
+            if archived_rel is not None:
+                archived = root / archived_rel
+                archived.parent.mkdir(parents=True)
+                archived.write_text(
+                    "# Archived\n\nRun the pre-implementation review gate.\n",
+                    encoding="utf-8",
+                )
             # A second project-authored carrier, so this test still proves more
             # than one file is reported. It replaces `.wavefoundry/README.md` in
             # that role: that file is shipped by the pack, so reporting it told
@@ -236,13 +264,51 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
             self.assertIn("docs/agents/wave-council.md", message)
             self.assertIn("docs/contributing/review-notes.md", message)
             self.assertIn("outside a registered carrier", message)
-            self.assertNotIn("docs/waves/1old closed/wave.md", message)
+            self.assertNotIn(f"{WAVES_REL}/1old closed/{RECORD}", message)
+            if archived_rel is not None:
+                self.assertNotIn(archived_rel, message)
             for generated in generated_paths:
                 self.assertNotIn(generated.relative_to(root).as_posix(), message)
             self.assertEqual(
                 {path: path.read_bytes() for path in before},
                 before,
             )
+
+    def test_configured_archive_root_is_excluded_from_live_markdown_preflight(self):
+        """Change 1zim7: a read-only archive root inside ``docs/`` is neither
+        reported nor rewritten, while the same prose in a live document is
+        still reported. Runs under any profile by patching the archive root."""
+        archive_rel = "docs/archive-records"
+        layout = review_policy_reconcile.record_paths  # the module the preflight reads
+        prose = "# Doc\n\nRun the pre-implementation review gate.\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._root(tmp)
+            for rel in (layout.WAVES_ROOT, layout.PLANS_ROOT):
+                (root / rel).mkdir(parents=True, exist_ok=True)
+            archived = root / archive_rel / "1arc archived" / RECORD
+            archived.parent.mkdir(parents=True)
+            archived.write_text(prose, encoding="utf-8")
+            live = root / "docs/contributing/live-notes.md"
+            live.parent.mkdir(parents=True, exist_ok=True)
+            live.write_text(prose, encoding="utf-8")
+            archived_before = archived.read_bytes()
+            with patch.object(layout, "ARCHIVE_ROOT", archive_rel):
+                with self.assertRaises(ValueError) as caught:
+                    review_policy_reconcile.plan_reconciliation(root)
+                prefixes = review_policy_reconcile._live_markdown_excluded_prefixes(root)
+            message = str(caught.exception)
+            self.assertIn("docs/contributing/live-notes.md", message)
+            self.assertNotIn(f"{archive_rel}/1arc archived/{RECORD}", message)
+            self.assertNotIn(archive_rel, message)
+            self.assertEqual(archived.read_bytes(), archived_before)
+            self.assertIn(archive_rel + "/", prefixes)
+            # Without an archive root the exclusions are exactly as before.
+            with patch.object(layout, "ARCHIVE_ROOT", None):
+                self.assertEqual(
+                    review_policy_reconcile._live_markdown_excluded_prefixes(root),
+                    review_policy_reconcile._LIVE_MARKDOWN_EXCLUDED_PREFIXES
+                    + (layout.load_record_roots(root).waves_prefix,),
+                )
 
     def test_symlink_carrier_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -520,7 +586,7 @@ class ReviewPolicyUpgradeTests(unittest.TestCase):
             encoding="utf-8",
         )
         # Missing registered carriers are valid target shapes.
-        open_md = root / "docs/waves/open-wave/wave.md"
+        open_md = root / f"{WAVES_REL}/open-wave/{RECORD}"
         open_md.parent.mkdir(parents=True)
         open_md.write_text(
             "# Wave\n\nStatus: implementing\nreview-evidence-protocol: `2`\n"
@@ -539,7 +605,7 @@ class ReviewPolicyUpgradeTests(unittest.TestCase):
             encoding="utf-8",
         )
         review_evidence.review_event_path(open_md).write_bytes(b"")
-        closed_md = root / "docs/waves/closed-wave/wave.md"
+        closed_md = root / f"{WAVES_REL}/closed-wave/{RECORD}"
         closed_md.parent.mkdir(parents=True)
         closed_md.write_bytes(open_md.read_bytes().replace(b"Status: implementing", b"Status: closed"))
         review_evidence.review_event_path(closed_md).write_bytes(b"")
@@ -557,7 +623,7 @@ class ReviewPolicyUpgradeTests(unittest.TestCase):
                 self.assertEqual(result["delivery_mode"], expected)
                 self.assertEqual(
                     result["waves_marked_for_reprepare"],
-                    ["docs/waves/open-wave/wave.md"],
+                    [f"{WAVES_REL}/open-wave/{RECORD}"],
                 )
                 self.assertIn("review-policy-reprepare-required: true", open_md.read_text("utf-8"))
                 self.assertEqual(closed_md.read_bytes(), closed_before)
@@ -577,7 +643,7 @@ class ReviewPolicyUpgradeTests(unittest.TestCase):
                 root, review_policy_upgrade.plan_review_policy_upgrade(root)
             )
             self.assertEqual(
-                first["waves_marked_for_reprepare"], ["docs/waves/open-wave/wave.md"]
+                first["waves_marked_for_reprepare"], [f"{WAVES_REL}/open-wave/{RECORD}"]
             )
             # The operator re-readies the wave, exactly as `wf_prepare_wave(mode='ready')`
             # does; the migrated config is now canonical, so a second pack adoption is a
@@ -632,7 +698,7 @@ class ReviewPolicyUpgradeTests(unittest.TestCase):
             result = review_policy_upgrade.apply_review_policy_upgrade(root, plan)
             self.assertEqual(
                 result["waves_marked_for_reprepare"],
-                ["docs/waves/open-wave/wave.md"],
+                [f"{WAVES_REL}/open-wave/{RECORD}"],
             )
             self.assertNotEqual(open_md.read_bytes(), wave_before)
             self.assertIn("review-policy-reprepare-required: true", open_md.read_text("utf-8"))
@@ -649,7 +715,7 @@ class ReviewPolicyUpgradeTests(unittest.TestCase):
             self.assertEqual(
                 review_policy_upgrade.plan_review_policy_upgrade(root).waves, ()
             )
-            broken = root / "docs/waves/broken-wave/wave.md"
+            broken = root / f"{WAVES_REL}/broken-wave/{RECORD}"
             broken.parent.mkdir(parents=True)
             broken.write_bytes(b"# Wave\n\nStatus: implementing\n\xff\xfe\n")
             with self.assertRaisesRegex(ValueError, "preflight failed.*unreadable wave"):
@@ -1364,8 +1430,8 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
         )
 
     def test_digest_ignores_leading_workflow_status_metadata(self):
-        base = b"# Change\nChange Status: planned\nStatus: planned\nLast verified: 2026-08-05\n\n## Scope\n\nKeep this.\n"
-        progressed = base.replace(b"Change Status: planned", b"Change Status: implemented").replace(b"Status: planned", b"Status: reviewing").replace(b"2026-08-05", b"2026-08-06")
+        base = f"# Change\n{STATUS_LABEL}: planned\nStatus: planned\nLast verified: 2026-08-05\n\n## Scope\n\nKeep this.\n".encode()
+        progressed = base.replace(f"{STATUS_LABEL}: planned".encode(), f"{STATUS_LABEL}: implemented".encode()).replace(b"Status: planned", b"Status: reviewing").replace(b"2026-08-05", b"2026-08-06")
         digest = lambda body: review_policy.policy_input_digest(
             wave_review={"enabled": True, "delivery_mode": "targeted"},
             project_lanes=(), review_policies={},
@@ -2083,10 +2149,10 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
         normalize = gardener_metadata.normalize_review_tracking_status
         quoted = (
             "# T\n\n> **REFRAMED 2026-06-23** superseded by a later wave.\n\n"
-            "Change Status: planned\nStatus: planned\n\n## Scope\n\nKeep this.\n"
+            f"{STATUS_LABEL}: planned\nStatus: planned\n\n## Scope\n\nKeep this.\n"
         )
         normalized = normalize(quoted, replacement="<workflow-status>")
-        self.assertIn("Change Status: <workflow-status>", normalized)
+        self.assertIn(f"{STATUS_LABEL}: <workflow-status>", normalized)
         self.assertIn("Status: <workflow-status>", normalized)
         self.assertIn("> **REFRAMED 2026-06-23**", normalized)
 
@@ -2116,20 +2182,21 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
 
         normalize = gardener_metadata.normalize_review_tracking_status
         pair = (
-            "# T\n\nChange ID: `1abc-bug example`\nChange Status: planned\n"
+            f"# T\n\n{vocabulary_profile.MEMBER_ID_LABEL}: `1abc-bug example`\n{STATUS_LABEL}: planned\n"
             "Owner: Engineering\nStatus: planned\n\n## Scope\n\nKeep this.\n"
         )
         normalized = normalize(pair, replacement="<workflow-status>")
         self.assertEqual(normalized.count("<workflow-status>"), 2)
-        self.assertIn("Change Status: <workflow-status>", normalized)
+        self.assertIn(f"{STATUS_LABEL}: <workflow-status>", normalized)
 
-        single = "# T\n\nChange Status: planned\n\n## Scope\n\nKeep this.\n"
+        single = f"# T\n\n{STATUS_LABEL}: planned\n\n## Scope\n\nKeep this.\n"
         self.assertIn(
-            "Change Status: <workflow-status>",
+            f"{STATUS_LABEL}: <workflow-status>",
             normalize(single, replacement="<workflow-status>"),
             "one match stays admissible; the set is {1, 2}, not {2}",
         )
 
+    @default_profile_only("a census of this repository's own documents, which are written in the default profile")
     def test_carrier_boundary_census_reports_its_own_transition_cost(self):
         """AC-6: the boundary change must report what it moves, not assume it.
 

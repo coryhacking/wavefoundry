@@ -37,6 +37,7 @@ from unittest.mock import patch
 import wf_server.mcp_tool_registry as reg
 from server_tools_support import load_server
 from test_tool_surface_golden import _BootedSurface
+from declaration_support import apply_base_declaration
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
@@ -401,6 +402,9 @@ class RosterWarningTests(unittest.TestCase):
             from mcp.server.fastmcp import FastMCP
         except ImportError:
             self.skipTest("mcp package not installed")
+        # The subject is the stock roster against the stock surface, so the
+        # shipped empty declaration, whatever a distribution declares (change 1zim4).
+        apply_base_declaration(self)
         self.FastMCP = FastMCP
         self.real_load = self.impl._load_script
         self.real_roster = self.real_load("mcp_tool_roster")

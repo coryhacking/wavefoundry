@@ -16,6 +16,7 @@ Shipped values are empty, which leaves the stock tool surface unchanged.
 """
 from __future__ import annotations
 
+import keyword
 import sys
 from typing import Collection, Mapping
 
@@ -50,7 +51,15 @@ EXTENSION_OVERRIDES: Mapping[str, tuple[str, ...]] = {}
 # takes the canonical tier.
 EXTENSION_TOOL_ALIASES: Mapping[str, str] = {}
 
-# Canonical names that are not served. Each must have an alias.
+# Parameter mappings for declared aliases (wave 1zim3):
+# ``{alias: {"rename": {alias_param: canonical_param}, "fixed": {canonical_param: value}}}``.
+# Every canonical parameter that is neither renamed nor fixed passes through
+# under its own name. The alias serves a translator into the canonical tool's
+# wrapped callable, so every control stays keyed on the canonical name.
+EXTENSION_TOOL_PARAMETERS: Mapping[str, Mapping[str, Mapping[str, object]]] = {}
+
+# Canonical names that are not served. Each must have an alias without fixed
+# parameters.
 EXTENSION_HIDDEN_TOOLS: tuple[str, ...] = ()
 
 # Core names a module reuses with an incompatible handler, keyed by module:
@@ -103,7 +112,8 @@ def declared() -> bool:
     """True when any extension declaration is non-empty."""
     return bool(
         EXTENSION_MODULES or EXTENSION_TOOL_PREFIXES or EXTENSION_TOOL_TIERS or EXTENSION_OVERRIDES
-        or EXTENSION_TOOL_ALIASES or EXTENSION_HIDDEN_TOOLS or EXTENSION_REPLACEMENTS
+        or EXTENSION_TOOL_ALIASES or EXTENSION_TOOL_PARAMETERS or EXTENSION_HIDDEN_TOOLS
+        or EXTENSION_REPLACEMENTS
     )
 
 
@@ -128,15 +138,31 @@ def replacement_targets() -> dict[str, tuple[str, Mapping[str, str]]]:
     return targets
 
 
+def pinned_aliases() -> frozenset[str]:
+    """Aliases whose parameter mapping fixes at least one canonical parameter."""
+    return frozenset(
+        alias for alias, spec in EXTENSION_TOOL_PARAMETERS.items()
+        if isinstance(spec, Mapping) and spec.get("fixed")
+    )
+
+
 def served_name_map() -> dict[str, str]:
     """Canonical name to the name response hints should use.
 
     A replaced core name maps to its ``alias_for_core``; any other aliased
-    name maps to its first-declared alias. Empty for the stock declaration.
+    name maps to its first-declared plain alias, else its first-declared
+    alias without fixed parameters, so a name-only hint never selects a
+    pinned call (wave 1zim3). A name whose only aliases are pinned keeps its
+    canonical name. Empty for the stock declaration.
     """
     served: dict[str, str] = {}
+    pinned = pinned_aliases()
     for alias, canonical in EXTENSION_TOOL_ALIASES.items():
-        served.setdefault(canonical, alias)
+        if alias not in EXTENSION_TOOL_PARAMETERS:
+            served.setdefault(canonical, alias)
+    for alias, canonical in EXTENSION_TOOL_ALIASES.items():
+        if alias not in pinned:
+            served.setdefault(canonical, alias)
     for core_name, (_module, spec) in replacement_targets().items():
         served[core_name] = spec.get("alias_for_core")
     return served
@@ -291,7 +317,10 @@ def _alias_hide_replacement_problems(
         elif target not in served:
             problems.append(f"alias {alias!r} targets {target!r}, which is not a served tool")
 
+    problems.extend(_parameter_mapping_problems(aliases, runner))
+    pinned = pinned_aliases()
     aliased = set(aliases.values())
+    aliased_unpinned = {target for alias, target in aliases.items() if alias not in pinned}
     seen_hidden: set[str] = set()
     for name in EXTENSION_HIDDEN_TOOLS:
         if name in seen_hidden:
@@ -306,6 +335,61 @@ def _alias_hide_replacement_problems(
             problems.append(f"hidden name {name!r} is a replaced core name")
         elif name not in aliased:
             problems.append(f"hidden name {name!r} has no alias")
+        elif name not in aliased_unpinned:
+            problems.append(f"hidden name {name!r} has only aliases with fixed parameters")
+    return problems
+
+
+def _parameter_mapping_problems(aliases: Mapping[str, str], runner: set[str]) -> list[str]:
+    """Structural checks on ``EXTENSION_TOOL_PARAMETERS`` (wave 1zim3).
+
+    Checks that need the canonical argument model (a rename or fixed name
+    that is not a canonical parameter, a fixed value the canonical field
+    rejects, an alias parameter that collides with a pass-through parameter
+    or a model attribute) run in the server, which owns that model.
+    """
+    problems: list[str] = []
+    if not isinstance(EXTENSION_TOOL_PARAMETERS, Mapping):
+        return ["EXTENSION_TOOL_PARAMETERS must map aliases to parameter mappings"]
+    for alias, spec in EXTENSION_TOOL_PARAMETERS.items():
+        label = f"parameter mapping for {alias!r}"
+        if alias not in aliases:
+            problems.append(f"{label}, which is not an alias")
+            continue
+        target = aliases[alias]
+        if target in runner:
+            problems.append(f"{label} maps an alias of runner tool {target!r}")
+        elif target in EDIT_GATE_TOOLS:
+            problems.append(f"{label} maps an alias of edit-gate tool {target!r}")
+        if not isinstance(spec, Mapping):
+            problems.append(f"{label} must be a mapping with 'rename' and/or 'fixed'")
+            continue
+        unknown = sorted(set(spec) - {"rename", "fixed"})
+        if unknown:
+            problems.append(f"{label} has unknown keys {unknown}")
+        rename = spec.get("rename", {})
+        fixed = spec.get("fixed", {})
+        if not isinstance(rename, Mapping) or not isinstance(fixed, Mapping):
+            problems.append(f"{label}: 'rename' and 'fixed' must be mappings")
+            continue
+        targets: set[object] = set()
+        for alias_param, canonical_param in rename.items():
+            if not isinstance(alias_param, str) or not alias_param.isidentifier() or alias_param.startswith("_"):
+                problems.append(f"{label} renames to {alias_param!r}, which is not a parameter name")
+            elif keyword.iskeyword(alias_param):
+                problems.append(f"{label} renames to {alias_param!r}, which is a Python keyword")
+            elif alias_param == "kwargs" or alias_param.startswith("model_"):
+                problems.append(f"{label} renames to reserved parameter name {alias_param!r}")
+            if not isinstance(canonical_param, str) or not canonical_param:
+                problems.append(f"{label} renames {alias_param!r} from {canonical_param!r}, which is not a parameter name")
+            elif canonical_param in targets:
+                problems.append(f"{label} renames canonical parameter {canonical_param!r} twice")
+            targets.add(canonical_param)
+        for canonical_param in fixed:
+            if not isinstance(canonical_param, str) or not canonical_param:
+                problems.append(f"{label} fixes {canonical_param!r}, which is not a parameter name")
+            elif canonical_param in targets:
+                problems.append(f"{label} fixes {canonical_param!r}, which it also renames")
     return problems
 
 

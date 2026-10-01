@@ -22,6 +22,13 @@ import memory_records
 import index_state_store
 import server_impl
 import setup_wavefoundry
+import vocabulary_profile
+
+if str(SCRIPTS / "tests") not in sys.path:
+    sys.path.insert(0, str(SCRIPTS / "tests"))
+from record_layout_support import localize_record_text, waves_dir  # noqa: E402
+
+_RECORD = vocabulary_profile.RECORD_FILENAME
 
 
 # Wave 1z8ox (change 1z8ow): timed git and probe calls now go through
@@ -50,7 +57,7 @@ class HistoricalMemoryBackfillTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        (self.root / "docs" / "waves").mkdir(parents=True)
+        waves_dir(self.root).mkdir(parents=True)
         (self.root / "foo.py").write_text("VALUE = 1\n", encoding="utf-8")
 
     def tearDown(self):
@@ -64,12 +71,14 @@ class HistoricalMemoryBackfillTests(unittest.TestCase):
         decision: bool = True,
         change_id: str = "1abc-enh historical-decision",
     ) -> Path:
-        wave = self.root / "docs" / "waves" / name
+        wave = waves_dir(self.root) / name
         wave.mkdir()
-        wave.joinpath("wave.md").write_text(
-            "# Wave\n\n"
-            f"Status: {status}\n\n"
-            f"Change ID: `{change_id}`\n",
+        wave.joinpath(_RECORD).write_text(
+            localize_record_text(
+                "# Wave\n\n"
+                f"Status: {status}\n\n"
+                f"Change ID: `{change_id}`\n"
+            ),
             encoding="utf-8",
         )
         if decision:
@@ -83,11 +92,11 @@ class HistoricalMemoryBackfillTests(unittest.TestCase):
         return wave
 
     def _add_decisions(self, wave: Path, count: int, *, prefix: str = "1b") -> None:
-        wave_md = wave / "wave.md"
+        wave_md = wave / _RECORD
         admitted: list[str] = []
         for index in range(count):
             change_id = f"{prefix}{index:03d}-enh decision-{index}"
-            admitted.append(f"Change ID: `{change_id}`")
+            admitted.append(localize_record_text(f"Change ID: `{change_id}`"))
             wave.joinpath(f"{change_id}.md").write_text(
                 "# Change\n\n## Decision Log\n\n"
                 "| Date | Decision | Reason | Alternatives |\n"
@@ -115,10 +124,10 @@ class HistoricalMemoryBackfillTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as outside_tmp:
             outside = Path(outside_tmp) / "1zzz outside"
             outside.mkdir()
-            outside.joinpath("wave.md").write_text(
+            outside.joinpath(_RECORD).write_text(
                 "# Outside\n\nStatus: closed\n", encoding="utf-8"
             )
-            link = self.root / "docs" / "waves" / "1zzz outside"
+            link = waves_dir(self.root) / "1zzz outside"
             try:
                 link.symlink_to(outside, target_is_directory=True)
             except OSError as exc:
@@ -135,13 +144,13 @@ class HistoricalMemoryBackfillTests(unittest.TestCase):
             outside = Path(outside_tmp)
             wave = outside / "1zzz external"
             wave.mkdir()
-            wave.joinpath("wave.md").write_text(
+            wave.joinpath(_RECORD).write_text(
                 "# Outside\n\nStatus: closed\n", encoding="utf-8"
             )
-            waves_dir = self.root / "docs" / "waves"
-            waves_dir.rmdir()
+            waves_root = waves_dir(self.root)
+            waves_root.rmdir()
             try:
-                waves_dir.symlink_to(outside, target_is_directory=True)
+                waves_root.symlink_to(outside, target_is_directory=True)
             except OSError as exc:
                 self.skipTest(f"directory symlinks unavailable: {exc}")
             with self.assertRaises(OSError):
@@ -156,12 +165,12 @@ class HistoricalMemoryBackfillTests(unittest.TestCase):
             )
 
     def test_inventory_rejects_symlinked_wave_sources_inside_real_directory(self):
-        wave = self.root / "docs" / "waves" / "1zzz outside-source"
+        wave = waves_dir(self.root) / "1zzz outside-source"
         wave.mkdir()
         outside = self.root.parent / f"{self.root.name}-outside-wave.md"
         outside.write_text("# Outside\n\nStatus: closed\n", encoding="utf-8")
         try:
-            wave.joinpath("wave.md").symlink_to(outside)
+            wave.joinpath(_RECORD).symlink_to(outside)
         except OSError as exc:
             self.skipTest(f"file symlinks unavailable: {exc}")
         try:
@@ -685,8 +694,8 @@ os._exit(23)
             True,
             "none",
         )
-        wave.joinpath("wave.md").write_text(
-            wave.joinpath("wave.md").read_text(encoding="utf-8")
+        wave.joinpath(_RECORD).write_text(
+            wave.joinpath(_RECORD).read_text(encoding="utf-8")
             + "\n<!-- local source update -->\n",
             encoding="utf-8",
         )
@@ -1230,7 +1239,7 @@ os._exit(23)
                 self.root, run_id, graph_attempt, 2
             )
         )
-        wave_md = self.root / "docs" / "waves" / "1aaa closed" / "wave.md"
+        wave_md = waves_dir(self.root) / "1aaa closed" / _RECORD
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8") + "\nchanged before publish\n",
             encoding="utf-8",
@@ -1302,8 +1311,8 @@ os._exit(23)
                     index_calls.append(os.environ.get(memory_backfill.INDEX_PUBLICATION_RUN_ENV, ""))
                     index_dir = self.root / ".wavefoundry" / "index"
                     attempt = index_state_store.begin_build_epoch(index_dir, "all")
-                    wave.joinpath("wave.md").write_text(
-                        wave.joinpath("wave.md").read_text(encoding="utf-8")
+                    wave.joinpath(_RECORD).write_text(
+                        wave.joinpath(_RECORD).read_text(encoding="utf-8")
                         + "\nchanged during publication\n",
                         encoding="utf-8",
                     )

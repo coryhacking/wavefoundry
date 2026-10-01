@@ -28,6 +28,10 @@ import upgrade_protocol
 import index_paths
 import sqlite_storage_migration as migration
 import upgrade_lib
+import vocabulary_profile
+
+sys.path.insert(0, str(SCRIPTS / "tests"))
+from record_layout_support import localize_record_text, waves_dir  # noqa: E402
 
 # A separate driver process imports exactly the on-disk runner named by the
 # emitted command, then gives main its emitted arguments unchanged.
@@ -554,11 +558,12 @@ class SchemaEightMemoryCLIResumeTests(unittest.TestCase):
         package_hash = hashlib.sha256(pack.read_bytes()).hexdigest()
         fixture.ctx.zip_path = pack
         fixture.ctx.selected_feature_zip = pack
-        (root / "docs/waves/1aaa closed").mkdir(parents=True)
+        closed = waves_dir(root) / "1aaa closed"
+        closed.mkdir(parents=True)
         (root / "docs/workflow-config.json").write_text("{}\n")
-        (root / "docs/waves/1aaa closed/wave.md").write_text(
-            "# Wave\n\nStatus: closed\n\nChange ID: `1abc-enh historical-decision`\n")
-        (root / "docs/waves/1aaa closed/1abc-enh historical-decision.md").write_text(
+        (closed / vocabulary_profile.RECORD_FILENAME).write_text(localize_record_text(
+            "# Wave\n\nStatus: closed\n\nChange ID: `1abc-enh historical-decision`\n"))
+        (closed / "1abc-enh historical-decision.md").write_text(
             "# Change\n\n## Decision Log\n\n| Date | Decision | Reason | Alternatives |\n"
             "| --- | --- | --- | --- |\n| 2026-01-01 | Keep `src/m.py` local | Avoid remote authority | none |\n")
         drafted = server_impl.memory_backfill_response(root, mode="create", entry_path="upgrade")

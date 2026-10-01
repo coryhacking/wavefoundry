@@ -22,6 +22,11 @@ REPO_ROOT = SCRIPTS_ROOT.parents[2]  # scripts -> framework -> .wavefoundry -> r
 RENDER_PATH = SCRIPTS_ROOT / "render_platform_surfaces.py"
 RECONCILE_PATH = SCRIPTS_ROOT / "reconcile_scan.py"
 BUILD_PACK_PATH = SCRIPTS_ROOT / "build_pack.py"
+for _p in (str(SCRIPTS_ROOT), str(SCRIPTS_ROOT / "tests")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+from record_layout_support import waves_rel  # noqa: E402
+import vocabulary_profile  # noqa: E402
 SEED_160 = REPO_ROOT / ".wavefoundry" / "framework" / "seeds" / "160-upgrade-wavefoundry.prompt.md"
 RENDERED_PROMPT = REPO_ROOT / "docs" / "prompts" / "upgrade-wavefoundry.prompt.md"
 
@@ -348,8 +353,8 @@ class RetiredPlanReviewIdentityTests(unittest.TestCase):
 
     def test_declared_history_and_frozen_benchmarks_are_excluded(self):
         excluded = (
-            "docs/waves/1p6lp/history.md",
-            "docs/waves/1w047 review-plan-naming/change.md",
+            waves_rel("1p6lp", "history.md"),
+            waves_rel("1w047 review-plan-naming", "change.md"),
             "CHANGELOG.md",
             ".wavefoundry/framework/scripts/benchmarks/model_swap_docs_queries.json",
             ".wavefoundry/framework/scripts/benchmarks/model_swap_v2_result.json",
@@ -385,7 +390,7 @@ class ExclusionTests(unittest.TestCase):
             ".wavefoundry/framework.rollback-bridge-pfps-p2/docs/legacy.md",  # inactive bridge backup
             ".wavefoundry/upgrade-assets/feature.zip.md",  # retained generated upgrade payload
             ".wavefoundry/index/notes.md",             # generated index (prefix)
-            "docs/waves/1p8ev/x.md",                   # wave history (prefix)
+            waves_rel("1p8ev", "x.md"),                # wave history (prefix)
             "docs/reports/field-report.md",            # report history (prefix)
             "CHANGELOG.md",                            # release history (repo-root file)
             "docs/agents/journals/role-journal.md",    # under journals/ component
@@ -811,7 +816,7 @@ class RenamedMcpToolScanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             for rel in (
-                "docs/waves/1x old/wave.md",
+                waves_rel("1x old", vocabulary_profile.RECORD_FILENAME),
                 "docs/agents/journals/session.md",
                 "docs/agents/memory/mem-old-decision.md",
                 "CHANGELOG.md",

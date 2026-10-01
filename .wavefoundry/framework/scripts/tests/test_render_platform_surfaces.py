@@ -975,6 +975,23 @@ class MergeMcpServerTests(unittest.TestCase):
         self.assertEqual(wf["args"], [".wavefoundry/framework/scripts/server.py"])
 
 
+def _waves_dir(root: Path) -> Path:
+    """The configured live waves root under ``root`` (the shipped layout, or a
+    profile's); the hook reads the same ``record_paths`` constants."""
+    from record_layout_support import RecordTreeBuilder
+
+    return RecordTreeBuilder(root).waves_dir
+
+
+def _write_active_record(wave_dir: Path) -> None:
+    """An active record for ``wave_dir`` in the loaded profile's vocabulary."""
+    import vocabulary_profile as vp
+
+    (wave_dir / vp.RECORD_FILENAME).write_text(
+        f"{vp.RECORD_TITLE}\nStatus: active\n{vp.ID_KEY}: `{wave_dir.name}`\n", encoding="utf-8"
+    )
+
+
 class SessionCaptureHookTests(unittest.TestCase):
     """Wave 1p5ti: the generated session-end capture script is fast, fail-safe,
     always exits 0, captures open-wave/AC state, and never writes memory/commits."""
@@ -1005,11 +1022,9 @@ class SessionCaptureHookTests(unittest.TestCase):
     def test_captures_active_wave_and_ac_progress(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             root = Path(d).resolve()
-            wave_dir = root / "docs" / "waves" / "1abc demo"
+            wave_dir = _waves_dir(root) / "1abc demo"
             wave_dir.mkdir(parents=True)
-            (wave_dir / "wave.md").write_text(
-                "# Wave Record\nStatus: active\nwave-id: `1abc demo`\n", encoding="utf-8"
-            )
+            _write_active_record(wave_dir)
             (wave_dir / "1abc-enh thing.md").write_text(
                 "- [x] AC-1: done\n- [ ] AC-2: todo\n", encoding="utf-8"
             )
@@ -1044,11 +1059,9 @@ class SessionCaptureHookTests(unittest.TestCase):
         # found under NESTED=True (a flat `iterdir` would report no wave).
         with tempfile.TemporaryDirectory() as d:
             root = Path(d).resolve()
-            wave_dir = root / "docs" / "waves" / "team" / "1abc nested"
+            wave_dir = _waves_dir(root) / "team" / "1abc nested"
             wave_dir.mkdir(parents=True)
-            (wave_dir / "wave.md").write_text(
-                "# Wave Record\nStatus: active\nwave-id: `1abc nested`\n", encoding="utf-8"
-            )
+            _write_active_record(wave_dir)
             (wave_dir / "1abc-enh thing.md").write_text("- [x] AC-1: done\n", encoding="utf-8")
             res = self._run_with_layout(root, nested=True)
             self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
@@ -1062,7 +1075,7 @@ class SessionCaptureHookTests(unittest.TestCase):
     def test_no_active_wave_is_clean_exit(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             root = Path(d).resolve()
-            (root / "docs" / "waves").mkdir(parents=True)
+            _waves_dir(root).mkdir(parents=True)
             res = self._run(root)
             self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
             self.assertIn("No active wave", (root / ".wavefoundry" / "logs" / "last-session-capture.md").read_text())
