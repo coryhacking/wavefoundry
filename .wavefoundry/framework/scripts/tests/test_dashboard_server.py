@@ -1955,14 +1955,19 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
 
     def test_absolute_form_targets_and_repeated_hosts_are_refused(self):
         # Wave 1zim2: the Host check reads one Host header and an origin-form target only.
+        # These are targets a real client can send unchanged.
         cases = (
             ("http://evil.example/api/project", "127.0.0.1:43127"),
             ("http://127.0.0.1:43127/api/project", "127.0.0.1:43127"),
-            ("//evil.example/api/project", "127.0.0.1:43127"),
             ("api/project", "127.0.0.1:43127"),
             ("/api/project", ["127.0.0.1:43127", "evil.example"]),
             ("/api/project", ["127.0.0.1:43127", "127.0.0.1:43127"]),
         )
+        # Defence in depth only (wave 1zim9): a network-path target reaching do_GET
+        # un-normalized. On a real server CPython's parse_request collapses the
+        # leading `//` first (gh-87389), so a client never sees this 421; see
+        # DashboardRealServerHeaderTests.test_network_path_target_is_normalized_on_a_real_server.
+        cases += (("//evil.example/api/project", "127.0.0.1:43127"),)
         for path, host in cases:
             with self.subTest(path=path, host=host):
                 handler = self._make_handler(path, host=host)
@@ -5138,6 +5143,29 @@ class DashboardRealServerHeaderTests(unittest.TestCase):
                 response = conn.getresponse()
                 self.assertEqual(response.status, 421)
                 response.read()
+
+    def test_network_path_target_is_normalized_on_a_real_server(self):
+        # Wave 1zim9: CPython's request parser collapses a leading `//` (gh-87389),
+        # so `//evil.example/api/project` reaches the handler as the path
+        # `/evil.example/api/project`: not found under a loopback Host, refused
+        # under any other Host, and never the project payload.
+        payload_response = self._request("GET", "/api/project")
+        self.assertEqual(payload_response.status, 200)
+        payload = payload_response.read()
+        for target in ("//evil.example/api/project", "///evil.example/api/project"):
+            with self.subTest(target=target, host="loopback"):
+                response = self._request("GET", target)
+                body = response.read()
+                self.assertEqual(response.status, 404)
+                self.assertNotEqual(body, payload)
+                self._assert_security_headers(response, "404")
+            for host in ("evil.example", f"evil.example:{self.port}"):
+                with self.subTest(target=target, host=host):
+                    response = self._request("GET", target, host=host)
+                    body = response.read()
+                    self.assertEqual(response.status, 421)
+                    self.assertNotEqual(body, payload)
+                    self._assert_security_headers(response, "421")
 
     def test_every_page_script_and_link_is_served_from_the_same_origin(self):
         response = self._request("GET", "/dashboard.html")
