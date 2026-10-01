@@ -580,6 +580,11 @@ with tempfile.TemporaryDirectory() as tmp:
             "replace_open_schema": dict(EXTENSION_MODULES=("open_replacement",), EXTENSION_REPLACEMENTS={"open_replacement": {"wf_close_wave": {"alias_for_core": "wf_core_close"}}}),
             "aliases_only_served": dict(EXTENSION_TOOL_ALIASES={"wf_alias_help": "wf_help"}),
             "replace_not_registered": dict(EXTENSION_MODULES=("twin_a",), EXTENSION_TOOL_PREFIXES=("acme_",), EXTENSION_TOOL_TIERS={"acme_twin": "read"}, EXTENSION_REPLACEMENTS={"twin_a": {"wf_close_wave": {"alias_for_core": "wf_core_close"}}}),
+            # Wave 1zicq: no tier downgrade; the edit-gate tools cannot be taken over.
+            "replace_downgrade": dict(EXTENSION_MODULES=("replace_close",), EXTENSION_REPLACEMENTS={"replace_close": {"wf_close_wave": {"alias_for_core": "wf_core_close", "tier": "read"}}}),
+            "override_gate": dict(EXTENSION_MODULES=("replace_close",), EXTENSION_OVERRIDES={"replace_close": ("wf_open_gate",)}),
+            "replace_gate": dict(EXTENSION_MODULES=("replace_close",), EXTENSION_REPLACEMENTS={"replace_close": {"wf_close_gate": {"alias_for_core": "wf_core_close_gate"}}}),
+            "hidden_gate": dict(EXTENSION_TOOL_ALIASES={"wf_alias_open_gate": "wf_open_gate"}, EXTENSION_HIDDEN_TOOLS=("wf_open_gate",)),
         }
         empty = dict(EXTENSION_MODULES=(), EXTENSION_TOOL_PREFIXES=(), EXTENSION_TOOL_TIERS={}, EXTENSION_OVERRIDES={},
                      EXTENSION_TOOL_ALIASES={}, EXTENSION_HIDDEN_TOOLS=(), EXTENSION_REPLACEMENTS={})
@@ -1064,6 +1069,11 @@ class ExtensionRefusalTests(unittest.TestCase):
         "replace_alias_retired": "alias_for_core of 'wf_close_wave' 'wf_review_evidence' is a name reserved by core _RENAMED_MCP_TOOLS",
         "replace_open_schema": "replacement 'wf_close_wave' does not reject undeclared arguments",
         "replace_not_registered": "declares replacement 'wf_close_wave' but does not register it",
+        # Wave 1zicq.
+        "replace_downgrade": "replacement 'wf_close_wave' may not lower its tier from 'write' to 'read'",
+        "override_gate": "may not override edit-gate tool 'wf_open_gate'",
+        "replace_gate": "may not replace edit-gate tool 'wf_close_gate'",
+        "hidden_gate": "hidden name 'wf_open_gate' is an edit-gate tool",
     }
 
     @classmethod
@@ -1150,6 +1160,9 @@ RESERVED_COLLECTIONS = {
 NON_BEHAVIOR_COLLECTIONS = {
     ("context_efficiency.py", "LIFECYCLE_PROMPT_MAP"),
     ("graph_quality_eval.py", "RELATION_TOOL_MATRIX"),
+    # Declaration validation only: names no override, replacement or hidden
+    # name may target (wave 1zicq); it keys no served behaviour.
+    ("mcp_tool_extensions.py", "EDIT_GATE_TOOLS"),
     ("mcp_tool_roster.py", "RUNNER_TOOLS"),
     ("mcp_tool_roster.py", "TOOL_TIERS"),
     ("reconcile_scan.py", "_CONFIG_KEY_TOOL_NAMES"),
@@ -1315,6 +1328,46 @@ class DeclarationValidationTests(unittest.TestCase):
         })
         core = {"wf_help", "wf_current_wave", "wf_close_wave"}
         self.assertEqual(self.ext.declaration_problems(core_tools=core, runner_tools={"wf_reload_mcp"}), [])
+
+    def test_a_replacement_may_not_lower_a_write_tool_to_read(self):
+        # Wave 1zicq: same tier and read-to-write stay allowed.
+        core = {"wf_close_wave", "wf_help"}
+        tiers = {"wf_close_wave": "write", "wf_help": "read"}
+        self.ext.EXTENSION_MODULES = ("m",)
+        self.ext.EXTENSION_REPLACEMENTS = {"m": {"wf_close_wave": {"alias_for_core": "wf_core_close", "tier": "read"}}}
+        problems = self.ext.declaration_problems(core_tools=core, runner_tools=set(), core_tiers=tiers)
+        self.assertEqual(problems, ["replacement 'wf_close_wave' may not lower its tier from 'write' to 'read'"])
+        self.ext.EXTENSION_REPLACEMENTS = {"m": {
+            "wf_close_wave": {"alias_for_core": "wf_core_close", "tier": "write"},
+            "wf_help": {"alias_for_core": "wf_core_help", "tier": "write"},
+        }}
+        self.assertEqual(self.ext.declaration_problems(core_tools=core, runner_tools=set(), core_tiers=tiers), [])
+
+    def test_the_roster_refuses_a_downgrade_and_keeps_allowed_tiers(self):
+        import mcp_tool_roster
+        self.ext.EXTENSION_MODULES = ("m",)
+        self.ext.EXTENSION_REPLACEMENTS = {"m": {"wf_close_wave": {"alias_for_core": "wf_core_close", "tier": "read"}}}
+        with self.assertRaises(self.ext.ExtensionDeclarationError) as raised:
+            mcp_tool_roster.all_tool_tiers()
+        self.assertIn("may not lower its tier", str(raised.exception))
+        self.ext.EXTENSION_REPLACEMENTS = {"m": {"wf_help": {"alias_for_core": "wf_core_help", "tier": "write"}}}
+        tiers = mcp_tool_roster.all_tool_tiers()
+        self.assertEqual(tiers["wf_help"], "write")
+        self.assertEqual(tiers["wf_core_help"], mcp_tool_roster.TOOL_TIERS["wf_help"])
+
+    def test_edit_gate_tools_may_be_aliased_but_not_overridden_replaced_or_hidden(self):
+        core = {"wf_open_gate", "wf_close_gate", "wf_help"}
+        self.ext.EXTENSION_MODULES = ("m",)
+        self.ext.EXTENSION_TOOL_ALIASES = {"wf_alias_open_gate": "wf_open_gate"}
+        self.assertEqual(self.ext.declaration_problems(core_tools=core, runner_tools=set()), [])
+        self.ext.EXTENSION_OVERRIDES = {"m": ("wf_open_gate",)}
+        self.ext.EXTENSION_REPLACEMENTS = {"m": {"wf_close_gate": {"alias_for_core": "wf_core_close_gate"}}}
+        self.ext.EXTENSION_HIDDEN_TOOLS = ("wf_open_gate",)
+        problems = self.ext.declaration_problems(core_tools=core, runner_tools=set())
+        self.assertIn("module 'm' may not override edit-gate tool 'wf_open_gate'", problems)
+        self.assertIn("module 'm' may not replace edit-gate tool 'wf_close_gate'", problems)
+        self.assertIn("hidden name 'wf_open_gate' is an edit-gate tool", problems)
+        self.assertEqual(self.ext.EDIT_GATE_TOOLS, frozenset({"wf_open_gate", "wf_close_gate"}))
 
     def test_alias_targets_may_be_extension_tools_but_not_unknown_kinds(self):
         self.ext.EXTENSION_MODULES = ("m",)

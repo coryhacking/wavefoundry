@@ -161,6 +161,25 @@ class InstallerTests(_Tmp):
             outcome = setup_index.install_requirement_specs([PSUTIL])
         self.assertIn("index builds and the dashboard", outcome["message"])
 
+    def test_a_failed_uv_names_the_network_cause_and_wf_setup(self):
+        # Wave 1zicq: an unreachable index makes uv exit 2 on its own; the message says why.
+        with patch.dict(os.environ, {"FAKE_UV_EXIT": "2"}):
+            outcome = setup_index.install_requirement_specs([PSUTIL])
+        self.assertEqual(outcome["status"], "failed")
+        self.assertIn("exit 2", outcome["message"])
+        self.assertIn("network, proxy or TLS access to the package index", outcome["message"])
+        self.assertIn("run `wf setup`", outcome["message"])
+
+    def test_the_interpreter_path_is_absolute_for_a_relative_tool_venv(self):
+        calls = []
+        # A relative override from the venv's parent folder: same drive on Windows.
+        with contextlib.chdir(self.venv.parent), \
+                patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": self.venv.name}), \
+                patch.object(setup_index, "_run_install_step", side_effect=lambda cmd, **kw: calls.append(cmd) or MagicMock(returncode=0)):
+            setup_index.install_requirement_specs([PSUTIL])
+        python = calls[0][calls[0].index("--python") + 1]
+        self.assertTrue(os.path.isabs(python), python)
+
     def test_timeout_reports_network_guidance(self):
         timeout = subprocess.TimeoutExpired(["uv"], 1)
         with patch.object(setup_index, "_run_install_step", side_effect=timeout):
@@ -425,6 +444,147 @@ class UvConfigIsolationTests(_Tmp):
 
         self.assertTrue(found([]), "control: uv discovers the repository uv.toml without isolation")
         self.assertFalse(found(args), "the startup install's arguments must keep it out")
+
+    def test_a_relative_operator_uv_config_file_still_resolves_with_real_uv(self):
+        # DEL-1ZICQ-RELATIVE-OPERATOR-CONFIG: installs run from the tool-venv base, so the
+        # operator's relative UV_CONFIG_FILE must be resolved against the caller's folder first.
+        import shutil
+
+        uv = shutil.which("uv") or str(Path(sys.executable).parent / ("uv.exe" if os.name == "nt" else "uv"))
+        if not Path(uv).is_file():
+            self.skipTest("uv is not available")
+        caller = self.dir / "caller"
+        base = self.dir / "tool-venv-base"
+        caller.mkdir()
+        base.mkdir()
+        (caller / "operator.toml").write_text("[pip]\n", encoding="utf-8")
+        captured = []
+        with contextlib.chdir(caller), \
+                patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(base), "UV_CONFIG_FILE": "operator.toml", "UV_NO_CONFIG": ""}), \
+                patch.object(setup_index, "_uv_bin", return_value=Path(uv)), \
+                patch.object(setup_index, "_run_install_step", side_effect=lambda cmd, **kw: captured.append((cmd, kw)) or MagicMock(returncode=0)), \
+                contextlib.redirect_stdout(io.StringIO()):
+            setup_index._install_deps(["pip"], Path(sys.executable))
+            cmd, kwargs = captured[0]
+            env = dict(kwargs["env"] if kwargs.get("env") is not None else os.environ)
+        self.assertEqual(kwargs["cwd"], str(base))
+        self.assertEqual(env["UV_CONFIG_FILE"], str(caller / "operator.toml"))
+        env["UV_OFFLINE"] = "1"
+        done = subprocess.run(
+            [cmd[0], "-v", *cmd[1:], "--dry-run"], cwd=kwargs["cwd"],
+            capture_output=True, text=True, timeout=60, env=env,
+        )
+        self.assertNotIn("failed to open file", (done.stdout + done.stderr).lower())
+
+    def test_pip_sees_the_same_cache_dir_from_the_venv_base_as_from_the_caller(self):
+        # DEL-1ZICQ-TILDE-CACHE-PATH: pip expands "~" in PIP_CACHE_DIR, PIP_CERT and
+        # PIP_CLIENT_CERT itself; the rebased value must mean what pip made of the original.
+        caller = self.dir / "caller"
+        base = self.dir / "tool-venv-base"
+        caller.mkdir()
+        base.mkdir()
+
+        def pip_cache_dir(env, cwd):
+            done = subprocess.run(
+                [sys.executable, "-m", "pip", "cache", "dir"], cwd=cwd,
+                capture_output=True, text=True, timeout=120, env=env,
+            )
+            self.assertEqual(done.returncode, 0, done.stderr)
+            return os.path.realpath(done.stdout.strip())
+
+        for value in ("~/.cache/wf-tilde-probe", "relative-cache"):
+            with self.subTest(value=value):
+                original = dict(os.environ, PIP_CACHE_DIR=value, PIP_DISABLE_PIP_VERSION_CHECK="1")
+                with contextlib.chdir(caller):
+                    rebased = setup_index._installer_env(original)
+                self.assertEqual(pip_cache_dir(rebased, base), pip_cache_dir(original, caller))
+
+    def test_home_relative_values_follow_each_consumer(self):
+        home_relative = {
+            # pip expands "~" for its path options: keep pip's expansion.
+            "PIP_CACHE_DIR": os.path.expanduser("~/pip-cache"),
+            "PIP_CERT": os.path.expanduser("~/ca.pem"),
+            "PIP_CLIENT_CERT": os.path.expanduser("~/client.pem"),
+            # uv, pip's PIP_CONFIG_FILE, OpenSSL and requests read "~" literally.
+            "UV_CONFIG_FILE": str(self.dir / "~" / "uv.toml"),
+            "UV_CACHE_DIR": str(self.dir / "~" / "uv-cache"),
+            "PIP_CONFIG_FILE": str(self.dir / "~" / "pip.conf"),
+            "SSL_CERT_FILE": str(self.dir / "~" / "bundle.pem"),
+            "REQUESTS_CA_BUNDLE": str(self.dir / "~" / "bundle.pem"),
+        }
+        raw = {
+            "PIP_CACHE_DIR": "~/pip-cache", "PIP_CERT": "~/ca.pem", "PIP_CLIENT_CERT": "~/client.pem",
+            "UV_CONFIG_FILE": "~/uv.toml", "UV_CACHE_DIR": "~/uv-cache", "PIP_CONFIG_FILE": "~/pip.conf",
+            "SSL_CERT_FILE": "~/bundle.pem", "REQUESTS_CA_BUNDLE": "~/bundle.pem",
+        }
+        self.assertEqual(set(raw), set(setup_index._INSTALLER_PATH_ENV_VARS))
+        with contextlib.chdir(self.dir):
+            env = setup_index._installer_env(dict(raw))
+        for name, expected in home_relative.items():
+            self.assertEqual(env[name], expected, name)
+
+    def test_every_installer_child_resolves_relative_path_settings_first(self):
+        relative = {"UV_CONFIG_FILE": "uv.toml", "PIP_CONFIG_FILE": "pip.conf", "PIP_CERT": "ca.pem"}
+        with contextlib.chdir(self.dir), patch.dict(os.environ, relative):
+            calls = []
+            with patch.object(setup_index, "_run_install_step", side_effect=lambda cmd, **kw: calls.append(kw) or MagicMock(returncode=0)):
+                setup_index.install_requirement_specs([PSUTIL])
+            with patch.object(setup_index, "_uv_bin", return_value=None), \
+                    patch.object(setup_index, "_bootstrap_uv", return_value=None), \
+                    patch.object(setup_index, "_run_install_step", side_effect=lambda cmd, **kw: calls.append(kw) or MagicMock(returncode=0)), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                setup_index._install_deps(["fastembed"], Path(sys.executable))
+            with patch.object(setup_index, "_uv_bin", return_value=None), \
+                    patch.object(setup_index, "_run_install_step", side_effect=lambda cmd, **kw: calls.append(kw) or MagicMock(returncode=1)), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                setup_index._bootstrap_uv(Path(sys.executable))
+        self.assertEqual(len(calls), 3)
+        for kwargs in calls:
+            for name, value in relative.items():
+                self.assertEqual(kwargs["env"][name], str(self.dir / value), name)
+        # Absolute values, empty values and the null device leave an inherited environment
+        # inherited; "nul" (the Windows null device, relative-looking) exercises the guard everywhere.
+        with patch.object(os, "devnull", "nul"), \
+                patch.dict(os.environ, {"UV_CONFIG_FILE": str(self.dir / "abs.toml"), "PIP_CONFIG_FILE": "nul", "PIP_CERT": ""}):
+            self.assertIsNone(setup_index._installer_env(None))
+            explicit = {"PIP_CONFIG_FILE": "nul", "UV_CONFIG_FILE": "rel.toml"}
+            resolved = setup_index._installer_env(explicit)
+        self.assertEqual(resolved["PIP_CONFIG_FILE"], "nul")
+        self.assertEqual(explicit["UV_CONFIG_FILE"], "rel.toml", "the input mapping is never mutated")
+
+    def test_the_setup_install_keeps_a_repository_uv_toml_out_with_real_uv(self):
+        # Wave 1zicq: the command and working directory `_install_deps` builds, run by a real uv.
+        import shutil
+
+        uv = shutil.which("uv") or str(Path(sys.executable).parent / ("uv.exe" if os.name == "nt" else "uv"))
+        if not Path(uv).is_file():
+            self.skipTest("uv is not available")
+        repo = self.dir / "checkout"
+        base = repo / "venv-inside"
+        base.mkdir(parents=True)
+        (repo / "uv.toml").write_text('[pip]\nindex-url = "http://127.0.0.1:9/repo-index"\n', encoding="utf-8")
+        captured = []
+        with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(base), "UV_CONFIG_FILE": "", "UV_NO_CONFIG": ""}), \
+                patch.object(setup_index, "_operator_uv_config_files", return_value=[]), \
+                patch.object(setup_index, "_uv_bin", return_value=Path(uv)), \
+                patch.object(setup_index, "_run_install_step", side_effect=lambda cmd, **kw: captured.append((cmd, kw)) or MagicMock(returncode=0)), \
+                contextlib.redirect_stdout(io.StringIO()):
+            setup_index._install_deps(["zzz-nonexistent-1zicq"], Path(sys.executable))
+        cmd, kwargs = captured[0]
+        env = {key: value for key, value in os.environ.items() if key not in ("UV_CONFIG_FILE", "UV_NO_CONFIG")}
+        env["UV_OFFLINE"] = "1"
+
+        def found(argv):
+            done = subprocess.run(
+                [argv[0], "-v", *argv[1:], "--dry-run"], cwd=kwargs["cwd"],
+                capture_output=True, text=True, timeout=60, env=env,
+            )
+            return str(repo / "uv.toml") in done.stdout + done.stderr
+
+        control = [part for part in cmd if part not in ("--no-config",)]
+        self.assertEqual(kwargs["cwd"], str(base))
+        self.assertTrue(found(control), "control: without isolation uv discovers the repository uv.toml")
+        self.assertFalse(found(cmd), "the setup install's command must keep it out")
 
 
 class StdoutAndConcurrencyTests(_Tmp):

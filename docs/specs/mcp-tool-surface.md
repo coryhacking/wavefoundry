@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-29
+Last verified: 2026-09-30
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -186,9 +186,14 @@ handler gets the cost wrapper, so it too records its debit. A core name that is 
 the `memory_recovery` exemption for `memory_backfill` and `memory_validate`. The core `Tool` is
 captured, already argument-normalized, before the module's handler replaces it; after the main pass
 it is wrapped on its own surface with the stock name-keyed sets, extractors on and the hint rewrite,
-and served under `alias_for_core`. A declared tier replaces the core name's tier in the roster;
-`alias_for_core` keeps the core tier. A replacement may not target a runner tool or a name also
-declared as an override, and its core name cannot be hidden or aliased.
+and served under `alias_for_core`. A declared tier replaces the core name's tier in the roster but
+never lowers it: a replacement declaring `read` for a core `write` tool is refused, by the server's
+extension load and by the roster alike (wave `1zicq`). `alias_for_core` keeps the core tier. A
+replacement may not target a runner tool or a name also declared as an override, and its core name
+cannot be hidden or aliased. The edit-gate tools `wf_open_gate` and `wf_close_gate`
+(`EDIT_GATE_TOOLS`) cannot be overridden, replaced or hidden, because hooks and prompts call them by
+name; they can be aliased. These checks catch a careless declaration; extension modules are trusted
+code in the server process, so they are not a sandbox.
 
 **Response hints.** When a declaration aliases or replaces a name, a `rewrite` wrapper is appended
 to the chain at registration (never to the static `MIDDLEWARE` tuple). It maps each canonical name

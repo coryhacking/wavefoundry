@@ -17982,7 +17982,9 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
     runner = set(roster.RUNNER_TOOLS)
     table = mcp._tool_manager._tools
     core_names = set(table) - runner
-    mcp_tool_extensions.validate_declaration(core_tools=core_names, runner_tools=runner)
+    mcp_tool_extensions.validate_declaration(
+        core_tools=core_names, runner_tools=runner, core_tiers=roster.TOOL_TIERS
+    )
     tiers = dict(mcp_tool_extensions.EXTENSION_TOOL_TIERS)
     prefixes = tuple(mcp_tool_extensions.EXTENSION_TOOL_PREFIXES)
     reserved = _reserved_tool_name_collections()

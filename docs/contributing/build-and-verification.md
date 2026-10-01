@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-29
+Last verified: 2026-09-30
 
 ## Verification Commands
 
@@ -73,7 +73,7 @@ What this does:
 
 **MCP search is complete when setup returns.** The default setup path treats docs and code the same: both semantic layers build in the foreground.
 
-**Package-age guard.** When `wf setup` installs missing or out-of-range dependencies through `uv`, it passes `--exclude-newer` with a cutoff 21 days in the past, so a package release younger than that is not installed. The guard applies only on that path: when `uv` cannot be found or bootstrapped, setup falls back to plain `pip` and prints a warning, and a tool environment built by hand never passes through setup's installer at all. `mcp` is pinned below 2 (`mcp[cli]<2`) until the server migrates to the 2.x API, which removed `mcp.server.fastmcp`; an environment that already installed 2.x is reported as needing setup, and `wf setup` reinstalls a 1.x release.
+**Package-age guard.** When `wf setup` installs missing or out-of-range dependencies through `uv`, it passes `--exclude-newer` with a cutoff 21 days in the past, so a package release younger than that is not installed. The guard applies only on that path: when `uv` cannot be found or bootstrapped, setup falls back to plain `pip` and prints a warning, and a tool environment built by hand never passes through setup's installer at all. Setup uses an existing uv from the tool environment or `PATH` whatever its version; only when neither has one does it bootstrap the exact pinned `UV_BOOTSTRAP_REQUIREMENT` as a wheel (bumped at release, see **Package Wavefoundry**). Every install runs from the tool-environment folder with uv's configuration discovery off (`--no-config`, or the operator's own user or system `uv.toml`), so a repository's `uv.toml` or `[tool.uv]` never applies to the shared per-user tool environment; uv environment variables such as `UV_INDEX_URL` still do. Relative paths in the operator's uv and pip settings (for example `UV_CONFIG_FILE` or `PIP_CERT`) still resolve against the folder setup was started from. A uv too old to accept those options fails the install. `mcp` is pinned below 2 (`mcp[cli]<2`) until the server migrates to the 2.x API, which removed `mcp.server.fastmcp`; an environment that already installed 2.x is reported as needing setup, and `wf setup` reinstalls a 1.x release.
 
 ### Quick local readiness check
 

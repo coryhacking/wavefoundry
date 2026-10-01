@@ -3037,6 +3037,46 @@ class RetiredModelCleanupTests(unittest.TestCase):
         ):
             self.assertIsNone(self.mod._verified_active_model_authority(self.root))
 
+    def test_arctic_xs_components_follow_the_existing_ownership_and_veto_rules(self):
+        """Wave 1zilw (1zico): xs caches are removed by default, owned in a custom
+        root only with the v1 marker, and an active xs directory vetoes cleanup."""
+        xs_fast = "models--snowflake--snowflake-arctic-embed-xs"
+        cache = self.root / "cache"
+        (cache / xs_fast).mkdir(parents=True)
+        (cache / xs_fast / "payload").write_text("retired", encoding="utf-8")
+        self.assertEqual(self.mod._remove_retired_component(cache, xs_fast, custom=False), "removed")
+        self.assertFalse((cache / xs_fast).exists())
+
+        custom = self.root / "custom"
+        self._write_valid_custom_component(custom / xs_fast)
+        self.assertEqual(self.mod._remove_retired_component(custom, xs_fast, custom=True), "removed")
+        unmarked = custom / "models--Snowflake--snowflake-arctic-embed-xs"
+        unmarked.mkdir(parents=True)
+        (unmarked / "payload").write_text("keep", encoding="utf-8")
+        self.assertEqual(self.mod._remove_retired_component(custom, unmarked.name, custom=True), "unowned")
+        self.assertTrue(unmarked.is_dir())
+
+        fake_indexer = types.SimpleNamespace(
+            DOCS_MODEL="Snowflake/snowflake-arctic-embed-s",
+            CODE_MODEL="Snowflake/snowflake-arctic-embed-s",
+            EMBEDDING_MODEL_SET_FINGERPRINT="fp-v2",
+        )
+        for kind in ("fastembed", "clean-onnx", "static-onnx", "coreml"):
+            xs = [name for name in self.mod._RETIRED_MODEL_ALLOWLIST[kind] if "arctic-embed-xs" in name]
+            self.assertEqual(len(xs), 1, kind)
+            fake_bundle = types.SimpleNamespace(
+                load_canonical_verification_manifest=lambda name=xs[0]: {
+                    "model_set_version": "2",
+                    "embedding_compatibility_fingerprint": "fp-v2",
+                    "components": [{"directory": name, "upstream": "Snowflake/snowflake-arctic-embed-s"}],
+                },
+                local_model_set_status=lambda: "current",
+            )
+            with self.subTest(kind=kind), patch.dict(
+                sys.modules, {"model_bundle": fake_bundle, "indexer": fake_indexer}
+            ):
+                self.assertIsNone(self.mod._verified_active_model_authority(self.root))
+
     def test_failed_cleanup_retains_lock_and_never_restarts_dashboard(self):
         lock = {
             "dashboard_restart_pending": True,
@@ -3097,23 +3137,28 @@ class RetiredModelCleanupTests(unittest.TestCase):
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "safe")
 
     def test_default_target_enumeration_is_the_exact_allowlist(self):
-        """1v0r0 repair (F5): the EXECUTED enumeration equals the 13 pinned
-        retired components across the four cache kinds, and a custom root
-        adds exactly its custom-scope targets."""
+        """1v0r0 repair (F5): the EXECUTED enumeration equals the 17 pinned
+        retired components across the four cache kinds (13 BAAI plus four
+        arctic-embed-xs, wave 1zilw / 1zico), and a custom root adds exactly
+        its custom-scope targets."""
         expected_default = [
+            "clean-onnx:default:models--Snowflake--snowflake-arctic-embed-xs",
             "clean-onnx:default:models--Xenova--bge-reranker-base",
             "clean-onnx:default:models--Xenova--bge-small-en-v1.5",
             "coreml:default:BAAI__bge-base-en-v1.5",
             "coreml:default:BAAI__bge-reranker-base",
             "coreml:default:BAAI__bge-small-en-v1.5",
+            "coreml:default:Snowflake__snowflake-arctic-embed-xs",
             "fastembed:default:models--BAAI--bge-base-en-v1.5",
             "fastembed:default:models--BAAI--bge-reranker-base",
             "fastembed:default:models--BAAI--bge-small-en-v1.5",
             "fastembed:default:models--qdrant--bge-base-en-v1.5-onnx-q",
             "fastembed:default:models--qdrant--bge-small-en-v1.5-onnx-q",
+            "fastembed:default:models--snowflake--snowflake-arctic-embed-xs",
             "static-onnx:default:BAAI__bge-base-en-v1.5",
             "static-onnx:default:BAAI__bge-reranker-base",
             "static-onnx:default:BAAI__bge-small-en-v1.5",
+            "static-onnx:default:Snowflake__snowflake-arctic-embed-xs",
         ]
         base_env = {
             key: value
@@ -3137,6 +3182,8 @@ class RetiredModelCleanupTests(unittest.TestCase):
         expected_custom = sorted(
             expected_default
             + [
+                "clean-onnx:custom:models--Snowflake--snowflake-arctic-embed-xs",
+                "fastembed:custom:models--snowflake--snowflake-arctic-embed-xs",
                 "clean-onnx:custom:models--Xenova--bge-reranker-base",
                 "clean-onnx:custom:models--Xenova--bge-small-en-v1.5",
                 "fastembed:custom:models--BAAI--bge-base-en-v1.5",

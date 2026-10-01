@@ -88,13 +88,20 @@ class ModelBundleTests(unittest.TestCase):
             for node in ast.walk(cleanup_tree)
             if isinstance(node, ast.Constant)
             and isinstance(node.value, str)
-            and "BAAI" in node.value
+            and ("BAAI" in node.value or "arctic-embed-xs" in node.value)
         }
         self.assertTrue(allowlisted)
         self.assertTrue(all(hit.startswith(".wavefoundry/framework/scripts/upgrade_wavefoundry.py:")
                             and any(value in hit for value in allowlisted)
                             for hit in production_hits), production_hits)
-        self.assertNotIn("arctic-embed-xs", cleanup_source)
+        # Wave 1zilw (1zico) supersedes the 1v0qz BAAI-only cleanup clause: the
+        # cleanup source names arctic-embed-xs only as exactly these allowlist entries.
+        xs_constants = {value for value in allowlisted if "arctic-embed-xs" in value}
+        self.assertEqual(xs_constants, {
+            "models--snowflake--snowflake-arctic-embed-xs",
+            "models--Snowflake--snowflake-arctic-embed-xs",
+            "Snowflake__snowflake-arctic-embed-xs",
+        })
 
         # 1v0r0 repair (F7): closed benchmark census. `benchmarks/` may carry
         # retired identifiers ONLY at the exact paths below, each covered by a

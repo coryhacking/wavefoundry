@@ -57,10 +57,16 @@ EXTENSION_HIDDEN_TOOLS: tuple[str, ...] = ()
 # ``{module: {core_name: {"alias_for_core": name, "tier": "read" | "write"}}}``.
 # The module's handler is served under the core name; the core behaviour stays
 # reachable under ``alias_for_core``. ``tier`` is optional and replaces the
-# core name's tier.
+# core name's tier, but never lowers it: a write tool stays write (wave 1zicq).
 EXTENSION_REPLACEMENTS: Mapping[str, Mapping[str, Mapping[str, str]]] = {}
 
 # ------------------------------------------------------------------------------
+
+# Edit-gate tools no declaration may override, replace or hide (wave 1zicq):
+# hooks and prompts call them by name. Aliases stay allowed, since an alias
+# serves the core handler. Extension modules are trusted code in the server
+# process, so this catches a careless declaration; it is not a sandbox.
+EDIT_GATE_TOOLS = frozenset({"wf_open_gate", "wf_close_gate"})
 
 # Names a declared module may never take: the extension machinery itself and
 # the server's composition modules. Standard-library names are refused too,
@@ -140,11 +146,14 @@ def declaration_problems(
     *,
     core_tools: Collection[str],
     runner_tools: Collection[str],
+    core_tiers: Mapping[str, str] | None = None,
 ) -> list[str]:
     """Return every problem with the declaration; empty means valid.
 
     ``core_tools`` are the tool names core registration serves (runner tools
     excluded); ``runner_tools`` can never be overridden or reused.
+    ``core_tiers`` maps core names to their tiers; when given, a replacement
+    may not lower a write tool to read (this module cannot import the roster).
     """
     problems: list[str] = []
     core = set(core_tools)
@@ -180,6 +189,8 @@ def declaration_problems(
         for name in names:
             if name in runner:
                 problems.append(f"module {module_name!r} may not override runner tool {name!r}")
+            elif name in EDIT_GATE_TOOLS:
+                problems.append(f"module {module_name!r} may not override edit-gate tool {name!r}")
             elif name not in core:
                 problems.append(f"module {module_name!r} overrides {name!r}, which core does not register")
             if name in EXTENSION_TOOL_TIERS:
@@ -191,7 +202,7 @@ def declaration_problems(
             elif name in owners:
                 problems.append(f"override {name!r} is declared twice by {module_name!r}")
             owners[name] = module_name
-    problems.extend(_alias_hide_replacement_problems(core, runner, seen_modules, owners))
+    problems.extend(_alias_hide_replacement_problems(core, runner, seen_modules, owners, core_tiers or {}))
     return problems
 
 
@@ -200,6 +211,7 @@ def _alias_hide_replacement_problems(
     runner: set[str],
     modules: set[str],
     override_owners: Mapping[str, str],
+    core_tiers: Mapping[str, str],
 ) -> list[str]:
     """Aliases, hidden names and replacements (wave 1z8oz).
 
@@ -236,6 +248,8 @@ def _alias_hide_replacement_problems(
         for core_name, spec in entries.items():
             if core_name in runner:
                 problems.append(f"module {module_name!r} may not replace runner tool {core_name!r}")
+            elif core_name in EDIT_GATE_TOOLS:
+                problems.append(f"module {module_name!r} may not replace edit-gate tool {core_name!r}")
             elif core_name not in core:
                 problems.append(f"module {module_name!r} replaces {core_name!r}, which core does not register")
             if core_name in override_owners:
@@ -253,6 +267,8 @@ def _alias_hide_replacement_problems(
                 problems.append(f"replacement {core_name!r} has unknown keys {unknown}")
             if "tier" in spec and spec["tier"] not in (TIER_READ, TIER_WRITE):
                 problems.append(f"replacement {core_name!r} declares tier {spec['tier']!r}; use 'read' or 'write'")
+            elif spec.get("tier") == TIER_READ and core_tiers.get(core_name) == TIER_WRITE:
+                problems.append(f"replacement {core_name!r} may not lower its tier from 'write' to 'read'")
             check_alias(spec.get("alias_for_core"), f"alias_for_core of {core_name!r}")
 
     aliases = dict(EXTENSION_TOOL_ALIASES)
@@ -284,6 +300,8 @@ def _alias_hide_replacement_problems(
         seen_hidden.add(name)
         if name in runner:
             problems.append(f"hidden name {name!r} is a runner tool")
+        elif name in EDIT_GATE_TOOLS:
+            problems.append(f"hidden name {name!r} is an edit-gate tool")
         elif name in replaced:
             problems.append(f"hidden name {name!r} is a replaced core name")
         elif name not in aliased:
@@ -291,9 +309,14 @@ def _alias_hide_replacement_problems(
     return problems
 
 
-def validate_declaration(*, core_tools: Collection[str], runner_tools: Collection[str]) -> None:
+def validate_declaration(
+    *,
+    core_tools: Collection[str],
+    runner_tools: Collection[str],
+    core_tiers: Mapping[str, str] | None = None,
+) -> None:
     """Raise ``ExtensionDeclarationError`` listing every declaration problem."""
-    problems = declaration_problems(core_tools=core_tools, runner_tools=runner_tools)
+    problems = declaration_problems(core_tools=core_tools, runner_tools=runner_tools, core_tiers=core_tiers)
     if problems:
         raise ExtensionDeclarationError(
             "invalid MCP tool extension declaration: " + "; ".join(problems)

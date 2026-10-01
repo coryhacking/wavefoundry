@@ -6,6 +6,18 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `wf setup` and the upgrade's dependency step no longer apply a repository's `uv.toml` or `[tool.uv]` to the shared tool environment: installs run from the tool-environment folder with uv's configuration discovery off, as the MCP startup install already did. This takes effect in the upgrade that installs it. Wave 1zicq / 1zhmd.
+- When no uv exists, setup bootstraps an exact pinned uv wheel instead of the newest release; an existing uv of any version is still used as-is. Wave 1zicq / 1zhmd.
+- The setup deadlines that hold the shared install lock are capped at twice their defaults (`dep_install_timeout_seconds` at 3600 s). Wave 1zicq / 1zhmd.
+- An extension replacement can no longer declare `tier: read` for a core write tool, which would have put it in hosts' read-tier allow lists; the server's extension load and the permission roster both refuse the declaration. The edit-gate tools `wf_open_gate` and `wf_close_gate` can no longer be overridden, replaced or hidden by an extension declaration (aliases are still allowed). Wave 1zicq / 1zhme.
+- With an archive root configured, an archived wave's `events.jsonl` review ledger is treated like a live one: kept out of semantic retrieval and recognised as machine authority by the secrets scan's non-git fallback walk. Wave 1zilw / 1zicn.
+- The upgrade's retired-model cleanup now also removes the caches of `Snowflake/snowflake-arctic-embed-xs`, the docs model from 1.6.0 to 1.15.4 (four directories under `~/.wavefoundry/cache`, about 190 MB of CoreML compiles on macOS), behind the same safety checks as the BAAI caches. The cache is shared per user, so a repository still on 1.6 to 1.15 re-downloads it if it needs it. Wave 1zilw / 1zico.
+- A failed MCP startup install now names the likely cause (network, proxy or TLS access to the package index); uv already gives up on an unreachable index within about a minute. Wave 1zicq / 1zhmd.
+
 ## [1.28.0] - 2026-09-30
 
 ### Added

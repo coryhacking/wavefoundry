@@ -399,7 +399,8 @@ class SetupIndexTests(unittest.TestCase):
                 self.mod._install_deps(["fastembed", "mcp[cli]", "tree-sitter>=0.24,<0.26"], FAKE_VENV_PYTHON)
 
         cmd = mock_run.call_args[0][0]
-        self.assertEqual(cmd[0], str(FAKE_VENV_PYTHON))
+        # Absolute (wave 1zicq): installs run from the tool-venv base.
+        self.assertEqual(cmd[0], os.path.abspath(FAKE_VENV_PYTHON))
         self.assertIn("-m", cmd)
         self.assertIn("pip", cmd)
         # Raw dep strings passed to subprocess — no shell quoting
@@ -1834,6 +1835,78 @@ class RetryWithCaBundleLadderTests(unittest.TestCase):
         self.assertEqual(len(calls), 2, "initial attempt (against already_tried) + 1 retry (untried only)")
 
 
+class InstallIsolationTests(unittest.TestCase):
+    """Wave 1zicq: setup and upgrade installs keep repository uv configuration out, run from the
+    tool-venv base with absolute paths, and bootstrap only the pinned uv wheel when no uv exists."""
+
+    def setUp(self):
+        self.mod = load_setup_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.base = Path(self.tmp.name).resolve() / "tool-venv"
+        env = patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(self.base)})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def _run_install(self, venv_python, *, uv):
+        with patch.object(self.mod, "_uv_bin", return_value=uv), \
+                patch.object(self.mod, "_bootstrap_uv", return_value=None), \
+                patch.object(self.mod, "_uv_config_args", return_value=["--no-config"]), \
+                patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0)) as run, \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            self.mod._install_deps(["fastembed"], venv_python)
+        return run.call_args_list[0].args[0], run.call_args_list[0].kwargs
+
+    def test_uv_install_passes_config_isolation_and_runs_from_the_venv_base(self):
+        cmd, kwargs = self._run_install(FAKE_VENV_PYTHON, uv=Path("/fake/uv"))
+        self.assertEqual(cmd[1:4], ["pip", "install", "--no-config"])
+        self.assertEqual(cmd[cmd.index("--python") + 1], os.path.abspath(FAKE_VENV_PYTHON))
+        self.assertEqual(kwargs["cwd"], str(self.base))
+
+    def test_pip_fallback_runs_from_the_venv_base(self):
+        cmd, kwargs = self._run_install(FAKE_VENV_PYTHON, uv=None)
+        self.assertEqual(cmd[1:4], ["-m", "pip", "install"])
+        self.assertEqual(kwargs["cwd"], str(self.base))
+
+    def test_a_relative_interpreter_path_is_made_absolute(self):
+        relative = Path("rel") / "venv" / "bin" / "python"
+        cmd, _ = self._run_install(relative, uv=Path("/fake/uv"))
+        self.assertEqual(cmd[cmd.index("--python") + 1], os.path.abspath(relative))
+        cmd, _ = self._run_install(relative, uv=None)
+        self.assertEqual(cmd[0], os.path.abspath(relative))
+
+    def test_bootstrap_installs_only_the_pinned_wheel_from_the_venv_base(self):
+        self.assertRegex(self.mod.UV_BOOTSTRAP_REQUIREMENT, r"^uv==\d+\.\d+\.\d+$")
+        with patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0)) as run, \
+                patch.object(self.mod, "_uv_bin", return_value=None), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            self.mod._bootstrap_uv(FAKE_VENV_PYTHON)
+        cmd, kwargs = run.call_args_list[0].args[0], run.call_args_list[0].kwargs
+        self.assertEqual(cmd[0], os.path.abspath(FAKE_VENV_PYTHON))
+        self.assertEqual(cmd[1:], ["-m", "pip", "install", "--only-binary", ":all:", self.mod.UV_BOOTSTRAP_REQUIREMENT])
+        self.assertEqual(kwargs["cwd"], str(self.base))
+
+    def test_an_existing_uv_of_any_version_is_used_and_never_replaced(self):
+        # A uv on PATH (any version) is found by _uv_bin, so no bootstrap runs.
+        bin_dir = Path(self.tmp.name).resolve() / "path-bin"
+        bin_dir.mkdir()
+        uv = bin_dir / ("uv.exe" if os.name == "nt" else "uv")
+        uv.write_text("", encoding="utf-8")
+        uv.chmod(0o755)
+        with patch.dict(os.environ, {"PATH": str(bin_dir)}):
+            self.assertEqual(self.mod._uv_bin(FAKE_VENV_PYTHON), uv)
+        # A relative PATH entry comes back absolute, since installs change the working directory.
+        with contextlib.chdir(bin_dir.parent), patch.dict(os.environ, {"PATH": bin_dir.name}):
+            self.assertEqual(self.mod._uv_bin(FAKE_VENV_PYTHON), uv)
+        with patch.object(self.mod, "_uv_bin", return_value=uv), \
+                patch.object(self.mod, "_bootstrap_uv") as bootstrap, \
+                patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0)) as run, \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            self.mod._install_deps(["fastembed"], FAKE_VENV_PYTHON)
+        bootstrap.assert_not_called()
+        self.assertEqual(run.call_args_list[0].args[0][0], str(uv))
+
+
 class GpuDoctorProbeSerialTests(unittest.TestCase):
     """Wave 1p8vc AC-4: the in-server `_probe_embedding_provider` must stay serial — fastembed's
     parallel path spawns workers that re-load ORT and would write to the inherited MCP stdout fd."""
@@ -1985,6 +2058,39 @@ class SetupPhase1DeadlineTests(unittest.TestCase):
                         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                             self.mod._install_deps(["fastembed"], FAKE_VENV_PYTHON, root)
         self.assertEqual(run.call_args_list[0].kwargs.get("timeout"), 13.0)
+
+    def test_lock_held_deadlines_are_capped_at_twice_their_defaults(self):
+        # Wave 1zicq: a repository config cannot hold the shared install lock indefinitely.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_config(root, {
+                "venv_create_timeout_seconds": 10_000,
+                "uv_bootstrap_timeout_seconds": 10_000,
+                "dep_install_timeout_seconds": 7200,
+                "model_warm_timeout_seconds": 99_999,
+            })
+            d = self.mod._setup_deadlines(root)
+        self.assertEqual(d["venv_create_timeout_seconds"], 600.0)
+        self.assertEqual(d["uv_bootstrap_timeout_seconds"], 1200.0)
+        self.assertEqual(d["dep_install_timeout_seconds"], 3600.0)
+        self.assertEqual(d["model_warm_timeout_seconds"], 99_999.0)  # not lock-held: uncapped
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_config(root, {"dep_install_timeout_seconds": 3600, "uv_bootstrap_timeout_seconds": 900})
+            d = self.mod._setup_deadlines(root)
+        self.assertEqual(d["dep_install_timeout_seconds"], 3600.0)
+        self.assertEqual(d["uv_bootstrap_timeout_seconds"], 900.0)
+        self.assertEqual(self.mod._setup_deadlines(None), dict(self.mod._SETUP_DEADLINE_KEYS))
+
+    def test_install_deps_timeout_message_names_the_cap(self):
+        with patch.object(self.mod, "_uv_bin", return_value=None):
+            with patch.object(self.mod, "_bootstrap_uv", return_value=None):
+                with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="pip", timeout=1)):
+                    err = io.StringIO()
+                    with redirect_stderr(err), redirect_stdout(io.StringIO()):
+                        with self.assertRaises(SystemExit):
+                            self.mod._install_deps(["fastembed"], FAKE_VENV_PYTHON)
+        self.assertIn("at most 3600s", err.getvalue())
 
     # --- AC-2: in-process model-warm wall-clock deadline ----------------------------------------------
 

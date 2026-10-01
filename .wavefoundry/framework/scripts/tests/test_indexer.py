@@ -294,6 +294,42 @@ class FileWalkerTests(unittest.TestCase):
             self.assertTrue(check("project/records/waves/1abc x/events.jsonl", self.root))
             self.assertFalse(check("project/records/waves/group/1abc x/events.jsonl", self.root))
 
+    def test_archived_wave_ledgers_are_canonical_too(self):
+        """Wave 1zilw (1zicn): a ledger under the archive root is machine authority, by the same rule."""
+        import machine_authority
+        import record_paths
+        import review_evidence
+
+        check = review_evidence.is_canonical_wave_events_path
+        archived = "docs/archive/waves/1abc x/events.jsonl"
+        self.assertFalse(check(archived, self.root), "no archive root configured: unchanged")
+        with patch.object(record_paths, "ARCHIVE_ROOT", "docs/archive/waves"):
+            self.assertTrue(check(archived, self.root))
+            self.assertTrue(check(r"docs\archive\waves\1abc x\events.jsonl", self.root))
+            self.assertFalse(check("docs/archive/waves/events.jsonl", self.root))
+            self.assertFalse(check("docs/archive/waves/1abc x/other.jsonl", self.root))
+            self.assertFalse(check("docs/archive/waves/group/1abc x/events.jsonl", self.root))
+            self.assertTrue(check("docs/waves/1abc x/events.jsonl", self.root), "live ledgers still qualify")
+            self.assertTrue(machine_authority.is_machine_authority_path(archived, self.root))
+            with patch.object(record_paths, "NESTED", True), patch.object(record_paths, "MAX_DEPTH", 2):
+                self.assertTrue(check("docs/archive/waves/group/1abc x/events.jsonl", self.root))
+                self.assertFalse(check("docs/archive/waves/a/b/1abc x/events.jsonl", self.root))
+            _make_repo(self.root, {
+                archived: '{"archived":true}\n',
+                "docs/archive/waves/1abc x/wave.md": "# Wave\n",
+            })
+            rels = {
+                str(path.relative_to(self.root)).replace("\\", "/")
+                for path in self.bi.walk_repo(self.root)
+            }
+            self.assertNotIn(archived, rels)
+            self.assertIn("docs/archive/waves/1abc x/wave.md", rels)
+            filtered = self.bi._filter_canonical_wave_event_ledgers(
+                [self.root / archived, self.root / "docs/archive/waves/1abc x/wave.md"], self.root
+            )
+            self.assertEqual(filtered, [self.root / "docs/archive/waves/1abc x/wave.md"])
+        self.assertFalse(machine_authority.is_machine_authority_path(archived, self.root))
+
     def test_ledger_role_reads_no_record(self):
         """Wave 1z8mm (1z8qj): the decision is position-only (the 1to78 property)."""
         import review_evidence

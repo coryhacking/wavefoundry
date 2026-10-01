@@ -91,20 +91,25 @@ _RETIRED_MODEL_ALLOWLIST = {
         "models--BAAI--bge-base-en-v1.5",
         "models--qdrant--bge-base-en-v1.5-onnx-q",
         "models--BAAI--bge-reranker-base",
+        # The docs model of v1.6.0 to v1.15.4, retired by model set 2 (wave 1zilw / 1zico).
+        "models--snowflake--snowflake-arctic-embed-xs",
     ),
     "clean-onnx": (
         "models--Xenova--bge-small-en-v1.5",
         "models--Xenova--bge-reranker-base",
+        "models--Snowflake--snowflake-arctic-embed-xs",
     ),
     "static-onnx": (
         "BAAI__bge-small-en-v1.5",
         "BAAI__bge-base-en-v1.5",
         "BAAI__bge-reranker-base",
+        "Snowflake__snowflake-arctic-embed-xs",
     ),
     "coreml": (
         "BAAI__bge-small-en-v1.5",
         "BAAI__bge-base-en-v1.5",
         "BAAI__bge-reranker-base",
+        "Snowflake__snowflake-arctic-embed-xs",
     ),
 }
 _RETIRED_V1_MODEL_SET_VERSION = "1"

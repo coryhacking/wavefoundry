@@ -323,7 +323,8 @@ def _uv_bin(venv_python: Path) -> Path | None:
     # Fall back to uv on PATH.
     path_uv = shutil.which("uv")
     if path_uv:
-        candidates.append(Path(path_uv))
+        # Absolute: installs run from the tool-venv base, so a relative PATH entry would move (wave 1zicq).
+        candidates.append(Path(os.path.abspath(path_uv)))
     for candidate in candidates:
         # On Windows, os.X_OK doesn't test execute permission (the concept
         # doesn't exist); is_file() is sufficient since we look for uv.exe.
@@ -344,16 +345,27 @@ def _run_install_step(cmd, **kwargs):
     return run(cmd, **kwargs)
 
 
+# The exact uv a bootstrap installs when neither the tool venv nor PATH has one (wave 1zicq). An
+# existing uv of any version is used as-is. Review and bump at release (package-wavefoundry checklist)
+# to a release public for at least the package-age window.
+UV_BOOTSTRAP_REQUIREMENT = "uv==0.12.4"
+
+
 def _bootstrap_uv(venv_python: Path, root: Path | None = None, *, lock=None) -> Path | None:
-    """Install uv into the tool venv via pip and return its path, or None on failure."""
+    """Install the pinned uv wheel into the tool venv via pip and return its path, or None on failure.
+
+    Wheel only, so a platform without a published wheel fails fast instead of building uv's sdist.
+    """
     print("uv not found — installing uv for package age enforcement ...", flush=True)
+    venv_python = Path(os.path.abspath(venv_python))
     uv_timeout = _setup_deadlines(root)["uv_bootstrap_timeout_seconds"]
     try:
         result = _run_install_step(
-            [str(venv_python), "-m", "pip", "install", "uv"],
+            [str(venv_python), "-m", "pip", "install", "--only-binary", ":all:", UV_BOOTSTRAP_REQUIREMENT],
             check=False,
-            env=_pip_tls_env(),
+            env=_installer_env(_pip_tls_env()),
             timeout=uv_timeout,
+            cwd=str(venv_bootstrap.tool_venv_base()),
             **_lock_passing_kwargs(lock),
         )
     except subprocess.TimeoutExpired:
@@ -537,7 +549,8 @@ def install_requirement_specs(
 
     packages = [str(spec) for spec in specs]
     outcome = {"status": "failed", "packages": packages, "message": ""}
-    venv_python = venv_bootstrap.tool_venv_python()
+    # Absolute: uv runs from the tool-venv base, so a relative tool-venv override would misresolve.
+    venv_python = Path(os.path.abspath(venv_bootstrap.tool_venv_python()))
     if not venv_python.exists():
         outcome["message"] = "the tool environment is missing; run `wf setup`"
         return outcome
@@ -600,7 +613,7 @@ def install_requirement_specs(
             completed = _run_install_step(
                 cmd,
                 check=False,
-                env=_uv_install_env(),
+                env=_installer_env(_uv_install_env()),
                 timeout=timeout,
                 cwd=str(venv_bootstrap.tool_venv_base()),
                 stdout=stderr_fd,
@@ -617,7 +630,10 @@ def install_requirement_specs(
             outcome["message"] = f"dependency install could not start ({exc}); run `wf setup`"
             return outcome
         if completed.returncode != 0:
-            message = f"uv install failed (exit {completed.returncode}); run `wf setup`"
+            message = (
+                f"uv install failed (exit {completed.returncode}); the usual cause is network, proxy "
+                "or TLS access to the package index (uv's output above has the detail); run `wf setup`"
+            )
             if os.name == "nt":
                 message += ". " + _WINDOWS_IN_USE_HINT
             outcome["message"] = message
@@ -646,6 +662,9 @@ def _install_deps(missing: list[str], venv_python: Path, root: Path | None = Non
         for dep in missing
     )
     print(f"Installing missing dependencies: {display}", flush=True)
+    # Installs run from the tool-venv base so a repository uv.toml is never discovered (wave 1zicq);
+    # absolute so a relative tool-venv override does not misresolve there.
+    venv_python = Path(os.path.abspath(venv_python))
 
     uv = _uv_bin(venv_python) or _bootstrap_uv(venv_python, root, lock=lock)
 
@@ -653,7 +672,7 @@ def _install_deps(missing: list[str], venv_python: Path, root: Path | None = Non
         cutoff = _exclude_newer_cutoff(days=21)
         print(f"Using uv with --exclude-newer {cutoff} (21-day package age guard)", flush=True)
         cmd = [
-            str(uv), "pip", "install",
+            str(uv), "pip", "install", *_uv_config_args(),
             "--python", str(venv_python),
             "--exclude-newer", cutoff,
         ] + missing
@@ -674,7 +693,14 @@ def _install_deps(missing: list[str], venv_python: Path, root: Path | None = Non
 
     deps_timeout = _setup_deadlines(root)["dep_install_timeout_seconds"]
     try:
-        result = _run_install_step(cmd, check=False, env=run_env, timeout=deps_timeout, **_lock_passing_kwargs(lock))
+        result = _run_install_step(
+            cmd,
+            check=False,
+            env=_installer_env(run_env),
+            timeout=deps_timeout,
+            cwd=str(venv_bootstrap.tool_venv_base()),
+            **_lock_passing_kwargs(lock),
+        )
     except subprocess.TimeoutExpired:
         # Wave 1p9it: a stalled dependency download/resolve (hung PyPI fetch behind a corp MITM / flaky
         # proxy) is a Phase-1 hang path. Fail loud with network/proxy/TLS guidance rather than blocking
@@ -684,8 +710,9 @@ def _install_deps(missing: list[str], venv_python: Path, root: Path | None = Non
             f"Dependency install timed out after {deps_timeout:g}s ({installer}). A stalled package "
             "download/resolve is almost always a network/proxy/TLS problem — check reachability to "
             "https://pypi.org (corp MITM / flaky proxy / offline). Fix connectivity and rerun "
-            "`wf setup`; raise `setup.dep_install_timeout_seconds` in docs/workflow-config.json if a "
-            "legitimately slow link needs longer.",
+            "`wf setup`; raise `setup.dep_install_timeout_seconds` in docs/workflow-config.json (at most "
+            f"{_LOCK_HELD_DEADLINE_CAPS['dep_install_timeout_seconds']:g}s) if a legitimately slow link "
+            "needs longer.",
             file=sys.stderr,
         )
         raise SystemExit(2)
@@ -1086,6 +1113,48 @@ def _pip_tls_env() -> "dict[str, str] | None":
     env["SSL_CERT_FILE"] = merged
     env["REQUESTS_CA_BUNDLE"] = merged
     return env
+
+
+# Path-valued settings uv and pip read from the environment. Installs run from the tool-venv base
+# (wave 1zicq), so a relative value is resolved against the caller's working directory first, where
+# it resolved before; repository config discovery stays off.
+_INSTALLER_PATH_ENV_VARS = (
+    "UV_CONFIG_FILE",
+    "UV_CACHE_DIR",
+    "PIP_CONFIG_FILE",
+    "PIP_CERT",
+    "PIP_CLIENT_CERT",
+    "PIP_CACHE_DIR",
+    "SSL_CERT_FILE",
+    "REQUESTS_CA_BUNDLE",
+)
+# pip expands "~" in its path options (cmdoptions ``type="path"``); the others above (uv, pip's
+# PIP_CONFIG_FILE, OpenSSL, requests) read a leading "~" literally, as a relative folder name.
+_PIP_EXPANDED_PATH_ENV_VARS = frozenset({"PIP_CACHE_DIR", "PIP_CERT", "PIP_CLIENT_CERT"})
+
+
+def _installer_env(env: "dict[str, str] | None") -> "dict[str, str] | None":
+    """``env`` (or the inherited environment) with relative installer path settings made absolute.
+
+    Each value keeps its consumer's meaning: pip-expanded settings get pip's home expansion first.
+    Returns ``env`` unchanged when nothing is relative, so an inherited environment stays inherited.
+    """
+    base = os.environ if env is None else env
+    relative = {}
+    for name in _INSTALLER_PATH_ENV_VARS:
+        value = base.get(name)
+        if not value or value == os.devnull:
+            continue
+        if name in _PIP_EXPANDED_PATH_ENV_VARS:
+            value = os.path.expanduser(value)
+        if not os.path.isabs(value) or value != base.get(name):
+            relative[name] = value
+    if not relative:
+        return env
+    resolved = dict(base)
+    for name, value in relative.items():
+        resolved[name] = os.path.abspath(value)
+    return resolved
 
 
 def _is_cert_verify_error(exc: BaseException) -> bool:
@@ -2171,6 +2240,13 @@ _SETUP_DEADLINE_KEYS: dict[str, float] = {
     "hf_hub_etag_timeout_seconds": HF_HUB_ETAG_TIMEOUT_DEFAULT,
 }
 
+# Deadlines that run under the shared dependency-install lock are capped at twice their defaults, so a
+# repository's workflow config cannot hold that per-user lock indefinitely (wave 1zicq).
+_LOCK_HELD_DEADLINE_CAPS: dict[str, float] = {
+    key: 2 * _SETUP_DEADLINE_KEYS[key]
+    for key in ("venv_create_timeout_seconds", "uv_bootstrap_timeout_seconds", "dep_install_timeout_seconds")
+}
+
 # Set once per run by ``main`` from ``_setup_deadlines(root)`` before prewarm, then read by
 # ``_warm_model`` when its ``deadline_seconds`` arg is left default. A module-level channel (rather than
 # threading root through ``prewarm_models`` -> ``_prewarm_required_model`` -> ``warm_fn``) keeps the
@@ -2189,8 +2265,9 @@ def _setup_deadlines(root: Path | None) -> dict[str, float]:
     """Resolve Phase-1 setup child deadlines (seconds) from ``docs/workflow-config.json`` ``setup.<key>``
     (wave 1p9it). Analogous to ``_workflow_project_include_prefixes``. Fail-safe: a missing file,
     malformed JSON, missing block/key, or a non-positive/non-numeric value falls back to the shipped
-    default for that key and never raises. ``root=None`` (e.g. a direct unit-test call) yields all
-    defaults."""
+    default for that key and never raises. A lock-held deadline above its cap
+    (``_LOCK_HELD_DEADLINE_CAPS``) resolves to the cap. ``root=None`` (e.g. a direct unit-test call)
+    yields all defaults."""
     resolved = dict(_SETUP_DEADLINE_KEYS)
     if root is None:
         return resolved
@@ -2201,7 +2278,7 @@ def _setup_deadlines(root: Path | None) -> dict[str, float]:
             for key in _SETUP_DEADLINE_KEYS:
                 val = block.get(key)
                 if isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0:
-                    resolved[key] = float(val)
+                    resolved[key] = min(float(val), _LOCK_HELD_DEADLINE_CAPS.get(key, float("inf")))
     except Exception:
         pass
     return resolved

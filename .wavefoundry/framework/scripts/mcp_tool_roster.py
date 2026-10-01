@@ -170,7 +170,8 @@ def all_tool_tiers() -> dict[str, str]:
 
     Wave 1z8oz: aliases take their canonical tier, each ``alias_for_core``
     takes the core tier, a replacement's declared tier replaces its core
-    name's tier, and hidden names are omitted.
+    name's tier (never lowering write to read: wave 1zicq refuses that
+    declaration), and hidden names are omitted.
 
     Raises ``mcp_tool_extensions.ExtensionDeclarationError`` when the
     declaration is invalid, so no caller derives rules from it.
@@ -181,6 +182,7 @@ def all_tool_tiers() -> dict[str, str]:
     mcp_tool_extensions.validate_declaration(
         core_tools=set(TOOL_TIERS) - RUNNER_TOOLS,
         runner_tools=RUNNER_TOOLS,
+        core_tiers=TOOL_TIERS,
     )
     tiers.update(mcp_tool_extensions.EXTENSION_TOOL_TIERS)
     for core_name, (_module, spec) in mcp_tool_extensions.replacement_targets().items():

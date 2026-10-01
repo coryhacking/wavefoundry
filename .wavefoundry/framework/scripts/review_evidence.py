@@ -700,6 +700,11 @@ def is_canonical_wave_events_path(rel_path: str, root: Path | None = None) -> bo
     decision stays position-only and no record is read. In a nested layout a
     grouping folder's own ``events.jsonl`` is also excluded; that
     over-exclusion is accepted, since such a file is no retrieval content.
+
+    Wave 1zilw (1zicn): a wave folder under the configured archive root holds
+    the same ledger, so it qualifies by the same position and depth rule. The
+    archive location is read from ``record_paths.ARCHIVE_ROOT`` here, not from
+    ``unvalidated_record_roots`` (which leaves ``archive_rel`` unset by design).
     """
     normalized = rel_path.replace("\\", "/")
     parts = normalized.split("/")
@@ -708,12 +713,17 @@ def is_canonical_wave_events_path(rel_path: str, root: Path | None = None) -> bo
     import record_paths
 
     roots = record_paths.unvalidated_record_roots(Path("."))
-    waves_parts = [part for part in roots.waves_rel.split("/") if part]
     depth_limit = roots.max_depth if roots.nested else 1
-    if not waves_parts or parts[: len(waves_parts)] != waves_parts:
-        return False
-    folders = parts[len(waves_parts):-1]
-    return 1 <= len(folders) <= depth_limit and all(folders)
+    candidate_roots = [[part for part in roots.waves_rel.split("/") if part]]
+    if isinstance(record_paths.ARCHIVE_ROOT, str):
+        candidate_roots.append(record_paths._canonical_parts(record_paths.ARCHIVE_ROOT))
+    for root_parts in candidate_roots:
+        if not root_parts or parts[: len(root_parts)] != root_parts:
+            continue
+        folders = parts[len(root_parts):-1]
+        if 1 <= len(folders) <= depth_limit and all(folders):
+            return True
+    return False
 
 
 def _review_authority_path_error(wave_path: Path) -> str | None:

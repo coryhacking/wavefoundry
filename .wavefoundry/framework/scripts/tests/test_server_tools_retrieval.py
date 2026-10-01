@@ -38,6 +38,18 @@ RETIRED_GRAPH_STATE_RELPATH = (
     f"{_ssm_for_retired_name.GRAPH_OUTPUT_DIRNAME}/project-graph-state.sqlite")
 
 
+def _own_process_start() -> float:
+    """This test process's real start time (wave 1zilw / 1zicp).
+
+    A recorded build owned by the test process must carry its actual start, or the
+    pid-reuse guard (2 s tolerance) reads a young test process as a reused pid.
+    """
+    import process_info
+
+    created = process_info.create_time(os.getpid())
+    return created if created is not None else time.time() - 30
+
+
 _REPO_ROOT = Path(__file__).resolve().parents[3].parent
 _REPO_INDEX_COPY: "Path | None" = None
 
@@ -650,7 +662,7 @@ class IndexBuildStatusTests(unittest.TestCase):
 
     def test_running_when_pid_active(self):
         import os, time
-        self._write_state(os.getpid(), time.time() - 30)
+        self._write_state(os.getpid(), _own_process_start())
         self.log_path.write_text("build_index: embedding doc chunks 100-200/500\n", encoding="utf-8")
         result = self.srv.index_build_status_response(self.root, layer="project")
         self.assertEqual(result["data"]["state"], "running")
@@ -763,7 +775,7 @@ class IndexBuildStatusTests(unittest.TestCase):
 
     def test_previous_stats_included_in_running_response(self):
         import json, os, time
-        self._write_state(os.getpid(), time.time() - 30)
+        self._write_state(os.getpid(), _own_process_start())
         self.log_path.write_text("build_index: embedding doc chunks 100-200/500\n", encoding="utf-8")
         stats = {"elapsed_seconds": 300, "files_indexed": 200, "doc_chunks": 1500, "code_chunks": 0, "built_at": "2026-05-05T10:00:00Z", "content": "docs", "mode": "update"}
         (self.index_dir / "index-build-stats.json").write_text(json.dumps(stats), encoding="utf-8")
@@ -18398,7 +18410,7 @@ class ReapStateSurfaceTests(unittest.TestCase):
         self.assertEqual(resp["data"]["state"], "idle")
         self._assert_block(resp["data"]["reap"], self._DEFERRED, self._PRESERVED)
         # running (this process's pid holds the state file)
-        self.state_path.write_text(json.dumps({"pid": os.getpid(), "started_at": time.time() - 30}), encoding="utf-8")
+        self.state_path.write_text(json.dumps({"pid": os.getpid(), "started_at": _own_process_start()}), encoding="utf-8")
         self.log_path.write_text("build_index: embedding doc chunks 100-200/500\n", encoding="utf-8")
         resp = self._status()
         self.assertEqual(resp["data"]["state"], "running")
