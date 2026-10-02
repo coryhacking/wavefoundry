@@ -660,6 +660,10 @@ def main(argv: list[str] | None = None) -> int:
             # it does NOT emit the MCP-first reminder (wave 1p45b decision).
             print(build_prefix(timestamp))
             return 0
+        # A retired kind stays a parseable --kind choice (existing ids are
+        # valid) but is refused here, before any slot is minted (wave 1zli8).
+        if args.kind in _vocab.RETIRED_CHANGE_KINDS:
+            raise ValueError(_vocab.retired_kind_message(args.kind))
 
         # stdout stays the bare minted ID (machine-parseable); the MCP-first
         # nudge goes to stderr so it never pollutes a `$(...)` capture (wave 1p45b).

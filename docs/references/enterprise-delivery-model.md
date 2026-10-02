@@ -3,7 +3,7 @@
 
 Owner: Engineering
 Status: draft
-Last verified: 2026-07-20
+Last verified: 2026-10-02
 
 ---
 
@@ -67,7 +67,7 @@ This document describes how to apply Wavefoundry inside a four-tier delivery hie
                          ▼
   ┌─────────────────────────────────────────────────────┐
   │  CHANGE                       JIRA: Story/Sub-task  │
-  │  · feat · bug · enh · maint · doc · debt · and more │
+  │  · enh · bug · maint · doc · debt · ref · and more  │
   │  · change doc · acceptance criteria · tasks         │
   └─────────────────────────────────────────────────────┘
 ```
@@ -194,7 +194,7 @@ In practice, most Cycles run 2–4 months because strategic objectives tend to h
 
 ### Change
 
-**What it is:** A sub-wave work item. A Change is the unit of implementation — a scoped piece of work with a change doc, acceptance criteria, and a defined kind (`feat`, `bug`, `enh`, `maint`, `doc`, `debt`, `ref`, `task`, `ops`, `change`).
+**What it is:** A sub-wave work item. A Change is the unit of implementation — a scoped piece of work with a change doc, acceptance criteria, and a defined kind (`bug`, `enh`, `maint`, `doc`, `debt`, `ref`, `task`, `ops`, `change`). The `feat` kind is retired for new change docs and stays valid for existing ids: a feature usually spans several changes, possibly across waves.
 
 **JIRA analogue:** Story or Sub-task, depending on the parent Wave's JIRA level.
 

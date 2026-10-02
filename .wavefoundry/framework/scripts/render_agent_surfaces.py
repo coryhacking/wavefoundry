@@ -567,7 +567,7 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
             "Plan a change",
             "docs/prompts/plan-feature.prompt.md",
             (
-                "The workflow selects the scaffold among the `wf_new_<kind>` MCP creation tools (feature, bug, enhancement, refactor, documentation, tech debt, task, maintenance, operations, change) by change kind, then admits the doc with `wf_add_change`.",
+                "The workflow selects the scaffold among the `wf_new_<kind>` MCP creation tools (bug, enhancement, refactor, documentation, tech debt, task, maintenance, operations, change) by change kind, then admits the doc with `wf_add_change`.",
                 "Gate reminder: planning writes docs only; no repository code edits until the stage gate (change doc, wave admission, recorded readiness) is satisfied.",
             ),
         ),

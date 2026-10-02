@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-12
+Last verified: 2026-10-02
 
 Adapted from `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md` for Wavefoundry's specific reviewer roles, personas, and artifact paths.
 
@@ -85,7 +85,7 @@ Use **Pause wave** to park session state in `docs/agents/session-handoff.md` and
 
 Generate with the MCP `wave_new_<kind>` / `wf_create_wave` tools (preferred — they dedupe against on-disk IDs). CLI fallback when MCP is unavailable: `wf lifecycle-id --kind <kind> --slug <slug>`
 
-Kind options: `wave`, `feat`, `bug`, `enh`, `change`, `doc`, `debt`, `ref`, `task`, `maint`, `ops`.
+Kind options: `wave`, `bug`, `enh`, `change`, `doc`, `debt`, `ref`, `task`, `maint`, `ops`. The `feat` kind is retired for new change docs (`--kind feat` exits 2 and names `enh`) and stays valid for existing ids.
 
 See `docs/workflow-config.json` `lifecycle_id_policy` for epoch details.
 

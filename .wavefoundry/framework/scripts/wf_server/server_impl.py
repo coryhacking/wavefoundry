@@ -4225,7 +4225,9 @@ def change_doc_response(root, kind, slug, *, cache=None) -> dict:
 
     ``kind`` must be in ``vocabulary_profile.CHANGE_KINDS`` (the core kinds
     plus a distribution's ``EXTRA_CHANGE_KINDS``); any other value is refused
-    with ``invalid_arguments``. Returns the ``wf_new_<kind>`` envelope.
+    with ``invalid_arguments``. A retired kind (``RETIRED_CHANGE_KINDS``, wave
+    1zli8) is refused with ``change_kind_retired``, as ``wf_new_<kind>`` refuses
+    it. Returns the ``wf_new_<kind>`` envelope.
     """
     if not isinstance(kind, str) or kind not in _vocab.CHANGE_KINDS:
         return _response(
@@ -4234,8 +4236,8 @@ def change_doc_response(root, kind, slug, *, cache=None) -> dict:
             diagnostics=[
                 _diagnostic(
                     "invalid_arguments",
-                    f"Unsupported change kind {kind!r}; declared kinds: "
-                    f"{', '.join(_vocab.CHANGE_KINDS)}.",
+                    f"Unsupported change kind {kind!r}; kinds that can be created: "
+                    f"{', '.join(_vocab.MINTABLE_CHANGE_KINDS)}.",
                     recovery_tools=["wf_help"],
                     recovery_usage="wf_help(goal='plan_feature')",
                 )
@@ -4434,11 +4436,15 @@ def _help_catalog() -> dict[str, Any]:
                 "usage": "wf_server_info()",
             },
             "plan_feature": {
-                "recommended_chain": ["wf_new_feature", "wf_get_change", "wf_validate_docs"],
-                "rationale": "Create the change doc with the kind-specific tool, inspect it, then validate docs state.",
-                "fallback_tools": ["wf_new_bug", "wf_new_enhancement", "wf_new_maintenance"],
-                "next_step": "Create the change document with the appropriate wf_new_<kind> tool first.",
-                "usage": "wf_new_feature(slug='my-feature')",
+                "recommended_chain": ["wf_new_enhancement", "wf_get_change", "wf_validate_docs"],
+                "rationale": (
+                    "Create the change doc with the kind-specific tool, inspect it, then validate docs state. "
+                    "The feat kind is retired for new change docs (wave 1zli8): plan a large feature as several "
+                    "changes, possibly across waves."
+                ),
+                "fallback_tools": ["wf_new_bug", "wf_new_maintenance", "wf_new_change"],
+                "next_step": "Create the change document with wf_new_enhancement or another fitting wf_new_<kind> tool first.",
+                "usage": "wf_new_enhancement(slug='my-change')",
             },
             "inspect_wave": {
                 "recommended_chain": ["wf_audit", "wf_current_wave", "wf_list_waves", "wf_get_change"],
@@ -6039,7 +6045,7 @@ def wf_list_plans_response(root: Path, limit: int = 50, cache: Optional[McpRepoC
         "ok",
         {"plans": plans, "total": len(all_plans), "has_more": has_more},
         diagnostics=diagnostics,
-        next_tools=["wf_new_feature", "wf_current_wave"] if plans else ["wf_help"],
+        next_tools=["wf_new_enhancement", "wf_current_wave"] if plans else ["wf_help"],
         usage="wf_help(goal='plan_feature')",
     )
 
@@ -8201,6 +8207,24 @@ def _change_create_response(
     mode_s = (mode or "").strip().lower()
     if mode_s == "apply":
         mode_s = "create"
+    if kind_s in _vocab.RETIRED_CHANGE_KINDS:
+        # Wave 1zli8: refused before the slug check and before change_create,
+        # so no lifecycle slot is consumed and nothing is written. Never
+        # remapped: the planner decides whether the work is one change or several.
+        return _response(
+            "error",
+            {"kind": kind_s, "slug": slug, "mode": mode_s},
+            diagnostics=[
+                _diagnostic(
+                    "change_kind_retired",
+                    _vocab.retired_kind_message(kind_s),
+                    recovery_tools=["wf_new_enhancement"],
+                    recovery_usage="wf_new_enhancement(slug=...)",
+                )
+            ],
+            next_tools=["wf_new_enhancement"],
+            usage="wf_new_enhancement(slug=...)",
+        )
     if not slug_s:
         return _response(
             "error",
@@ -20949,9 +20973,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wf_new_feature(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded feature change doc (kind=feat). Returns the ID and path.
+        """Retired: the feat kind is no longer minted for new change docs (wave 1zli8).
 
-        Use for: net-new capability with user-visible behavior that did not exist before.
+        Always returns a change_kind_retired error and writes nothing; existing feat ids
+        stay valid. Use wf_new_enhancement instead, and plan a large feature as several
+        changes, possibly across waves.
 
         Args:
             slug: Kebab-case slug, e.g. "my-new-feature".
@@ -21007,7 +21033,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def wf_new_change(slug: str, **kwargs: Any) -> dict[str, Any]:
         """Create a scaffolded general change doc (kind=change). Returns the ID and path.
 
-        Use for: changes that don't fit a more specific kind. Prefer feat, bug, enh, ref, doc, debt, task, maint, or ops first.
+        Use for: changes that don't fit a more specific kind. Prefer enh, bug, ref, doc, debt, task, maint, or ops first.
 
         Args:
             slug: Kebab-case slug, e.g. "update-release-process".

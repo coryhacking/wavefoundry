@@ -14,7 +14,9 @@ on). The defaults are today's names, so an unedited profile changes nothing.
 
 The profile also owns the change-kind token of a change id (wave 1zimf): the
 fixed ``CORE_CHANGE_KINDS`` plus a distribution's ``EXTRA_CHANGE_KINDS``, so
-lint, the server and the lifecycle-id CLI take their kinds from here.
+lint, the server and the lifecycle-id CLI take their kinds from here. It also
+names the kinds no creation path mints any more, ``RETIRED_CHANGE_KINDS``
+(wave 1zli8), which stay in the grammar so existing ids keep linting.
 
 The module exports strings and regex-escaped fragments, not whole patterns:
 each consuming site keeps its own grammar (anchoring, backticks, case, legacy
@@ -88,6 +90,21 @@ CHANGE_KINDS = CORE_CHANGE_KINDS + (
     and all(isinstance(kind, str) for kind in EXTRA_CHANGE_KINDS) else ()
 )
 CHANGE_KIND_RE = "(?:" + "|".join(re.escape(kind) for kind in CHANGE_KINDS) + ")"
+# Kinds no creation path mints any more (wave 1zli8). They stay in
+# CHANGE_KINDS, so existing ids keep linting; the MCP tools, the extension
+# helper and the lifecycle-id CLI refuse them with ``retired_kind_message``.
+# Fixed, not a profile constant: EXTRA_CHANGE_KINDS cannot re-enable one.
+RETIRED_CHANGE_KINDS: tuple[str, ...] = ("feat",)
+MINTABLE_CHANGE_KINDS = tuple(kind for kind in CHANGE_KINDS if kind not in RETIRED_CHANGE_KINDS)
+
+
+def retired_kind_message(kind: str) -> str:
+    """The one refusal sentence for a retired change kind, on every surface."""
+    return (
+        f"Change kind {kind!r} is retired for new change docs; existing {kind!r} ids stay valid. "
+        "Plan the work as one or more enhancement changes with kind 'enh' (wf_new_enhancement)."
+    )
+
 
 RECORD_FILENAME_RE = re.escape(RECORD_FILENAME)
 ID_KEY_RE = re.escape(ID_KEY)

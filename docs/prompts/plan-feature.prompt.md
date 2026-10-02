@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-10-02
 
 Shortcut: **`Plan feature`**
 
@@ -24,8 +24,7 @@ Ask only questions whose answers materially change the result: at most three for
    - **Critique:** for each approach, state its primary weakness or risk in one sentence.
    - **Select:** choose one approach and state in one sentence why it is preferred.
    - Record the selected approach and the rejected alternatives (with weaknesses) in `## Decision Log`.
-3. Create the staged change doc through MCP when available:
-   - `feat` → `wf_new_feature`
+3. Create the staged change doc through MCP when available. The `feat` kind is retired for new change docs (existing `feat` ids stay valid; `wf_new_feature` refuses and names `wf_new_enhancement`). A change doc is one scoped change that a single wave can close, so plan a large feature as several changes (usually `enh`), possibly across waves:
    - `bug` → `wf_new_bug`
    - `enh` → `wf_new_enhancement`
    - `ref` → `wf_new_refactor`

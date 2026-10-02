@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-30
+Last verified: 2026-10-02
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -574,7 +574,7 @@ Upgrade maps legacy review enablement to the current default: enabled projects b
 selected delivery mode. Every non-closed declared wave is marked for re-Prepare when
 the migration changes the policy (a no-op migration marks nothing); closed wave
 Markdown and ledgers remain immutable. After the upgrade reload—or a
-restart when `runner_stale`, `loaded_code_stale` or cutover requires one—check from a fresh turn. If the
+restart when `runner_stale` or cutover requires one—check from a fresh turn. If the
 catalog remains stale, reconnect MCP, then restart as the final fallback. Once current,
 use `wf_list_waves` for compact wave metrics and `memory_brief` for the active-memory
 budget and any consolidation candidates. If `memory_brief` reports

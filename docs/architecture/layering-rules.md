@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-01
+Last verified: 2026-10-02
 
 ## Allowed Dependencies
 
@@ -104,6 +104,11 @@ change-kind token of a change id (`<prefix>-<kind> <slug>`) is one of
 `doc`, `debt`, `ref`, `task`, `maint`, `ops`) plus the distribution-edited
 `EXTRA_CHANGE_KINDS`, and docs-lint's change-id patterns, the server's
 `VALID_CHANGE_KINDS` and the `lifecycle_id` CLI's `--kind` choices derive from it.
+`RETIRED_CHANGE_KINDS` (wave 1zli8, `feat`), fixed beside the core kinds, names the
+kinds no creation path mints: they stay in `CHANGE_KINDS`, so existing ids lint
+unchanged, while `wf_new_<kind>`, `change_doc_response` and the CLI refuse them with
+`retired_kind_message`. A distribution cannot re-enable a retired kind, because
+`EXTRA_CHANGE_KINDS` refuses every core kind; this is intentional.
 Each extra kind must match `^[a-z][a-z0-9]{1,15}$` (lowercase ASCII, so a
 change doc file name never differs only by case), may not repeat or equal a core
 kind, and may not be one of the reserved tokens `wave`, `mem`, `sec`, `adr` or

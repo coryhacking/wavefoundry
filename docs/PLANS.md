@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-10-02
 
 Hub for in-flight planning work. Active change documents live here until admitted into a wave, at which point **Prepare wave** relocates them into `docs/waves/<wave-id>/`.
 
@@ -30,4 +30,4 @@ New change documents use `docs/plans/plan-template.md`. Generate change IDs with
 wf lifecycle-id --kind <kind> --slug <slug>
 ```
 
-Kind options: `feat`, `bug`, `enh`, `change`, `doc`, `debt`, `ref`, `task`, `maint`, `ops`.
+Kind options: `bug`, `enh`, `change`, `doc`, `debt`, `ref`, `task`, `maint`, `ops`. The `feat` kind is retired for new change docs and stays valid for existing ids; plan a large feature as several changes (usually `enh`), possibly across waves.

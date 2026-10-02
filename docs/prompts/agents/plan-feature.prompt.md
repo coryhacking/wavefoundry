@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-10-02
 
 ## Context
 
@@ -14,7 +14,6 @@ Use MCP first when the Wavefoundry server is available. The `wf_new_*` tools gen
 
 | Kind | MCP tool |
 |------|----------|
-| `feat` | `wf_new_feature` |
 | `bug` | `wf_new_bug` |
 | `enh` | `wf_new_enhancement` |
 | `ref` | `wf_new_refactor` |
@@ -24,6 +23,8 @@ Use MCP first when the Wavefoundry server is available. The `wf_new_*` tools gen
 | `task` | `wf_new_task` |
 | `maint` | `wf_new_maintenance` |
 | `ops` | `wf_new_operations` |
+
+The `feat` kind is retired for new change docs: `wf_new_feature` and `wf lifecycle-id --kind feat` refuse it and name `wf_new_enhancement`, while existing `feat` ids stay valid. A change doc is one scoped change that a single wave can close, so plan a large feature as several changes (usually `enh`), possibly across waves.
 
 If MCP is unavailable, use the CLI fallback:
 

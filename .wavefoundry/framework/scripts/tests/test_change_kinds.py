@@ -9,6 +9,11 @@ The default-grammar (AC-1) and undeclared-kind (AC-4) cases run in a scratch
 copy of the scripts tree with the shipped vocabulary and
 ``EXTRA_CHANGE_KINDS = ()``, and the declared-kind case (AC-3) in one with
 ``("decision",)``, so each holds under any test profile.
+
+Wave 1zli8 (change 1zlhx) retires ``feat`` for new change docs: the default
+grammar keeps it (AC-3, existing ``-feat`` ids lint unchanged), and
+``RETIRED_CHANGE_KINDS`` is the one source of the retired set (AC-6, a scratch
+tree retiring ``bug`` instead).
 """
 from __future__ import annotations
 
@@ -39,20 +44,37 @@ import vocabulary_profile
 
 # Today's kinds, frozen: the default grammar must stay exactly this.
 FROZEN_KINDS = ("bug", "feat", "enh", "change", "doc", "debt", "ref", "task", "maint", "ops")
+# The kinds no creation path mints (wave 1zli8), frozen.
+FROZEN_RETIRED = ("feat",)
 FROZEN_KIND_PATTERN = r"(?:bug|feat|enh|change|doc|debt|ref|task|maint|ops)"
 
 FIXTURE_CHANGE = "00059-enh fixture-follow-up"
+FEAT_CHANGE = "00059-feat fixture-follow-up"
+FEAT_PLAN = "00060-feat fixture-plan"
 DECISION_CHANGE = "00059-decision fixture-follow-up"
 DECISION_PLAN = "00060-decision fixture-plan"
 
 
-def _scratch_scripts(tmp: Path, extra_kinds: list) -> Path:
+_RETIRED_LINE = re.compile(r"^RETIRED_CHANGE_KINDS(?:[ \t]*:[^=\n]*)?[ \t]*=[ \t]*[^\n]*$", re.MULTILINE)
+
+
+def _scratch_scripts(tmp: Path, extra_kinds: list, retired_kinds: "tuple | None" = None) -> Path:
     """A copied scripts tree on the shipped vocabulary and layout with
-    ``EXTRA_CHANGE_KINDS`` set, whatever profile this run uses."""
+    ``EXTRA_CHANGE_KINDS`` set, whatever profile this run uses. With
+    ``retired_kinds``, the fixed ``RETIRED_CHANGE_KINDS`` line is rewritten too
+    (it is not a profile constant, so a fork edits source to change it)."""
     profile = shipped_default_profile()
     profile["modules"]["vocabulary_profile"]["EXTRA_CHANGE_KINDS"] = list(extra_kinds)
     scripts = copy_scripts_tree(tmp / "framework")
     apply_profile(scripts, profile, modules=("vocabulary_profile", "record_paths"))
+    if retired_kinds is not None:
+        path = scripts / "vocabulary_profile.py"
+        source = path.read_text(encoding="utf-8")
+        assignment = f"RETIRED_CHANGE_KINDS: tuple[str, ...] = {tuple(retired_kinds)!r}"
+        rewritten, count = _RETIRED_LINE.subn(lambda _m: assignment, source)
+        if count != 1:
+            raise AssertionError(f"RETIRED_CHANGE_KINDS is assigned {count} times, expected once")
+        path.write_text(rewritten, encoding="utf-8")
     return scripts
 
 
@@ -122,7 +144,8 @@ from wf_server import server_impl
 created = server_impl.change_doc_response(root, "decision", "made-here")
 refused = server_impl.change_doc_response(root, "decison", "typo")
 upper = server_impl.change_doc_response(root, "DECISION", "upper")
-core = server_impl.change_doc_response(root, "feat", "core-kind")
+core = server_impl.change_doc_response(root, "enh", "core-kind")
+retired = server_impl.change_doc_response(root, "feat", "retired-kind")
 print(json.dumps({
     "kinds": list(vocabulary_profile.CHANGE_KINDS),
     "lint_rc": lint.returncode,
@@ -137,6 +160,8 @@ print(json.dumps({
     "refused": refused,
     "upper": upper,
     "core": core,
+    "retired": retired,
+    "feat_files": sorted(p.name for p in plans.glob("*-feat retired-kind.md")),
 }, default=str))
 """
 
@@ -179,6 +204,7 @@ print(json.dumps({
     "kind_re": v.CHANGE_KIND_RE, "kind_pattern": c.CHANGE_KIND_PATTERN,
     "valid": sorted(server_impl.VALID_CHANGE_KINDS), "valid_type": type(server_impl.VALID_CHANGE_KINDS).__name__,
     "cli_choices": list(lifecycle_id.KIND_CHOICES), "cli_accepts": choices,
+    "retired": list(v.RETIRED_CHANGE_KINDS), "mintable": list(v.MINTABLE_CHANGE_KINDS),
     "accepts": accepts(c.CHANGE_ID_PATTERN), "frozen_accepts": accepts(frozen),
     "reference_is_id": c.CHANGE_REFERENCE_PATTERN is c.CHANGE_ID_PATTERN,
     "corpus_size": len(corpus),
@@ -201,6 +227,13 @@ print(json.dumps({
         self.assertEqual(self.out["valid_type"], "frozenset")
         self.assertEqual(self.out["cli_choices"], list(FROZEN_KINDS) + ["wave"])
         self.assertEqual(self.out["cli_accepts"], list(FROZEN_KINDS) + ["wave"])
+
+    def test_the_retired_kinds_are_frozen_and_stay_in_the_grammar(self):
+        self.assertEqual(self.out["retired"], list(FROZEN_RETIRED))
+        self.assertEqual(self.out["mintable"], [k for k in FROZEN_KINDS if k not in FROZEN_RETIRED])
+        for kind in FROZEN_RETIRED:
+            self.assertIn(kind, self.out["kinds"])
+            self.assertIn(kind, self.out["valid"])
 
     def test_change_id_pattern_matches_the_frozen_pattern_on_a_fixed_corpus(self):
         self.assertEqual(self.out["accepts"], self.out["frozen_accepts"])
@@ -310,8 +343,14 @@ class DeclaredKindTests(unittest.TestCase):
         self.assertTrue(created["data"]["created"])
         self.assertTrue(self.out["created_exists"])
         self.assertEqual(self.out["core"]["status"], "ok")
-        self.assertEqual(self.out["core"]["data"]["kind"], "feat")
+        self.assertEqual(self.out["core"]["data"]["kind"], "enh")
         self.assertEqual(sorted(self.out["core"]["data"]), sorted(created["data"]))
+
+    def test_change_doc_response_refuses_the_retired_core_kind(self):
+        retired = self.out["retired"]
+        self.assertEqual(retired["status"], "error", retired)
+        self.assertEqual([d["code"] for d in retired["diagnostics"]], ["change_kind_retired"])
+        self.assertEqual(self.out["feat_files"], [])
 
     def test_other_kinds_are_refused_with_invalid_arguments(self):
         for label in ("refused", "upper"):
@@ -319,6 +358,108 @@ class DeclaredKindTests(unittest.TestCase):
                 result = self.out[label]
                 self.assertEqual(result["status"], "error")
                 self.assertEqual([d["code"] for d in result["diagnostics"]], ["invalid_arguments"])
+
+
+class ExistingFeatIdsTests(unittest.TestCase):
+    """Wave 1zli8 AC-3: a plan, change doc and wave record using ``-feat`` lint
+    clean under the default grammar, although ``feat`` is retired for new docs."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        base = Path(cls._tmp.name)
+        scripts = _scratch_scripts(base, [])
+        plant = {"old": FIXTURE_CHANGE, "new": FEAT_CHANGE,
+                 "plans": {FEAT_PLAN: _PLAN_TEXT.format(change_id=FEAT_PLAN)}}
+        cls.out = _run_in(scripts, _LINT_DRIVER, str(DOCS_LINT_FIXTURE), str(base / "repo"), json.dumps(plant))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def test_the_feat_plan_change_doc_and_wave_record_lint_clean(self):
+        self.assertEqual(self.out["lint_rc"], 0, self.out["lint_out"])
+        self.assertIn("docs-lint: ok", self.out["lint_out"])
+        self.assertEqual(self.out["reference"], [FEAT_CHANGE])
+        self.assertTrue(self.out["event_exempt"])
+
+
+_RETIRED_DRIVER = r"""
+import json, os, subprocess, sys
+from pathlib import Path
+scripts, root = Path(sys.argv[1]), Path(sys.argv[2])
+(root / "docs").mkdir(parents=True)
+(root / "docs" / "workflow-config.json").write_text(
+    json.dumps({"lifecycle_id_policy": {"epoch_utc": "2020-02-02T02:02:00Z", "hour_offset": 0}}), encoding="utf-8")
+env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+mint = {kind: subprocess.run([sys.executable, "-B", str(scripts / "lifecycle_id.py"), "--kind", kind, "--slug", "x"],
+                             cwd=str(root), env=env, capture_output=True, text=True, timeout=120)
+        for kind in ("bug", "feat")}
+sys.path.insert(0, str(scripts))
+import vocabulary_profile
+from wf_server import server_impl
+helper = server_impl.change_doc_response(root, "bug", "via-helper")
+plans = root / "docs" / "plans"
+helper_files = sorted(p.name for p in plans.glob("*-bug *.md")) if plans.is_dir() else []
+import server
+mcp = server.build_server(root)
+tools = mcp._tool_manager._tools
+new_bug = tools["wf_new_bug"].fn(slug="via-tool")
+new_feature = tools["wf_new_feature"].fn(slug="via-tool")
+print(json.dumps({
+    "retired": list(vocabulary_profile.RETIRED_CHANGE_KINDS),
+    "mintable": list(vocabulary_profile.MINTABLE_CHANGE_KINDS),
+    "message": vocabulary_profile.retired_kind_message("bug"),
+    "mint": {k: [r.returncode, r.stdout.strip(), r.stderr[-2000:]] for k, r in mint.items()},
+    "helper": helper, "helper_files": helper_files,
+    "new_bug": new_bug, "new_feature": new_feature,
+    "feature_exists": (root / new_feature.get("data", {}).get("path", "missing")).is_file(),
+}, default=str))
+"""
+
+
+class RetiredKindsSingleSourceTests(unittest.TestCase):
+    """Wave 1zli8 AC-6: every creation surface reads ``RETIRED_CHANGE_KINDS``;
+    a scratch tree that retires ``bug`` instead refuses ``bug`` and mints ``feat``."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        base = Path(cls._tmp.name)
+        scripts = _scratch_scripts(base, [], retired_kinds=("bug",))
+        cls.out = _run_in(scripts, _RETIRED_DRIVER, str(base / "repo"))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def test_the_scratch_tree_retires_bug_only(self):
+        self.assertEqual(self.out["retired"], ["bug"])
+        self.assertEqual(self.out["mintable"], [k for k in FROZEN_KINDS if k != "bug"])
+
+    def test_wf_new_bug_and_the_helper_refuse_bug(self):
+        for label in ("new_bug", "helper"):
+            with self.subTest(surface=label):
+                result = self.out[label]
+                self.assertEqual(result["status"], "error", result)
+                self.assertEqual([d["code"] for d in result["diagnostics"]], ["change_kind_retired"])
+                self.assertEqual(result["diagnostics"][0]["message"], self.out["message"])
+        self.assertEqual(self.out["helper_files"], [])
+
+    def test_the_cli_refuses_bug_and_mints_feat(self):
+        rc, stdout, stderr = self.out["mint"]["bug"]
+        self.assertEqual(rc, 2, stderr)
+        self.assertEqual(stdout, "")
+        self.assertIn(self.out["message"], stderr)
+        rc, stdout, stderr = self.out["mint"]["feat"]
+        self.assertEqual(rc, 0, stderr)
+        self.assertRegex(stdout, r"^[0-9a-z]{5,6}-feat x$")
+
+    def test_wf_new_feature_mints_again(self):
+        result = self.out["new_feature"]
+        self.assertEqual(result["status"], "ok", result)
+        self.assertTrue(result["data"]["change_id"].endswith("-feat via-tool"))
+        self.assertTrue(self.out["feature_exists"])
 
 
 class UndeclaredKindTests(unittest.TestCase):

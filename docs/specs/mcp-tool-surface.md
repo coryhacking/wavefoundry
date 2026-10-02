@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-01
+Last verified: 2026-10-02
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -450,7 +450,7 @@ Initial core set:
 | `docs_search`        | Search project and framework documentation                                                      |
 | `code_search`        | Search indexed code chunks when code embeddings are available                                   |
 | `seed_get`           | Retrieve canonical seed prompt content                                                          |
-| `wf_new_<kind>`    | Create a change document of the specified kind (feat, bug, enh, ref, doc, debt, task, maint, ops, change) |
+| `wf_new_<kind>`    | Create a change document of the specified kind (bug, enh, ref, doc, debt, task, maint, ops, change); `wf_new_feature` is retired and refuses with `change_kind_retired` (wave `1zli8`) |
 | `wf_validate_docs`      | Run docs validation and return structured results                                               |
 | `wf_garden_docs`        | Run docs gardening and report changed files                                                     |
 | `wf_sync_surfaces` | Render agent/platform surfaces and owned upgrade-policy regions after source prompts/roles exist; skip without preview by default |
@@ -461,7 +461,9 @@ Initial core set:
 | `wf_gpu_doctor`    | Embedding-provider / GPU capability diagnostic — platform, onnxruntime, GPU detection (nvidia/apple), available ONNX providers, the provider Wavefoundry would select (+ reason/remediation + `decision_provenance`: `setup-cache` when honoring the setup-recorded decision, `fresh-probe` for an in-process probe, or `operator-request` when `WAVEFOUNDRY_EMBED_PROVIDER` forced the selection), CUDA 12/13 ABI-gap. Read-only (no index build) but runs the bounded model-loading provider probe — the same probe setup uses; same report as the `wf gpu-doctor` dispatcher subcommand and `setup-wavefoundry --check-gpu` |
 
 
-The `wf_new_<kind>` family covers all ten change kinds. Use the kind-specific tool that matches the change; `wf_new_change` is the general fallback.
+The `wf_new_<kind>` family has one tool per core change kind. Use the kind-specific tool that matches the change; `wf_new_change` is the general fallback.
+
+**Retired kinds (wave `1zli8`).** `vocabulary_profile.RETIRED_CHANGE_KINDS` (`feat`) names the kinds no creation path mints. They stay in `CHANGE_KINDS`, so existing ids lint unchanged. `wf_new_feature` stays registered and returns `status: "error"` with one `change_kind_retired` diagnostic carrying `vocabulary_profile.retired_kind_message(kind)`, recovery tool and `next_tools` `wf_new_enhancement`, and writes nothing (no lifecycle id is minted); a `feat` request is never remapped. `wf lifecycle-id --kind feat` keeps `feat` as a parseable choice and exits 2 with the same message on stderr.
 
 **Change kinds (wave `1zimf`).** The change-kind token of a change id comes from one source,
 `vocabulary_profile.CHANGE_KINDS`: the fixed core kinds above plus a distribution's
@@ -472,8 +474,9 @@ whose kind is not declared lints as `uses undeclared change kind '<kind>'`. `wf_
 through its own write-tier extension tool that calls the public helper
 `server_impl.change_doc_response(root, kind, slug, *, cache=None)`: it creates the change doc
 exactly as `wf_new_<kind>` does (lifecycle id, template, index refresh, attached lint) and returns
-the same envelope for any kind in `CHANGE_KINDS`, and refuses any other kind with
-`invalid_arguments`. Declaring that tool's `path` field in `EXTENSION_ARTIFACT_PATH_FIELDS` gives
+the same envelope for any kind in `CHANGE_KINDS`, refuses a retired kind (`RETIRED_CHANGE_KINDS`) with
+`change_kind_retired` exactly as `wf_new_<kind>` does, and refuses any other kind with `invalid_arguments`, naming the kinds that can be created. The
+kind check is case-sensitive, so `"FEAT"` gets `invalid_arguments`, not `change_kind_retired`. Declaring that tool's `path` field in `EXTENSION_ARTIFACT_PATH_FIELDS` gives
 it the derived-artifact credit core creation tools get.
 
 ## Discovery Tool
@@ -1527,9 +1530,9 @@ host-agent service or network model is invoked by memory search.
 
 ### Change Creation
 
-Ten kind-specific tools, each scaffolding a change doc and returning its ID and path:
+Ten kind-specific tools; each mintable kind scaffolds a change doc and returns its ID and path:
 
-- `wf_new_feature(slug)` — net-new capability
+- `wf_new_feature(slug)` — retired (wave `1zli8`): refuses with `change_kind_retired` and names `wf_new_enhancement`; plan a large feature as several changes
 - `wf_new_bug(slug)` — defect fix
 - `wf_new_enhancement(slug)` — improvement to existing functionality
 - `wf_new_refactor(slug)` — structural change with no behavior change

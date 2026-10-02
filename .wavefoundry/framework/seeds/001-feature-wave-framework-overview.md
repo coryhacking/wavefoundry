@@ -35,7 +35,7 @@ The **wave** is the primary delivery unit. A wave is a bounded, reviewable conta
   - Example: `1a2yy routine-behavior-contract`
   - The legacy baseline wave reserves `00000` as its prefix: `00000 wave-zero-plans-and-specs`
 - **change**: a tracked unit of work admitted into a wave — a bug fix, feature, enhancement, refactor, or other concrete change; represented by a consolidated change document that starts in `docs/plans/<change-id>.md` and moves into `docs/waves/<wave-id>/<change-id>.md` during `Add change to wave` before implementation
-- **change-id**: identifies one tracked change within a wave, using the format `<prefix>-<kind> <slug>` where `<kind>` is one of: `bug`, `feat`, `enh`, `change`, `doc`, `debt`, `ref`, `task`, `maint`, `ops`; for example `1mgvf-enh routine-status-contract-centralization`
+- **change-id**: identifies one tracked change within a wave, using the format `<prefix>-<kind> <slug>` where `<kind>` is one of: `bug`, `feat`, `enh`, `change`, `doc`, `debt`, `ref`, `task`, `maint`, `ops`; for example `1mgvf-enh routine-status-contract-centralization`. The `feat` kind is retired for new change docs and stays valid for existing ids: a change doc is one scoped change, so a large feature is planned as several changes (usually `enh`), possibly across waves
 - **active wave**: the wave currently being implemented and reviewed
 - **carry-forward**: a change not completed when a wave closed, admitted into the next wave with its unfinished work made explicit
 - **finalize**: the wave closure step that promotes durable outcomes into canonical docs, archives completed artifacts, and marks the wave permanently closed
