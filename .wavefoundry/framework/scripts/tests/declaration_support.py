@@ -65,8 +65,9 @@ def _declaration_modules() -> list[types.ModuleType]:
 
 def _reset_server_state() -> None:
     """Clear what a server computed from a declaration on every loaded copy
-    of ``server_impl``: the extension provenance and the captured core
-    behaviour of replaced names. Both are rebuilt by the next registration."""
+    of ``server_impl``: the extension provenance, the captured core
+    behaviour of replaced names and the installed lock and credit
+    declarations. All are rebuilt by the next registration."""
     for key, module in list(sys.modules.items()):
         if module is None or not (key == "server_impl" or key.endswith(".server_impl")):
             continue
@@ -75,6 +76,11 @@ def _reset_server_state() -> None:
         replaced = getattr(module, "_EXTENSION_REPLACED_CORE", None)
         if isinstance(replaced, dict):
             replaced.clear()
+        # Wave 1zimf (1zimo): the installed lock and credit declarations.
+        for name in ("_EXTENSION_LIFECYCLE_TOOLS", "_EXTENSION_ARTIFACT_PATH_FIELDS"):
+            installed = getattr(module, name, None)
+            if isinstance(installed, (set, dict)):
+                installed.clear()
 
 
 @contextlib.contextmanager

@@ -12,6 +12,10 @@ record filename; everything else in a record is fixed (``events.jsonl``,
 ``## Progress Log``, ``Status:``, the ``<!-- wave:* -->`` marker fences and so
 on). The defaults are today's names, so an unedited profile changes nothing.
 
+The profile also owns the change-kind token of a change id (wave 1zimf): the
+fixed ``CORE_CHANGE_KINDS`` plus a distribution's ``EXTRA_CHANGE_KINDS``, so
+lint, the server and the lifecycle-id CLI take their kinds from here.
+
 The module exports strings and regex-escaped fragments, not whole patterns:
 each consuming site keeps its own grammar (anchoring, backticks, case, legacy
 aliases) around the fragment.
@@ -56,11 +60,34 @@ BACKREF_LABEL = "Wave"
 # archived records were written with. Validated at import like the live ones.
 ARCHIVE_PROFILE: "dict[str, str] | None" = None
 
+# Change kinds a distribution adds to the core kinds below (wave 1zimf), each
+# lowercase ASCII letters and digits, 2 to 16 characters, starting with a
+# letter. They apply to live and archived records alike. Kinds are additive:
+# removing one that existing records use makes those records fail lint by name.
+EXTRA_CHANGE_KINDS: tuple[str, ...] = ()
+
 # ---------------------------------------------------------------------------
 # Derived forms (not edited)
 # ---------------------------------------------------------------------------
 
 PREVIOUS_STATUS_LABEL = f"Previous {MEMBER_STATUS_LABEL}"
+
+# The change-kind token of a change id (``<prefix>-<kind> <slug>``), wave
+# 1zimf. The core kinds are fixed, not edited by a distribution; the one source
+# of kinds for lint, the server and the lifecycle-id CLI is CHANGE_KINDS.
+CORE_CHANGE_KINDS = ("bug", "feat", "enh", "change", "doc", "debt", "ref", "task", "maint", "ops")
+# Tokens that already name other lifecycle ids, so never a change kind: the
+# lifecycle-id CLI's wave kind, memory ids, scanner finding ids, decision records,
+# and the migrated journal files the upgrade writes into wave folders.
+RESERVED_KIND_TOKENS = frozenset({"wave", "mem", "sec", "adr", "jrnl"})
+_EXTRA_CHANGE_KIND_RE = re.compile(r"[a-z][a-z0-9]{1,15}")
+# Derived only from a valid tuple; an invalid declaration is reported by
+# validate() below, at import, rather than raised here.
+CHANGE_KINDS = CORE_CHANGE_KINDS + (
+    tuple(EXTRA_CHANGE_KINDS) if isinstance(EXTRA_CHANGE_KINDS, tuple)
+    and all(isinstance(kind, str) for kind in EXTRA_CHANGE_KINDS) else ()
+)
+CHANGE_KIND_RE = "(?:" + "|".join(re.escape(kind) for kind in CHANGE_KINDS) + ")"
 
 RECORD_FILENAME_RE = re.escape(RECORD_FILENAME)
 ID_KEY_RE = re.escape(ID_KEY)
@@ -102,30 +129,66 @@ class VocabularyProfileInvalid(ValueError):
     """The vocabulary constants are unusable; the message names the field."""
 
 
+def change_kind_errors(extra: object = None) -> list[str]:
+    """Every problem with ``EXTRA_CHANGE_KINDS`` (default: the live constant);
+    empty when valid. Each message names the constant."""
+    extra = EXTRA_CHANGE_KINDS if extra is None else extra
+    if not isinstance(extra, tuple):
+        return [f"EXTRA_CHANGE_KINDS must be a tuple of strings, not {type(extra).__name__}"]
+    errors: list[str] = []
+    seen: set[str] = set()
+    for kind in extra:
+        if not isinstance(kind, str):
+            errors.append(f"EXTRA_CHANGE_KINDS entry {kind!r} must be a string")
+            continue
+        # fullmatch, not match: '$' also matches before a trailing newline.
+        if not _EXTRA_CHANGE_KIND_RE.fullmatch(kind):
+            errors.append(
+                f"EXTRA_CHANGE_KINDS entry {kind!r} must match ^[a-z][a-z0-9]{{1,15}}$ "
+                "(lowercase ASCII letters and digits, 2 to 16 characters, no '-' or space)"
+            )
+        if kind in CORE_CHANGE_KINDS:
+            errors.append(f"EXTRA_CHANGE_KINDS entry {kind!r} is a core change kind")
+        if kind in RESERVED_KIND_TOKENS:
+            errors.append(
+                f"EXTRA_CHANGE_KINDS entry {kind!r} is reserved (it names another lifecycle id: "
+                f"{', '.join(sorted(RESERVED_KIND_TOKENS))})"
+            )
+        if kind in seen:
+            errors.append(f"EXTRA_CHANGE_KINDS entry {kind!r} is declared twice")
+        seen.add(kind)
+    return errors
+
+
 def validation_errors(fields: "dict[str, str] | None" = None) -> list[str]:
     """Every problem with a profile; empty when valid.
 
     With no argument, the live constants above (including the derived
-    ``PREVIOUS_STATUS_LABEL``). With a mapping (``ARCHIVE_PROFILE``), exactly
-    the ``FIELD_NAMES`` keys, and the previous-status label derived from it."""
-    errors: list[str] = []
+    ``PREVIOUS_STATUS_LABEL``) and ``EXTRA_CHANGE_KINDS`` (wave 1zimf). With a
+    mapping (``ARCHIVE_PROFILE``), exactly the ``FIELD_NAMES`` keys, and the
+    previous-status label derived from it; change kinds are not part of it."""
     if fields is None:
-        fields = {name: globals()[name] for name in FIELD_NAMES}
-        previous = PREVIOUS_STATUS_LABEL
-    else:
-        if not isinstance(fields, dict):
-            return ["the profile must be a dict of the field names"]
-        missing = sorted(set(FIELD_NAMES) - set(fields))
-        extra = sorted(set(fields) - set(FIELD_NAMES), key=str)
-        if missing:
-            errors.append("missing field(s): " + ", ".join(missing))
-        if extra:
-            errors.append("unknown field(s): " + ", ".join(map(str, extra)))
-        if errors:
-            return errors
-        fields = dict(fields)
-        status = fields["MEMBER_STATUS_LABEL"]
-        previous = f"Previous {status}" if isinstance(status, str) else status
+        live = {name: globals()[name] for name in FIELD_NAMES}
+        return change_kind_errors() + _field_errors(live, PREVIOUS_STATUS_LABEL)
+    if not isinstance(fields, dict):
+        return ["the profile must be a dict of the field names"]
+    errors: list[str] = []
+    missing = sorted(set(FIELD_NAMES) - set(fields))
+    extra = sorted(set(fields) - set(FIELD_NAMES), key=str)
+    if missing:
+        errors.append("missing field(s): " + ", ".join(missing))
+    if extra:
+        errors.append("unknown field(s): " + ", ".join(map(str, extra)))
+    if errors:
+        return errors
+    status = fields["MEMBER_STATUS_LABEL"]
+    previous = f"Previous {status}" if isinstance(status, str) else status
+    return _field_errors(dict(fields), previous)
+
+
+def _field_errors(fields: "dict[str, str]", previous: object) -> list[str]:
+    """The field rules shared by the live profile and ``ARCHIVE_PROFILE``."""
+    errors: list[str] = []
     for name, value in fields.items():
         if not isinstance(value, str) or not value.strip() or value != value.strip() or "\n" in value:
             errors.append(f"{name} must be a non-empty single-line string without surrounding spaces")

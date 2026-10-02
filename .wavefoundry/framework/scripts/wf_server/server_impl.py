@@ -73,6 +73,7 @@ for _wll_key in list(sys.modules):
             "context_efficiency",
             "public_contract",
             "gardener_metadata",
+            "change_doc_checklist",  # wave 1zime: shared checklist parser
             "operator_identity",
             "record_paths",
             "marker_namespaces",
@@ -111,6 +112,7 @@ import record_paths  # configured wave/plan roots, stdlib-only (wave 1y0gz)
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 
 import lifecycle_gate_support
+import change_doc_checklist  # shared checklist parser (wave 1zime)
 import sensor_runner
 import lifecycle_gates
 # The dotted form re-imports after the reload purge evicts the module; the
@@ -665,7 +667,9 @@ class SemanticModelUnavailableOfflineError(IndexNotReadyError):
 TRUSTED_FRAMEWORK = "trusted_framework"
 TRUSTED_PROJECT_METADATA = "trusted_project_metadata"
 UNTRUSTED_PROJECT_CONTENT = "untrusted_project_content"
-VALID_CHANGE_KINDS = {"bug", "feat", "enh", "change", "doc", "debt", "ref", "task", "maint", "ops"}
+# The core change kinds plus a distribution's declared extra kinds (wave 1zimf,
+# change 1zimp): the one source is vocabulary_profile.CHANGE_KINDS.
+VALID_CHANGE_KINDS = frozenset(_vocab.CHANGE_KINDS)
 MCP_TOOL_PREFIXES = mcp_tool_extensions.CORE_TOOL_PREFIXES
 
 
@@ -1364,8 +1368,23 @@ class WaveIndex:
         return _load_script("indexer")
 
     def _layer_current_hashes(self, layer: str = "project") -> dict[str, str]:
+        return self._layer_current_state(layer)[0]
+
+    def _layer_current_state(self, layer: str = "project") -> tuple[dict[str, str], set[str], set[str]]:
+        """Current hashes plus the directories and files the walk could not read.
+
+        Wave 1zime (1zimk repair): the build keeps a denied file's or an
+        unreadable directory's index rows, so health must not read those
+        paths as removed or stale; the walk reports them and the caller
+        excludes them from the comparison.
+        """
         idx = self._indexer_module()
-        files = idx.walk_repo(self.root, respect_ignore=True)
+        unreadable_dirs: set[str] = set()
+        unreadable_files: set[str] = set()
+        files = idx.walk_repo(
+            self.root, respect_ignore=True,
+            unreadable_dirs=unreadable_dirs, unreadable_files=unreadable_files,
+        )
         files = [path for path in files if not idx._is_relative_to(path, self.index_dir)]
         # Wave 1p31b (1p312 in-session): match the indexer's actual
         # files_for_meta eligibility by reading project_include_prefixes
@@ -1385,7 +1404,7 @@ class WaveIndex:
             (),
             project_include_prefixes=meta_project_includes,
         )
-        return idx._build_file_hashes(files, self.root)
+        return idx._build_file_hashes(files, self.root), unreadable_dirs, unreadable_files
 
     def _layer_health(self, layer: str = "project") -> dict[str, Any]:
         """Compute health metadata for the project index layer.
@@ -1402,7 +1421,7 @@ class WaveIndex:
         meta = self._meta.get(layer) if self._loaded else {}
         if not isinstance(meta, dict):
             meta = {}
-        current_hashes = self._layer_current_hashes(layer)
+        current_hashes, unreadable_dirs, unreadable_files = self._layer_current_state(layer)
         # Indexer writes file_meta (hash + mtime + size + inode per file); health checker
         # extracts just the hash for comparison.  Fall back to legacy file_hashes key.
         raw_file_meta = meta.get("file_meta", {})
@@ -1415,6 +1434,16 @@ class WaveIndex:
         else:
             raw_file_hashes = meta.get("file_hashes", {})
             old_hashes = raw_file_hashes if isinstance(raw_file_hashes, dict) else {}
+        # Wave 1zime: a path the walk could not read keeps its recorded state;
+        # it is neither removed nor stale.
+        if unreadable_dirs or unreadable_files:
+            idx_module = self._indexer_module()
+            unreadable_file_keys = {path.replace("\\", "/") for path in unreadable_files}
+            old_hashes = {
+                path: digest for path, digest in old_hashes.items()
+                if path not in unreadable_file_keys
+                and not idx_module._shadowed_by_unreadable(path, unreadable_dirs)
+            }
         modified_paths = sorted(
             path for path, digest in current_hashes.items()
             if path in old_hashes and old_hashes[path] != digest
@@ -4154,6 +4183,67 @@ def _ensure_no_extra_args(tool_name: str, kwargs: dict[str, Any]) -> Optional[di
         usage=f"wf_help()  # see supported parameters for {tool_name}",
     )
     return _attach_retrieval_failure_context(tool_name, response)
+
+
+# --- Public extension helpers (wave 1zimf, changes 1zimn and 1zimp) ----------
+# The stable surface for distribution extension handlers
+# (docs/specs/mcp-tool-surface.md, Registration). Each is a thin wrapper that
+# looks up its private counterpart at call time, so a test patch of the
+# private name and an in-place wf_reload_mcp both reach the current function.
+# Removing or renaming one, or changing its signature, is a breaking change
+# recorded in the CHANGELOG. There is deliberately no lock or busy helper: an
+# extension tool that needs the lifecycle lock declares it in
+# mcp_tool_extensions.EXTENSION_LIFECYCLE_TOOLS.
+EXTENSION_PUBLIC_HELPERS: tuple[str, ...] = (
+    "ensure_no_extra_args", "make_response", "make_diagnostic", "change_doc_response",
+)
+
+
+def ensure_no_extra_args(tool_name: str, kwargs: dict) -> dict | None:
+    """The typed ``unknown_arguments`` envelope for undeclared arguments, else ``None``.
+
+    Pass the handler's ``**kwargs``; an empty ``kwargs={}`` compatibility
+    payload is accepted.
+    """
+    return _ensure_no_extra_args(tool_name, kwargs)
+
+
+def make_response(status, data=None, *, diagnostics=None, next_tools=None, usage="") -> dict:
+    """The standard response envelope (``isError: True`` on ``"error"``)."""
+    return _response(status, data, diagnostics=diagnostics, next_tools=next_tools, usage=usage)
+
+
+def make_diagnostic(code, message, *, recovery_tools=None, recovery_usage="", advisory=False) -> dict:
+    """One diagnostic for a response envelope's ``diagnostics`` list."""
+    return _diagnostic(
+        code, message, recovery_tools=recovery_tools, recovery_usage=recovery_usage, advisory=advisory,
+    )
+
+
+def change_doc_response(root, kind, slug, *, cache=None) -> dict:
+    """Create a change doc of ``kind`` exactly as ``wf_new_<kind>`` does (change 1zimp).
+
+    ``kind`` must be in ``vocabulary_profile.CHANGE_KINDS`` (the core kinds
+    plus a distribution's ``EXTRA_CHANGE_KINDS``); any other value is refused
+    with ``invalid_arguments``. Returns the ``wf_new_<kind>`` envelope.
+    """
+    if not isinstance(kind, str) or kind not in _vocab.CHANGE_KINDS:
+        return _response(
+            "error",
+            {"kind": kind, "slug": slug, "mode": "create"},
+            diagnostics=[
+                _diagnostic(
+                    "invalid_arguments",
+                    f"Unsupported change kind {kind!r}; declared kinds: "
+                    f"{', '.join(_vocab.CHANGE_KINDS)}.",
+                    recovery_tools=["wf_help"],
+                    recovery_usage="wf_help(goal='plan_feature')",
+                )
+            ],
+            next_tools=["wf_help"],
+            usage="wf_help(goal='plan_feature')",
+        )
+    return _change_create_response(Path(root), kind, slug, mode="create", cache=cache)
 
 
 def _normalize_first_party_tool_argument_models(mcp: Any) -> None:
@@ -6957,7 +7047,7 @@ def _mark_change_item_response(
                     f"admitted change `{change_id}` is no longer listed by the wave; retry after reading the current wave"
                 )
             council_brief = _build_prepare_council_brief(
-                wave_md.parent.name, live_wave, change_ids
+                wave_md.parent.name, live_wave, change_ids, typed=True
             )
             policy_state, policy_errors = _prepare_policy_state(
                 root,
@@ -9558,7 +9648,7 @@ def _prepare_council_verdict_present(wave_text: str) -> bool:
 
 
 def _bind_prepare_council_brief_to_receipt(
-    council_brief: Mapping[str, Any], receipt: Mapping[str, Any] | None
+    council_brief: Mapping[str, Any], receipt: Mapping[str, Any] | None, *, typed: bool = False
 ) -> dict[str, Any]:
     """Use the receipt-bound roster for every post-Prepare council check.
 
@@ -9586,8 +9676,9 @@ def _bind_prepare_council_brief_to_receipt(
                 *([f"{rotating} (rotating)"] if rotating else []),
             ],
             "rotating_seat_reason": "Bound to the current review-policy receipt.",
-            "instructions": _prepare_council_instructions(rotating),
-            "verdict_format": _prepare_council_verdict_template(rotating),
+            # Wave 1zime: keyed on (seat, authority), as the unbound brief is.
+            "instructions": _prepare_council_instructions(rotating, typed=typed),
+            "verdict_format": _prepare_council_verdict_template(rotating, typed=typed),
         }
     )
     return bound
@@ -10498,6 +10589,77 @@ def _configured_phase_envelope(handler):
 READINESS_RECEIPT_PUBLICATION_ADVISORY_THRESHOLD = 5
 
 
+def _blocked_envelope_hint(
+    diagnostics: Sequence[Mapping[str, Any]],
+    default_tools: Sequence[str],
+    default_usage: str,
+    *,
+    blocking: Optional[Sequence[Mapping[str, Any]]] = None,
+) -> tuple[list[str], str]:
+    """Top-level hint of a blocked lifecycle envelope (wave 1zime, 1ziml).
+
+    The FIRST blocking diagnostic in emitted order decides: when it carries
+    ``recovery_usage`` that is the usage, and its ``recovery_tools`` followed
+    by the defaults, without duplicates, are the next tools; when it carries
+    none, the defaults stand. A later diagnostic never overrides an earlier
+    blocker. Blocking is advisory-aware (``has_blocking_diagnostics``) unless
+    ``blocking`` names the diagnostics that set the branch's status.
+    """
+    blocking_ids = None if blocking is None else {id(d) for d in blocking}
+    for diagnostic in diagnostics:
+        if blocking_ids is None:
+            if not lifecycle_gates.has_blocking_diagnostics((diagnostic,)):
+                continue
+        elif id(diagnostic) not in blocking_ids:
+            continue
+        usage = diagnostic.get("recovery_usage")
+        if not usage:
+            break
+        tools: list[str] = []
+        for tool in [*(diagnostic.get("recovery_tools") or []), *default_tools]:
+            if tool not in tools:
+                tools.append(tool)
+        return tools, str(usage)
+    return list(default_tools), default_usage
+
+
+def _review_action_usage(wave_id: str, action: Mapping[str, Any]) -> str:
+    """The call that records a guided review action, as a pure call expression (wave 1zime).
+
+    Only literal keyword arguments, so the served-name hint rewrite can parse
+    and rename it: the wave, the action's state arguments and its actor. The
+    caller-authored inputs are explained in ``data.next_action_note``.
+    """
+    state_args = action.get("state_args") if isinstance(action.get("state_args"), Mapping) else {}
+    arguments = [f"wave_id={wave_id!r}"]
+    arguments.extend(f"{key}={value!r}" for key, value in state_args.items())
+    if action.get("actor_role"):
+        arguments.append(f"actor={action.get('actor_role')!r}")
+    return f"wf_review_event({', '.join(arguments)})"
+
+
+def _review_action_note(action: Mapping[str, Any]) -> str:
+    """Prose companion of ``_review_action_usage`` for ``data.next_action_note``."""
+    return (
+        f"The usage records the recommended {action.get('action_kind', 'review')} action "
+        f"{action.get('action_id')!r} by {action.get('actor_role')!r}. Add its "
+        "required_caller_inputs (data.review_actions.recommended_next_action) and "
+        "mode='create' to write it."
+    )
+
+
+_OBJECTIVE_PLACEHOLDER = re.compile(r"<[^<>]*>")
+
+
+def _wave_objective_unpopulated(wave_text: str) -> bool:
+    """True when ``## Objective`` is empty or only one angle-bracket placeholder."""
+    bodies = change_doc_checklist.section_bodies(wave_text, "Objective")
+    if not bodies:
+        return False
+    body = bodies[0].strip()
+    return not body or _OBJECTIVE_PLACEHOLDER.fullmatch(body) is not None
+
+
 def _prepare_lane_review_state(root: Path, wave_md: Path, wave_text: str):
     """One roster/currency calculation for Prepare advice and activation."""
     wave_lanes = _extract_required_review_lanes(wave_text)
@@ -10515,6 +10677,9 @@ def _attach_prepare_readiness_advisories(root: Path, wave_id: str, response: dic
     """Observe the final ledger, including this call's publication; never gate."""
     data = response.setdefault("data", {})
     data["readiness_receipts"] = None
+    # Wave 1zime (1ziml): the pending readiness lanes, or None when they
+    # cannot be computed (the cases where the advisory below is skipped).
+    data["pending_readiness_lanes"] = None
     if data.get("record_layout_valid") is False or "ambiguous_wave_ids" in data:
         return response
     try:
@@ -10541,12 +10706,41 @@ def _attach_prepare_readiness_advisories(root: Path, wave_id: str, response: dic
         wave_text, _ = _read_wave_record_text(wave_md)
         if wave_text is None:
             return response
+        if _wave_objective_unpopulated(wave_text):
+            # Wave 1zime (1ziml): advisory only; it never blocks or changes status.
+            response.setdefault("diagnostics", []).append(_diagnostic(
+                "wave_objective_unpopulated",
+                "The wave record's `## Objective` section is empty or still holds the scaffold "
+                "placeholder. State the wave's load-bearing goal in one to three sentences: the "
+                "readiness council reviews the wave against it and the dashboard wave card shows it.",
+                advisory=True,
+            ))
         authority, missing_lanes = _prepare_lane_review_state(root, wave_md, wave_text)
+        if not authority.ledger_errors:
+            data["pending_readiness_lanes"] = list(missing_lanes)
         if not authority.ledger_errors and missing_lanes:
+            # Wave 1zime (1ziml): a lane with no readiness approval at all is a
+            # first pass; a lane whose approval lapsed with a superseded
+            # receipt keeps the re-review wording.
+            lapsed = [
+                lane for lane in missing_lanes
+                if authority.signoff_recorded(lane, section="prepare", approval_phase="readiness")
+            ]
+            first_pass = [lane for lane in missing_lanes if lane not in lapsed]
+            parts = []
+            if first_pass:
+                parts.append(
+                    "Readiness approvals still needed from: " + ", ".join(first_pass)
+                    + ". Run the readiness review and record each lane's readiness approval."
+                )
+            if lapsed:
+                parts.append(
+                    "Implementation still requires current readiness approvals from: "
+                    + ", ".join(lapsed) + ". Re-review the repaired packet and record approvals against the current receipt."
+                )
             diagnostic = _diagnostic(
                 "readiness_lane_approvals_missing",
-                "Implementation still requires current readiness approvals from: "
-                + ", ".join(missing_lanes) + ". Re-review the repaired packet and record approvals against the current receipt.",
+                " ".join(parts),
                 recovery_tools=["wf_review_wave"],
                 recovery_usage=f"wf_review_wave(wave_id={wave_id!r}, phase='prepare')",
                 advisory=True,
@@ -10705,7 +10899,10 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
     diagnostics.extend(lifecycle_gates.PREPARE_PREFLIGHT_GATES[5](gate_ctx).diagnostics)
 
     # Policy selection/publication follows the complete docs preflight. Dry-run stays read-only.
-    council_brief = _build_prepare_council_brief(wave_id, text, change_ids)
+    # Wave 1zime (1ziml): the brief names the record that counts for this
+    # wave's resolved review authority (typed ledger or legacy prose).
+    _brief_typed = resolve_review_authority(root, wave_md, wave_text=text).typed
+    council_brief = _build_prepare_council_brief(wave_id, text, change_ids, typed=_brief_typed)
     if (
         _wave_uses_external_review_evidence(root, wave_md)
         and _read_workflow_config(root).get("wave_review") is not None
@@ -10734,7 +10931,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         # edit to the wave record must not rotate the council underneath that
         # receipt or invalidate an already-recorded verdict.
         council_brief = _bind_prepare_council_brief_to_receipt(
-            council_brief, policy_state.get("receipt")
+            council_brief, policy_state.get("receipt"), typed=_brief_typed
         )
     diagnostics.extend(lifecycle_gates.PREPARE_POLICY_GATES[0](
         gate_ctx, policy_state_errors=policy_state_errors, requested_wave_id=wave_id
@@ -10790,8 +10987,14 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         error_data = {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "repairs_needed": repairs_needed, "repaired": repaired, "council_brief": council_brief, "review_policy": policy_response}
         error_data["required_council_signoffs"] = required_council_signoffs
         error_data.update(guard_data)
-        next_tools_list = ["wf_prepare_wave", "wf_pause_wave", "wf_current_wave"] if other_active is not None else ["wf_validate_docs", "wf_current_wave"]
-        usage_hint = f"wf_prepare_wave(wave_id={wave_id!r}, mode='ready')" if other_active is not None else "wf_validate_docs()"
+        if other_active is not None:
+            next_tools_list = ["wf_prepare_wave", "wf_pause_wave", "wf_current_wave"]
+            usage_hint = f"wf_prepare_wave(wave_id={wave_id!r}, mode='ready')"
+        else:
+            # Wave 1zime (1ziml): the first blocker's remedy, else the defaults.
+            next_tools_list, usage_hint = _blocked_envelope_hint(
+                diagnostics, ["wf_validate_docs", "wf_current_wave"], "wf_validate_docs()"
+            )
         return _prepare_envelope("error", error_data, next_tools=next_tools_list, usage=usage_hint)
     # Prepare-phase Wave Council review — final step of wf_prepare_wave (12sp5).
     # The brief remains available on both branches. Only legacy waves consume
@@ -10895,7 +11098,12 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         error_data["council_brief"] = council_brief
         error_data["council_verdict_present"] = verdict_present
         error_data["council_verdict_valid"] = verdict_valid
-        return _prepare_envelope("error", error_data, next_tools=["wf_prepare_wave"], usage="wf_prepare_wave(mode='create')")
+        # Wave 1zime (1ziml): a retry keeps the caller's mode (a `ready` call is
+        # never steered into opening the wave); the first blocker's remedy wins.
+        next_tools_list, usage_hint = _blocked_envelope_hint(
+            diagnostics, ["wf_prepare_wave"], f"wf_prepare_wave(wave_id={wave_id!r}, mode={mode_s!r})"
+        )
+        return _prepare_envelope("error", error_data, next_tools=next_tools_list, usage=usage_hint)
     transitioned_to_active = False
     if mode_s == "create":
         status_match = _STATUS_PATTERN.search(text)
@@ -11132,9 +11340,10 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
                     + "".join(attributions),
                     advisory=True,
                 ))
-        diagnostics.extend(lifecycle_gates.REVIEW_GATES[1](
+        lint_diagnostics = lifecycle_gates.REVIEW_GATES[1](
             gate_ctx, review_phase=phase_s
-        ).diagnostics)
+        ).diagnostics
+        diagnostics.extend(lint_diagnostics)
         lanes_result = lifecycle_gates.REVIEW_GATES[2](
             gate_ctx, review_phase=phase_s, authority=authority,
             required_lanes=required_lanes,
@@ -11165,12 +11374,34 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
                 else action_blocker or "legacy_prose_authority"
             )
         status = "ok" if lint_result["passed"] and not missing and not review_evidence_diagnostics else "error"
+        if status == "ok":
+            prepare_next_tools = ["wf_implement_wave", "wf_current_wave"]
+            prepare_usage = f"wf_implement_wave(wave_id={wave_id!r}, mode='dry_run')"
+        else:
+            # Wave 1zime (1ziml): a failing readiness review never recommends
+            # implementation. The recommended review action wins; otherwise the
+            # first blocker (lint, lane or review-evidence) names the remedy.
+            prepare_blockers = [
+                d for d in (*review_evidence_diagnostics, *lint_diagnostics, *lanes_result.diagnostics)
+                if lifecycle_gates.has_blocking_diagnostics((d,))
+            ]
+            prepare_next_tools, prepare_usage = _blocked_envelope_hint(
+                diagnostics, ["wf_validate_docs", "wf_current_wave"], "wf_validate_docs()",
+                blocking=prepare_blockers,
+            )
+            recommended = review_actions.get("recommended_next_action")
+            if isinstance(recommended, Mapping):
+                prepare_usage = _review_action_usage(wave_id, recommended)
+                prepare_next_tools = ["wf_review_event", *(t for t in prepare_next_tools if t != "wf_review_event")]
+        prepare_data = {"wave_id": wave_id, "phase": phase_s, "required_lanes": required_lanes, "lane_results": lane_results, "lint_passed": lint_result["passed"], "review_actions": review_actions}
+        if status != "ok" and isinstance(review_actions.get("recommended_next_action"), Mapping):
+            prepare_data["next_action_note"] = _review_action_note(review_actions["recommended_next_action"])
         return _response(
             status,
-            {"wave_id": wave_id, "phase": phase_s, "required_lanes": required_lanes, "lane_results": lane_results, "lint_passed": lint_result["passed"], "review_actions": review_actions},
+            prepare_data,
             diagnostics=diagnostics,
-            next_tools=["wf_implement_wave", "wf_current_wave"],
-            usage=f"wf_implement_wave(wave_id={wave_id!r}, mode='dry_run')",
+            next_tools=prepare_next_tools,
+            usage=prepare_usage,
         )
 
     # Implementation phase: consume the shared delivery evaluator. Close uses
@@ -11269,12 +11500,19 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
             if shared["authority"].ledger_errors
             else action_blocker or "legacy_prose_authority"
         )
+    review_next_tools, review_usage = ["wf_validate_docs", "wf_current_wave"], "wf_validate_docs()"
+    if status == "error":
+        # Wave 1zime (1ziml): the first blocker that set the status names the remedy.
+        review_next_tools, review_usage = _blocked_envelope_hint(
+            diagnostics, review_next_tools, review_usage,
+            blocking=shared["blocking_diagnostics"],
+        )
     return _response(
         status,
         _review_data,
         diagnostics=diagnostics,
-        next_tools=["wf_validate_docs", "wf_current_wave"],
-        usage="wf_validate_docs()",
+        next_tools=review_next_tools,
+        usage=review_usage,
     )
 
 
@@ -12167,7 +12405,11 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     # closed with `error` (delivery review CODE-DEL-1 / ARCH-DEL-1).
     advisory_diagnostics = [d for d in diagnostics if d.get("advisory") is True]
     if lifecycle_gates.has_blocking_diagnostics(diagnostics):
-        return _close_envelope("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed, "required_council_signoffs": required_council_signoffs, "framework_test_receipt": framework_test_receipt, **secrets_notice, **scanner_skip_notice(root)}, diagnostics=diagnostics + ([empty_roster_advisory] if empty_roster_advisory else []) + gate_diagnostics, next_tools=["wf_validate_docs", "wf_current_wave"], usage="wf_validate_docs()")
+        # Wave 1zime (1ziml): the first blocker's remedy, else the defaults.
+        _close_next_tools, _close_usage = _blocked_envelope_hint(
+            diagnostics, ["wf_validate_docs", "wf_current_wave"], "wf_validate_docs()"
+        )
+        return _close_envelope("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed, "required_council_signoffs": required_council_signoffs, "framework_test_receipt": framework_test_receipt, **secrets_notice, **scanner_skip_notice(root)}, diagnostics=diagnostics + ([empty_roster_advisory] if empty_roster_advisory else []) + gate_diagnostics, next_tools=_close_next_tools, usage=_close_usage)
     # Generate the wave summary from structured change doc fields (12sq4).
     try:
         wave_summary = _generate_wf_close_wave_summary(wave_id, text, wave_md)
@@ -16927,12 +17169,18 @@ def _artifact_file_token_list(root: Path, rel_paths: Iterable[str]) -> list[int]
     """Per-artifact token sizes for contained files — the credit contract
     floors each artifact independently, so callers get a list, not a sum."""
     tokens: list[int] = []
+    # One credit per resolved file: a response naming the same file twice, or
+    # through a symlink or a non-normalized path, earns it once (wave 1zimf).
+    seen: set[Path] = set()
     for rel in rel_paths:
         if not rel:
             continue
         try:
             candidate = (root / str(rel)).resolve()
+            if candidate in seen:
+                continue
             if candidate.is_relative_to(root.resolve()) and candidate.is_file():
+                seen.add(candidate)
                 tokens.append(candidate.stat().st_size // 4)
         except (OSError, ValueError):
             continue
@@ -17124,19 +17372,25 @@ def _lifecycle_mutation_busy_response(tool_name: str, lock_path_hint: str) -> di
     )
 
 
-def _wrap_lifecycle_mutation_lock(mcp: Any, get_handler: Any) -> None:
+def _wrap_lifecycle_mutation_lock(
+    mcp: Any, get_handler: Any, *, extension_tools: Collection[str] = (),
+) -> None:
     """Registration-layer wrapping pass: serialize the mutating lifecycle tools.
 
     Wraps each census-covered tool so the whole operation runs under the
     per-root strict lock. Failure discipline: a busy or unavailable lock
     returns a structured refusal; authority-bearing mutations never run
     unguarded.
+
+    ``extension_tools`` (wave 1zimf, main pass only) names new extension
+    tools declared in ``EXTENSION_LIFECYCLE_TOOLS``; each gets exactly this
+    wrapper. ``_LIFECYCLE_MUTATION_LOCK_TOOLS`` itself is never changed.
     """
     registry = getattr(getattr(mcp, "_tool_manager", None), "_tools", None)
     if not isinstance(registry, dict):
         return
     for name, tool in registry.items():
-        if name not in _LIFECYCLE_MUTATION_LOCK_TOOLS:
+        if name not in _LIFECYCLE_MUTATION_LOCK_TOOLS and name not in extension_tools:
             continue
         original = getattr(tool, "fn", None)
         if original is None or getattr(original, "_wf_mutation_locked", False):
@@ -17288,6 +17542,7 @@ _COST_FOCUS_EXTRACTORS: dict[str, Any] = {
 
 def _wrap_first_party_tool_costs(
     mcp: Any, get_handler: Any, *, extractor_free: Collection[str] = (),
+    artifact_extractors: Optional[Mapping[str, Any]] = None,
 ) -> None:
     """Post-registration pass: wrap uninstrumented first-party tools with a
     debit recorder (plus artifact credit where an extractor exists). Purely
@@ -17295,7 +17550,13 @@ def _wrap_first_party_tool_costs(
 
     ``extractor_free`` (wave 1z8oz, main pass only) names replacing handlers:
     the extractors parse the core schema, so these record only their debit.
+
+    ``artifact_extractors`` (wave 1zimf, main pass only) maps new extension
+    tools declared in ``EXTENSION_ARTIFACT_PATH_FIELDS`` to their extractor,
+    used only for names absent from ``_ARTIFACT_EXTRACTORS``, which is never
+    changed.
     """
+    extension_extractors = dict(artifact_extractors or {})
     try:
         tm = getattr(mcp, "_tool_manager", None)
         tools = getattr(tm, "_tools", None) if tm is not None else None
@@ -17320,7 +17581,11 @@ def _wrap_first_party_tool_costs(
                         handler = get_handler()
                         # Decided when the wrapper was built: a replacing
                         # handler never reaches the core-schema extractors.
-                        artifact_extractor = _ARTIFACT_EXTRACTORS.get(tool_name) if extractors else None
+                        artifact_extractor = (
+                            (_ARTIFACT_EXTRACTORS[tool_name] if tool_name in _ARTIFACT_EXTRACTORS
+                             else extension_extractors.get(tool_name))
+                            if extractors else None
+                        )
                         state_extractor = _STATE_SOURCE_EXTRACTORS.get(tool_name) if extractors else None
                         focus_extractor = _COST_FOCUS_EXTRACTORS.get(tool_name) if extractors else None
                         if publication_control.publication_checkpoint_reason(
@@ -17882,10 +18147,30 @@ def _wrap_served_name_hints(
 # cleared whenever registration fails.
 _EXTENSION_REPLACED_CORE: dict[str, Any] = {}
 
+# Wave 1zimf (1zimo): the declared extension lifecycle tools and artifact path
+# fields _install_extension_tools installed. Read only by the main MIDDLEWARE
+# pass; cleared whenever registration fails.
+_EXTENSION_LIFECYCLE_TOOLS: set[str] = set()
+_EXTENSION_ARTIFACT_PATH_FIELDS: dict[str, str] = {}
+
 
 def _cost_pass_kwargs() -> dict[str, Any]:
-    """Main-pass cost keywords: none unless a replacement is installed."""
-    return {"extractor_free": frozenset(_EXTENSION_REPLACED_CORE)} if _EXTENSION_REPLACED_CORE else {}
+    """Main-pass cost keywords: none unless a replacement or a declared
+    artifact path field is installed."""
+    kwargs: dict[str, Any] = {}
+    if _EXTENSION_REPLACED_CORE:
+        kwargs["extractor_free"] = frozenset(_EXTENSION_REPLACED_CORE)
+    if _EXTENSION_ARTIFACT_PATH_FIELDS:
+        kwargs["artifact_extractors"] = {
+            tool: _artifact_from_written_paths(field)
+            for tool, field in sorted(_EXTENSION_ARTIFACT_PATH_FIELDS.items())
+        }
+    return kwargs
+
+
+def _lock_pass_kwargs() -> dict[str, Any]:
+    """Main-pass lock keywords: the declared extension lifecycle tools (wave 1zimf)."""
+    return {"extension_tools": frozenset(_EXTENSION_LIFECYCLE_TOOLS)} if _EXTENSION_LIFECYCLE_TOOLS else {}
 
 
 def _guard_pass_kwargs() -> dict[str, Any]:
@@ -17907,10 +18192,11 @@ def _guard_pass_kwargs() -> dict[str, Any]:
 # spells out its wrapper call so a module-level rebinding of the wrapper name
 # takes effect when the chain runs; the wrappers themselves stay the only
 # place a tool's callable is rebound. The keyword arguments differ only for
-# replacing handlers (wave 1z8oz) and are empty for the stock declaration.
+# replacing handlers (wave 1z8oz) and for declared extension lifecycle tools
+# and artifact path fields (wave 1zimf), and are empty for the stock declaration.
 MIDDLEWARE: tuple[tuple[str, Any], ...] = (
     ("cost", lambda mcp, get_handler: _wrap_first_party_tool_costs(mcp, get_handler, **_cost_pass_kwargs())),
-    ("lock", lambda mcp, get_handler: _wrap_lifecycle_mutation_lock(mcp, get_handler)),
+    ("lock", lambda mcp, get_handler: _wrap_lifecycle_mutation_lock(mcp, get_handler, **_lock_pass_kwargs())),
     ("guard", lambda mcp, get_handler: _wrap_upgrade_publication_guard(mcp, get_handler, **_guard_pass_kwargs())),
     ("setup", lambda mcp, get_handler: _wrap_setup_notice(mcp, get_handler)),
 )
@@ -18058,7 +18344,26 @@ def _extension_declaration_provenance() -> dict[str, Any]:
         "sha256": _file_sha256(declaration_path),
         "prefixes": list(mcp_tool_extensions.EXTENSION_TOOL_PREFIXES),
         "tiers": dict(sorted(mcp_tool_extensions.EXTENSION_TOOL_TIERS.items())),
+        # Wave 1zimf (1zimo): what the lock and credit declarations grant.
+        "lifecycle_tools": _sorted_names(getattr(mcp_tool_extensions, "EXTENSION_LIFECYCLE_TOOLS", ())),
+        "artifact_path_fields": _sorted_fields(getattr(mcp_tool_extensions, "EXTENSION_ARTIFACT_PATH_FIELDS", {})),
     }
+
+
+def _sorted_names(names: Any) -> list[Any]:
+    """A declared name tuple as a sorted list, for provenance; a malformed one
+    (refused by validation) as empty."""
+    if not isinstance(names, tuple):
+        return []
+    return sorted(names, key=str)
+
+
+def _sorted_fields(fields: Any) -> dict[Any, Any]:
+    """A declared mapping sorted by key, for provenance; a malformed one
+    (refused by validation) as empty."""
+    if not isinstance(fields, Mapping):
+        return {}
+    return dict(sorted(fields.items(), key=lambda item: str(item[0])))
 
 
 def _empty_extension_provenance() -> dict[str, Any]:
@@ -18215,7 +18520,7 @@ def _override_compatibility_problem(name: str, core_tool: Any, staged_tool: Any)
     if staged_schema.get("additionalProperties") is not False:
         return (
             f"override {name!r} does not reject undeclared arguments; its handler must "
-            "accept **kwargs and pass them to _ensure_no_extra_args"
+            "accept **kwargs and pass them to server_impl.ensure_no_extra_args"
         )
     missing = set(core_schema.get("properties", {})) - set(staged_schema.get("properties", {}))
     if missing:
@@ -18245,6 +18550,8 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
     ``_EXTENSION_REPLACED_CORE`` before its name is handed to the module.
     """
     _EXTENSION_REPLACED_CORE.clear()
+    _EXTENSION_LIFECYCLE_TOOLS.clear()
+    _EXTENSION_ARTIFACT_PATH_FIELDS.clear()
     provenance = _empty_extension_provenance()
     if not mcp_tool_extensions.declared():
         return provenance
@@ -18351,6 +18658,13 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
         })
     for name in sorted(set(tiers) - set(staged_by)):
         problems.append(f"declared tier for {name!r} has no registered tool")
+    # Wave 1zimf (1zimo): a lock or credit declaration needs a registered tool.
+    lifecycle_tools = tuple(mcp_tool_extensions.EXTENSION_LIFECYCLE_TOOLS)
+    artifact_fields = dict(mcp_tool_extensions.EXTENSION_ARTIFACT_PATH_FIELDS)
+    for name in sorted(set(lifecycle_tools) - set(staged_by)):
+        problems.append(f"declared lifecycle tool {name!r} has no registered tool")
+    for name in sorted(set(artifact_fields) - set(staged_by)):
+        problems.append(f"declared artifact path field for {name!r} has no registered tool")
     # Wave 1z8oz: aliases and alias_for_core names may not take a name a core
     # collection keys behavior on, including retired names.
     replacement_targets = mcp_tool_extensions.replacement_targets()
@@ -18390,7 +18704,7 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
             if staged_schema.get("additionalProperties") is not False:
                 problems.append(
                     f"replacement {name!r} does not reject undeclared arguments; its handler must "
-                    "accept **kwargs and pass them to _ensure_no_extra_args"
+                    "accept **kwargs and pass them to server_impl.ensure_no_extra_args"
                 )
     # Wave 1zim3: parameter mappings checked against the live canonical models.
     problems.extend(_alias_parameter_problems(
@@ -18405,6 +18719,8 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
             mcp.remove_tool(name)
         table[name] = tool
     _EXTENSION_REPLACED_CORE.update(captured)
+    _EXTENSION_LIFECYCLE_TOOLS.update(lifecycle_tools)
+    _EXTENSION_ARTIFACT_PATH_FIELDS.update(artifact_fields)
     provenance["aliases"] = dict(mcp_tool_extensions.EXTENSION_TOOL_ALIASES)
     provenance["hidden"] = list(mcp_tool_extensions.EXTENSION_HIDDEN_TOOLS)
     provenance["replacements"] = [
@@ -18421,6 +18737,8 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
             "canonical": mcp_tool_extensions.EXTENSION_TOOL_ALIASES[alias],
             "rename": dict(spec.get("rename") or {}),
             "fixed": dict(spec.get("fixed") or {}),
+            # Wave 1zime: the declared alias description, or None.
+            "description": spec.get("description"),
         }
         for alias, spec in sorted(mcp_tool_extensions.EXTENSION_TOOL_PARAMETERS.items())
     }
@@ -18577,6 +18895,35 @@ def _alias_argument_model(alias: str, canonical_tool: Any, rename: Mapping[str, 
     return create_model(f"{alias}Arguments", __base__=base, **definitions)
 
 
+def _rename_echoed_parameters(result: Any, rename: Mapping[str, str]) -> Any:
+    """Rename the top-level ``data`` keys that echo a renamed parameter (wave 1zime).
+
+    ``rename`` maps alias parameter to canonical parameter. Each top-level key
+    of ``result["data"]`` equal to a renamed canonical parameter becomes its
+    alias name in one simultaneous pass (a swap does not chain), in place in
+    the key order. Values are carried by identity; nested objects, other keys
+    and pinned parameters keep their names. A rename that would produce the
+    same key twice leaves the result unchanged, as does a result that is not
+    a dict, has no dict ``data``, or is awaitable. The input is never
+    mutated: the renamed ``data`` is a new dict in a shallow copy.
+    """
+    if not rename or inspect.isawaitable(result) or not isinstance(result, dict):
+        return result
+    data = result.get("data")
+    if not isinstance(data, dict):
+        return result
+    to_alias = {canonical_param: alias_param for alias_param, canonical_param in rename.items()}
+    if not any(key in to_alias for key in data):
+        return result
+    renamed: dict[Any, Any] = {}
+    for key, value in data.items():
+        new_key = to_alias.get(key, key)
+        if new_key in renamed:
+            return result
+        renamed[new_key] = value
+    return {**result, "data": renamed}
+
+
 def _mapped_alias_tool(
     alias: str,
     canonical_tool: Any,
@@ -18624,14 +18971,19 @@ def _mapped_alias_tool(
             return _rewrite_served_names(refused, served_names, alias_calls)
         call = {to_canonical[key]: value for key, value in arguments.items() if key in accepted}
         call.update(copy.deepcopy(fixed))
-        return target(**call)
+        # Wave 1zime: echoed renamed parameters answer in the alias's names.
+        return _rename_echoed_parameters(target(**call), rename)
 
-    return canonical_tool.model_copy(update={
+    update = {
         "name": alias,
         "fn": translated,
         "fn_metadata": canonical_tool.fn_metadata.model_copy(update={"arg_model": model}),
         "parameters": schema,
-    })
+    }
+    if "description" in spec:
+        # Wave 1zime: the declared text, served unchanged.
+        update["description"] = spec["description"]
+    return canonical_tool.model_copy(update=update)
 
 
 def _install_served_names(mcp: Any, get_handler: Any) -> None:
@@ -22999,6 +23351,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     except BaseException:
         _EXTENSION_PROVENANCE = None
         _EXTENSION_REPLACED_CORE.clear()
+        _EXTENSION_LIFECYCLE_TOOLS.clear()
+        _EXTENSION_ARTIFACT_PATH_FIELDS.clear()
         _strip_to_runner_tools(mcp)
         raise
     # Wave 1y0h1: the registry is built after the chain, so each spec holds the

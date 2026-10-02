@@ -16,6 +16,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import record_paths  # record roots (wave 1y0gz)
+import vocabulary_profile as _vocab  # the change kinds (wave 1zimf)
 
 # Activate the shared tool venv IN-PROCESS before any heavy work (wave 1p7pl/1p802). No-op when
 # already in the venv or when it does not exist yet (fresh bootstrap).
@@ -599,6 +600,11 @@ def build_id(
     return f"{prefix}-{kind} {validated_slug}"
 
 
+# The --kind choices: every change kind (core plus a distribution's declared
+# extra kinds, vocabulary_profile.CHANGE_KINDS) and the wave kind (wave 1zimf).
+KIND_CHOICES = _vocab.CHANGE_KINDS + ("wave",)
+
+
 def build_timestamp(unix_seconds: int | None) -> datetime | None:
     if unix_seconds is None:
         return None
@@ -611,7 +617,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate shared lifecycle IDs for waves and changes.",
     )
-    parser.add_argument("--kind", choices=("bug", "feat", "enh", "change", "doc", "debt", "ref", "task", "maint", "ops", "wave"), help="Lifecycle artifact type to generate.")
+    parser.add_argument("--kind", choices=KIND_CHOICES, help="Lifecycle artifact type to generate.")
     parser.add_argument("--slug", help="Kebab-case topic slug to append to the generated ID.")
     parser.add_argument(
         "--legacy",

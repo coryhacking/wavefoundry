@@ -31,7 +31,13 @@ from pathlib import Path
 
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 from typing import Any, Iterable, Mapping
-from runtime_lock import RuntimeFileLock, RuntimeLockBusy, RuntimeLockError
+from runtime_lock import (
+    RuntimeFileLock,
+    RuntimeLockBusy,
+    RuntimeLockError,
+    process_hold,
+    process_hold_guard,
+)
 from review_policy import (
     GENESIS_RECEIPT_PARENT,
     REVIEW_POLICY_RECEIPT_RECORD_TYPE,
@@ -129,6 +135,12 @@ _LEGACY_REVIEW_SUMMARY_RE = re.compile(
 PROJECT_STATE_PUBLICATION_LOCK_REL = Path(
     ".wavefoundry/locks/review-evidence-adoptions.lock"
 )
+# The lifecycle lock the publication wait probes. These equal
+# ``lifecycle_lock.LIFECYCLE_MUTATION_LOCK_REL`` and
+# ``LIFECYCLE_MUTATION_LOCK_SENTINEL`` (a test pins it); ``lifecycle_lock``
+# imports this module, so importing them here would be a cycle.
+_LIFECYCLE_MUTATION_LOCK_REL = Path(".wavefoundry/lifecycle-mutation.lock")
+_LIFECYCLE_MUTATION_LOCK_SENTINEL = 1 << 30
 EVENTS_FILENAME = "events.jsonl"
 REVIEW_EVIDENCE_SOURCE = EVENTS_FILENAME
 REVIEW_EVIDENCE_SOURCE_DECLARATION = f"review-evidence-source: {REVIEW_EVIDENCE_SOURCE}"
@@ -951,9 +963,20 @@ def project_state_publication_lock(repo_root: Path, *, wait: bool = True):
             finally:
                 _WRITE_LOCK_STATE.depth = depth
             return
-        lock = RuntimeFileLock(
-            repo_root / PROJECT_STATE_PUBLICATION_LOCK_REL, blocking=False
-        )
+        publication_path = repo_root / PROJECT_STATE_PUBLICATION_LOCK_REL
+        # Wave 1zimc: this thread may already hold the publication file lock
+        # outside the depth counter (``lifecycle_publication_transaction``).
+        # Waiting on it would block on its own hold, so refuse before the
+        # first acquire attempt.
+        with process_hold_guard():
+            own = process_hold(publication_path)
+        if own is not None and own.get("thread") == threading.get_ident():
+            raise ProjectPublicationUnavailable(
+                "project publication lock is already held by this thread in this "
+                f"process (pid {os.getpid()}, lifecycle publication transaction); "
+                "publish inside that hold instead of acquiring it again"
+            )
+        lock = RuntimeFileLock(publication_path, blocking=False)
         try:
             lock.acquire()
         except RuntimeLockBusy as exc:
@@ -965,20 +988,39 @@ def project_state_publication_lock(repo_root: Path, *, wait: bool = True):
             # Upgrade is different: it owns the outer lifecycle lock before
             # publication, so probing that lock distinguishes the race window
             # before its durable checkpoint exists and keeps callers fail-fast.
-            lifecycle_probe = RuntimeFileLock(
-                repo_root / ".wavefoundry/lifecycle-mutation.lock",
-                blocking=False,
-                offset=1 << 30,
-                style="record",
-            )
-            try:
-                lifecycle_probe.acquire()
-            except (RuntimeLockBusy, RuntimeLockError) as lifecycle_exc:
-                raise ProjectPublicationUnavailable(
-                    f"project publication lock is unavailable during lifecycle mutation: {lifecycle_exc}"
-                ) from lifecycle_exc
-            else:
-                lifecycle_probe.release()
+            # Wave 1zimc: the lifecycle lock is a process-owned record lock on
+            # POSIX, so opening it while this process holds it would release
+            # the hold. Consult the in-process registry first; the check and
+            # the probe's open run under the guard.
+            lifecycle_path = repo_root / _LIFECYCLE_MUTATION_LOCK_REL
+            with process_hold_guard():
+                lifecycle_hold = process_hold(lifecycle_path)
+                if lifecycle_hold is None:
+                    lifecycle_probe = RuntimeFileLock(
+                        lifecycle_path,
+                        blocking=False,
+                        offset=_LIFECYCLE_MUTATION_LOCK_SENTINEL,
+                        style="record",
+                    )
+                    try:
+                        lifecycle_probe.acquire()
+                    except (RuntimeLockBusy, RuntimeLockError) as lifecycle_exc:
+                        raise ProjectPublicationUnavailable(
+                            f"project publication lock is unavailable during lifecycle mutation: {lifecycle_exc}"
+                        ) from lifecycle_exc
+                    else:
+                        lifecycle_probe.release()
+                elif lifecycle_hold.get("thread") != threading.get_ident():
+                    # Another thread of this process is running a lifecycle
+                    # mutation: fail fast, as for another process.
+                    raise ProjectPublicationUnavailable(
+                        "project publication lock is unavailable during lifecycle "
+                        f"mutation: the lifecycle lock is held by another thread of "
+                        f"this process (pid {os.getpid()}): {lifecycle_path}"
+                    )
+                # Held by the calling thread: skip the probe and wait like an
+                # ordinary publisher. Lock order is fixed (lifecycle, then
+                # publication), so the publication holder never waits for it.
             lock = RuntimeFileLock(
                 repo_root / PROJECT_STATE_PUBLICATION_LOCK_REL, blocking=True
             )

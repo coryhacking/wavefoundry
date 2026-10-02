@@ -291,7 +291,9 @@ LEGACY_SLUG_PATTERN = r"legacy[a-z0-9-]*"
 LIFECYCLE_PREFIX_PATTERN = r"(?:[0-9a-z]{5,6}|00000)"
 
 WAVE_ID_PATTERN = re.compile(rf"^{_vocab.ID_KEY_RE}:\s+`({LIFECYCLE_PREFIX_PATTERN} {SLUG_PATTERN})`$", re.MULTILINE)
-CHANGE_KIND_PATTERN = r"(?:bug|feat|enh|change|doc|debt|ref|task|maint|ops)"
+# The change-kind alternation comes from the vocabulary profile, the one source
+# of kinds (core plus a distribution's EXTRA_CHANGE_KINDS; wave 1zimf).
+CHANGE_KIND_PATTERN = _vocab.CHANGE_KIND_RE
 CHANGE_ID_PATTERN = re.compile(rf"^{_vocab.MEMBER_ID_LABEL_RE}:\s+`({LIFECYCLE_PREFIX_PATTERN}-{CHANGE_KIND_PATTERN} {SLUG_PATTERN})`$", re.MULTILINE)
 # CHANGE_ID_PATTERN validates change plan document headers (docs/plans/**/*.md and archived wave plan files).
 # It is not used for wave record headers — wave records carry only `wave-id`.

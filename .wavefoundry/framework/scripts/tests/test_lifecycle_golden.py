@@ -430,6 +430,41 @@ class LifecycleGoldenTests(unittest.TestCase):
                             'readiness_lane_approvals_missing',
                         }
                     ]
+        # Wave 1zime (1ziml AC-7): hint fields, three messages, the council
+        # brief text, one advisory and one data field changed; nothing else.
+        # Each delta is reverted onto the old value so the walk below still
+        # proves every status, code and advisory flag unchanged.
+        hint_message_codes = {"missing_wave_council_signoff", "missing_required_lane",
+                              "readiness_lane_approvals_missing"}
+        for name, responses in after['fixtures'].items():
+            for route, response in responses.items():
+                old_response = before['fixtures'][name][route]
+                if route.startswith('prepare:'):
+                    self.assertIn('pending_readiness_lanes', response['data'])
+                    response['data'].pop('pending_readiness_lanes')
+                    response['diagnostics'] = [
+                        diagnostic for diagnostic in response['diagnostics']
+                        if diagnostic.get('code') != 'wave_objective_unpopulated'
+                    ]
+                for key in ('usage', 'next_tools'):
+                    if key in old_response:
+                        response[key] = old_response[key]
+                brief = (response.get('data') or {}).get('council_brief')
+                old_brief = (old_response.get('data') or {}).get('council_brief')
+                if isinstance(brief, dict) and isinstance(old_brief, dict):
+                    for key in ('instructions', 'verdict_format'):
+                        brief[key] = old_brief[key]
+                old_diagnostics = old_response.get('diagnostics') or []
+                new_diagnostics = response.get('diagnostics') or []
+                self.assertEqual([d.get('code') for d in new_diagnostics],
+                                 [d.get('code') for d in old_diagnostics], f"{name} {route}")
+                for new_diag, old_diag in zip(new_diagnostics, old_diagnostics):
+                    for key in ('recovery_tools', 'recovery_usage'):
+                        new_diag.pop(key, None)
+                        if key in old_diag:
+                            new_diag[key] = old_diag[key]
+                    if new_diag.get('code') in hint_message_codes:
+                        new_diag['message'] = old_diag['message']
         additions = []
         def strip(old, new, path="$"):
             if isinstance(old, dict) and isinstance(new, dict):

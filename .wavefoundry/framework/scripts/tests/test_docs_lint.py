@@ -1046,6 +1046,95 @@ class DocsLintFixtureTests(unittest.TestCase):
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 0, msg=f"stderr: {result.stderr}")
 
+    def test_non_dash_checklist_task_fails(self) -> None:
+        """Wave 1zime (1zimq AC-6): a checklist item under any marker but `-` fails
+        lint, naming the item and the canonical `- [ ] ...` form."""
+        root = self.copy_fixture()
+        change_doc = root / self.WAVE_DOC_PATH.parent / "00058-bug fixture-core.md"
+        change_doc.write_text(
+            change_doc.read_text(encoding="utf-8")
+            + "\n## Tasks\n\n- [x] Inspect parser behavior.\n* [ ] Star marker task\n",
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Star marker task", result.stderr)
+        self.assertIn("`- [ ] ...`", result.stderr)
+        self.assertIn("`## Tasks`", result.stderr)
+
+    def test_ordered_marker_checklist_ac_fails(self) -> None:
+        """Wave 1zime (1zimq AC-6): an ordered-marker AC fails lint naming the `- [ ]` form."""
+        root = self.copy_fixture()
+        change_doc = root / self.WAVE_DOC_PATH.parent / "00058-bug fixture-core.md"
+        change_doc.write_text(
+            change_doc.read_text(encoding="utf-8").replace(
+                "- [x] AC-1: Fixture criterion satisfied.",
+                "1. [x] AC-1: Fixture criterion satisfied.",
+            ),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("`## Acceptance Criteria`", result.stderr)
+        self.assertIn("`- [ ] ...`", result.stderr)
+        self.assertIn("AC-1: Fixture criterion satisfied.", result.stderr)
+
+    def test_tilde_rule_takes_the_ac_id_from_the_start(self) -> None:
+        """Wave 1zime (1zimq AC-6): a `[~]` AC citing a not-this-scope AC later in its
+        text does not borrow that AC's priority; its positional priority applies."""
+        root = self.copy_fixture()
+        change_doc = root / self.WAVE_DOC_PATH.parent / "00058-bug fixture-core.md"
+        change_doc.write_text(
+            change_doc.read_text(encoding="utf-8")
+            .replace(
+                "- [x] AC-1: Fixture criterion satisfied.",
+                "- [~] Deferred; see AC-2\n- [x] AC-2: Fixture criterion satisfied.",
+            )
+            .replace("| AC-1 | required |", "| AC-1 | required |\n| AC-2 | not-this-scope |"),
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1, msg=f"stderr: {result.stderr}")
+        self.assertIn("lacks an inline status note", result.stderr)
+        self.assertIn("<unidentified>", result.stderr)
+
+    def test_near_miss_checklist_heading_fails(self) -> None:
+        """Wave 1zime repair: an exact empty `## Tasks` beside `## Tasks (remaining)`
+        still fails lint, naming the near-miss heading."""
+        root = self.copy_fixture()
+        change_doc = root / self.WAVE_DOC_PATH.parent / "00058-bug fixture-core.md"
+        change_doc.write_text(
+            change_doc.read_text(encoding="utf-8")
+            + "\n## Tasks\n\n## Tasks (remaining)\n\n- [ ] Hidden step\n",
+            encoding="utf-8",
+        )
+        try:
+            result = self.run_docs_lint(root)
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("heading `## Tasks (remaining)` is not the exact `## Tasks`", result.stderr)
+
+    def test_lint_ac_priority_takes_the_id_from_the_start(self) -> None:
+        """Wave 1zime (1zimq): `_parse_ac_items_for_lint` resolves an item's
+        priority by its LEADING id; an id cited later falls back to position."""
+        from wave_lint_lib import wave_validators
+        priorities, rows = wave_validators._parse_ac_items_for_lint(
+            "- [x] Deferred; see AC-2\n- [x] AC-2: fixture\n",
+            "| AC | Priority |\n|----|----------|\n| AC-1 | required |\n| AC-2 | not-this-scope |\n",
+        )
+        self.assertEqual(rows, ["required", "not-this-scope"])
+        self.assertEqual(priorities, ["required", "not-this-scope"])
+
     def test_workflow_config_passes_with_canonical_keys(self) -> None:
         """Wave 1p5b4: the base fixture uses the canonical `wave_implement` + `wave_review`
         keys (legacy aliases retired) and lints clean."""

@@ -42,6 +42,7 @@ from review_evidence import (
     validate_review_evidence_records,
 )
 import review_evidence
+import change_doc_checklist  # shared checklist parser (wave 1zime, 1zimq)
 
 
 def _read_workflow_config(root: Path) -> dict:
@@ -244,7 +245,9 @@ def _required_wave_council_signoffs(
 _CHANGE_ID_PATTERN = re.compile(rf"^{_vocab.MEMBER_ID_LABEL_RE}:\s+`([^`]+)`", re.MULTILINE)
 
 
-_CLOSE_GATE_CHECKBOX_LINE_RE = re.compile(r"^\s*-\s+\[(?P<mark>[ xX~])\]\s+(?P<text>.+?)\s*$", re.MULTILINE)
+# Wave 1zime (1zimq): the shared any-marker item pattern; the gate counts an
+# open item under every list marker, not only `-`.
+_CLOSE_GATE_CHECKBOX_LINE_RE = change_doc_checklist.CHECKLIST_ITEM_RE
 
 
 _CLOSE_GATE_AC_ID_RE = re.compile(r"(AC-[\w\-]+)")
@@ -325,39 +328,61 @@ def _collect_silent_unchecked_items_for_close(wave_md: Path, wave_text: str) -> 
                 })
             continue
 
-        ac_section = _extract_close_gate_section(change_text, "Acceptance Criteria")
+        # Wave 1zime (1zimq): both sections are required by exact heading (a
+        # misspelled, suffixed or demoted heading counts as missing; the
+        # section may be empty), and EVERY section with the heading is read.
+        missing_sections = [
+            f"## {heading}"
+            for heading in ("Acceptance Criteria", "Tasks")
+            if not change_doc_checklist.has_section(change_text, heading)
+        ]
+        if missing_sections:
+            findings.append({
+                "change_id": change_id,
+                "item_type": "change document",
+                "item_id": "missing_sections",
+                "item_text": ", ".join(missing_sections),
+            })
         priority_section = _extract_close_gate_section(change_text, "AC Priority")
         priorities = _close_gate_parse_ac_priority(priority_section)
 
-        # Walk AC items — silent `[ ]` at non-exempt priority blocks close.
-        for match in _CLOSE_GATE_CHECKBOX_LINE_RE.finditer(ac_section):
-            if match.group("mark") != " ":
-                continue
-            text_part = match.group("text").strip()
-            id_match = _CLOSE_GATE_AC_ID_RE.search(text_part)
-            ac_id = id_match.group(1) if id_match else "<unidentified>"
-            priority = priorities.get(ac_id, "unknown")
-            if priority == "not-this-scope":
-                continue
-            findings.append({
-                "change_id": change_id,
-                "item_type": "AC",
-                "item_id": ac_id,
-                "item_text": text_part[:120],
-            })
+        # Walk AC items — silent `[ ]` at non-exempt priority blocks close.  The
+        # id comes only from the start of the item: an id cited later in the
+        # text never exempts it.
+        # A near-miss section (`## Tasks (remaining)`) is counted too: an open
+        # item under it is never invisible to the gate.
+        for ac_section in change_doc_checklist.section_bodies(
+            change_text, "Acceptance Criteria", include_near_miss=True
+        ):
+            for match in _CLOSE_GATE_CHECKBOX_LINE_RE.finditer(ac_section):
+                if match.group("mark") != " ":
+                    continue
+                text_part = match.group("text").strip()
+                ac_id = change_doc_checklist.leading_ac_id(text_part) or "<unidentified>"
+                priority = priorities.get(ac_id, "unknown")
+                if priority == "not-this-scope":
+                    continue
+                findings.append({
+                    "change_id": change_id,
+                    "item_type": "AC",
+                    "item_id": ac_id,
+                    "item_text": text_part[:120],
+                })
 
         # Walk task items — every silent `[ ]` blocks close (no priority exemption for tasks).
-        task_section = _extract_close_gate_section(change_text, "Tasks")
-        for match in _CLOSE_GATE_CHECKBOX_LINE_RE.finditer(task_section):
-            if match.group("mark") != " ":
-                continue
-            text_part = match.group("text").strip()
-            findings.append({
-                "change_id": change_id,
-                "item_type": "task",
-                "item_id": "",
-                "item_text": text_part[:120],
-            })
+        for task_section in change_doc_checklist.section_bodies(
+            change_text, "Tasks", include_near_miss=True
+        ):
+            for match in _CLOSE_GATE_CHECKBOX_LINE_RE.finditer(task_section):
+                if match.group("mark") != " ":
+                    continue
+                text_part = match.group("text").strip()
+                findings.append({
+                    "change_id": change_id,
+                    "item_type": "task",
+                    "item_id": "",
+                    "item_text": text_part[:120],
+                })
     return findings
 
 
@@ -452,7 +477,37 @@ def _missing_required_change_sections(change_text: str) -> list[str]:
         "## Tasks",
         "## AC Priority",
     ]
-    return [hdr for hdr in required_headers if hdr not in change_text]
+    # Wave 1zime (1zimq): the two sections the close gate reads are checked by
+    # exact heading line, so a heading close would refuse is refused here
+    # first; the other four keep their substring check.
+    exact = {"## Acceptance Criteria": "Acceptance Criteria", "## Tasks": "Tasks"}
+    return [
+        hdr for hdr in required_headers
+        if (not change_doc_checklist.has_section(change_text, exact[hdr]) if hdr in exact
+            else hdr not in change_text)
+    ]
+
+
+def _noncanonical_checklist_headings(change_text: str) -> list[str]:
+    """H2 headings that start with ``## Acceptance Criteria`` or ``## Tasks`` but
+    are not exact (wave 1zime repair), such as ``## Tasks (remaining)``."""
+    return [
+        line
+        for heading in ("Acceptance Criteria", "Tasks")
+        for line in change_doc_checklist.near_miss_headings(change_text, heading)
+    ]
+
+
+def _noncanonical_checklist_items(change_text: str) -> list[str]:
+    """Checklist items in ``## Acceptance Criteria`` or ``## Tasks`` (or a
+    near-miss section of either) whose list marker is not the canonical ``-``
+    (wave 1zime, 1zimq), as ``marker [m] text``."""
+    found: list[str] = []
+    for heading in ("Acceptance Criteria", "Tasks"):
+        for match in change_doc_checklist.section_items(change_text, heading, include_near_miss=True):
+            if not change_doc_checklist.is_canonical_marker(match.group("marker")):
+                found.append(f"{match.group('marker')} [{match.group('mark')}] {match.group('text').strip()[:120]}")
+    return found
 
 
 def _extract_required_review_lanes(wave_text: str) -> list[str]:
@@ -709,8 +764,10 @@ def _review_policy_receipt_diagnostics(
         # until Upgrade marks them for deterministic re-Prepare.
         return []
     change_ids = _extract_change_ids_from_wave_text(wave_text)
+    # Policy input only (the brief text is not a receipt input); this path is
+    # reached only for an external-evidence (typed) wave.
     brief = _build_prepare_council_brief(
-        wave_md.parent.name, wave_text, change_ids
+        wave_md.parent.name, wave_text, change_ids, typed=True
     )
     state, errors = _prepare_policy_state(
         root, wave_md, wave_text, change_ids, brief
@@ -797,15 +854,18 @@ def _select_prepare_council_rotating_seat(wave_text: str) -> tuple[str | None, s
     return None, "No clear domain signal; red-team fixed seat only"
 
 
-def _prepare_council_instructions(rotating_seat: str | None) -> str:
-    """Council instructions for one rotating seat.
+def _prepare_council_instructions(rotating_seat: str | None, *, typed: bool = False) -> str:
+    """Council instructions for one rotating seat and one review authority.
 
-    Keyed on the seat so every producer renders the same text for the same
-    roster; the receipt binding rebuilds this rather than inheriting a string
-    built from superseded wave text.
+    Keyed on the pair (seat, authority) so every producer renders the same
+    text for the same roster and authority; the receipt binding rebuilds this
+    rather than inheriting a string built from superseded wave text.  On a
+    declared (typed) wave the authority is the typed ``wave-council-readiness``
+    approval, so the brief points there (wave 1zime, 1ziml); legacy waves keep
+    the ``## Review Checkpoints`` prose line.
     """
 
-    return (
+    grounding = (
         "Run each council seat in isolation against the admitted change docs and wave record. "
         "Verification must be code-grounded: verify each plan's load-bearing claims against the "
         "actual tree, not against the plan's own prose — cited file:line sites and symbols must "
@@ -819,6 +879,21 @@ def _prepare_council_instructions(rotating_seat: str | None) -> str:
         "artifact, prose in a hand-authored markdown document, or deliberately historical "
         "citation; name that case inline so a reviewer can tell a deliberate line anchor from a "
         "lapsed one. Have wave-council synthesize findings. "
+    )
+    if typed:
+        return grounding + (
+            "This wave's review authority is the typed ledger, so record the outcome there: first "
+            "the readiness review run, then each required lane's readiness approval, then the "
+            "council verdict as a typed approval, "
+            "wf_review_event(event='approval', signoff_key='wave-council-readiness', "
+            "approval_phase='readiness', mode='create', ...), whose evidence names the seats "
+            "actually run, each at most once, with per-seat evidence or an explicit no-findings "
+            f"note (e.g. `{_prepare_council_verdict_template(rotating_seat, typed=True)}`). "
+            "A ## Review Checkpoints narrative is optional and is not authority: the gate reads "
+            "only the typed approval. Then call wf_prepare_wave(mode='ready'), or mode='create' "
+            "to also open the wave."
+        )
+    return grounding + (
         "Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line "
         "whose seats: field lists the seats actually run, each at most once, with per-seat "
         "evidence (or an explicit no-findings note) recorded in the wave record "
@@ -827,7 +902,7 @@ def _prepare_council_instructions(rotating_seat: str | None) -> str:
     )
 
 
-def _prepare_council_verdict_template(rotating_seat: str | None) -> str:
+def _prepare_council_verdict_template(rotating_seat: str | None, *, typed: bool = False) -> str:
     rotating_part = rotating_seat or "none"
     seat_list = ["red-team", "architecture-reviewer", "security-reviewer", "qa-reviewer", "reality-checker"]
     # De-dup: the rotating pick can itself be a fixed seat (security-reviewer and
@@ -837,6 +912,19 @@ def _prepare_council_verdict_template(rotating_seat: str | None) -> str:
     if rotating_seat and rotating_seat not in seat_list:
         seat_list.append(rotating_seat)
     seats = ", ".join(seat_list)
+    if typed:
+        # Wave 1zime (1ziml): the typed approval is the record that counts.
+        return (
+            "wf_review_event(wave_id=<wave id>, event='approval', "
+            "signoff_key='wave-council-readiness', approval_phase='readiness', "
+            "actor='wave-council', context_id=<fresh context id>, mode='create', "
+            "evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; "
+            "primer-depth: standard; "
+            f"seats: <replace with the seats actually run, each at most once, e.g. {seats}>; "
+            f"rotating-seat: {rotating_part}; "
+            "strongest-challenge: <summary>; strongest-alternative: <summary>)', "
+            "'artifact_or_test_id': <per-seat evidence reference>}, ...)"
+        )
     return (
         "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** "
         "(moderator: wave-council; primer-depth: standard; "
@@ -846,8 +934,14 @@ def _prepare_council_verdict_template(rotating_seat: str | None) -> str:
     )
 
 
-def _build_prepare_council_brief(wave_id: str, wave_text: str, change_ids: list[str]) -> dict[str, Any]:
-    """Build the council review brief returned by wf_prepare_wave when no verdict is recorded."""
+def _build_prepare_council_brief(
+    wave_id: str, wave_text: str, change_ids: list[str], *, typed: bool = False
+) -> dict[str, Any]:
+    """Build the council review brief returned by wf_prepare_wave when no verdict is recorded.
+
+    ``typed`` is the resolved review authority (wave 1zime): the instructions
+    and verdict format name the record that counts for it.
+    """
     rotating_seat, rotating_seat_reason = _select_prepare_council_rotating_seat(wave_text)
     seats = ["red-team (fixed)"]
     if rotating_seat:
@@ -859,8 +953,8 @@ def _build_prepare_council_brief(wave_id: str, wave_text: str, change_ids: list[
         "rotating_seat": rotating_seat,
         "rotating_seat_reason": rotating_seat_reason,
         "council_seats": seats,
-        "instructions": _prepare_council_instructions(rotating_seat),
-        "verdict_format": _prepare_council_verdict_template(rotating_seat),
+        "instructions": _prepare_council_instructions(rotating_seat, typed=typed),
+        "verdict_format": _prepare_council_verdict_template(rotating_seat, typed=typed),
     }
 
 

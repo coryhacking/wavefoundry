@@ -349,7 +349,12 @@ def _evaluate_shared_delivery_state(
                 "Required delivery lanes without a current approval: "
                 + ", ".join(missing_lanes),
                 recovery_tools=["wf_review_event", "wf_review_wave"],
-                recovery_usage=f"wf_review_wave(wave_id={wave_id!r})",
+                # Wave 1zime (1ziml repair): a declared wave names the delivery
+                # review phase explicitly; legacy recovery is unchanged.
+                recovery_usage=(
+                    f"wf_review_wave(wave_id={wave_id!r}, phase='implementation')"
+                    if authority.typed else f"wf_review_wave(wave_id={wave_id!r})"
+                ),
             )
         )
     council_results = [
@@ -536,6 +541,7 @@ def close_checkbox_gate(ctx: GateContext) -> GateResult:
     doc_findings = [i for i in silent_all if i["item_type"] == "change document"]
     unreadable_docs = [i for i in doc_findings if i["item_id"] == "unreadable"]
     missing_docs = [i for i in doc_findings if i["item_id"] == "missing"]
+    missing_section_docs = [i for i in doc_findings if i["item_id"] == "missing_sections"]
     silent_unchecked = [i for i in silent_all if i["item_type"] != "change document"]
     for item in missing_docs:
         diagnostics.append(
@@ -563,6 +569,23 @@ def close_checkbox_gate(ctx: GateContext) -> GateResult:
                 ),
                 recovery_tools=["wf_get_change", "wf_current_wave"],
                 recovery_usage=f"wf_get_change(change_id='{item['change_id']}')",
+            )
+        )
+    for item in missing_section_docs:
+        # Wave 1zime (1zimq): the gate reads `## Acceptance Criteria` and
+        # `## Tasks` by exact heading; without one it cannot see the items, so
+        # the document blocks under the code Prepare uses for the same condition.
+        diagnostics.append(
+            lifecycle_gate_support._diagnostic(
+                "change_doc_missing_sections",
+                (
+                    f"Wave close blocked: admitted change '{item['change_id']}' is missing "
+                    f"sections: {item['item_text']}. The close hard gate reads every AC and task "
+                    "under these exact headings; a misspelled, suffixed or demoted heading counts "
+                    "as missing. Restore the heading (the section may be empty) before close."
+                ),
+                recovery_tools=["wf_get_change"],
+                recovery_usage=f"wf_get_change(change_id={item['change_id']!r})",
             )
         )
     if silent_unchecked:
@@ -722,11 +745,19 @@ def review_lanes_gate(ctx: GateContext, *, review_phase: str = "prepare",
                 f"Prepare-phase review lanes without recorded signoff in `{review_evidence.PREPARE_REVIEW_EVIDENCE_MARKER}`: {', '.join(missing)}. "
                 f"Record each lane signoff in the `{review_evidence.PREPARE_REVIEW_EVIDENCE_MARKER}` section of {_vocab.RECORD_FILENAME} before running wf_implement_wave."
             )
+        # Wave 1zime (1ziml): a declared wave recovers through the readiness
+        # review, the form wf_implement_wave's readiness diagnostic uses.
+        if authority.typed:
+            _lane_recovery_tools = ["wf_review_wave", "wf_review_event"]
+            _lane_recovery_usage = f"wf_review_wave(wave_id={ctx.wave_md.parent.name!r}, phase='prepare')"
+        else:
+            _lane_recovery_tools = ["wf_current_wave"]
+            _lane_recovery_usage = "wf_current_wave()"
         diagnostics.append(lifecycle_gate_support._diagnostic(
             "missing_required_lane",
             _prepare_lane_message,
-            recovery_tools=["wf_current_wave"],
-            recovery_usage="wf_current_wave()",
+            recovery_tools=_lane_recovery_tools,
+            recovery_usage=_lane_recovery_usage,
         ))
     return GateResult(diagnostics, {"lane_results": lane_results, "missing": missing})
 
@@ -803,6 +834,40 @@ def change_sections_gate(ctx: GateContext, *, admitted_change: str,
                 recovery_usage=f"wf_get_change(change_id={admitted_change!r})",
             )
         )
+    # Wave 1zime (1zimq): per-change lint runs only once a wave is implementing,
+    # so Prepare refuses a non-dash checklist item on every wave status, before
+    # readiness approvals bind.  The close gate counts every marker; the mark
+    # tools, the digest normaliser and the dashboard read `-` items only.
+    noncanonical = lifecycle_gate_support._noncanonical_checklist_items(change_text)
+    near_miss = lifecycle_gate_support._noncanonical_checklist_headings(change_text)
+    if noncanonical or near_miss:
+        parts = []
+        if near_miss:
+            # Wave 1zime repair: a heading that starts like a checklist section
+            # but is not exact hides its items from the mark tools and lint.
+            parts.append(
+                "non-canonical section heading(s) "
+                + "; ".join(f"`{heading}`" for heading in near_miss)
+                + " (use the exact `## Acceptance Criteria` or `## Tasks` heading and merge the items into it)"
+            )
+        if noncanonical:
+            shown = "; ".join(f"`{item}`" for item in noncanonical[:10])
+            more = f" (and {len(noncanonical) - 10} more)" if len(noncanonical) > 10 else ""
+            parts.append(
+                f"{len(noncanonical)} checklist item(s) without the `-` list marker: {shown}{more} "
+                "(rewrite each in the canonical `- [ ] ...` form)"
+            )
+        diagnostics.append(
+            lifecycle_gate_support._diagnostic(
+                "change_doc_noncanonical_checklist",
+                (
+                    f"Admitted change '{admitted_change}' has a non-canonical checklist: "
+                    + "; and ".join(parts) + "."
+                ),
+                recovery_tools=["wf_get_change"],
+                recovery_usage=f"wf_get_change(change_id={admitted_change!r})",
+            )
+        )
     # AC priority advisory (non-blocking): warn if every AC row still has unpopulated placeholder text
     _AC_PLACEHOLDER = "required / important / nice-to-have / not-this-scope"
     if "## AC Priority" in change_text:
@@ -872,14 +937,21 @@ def council_signoff_gate(ctx: GateContext) -> GateResult:
             # unchanged. Declared waves need typed approval events; legacy
             # waves keep the exact prose-line instruction.
             if _prepare_authority.typed:
+                # Wave 1zime (1ziml): the readiness path, not a status read.
                 _council_remedy = (
-                    "Record a typed approval event per missing key via "
+                    "Run the readiness review (wf_review_wave(phase='prepare') lists the pending "
+                    "actions), then record a typed approval event per missing key via "
                     "wf_review_event(event='approval', signoff_key=<missing key above>, "
-                    f"mode='create'); the approval projects into `{review_evidence.REVIEW_EVIDENCE_SECTION}`. "
+                    f"approval_phase='readiness', mode='create'); the approval projects into "
+                    f"`{review_evidence.REVIEW_EVIDENCE_SECTION}`. "
                     "Do this before the wave can become active."
                 )
+                _council_recovery_tools = ["wf_review_wave", "wf_review_event"]
+                _council_recovery_usage = f"wf_review_wave(wave_id={ctx.wave_md.parent.name!r}, phase='prepare')"
             else:
                 _council_remedy = f"Record the signoff line(s) in `{review_evidence.REVIEW_EVIDENCE_SECTION}` before the wave can become active."
+                _council_recovery_tools = ["wf_current_wave"]
+                _council_recovery_usage = "wf_current_wave()"
             diagnostics.append(
                 lifecycle_gate_support._diagnostic(
                     "missing_wave_council_signoff",
@@ -887,8 +959,8 @@ def council_signoff_gate(ctx: GateContext) -> GateResult:
                         "Required Wave Council signoff missing for prepare: "
                         f"{', '.join(missing_council)}. {_council_remedy}"
                     ),
-                    recovery_tools=["wf_current_wave"],
-                    recovery_usage="wf_current_wave()",
+                    recovery_tools=_council_recovery_tools,
+                    recovery_usage=_council_recovery_usage,
                 )
             )
     return GateResult(diagnostics, {"authority": _prepare_authority,

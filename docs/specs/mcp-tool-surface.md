@@ -126,17 +126,31 @@ merge time; the shipped declarations are empty and change nothing.
 | `EXTENSION_TOOL_TIERS` | Permission tier (`read` or `write`) for every new extension tool. |
 | `EXTENSION_OVERRIDES` | Core tools each module replaces, keyed by module name. |
 | `EXTENSION_TOOL_ALIASES` | Additional served names, `{alias: canonical_name}` (wave `1z8oz`). |
-| `EXTENSION_TOOL_PARAMETERS` | Parameter mappings for declared aliases, `{alias: {"rename": {alias_param: canonical_param}, "fixed": {canonical_param: value}}}` (wave `1zim3`). |
+| `EXTENSION_TOOL_PARAMETERS` | Parameter mappings for declared aliases, `{alias: {"rename": {alias_param: canonical_param}, "fixed": {canonical_param: value}, "description": text}}` (wave `1zim3`); `description` is optional (wave `1zime`). |
 | `EXTENSION_HIDDEN_TOOLS` | Canonical names that are not served; each must have an alias without fixed parameters. |
 | `EXTENSION_REPLACEMENTS` | Core names a module reuses with an incompatible handler, `{module: {core_name: {"alias_for_core": name, "tier": optional "read" or "write"}}}`. |
+| `EXTENSION_LIFECYCLE_TOOLS` | New write-tier extension tools that run under the lifecycle mutation lock (wave `1zimf`). |
+| `EXTENSION_ARTIFACT_PATH_FIELDS` | `{tool: data_field}`: the response `data` field holding the repository-relative paths a new write-tier extension tool wrote, credited as derived artifacts (wave `1zimf`). |
 
 **Registration.** `register(mcp, get_handler)` receives a staging FastMCP surface: `@mcp.tool()`
 and `mcp.add_tool` work, and every attempted name is recorded. Handlers must be synchronous
 functions, because the `MIDDLEWARE` wrappers are synchronous. Extensions register tools only; the
 staging surface does not serve resources or prompts. `get_handler()` returns the
 server's handler object for the attached repository (its `.root` is the repository root). An
-extension may import `server_impl` by module name and use its helpers; underscore-prefixed
-helpers such as `server_impl._ensure_no_extra_args` are reachable but are not a stable public API.
+extension may import `server_impl` by module name and use its helpers. The supported surface is
+the helpers named in `server_impl.EXTENSION_PUBLIC_HELPERS` (wave `1zimf`):
+`ensure_no_extra_args(tool_name, kwargs)` (the typed `unknown_arguments` envelope, or `None`;
+an empty `kwargs={}` payload is accepted), `make_response(status, data=None, *, diagnostics=None,
+next_tools=None, usage="")` (the standard envelope, with `isError: True` on `"error"`),
+`make_diagnostic(code, message, *, recovery_tools=None, recovery_usage="", advisory=False)` and
+`change_doc_response(root, kind, slug, *, cache=None)` (see **Change kinds**). Each is a thin
+wrapper that calls its private counterpart at call time, so it follows a reload; removing or
+renaming one, or changing its signature, is a breaking change recorded in the CHANGELOG.
+Underscore-prefixed helpers such as `server_impl._ensure_no_extra_args` are reachable but are not
+a stable public API. There is no public lock or busy helper: an extension tool that needs the
+lifecycle mutation lock declares it in `EXTENSION_LIFECYCLE_TOOLS` (see **Lifecycle tools and
+artifact credit**) rather than taking the lock in its handler, which would bypass the
+middleware's strict root resolution and its process-hold registry.
 Only after every module has staged and every check passes are the tools installed into the served
 table. Installation happens before the prefix contract, argument-model normalization and the
 `MIDDLEWARE` chain, so extension tools receive the same wrappers as core tools. Nothing is
@@ -155,7 +169,7 @@ examples may differ), and it requires no parameter the replaced tool left option
 add optional parameters; an added required parameter is refused. Value schemas must match exactly,
 so widening a type (for example `str` to `str | None`) is refused too. Returning the typed `unknown_arguments` diagnostic
 for undeclared arguments is the extension's obligation: pass `kwargs` to
-`server_impl._ensure_no_extra_args(tool_name, kwargs)` and return its envelope when it is not
+`server_impl.ensure_no_extra_args(tool_name, kwargs)` and return its envelope when it is not
 `None`. Replacing the MCP tool does not change the server's internal callers of core response
 functions. To delegate to the core tool, call `mcp.core_handler(name)` during `register` (wave
 `1zim3`): it returns the core tool's handler as registered, before argument normalization and the
@@ -189,10 +203,25 @@ parameters, and never forwards one, so an extra can neither reach a renamed-away
 override a pinned value. Otherwise it renames the arguments in one pass, adds the fixed values and
 calls the canonical callable, so the lock, guard, cost accounting, extractors and setup notice
 apply once and stay keyed on the canonical name. The alias takes the canonical tier and
-annotations; its description is the canonical text and keeps canonical parameter names. An alias
+annotations. Its description is the canonical text, which keeps canonical parameter names, unless
+the entry declares its own `description` (wave `1zime`): a string, non-empty after stripping
+whitespace and at most 16,384 characters, allowed only on an entry with a non-empty `rename` or
+`fixed` (a plain alias keeps the canonical description). The alias is listed with that text
+unchanged; the canonical tool, its plain aliases and mapped aliases without `description` keep the
+canonical description, and `wf_server_info` reports the text (or `null`) in the alias's
+`extensions.parameters` entry. A distribution that declares `description` needs a framework that
+accepts it: an older server refuses the unknown key and serves only runner tools. For a call made
+through a mapped alias (wave `1zime`), each top-level `data` key that echoes a renamed parameter
+uses the alias's name, in one simultaneous pass in the same key position, so a swap does not
+chain; values never change. Nested `data`, diagnostic messages, pinned parameters (the alias has
+no name for them) and keys that are not renamed parameters keep canonical names. When the renamed
+`data` would hold the same key twice, `data` is left unchanged. Calls under the canonical name, a
+plain alias, a replacement or a core-behaviour alias are unaffected. An alias
 parameter may reuse a canonical name only when that name is renamed away, so a swap such as
 `{"set_id": "wave_id", "wave_id": "change_id"}` is valid. A declaration is refused when a mapping
-names something that is not an alias, has a key other than `rename` and `fixed`, renames from a
+names something that is not an alias, has a key other than `rename`, `fixed` and `description`,
+declares a `description` that is not a string, is empty or whitespace only, exceeds 16,384
+characters or sits on an entry with neither `rename` nor `fixed`, renames from a
 name that is not a canonical parameter or renames one canonical parameter twice, fixes a name that
 is not a canonical parameter or that it also renames, fixes a value the canonical field rejects,
 serves a parameter name twice, uses a parameter name that is not an identifier, starts with an
@@ -290,6 +319,34 @@ the rendered host allowlist and upgrade allowlist reconciliation cover them. New
 like first-party tools, and write-tier tools fail fast with `upgrade_in_progress` while Upgrade
 owns project state.
 
+**Lifecycle tools and artifact credit (wave `1zimf`).** A new extension tool that writes wave
+lifecycle records is declared in `EXTENSION_LIFECYCLE_TOOLS`. The main `MIDDLEWARE` lock pass
+receives the declared names as an extra name set, so each gets exactly the core wrapper: strict
+root resolution, the single non-blocking OS lock attempt, the `lifecycle_mutation_locked` busy
+response naming the tool, and the hold registered in `runtime_lock`'s process-hold registry. A
+handler that re-enters the lifecycle lock, or calls another lifecycle-locked tool through the served
+surface, gets `LifecycleLockBusy` without the lock file being opened, and the outer hold stays
+until the outer call returns; a declared tool calls core functions directly, never a served locked
+tool. `EXTENSION_ARTIFACT_PATH_FIELDS` names, per tool, the response `data` field that holds the
+repository-relative paths it wrote; the main cost pass credits them exactly as the core
+`wf_new_<kind>` extractors do, and only for names that have no core extractor: `status == "ok"`
+only; the field may hold a path string, a list of strings or `{"path": ...}` mappings, or a
+mapping with `path`; each path must resolve inside the repository root to an existing file; each
+resolved file is credited once per response, however many names (a repeat, `./`, `..`, a symlink)
+reach it, which holds for the core extractors too; each artifact is floored at zero against the request tokens; and an identical request and response is
+one replay. The wrapper does not prove that the tool wrote a credited file: the declaration is the
+distribution's assertion, as core's extractors are core's. Both declarations accept only new
+extension tools declared `write` in `EXTENSION_TOOL_TIERS`; a core name (including an override or
+replacement target), an alias or `alias_for_core`, a runner tool, an edit-gate tool, a `read`
+tool, an undeclared name, a duplicate lifecycle entry and a field that is not a non-empty
+identifier are refused, and a lifecycle declaration that is not a tuple or a field declaration
+that is not a mapping is reported, not raised. `mcp_tool_roster` applies the same validation
+without starting the server. An alias, plain or parameter-mapped, of a declared tool shares its
+lock and credit, keyed on the canonical name. Only the lock and the artifact credit are extended:
+`_LIFECYCLE_MUTATION_LOCK_TOOLS` and `_ARTIFACT_EXTRACTORS` are never changed, a declared tool is
+never cost-exempt, and it gets no focus or state-source extractor. Core lock membership and
+extractors are fixed by core; overrides and replacements keep the core name's lock.
+
 **Failure.** Registration refuses, naming the module and cause, when:
 
 - the declaration is invalid: a module name that is not a flat identifier or is declared twice, a
@@ -320,7 +377,9 @@ owns project state.
   module, or does not reject undeclared arguments;
 - a parameter mapping breaks a rule under **Parameter-mapped aliases**, a hidden name has only
   aliases with fixed parameters, or a module asks `core_handler` for a name it did not declare as
-  an override.
+  an override;
+- a lifecycle or artifact path field declaration breaks a rule under **Lifecycle tools and
+  artifact credit**, or names a tool no module registers.
 
 An aliases-only or hide-only declaration with no module is validated and served, not ignored. Any
 failure between core registration and the installed aliases and hidden names, including the core
@@ -336,7 +395,9 @@ are rebuilt from the declaration, and a declaration made invalid fails closed.
 Undeclared helper modules an extension imports are not purged.
 
 **Provenance.** `wf_server_info` reports an `extensions` object: `declaration` (repository-relative
-path, SHA-256, declared prefixes and tiers), `modules` (for each loaded module its path, the
+path, SHA-256, declared prefixes and tiers, and, since wave `1zimf`, `lifecycle_tools` as a sorted
+list and `artifact_path_fields` as a mapping sorted by tool, both empty for the stock
+declaration), `modules` (for each loaded module its path, the
 SHA-256 of the exact bytes executed, its new tools with tiers, the core tools it overrides and the
 core names it replaces), `aliases`, `hidden`, `replacements` (core name, module, `alias_for_core`
 and served tier), `parameters` (for each mapped alias its canonical name, `rename` and `fixed`;
@@ -347,8 +408,8 @@ hints and whole names). With no declarations, `modules`, `aliases`, `hidden`, `r
 **Trust boundary.** Extension modules are distribution code and run with the server's authority.
 Nothing is loaded from a target repository. An extension that rebinds existing tool objects, their handlers or wrapper
 names in place (the `MIDDLEWARE` entries bind late), or that mutates the server after registration,
-is outside what staging detects, and new extension tools
-must not write wave lifecycle records directly. Imports made by an extension module are not hashed.
+is outside what staging detects. A new extension tool that writes wave lifecycle records must be
+declared in `EXTENSION_LIFECYCLE_TOOLS`. Imports made by an extension module are not hashed.
 
 **Server package layout (wave `1yzd0`, ADR `1yx4m`).** The composition root `server_impl`, the
 registry `mcp_tool_registry` and the ten `*_handlers` modules live in `scripts/wf_server/`. What a
@@ -401,6 +462,19 @@ Initial core set:
 
 
 The `wf_new_<kind>` family covers all ten change kinds. Use the kind-specific tool that matches the change; `wf_new_change` is the general fallback.
+
+**Change kinds (wave `1zimf`).** The change-kind token of a change id comes from one source,
+`vocabulary_profile.CHANGE_KINDS`: the fixed core kinds above plus a distribution's
+`EXTRA_CHANGE_KINDS` (see `docs/architecture/layering-rules.md`, vocabulary profile paragraph).
+Docs-lint, the server and `wf lifecycle-id --kind` accept every declared kind, and a change id
+whose kind is not declared lints as `uses undeclared change kind '<kind>'`. `wf_new_change` stays
+`kind=change`, and no core tool is added per extra kind. A distribution serves its own kind
+through its own write-tier extension tool that calls the public helper
+`server_impl.change_doc_response(root, kind, slug, *, cache=None)`: it creates the change doc
+exactly as `wf_new_<kind>` does (lifecycle id, template, index refresh, attached lint) and returns
+the same envelope for any kind in `CHANGE_KINDS`, and refuses any other kind with
+`invalid_arguments`. Declaring that tool's `path` field in `EXTENSION_ARTIFACT_PATH_FIELDS` gives
+it the derived-artifact credit core creation tools get.
 
 ## Discovery Tool
 
@@ -485,7 +559,7 @@ site, not per diagnostic code**: `review_policy_receipt_stale` carries
 which key on code and ignore the field. Do not cache a code's classification
 across tools.
 
-Two further advisory emit sites are Prepare-only: `readiness_receipt_publications_high` and `readiness_lane_approvals_missing` in `wf_prepare_wave`. Both carry `advisory: true` and preserve the underlying Prepare outcome; no Review, Implement or Close emit site is added for either code. Wave `1ypxw` also adds `review_policy_receipt_superseded` in Prepare and readiness review, and `artifact_or_test_id_ephemeral` in review-event preview/write. These are advisory only and preserve the underlying outcome.
+Three further advisory emit sites are Prepare-only: `readiness_receipt_publications_high`, `readiness_lane_approvals_missing` and `wave_objective_unpopulated` (wave `1zime`) in `wf_prepare_wave`. Each carries `advisory: true` and preserves the underlying Prepare outcome; no Review, Implement or Close emit site is added for any of these codes. Wave `1ypxw` also adds `review_policy_receipt_superseded` in Prepare and readiness review, and `artifact_or_test_id_ephemeral` in review-event preview/write. These are advisory only and preserve the underlying outcome.
 
 **Advisory docs-lint sensors** (wave `1wuju`): a sensor registered `advisory` in
 `wave_lint_lib/constants.py` (`SENSOR_POLARITY_REGISTRY`) reports through the
@@ -1112,7 +1186,11 @@ change remains active outside the wave.
 
 - Every Prepare response reports `data.readiness_receipts`: the number of `review_policy_receipt` records before the ledger's first `initial_delivery` run, or all receipts when no such run exists, evaluated after any receipt publication by this call. A resolved readable empty ledger counts as `0`; an unresolved wave or unavailable/unreadable ledger counts as `null`, never a fabricated zero. The field is present on success and error responses, including outer refusal paths.
 - Only Prepare emits `readiness_receipt_publications_high` with `advisory: true` when `readiness_receipts` exceeds the named threshold of 5. It describes unusually frequent Prepare publications and invites inspection of review churn. Five is the historical 90th percentile, not a review-round budget: multiple review passes may share one receipt, so the count neither measures rounds nor proves convergence. The ledger-derived count is not reset by settlement prose or a fresh council, and the advisory never changes the Prepare outcome.
-- Only Prepare emits `readiness_lane_approvals_missing` with `advisory: true`, naming required lanes without a current readiness approval. Derive the lane set and approval currency exactly as `wf_implement_wave` does (the same configured wave/project lane union and readiness signoff-current predicate), after any receipt publication by the call. An unresolved wave or unavailable authority produces no invented lane result and does not replace existing errors. This advisory does not change Prepare's outcome or waive activation's existing lane-approval requirement.
+- Only Prepare emits `readiness_lane_approvals_missing` with `advisory: true`, naming required lanes without a current readiness approval. Derive the lane set and approval currency exactly as `wf_implement_wave` does (the same configured wave/project lane union and readiness signoff-current predicate), after any receipt publication by the call. An unresolved wave or unavailable authority produces no invented lane result and does not replace existing errors. This advisory does not change Prepare's outcome or waive activation's existing lane-approval requirement. Its message distinguishes a first pass from a lapse (wave `1zime`): a lane with no readiness approval recorded at all reads "Readiness approvals still needed from: ..." and points at the readiness review; a lane whose approval lapsed with a superseded receipt keeps the re-review wording.
+- Every Prepare response's `data` carries `pending_readiness_lanes` (wave `1zime`): the same lane list, empty when none is pending, or `null` when it cannot be computed (an unresolved wave, an unreadable record or ledger errors, the cases where the advisory is skipped).
+- Every Prepare mode emits `wave_objective_unpopulated` with `advisory: true` (wave `1zime`) when the wave record's `## Objective` body, stripped, is empty or is only one angle-bracket placeholder, as the `wf_create_wave` scaffold leaves it. It is computed by the observational wrapper, so error envelopes carry it too, and never changes the status.
+- The council brief (`data.council_brief.instructions` and `verdict_format`) is keyed on the rotating seat and the resolved review authority (wave `1zime`); the receipt-bound and unbound briefs render the same text for the same pair. On a declared wave it says to record the readiness run, each required lane's readiness approval and then the council verdict as the typed approval `wf_review_event(event='approval', signoff_key='wave-council-readiness', ...)`; a `## Review Checkpoints` narrative is optional and not authority; it ends with `wf_prepare_wave(mode='ready')`, or `mode='create'` to also open the wave. Legacy waves keep the structured `prepare-council` prose line.
+- **Blocked-envelope hints (wave `1zime`):** an error envelope from `wf_prepare_wave`, `wf_review_wave` or `wf_close_wave` takes `usage` from the FIRST blocking diagnostic in emitted order that set the status; when it carries `recovery_usage` that is the usage, and its `recovery_tools` followed by the branch defaults (without duplicates) are `next_tools`, and when it carries none the branch defaults stand. A later diagnostic never overrides an earlier blocker, so a docs-lint error still recommends `wf_validate_docs()`. The `another_wave_active` branch keeps its explicit hint. On a declared wave `missing_wave_council_signoff` and the prepare-phase `missing_required_lane` recover to `wf_review_wave(wave_id=..., phase='prepare')` with `wf_review_event`; legacy wording and recovery are unchanged. A readiness-gate block recommends a retry in the caller's mode, never `mode='create'` for a `ready` call.
 - A newly published superseding receipt in `ready`/`create` emits `review_policy_receipt_superseded`, including when readiness approvals are missing. Genesis and unchanged publications do not. Optional non-semantic `policy_inputs` metadata identifies changed admitted documents or project policy when the predecessor provides it; older receipts retain the unattributable fallback. This metadata does not alter the digest, receipt identity, evaluator version, or nested Prepare receipt envelope. Readiness review repeats the advisory while any lane's latest readiness approval names an older receipt; partial reapproval does not clear it, delivery reapproval does not substitute, and all-lane readiness reapproval clears it without deleting history. Unaffected review scope may be reapproved by reference; affected scope must be reviewed first.
 
 - Every handler response includes `configured_gates`; reached required sensors run in `ready`/`create`, while dry-run reports `would_run` without execution. A handler response that returns early carries an empty list. A response produced by a registration wrapper, or returned by a tool body before it calls its handler, carries no `configured_gates` key at all, which today means the lock's busy and unavailable refusals, the upgrade guard's in-progress and busy refusals, and the tool body's unknown-argument refusal. Read the key defensively. configured_gates outcomes: `would_run/passed/failed/invalid`.
@@ -1169,6 +1247,7 @@ during `ready`/`create` (readiness mutations); `dry_run` is read-only.
 
 - Every handler response includes `configured_gates: []`: review is read-only and has no configurable sensor phase. A response produced by a registration wrapper, or returned by a tool body before it calls its handler, carries no `configured_gates` key at all.
 
+- A failing `phase="prepare"` review never recommends implementation (wave `1zime`): when `review_actions.recommended_next_action` exists, `usage` is a pure call expression, `wf_review_event(wave_id=..., <the action's state_args>, actor=...)`, so the served-name hint rewrite can rename it, and `data.next_action_note` explains that the caller adds the action's `required_caller_inputs` and `mode='create'`; otherwise the first lint, lane or review-evidence blocker names the remedy (see **Blocked-envelope hints** under `wf_prepare_wave`). `wf_implement_wave(..., mode='dry_run')` is recommended only when the readiness review passes. A failing implementation review takes its hint from the first diagnostic in `blocking_diagnostics`; on a declared wave the delivery `missing_required_lane` recovers to `wf_review_wave(wave_id=..., phase='implementation')`.
 - Sole guided inspection entry point for review work. `phase="prepare"` derives readiness actions and `phase="implementation"` derives delivery actions. The approval-phase vocabulary is accepted and mapped onto these: `phase="readiness"` resolves to `prepare` and `phase="delivery"` resolves to `implementation`, so a caller reaching for the word it uses on approvals succeeds instead of being rejected. It runs the existing full docs validation once, validates the declared authority, and returns the lane summary plus bounded `data.review_actions`.
 - Each action is discriminated as `repair_start`, `reverification`, or `approval`, and separates state-derived `state_args` from `required_caller_inputs`. The response emits `caller_input_schema` once and actions reference it with `input_schema_ref`; it enumerates every action's required top-level caller inputs plus required finding/approval evidence fields and all integrity-check fields before a write. A reverification also carries its current-head `judgment_template` and a blocking constraint. Judgment, evidence, integrity, freshness, and independence remain caller-authored. A successful `wf_review_event(mode="create")` returns the next post-commit projection, so the normal path does not call `wf_review_wave`, `event="list"`, or full validation after every accepted write. Failed or stale writes recover through a fresh phase-correct `wf_review_wave` call.
 - `review_evidence.py` is the field-vocabulary authority: `REVIEW_FINDING_CORE_JUDGMENT_FIELDS`, `REVIEW_FINDING_REPAIR_JUDGMENT_FIELDS`, `REVIEW_FINDING_REQUIRED_EVIDENCE_FIELDS`, `REVIEW_APPROVAL_REQUIRED_EVIDENCE_FIELDS`, `INTEGRITY_CHECK_FIELDS`, `REVIEW_ACTION_FIELDS`, `REVIEW_ACTION_STATE_FIELDS`, and `REVIEW_ACTION_CALLER_INPUTS` drive validation or action construction. Core judgment is exactly `validation_status`, `scope_relation`, `introduced_or_worsened_by_wave`, `contract_relevance`, `supported_reachability`, `attacker_reachability`, `authority_domain`, `authority_delta`, `observable_impact`, and `containment`; conditional repair judgment is `fix_risk`, `optional_value`, `repair_scope_bounded`, `repair_safety`, `benefit_vs_fix_risk`, and `rejection_basis`; finding evidence is `proposition`, `failure_condition`, `public_path`, `command_or_fixture`, `expected`, `observed`, `artifact_or_test_id`, `limitations`, `safety_and_authorization`, and `disposition_rationale`; approval evidence requires `observed` and `artifact_or_test_id`. Semantic contract tests compare seed 209, this specification, and the registered tool description with those exported registries so copied prose cannot silently drift.
@@ -1219,6 +1298,20 @@ above: typed-exclusive on declared waves, prose only on legacy waves.
 - Drafts are structurally eligible, not semantically approved. Close blocks when
   an eligible source has no persisted candidate or its candidate still has
   `Validation: pending`; zero-memory waves pass.
+- **What the checkbox hard gate reads (wave `1zime`):** every checklist item under any list
+  marker (`-`, `*`, `+`, `1.`, `1)`), in every section headed exactly `## Acceptance Criteria` or
+  `## Tasks` (a duplicated heading is read too), and in every near-miss section whose H2 heading
+  starts with one of those names but is not exact (`## Tasks (remaining)`), through one shared parser
+  (`change_doc_checklist.py`) that reads CRLF documents as LF ones. An AC's id comes only from the
+  start of the item (`AC-1: ...`, `**AC-1**: ...`, `` `AC-1` ... ``); an id cited later in the text
+  never exempts it, and an item without a leading id is `<unidentified>` and blocks while
+  unchecked. Both exact headings are required, though a section may be empty; a missing,
+  misspelled, suffixed or demoted heading blocks close as `change_doc_missing_sections` naming the
+  change and each missing heading, with `wf_get_change` recovery. Prepare checks the same two
+  headings by exact heading line and refuses, on every wave status, a checklist item in either
+  section whose marker is not `-`, and any near-miss heading, even beside an exact one
+  (`change_doc_noncanonical_checklist`); docs-lint fails such an item, naming the canonical
+  `- [ ] ...` form, and such a heading, for a change in a ready, active or implementing wave.
 - **Missing admitted documents block close (wave 1v0lx):** a `change_doc_missing`
   diagnostic per admitted change whose document has no file on disk, naming the
   change id and the recovery (restore the document, or `wf_remove_change`). The

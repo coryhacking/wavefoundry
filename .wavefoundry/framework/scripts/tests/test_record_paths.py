@@ -373,12 +373,22 @@ class NestedDiscoveryTests(_TempRoot):
         self._wave("a/b/c/d/1eeee five")
         self.assertEqual(rp.discover_wave_dirs(self.root), [four])
 
-    def test_nested_finds_waves_at_depth_one_two_and_three(self):
+    def test_nested_finds_waves_down_to_max_depth_and_none_beyond(self):
+        # 1zimh: the depths come from the live profile constant, so a
+        # distribution with a smaller or larger MAX_DEPTH checks its own bound.
         self._nested()
-        a = self._wave("1aaaa one")
-        b = self._wave("team/1bbbb two")
-        c = self._wave("team/feature/1cccc three")
-        self.assertEqual(rp.discover_wave_dirs(self.root), sorted([a, b, c]))
+        depth = rp.MAX_DEPTH
+        self.assertEqual(rp.load_record_roots(self.root).max_depth, depth)
+
+        def wave_at(level: int, tag: str) -> Path:
+            groups = [f"g{n}" for n in range(1, level)]
+            return self._wave("/".join([*groups, f"1{tag * 4} depth-{level}"]))
+
+        found = [wave_at(level, "abcdefgh"[level - 1]) for level in sorted({1, min(2, depth), depth})]
+        beyond = wave_at(depth + 1, "z")
+        discovered = rp.discover_wave_dirs(self.root)
+        self.assertEqual(discovered, sorted(found))
+        self.assertNotIn(beyond, discovered)
 
     def test_nested_never_descends_into_a_discovered_wave_folder(self):
         self._nested()
@@ -441,7 +451,7 @@ class NestedDiscoveryTests(_TempRoot):
             self.assertLessEqual(depth, 1, f"visited beyond max_depth: {d}")
 
     def test_duplicate_ids_at_two_depths_are_reported_with_both_paths(self):
-        self._nested()
+        self._nested(max_depth=2)
         self._wave("1aaaa one")
         self._wave("team/1aaaa one-again")
         self._wave("1bbbb unique")
@@ -456,7 +466,7 @@ class NestedDiscoveryTests(_TempRoot):
 
     def test_ambiguity_diagnostics_tolerate_a_resolved_path_against_an_unresolved_root(self):
         # Review finding F3: /var vs /private/var.
-        self._nested()
+        self._nested(max_depth=2)
         self._wave("1aaaa one")
         self._wave("team/1aaaa one-again")
         dirs = [d.resolve() for d in rp.discover_wave_dirs(self.root)]

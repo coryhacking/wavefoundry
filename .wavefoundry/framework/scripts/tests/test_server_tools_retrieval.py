@@ -3401,6 +3401,65 @@ class LayerHealthFileMetaTests(unittest.TestCase):
         self.assertNotIn(".wavefoundry/framework/MANIFEST", current)
         self.assertNotIn(".wavefoundry/framework/VERSION", current)
 
+    def test_unreadable_paths_are_neither_removed_nor_stale(self):
+        """Wave 1zime (1zimk repair): health passes the walk's unreadable sets.
+
+        The build keeps the index rows of a file whose stat is denied and of
+        files under an unreadable directory, so health must not report them as
+        removed. The denial is simulated at the walk so the check is the same
+        on every platform: the real walk runs and the denied paths are moved
+        from its result into the sets the caller passed.
+        """
+        root = self._make_repo(self.tmp)
+        docs = root / "docs"
+        (docs / "guide.md").write_text("# Guide\n\nHello.\n", encoding="utf-8")
+        (docs / "secret.md").write_text("# Secret\n", encoding="utf-8")
+        (docs / "locked").mkdir()
+        (docs / "locked" / "inner.md").write_text("# Inner\n", encoding="utf-8")
+        idx_dir = root / ".wavefoundry" / "index"
+        idx_dir.mkdir(parents=True, exist_ok=True)
+        meta = {
+            "built_at": "2026-01-01T00:00:00Z",
+            "content": ["docs"],
+            "model_versions": {"docs": "legacy/model-v1"},
+            "chunker_versions": {"docs": "13"},
+            "walker_version": "3",
+            "file_meta": self._file_meta_for_root(root),
+        }
+        self.assertIn("docs/secret.md", meta["file_meta"])
+        self.assertIn("docs/locked/inner.md", meta["file_meta"])
+        _seed_store_state(idx_dir, meta)
+        wave_idx = self.server.WaveIndex(root)
+        wave_idx._loaded = True
+        wave_idx._meta = {"project": meta}
+        indexer = wave_idx._indexer_module()
+        real_walk = indexer.walk_repo
+        calls = []
+
+        def denying_walk(walk_root, *, unreadable_dirs=None, unreadable_files=None, **kwargs):
+            calls.append((unreadable_dirs is not None, unreadable_files is not None))
+            files = real_walk(walk_root, unreadable_dirs=unreadable_dirs,
+                              unreadable_files=unreadable_files, **kwargs)
+            if unreadable_files is not None:
+                unreadable_files.add("docs/secret.md")
+            if unreadable_dirs is not None:
+                unreadable_dirs.add("docs/locked")
+            hidden = {root / "docs" / "secret.md", root / "docs" / "locked" / "inner.md"}
+            return [path for path in files if path not in hidden]
+
+        with patch.object(indexer, "walk_repo", side_effect=denying_walk) as walk_mock:
+            health = wave_idx._layer_health("project")
+        walk_mock.assert_called()
+        self.assertEqual(calls, [(True, True)])
+        self.assertEqual(health["stale_paths"], [])
+        self.assertEqual(health["removed_paths_count"], 0)
+        # A genuinely removed file is still reported.
+        meta["file_meta"]["docs/gone.md"] = dict(meta["file_meta"]["docs/guide.md"])
+        with patch.object(indexer, "walk_repo", side_effect=denying_walk) as walk_mock:
+            health = wave_idx._layer_health("project")
+        walk_mock.assert_called()
+        self.assertEqual(health["stale_paths"], ["docs/gone.md"])
+
 
 class BackgroundRefreshActiveTests(unittest.TestCase):
     """_background_refresh_active correctly guards against duplicate indexer spawns."""

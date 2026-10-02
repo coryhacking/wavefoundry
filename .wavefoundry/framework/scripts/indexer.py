@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import errno as errno_module
 import hashlib
 import json
 import os
 import re
 import shutil
+import stat as stat_module
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -907,11 +909,52 @@ def _filter_vendored_assets(files: list[Path], root: Path) -> list[Path]:
     ]
 
 
+# Wave 1zime (1zimk): the errors ``pathlib`` itself reads as "not there" when it
+# classifies an entry (``pathlib._abc._IGNORED_ERRNOS`` / ``_IGNORED_WINERRORS``).
+# A failed entry stat carrying one of these keeps its old meaning (not a file,
+# skipped silently); any other ``OSError`` is a denial the walk reports.
+_WALK_ABSENT_ERRNOS = frozenset(
+    code for code in (
+        getattr(errno_module, "ENOENT", None),
+        getattr(errno_module, "ENOTDIR", None),
+        getattr(errno_module, "EBADF", None),
+        getattr(errno_module, "ELOOP", None),
+    ) if code is not None
+)
+# ERROR_INVALID_NAME (123), ERROR_CANT_RESOLVE_FILENAME (1921), ERROR_NOT_READY (21).
+_WALK_ABSENT_WINERRORS = frozenset({21, 123, 1921})
+
+
+def _walk_stat_error_is_absence(exc: OSError) -> bool:
+    """True when a failed entry stat means the entry is not there (a dangling
+    symlink, a file deleted after listing), not that it could not be read."""
+    if getattr(exc, "winerror", None) in _WALK_ABSENT_WINERRORS:
+        return True
+    return getattr(exc, "errno", None) in _WALK_ABSENT_ERRNOS
+
+
+def _walk_entry_is_regular_file(path: Path, root: Path, denied_files: "set[str]") -> bool:
+    """Stat one listed entry (following symlinks) for ``walk_repo``: True for a
+    regular file. A failure ``pathlib`` reads as absence is silent; any other
+    ``OSError`` records the root-relative path in ``denied_files``."""
+    try:
+        entry_stat = os.stat(path)
+    except OSError as exc:
+        if not _walk_stat_error_is_absence(exc):
+            try:
+                denied_files.add(str(path.relative_to(root)).replace("\\", "/"))
+            except ValueError:
+                pass
+        return False
+    return stat_module.S_ISREG(entry_stat.st_mode)
+
+
 def walk_repo(
     root: Path,
     *,
     respect_ignore: bool = True,
     unreadable_dirs: "set[str] | None" = None,
+    unreadable_files: "set[str] | None" = None,
 ) -> list[Path]:
     """Return all indexable files under root, respecting ignore rules.
 
@@ -927,12 +970,24 @@ def walk_repo(
     directory (root-relative, ``"."`` for the root itself) is added to ``unreadable_dirs``
     when the caller passes a set, and the condition is printed to stderr either way, so a
     consumer can tell "not walked" from "not there". The walk's FILTER logic is
-    unchanged (no ``WALKER_VERSION`` bump)."""
+    unchanged (no ``WALKER_VERSION`` bump).
+
+    Wave 1zime (1zimk): a listed ENTRY whose stat fails is classified the same
+    way on every supported Python. ``os.stat`` (following symlinks) replaces
+    ``Path.is_file``, which on Python 3.13 and earlier re-raised a denial and so
+    aborted the whole walk. A failure ``pathlib`` reads as absence
+    (``_walk_stat_error_is_absence``) still means "not a file" and is skipped
+    silently; any other ``OSError`` (``EACCES``, ``EPERM``, a Windows access
+    denial) adds the root-relative path to ``unreadable_files`` when the caller
+    passes a set, and one stderr line per walk names them. Every path- and
+    name-based filter (hard-coded excludes, ignore files) runs before that stat,
+    so an excluded entry is never stat'ed or reported."""
     ignore_patterns = _load_ignore_patterns(root) if respect_ignore else []
     max_file_bytes = _resolve_max_file_bytes(root)
     reinclude_names = _resolve_walk_reinclude_filenames(root)
     result: list[Path] = []
     unreadable: set[str] = set()
+    denied_files: set[str] = set()
 
     def _on_walk_error(exc: OSError) -> None:
         raw = getattr(exc, "filename", None)
@@ -979,9 +1034,11 @@ def walk_repo(
 
         for filename in filenames:
             path = dir_path / filename
-            if not path.is_file():
-                continue
 
+            # Wave 1zime (1zimk repair): every path- and name-based filter runs
+            # BEFORE the entry stat, so an excluded or ignored entry whose stat
+            # would be denied is never stat'ed, reported, or allowed to block a
+            # storage rebuild. Only the content sniff and the size cap follow it.
             try:
                 rel = path.relative_to(root)
             except ValueError:
@@ -1033,7 +1090,8 @@ def walk_repo(
             # Must be checked before the gitignore check and binary sniff since .env has no
             # recognised extension and is typically listed in .gitignore.
             if filename == ".env" or (filename.startswith(".env.") and len(filename) > 5):
-                result.append(path)
+                if _walk_entry_is_regular_file(path, root, denied_files):
+                    result.append(path)
                 continue
 
             # Name layer (exclusion story layer 5): exact generated filenames plus
@@ -1056,12 +1114,22 @@ def walk_repo(
 
             # Allow extensionless docs files (README, LICENSE, etc.) before extension check
             if not path.suffix and filename in DOCS_EXTENSIONLESS_NAMES:
-                result.append(path)
+                if _walk_entry_is_regular_file(path, root, denied_files):
+                    result.append(path)
                 continue
 
             # Allow extensionless code files (Jenkinsfile, Makefile, etc.) before extension check
             if not path.suffix and filename in CODE_EXTENSIONLESS_NAMES:
-                result.append(path)
+                if _walk_entry_is_regular_file(path, root, denied_files):
+                    result.append(path)
+                continue
+
+            # .gitignore / .aiignore (path-based, so ahead of the stat; wave 1zime moved it
+            # above the content sniff, which changes no result: both only exclude).
+            if _matches_ignore(rel_str, ignore_patterns):
+                continue
+
+            if not _walk_entry_is_regular_file(path, root, denied_files):
                 continue
 
             # Binary sniff for extensionless files and files with unrecognized extensions.
@@ -1081,10 +1149,6 @@ def walk_repo(
                         continue
                 except OSError:
                     continue
-
-            # .gitignore / .aiignore
-            if _matches_ignore(rel_str, ignore_patterns):
-                continue
 
             # Wave 1p5c4: hard size guard — skip pathologically large files (e.g. a multi-GB SQL
             # backup) so they are never read or tree-sitter-parsed. Checked AFTER the ignore filters
@@ -1118,6 +1182,17 @@ def walk_repo(
             f"{'it' if len(unreadable) == 1 else 'them'}; paths under "
             f"{'it' if len(unreadable) == 1 else 'them'} were NOT walked): "
             + _describe_unreadable_dirs(unreadable),
+            file=sys.stderr,
+            flush=True,
+        )
+    if denied_files:
+        if unreadable_files is not None:
+            unreadable_files.update(denied_files)
+        print(
+            f"build_index: walk skipped {len(denied_files)} unreadable file"
+            f"{'' if len(denied_files) == 1 else 's'} (the stat was denied; "
+            f"{'it was' if len(denied_files) == 1 else 'they were'} NOT walked, "
+            "not removed): " + _describe_unreadable_dirs(denied_files),
             file=sys.stderr,
             flush=True,
         )
@@ -3817,7 +3892,12 @@ def preflight_rebuild_sources(root: Path, index_dir: Path | None = None, *,
     root = Path(root)
     index_dir = index_dir or root / INDEX_DIR_NAME
     unreadable = set()
-    files = walk_repo(root, respect_ignore=respect_ignore, unreadable_dirs=unreadable)
+    unreadable_files: set[str] = set()
+    files = walk_repo(root, respect_ignore=respect_ignore, unreadable_dirs=unreadable,
+                      unreadable_files=unreadable_files)
+    # Wave 1zime (1zimk): a denied file is matched by exact path, so the union
+    # rides the existing directory parameter.
+    unreadable |= unreadable_files
     if unreadable:
         raise RuntimeError("storage_rebuild_source_unreadable: " + _describe_unreadable_dirs(unreadable))
     files = _filter_by_prefixes([p for p in files if not _is_relative_to(p, index_dir)], root, include_prefixes)
@@ -3992,7 +4072,10 @@ def _validate_prepared_removals(
         return
     unreadable = set()
     if requested_files is None:
-        current = walk_repo(root, respect_ignore=respect_ignore, unreadable_dirs=unreadable)
+        unreadable_files: set[str] = set()
+        current = walk_repo(root, respect_ignore=respect_ignore, unreadable_dirs=unreadable,
+                            unreadable_files=unreadable_files)
+        unreadable |= unreadable_files  # wave 1zime (1zimk): exact-path match
         current = [path for path in current if not _is_relative_to(path, index_dir)]
         current = _filter_by_prefixes(current, root, include_prefixes)
     else:
@@ -4406,7 +4489,15 @@ def _build_index_locked(
 
     if files is None:
         # Walk repo
-        files = walk_repo(root, respect_ignore=respect_ignore, unreadable_dirs=_unreadable_dirs)
+        _unreadable_files: set[str] = set()
+        files = walk_repo(root, respect_ignore=respect_ignore, unreadable_dirs=_unreadable_dirs,
+                          unreadable_files=_unreadable_files)
+        # Wave 1zime (1zimk): a file whose stat was denied is "not walked", not
+        # "deleted". ``_shadowed_by_unreadable`` (and the graph's mirror) match an
+        # exact path, so the union rides every existing ``unreadable_dirs``
+        # consumer: the carry-forward, the storage-rebuild refusal, the
+        # eligibility reap, the orphan reconcile and the graph merge.
+        _unreadable_dirs |= _unreadable_files
         if storage_rebuild and _unreadable_dirs:
             raise RuntimeError("storage_rebuild_source_unreadable: " + _describe_unreadable_dirs(_unreadable_dirs))
         files = [path for path in files if not _is_relative_to(path, index_dir)]
@@ -4605,9 +4696,9 @@ def _build_index_locked(
             for _rel in _walk_shadowed:
                 current_file_meta[_rel] = old_file_meta[_rel]
             _shadow_msg = (
-                f"build_index: {len(_walk_shadowed)} indexed path(s) sit under a directory the walk "
+                f"build_index: {len(_walk_shadowed)} indexed path(s) are, or sit under, an entry the walk "
                 f"could not read ({_describe_unreadable_dirs(_unreadable_dirs)}); treating them as unchanged, "
-                "not removed: rows, layer hashes and bookkeeping are kept until the directory is "
+                "not removed: rows, layer hashes and bookkeeping are kept until the entry is "
                 "readable again"
             )
             print(_shadow_msg, file=sys.stderr, flush=True)

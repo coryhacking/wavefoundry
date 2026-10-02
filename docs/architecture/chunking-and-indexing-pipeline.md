@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-29
+Last verified: 2026-10-01
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -727,7 +727,14 @@ model even though they originate from `.py`, `.java`, etc.
    valid embeddings and the exact production static graph passes a crash-isolated child-process
    probe. The child repeats a full batch, verifies Arctic S's 384-dimensional output and CPU parity,
    and must exit normally; a native ONNX/CoreML crash or timeout is cached as unsafe and the parent
-   uses the CPU/full-precision fallback instead. The initial provider probe is accepted on
+   uses the CPU/full-precision fallback instead. The initial bounded provider probe also runs in a
+   crash-isolated child (wave `1zime`): `setup_index._probe_embedding_provider` spawns the
+   measurement (`_measure_embedding_provider`, serial, telemetry disabled) through
+   `_run_install_step` with `PROVIDER_PROBE_TIMEOUT_SECONDS` (600 s), reads only its last
+   `WF_PROBE_RESULT ` stdout line, and maps a death by signal, a Windows crash code (at or above
+   `0xC0000000`), any other non-zero exit, an unparseable result or the timeout to a rejected
+   candidate whose reason names it, so CPU stays selected and `wf setup`, `gpu_doctor.py` and
+   `wf_gpu_doctor` continue instead of ending with the native fault. The initial provider probe is accepted on
    correctness alone — CoreML partitions unsupported ops back to CPU, so no speedup margin is
    required. A CoreML probe failure matching the known macOS
    temp-working-directory shape (`Failed to create a working directory …` under

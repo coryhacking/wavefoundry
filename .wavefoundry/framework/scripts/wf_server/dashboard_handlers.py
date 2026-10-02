@@ -422,13 +422,19 @@ def _terminate_dashboard_pid(pid: int) -> bool:
         return True
 
     if os.name == "nt":
+        # Wave 1zime (1zimk): bounded like subprocess_util._kill_process_tree, so a
+        # taskkill that hangs (a stuck tree, an unresponsive service host) reports
+        # "not stopped" instead of blocking wf_stop_dashboard / wf_restart_dashboard.
         try:
             completed = server_impl._mcp_subprocess_run(
                 ["taskkill", "/PID", str(pid), "/T", "/F"],
                 capture_output=False,
                 cwd=str(Path.cwd()),
                 check=False,
+                timeout=10,
             )
+        except subprocess.TimeoutExpired:
+            return not server_impl._pid_is_running(pid)
         except OSError:
             return False
         return completed.returncode == 0 or not server_impl._pid_is_running(pid)

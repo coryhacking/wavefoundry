@@ -350,40 +350,118 @@ def _run_install_step(cmd, **kwargs):
 # to a release public for at least the package-age window.
 UV_BOOTSTRAP_REQUIREMENT = "uv==0.12.4"
 
+# Every wheel PyPI publishes for UV_BOOTSTRAP_REQUIREMENT, as (filename, sha256) from
+# https://pypi.org/pypi/uv/<version>/json (wave 1zimd). pip installs only a wheel matching one of
+# these hashes; the filenames are for review. A version bump replaces the whole table in the same
+# commit (package-wavefoundry checklist step 3); the suite fails on a filename for another version.
+UV_BOOTSTRAP_WHEEL_SHA256 = (
+    ("uv-0.12.4-py3-none-linux_armv6l.whl",
+     "9c343a7251d1b4c47e467fd38ae16448e9d1607a645e332a95439bfb2a74b66e"),
+    ("uv-0.12.4-py3-none-macosx_10_12_x86_64.whl",
+     "bdb7de1a0f70eaf957d782f84b3d39a9248d3ffd8dbf845304c623f70421870c"),
+    ("uv-0.12.4-py3-none-macosx_11_0_arm64.whl",
+     "004e75a64fa44619b0e3bb267c206a6920e65b78c963863b649c3bcdfd870610"),
+    ("uv-0.12.4-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.musllinux_1_1_aarch64.whl",
+     "faf6430497f3bf6a1c92d10215cd4097c8094d57955fbe563b30ba3add62a9c9"),
+    ("uv-0.12.4-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.musllinux_1_1_armv7l.whl",
+     "221744261e47b140bc29de6be9900f6d7153d1ddc2e652b24c6838beadadb032"),
+    ("uv-0.12.4-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.whl",
+     "7517ae9cad6c0762fc1ee263980077e8715cc15976ee7516136a26f195792c71"),
+    ("uv-0.12.4-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl",
+     "18a76d7d479c13fcac26e8dac42e5ac753feb076cce2b0fd7e936e5837aae89b"),
+    ("uv-0.12.4-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl",
+     "dc5ce8196d448fc704f6c74cd6bd3a1183f82f87620f3985bae3bddab0a01dd1"),
+    ("uv-0.12.4-py3-none-manylinux_2_17_s390x.manylinux2014_s390x.whl",
+     "6b77b36b64ff260d09fc02c440a3c392d9bff77389a5a91d3a663aab074375d0"),
+    ("uv-0.12.4-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+     "3bb292d959fa73000d524159cd5f3c1aa1cf2db9cc3005ccdec06911a9998e84"),
+    ("uv-0.12.4-py3-none-manylinux_2_28_aarch64.whl",
+     "2b387bf72accc04c50f27808188c5ecd82bd123bf87cb9bb1b01b9c5344a506f"),
+    ("uv-0.12.4-py3-none-manylinux_2_31_riscv64.musllinux_1_1_riscv64.whl",
+     "81c03a57524b8f9cf1530fc9cc69aea0a2a16d73e5dbcf5d40043b2a68a9d43b"),
+    ("uv-0.12.4-py3-none-manylinux_2_31_riscv64.whl",
+     "54635bc94277b72189b1159cc12a95e12fd92b78c84b6df4a6aecbd08edc7837"),
+    ("uv-0.12.4-py3-none-musllinux_1_1_i686.whl",
+     "8d3744d48969ecd5ca7dc766e1223f0d39106fc1ad433bae8edd45c915a1187c"),
+    ("uv-0.12.4-py3-none-musllinux_1_1_x86_64.whl",
+     "9338a8bc8e8a350ec6f954178326e6fdc8872df2f14a233644973ac7fc46aa5e"),
+    ("uv-0.12.4-py3-none-win32.whl",
+     "dc9e67e1068bc1140ebae3a5fe26c0355ab03af254d668c5b8824984b9c02126"),
+    ("uv-0.12.4-py3-none-win_amd64.whl",
+     "a49cf2bde46a181f3d22927221a8e9f1254c38b7d810a3d3a697c42f5053537f"),
+    ("uv-0.12.4-py3-none-win_arm64.whl",
+     "3dc929ea44123d4f5492cebe9dc09852152509113134030473a70fbd702d62f0"),
+)
+
+
+def _uv_bootstrap_failed(detail: str = "", *, pip_ran: bool = True) -> None:
+    # pip_ran=False (the requirements file could not be written): there is no pip output to point at.
+    pointer = "; see pip's output above" if pip_ran else ""
+    print(
+        f"Could not install the pinned uv ({UV_BOOTSTRAP_REQUIREMENT}) with its recorded hashes"
+        f"{': ' + detail if detail else ''}{pointer}. No unverified uv was installed.",
+        file=sys.stderr,
+    )
+
 
 def _bootstrap_uv(venv_python: Path, root: Path | None = None, *, lock=None) -> Path | None:
     """Install the pinned uv wheel into the tool venv via pip and return its path, or None on failure.
 
     Wheel only, so a platform without a published wheel fails fast instead of building uv's sdist.
+    pip checks the download against ``UV_BOOTSTRAP_WHEEL_SHA256`` (``--require-hashes``) and refuses
+    any other bytes, so a failure here never leaves an unverified uv behind (wave 1zimd).
     """
     print("uv not found — installing uv for package age enforcement ...", flush=True)
     venv_python = Path(os.path.abspath(venv_python))
     uv_timeout = _setup_deadlines(root)["uv_bootstrap_timeout_seconds"]
+    # pip accepts --hash only inside a requirements file, and ignores --hash options on lines of
+    # their own, so the requirement and every hash share one logical line.
+    line = " ".join([UV_BOOTSTRAP_REQUIREMENT, *(f"--hash=sha256:{digest}" for _, digest in UV_BOOTSTRAP_WHEEL_SHA256)])
+    requirements = None
     try:
-        result = _run_install_step(
-            [str(venv_python), "-m", "pip", "install", "--only-binary", ":all:", UV_BOOTSTRAP_REQUIREMENT],
-            check=False,
-            env=_installer_env(_pip_tls_env()),
-            timeout=uv_timeout,
-            cwd=str(venv_bootstrap.tool_venv_base()),
-            **_lock_passing_kwargs(lock),
-        )
-    except subprocess.TimeoutExpired:
-        # Wave 1p9it: uv is an OPTIONAL supply-chain age guard; a stalled `pip install uv` (hung PyPI
-        # fetch behind a corp MITM / flaky proxy) must not hang setup. Fail loud for THIS stage and fall
-        # back to plain pip for the actual dependency install (which is itself deadline-bounded).
-        print(
-            f"Installing uv timed out after {uv_timeout:g}s (`pip install uv`). This is almost always a "
-            "stalled PyPI fetch — check network/proxy/TLS reachability to https://pypi.org (corp MITM / "
-            "flaky proxy). Falling back to plain pip without the package-age guard; raise "
-            "`setup.uv_bootstrap_timeout_seconds` in docs/workflow-config.json if the network is "
-            "legitimately slow.",
-            file=sys.stderr,
-        )
-        return None
-    if result.returncode != 0:
-        return None
-    return _uv_bin(venv_python)
+        try:
+            fd, requirements = tempfile.mkstemp(
+                prefix="uv-bootstrap-", suffix=".txt", dir=str(venv_bootstrap.tool_venv_base()))
+            requirements = os.path.abspath(requirements)
+            try:
+                os.write(fd, (line + "\n").encode("utf-8"))
+            finally:
+                # Closed before pip runs so Windows can open it.
+                os.close(fd)
+        except OSError as exc:
+            _uv_bootstrap_failed(f"the requirements file could not be written ({exc})", pip_ran=False)
+            return None
+        try:
+            result = _run_install_step(
+                [str(venv_python), "-m", "pip", "install", "--require-hashes", "--only-binary", ":all:",
+                 "--no-deps", "-r", requirements],
+                check=False,
+                env=_installer_env(_pip_tls_env()),
+                timeout=uv_timeout,
+                cwd=str(venv_bootstrap.tool_venv_base()),
+                **_lock_passing_kwargs(lock),
+            )
+        except subprocess.TimeoutExpired:
+            # Wave 1p9it: uv is an OPTIONAL supply-chain age guard; a stalled `pip install uv` (hung PyPI
+            # fetch behind a corp MITM / flaky proxy) must not hang setup. Fail loud for THIS stage and fall
+            # back to plain pip for the actual dependency install (which is itself deadline-bounded).
+            print(
+                f"Installing uv timed out after {uv_timeout:g}s (`pip install uv`). This is almost always a "
+                "stalled PyPI fetch — check network/proxy/TLS reachability to https://pypi.org (corp MITM / "
+                "flaky proxy). Falling back to plain pip without the package-age guard; raise "
+                "`setup.uv_bootstrap_timeout_seconds` in docs/workflow-config.json if the network is "
+                "legitimately slow.",
+                file=sys.stderr,
+            )
+            return None
+        if result.returncode != 0:
+            _uv_bootstrap_failed()
+            return None
+        return _uv_bin(venv_python)
+    finally:
+        if requirements is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(requirements)
 
 
 DEPENDENCY_INSTALL_LOCK_SUFFIX = ".install.lock"
@@ -1496,8 +1574,139 @@ _COREML_TEMPDIR_RECOVERY = (
 )
 
 
+# Wave 1zime (1zimk): the provider probe runs its measurement in a child process, so a native
+# fault in ONNX Runtime or a provider library (a segmentation fault, an abort, a Windows access
+# violation) rejects the candidate instead of ending `wf setup` or the MCP server (wf_gpu_doctor).
+# First-time CoreML compilation can take minutes, so the bound is generous.
+PROVIDER_PROBE_TIMEOUT_SECONDS = 600
+PROVIDER_PROBE_RESULT_PREFIX = "WF_PROBE_RESULT "
+_PROVIDER_PROBE_STDERR_TAIL_LINES = 5
+_WINDOWS_CRASH_CODE_FLOOR = 0xC0000000
+
+
+def _provider_probe_child_command(provider: str, model_name: str | None) -> list[str]:
+    """The probe child: this interpreter, importing this module and running
+    ``_provider_probe_child_main``. The child inherits the parent environment."""
+    code = (
+        "import sys; sys.path.insert(0, sys.argv[1]); import setup_index; "
+        "sys.exit(setup_index._provider_probe_child_main(sys.argv[2:]))"
+    )
+    cmd = [sys.executable, "-B", "-c", code, str(SCRIPTS_DIR), provider]
+    if model_name:
+        cmd.append(model_name)
+    return cmd
+
+
+def _provider_probe_result_line(result: provider_policy.ProviderProbeResult) -> str:
+    return PROVIDER_PROBE_RESULT_PREFIX + json.dumps({
+        "provider": result.provider,
+        "ok": bool(result.ok),
+        "reason": result.reason,
+        "candidate_seconds": result.candidate_seconds,
+        "cpu_seconds": result.cpu_seconds,
+    })
+
+
+def _provider_probe_child_main(argv: list[str]) -> int:
+    """Entry point of the probe child: measure, then write the result as the last stdout line."""
+    import faulthandler
+
+    faulthandler.enable()  # a native fault leaves a Python-level trace in the captured stderr
+    venv_bootstrap.activate_tool_venv()
+    provider = argv[0]
+    model_name = argv[1] if len(argv) > 1 else None
+    try:
+        result = _measure_embedding_provider(provider, model_name=model_name)
+    except Exception as exc:  # noqa: BLE001 - any failure rejects the candidate, as before
+        result = provider_policy.ProviderProbeResult(provider, False, f"{type(exc).__name__}: {exc}")
+    sys.stdout.flush()
+    print(_provider_probe_result_line(result), flush=True)
+    return 0
+
+
+def _provider_probe_stderr_tail(stderr) -> str:
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", errors="replace")
+    lines = [line.strip() for line in (stderr or "").splitlines() if line.strip()]
+    tail = lines[-_PROVIDER_PROBE_STDERR_TAIL_LINES:]
+    return f"; stderr: {' | '.join(tail)}" if tail else "; no stderr"
+
+
+def _provider_probe_outcome(provider: str, returncode: int, stdout, stderr) -> provider_policy.ProviderProbeResult:
+    """Map the probe child's exit to a result. Only the last stdout line is parsed; the
+    child's other stdout lines are echoed with ``print`` (wf_gpu_doctor redirects them)."""
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode("utf-8", errors="replace")
+    lines = (stdout or "").splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    payload = None
+    if lines and lines[-1].startswith(PROVIDER_PROBE_RESULT_PREFIX):
+        payload = lines.pop()[len(PROVIDER_PROBE_RESULT_PREFIX):]
+    for line in lines:
+        print(line, flush=True)
+    tail = _provider_probe_stderr_tail(stderr)
+    if returncode < 0:
+        import signal as _signal
+
+        try:
+            name = _signal.Signals(-returncode).name
+        except ValueError:
+            name = "unknown signal"
+        return provider_policy.ProviderProbeResult(
+            provider, False, f"provider probe crashed (signal {-returncode}, {name}){tail}")
+    if returncode >= _WINDOWS_CRASH_CODE_FLOOR:
+        return provider_policy.ProviderProbeResult(
+            provider, False, f"provider probe crashed (exception code 0x{returncode:08X}){tail}")
+    if returncode != 0:
+        return provider_policy.ProviderProbeResult(provider, False, f"provider probe exited {returncode}{tail}")
+    try:
+        data = json.loads(payload) if payload is not None else None
+        if not isinstance(data, dict) or not isinstance(data["ok"], bool) or not isinstance(data["reason"], str):
+            raise ValueError("result fields")
+        timings = []
+        for key in ("candidate_seconds", "cpu_seconds"):
+            value = data.get(key)
+            timings.append(None if value is None else float(value))
+    except (ValueError, KeyError, TypeError):
+        return provider_policy.ProviderProbeResult(
+            provider, False, f"provider probe returned no parseable result{tail}")
+    return provider_policy.ProviderProbeResult(
+        provider, data["ok"], data["reason"], candidate_seconds=timings[0], cpu_seconds=timings[1])
+
+
 def _probe_embedding_provider(provider: str, *, model_name: str | None = None) -> provider_policy.ProviderProbeResult:
-    """Bounded correctness/performance probe for providers that need model proof.
+    """Bounded, crash-isolated provider probe (wave 1zime / 1zimk).
+
+    Runs ``_measure_embedding_provider`` in a child Python process through the call-time resolver
+    ``_run_install_step`` (a timeout ends the child's whole tree), stdin closed and output captured.
+    A death by signal, a Windows crash code, any other non-zero exit, an unparseable result or the
+    timeout rejects the candidate with a reason naming it, which leaves CPU selected exactly as an
+    ordinary probe failure does."""
+    timeout = PROVIDER_PROBE_TIMEOUT_SECONDS
+    cmd = _provider_probe_child_command(provider, model_name)
+    try:
+        proc = _run_install_step(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            stdin=subprocess.DEVNULL,
+            timeout=PROVIDER_PROBE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return provider_policy.ProviderProbeResult(
+            provider, False,
+            f"provider probe timed out after {timeout:g}s{_provider_probe_stderr_tail(exc.stderr)}")
+    except OSError as exc:
+        return provider_policy.ProviderProbeResult(
+            provider, False, f"provider probe could not start: {type(exc).__name__}: {exc}")
+    return _provider_probe_outcome(provider, proc.returncode, proc.stdout, proc.stderr)
+
+
+def _measure_embedding_provider(provider: str, *, model_name: str | None = None) -> provider_policy.ProviderProbeResult:
+    """Bounded correctness/performance measurement for providers that need model proof. Runs in
+    the probe child (``_provider_probe_child_main``); never call it in a long-lived process.
 
     Wave 1p9lj: a CoreML failure matching the known temp-working-directory shape gets ONE bounded
     repair+retry INSIDE this probe — before any decision is recorded to
@@ -1529,9 +1738,10 @@ def _probe_embedding_provider(provider: str, *, model_name: str | None = None) -
             # FastEmbed and ONNX Runtime both do lazy setup that would otherwise dominate
             # a tiny benchmark and make CoreML look better than a full-corpus rebuild.
             # SERIAL ONLY (wave 1p8vc): every `embed()` below runs with the default `parallel=None`
-            # (serial inline path). Do NOT pass `parallel=` here — this probe runs in-process inside the
-            # MCP server (wf_gpu_doctor), and fastembed's parallel path spawns workers that re-load ORT
-            # and would write cold-load diagnostics to the inherited MCP stdout fd, corrupting JSON-RPC.
+            # (serial inline path). Do NOT pass `parallel=` here: fastembed's parallel path spawns
+            # workers that re-load ORT and write cold-load diagnostics to an inherited stdout. Wave 1zime
+            # moved this measurement into the probe child (whose stdout is captured and parsed by line),
+            # and it stays serial so its output and process tree stay bounded and predictable.
             cpu_embedding = TextEmbedding(
                 model_name=model,
                 local_files_only=True,

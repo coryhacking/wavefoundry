@@ -441,3 +441,741 @@ class LockReleaseRecordTests(unittest.TestCase):
                 with self.lifecycle_lock.lifecycle_mutation_lock(self.root):
                     self.fail("the body must not run")
         self.assertEqual(released, [True])
+
+
+# Wave 1zimc (1zimg): the lifecycle lock is a process-owned record lock on
+# POSIX, so a same-process re-entry or a same-process probe that opens and
+# closes the file would release the holder's lock. Every "other process" below
+# is a fresh interpreter started with ``sys.executable`` (never a fork, which
+# would inherit the in-process hold registry).
+_CHILD_PRELUDE = (
+    "import sys\n"
+    "sys.path.insert(0, sys.argv[1])\n"
+    "from pathlib import Path\n"
+    "root = Path(sys.argv[2])\n"
+)
+
+_TRY_LIFECYCLE = _CHILD_PRELUDE + (
+    "import lifecycle_lock\n"
+    "try:\n"
+    "    with lifecycle_lock.lifecycle_mutation_lock(root):\n"
+    "        print('acquired', flush=True)\n"
+    "except lifecycle_lock.LifecycleLockBusy:\n"
+    "    print('busy', flush=True)\n"
+)
+
+_HOLD_PUBLICATION = _CHILD_PRELUDE + (
+    "import review_evidence\n"
+    "with review_evidence.project_state_publication_lock(root):\n"
+    "    print('held', flush=True)\n"
+    "    sys.stdin.readline()\n"
+    "print('released', flush=True)\n"
+)
+
+_HOLD_LIFECYCLE = _CHILD_PRELUDE + (
+    "import lifecycle_lock\n"
+    "with lifecycle_lock.lifecycle_mutation_lock(root):\n"
+    "    print('held', flush=True)\n"
+    "    sys.stdin.readline()\n"
+    "print('released', flush=True)\n"
+)
+
+_WAIT_INSIDE_TRANSACTION = _CHILD_PRELUDE + (
+    "import time\n"
+    "import lifecycle_lock\n"
+    "import review_evidence\n"
+    "with lifecycle_lock.lifecycle_publication_transaction(root):\n"
+    "    for wait in (True, False):\n"
+    "        started = time.monotonic()\n"
+    "        try:\n"
+    "            with review_evidence.project_state_publication_lock(root, wait=wait):\n"
+    "                print(f'entered wait={wait}', flush=True)\n"
+    "        except review_evidence.ProjectPublicationUnavailable as exc:\n"
+    "            elapsed = time.monotonic() - started\n"
+    "            print(f'refused wait={wait} elapsed={elapsed:.3f} {exc}', flush=True)\n"
+    "    print('holding', flush=True)\n"
+    "    sys.stdin.readline()\n"
+    "print('done', flush=True)\n"
+)
+
+
+def _other_process_lifecycle(root: Path) -> str:
+    """One acquire attempt on the lifecycle lock from a fresh interpreter."""
+    out = subprocess.run(
+        [sys.executable, "-B", "-c", _TRY_LIFECYCLE, str(SCRIPTS_ROOT), str(root)],
+        capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL,
+    )
+    return out.stdout.strip() or f"<no answer: rc={out.returncode} {out.stderr[-2000:]}>"
+
+
+class _Child:
+    """A fresh-interpreter child whose stdout lines are read with a timeout."""
+
+    def __init__(self, code: str, root: Path) -> None:
+        import queue
+
+        self.proc = subprocess.Popen(
+            [sys.executable, "-B", "-c", code, str(SCRIPTS_ROOT), str(root)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.lines: "queue.Queue[str | None]" = queue.Queue()
+        threading.Thread(target=self._pump, daemon=True).start()
+
+    def _pump(self) -> None:
+        for line in self.proc.stdout:
+            self.lines.put(line.rstrip("\n"))
+        self.lines.put(None)
+
+    def expect(self, timeout: float) -> str:
+        import queue
+
+        try:
+            line = self.lines.get(timeout=timeout)
+        except queue.Empty:
+            return f"<timeout after {timeout}s>"
+        return "<exited>" if line is None else line
+
+    def say(self) -> None:
+        try:
+            self.proc.stdin.write("go\n")
+            self.proc.stdin.flush()
+        except (BrokenPipeError, OSError):
+            pass
+
+    def close(self) -> None:
+        if self.proc.poll() is None:
+            self.proc.kill()
+        self.proc.wait(timeout=30)
+        for stream in (self.proc.stdin, self.proc.stdout, self.proc.stderr):
+            try:
+                stream.close()
+            except OSError:
+                pass
+
+
+class LifecycleHoldProcessTests(unittest.TestCase):
+    """1zimg AC-1, AC-2, AC-5: real processes, no mocks of the lock."""
+
+    def setUp(self):
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        import lifecycle_lock
+        import review_evidence
+
+        self.ll = lifecycle_lock
+        self.re = review_evidence
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / ".wavefoundry").mkdir()
+
+    def test_reentry_is_refused_and_the_outer_hold_survives(self):
+        # AC-1
+        import os
+
+        with self.ll.lifecycle_mutation_lock(self.root):
+            self.assertEqual(_other_process_lifecycle(self.root), "busy")
+            reentry = None
+            try:
+                with self.ll.lifecycle_mutation_lock(self.root):
+                    pass
+            except self.ll.LifecycleLockBusy as exc:
+                reentry = exc
+            self.assertEqual(
+                _other_process_lifecycle(self.root), "busy",
+                "a second process took the lifecycle lock while the outer hold was live",
+            )
+            self.assertIsNotNone(reentry, "re-entry in the holding process was not refused")
+            self.assertIn("already held by this process", str(reentry))
+            self.assertIn(f"pid {os.getpid()}", str(reentry))
+        self.assertEqual(_other_process_lifecycle(self.root), "acquired")
+
+    def test_publication_wait_keeps_the_callers_lifecycle_hold(self):
+        # AC-2: A (a thread of this process) holds lifecycle, B (a child)
+        # holds publication, A waits for publication; C (a child) must stay
+        # refused throughout.
+        import time
+
+        holder = _Child(_HOLD_PUBLICATION, self.root)
+        self.addCleanup(holder.close)
+        self.assertEqual(holder.expect(60), "held")
+        waiting = threading.Event()
+        entered = threading.Event()
+        leave = threading.Event()
+        errors: list = []
+
+        def process_a() -> None:
+            try:
+                with self.ll.lifecycle_mutation_lock(self.root):
+                    waiting.set()
+                    with self.re.project_state_publication_lock(self.root, wait=True):
+                        entered.set()
+                        leave.wait(60)
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        thread = threading.Thread(target=process_a)
+        thread.start()
+        try:
+            self.assertTrue(waiting.wait(30), errors)
+            time.sleep(0.5)  # A is now inside the publication wait
+            self.assertFalse(entered.is_set(), "A entered while B held the publication lock")
+            during = _other_process_lifecycle(self.root)
+            holder.say()
+            self.assertEqual(holder.expect(60), "released")
+            self.assertTrue(entered.wait(60), errors)
+            after = _other_process_lifecycle(self.root)
+        finally:
+            leave.set()
+            thread.join(60)
+        self.assertEqual(errors, [])
+        self.assertEqual(during, "busy", "process C took the lifecycle lock while A waited for publication")
+        self.assertEqual(after, "busy", "process C took the lifecycle lock after A entered publication")
+        self.assertEqual(_other_process_lifecycle(self.root), "acquired")
+
+    def test_publication_wait_inside_the_transaction_refuses_promptly(self):
+        # AC-5: both waits name the same-process hold within a bounded time,
+        # and the lifecycle hold survives them.
+        child = _Child(_WAIT_INSIDE_TRANSACTION, self.root)
+        self.addCleanup(child.close)
+        first = child.expect(30)
+        second = child.expect(30)
+        for wait, line in (("True", first), ("False", second)):
+            self.assertTrue(line.startswith(f"refused wait={wait} "), line)
+            self.assertIn("held by this thread", line)
+            self.assertIn(f"pid {child.proc.pid}", line)
+            elapsed = float(line.split("elapsed=")[1].split()[0])
+            self.assertLess(elapsed, 5.0, line)
+        self.assertEqual(child.expect(30), "holding")
+        self.assertEqual(_other_process_lifecycle(self.root), "busy")
+        child.say()
+        self.assertEqual(child.expect(30), "done")
+        self.assertEqual(_other_process_lifecycle(self.root), "acquired")
+
+
+class _OpenRecorder:
+    """Patch the lock-carrier opener; fail if the lifecycle file is opened."""
+
+    def __init__(self, runtime_lock, forbidden: Path) -> None:
+        import os
+
+        self.runtime_lock = runtime_lock
+        self.forbidden = os.path.realpath(forbidden)
+        self.opened: list[str] = []
+        self.real = runtime_lock._open_lock_carrier
+
+    def __call__(self, path, mode):
+        import os
+
+        resolved = os.path.realpath(os.fspath(path))
+        self.opened.append(resolved)
+        if resolved == self.forbidden:
+            raise AssertionError(f"lifecycle lock file opened: {resolved}")
+        return self.real(path, mode)
+
+    def patch(self):
+        return patch.object(self.runtime_lock, "_open_lock_carrier", self)
+
+
+class _HeldOnThread:
+    """Hold the lifecycle lock on a separate thread until ``stop()``."""
+
+    def __init__(self, lifecycle_lock, root: Path) -> None:
+        self.ready = threading.Event()
+        self.leave = threading.Event()
+        self.errors: list = []
+
+        def run() -> None:
+            try:
+                with lifecycle_lock.lifecycle_mutation_lock(root):
+                    self.ready.set()
+                    self.leave.wait(60)
+            except BaseException as exc:  # noqa: BLE001
+                self.errors.append(exc)
+                self.ready.set()
+
+        self.thread = threading.Thread(target=run)
+        self.thread.start()
+        assert self.ready.wait(30)
+        assert not self.errors, self.errors
+
+    def stop(self) -> None:
+        self.leave.set()
+        self.thread.join(60)
+
+
+class LifecycleHoldRegistryTests(unittest.TestCase):
+    """1zimg AC-3, AC-4, AC-6: registry-backed decisions and release paths."""
+
+    def setUp(self):
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        import lifecycle_lock
+        import review_evidence
+        import runtime_lock
+
+        self.ll = lifecycle_lock
+        self.re = review_evidence
+        self.rl = runtime_lock
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / ".wavefoundry").mkdir()
+        self.path = self.root / lifecycle_lock.LIFECYCLE_MUTATION_LOCK_REL
+
+    # AC-3 -----------------------------------------------------------------
+    def test_same_thread_reentry_never_opens_the_file(self):
+        recorder = _OpenRecorder(self.rl, self.path)
+        with self.ll.lifecycle_mutation_lock(self.root):
+            hold = self.rl.process_hold(self.path)
+            self.assertEqual(hold["thread"], threading.get_ident())
+            with recorder.patch():
+                for strict in (True, False):
+                    with self.assertRaisesRegex(
+                        self.ll.LifecycleLockBusy,
+                        "already held by this process .*the calling thread",
+                    ):
+                        with self.ll.lifecycle_mutation_lock(self.root, strict=strict):
+                            self.fail("re-entry ran its body")
+            self.assertNotIn(recorder.forbidden, recorder.opened)
+            self.assertEqual(_other_process_lifecycle(self.root), "busy")
+        self.assertIsNone(self.rl.process_hold(self.path))
+
+    def test_other_thread_reentry_never_opens_the_file(self):
+        holder = _HeldOnThread(self.ll, self.root)
+        try:
+            recorder = _OpenRecorder(self.rl, self.path)
+            with recorder.patch():
+                for strict in (True, False):
+                    with self.assertRaisesRegex(
+                        self.ll.LifecycleLockBusy,
+                        "already held by this process .*another thread",
+                    ):
+                        with self.ll.lifecycle_mutation_lock(self.root, strict=strict):
+                            self.fail("re-entry ran its body")
+            self.assertEqual(recorder.opened, [])
+            self.assertEqual(_other_process_lifecycle(self.root), "busy")
+        finally:
+            holder.stop()
+        self.assertEqual(holder.errors, [])
+        self.assertEqual(_other_process_lifecycle(self.root), "acquired")
+
+    def test_middleware_returns_busy_for_a_reentered_tool_call(self):
+        called = []
+
+        def tool(**kwargs):
+            called.append(True)
+            return {"status": "ok", "data": {}}
+
+        wrapped = MutationLockTests._wrapped(self, self.root, "wf_set_handoff", tool)
+        with srv._lifecycle_lock_authority.lifecycle_mutation_lock(self.root):
+            result = wrapped()
+            self.assertEqual(_other_process_lifecycle(self.root), "busy")
+        self.assertEqual(called, [])
+        self.assertEqual(result["status"], "error")
+        self.assertIn(
+            "lifecycle_mutation_locked", [d["code"] for d in result["diagnostics"]]
+        )
+        self.assertEqual(wrapped()["status"], "ok")
+
+    # AC-4 -----------------------------------------------------------------
+    def test_probe_fails_fast_when_another_thread_holds_lifecycle(self):
+        publication = _Child(_HOLD_PUBLICATION, self.root)
+        self.addCleanup(publication.close)
+        self.assertEqual(publication.expect(60), "held")
+        holder = _HeldOnThread(self.ll, self.root)
+        try:
+            recorder = _OpenRecorder(self.rl, self.path)
+            with recorder.patch():
+                with self.assertRaisesRegex(
+                    self.re.ProjectPublicationUnavailable, "another thread of this process"
+                ):
+                    with self.re.project_state_publication_lock(self.root, wait=True):
+                        self.fail("entered while another thread held lifecycle")
+            self.assertNotIn(recorder.forbidden, recorder.opened)
+            self.assertEqual(_other_process_lifecycle(self.root), "busy")
+        finally:
+            holder.stop()
+        self.assertEqual(holder.errors, [])
+
+    def test_probe_still_fails_fast_when_another_process_holds_lifecycle(self):
+        import time
+
+        lifecycle = _Child(_HOLD_LIFECYCLE, self.root)
+        self.addCleanup(lifecycle.close)
+        self.assertEqual(lifecycle.expect(60), "held")
+        publication = _Child(_HOLD_PUBLICATION, self.root)
+        self.addCleanup(publication.close)
+        self.assertEqual(publication.expect(60), "held")
+        self.assertIsNone(self.rl.process_hold(self.path))
+        started = time.monotonic()
+        with self.assertRaisesRegex(
+            self.re.ProjectPublicationUnavailable, "during lifecycle mutation"
+        ):
+            with self.re.project_state_publication_lock(self.root, wait=True):
+                self.fail("entered while another process held lifecycle")
+        self.assertLess(time.monotonic() - started, 5.0)
+
+    # AC-6 -----------------------------------------------------------------
+    def _assert_fully_released(self):
+        self.assertIsNone(self.rl.process_hold(self.path))
+        with self.ll.lifecycle_mutation_lock(self.root):
+            self.assertIsNotNone(self.rl.process_hold(self.path))
+        self.assertIsNone(self.rl.process_hold(self.path))
+        self.assertEqual(_other_process_lifecycle(self.root), "acquired")
+
+    def test_normal_exit_removes_the_entry_and_releases(self):
+        with self.ll.lifecycle_mutation_lock(self.root):
+            hold = self.rl.process_hold(self.path)
+        import os
+
+        self.assertEqual(hold["pid"], os.getpid())
+        self.assertIn("acquired_at", hold)
+        self.assertEqual(hold["thread"], threading.get_ident())
+        self._assert_fully_released()
+
+    def test_raising_body_removes_the_entry_and_releases(self):
+        with self.assertRaisesRegex(ValueError, "body failed"):
+            with self.ll.lifecycle_mutation_lock(self.root):
+                raise ValueError("body failed")
+        self._assert_fully_released()
+
+    def test_interrupt_during_the_release_stamp_removes_the_entry(self):
+        real_write = self.rl.RuntimeFileLock.write_metadata
+
+        def write(lock, payload):
+            if "released_at" in payload:
+                raise KeyboardInterrupt
+            return real_write(lock, payload)
+
+        with patch.object(self.rl.RuntimeFileLock, "write_metadata", write):
+            with self.assertRaises(KeyboardInterrupt):
+                with self.ll.lifecycle_mutation_lock(self.root):
+                    pass
+        self._assert_fully_released()
+
+    def test_interrupt_from_registration_still_releases(self):
+        entered = []
+
+        def interrupted(path, metadata):
+            raise KeyboardInterrupt
+
+        with patch.object(self.ll, "register_process_hold", interrupted):
+            with self.assertRaises(KeyboardInterrupt):
+                with self.ll.lifecycle_mutation_lock(self.root):
+                    entered.append(True)
+        self.assertEqual(entered, [])
+        self._assert_fully_released()
+
+    def test_the_entry_is_gone_before_the_os_lock_is_released(self):
+        real_release = self.rl.RuntimeFileLock.release
+        seen = []
+
+        def release(lock):
+            seen.append(self.rl.process_hold(lock.path))
+            return real_release(lock)
+
+        with patch.object(self.rl.RuntimeFileLock, "release", release):
+            with self.ll.lifecycle_mutation_lock(self.root):
+                pass
+        self.assertEqual(seen, [None])
+
+    def test_strict_false_fallback_registers_nothing(self):
+        def unavailable(lock):
+            raise self.rl.RuntimeLockError(5, "injected")
+
+        entered = []
+        with patch.object(self.rl.RuntimeFileLock, "acquire", unavailable):
+            with self.ll.lifecycle_mutation_lock(self.root, strict=False):
+                entered.append(self.rl.process_hold(self.path))
+                # The guard is not held across the unlocked yield.
+                acquired = []
+                other = threading.Thread(
+                    target=lambda: acquired.append(
+                        self.rl.process_hold_guard().acquire(timeout=5)
+                    ) or self.rl.process_hold_guard().release()
+                )
+                other.start()
+                other.join(10)
+        self.assertEqual(entered, [None])
+        self.assertEqual(acquired, [True])
+
+    def test_transaction_registers_and_removes_the_publication_hold(self):
+        publication = self.root / self.re.PROJECT_STATE_PUBLICATION_LOCK_REL
+        with self.ll.lifecycle_publication_transaction(self.root):
+            hold = self.rl.process_hold(publication)
+            self.assertEqual(hold["thread"], threading.get_ident())
+            self.assertIsNotNone(self.rl.process_hold(self.path))
+        self.assertIsNone(self.rl.process_hold(publication))
+        self.assertIsNone(self.rl.process_hold(self.path))
+        with self.re.project_state_publication_lock(self.root, wait=False):
+            pass
+
+
+class LifecycleOpenerCensusTests(unittest.TestCase):
+    """1zimg AC-7: the lifecycle lock file has a fixed set of openers."""
+
+    LITERALS = ("lifecycle-mutation", "LIFECYCLE_MUTATION_LOCK_REL", "LIFECYCLE_LOCK")
+    OPENERS = {"lifecycle_lock.py", "review_evidence.py", "upgrade_bridge_bootstrap.py"}
+    NAME_ONLY = {"wf_server/server_impl.py"}
+
+    def _matches(self) -> dict[str, list[str]]:
+        found: dict[str, list[str]] = {}
+        for path in sorted(SCRIPTS_ROOT.rglob("*")):
+            rel = path.relative_to(SCRIPTS_ROOT).as_posix()
+            if not path.is_file() or rel.startswith("tests/") or "__pycache__" in rel:
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            lines = [line for line in text.splitlines() if any(lit in line for lit in self.LITERALS)]
+            if lines:
+                found[rel] = lines
+        return found
+
+    def test_only_the_known_files_name_the_lifecycle_lock(self):
+        found = self._matches()
+        self.assertEqual(set(found), self.OPENERS | self.NAME_ONLY, found)
+
+    def test_server_impl_only_names_the_lock_for_messages(self):
+        lines = self._matches()["wf_server/server_impl.py"]
+        self.assertTrue(lines)
+        for line in lines:
+            self.assertIn("LIFECYCLE_MUTATION_LOCK_REL.name", line)
+            self.assertNotIn("RuntimeFileLock", line)
+            self.assertNotIn("open(", line)
+
+    def test_the_probe_path_and_offset_equal_the_lifecycle_constants(self):
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        import lifecycle_lock
+        import review_evidence
+
+        self.assertEqual(
+            review_evidence._LIFECYCLE_MUTATION_LOCK_REL,
+            lifecycle_lock.LIFECYCLE_MUTATION_LOCK_REL,
+        )
+        self.assertEqual(
+            review_evidence._LIFECYCLE_MUTATION_LOCK_SENTINEL,
+            lifecycle_lock.LIFECYCLE_MUTATION_LOCK_SENTINEL,
+        )
+
+
+class LifecycleHoldReloadTests(unittest.TestCase):
+    """1zimg AC-8: an MCP reload evicts and re-imports ``lifecycle_lock`` and
+    ``review_evidence``; the hold registry lives in ``runtime_lock``, which is
+    not evicted, so a hold taken before the reload stays visible through the
+    re-imported modules."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        _repo(self.root)
+        load_server()
+        from wf_server import server_impl
+
+        self.server_impl = server_impl
+        import runtime_lock
+
+        self.rl = runtime_lock
+
+    def test_reload_during_a_hold_keeps_it_visible_and_refused(self):
+        import importlib
+
+        old_ll = self.server_impl._lifecycle_lock_authority
+        old_re = sys.modules["review_evidence"]
+        path = self.root / old_ll.LIFECYCLE_MUTATION_LOCK_REL
+        publication = _Child(_HOLD_PUBLICATION, self.root)
+        self.addCleanup(publication.close)
+        self.assertEqual(publication.expect(60), "held")
+        with old_ll.lifecycle_mutation_lock(self.root):
+            # What wf_reload_mcp does: drop the script cache, reload server_impl.
+            self.server_impl._script_cache.clear()
+            reloaded = importlib.reload(self.server_impl)
+            new_ll = reloaded._lifecycle_lock_authority
+            new_re = sys.modules["review_evidence"]
+            self.assertIsNot(new_ll, old_ll, "reload no longer re-imports lifecycle_lock")
+            self.assertIsNot(new_re, old_re, "reload no longer re-imports review_evidence")
+            self.assertIs(sys.modules["runtime_lock"], self.rl)
+            self.assertIsNotNone(self.rl.process_hold(path))
+            with self.assertRaisesRegex(new_ll.LifecycleLockBusy, "already held by this process"):
+                with new_ll.lifecycle_mutation_lock(self.root):
+                    self.fail("re-entry after reload ran its body")
+            with self.assertRaises(reloaded.LifecycleMutationBusy):
+                with reloaded._lifecycle_mutation_lock(self.root):
+                    self.fail("middleware re-entry after reload ran its body")
+            # The re-imported review_evidence sees the hold too: from another
+            # thread it fails fast without opening the lifecycle file.
+            recorder = _OpenRecorder(self.rl, path)
+            outcome: list = []
+
+            def publish() -> None:
+                try:
+                    with new_re.project_state_publication_lock(self.root, wait=True):
+                        outcome.append("entered")
+                except new_re.ProjectPublicationUnavailable as exc:
+                    outcome.append(str(exc))
+
+            with recorder.patch():
+                thread = threading.Thread(target=publish)
+                thread.start()
+                thread.join(30)
+            self.assertEqual(len(outcome), 1, outcome)
+            self.assertIn("another thread of this process", outcome[0])
+            self.assertNotIn(recorder.forbidden, recorder.opened)
+            self.assertEqual(_other_process_lifecycle(self.root), "busy")
+        self.assertIsNone(self.rl.process_hold(path))
+        self.assertEqual(_other_process_lifecycle(self.root), "acquired")
+
+
+class LifecycleHoldGuardOrderingTests(unittest.TestCase):
+    """1zimg repair round (DEL-1ZIMC-UNPINNED-GUARD-MECHANISMS): pin the
+    in-guard re-check, the thread test of the own-publication refusal, and
+    that registration and the probe's open happen while the guard is held."""
+
+    def setUp(self):
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        import lifecycle_lock
+        import review_evidence
+        import runtime_lock
+
+        self.ll = lifecycle_lock
+        self.re = review_evidence
+        self.rl = runtime_lock
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / ".wavefoundry").mkdir()
+        self.path = self.root / lifecycle_lock.LIFECYCLE_MUTATION_LOCK_REL
+
+    def test_two_threads_past_the_first_check_cannot_both_acquire(self):
+        # Requirement 2: both threads pass the up-front check (the barrier
+        # holds each one after it), so only the re-check under the guard at
+        # acquire time can refuse the second. The lock itself is real.
+        barrier = threading.Barrier(2, timeout=30)
+        real_lock = self.ll.RuntimeFileLock
+
+        def after_first_check(*args, **kwargs):
+            barrier.wait()
+            return real_lock(*args, **kwargs)
+
+        results: dict = {}
+        inside = {name: threading.Event() for name in ("t1", "t2")}
+        leave = threading.Event()
+
+        def run(name: str) -> None:
+            try:
+                with self.ll.lifecycle_mutation_lock(self.root):
+                    results[name] = "acquired"
+                    inside[name].set()
+                    leave.wait(60)
+            except self.ll.LifecycleLockBusy as exc:
+                results[name] = f"busy: {exc}"
+                inside[name].set()
+            except BaseException as exc:  # noqa: BLE001
+                results[name] = f"error: {exc!r}"
+                inside[name].set()
+
+        with patch.object(self.ll, "RuntimeFileLock", after_first_check):
+            threads = [threading.Thread(target=run, args=(n,)) for n in ("t1", "t2")]
+            for thread in threads:
+                thread.start()
+            try:
+                for event in inside.values():
+                    self.assertTrue(event.wait(30), results)
+                outcomes = sorted(results.values())
+                self.assertEqual(outcomes[0], "acquired", results)
+                self.assertTrue(outcomes[1].startswith("busy: "), results)
+                self.assertIn("already held by this process", outcomes[1])
+                self.assertEqual(_other_process_lifecycle(self.root), "busy")
+            finally:
+                leave.set()
+                for thread in threads:
+                    thread.join(60)
+        self.assertIsNone(self.rl.process_hold(self.path))
+        self.assertEqual(_other_process_lifecycle(self.root), "acquired")
+
+    def test_another_threads_transaction_hold_gets_the_ordinary_busy_refusal(self):
+        # Requirement 4: the own-hold refusal is for the holding thread only;
+        # another thread meets the ordinary busy publication lock.
+        ready = threading.Event()
+        leave = threading.Event()
+        errors: list = []
+
+        def transaction() -> None:
+            try:
+                with self.ll.lifecycle_publication_transaction(self.root):
+                    ready.set()
+                    leave.wait(60)
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+                ready.set()
+
+        thread = threading.Thread(target=transaction)
+        thread.start()
+        try:
+            self.assertTrue(ready.wait(30))
+            self.assertEqual(errors, [])
+            with self.assertRaises(self.re.ProjectPublicationUnavailable) as caught:
+                with self.re.project_state_publication_lock(self.root, wait=False):
+                    self.fail("entered while another thread held the publication lock")
+            message = str(caught.exception)
+            self.assertIn("project publication lock is busy", message)
+            self.assertNotIn("held by this thread", message)
+        finally:
+            leave.set()
+            thread.join(60)
+        self.assertEqual(errors, [])
+
+    def test_registration_happens_under_the_guard_before_the_metadata_write(self):
+        # Requirement 1: acquire and register are one step under the guard,
+        # so the entry exists before anything else touches the carrier.
+        guard = self.rl.process_hold_guard()
+        events: list = []
+        real_register = self.ll.register_process_hold
+        real_write = self.rl.RuntimeFileLock.write_metadata
+
+        def register(path, metadata):
+            events.append(("register", guard._is_owned()))
+            return real_register(path, metadata)
+
+        def write(lock, payload):
+            events.append(("write", "released_at" in payload))
+            return real_write(lock, payload)
+
+        with patch.object(self.ll, "register_process_hold", register), \
+                patch.object(self.rl.RuntimeFileLock, "write_metadata", write):
+            with self.ll.lifecycle_mutation_lock(self.root):
+                pass
+        self.assertEqual(
+            events, [("register", True), ("write", False), ("write", True)]
+        )
+
+    def test_the_probe_opens_the_lifecycle_file_only_under_the_guard(self):
+        # Requirement 3: with no in-process hold, the registry check and the
+        # probe's open happen under the guard, so no in-process acquire can
+        # register between them.
+        lifecycle = _Child(_HOLD_LIFECYCLE, self.root)
+        self.addCleanup(lifecycle.close)
+        self.assertEqual(lifecycle.expect(60), "held")
+        publication = _Child(_HOLD_PUBLICATION, self.root)
+        self.addCleanup(publication.close)
+        self.assertEqual(publication.expect(60), "held")
+        import os
+
+        guard = self.rl.process_hold_guard()
+        forbidden = os.path.realpath(self.path)
+        opened: list = []
+        real_open = self.rl._open_lock_carrier
+
+        def recording_open(path, mode):
+            if os.path.realpath(os.fspath(path)) == forbidden:
+                opened.append(guard._is_owned())
+            return real_open(path, mode)
+
+        with patch.object(self.rl, "_open_lock_carrier", recording_open):
+            with self.assertRaises(self.re.ProjectPublicationUnavailable):
+                with self.re.project_state_publication_lock(self.root, wait=True):
+                    self.fail("entered while another process held lifecycle")
+        self.assertEqual(opened, [True])

@@ -57,7 +57,8 @@ from record_layout_support import (
 SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 # The shipped vocabulary as an archive profile: equal in value to the live
 # names, but still a difference from the shipped ``ARCHIVE_PROFILE = None``.
-SHIPPED_VOCABULARY = {k: v for k, v in SHIPPED_DEFAULTS["vocabulary_profile"].items() if k != "ARCHIVE_PROFILE"}
+SHIPPED_VOCABULARY = {k: v for k, v in SHIPPED_DEFAULTS["vocabulary_profile"].items()
+                      if k not in ("ARCHIVE_PROFILE", "EXTRA_CHANGE_KINDS")}
 
 _spec = importlib.util.spec_from_file_location("run_tests", SCRIPTS_DIR / "run_tests.py")
 run_tests = importlib.util.module_from_spec(_spec)
@@ -384,6 +385,20 @@ class DefaultProfileOnlyMarkerTests(unittest.TestCase):
         with self._loaded(record_paths__PLANS_ROOT="docs/proposals"):
             self.assertIn("record_paths.PLANS_ROOT", expected_profile_mismatch(shipped))
 
+    def test_tuple_constants_match_their_json_form(self) -> None:
+        # Wave 1zimf (1zimp): a profile asset writes a tuple constant as a JSON
+        # list, and apply_profile edits it in as a tuple; both are the same value.
+        with framework_profiles() as profiles_dir:
+            run_second = expected_profile({TEST_PROFILE_ENV: "second"}, profiles_dir)
+        second = {f"{module}__{name}": value
+                  for module, values in load_profile("second")["modules"].items() for name, value in values.items()}
+        self.assertEqual(second["vocabulary_profile__EXTRA_CHANGE_KINDS"], ["decision"])
+        with self._loaded(**dict(second, vocabulary_profile__EXTRA_CHANGE_KINDS=("decision",))):
+            self.assertIsNone(expected_profile_mismatch(run_second))
+        with self._loaded(**dict(second, vocabulary_profile__EXTRA_CHANGE_KINDS=("decision", "spike"))):
+            self.assertIn("vocabulary_profile.EXTRA_CHANGE_KINDS is ('decision', 'spike'), expected ['decision']",
+                          expected_profile_mismatch(run_second))
+
     def test_reason_is_required_and_recorded(self) -> None:
         for bad in ("", "   ", "two\nlines", None):
             with self.subTest(reason=bad), self.assertRaises(ValueError):
@@ -412,7 +427,7 @@ class DefaultProfileOnlyMarkerTests(unittest.TestCase):
     def test_snapshot_covers_every_editable_constant(self) -> None:
         # Names are not edited by a fork, so this pin holds under any profile.
         self.assertEqual(set(SHIPPED_DEFAULTS["vocabulary_profile"]),
-                         set(vocabulary_profile.FIELD_NAMES) | {"ARCHIVE_PROFILE"})
+                         set(vocabulary_profile.FIELD_NAMES) | {"ARCHIVE_PROFILE", "EXTRA_CHANGE_KINDS"})
         self.assertEqual(set(SHIPPED_DEFAULTS["record_paths"]),
                          set(record_paths.CONSTANT_NAMES) | {"ARCHIVE_ROOT"})
 
@@ -563,7 +578,8 @@ class ApplyProfileTests(unittest.TestCase):
         self.assertEqual(len(plain), 1)
         self.assertEqual(len(mapped), 1)
         # The record profile is untouched, so the default-profile-only marker still runs.
-        self.assertEqual(loaded["vocabulary_profile"], SHIPPED_DEFAULTS["vocabulary_profile"])
+        # The loaded constants come back in JSON form (tuples as lists).
+        self.assertEqual(loaded["vocabulary_profile"], json.loads(json.dumps(SHIPPED_DEFAULTS["vocabulary_profile"])))
         self.assertEqual(loaded["record_paths"], SHIPPED_DEFAULTS["record_paths"])
         self.assertNotIn("mcp_tool_extensions", SHIPPED_DEFAULTS)
 

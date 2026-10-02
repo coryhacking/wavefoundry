@@ -174,7 +174,8 @@ four pieces, all test infrastructure in
   `docs/delivery/sets`, and the pre-adoption records kept as a read-only
   archive at `docs/waves` in the default vocabulary (`ARCHIVE_PROFILE`), so
   the live item label Wave shares its name with the archive's container
-  label. Tests that pin its values read them from `load_profile("second")`.
+  label. It also declares one extra change kind, `decision`
+  (`EXTRA_CHANGE_KINDS`, wave `1zimf`). Tests that pin its values read them from `load_profile("second")`.
   `apply_profile` edits a COPIED scripts tree the way a fork does: each
   constant's assignment must match exactly once, then a fresh interpreter
   imports both modules, checks the loaded values and, given a repository,
@@ -220,7 +221,8 @@ four pieces, all test infrastructure in
   `record_layout_support`, which `declaration_support` and the runner use.
   `expected_profile_mismatch(expected)` (record constants) and
   `declaration_profile_mismatch(expected)` (tool declarations) compare every
-  loaded copy with the shipped values overlaid with each layer, and a
+  loaded copy with the shipped values overlaid with each layer, both in JSON
+  form (tuples as lists, as an asset writes them; wave `1zimf`), and a
   mismatch names each layer, its source (`WAVEFOUNDRY_TEST_PROFILE`, the
   active asset, or the shipped defaults) and each differing constant. The
   framework's own assets (`second.json`, `declared.json`) are never marked

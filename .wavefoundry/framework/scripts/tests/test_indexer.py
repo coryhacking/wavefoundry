@@ -8881,5 +8881,286 @@ class TargetedPublicationContractTests(unittest.TestCase):
         with self.assertRaises(Exception): retained[-1].execute('SELECT 1')
 
 
+
+def _posix_stat_denial_supported() -> "tuple[bool, str]":
+    """A real mode-000 directory denies search only for a non-root POSIX user."""
+    if os.name == "nt":
+        return False, "POSIX permission bits; Windows denial is an ACL (covered by the errno unit test)"
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        return False, "root bypasses directory search permission"
+    return True, ""
+
+
+class WalkStatDenialTests(unittest.TestCase):
+    """Wave 1zime (1zimk) AC-1: a listed entry whose stat is denied is skipped
+    with a diagnostic, never fatal. The reported shape is a root ``.env`` that
+    is a symlink into a directory without search permission."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.bi = load_build_index()
+
+    def setUp(self):
+        ok, reason = _posix_stat_denial_supported()
+        if not ok:
+            self.skipTest(reason)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "repo"
+        self.root.mkdir()
+        self.locked = Path(self.tmp.name) / "locked"
+        self.locked.mkdir()
+        (self.locked / "env").write_text("SECRET=x\n", encoding="utf-8")
+        (self.root / "app.py").write_text("def app():\n    return 1\n", encoding="utf-8")
+        (self.root / "README.md").write_text("# Readme\n", encoding="utf-8")
+        os.symlink(self.locked / "env", self.root / ".env")
+        os.chmod(self.locked, 0)
+        self.addCleanup(os.chmod, self.locked, stat.S_IRWXU)
+
+    def test_denied_env_symlink_is_reported_not_raised(self):
+        unreadable_files: set[str] = set()
+        unreadable_dirs: set[str] = set()
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            walked = self.bi.walk_repo(
+                self.root, respect_ignore=True,
+                unreadable_dirs=unreadable_dirs, unreadable_files=unreadable_files,
+            )
+        rels = {str(p.relative_to(self.root)).replace("\\", "/") for p in walked}
+        self.assertEqual(rels, {"app.py", "README.md"})
+        self.assertEqual(unreadable_files, {".env"})
+        self.assertEqual(unreadable_dirs, set(), "a file denial is not a directory denial")
+        lines = [ln for ln in err.getvalue().splitlines() if ".env" in ln]
+        self.assertEqual(len(lines), 1, err.getvalue())
+        self.assertIn("unreadable file", lines[0])
+        self.assertEqual(out.getvalue(), "", "the walk runs in the MCP server: never stdout")
+
+    def test_denied_entry_without_a_collector_still_walks(self):
+        with redirect_stderr(io.StringIO()):
+            walked = self.bi.walk_repo(self.root, respect_ignore=True)
+        self.assertEqual(
+            {str(p.relative_to(self.root)).replace("\\", "/") for p in walked}, {"app.py", "README.md"})
+
+
+class WalkEntryClassificationTests(unittest.TestCase):
+    """Wave 1zime (1zimk) Requirement 1: the errno and Windows error-code
+    classification of a failed entry stat, platform-neutral by injection."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.bi = load_build_index()
+
+    def _walk_with_stat_error(self, exc: OSError):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "keep.py").write_text("x = 1\n", encoding="utf-8")
+        (root / "victim.py").write_text("y = 2\n", encoding="utf-8")
+        real_stat = os.stat
+
+        def fake(path, *args, **kwargs):
+            if str(path).replace("\\", "/").endswith("/victim.py"):
+                raise exc
+            return real_stat(path, *args, **kwargs)
+
+        found: set[str] = set()
+        err = io.StringIO()
+        with patch.object(self.bi.os, "stat", side_effect=fake), redirect_stderr(err):
+            walked = self.bi.walk_repo(root, respect_ignore=True, unreadable_files=found)
+        rels = {str(p.relative_to(root)).replace("\\", "/") for p in walked}
+        return rels, found, err.getvalue()
+
+    def test_absence_errnos_read_as_not_a_file_silently(self):
+        import errno as _errno
+        for code in (_errno.ENOENT, _errno.ENOTDIR, _errno.EBADF, _errno.ELOOP):
+            with self.subTest(errno=code):
+                rels, found, err = self._walk_with_stat_error(OSError(code, os.strerror(code)))
+                self.assertEqual(rels, {"keep.py"})
+                self.assertEqual(found, set())
+                self.assertNotIn("victim.py", err)
+
+    def test_absence_winerrors_read_as_not_a_file_silently(self):
+        for winerror in (21, 123, 1921):
+            with self.subTest(winerror=winerror):
+                exc = OSError(22, "injected")
+                exc.winerror = winerror
+                rels, found, err = self._walk_with_stat_error(exc)
+                self.assertEqual(rels, {"keep.py"})
+                self.assertEqual(found, set())
+
+    def test_denial_errnos_are_reported(self):
+        import errno as _errno
+        for exc in (PermissionError(_errno.EACCES, "denied"), OSError(_errno.EPERM, "denied"),
+                    OSError(_errno.EIO, "io")):
+            with self.subTest(exc=exc):
+                rels, found, err = self._walk_with_stat_error(exc)
+                self.assertEqual(rels, {"keep.py"})
+                self.assertEqual(found, {"victim.py"})
+                self.assertIn("victim.py", err)
+
+    def test_ignored_denied_entry_is_never_stated_or_reported(self):
+        # 1zimk repair: path and name filters run before the entry stat.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / ".gitignore").write_text("victim.py\n", encoding="utf-8")
+        (root / "keep.py").write_text("x = 1\n", encoding="utf-8")
+        (root / "victim.py").write_text("y = 2\n", encoding="utf-8")
+        real_stat = os.stat
+        stated: list[str] = []
+
+        def fake(path, *args, **kwargs):
+            if str(path).replace("\\", "/").endswith("/victim.py"):
+                stated.append(str(path))
+                raise PermissionError(13, "denied")
+            return real_stat(path, *args, **kwargs)
+
+        found: set[str] = set()
+        err = io.StringIO()
+        with patch.object(self.bi.os, "stat", side_effect=fake), redirect_stderr(err):
+            walked = self.bi.walk_repo(root, respect_ignore=True, unreadable_files=found)
+        names = {p.name for p in walked}
+        self.assertIn("keep.py", names)
+        self.assertNotIn("victim.py", names)
+        self.assertEqual(found, set())
+        self.assertEqual(stated, [], "an ignored entry is filtered before its stat")
+        self.assertNotIn("victim.py", err.getvalue())
+
+    def test_windows_access_denied_is_reported(self):
+        exc = PermissionError(13, "Access is denied")
+        exc.winerror = 5
+        rels, found, _err = self._walk_with_stat_error(exc)
+        self.assertEqual(found, {"victim.py"})
+
+
+class WalkStatDenialReconcileTests(_OrphanStoreCase):
+    """Wave 1zime (1zimk) AC-2: a file whose stat is denied is "not walked",
+    not "deleted": an incremental build keeps its stored rows, layer hashes
+    and bookkeeping. A dangling symlink is absence and still removes them."""
+
+    _FILES = {
+        "src/app.py": "def app():\n    return 1\n",
+        "src/secret_mod.py": "def secret_mod():\n    return 7\n",
+        "docs/guide.md": "## Guide\n\nKeep me around.\n",
+    }
+    _TARGET = "src/secret_mod.py"
+
+    def _rows(self, table: str) -> dict[str, set[str]]:
+        out: dict[str, set[str]] = {}
+        for row in _read_index_chunks(self.index_dir, table):
+            out.setdefault(row["path"], set()).add(row["id"])
+        return out
+
+    def _seed(self):
+        _make_repo(self.root, self._FILES)
+        with redirect_stderr(io.StringIO()):
+            self._run_build(full=True)
+        rows = self._rows("code").get(self._TARGET)
+        self.assertTrue(rows, "precondition: the target has code rows")
+        return rows
+
+    def test_denied_stat_keeps_rows_through_a_build_path_run(self):
+        ok, reason = _posix_stat_denial_supported()
+        if not ok:
+            self.skipTest(reason)
+        rows = self._seed()
+        hash_before = (self.iss.layer_hashes(self.index_dir, "code") or {}).get(self._TARGET)
+        self.assertIsNotNone(hash_before)
+        # Same content, now reachable only through a directory without search permission.
+        self._deny_target()
+        (self.root / "src" / "app.py").write_text("def app():\n    return 2\n", encoding="utf-8")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            result = self._run_build(full=False)
+        self.assertNotIn("error", result, result)
+        self.assertFalse(result.get("failed"), result.get("failure"))
+        self.assertIsNot(result.get("up_to_date"), True, "non-vacuity: a build-path run")
+        self.assertEqual(self._rows("code").get(self._TARGET), rows, "a denied stat must not delete rows")
+        self.assertEqual((self.iss.layer_hashes(self.index_dir, "code") or {}).get(self._TARGET), hash_before)
+        self.assertIn(self._TARGET, (_read_meta_store(self.index_dir).get("file_meta") or {}))
+        self.assertIn(self._TARGET, err.getvalue())
+
+    def _deny_target(self) -> None:
+        away = tempfile.TemporaryDirectory()
+        self.addCleanup(away.cleanup)
+        locked = Path(away.name) / "locked"
+        locked.mkdir()
+        target = self.root / self._TARGET
+        shutil.copy2(target, locked / "secret_mod.py")
+        target.unlink()
+        os.symlink(locked / "secret_mod.py", target)
+        os.chmod(locked, 0)
+        self.addCleanup(os.chmod, locked, stat.S_IRWXU)
+
+    def test_strict_census_refuses_a_denied_file_by_name(self):
+        ok, reason = _posix_stat_denial_supported()
+        if not ok:
+            self.skipTest(reason)
+        _make_repo(self.root, self._FILES)
+        self._deny_target()
+        with redirect_stderr(io.StringIO()), \
+                self.assertRaisesRegex(RuntimeError, r"storage_rebuild_source_unreadable: .*src/secret_mod\.py"):
+            self.bi.preflight_rebuild_sources(self.root)
+
+    def test_prepared_removal_of_a_denied_file_is_refused(self):
+        ok, reason = _posix_stat_denial_supported()
+        if not ok:
+            self.skipTest(reason)
+        _make_repo(self.root, self._FILES)
+        self._deny_target()
+        kwargs = dict(respect_ignore=True, include_prefixes=(), project_include_prefixes=(),
+                      include_tests=False, include_generated=False)
+        with redirect_stderr(io.StringIO()), \
+                self.assertRaisesRegex(RuntimeError, r"became unreadable: src/secret_mod\.py"):
+            self.bi._validate_prepared_removals(
+                self.root, self.index_dir, {self._TARGET}, {}, requested_files=None, **kwargs)
+
+    def _denied_link(self, rel: str) -> None:
+        away = tempfile.TemporaryDirectory()
+        self.addCleanup(away.cleanup)
+        locked = Path(away.name) / "locked"
+        locked.mkdir()
+        (locked / "payload").write_text("content\n", encoding="utf-8")
+        os.symlink(locked / "payload", self.root / rel)
+        os.chmod(locked, 0)
+        self.addCleanup(os.chmod, locked, stat.S_IRWXU)
+
+    def test_ignored_denied_entry_neither_reports_nor_blocks_the_rebuild(self):
+        # 1zimk repair: a gitignored ``server.pem`` symlink into a protected
+        # directory is filtered before its stat; a non-ignored one still blocks.
+        ok, reason = _posix_stat_denial_supported()
+        if not ok:
+            self.skipTest(reason)
+        _make_repo(self.root, {**self._FILES, ".gitignore": "server.pem\n"})
+        self._denied_link("server.pem")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            found: set[str] = set()
+            self.bi.walk_repo(self.root, respect_ignore=True, unreadable_files=found)
+            self.bi.preflight_rebuild_sources(self.root)
+        self.assertEqual(found, set())
+        self.assertNotIn("server.pem", err.getvalue())
+        self._denied_link("notes.md")
+        with redirect_stderr(io.StringIO()), \
+                self.assertRaisesRegex(RuntimeError, r"storage_rebuild_source_unreadable: notes\.md$"):
+            self.bi.preflight_rebuild_sources(self.root)
+
+    def test_dangling_symlink_is_absence_and_removes_rows(self):
+        if os.name == "nt":
+            self.skipTest("symlink creation needs a privilege on Windows")
+        self._seed()
+        target = self.root / self._TARGET
+        target.unlink()
+        os.symlink(self.root / "src" / "does-not-exist.py", target)
+        (self.root / "src" / "app.py").write_text("def app():\n    return 2\n", encoding="utf-8")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            result = self._run_build(full=False)
+        self.assertNotIn("error", result, result)
+        self.assertNotIn(self._TARGET, self._rows("code"), "a dangling symlink is a removal")
+        self.assertNotIn(self._TARGET, self.iss.layer_hashes(self.index_dir, "code") or {})
+        self.assertNotIn("unreadable file", err.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

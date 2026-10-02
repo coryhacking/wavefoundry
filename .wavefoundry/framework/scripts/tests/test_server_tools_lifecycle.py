@@ -2580,7 +2580,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         # 1v0lx: close blocks on a missing admitted document; model it on disk.
         for cid in self.srv._CHANGE_ID_PATTERN.findall(wave_md.read_text(encoding="utf-8")):
             (wave_md.parent / f"{cid}.md").write_text(
-                _loc(f"# Sample\n\nChange ID: `{cid}`\n"), encoding="utf-8")
+                _loc(f"# Sample\n\nChange ID: `{cid}`\n\n## Acceptance Criteria\n\n## Tasks\n"), encoding="utf-8")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
                 result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="create")
@@ -3142,7 +3142,7 @@ class OperatorSignoffTests(unittest.TestCase):
         text = self.wave_md.read_text(encoding="utf-8")
         for cid in self.srv._CHANGE_ID_PATTERN.findall(text):
             (self.wave_md.parent / f"{cid}.md").write_text(
-                _loc(f"# Sample\n\nChange ID: `{cid}`\n"), encoding="utf-8")
+                _loc(f"# Sample\n\nChange ID: `{cid}`\n\n## Acceptance Criteria\n\n## Tasks\n"), encoding="utf-8")
 
     def test_wf_close_wave_succeeds_with_operator_signoff(self):
         self.wave_md.write_text(self._base_wave(with_operator_signoff=True), encoding="utf-8")
@@ -10021,6 +10021,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 ("wf_review_wave_response", "_diagnostic", "review_policy_receipt_superseded"),
                 ("_attach_prepare_readiness_advisories", "_diagnostic", "readiness_receipt_publications_high"),
                 ("_attach_prepare_readiness_advisories", "_diagnostic", "readiness_lane_approvals_missing"),
+                # Wave 1zime (1ziml): the unwritten-objective reminder, observational.
+                ("_attach_prepare_readiness_advisories", "_diagnostic", "wave_objective_unpopulated"),
                 ("policy_advisory_gate", "_review_policy_receipt_diagnostics", "<helper-call>"),
                 # Wave 1vbuu (1vbut): code_impact's test-visibility note is a
                 # read-only retrieval advisory on a query tool, not a lifecycle
@@ -10058,11 +10060,28 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             "another_wave_active would otherwise open the readiness stage gate "
             "or the single-OPEN guard silently.",
         )
+        # Wave 1zimf (1zimn): the public extension helper make_diagnostic
+        # forwards its caller's flag exactly as _diagnostic takes it; no core
+        # code calls it (a census below pins that), so it tags no core blocker.
         self.assertEqual(
-            forwarding, {"_review_policy_receipt_diagnostics"},
+            forwarding, {"_review_policy_receipt_diagnostics", "make_diagnostic"},
             "only the shared stale-receipt helper may FORWARD an advisory flag; "
             "any other function doing so can tag a blocker its caller cannot see",
         )
+
+    def test_no_core_code_calls_the_public_make_diagnostic(self):
+        # Wave 1zimf (1zimn): make_diagnostic is for extension handlers; a core
+        # caller could pass a forwarded advisory flag past the pin above.
+        import wf_server
+        sources = sorted(Path(wf_server.__file__).parent.glob("*.py")) + [
+            Path(self.srv.lifecycle_gates.__file__), Path(self.srv.lifecycle_gate_support.__file__)]
+        callers = []
+        for path in sources:
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if isinstance(node, ast.Call) and (getattr(node.func, "id", None) == "make_diagnostic"
+                                                   or getattr(node.func, "attr", None) == "make_diagnostic"):
+                    callers.append(f"{path.name}:{node.lineno}")
+        self.assertEqual(callers, [])
 
     def test_prepare_advisory_predicate_and_workaround_removal(self):
         """1uugg AC-7 and the predicate direction, kept from the original pin.
@@ -10543,8 +10562,10 @@ class WaveCouncilPolicyTests(unittest.TestCase):
 
         codes = [(d["code"], d.get("advisory")) for d in resp.get("diagnostics") or []]
         self.assertEqual(
-            codes, [("ac_priority_unpopulated", True), ("readiness_lane_approvals_missing", True)],
-            "the fixture must produce only the two expected advisories and no blocker",
+            # Wave 1zime: the scaffold Objective adds the observational reminder.
+            codes, [("ac_priority_unpopulated", True), ("wave_objective_unpopulated", True),
+                    ("readiness_lane_approvals_missing", True)],
+            "the fixture must produce only the three expected advisories and no blocker",
         )
         self.assertEqual(published, [1], "an advisory must not suppress publication")
         self.assertEqual(resp["status"], "ok")
@@ -10626,7 +10647,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self.assertEqual(resp["status"], "ok", resp)
         self.assertEqual(
             [d["code"] for d in resp.get("diagnostics") or []],
-            ["ac_priority_unpopulated", "readiness_lane_approvals_missing"],
+            # Wave 1zime: the scaffold Objective adds the observational reminder.
+            ["ac_priority_unpopulated", "wave_objective_unpopulated", "readiness_lane_approvals_missing"],
         )
         # Publication guard + both failure gates each evaluate the shared list.
         self.assertGreaterEqual(
@@ -11869,7 +11891,8 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
             f"Change ID: `{change_id}`\n"
             f"Change Status: `complete`\n\n"
             f"## Acceptance Criteria\n\n{ac_lines}\n\n"
-            f"{decision_table}"),
+            f"{decision_table}"
+            "\n## Tasks\n"),
             encoding="utf-8",
         )
         return wave_md
@@ -14849,7 +14872,7 @@ class WaveCloseSecretsGateTests(unittest.TestCase):
         # fixture models a valid wave, so its docs exist on disk.
         for cid in self.srv._CHANGE_ID_PATTERN.findall(wave_text):
             (wave_dir / f"{cid}.md").write_text(
-                _loc(f"# Sample\n\nChange ID: `{cid}`\n"), encoding="utf-8")
+                _loc(f"# Sample\n\nChange ID: `{cid}`\n\n## Acceptance Criteria\n\n## Tasks\n"), encoding="utf-8")
 
     def tearDown(self):
         import shutil
@@ -15712,3 +15735,569 @@ class ImplementDependencyProducerTests(unittest.TestCase):
         advisories = [d for d in result["diagnostics"] if d["code"] == "unresolved_change_dependency"]
         self.assertEqual(len(advisories), 2)
         self.assertTrue(all(d["advisory"] for d in advisories))
+
+
+class CloseGateChecklistBypassTests(unittest.TestCase):
+    """Wave 1zime (1zimq): the close checkbox gate reads every checklist item.
+
+    Each case runs through ``wf_close_wave(mode='dry_run')`` (or Prepare's
+    dry run for AC-7 and AC-11) and asserts only the diagnostic under test;
+    the fixture's other blockers (none on the legacy close path) are not the
+    subject.
+    """
+
+    CID = "1200a-feat sample"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+        wave_dir = _waves_dir(self.root) / "1200a test-wave"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        self.wave_md = wave_dir / vocabulary_profile.RECORD_FILENAME
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _doc(self, *, acs="- [x] AC-1: done\n", tasks_heading="## Tasks",
+             tasks="- [x] step-done\n", priority="| AC-1 | required | r |\n",
+             ac_heading="## Acceptance Criteria", extra=""):
+        parts = [_loc(f"# Sample\n\nChange ID: `{self.CID}`\n\n"),
+                 "## Rationale\n\nr\n\n## Requirements\n\n1. r\n\n## Scope\n\ns\n\n"]
+        if ac_heading is not None:
+            parts.append(f"{ac_heading}\n\n{acs}\n")
+        if tasks_heading is not None:
+            parts.append(f"{tasks_heading}\n\n{tasks}\n")
+        parts.append("## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n" + priority)
+        parts.append(extra)
+        return "".join(parts)
+
+    def _write(self, doc, *, status="active", crlf=False):
+        self.wave_md.write_text(
+            _loc("# Wave Record\n"
+                 "wave-id: `1200a test-wave`\n"
+                 f"Status: {status}\n\n"
+                 "## Changes\n\n"
+                 f"Change ID: `{self.CID}`\n"
+                 "Change Status: `done`\n\n"
+                 "## Review Evidence\n\n- operator-signoff: approved\n"),
+            encoding="utf-8")
+        data = doc.replace("\n", "\r\n") if crlf else doc
+        (self.wave_md.parent / f"{self.CID}.md").write_bytes(data.encode("utf-8"))
+
+    def _close(self, doc, *, crlf=False):
+        self._write(doc, crlf=crlf)
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                return self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="dry_run")
+
+    @staticmethod
+    def _diag(resp, code):
+        return [d for d in resp.get("diagnostics") or [] if d["code"] == code]
+
+    def _assert_blocks(self, resp, needle):
+        silent = self._diag(resp, "silent_unchecked_items_at_close")
+        self.assertEqual(len(silent), 1, resp.get("diagnostics"))
+        self.assertIn(needle, silent[0]["message"])
+        self.assertEqual(resp["status"], "error")
+
+    # AC-1 and AC-5
+    def test_non_dash_open_task_blocks_close(self):
+        for marker in ("*", "+", "1.", "1)"):
+            for crlf in (False, True):
+                with self.subTest(marker=marker, crlf=crlf):
+                    resp = self._close(self._doc(tasks=f"{marker} [ ] step-{marker}\n"), crlf=crlf)
+                    self._assert_blocks(resp, f"step-{marker}")
+                    done = self._close(self._doc(tasks=f"{marker} [x] step-{marker}\n"), crlf=crlf)
+                    self.assertEqual(self._diag(done, "silent_unchecked_items_at_close"), [])
+                    self.assertEqual(self._diag(done, "change_doc_missing_sections"), [])
+
+    def test_non_dash_open_ac_without_priority_row_blocks_close(self):
+        for crlf in (False, True):
+            with self.subTest(crlf=crlf):
+                resp = self._close(self._doc(acs="* [ ] AC-1: star criterion\n", priority=""), crlf=crlf)
+                self._assert_blocks(resp, "star criterion")
+                done = self._close(self._doc(acs="* [x] AC-1: star criterion\n", priority=""), crlf=crlf)
+                self.assertEqual(self._diag(done, "silent_unchecked_items_at_close"), [])
+
+    # AC-2 and AC-5
+    def test_missing_or_misspelled_heading_blocks_close(self):
+        cases = (
+            ({"tasks_heading": None}, "## Tasks"),
+            ({"tasks_heading": "## Task"}, "## Tasks"),
+            ({"ac_heading": "## Acceptance Criteria (revised)"}, "## Acceptance Criteria"),
+        )
+        for kwargs, heading in cases:
+            for crlf in (False, True):
+                with self.subTest(kwargs=kwargs, crlf=crlf):
+                    resp = self._close(self._doc(**kwargs), crlf=crlf)
+                    missing = self._diag(resp, "change_doc_missing_sections")
+                    self.assertEqual(len(missing), 1, resp.get("diagnostics"))
+                    self.assertIn(self.CID, missing[0]["message"])
+                    self.assertIn(heading, missing[0]["message"])
+                    self.assertEqual(missing[0]["recovery_tools"], ["wf_get_change"])
+                    self.assertEqual(missing[0]["recovery_usage"], f"wf_get_change(change_id={self.CID!r})")
+                    self.assertEqual(self._diag(resp, "silent_unchecked_items_at_close"), [])
+                    self.assertEqual(resp["status"], "error")
+
+    def test_empty_tasks_section_with_checked_acs_passes_the_gate(self):
+        for crlf in (False, True):
+            with self.subTest(crlf=crlf):
+                resp = self._close(self._doc(tasks=""), crlf=crlf)
+                self.assertEqual(self._diag(resp, "change_doc_missing_sections"), [])
+                self.assertEqual(self._diag(resp, "silent_unchecked_items_at_close"), [])
+
+    # AC-3 and AC-5
+    def test_late_cited_exempt_ac_does_not_exempt_the_item(self):
+        for crlf in (False, True):
+            with self.subTest(crlf=crlf):
+                resp = self._close(self._doc(
+                    acs="- [x] AC-1: done\n- [ ] Covers the remainder; see AC-2\n",
+                    priority="| AC-1 | required | r |\n| AC-2 | not-this-scope | r |\n"), crlf=crlf)
+                self._assert_blocks(resp, "[<unidentified>]")
+
+    def test_leading_exempt_ac_stays_exempt(self):
+        resp = self._close(self._doc(
+            acs="- [x] AC-1: done\n- [ ] AC-2: out of scope\n",
+            priority="| AC-1 | required | r |\n| AC-2 | not-this-scope | r |\n"))
+        self.assertEqual(self._diag(resp, "silent_unchecked_items_at_close"), [])
+
+    # AC-4 and AC-5
+    def test_second_tasks_section_is_read(self):
+        for crlf in (False, True):
+            with self.subTest(crlf=crlf):
+                resp = self._close(self._doc(extra="\n## Tasks\n\n- [ ] second-section-step\n"), crlf=crlf)
+                self._assert_blocks(resp, "second-section-step")
+
+    def test_near_miss_section_beside_an_exact_empty_heading_blocks_close(self):
+        # Wave 1zime repair: `## Tasks (remaining)` next to an empty exact
+        # `## Tasks` is read by the gate, so its open item blocks close.
+        for heading, kwargs, needle in (
+            ("## Tasks (remaining)", {"tasks": ""}, "near-miss-step"),
+            ("## Acceptance Criteria (revised)", {}, "near-miss-criterion"),
+        ):
+            with self.subTest(heading=heading):
+                item = "- [ ] near-miss-step" if "Tasks" in heading else "- [ ] AC-2: near-miss-criterion"
+                resp = self._close(self._doc(extra=f"\n{heading}\n\n{item}\n", **kwargs))
+                self._assert_blocks(resp, needle)
+                self.assertEqual(self._diag(resp, "change_doc_missing_sections"), [])
+
+    # AC-7
+    def _prepare(self, doc, *, status="planned"):
+        self._write(doc, status=status)
+        return self.srv.wf_prepare_wave_response(self.root, wave_id="1200a test-wave", mode="dry_run")
+
+    def test_prepare_refuses_inexact_tasks_heading(self):
+        cases = (
+            self._doc(tasks_heading="## Tasks (remaining)"),
+            self._doc(tasks_heading=None, extra="\nProse naming `## Tasks` inline.\n"),
+        )
+        for doc in cases:
+            with self.subTest(doc=doc[-60:]):
+                resp = self._prepare(doc)
+                missing = self._diag(resp, "change_doc_missing_sections")
+                self.assertEqual(len(missing), 1, resp.get("diagnostics"))
+                self.assertIn("## Tasks", missing[0]["message"])
+                self.assertNotIn("## Acceptance Criteria", missing[0]["message"])
+
+    # AC-11
+    def test_prepare_refuses_non_dash_checklist_item(self):
+        resp = self._prepare(self._doc(tasks="* [ ] star-step\n"))
+        found = self._diag(resp, "change_doc_noncanonical_checklist")
+        self.assertEqual(len(found), 1, resp.get("diagnostics"))
+        self.assertIn(self.CID, found[0]["message"])
+        self.assertIn("star-step", found[0]["message"])
+        self.assertIn("- [ ] ...", found[0]["message"])
+        self.assertEqual(found[0]["recovery_tools"], ["wf_get_change"])
+        self.assertFalse(found[0].get("advisory"))
+        self.assertEqual(resp["status"], "error")
+        clean = self._prepare(self._doc(tasks="- [ ] star-step\n"))
+        self.assertEqual(self._diag(clean, "change_doc_noncanonical_checklist"), [])
+        # The same refusal for an acceptance criterion (B5).
+        resp = self._prepare(self._doc(acs="1. [ ] AC-1: ordered criterion\n"))
+        found = self._diag(resp, "change_doc_noncanonical_checklist")
+        self.assertEqual(len(found), 1, resp.get("diagnostics"))
+        self.assertIn("ordered criterion", found[0]["message"])
+        self.assertIn("- [ ] ...", found[0]["message"])
+        self.assertEqual(resp["status"], "error")
+
+    def test_prepare_refuses_a_near_miss_checklist_heading(self):
+        # Wave 1zime repair: an exact empty `## Tasks` does not hide a
+        # `## Tasks (remaining)` section from Prepare.
+        resp = self._prepare(self._doc(tasks="", extra="\n## Tasks (remaining)\n\n- [ ] hidden\n"))
+        found = self._diag(resp, "change_doc_noncanonical_checklist")
+        self.assertEqual(len(found), 1, resp.get("diagnostics"))
+        self.assertIn("`## Tasks (remaining)`", found[0]["message"])
+        self.assertEqual(self._diag(resp, "change_doc_missing_sections"), [])
+        self.assertEqual(resp["status"], "error")
+
+    def test_reload_reimports_the_shared_checklist_parser(self):
+        """1zimq Requirement 1: `wf_reload_mcp` serves the parser on disk.
+
+        A stale module object stands in for an edited one: after the reload the
+        gate and lint modules must bind the module re-imported from disk.
+        """
+        from server_tools_support import load_thin_runner
+        load_server()
+        runner = load_thin_runner()
+        try:
+            runner.build_server(self.root)
+            stub = types.ModuleType("change_doc_checklist")
+            stub.stale_parser_marker = True
+            sys.modules["change_doc_checklist"] = stub
+            response = runner.perform_mcp_reload()
+            self.assertEqual(response["status"], "ok", response)
+            fresh = sys.modules["change_doc_checklist"]
+            self.assertFalse(hasattr(fresh, "stale_parser_marker"))
+            self.assertEqual(Path(fresh.__file__).resolve(),
+                             source_path("change_doc_checklist").resolve())
+            self.assertIs(sys.modules["lifecycle_gate_support"].change_doc_checklist, fresh)
+            self.assertIs(sys.modules["wave_lint_lib.wave_validators"].change_doc_checklist, fresh)
+            self.assertIs(sys.modules["lifecycle_gate_support"]._CLOSE_GATE_CHECKBOX_LINE_RE,
+                          fresh.CHECKLIST_ITEM_RE)
+        finally:
+            runner._get_handler().close()
+
+
+class LifecycleHintGapTests(unittest.TestCase):
+    """Wave 1zime (1ziml): blocked-envelope hints, pending readiness lanes, the
+    unwritten-objective advisory and the authority-keyed council brief.
+
+    Fixtures are declared waves built by the real create/admit/prepare/review
+    producers through the lifecycle golden's builders.
+    """
+
+    LINT_BAD = {"passed": False, "errors": ["ERROR: synthetic docs gate failure"], "warnings": [], "output": ""}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+        import test_lifecycle_golden as golden
+        cls.golden = golden
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.base = Path(self.tmp.name)
+        self._n = 0
+
+    def _patched(self, validate=None):
+        stack = contextlib.ExitStack()
+        stack.enter_context(patch.object(self.srv, "run_validate", validate or self.golden._stub_validate))
+        stack.enter_context(patch.object(self.srv, "run_garden", self.golden._stub_garden))
+        stack.enter_context(patch.object(self.srv, "_run_post_write_lint", lambda *a, **k: {"mode": "stubbed"}))
+        stack.enter_context(patch.object(self.srv, "_regenerate_codebase_map_safe", lambda *a, **k: None))
+        stack.enter_context(patch.object(self.srv, "_trigger_background_index_refresh_for_paths", lambda *a, **k: None))
+        return stack
+
+    def _wave(self, approvals, *, status="planned"):
+        self._n += 1
+        root = _make_repo(self.base / f"r{self._n}")
+        self.golden._write_config(root, self.golden._WAVE_REVIEW_CONFIG)
+        with self._patched():
+            wave_md, wave_id = self.golden._build_one(self.srv, root, f"hint-{self._n}", status=status)
+            self.golden.seed_state(self.srv, root, wave_id, approvals)
+        return root, wave_md, wave_id
+
+    def _event(self, root, wave_id, event, actor, context_id, **kwargs):
+        with self._patched():
+            result = self.srv.wf_review_event_response(
+                root, wave_id, event, actor, context_id, mode="create",
+                fresh_context=True, independent=True,
+                evidence=self.golden._approval_evidence(actor),
+                integrity_checks=dict(self.golden._APPROVAL_INTEGRITY), **kwargs)
+        self.assertEqual(result["status"], "ok", result)
+
+    def _prepare(self, root, wave_id, mode, validate=None):
+        with self._patched(validate):
+            return self.srv.wf_prepare_wave_response(root, wave_id, mode=mode)
+
+    @staticmethod
+    def _codes(resp):
+        return [d["code"] for d in resp.get("diagnostics") or []]
+
+    @staticmethod
+    def _diag(resp, code):
+        found = [d for d in resp.get("diagnostics") or [] if d["code"] == code]
+        return found[0] if found else None
+
+    # AC-1
+    def test_missing_council_approval_recommends_the_readiness_review(self):
+        root, _wave_md, wave_id = self._wave(("code-reviewer",))
+        resp = self._prepare(root, wave_id, "ready")
+        self.assertEqual(resp["status"], "error")
+        self.assertIn("missing_wave_council_signoff", self._codes(resp))
+        expected = f"wf_review_wave(wave_id={wave_id!r}, phase='prepare')"
+        self.assertEqual(resp["usage"], expected)
+        self.assertEqual(resp["next_tools"][0], "wf_review_wave")
+        self.assertIn("wf_review_event", resp["next_tools"])
+        council = self._diag(resp, "missing_wave_council_signoff")
+        self.assertEqual(council["recovery_tools"], ["wf_review_wave", "wf_review_event"])
+        self.assertEqual(council["recovery_usage"], expected)
+
+    def test_an_advisory_before_the_blocker_never_supplies_the_hint(self):
+        # A docs-lint warning is advisory and is emitted before the council
+        # blocker; it carries no recovery_usage, so treating it as the first
+        # blocker would fall back to wf_validate_docs().
+        root, _wave_md, wave_id = self._wave(("code-reviewer",))
+        warned = lambda *a, **k: {"passed": True, "errors": [], "warnings": ["WARNING: fixture advisory"], "output": ""}
+        resp = self._prepare(root, wave_id, "dry_run", validate=warned)
+        codes = self._codes(resp)
+        self.assertLess(codes.index("docs_lint_warning"), codes.index("missing_wave_council_signoff"))
+        self.assertEqual(resp["usage"], f"wf_review_wave(wave_id={wave_id!r}, phase='prepare')")
+
+    def test_docs_lint_blocker_still_recommends_validation(self):
+        for approvals in (("wave-council-readiness", "code-reviewer"), ("code-reviewer",)):
+            with self.subTest(approvals=approvals):
+                root, _wave_md, wave_id = self._wave(approvals)
+                resp = self._prepare(root, wave_id, "dry_run", validate=lambda *a, **k: dict(self.LINT_BAD))
+                self.assertEqual(resp["status"], "error")
+                self.assertIn("docs_lint_error", self._codes(resp))
+                if "wave-council-readiness" not in approvals:
+                    self.assertIn("missing_wave_council_signoff", self._codes(resp))
+                self.assertEqual(resp["usage"], "wf_validate_docs()")
+                self.assertEqual(resp["next_tools"], ["wf_validate_docs", "wf_current_wave"])
+
+    def test_close_blocked_by_a_delivery_approval_names_its_remedy(self):
+        root, wave_md, wave_id = self._wave(("wave-council-readiness", "code-reviewer"), status="active")
+        wave_md.write_text(wave_md.read_text(encoding="utf-8").replace(
+            "Change Status: `planned`", "Change Status: `done`"), encoding="utf-8")
+        self._event(root, wave_id, "run", "wave-council", "hint-delivery-run", run_kind="initial_delivery")
+        self._event(root, wave_id, "approval", "operator", "hint-delivery-operator",
+                    signoff_key="operator-signoff", approval_phase="delivery")
+        with self._patched():
+            resp = self.srv.wf_close_wave_response(root, wave_id, mode="dry_run")
+        self.assertEqual(resp["status"], "error")
+        first = next(d for d in resp["diagnostics"] if d.get("advisory") is not True)
+        self.assertIn("missing_required_lane", self._codes(resp))
+        # Repair round: a declared wave's delivery lane names the delivery phase.
+        self.assertEqual(self._diag(resp, "missing_required_lane")["recovery_usage"],
+                         f"wf_review_wave(wave_id={wave_id!r}, phase='implementation')")
+        self.assertEqual(resp["usage"], first["recovery_usage"])
+        self.assertNotEqual(resp["usage"], "wf_validate_docs()")
+        self.assertEqual(resp["next_tools"][:len(first["recovery_tools"])], first["recovery_tools"])
+
+    def test_failing_delivery_review_names_the_first_blocker(self):
+        root, _wave_md, wave_id = self._wave(("wave-council-readiness", "code-reviewer"), status="active")
+        with self._patched():
+            resp = self.srv.wf_review_wave_response(root, wave_id, phase="implementation")
+        self.assertEqual(resp["status"], "error")
+        first = next(d for d in resp["diagnostics"] if d.get("advisory") is not True)
+        self.assertEqual(resp["usage"], first["recovery_usage"])
+        self.assertNotEqual(resp["usage"], "wf_validate_docs()")
+
+    # AC-2
+    def test_pending_readiness_lanes_first_pass_approved_and_lapsed(self):
+        root, wave_md, wave_id = self._wave(())
+        resp = self._prepare(root, wave_id, "dry_run")
+        self.assertEqual(resp["data"]["pending_readiness_lanes"], ["code-reviewer"])
+        advisory = self._diag(resp, "readiness_lane_approvals_missing")
+        self.assertTrue(advisory["message"].startswith("Readiness approvals still needed from: code-reviewer."))
+        self.assertNotIn("Re-review the repaired packet", advisory["message"])
+        self.assertEqual(advisory["recovery_usage"], f"wf_review_wave(wave_id={wave_id!r}, phase='prepare')")
+        # One lane approves: it leaves the list.
+        self._event(root, wave_id, "run", "wave-council", "hint-readiness-run", run_kind="readiness")
+        self._event(root, wave_id, "approval", "code-reviewer", "hint-code-approval",
+                    signoff_key="code-reviewer", approval_phase="readiness")
+        resp = self._prepare(root, wave_id, "dry_run")
+        self.assertEqual(resp["data"]["pending_readiness_lanes"], [])
+        self.assertIsNone(self._diag(resp, "readiness_lane_approvals_missing"))
+        # A receipt supersession lapses the approval: re-review wording.
+        change = next(p for p in wave_md.parent.glob("*.md") if p.name != wave_md.name)
+        change.write_text(change.read_text(encoding="utf-8").replace(
+            "1. Fixture requirement.", "1. Fixture requirement, revised."), encoding="utf-8")
+        self.assertEqual(self._prepare(root, wave_id, "ready")["status"], "error")
+        resp = self._prepare(root, wave_id, "dry_run")
+        self.assertEqual(resp["data"]["pending_readiness_lanes"], ["code-reviewer"])
+        advisory = self._diag(resp, "readiness_lane_approvals_missing")
+        self.assertIn("Re-review the repaired packet and record approvals against the current receipt.",
+                      advisory["message"])
+        self.assertNotIn("still needed from", advisory["message"])
+
+    def test_unreadable_ledger_yields_null_and_no_advisory(self):
+        root, wave_md, wave_id = self._wave(())
+        (wave_md.parent / "events.jsonl").write_text("{not json\n", encoding="utf-8")
+        resp = self._prepare(root, wave_id, "dry_run")
+        self.assertIn("pending_readiness_lanes", resp["data"])
+        self.assertIsNone(resp["data"]["pending_readiness_lanes"])
+        self.assertIsNone(self._diag(resp, "readiness_lane_approvals_missing"))
+
+    # AC-3
+    def test_failing_prepare_review_never_recommends_implementation(self):
+        root, _wave_md, wave_id = self._wave(("wave-council-readiness",))
+        with self._patched():
+            resp = self.srv.wf_review_wave_response(root, wave_id, phase="prepare")
+        self.assertEqual(resp["status"], "error")
+        self.assertNotIn("wf_implement_wave", resp["usage"])
+        self.assertNotIn("wf_implement_wave", resp["next_tools"])
+        lane = self._diag(resp, "missing_required_lane")
+        self.assertEqual(lane["recovery_usage"], f"wf_review_wave(wave_id={wave_id!r}, phase='prepare')")
+        self.assertIn("wf_review_event", lane["recovery_tools"])
+        recommended = resp["data"]["review_actions"]["recommended_next_action"]
+        self.assertIsNotNone(recommended)
+        # A pure call expression (literal keyword arguments only), so the
+        # served-name hint rewrite can parse it; the prose lives in data.
+        call = ast.parse(resp["usage"], mode="eval").body
+        self.assertIsInstance(call, ast.Call)
+        self.assertEqual(call.func.id, "wf_review_event")
+        self.assertEqual(call.args, [])
+        arguments = {kw.arg: ast.literal_eval(kw.value) for kw in call.keywords}
+        self.assertEqual(arguments, {"wave_id": wave_id, **recommended["state_args"],
+                                     "actor": recommended["actor_role"]})
+        self.assertIn(recommended["action_id"], resp["data"]["next_action_note"])
+        self.assertEqual(resp["next_tools"][0], "wf_review_event")
+        rewritten = self.srv._rewrite_served_names(
+            {"usage": resp["usage"]}, {"wf_review_event": "fork_review_event"}, {})["usage"]
+        self.assertEqual(rewritten, "fork_review_event" + resp["usage"][len("wf_review_event"):])
+        # Without a readiness run there is no recommended action: the first blocker decides.
+        root, _wave_md, wave_id = self._wave(())
+        with self._patched():
+            resp = self.srv.wf_review_wave_response(root, wave_id, phase="prepare")
+        self.assertEqual(resp["status"], "error")
+        first = next(d for d in resp["diagnostics"] if d.get("advisory") is not True)
+        self.assertEqual(resp["usage"], first["recovery_usage"])
+        self.assertNotIn("wf_implement_wave", resp["usage"])
+
+    def test_passing_prepare_review_still_recommends_implementation(self):
+        root, _wave_md, wave_id = self._wave(("wave-council-readiness", "code-reviewer"))
+        with self._patched():
+            resp = self.srv.wf_review_wave_response(root, wave_id, phase="prepare")
+        self.assertEqual(resp["status"], "ok", resp.get("diagnostics"))
+        self.assertEqual(resp["usage"], f"wf_implement_wave(wave_id={wave_id!r}, mode='dry_run')")
+
+    def test_legacy_missing_lane_wording_and_recovery_are_unchanged(self):
+        root = _make_repo(self.base / "legacy")
+        wave_dir = _waves_dir(root) / "1200a test-wave"
+        wave_dir.mkdir(parents=True)
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(_loc(
+            "# Wave Record\nwave-id: `1200a test-wave`\nStatus: active\n\n## Changes\n\n"
+            "Change ID: `1200a-feat sample`\nChange Status: `active`\n\n"
+            "## Participants\n\n- Required review lanes: code-reviewer\n"), encoding="utf-8")
+        with self._patched():
+            resp = self.srv.wf_review_wave_response(root, "1200a test-wave", phase="prepare")
+        lane = self._diag(resp, "missing_required_lane")
+        self.assertEqual(lane["recovery_tools"], ["wf_current_wave"])
+        self.assertEqual(lane["recovery_usage"], "wf_current_wave()")
+        self.assertTrue(lane["message"].startswith("Prepare-phase review lanes without recorded signoff in"))
+        self.assertNotIn("wf_implement_wave", resp["usage"])
+
+    # AC-4
+    def test_readiness_block_keeps_the_callers_mode(self):
+        gates = self.srv.lifecycle_gates
+        real = gates._review_evidence_diagnostics
+
+        def readiness_blocks(*args, **kwargs):
+            # Only the readiness gate's call blocks; every other evidence read is real.
+            if kwargs.get("required_run_kind") == "readiness":
+                return [self.srv._diagnostic("fixture_readiness_block", "fixture readiness block")]
+            return real(*args, **kwargs)
+
+        for mode in ("ready", "create"):
+            with self.subTest(mode=mode):
+                root, _wave_md, wave_id = self._wave(("wave-council-readiness", "code-reviewer"))
+                with patch.object(gates, "_review_evidence_diagnostics", side_effect=readiness_blocks) as evidence_mock:
+                    resp = self._prepare(root, wave_id, mode)
+                evidence_mock.assert_called()
+                self.assertEqual(resp["status"], "error")
+                self.assertIn("fixture_readiness_block", self._codes(resp))
+                self.assertEqual(resp["usage"], f"wf_prepare_wave(wave_id={wave_id!r}, mode={mode!r})")
+                self.assertEqual(resp["next_tools"], ["wf_prepare_wave"])
+
+    # AC-5
+    def test_unwritten_objective_advisory(self):
+        def with_objective(wave_md, body):
+            text = wave_md.read_text(encoding="utf-8")
+            start = text.index("## Objective\n") + len("## Objective\n")
+            end = text.index("\n## ", start)
+            wave_md.write_text(text[:start] + body + text[end:], encoding="utf-8")
+
+        cases = (
+            ("placeholder", None, True),
+            ("empty", "\n", True),
+            ("written", "\nShip the fixture behaviour.\n", False),
+            ("angle_term", "\nShip the `<fixture>` behaviour for <target> callers.\n", False),
+        )
+        statuses = {}
+        for label, body, expected in cases:
+            for mode in ("dry_run", "ready", "create"):
+                with self.subTest(case=label, mode=mode):
+                    root, wave_md, wave_id = self._wave(("code-reviewer",))
+                    if body is not None:
+                        with_objective(wave_md, body)
+                    resp = self._prepare(root, wave_id, mode)
+                    # Missing council approval: an error envelope in every mode.
+                    self.assertEqual(resp["status"], "error")
+                    advisory = self._diag(resp, "wave_objective_unpopulated")
+                    self.assertEqual(advisory is not None, expected, self._codes(resp))
+                    if advisory is not None:
+                        self.assertIs(advisory["advisory"], True)
+                        self.assertIn("## Objective", advisory["message"])
+                    statuses.setdefault(mode, set()).add(resp["status"])
+        self.assertTrue(all(len(found) == 1 for found in statuses.values()), statuses)
+
+    # AC-6
+    LEGACY_DIGESTS = {
+        None: ("fc89447b615edf114c4bb663c0e29fc1b5c82a1f710b6315b506f6f316416c6c",
+               "e00577fffb7f1bab406ae6fbc95a96a0627b85d880ef7d7d07672b58ac5c88ca"),
+        "security-reviewer": ("5d2c4cad0dd465ab5fc06c8435409d77a2f15f1627f248f2156be541a0c3f553",
+                              "05de13c8f595410110308b626cb661937d7fff9732cb737b33c0692cd0710f42"),
+        "docs-contract-reviewer": ("e4963903c0b23606330ed77dc0926d2207b994d16da52baf77f51d344ed63c23",
+                                   "671e987a010c49a5fcdcc1ff9d5e00ce790ce4658c88692b31f38729682399f2"),
+    }
+
+    def test_council_brief_points_at_the_record_that_counts(self):
+        support = self.srv.lifecycle_gate_support
+        digest = lambda text: hashlib.sha256(text.encode("utf-8")).hexdigest()
+        for seat, (instructions, template) in self.LEGACY_DIGESTS.items():
+            with self.subTest(seat=seat):
+                self.assertEqual(digest(support._prepare_council_instructions(seat)), instructions)
+                self.assertEqual(digest(support._prepare_council_verdict_template(seat)), template)
+                self.assertEqual(support._prepare_council_instructions(seat, typed=False),
+                                 support._prepare_council_instructions(seat))
+                typed_instructions = support._prepare_council_instructions(seat, typed=True)
+                typed_template = support._prepare_council_verdict_template(seat, typed=True)
+                for text in (typed_instructions, typed_template):
+                    self.assertIn("wf_review_event(", text)
+                    self.assertIn("signoff_key='wave-council-readiness'", text)
+                self.assertNotIn("Record the verdict in ## Review Checkpoints", typed_instructions)
+                self.assertIn("## Review Checkpoints narrative is optional and is not authority", typed_instructions)
+                self.assertTrue(typed_instructions.endswith(
+                    "Then call wf_prepare_wave(mode='ready'), or mode='create' to also open the wave."))
+                self.assertIn("code-grounded", typed_instructions)
+        # Bound and unbound briefs render the same text for the same seat and authority.
+        wave_text = "## Objective\n\nRework the security credential boundary.\n"
+        for typed in (False, True):
+            unbound = support._build_prepare_council_brief("w1", wave_text, ["c1"], typed=typed)
+            seat = unbound["rotating_seat"]
+            self.assertEqual(seat, "security-reviewer")
+            bound = self.srv._bind_prepare_council_brief_to_receipt(
+                support._build_prepare_council_brief("w1", "no signal", ["c1"], typed=typed),
+                {"council_seats": ["red-team", seat]}, typed=typed)
+            self.assertEqual(bound["instructions"], unbound["instructions"])
+            self.assertEqual(bound["verdict_format"], unbound["verdict_format"])
+
+    def test_typed_prepare_response_serves_the_typed_brief(self):
+        root, _wave_md, wave_id = self._wave(())
+        resp = self._prepare(root, wave_id, "dry_run")
+        brief = resp["data"]["council_brief"]
+        self.assertIn("signoff_key='wave-council-readiness'", brief["instructions"])
+        self.assertIn("wf_review_event(", brief["verdict_format"])
+
+    def test_unbound_typed_brief_without_review_policy(self):
+        # No `wave_review` config: no receipt binds the brief, so the unbound
+        # producer alone must render the typed text for a declared wave.
+        root = _make_repo(self.base / "unbound")
+        with self._patched():
+            wave_md, wave_id = self.golden._build_one(self.srv, root, "unbound", status="planned")
+            resp = self.srv.wf_prepare_wave_response(root, wave_id, mode="dry_run")
+        self.assertTrue(self.srv.resolve_review_authority(root, wave_md).typed)
+        self.assertIsNone(resp["data"]["review_policy"])
+        brief = resp["data"]["council_brief"]
+        self.assertIn("signoff_key='wave-council-readiness'", brief["instructions"])
+        self.assertIn("wf_review_event(", brief["verdict_format"])

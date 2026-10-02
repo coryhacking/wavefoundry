@@ -11659,6 +11659,126 @@ class StorageRebuildOrchestrationTests(unittest.TestCase):
                 self.assertEqual('--full' in graph, strategy == 'rebuild')
 
 
+def _ac3_git(root: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-c", "user.email=fixture@example.invalid", "-c", "user.name=fixture",
+         "-c", "commit.gpgsign=false", *args],
+        cwd=str(root), check=True, capture_output=True, stdin=subprocess.DEVNULL,
+    )
+
+
+def _ac3_tree(root: Path) -> dict[str, bytes]:
+    return {
+        str(p.relative_to(root)).replace("\\", "/"): p.read_bytes()
+        for p in sorted(root.rglob("*"))
+        if p.is_file() and ".git" not in p.relative_to(root).parts
+    }
+
+
+class DocsGateProjectRootPinTests(unittest.TestCase):
+    """Wave 1zime (1zimk) AC-3: the upgrade's docs gate gardens and lints the
+    TARGET root even when the caller exports ``PROJECT_ROOT`` for another
+    repository, and the rendered post-edit hook pins its docs-lint child the
+    same way."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = load_upgrade_module()
+        tests_dir = str(Path(__file__).resolve().parent)
+        if tests_dir not in sys.path:
+            sys.path.insert(0, tests_dir)
+        import test_docs_lint  # module attribute only: no TestCase class enters this namespace
+
+        cls._fixture = staticmethod(lambda: test_docs_lint.DocsLintFixtureTests.copy_fixture(None))
+
+    def _fixture_repo(self) -> Path:
+        root = self._fixture()
+        self.addCleanup(shutil.rmtree, root, True)
+        return root
+
+    def test_inherited_project_root_cannot_redirect_the_gate(self):
+        if shutil.which("git") is None:
+            self.skipTest("git is required for the gardener's changed-doc census")
+        other = self._fixture_repo()
+        _ac3_git(other, "init", "-q")
+        _ac3_git(other, "add", "-A")
+        _ac3_git(other, "commit", "-q", "-m", "fixture")
+        stale = other / "docs" / "README.md"
+        text = stale.read_text(encoding="utf-8")
+        self.assertIn("Last verified: ", text)
+        stale.write_text(
+            re.sub(r"(?m)^Last verified: .*$", "Last verified: 2020-01-01", text), encoding="utf-8")
+        before = _ac3_tree(other)
+
+        target = self._fixture_repo()
+        planted = target / "docs" / "README.md"
+        planted.write_text(
+            re.sub(r"(?m)^Owner: .*\n", "", planted.read_text(encoding="utf-8")), encoding="utf-8")
+
+        with patch.dict(os.environ, {"PROJECT_ROOT": str(other), "REPO_ROOT": str(other)}), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit, msg="the lint failure planted in the target must fail the gate"):
+                self.mod.phase_docs_gate(target)
+        self.assertEqual(
+            _ac3_tree(other), before,
+            "the gate must never garden or write the repository PROJECT_ROOT happened to name",
+        )
+        self.assertIn("Last verified: 2020-01-01", stale.read_text(encoding="utf-8"))
+
+    def test_gate_children_receive_the_target_root(self):
+        seen: list[dict] = []
+
+        def fake_run(cmd, **kwargs):
+            seen.append(kwargs)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        target = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, target, True)
+        with patch.dict(os.environ, {"PROJECT_ROOT": "/elsewhere"}), \
+                patch.object(self.mod.subprocess_util, "isolated_run", side_effect=fake_run), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.mod.phase_docs_gate(target)
+        self.assertEqual(len(seen), 2, "gardener and lint")
+        for kwargs in seen:
+            self.assertEqual(kwargs["env"]["PROJECT_ROOT"], str(target))
+            self.assertEqual(kwargs["cwd"], str(target))
+
+    @unittest.skipIf(os.name == "nt", "POSIX shell fixture")
+    def test_rendered_post_edit_hook_pins_project_root_to_repo_root(self):
+        spec = importlib.util.spec_from_file_location(
+            "render_platform_surfaces_ac3", SCRIPTS_ROOT / "render_platform_surfaces.py")
+        render = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(render)
+        base = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, base, True)
+        root = base / "repo"
+        scripts = root / ".wavefoundry" / "framework" / "scripts"
+        scripts.mkdir(parents=True)
+        (root / "docs").mkdir()
+        (scripts / "indexer.py").write_text(
+            "def docs_lint_hook_timeout_seconds(root):\n    return 30.0\n", encoding="utf-8")
+        seen_file = base / "seen-project-root.txt"
+        (scripts / "docs_lint.py").write_text(
+            "import os, sys\n"
+            f"open({str(seen_file)!r}, 'w').write(os.environ.get('PROJECT_ROOT', '<unset>'))\n"
+            "sys.exit(0)\n",
+            encoding="utf-8",
+        )
+        hook = root / ".claude" / "hooks" / "post-edit.py"
+        hook.parent.mkdir(parents=True)
+        hook.write_text(render.claude_post_edit_source(), encoding="utf-8")
+        doc = root / "docs" / "note.md"
+        doc.write_text("# Note\n", encoding="utf-8")
+        env = {**os.environ, "PROJECT_ROOT": str(base / "elsewhere")}
+        subprocess.run(
+            [sys.executable, str(hook)],
+            input=json.dumps({"tool_input": {"file_path": str(doc)}}),
+            text=True, capture_output=True, cwd=str(base), env=env, timeout=60,
+        )
+        self.assertTrue(seen_file.exists(), "non-vacuity: the hook ran its docs-lint child")
+        self.assertEqual(Path(seen_file.read_text()).resolve(), root.resolve())
+
+
 if __name__ == "__main__":
     unittest.main()
 

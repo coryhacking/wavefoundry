@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-29
+Last verified: 2026-10-01
 
 ## Configuration
 
@@ -70,7 +70,18 @@ lock):
 - **`lifecycle-mutation.lock`** (`.wavefoundry/`): advisory per-root
   serialization of the mutating lifecycle MCP tools (the census in the 1seat
   change doc), acquired non-blocking at the registration layer; a held lock
-  returns a structured `lifecycle_mutation_locked` busy response.
+  returns a structured `lifecycle_mutation_locked` busy response. It is a
+  record lock at offset `1 << 30`, which POSIX ties to the process: a second
+  acquire in the same process succeeds and closing any descriptor of the file
+  releases it. Every hold is therefore registered in `runtime_lock`'s
+  in-process hold registry (pid, `acquired_at` and the owning thread), with
+  acquire and registration as one step under `process_hold_guard()`, and the
+  entry is removed before the OS lock is released. A re-entry from any thread
+  of the holding process is refused with `LifecycleLockBusy` before the file
+  is opened, which the middleware maps to the same busy response (wave
+  1zimc). The registry lives in `runtime_lock`, which an MCP reload does not
+  evict, so a hold taken before a reload stays visible to the re-imported
+  `lifecycle_lock` and `review_evidence`.
 - **`project_state_publication_lock`**
   (`.wavefoundry/locks/review-evidence-adoptions.lock` — the adoption-shaped
   basename is an opaque compatibility ABI kept stable for 1.14+ same-path
@@ -84,7 +95,20 @@ lock):
   the telemetry projection that follows); other threads and processes remain
   serialized. Lock order is fixed and never inverted: the outer advisory
   `lifecycle-mutation.lock` is acquired first, this inner blocking lock
-  second. Memory writes additionally carry the memory-state fence.
+  second. Memory writes additionally carry the memory-state fence. When a
+  waiting caller finds the publication lock busy, it decides from the hold
+  registry before probing the lifecycle lock (wave 1zimc): a hold by the
+  calling thread skips the probe and waits (the fixed lock order means the
+  publication holder never waits for lifecycle); a hold by another thread of
+  the process fails fast with `ProjectPublicationUnavailable`, as a hold by
+  another process does; with no in-process hold the file is probed, with the
+  check and the open under the guard. `lifecycle_publication_transaction`
+  takes the publication file lock outside this function's depth counter, so
+  it registers that hold too, and a publication-lock request on the same
+  thread inside the transaction is refused at once rather than blocking on
+  its own hold. Limit: on Linux network filesystems that emulate `flock`
+  with record locks, the publication lock is process-owned as well; only the
+  transaction's same-thread case is covered there.
 
 ## Upgrade Remedy Classes (fresh-code reporting)
 

@@ -17,6 +17,7 @@ from review_evidence import (
     validate_external_review_evidence,
 )
 from context_efficiency import checkpoint_validation_errors
+import change_doc_checklist  # shared checklist parser (wave 1zime, 1zimq)
 
 from .constants import (
     ALLOWED_CHANGE_STATUS_TRANSITIONS,
@@ -90,6 +91,33 @@ _DECISION_LOG_SOURCE_EVENT_RE = re.compile(
     rf"^Source event:\s*`decision-log:{LIFECYCLE_PREFIX_PATTERN}-{CHANGE_KIND_PATTERN} "
     rf"{SLUG_PATTERN}(:)[0-9a-f]{{16}}`\s*$"
 )
+
+
+# A member-id line with the change-id shape whose lowercase kind token is not a
+# declared change kind (wave 1zimf): linted by name, in place of the generic
+# "missing identifier line" and "unstable" messages for that line.
+_CHANGE_ID_SHAPE_RE = re.compile(
+    rf"^{_vocab.MEMBER_ID_LABEL_RE}:\s+`({LIFECYCLE_PREFIX_PATTERN}-([a-z][a-z0-9]*) {SLUG_PATTERN})`$",
+    re.MULTILINE,
+)
+
+
+def _undeclared_change_kinds(text: str) -> list[tuple[str, str]]:
+    """``(change id, kind token)`` for each change-id-shaped member-id line in
+    ``text`` whose kind is not in ``vocabulary_profile.CHANGE_KINDS``."""
+    return [
+        (match.group(1), match.group(2))
+        for match in _CHANGE_ID_SHAPE_RE.finditer(text)
+        if match.group(2) not in _vocab.CHANGE_KINDS
+    ]
+
+
+def _undeclared_change_kind_failure(rel: str, change_id: str, kind: str) -> str:
+    return (
+        f"{rel}: {_vocab.MEMBER_ID_LABEL} `{change_id}` uses undeclared change kind '{kind}' "
+        f"(declared kinds: {', '.join(_vocab.CHANGE_KINDS)}; a distribution declares more in "
+        "vocabulary_profile.EXTRA_CHANGE_KINDS)"
+    )
 
 
 def _memory_forbidden_match(raw_line: str) -> bool:
@@ -237,8 +265,8 @@ def _parse_ac_items_for_lint(ac_section: str, priority_section: str) -> tuple[li
     ac_priorities: list[str] = []
     for index, match in enumerate(_AC_LINE_RE.finditer(ac_section)):
         text = match.group("text").strip()
-        id_match = _AC_ID_RE.search(text)
-        ac_id = id_match.group(1) if id_match else ""
+        # Wave 1zime (1zimq): the id comes only from the start of the item.
+        ac_id = change_doc_checklist.leading_ac_id(text) or ""
         priority = priority_map.get(ac_id)
         if priority is None and index < len(priority_rows):
             priority = priority_rows[index]
@@ -324,6 +352,36 @@ def _check_checkbox_task_syntax(text: str, rel: str) -> list[str]:
         "use checkbox syntax (`- [ ] step` / `- [x] step` / `- [~] step` for intentionally-deferred) "
         "so task completion can be tracked during implementation"
     ]
+
+
+def _check_checklist_list_markers(text: str, rel: str) -> list[str]:
+    """Wave 1zime (1zimq): fail every checklist item in `## Acceptance Criteria` or
+    `## Tasks` whose list marker is not `-`.
+
+    The close gate counts an item under any marker, but `wf_mark_ac`,
+    `wf_mark_task`, the review-policy digest normaliser and the dashboard read
+    `-` items only, so lint keeps documents in the form they read.  Sections are
+    read through the shared parser (every exact-heading section; CRLF as LF).
+    """
+    failures: list[str] = []
+    for heading in ("Acceptance Criteria", "Tasks"):
+        # Wave 1zime repair: a near-miss heading (`## Tasks (remaining)`) hides
+        # its items from the mark tools and the exact-heading rules.
+        for near_miss in change_doc_checklist.near_miss_headings(text, heading):
+            failures.append(
+                f"{rel}: heading `{near_miss}` is not the exact `## {heading}`; "
+                f"use `## {heading}` and merge its checklist items into that section"
+            )
+        for match in change_doc_checklist.section_items(text, heading, include_near_miss=True):
+            if change_doc_checklist.is_canonical_marker(match.group("marker")):
+                continue
+            item = f"{match.group('marker')} [{match.group('mark')}] {match.group('text').strip()}"
+            failures.append(
+                f"{rel}: `## {heading}` checklist item `{item}` uses the list marker "
+                f"`{match.group('marker')}`; write it in the canonical `- [ ] ...` form "
+                "so `wf_mark_ac`, `wf_mark_task` and the review-policy digest can read it"
+            )
+    return failures
 
 
 # Wave 1wur7 (1wuui): an acceptance criterion asserts an outcome the change
@@ -607,8 +665,9 @@ def _check_tilde_required_ac_has_inline_note(text: str, rel: str) -> list[str]:
     ac_index = 0
     for match in _AC_LINE_RE.finditer(ac_section):
         text_part = match.group("text").strip()
-        id_match = _AC_ID_RE.search(text_part)
-        ac_id = id_match.group(1) if id_match else ""
+        # Wave 1zime (1zimq): the id comes only from the start of the item, so
+        # an id cited later never lends its priority.
+        ac_id = change_doc_checklist.leading_ac_id(text_part) or ""
         # Resolve priority by id first, then positional fallback.
         priority = priority_map.get(ac_id)
         if priority is None and ac_index < len(priority_rows):
@@ -1268,6 +1327,11 @@ def check_plan_filenames(root: Path, only: set[Path] | None = None, skip: set[Pa
                 )
             continue
 
+        undeclared = _undeclared_change_kinds(text)
+        if undeclared:
+            failures.extend(_undeclared_change_kind_failure(rel, cid, kind) for cid, kind in undeclared)
+            continue
+
         failures.append(
             f"{rel}: plan is missing a `{_vocab.MEMBER_ID_LABEL}:` or `{_vocab.BACKREF_LABEL}:` identifier line — "
             f"generate a change-id with "
@@ -1601,6 +1665,10 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                 failures.append(f"{rel}: wave artifact has unstable Item ID `{item_value}`")
         for raw_line in [line for line in text.splitlines() if line.startswith(f"{_vocab.MEMBER_ID_LABEL}:")]:
             if not CHANGE_ID_PATTERN.match(raw_line):
+                undeclared = _undeclared_change_kinds(raw_line)
+                if undeclared:
+                    failures.extend(_undeclared_change_kind_failure(rel, cid, kind) for cid, kind in undeclared)
+                    continue
                 change_value = _extract_backtick_value(raw_line)
                 failures.append(f"{rel}: wave artifact has unstable {_vocab.MEMBER_ID_LABEL} `{change_value}`")
 
@@ -1685,6 +1753,7 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                     failures.extend(_check_ac_priority_alignment(change_text, change_rel))
                     failures.extend(_check_checkbox_ac_syntax(change_text, change_rel))
                     failures.extend(_check_checkbox_task_syntax(change_text, change_rel))
+                    failures.extend(_check_checklist_list_markers(change_text, change_rel))
                     failures.extend(_check_tilde_required_ac_has_inline_note(change_text, change_rel))
                     _route_sensor_findings("ac_asserts_repository_state",
                                            _check_ac_asserts_repository_state(change_text, change_rel),

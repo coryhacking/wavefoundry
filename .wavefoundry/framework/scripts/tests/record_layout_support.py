@@ -169,7 +169,7 @@ _SHIPPED_VOCABULARY = {
     "BACKREF_LABEL": "Wave",
 }
 SHIPPED_DEFAULTS: "dict[str, dict[str, Any]]" = {
-    "vocabulary_profile": {**_SHIPPED_VOCABULARY, "ARCHIVE_PROFILE": None},
+    "vocabulary_profile": {**_SHIPPED_VOCABULARY, "ARCHIVE_PROFILE": None, "EXTRA_CHANGE_KINDS": ()},
     "record_paths": {
         "WAVES_ROOT": "docs/waves",
         "PLANS_ROOT": "docs/plans",
@@ -196,6 +196,9 @@ SHIPPED_DECLARATION: "dict[str, Any]" = {
     "EXTENSION_TOOL_PARAMETERS": {},
     "EXTENSION_HIDDEN_TOOLS": (),
     "EXTENSION_REPLACEMENTS": {},
+    # Wave 1zimf (1zimo): lock and artifact-credit declarations.
+    "EXTENSION_LIFECYCLE_TOOLS": (),
+    "EXTENSION_ARTIFACT_PATH_FIELDS": {},
 }
 # Every constant a profile asset may name, per module.
 _EDITABLE = {**SHIPPED_DEFAULTS, "mcp_tool_extensions": SHIPPED_DECLARATION}
@@ -764,17 +767,25 @@ def expected_profile(environ: "Any | None" = None, profiles_dir: "Path | None" =
     return ExpectedProfile(base, ProfileLayer(name, "run mode", TEST_PROFILE_ENV, data["modules"]))
 
 
+def _json_form(value: Any) -> Any:
+    """JSON form (tuples as lists), as a profile asset writes a constant."""
+    return json.loads(json.dumps(value))
+
+
 def expected_profile_mismatch(expected: ExpectedProfile) -> "str | None":
     """``None`` when every loaded copy of ``vocabulary_profile`` and
-    ``record_paths`` equals ``expected``'s record constants exactly; else a
-    message naming each layer, its source and each differing constant."""
+    ``record_paths`` equals ``expected``'s record constants exactly, compared
+    in JSON form (tuples as lists) as ``declaration_profile_mismatch`` does, so
+    a loaded ``("decision",)`` matches an asset's ``["decision"]`` (wave
+    1zimf); else a message naming each layer, its source and each differing
+    constant."""
     want = expected.constants()
     differences: list[str] = []
     for module_name, values in want.items():
         for module in _loaded_modules(module_name):
             loaded = _constants_of(module, module_name)
             for name, value in values.items():
-                if loaded[name] != value:
+                if loaded[name] is _MISSING or _json_form(loaded[name]) != _json_form(value):
                     got = "missing" if loaded[name] is _MISSING else repr(loaded[name])
                     differences.append(f"{module_name}.{name} is {got}, expected {value!r}")
     if not differences:

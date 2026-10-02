@@ -52,11 +52,16 @@ EXTENSION_OVERRIDES: Mapping[str, tuple[str, ...]] = {}
 EXTENSION_TOOL_ALIASES: Mapping[str, str] = {}
 
 # Parameter mappings for declared aliases (wave 1zim3):
-# ``{alias: {"rename": {alias_param: canonical_param}, "fixed": {canonical_param: value}}}``.
+# ``{alias: {"rename": {alias_param: canonical_param}, "fixed": {canonical_param: value},
+#            "description": text}}``.
 # Every canonical parameter that is neither renamed nor fixed passes through
 # under its own name. The alias serves a translator into the canonical tool's
-# wrapped callable, so every control stays keyed on the canonical name.
-EXTENSION_TOOL_PARAMETERS: Mapping[str, Mapping[str, Mapping[str, object]]] = {}
+# wrapped callable, so every control stays keyed on the canonical name. Top-level
+# response ``data`` keys that echo a renamed parameter carry the alias name. The
+# optional ``description`` (wave 1zime) replaces the canonical description for
+# this alias only; it needs a non-empty ``rename`` or ``fixed`` and is at most
+# ALIAS_DESCRIPTION_MAX_CHARS characters.
+EXTENSION_TOOL_PARAMETERS: Mapping[str, Mapping[str, object]] = {}
 
 # Canonical names that are not served. Each must have an alias without fixed
 # parameters.
@@ -69,6 +74,18 @@ EXTENSION_HIDDEN_TOOLS: tuple[str, ...] = ()
 # core name's tier, but never lowers it: a write tool stays write (wave 1zicq).
 EXTENSION_REPLACEMENTS: Mapping[str, Mapping[str, Mapping[str, str]]] = {}
 
+# New extension tools that run under the lifecycle mutation lock, exactly as
+# the core lifecycle tools do (wave 1zimf). A new extension tool that writes
+# wave lifecycle records must be declared here. Each entry is a write-tier
+# tool declared in EXTENSION_TOOL_TIERS; core names keep the core lock set.
+EXTENSION_LIFECYCLE_TOOLS: tuple[str, ...] = ()
+
+# ``{tool: data_field}`` (wave 1zimf): the response ``data`` field holding the
+# repository-relative paths a new write-tier extension tool wrote, credited as
+# derived artifacts by the core contract. The declaration is the
+# distribution's assertion that the tool wrote those files.
+EXTENSION_ARTIFACT_PATH_FIELDS: Mapping[str, str] = {}
+
 # ------------------------------------------------------------------------------
 
 # Edit-gate tools no declaration may override, replace or hide (wave 1zicq):
@@ -76,6 +93,11 @@ EXTENSION_REPLACEMENTS: Mapping[str, Mapping[str, Mapping[str, str]]] = {}
 # serves the core handler. Extension modules are trusted code in the server
 # process, so this catches a careless declaration; it is not a sandbox.
 EDIT_GATE_TOOLS = frozenset({"wf_open_gate", "wf_close_gate"})
+
+# The longest description a parameter-mapped alias may declare (wave 1zime).
+# It clears the longest core tool description (about 11,600 characters) and
+# keeps a runaway declaration out of every tool listing.
+ALIAS_DESCRIPTION_MAX_CHARS = 16_384
 
 # Names a declared module may never take: the extension machinery itself and
 # the server's composition modules. Standard-library names are refused too,
@@ -113,7 +135,7 @@ def declared() -> bool:
     return bool(
         EXTENSION_MODULES or EXTENSION_TOOL_PREFIXES or EXTENSION_TOOL_TIERS or EXTENSION_OVERRIDES
         or EXTENSION_TOOL_ALIASES or EXTENSION_TOOL_PARAMETERS or EXTENSION_HIDDEN_TOOLS
-        or EXTENSION_REPLACEMENTS
+        or EXTENSION_REPLACEMENTS or EXTENSION_LIFECYCLE_TOOLS or EXTENSION_ARTIFACT_PATH_FIELDS
     )
 
 
@@ -229,6 +251,68 @@ def declaration_problems(
                 problems.append(f"override {name!r} is declared twice by {module_name!r}")
             owners[name] = module_name
     problems.extend(_alias_hide_replacement_problems(core, runner, seen_modules, owners, core_tiers or {}))
+    problems.extend(_lock_and_credit_problems(core, runner))
+    return problems
+
+
+def _lock_and_credit_problems(core: set[str], runner: set[str]) -> list[str]:
+    """``EXTENSION_LIFECYCLE_TOOLS`` and ``EXTENSION_ARTIFACT_PATH_FIELDS`` (wave 1zimf).
+
+    Every entry must be a new extension tool declared ``write`` in
+    ``EXTENSION_TOOL_TIERS``: a core name's lock membership and extractors are
+    fixed by core (overrides and replacements keep the core name's), and a
+    read tool neither mutates lifecycle state nor writes artifacts. A wrong
+    container type is reported, never raised.
+    """
+    problems: list[str] = []
+    entries: list[tuple[str, object]] = []
+    lifecycle = EXTENSION_LIFECYCLE_TOOLS
+    if not isinstance(lifecycle, tuple):
+        problems.append(f"EXTENSION_LIFECYCLE_TOOLS must be a tuple of tool names, not {type(lifecycle).__name__}")
+    else:
+        seen: set[str] = set()
+        for name in lifecycle:
+            if isinstance(name, str) and name in seen:
+                problems.append(f"lifecycle tool {name!r} is declared twice")
+                continue
+            if isinstance(name, str):
+                seen.add(name)
+            entries.append(("lifecycle tool", name))
+    fields = EXTENSION_ARTIFACT_PATH_FIELDS
+    if not isinstance(fields, Mapping):
+        problems.append(
+            "EXTENSION_ARTIFACT_PATH_FIELDS must map tool names to response data fields, "
+            f"not {type(fields).__name__}"
+        )
+    else:
+        for name, field in fields.items():
+            if not isinstance(field, str) or not field.isidentifier():
+                problems.append(f"artifact path field for {name!r} is {field!r}; use a non-empty identifier string")
+            entries.append(("artifact path field for", name))
+    aliases = set(EXTENSION_TOOL_ALIASES) | {
+        spec.get("alias_for_core")
+        for entries_ in EXTENSION_REPLACEMENTS.values() if isinstance(entries_, Mapping)
+        for spec in entries_.values() if isinstance(spec, Mapping)
+    }
+    taken_by_core = core | set(override_targets()) | set(replacement_targets())
+    tiers = EXTENSION_TOOL_TIERS if isinstance(EXTENSION_TOOL_TIERS, Mapping) else {}
+    for label, name in entries:
+        if not isinstance(name, str) or not name:
+            problems.append(f"{label} {name!r} must be a non-empty tool name string")
+        elif name in runner:
+            problems.append(f"{label} {name!r} is a runner tool; only new write-tier extension tools may be declared")
+        elif name in EDIT_GATE_TOOLS:
+            problems.append(f"{label} {name!r} is an edit-gate tool; only new write-tier extension tools may be declared")
+        elif name in taken_by_core:
+            problems.append(
+                f"{label} {name!r} is a core tool; its lock membership and extractors are fixed by core"
+            )
+        elif name in aliases:
+            problems.append(f"{label} {name!r} is an alias; declare the canonical extension tool instead")
+        elif name not in tiers:
+            problems.append(f"{label} {name!r} is not a new extension tool declared in EXTENSION_TOOL_TIERS")
+        elif tiers[name] != TIER_WRITE:
+            problems.append(f"{label} {name!r} is a read tool; lifecycle and artifact declarations require tier 'write'")
     return problems
 
 
@@ -340,6 +424,30 @@ def _alias_hide_replacement_problems(
     return problems
 
 
+def _alias_description_problems(label: str, spec: Mapping[str, object]) -> list[str]:
+    """The optional alias ``description`` (wave 1zime): a non-blank string within
+    the cap, on an entry that renames or pins (a plain alias has the canonical
+    parameters, so the canonical description stays accurate)."""
+    problems: list[str] = []
+    description = spec["description"]
+    if not isinstance(description, str):
+        problems.append(f"{label}: 'description' must be a string, not {type(description).__name__}")
+    elif not description:
+        problems.append(f"{label}: 'description' is empty")
+    elif not description.strip():
+        problems.append(f"{label}: 'description' is whitespace only")
+    elif len(description) > ALIAS_DESCRIPTION_MAX_CHARS:
+        problems.append(
+            f"{label}: 'description' has {len(description)} characters, more than {ALIAS_DESCRIPTION_MAX_CHARS}"
+        )
+    if not spec.get("rename") and not spec.get("fixed"):
+        problems.append(
+            f"{label} declares 'description' without a non-empty 'rename' or 'fixed'; "
+            "a plain alias keeps the canonical description"
+        )
+    return problems
+
+
 def _parameter_mapping_problems(aliases: Mapping[str, str], runner: set[str]) -> list[str]:
     """Structural checks on ``EXTENSION_TOOL_PARAMETERS`` (wave 1zim3).
 
@@ -364,9 +472,11 @@ def _parameter_mapping_problems(aliases: Mapping[str, str], runner: set[str]) ->
         if not isinstance(spec, Mapping):
             problems.append(f"{label} must be a mapping with 'rename' and/or 'fixed'")
             continue
-        unknown = sorted(set(spec) - {"rename", "fixed"})
+        unknown = sorted(set(spec) - {"rename", "fixed", "description"})
         if unknown:
             problems.append(f"{label} has unknown keys {unknown}")
+        if "description" in spec:
+            problems.extend(_alias_description_problems(label, spec))
         rename = spec.get("rename", {})
         fixed = spec.get("fixed", {})
         if not isinstance(rename, Mapping) or not isinstance(fixed, Mapping):

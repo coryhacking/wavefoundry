@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-29
+Last verified: 2026-10-01
 
 ## Allowed Dependencies
 
@@ -98,8 +98,22 @@ filename, the id key, the record title, the summary and member-list headings,
 the member id and status labels, and the back-reference label, plus the tier
 names. Like `record_paths` it reads no configuration; a fork edits its constants
 at merge time, and it validates them at import, failing closed with
-`VocabularyProfileInvalid`. It exports strings and regex-escaped fragments, not
-whole patterns, so each consuming site keeps its own grammar (anchoring,
+`VocabularyProfileInvalid`. It also owns the change kinds (wave 1zimf): the
+change-kind token of a change id (`<prefix>-<kind> <slug>`) is one of
+`CHANGE_KINDS`, the fixed `CORE_CHANGE_KINDS` (`bug`, `feat`, `enh`, `change`,
+`doc`, `debt`, `ref`, `task`, `maint`, `ops`) plus the distribution-edited
+`EXTRA_CHANGE_KINDS`, and docs-lint's change-id patterns, the server's
+`VALID_CHANGE_KINDS` and the `lifecycle_id` CLI's `--kind` choices derive from it.
+Each extra kind must match `^[a-z][a-z0-9]{1,15}$` (lowercase ASCII, so a
+change doc file name never differs only by case), may not repeat or equal a core
+kind, and may not be one of the reserved tokens `wave`, `mem`, `sec`, `adr` or
+`jrnl`, which name other lifecycle ids or record files; a non-tuple or non-string value is refused too.
+Kinds apply to live and archived records alike (`ARCHIVE_PROFILE` stays the
+twelve field names), and they are additive: a change id whose kind is not
+declared lints as `uses undeclared change kind`. A census test
+(`tests/test_change_kinds.py`) fails on a kind literal list or kind alternation
+in any other non-test script or dashboard asset. It exports strings and
+regex-escaped fragments, not whole patterns, so each consuming site keeps its own grammar (anchoring,
 backticks, case, legacy aliases). Everything else in a record is fixed:
 `events.jsonl`, the `<!-- wave:* -->` fences, the other headings and keys, the
 lane names and the folder grammar. `record_paths` imports it (the only edge

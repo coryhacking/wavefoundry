@@ -84,6 +84,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("wave_lint_lib/wave_validators.py", "record it as `{_vocab.MEMBER_ID_LABEL}: "): "message",
     ("wave_lint_lib/wave_validators.py", "→ **{_vocab.MEMBER_ID_LABEL} / Filename**"): "message",
     ("wave_lint_lib/wave_validators.py", "missing stable `{_vocab.ID_KEY}` declaration"): "message",
+    ("wave_lint_lib/wave_validators.py", "{_vocab.MEMBER_ID_LABEL} `{change_id}` uses undeclared change kind"): "message",
     ("wave_lint_lib/wave_validators.py", "multiple `{_vocab.ID_KEY}` declarations found"): "message",
     ("wave_lint_lib/wave_validators.py", "duplicate `{_vocab.ID_KEY}` `{wave_id}`"): "message",
     ("wave_lint_lib/wave_validators.py", "must use `{_vocab.MEMBER_ID_LABEL}` / `{_vocab.MEMBER_STATUS_LABEL}`"): "message",

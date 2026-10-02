@@ -138,7 +138,7 @@ EXPECTED_SCOPES = {
         "make_embedder", "StaticShapeReranker.__init__", "make_reranker",
     ],
     "provider_policy.py": ["available_onnx_providers", "diagnostic_report"],
-    "setup_index.py": ["_warm_model_inner", "_probe_embedding_provider"],
+    "setup_index.py": ["_warm_model_inner", "_measure_embedding_provider"],
     "indexer.py": ["_get_embedder"],
     "wf_server/server_impl.py": ["_ensure_model_cached", "WaveIndex._get_embedder"],
     "benchmarks/embed_bench.py": ["_truncation_rate"],
@@ -444,9 +444,10 @@ class ImportSiteCallTests(unittest.TestCase):
     def test_setup_index_warm_model_inner(self):
         self._drive(lambda: self.si._warm_model_inner("stub/model", local_files_only=True))
 
-    def test_setup_index_probe_embedding_provider(self):
+    def test_setup_index_measure_embedding_provider(self):
+        # Wave 1zime (1zimk): the measurement runs in the probe child; this is its import site.
         with patch.object(self.si, "_indexer_models", side_effect=_Stop):
-            self._drive(lambda: self.si._probe_embedding_provider("stub", model_name=None))
+            self._drive(lambda: self.si._measure_embedding_provider("stub", model_name=None))
 
     # indexer (1)
     def test_indexer_get_embedder(self):

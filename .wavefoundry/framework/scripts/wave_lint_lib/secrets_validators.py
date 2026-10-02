@@ -104,6 +104,28 @@ def _head_exists(root: Path) -> bool:
     return result.returncode == 0
 
 
+_WAVEFOUNDRY_PREFIX = ".wavefoundry/"
+_WAVEFOUNDRY_LOCKS_PREFIX = ".wavefoundry/locks/"
+_LOCK_SUFFIX = ".lock"
+
+
+def is_wavefoundry_lock_path(rel_path: str) -> bool:
+    """True for Wavefoundry's own lock files, which the scanner never opens.
+
+    Wave 1zimc: every file under ``.wavefoundry/locks/`` (runtime lock state
+    only, whatever its name) and every ``*.lock`` file elsewhere under
+    ``.wavefoundry/``. The lifecycle lock is a process-owned record lock on
+    POSIX, so opening and closing it in a process that holds it would release
+    the hold. Compared case-insensitively with ``/`` separators; the rule only
+    excludes. ``*.lock`` files outside ``.wavefoundry/`` (``Cargo.lock`` and
+    the like) are still scanned.
+    """
+    norm = rel_path.replace("\\", "/").lower()
+    if not norm.startswith(_WAVEFOUNDRY_PREFIX):
+        return False
+    return norm.startswith(_WAVEFOUNDRY_LOCKS_PREFIX) or norm.endswith(_LOCK_SUFFIX)
+
+
 def _get_changed_files(root: Path) -> list[Path]:
     # Tracked files changed since HEAD (staged + unstaged)
     changed = subprocess_util.isolated_run(
@@ -121,7 +143,7 @@ def _get_changed_files(root: Path) -> list[Path]:
     paths: list[Path] = []
     for line in (changed.stdout + untracked.stdout).splitlines():
         line = line.strip()
-        if line:
+        if line and not is_wavefoundry_lock_path(line):
             p = root / line
             if p.exists() and p.is_file() and p not in seen:
                 seen.add(p)
@@ -181,7 +203,8 @@ def _get_all_files(root: Path) -> list[Path]:
         exclude_machine_authority = not _is_inside_git(root)
         walked = [
             p for p in root.rglob("*")
-            if p.is_file() and ".git" not in p.parts
+            if not is_wavefoundry_lock_path(p.relative_to(root).as_posix())
+            and p.is_file() and ".git" not in p.parts
             and (not exclude_machine_authority or not is_machine_authority_path(p.relative_to(root).as_posix(), root))
         ]
         return _filter_gitignored(root, walked)
@@ -194,7 +217,7 @@ def _get_all_files(root: Path) -> list[Path]:
     paths: list[Path] = []
     for line in (tracked.stdout + untracked.stdout).splitlines():
         line = line.strip()
-        if line:
+        if line and not is_wavefoundry_lock_path(line):
             p = root / line
             if p.exists() and p.is_file() and p not in seen:
                 seen.add(p)
@@ -1515,6 +1538,14 @@ def check_hardcoded_secrets(
             exceptions.remove(e)
         exceptions_changed = True
 
+    # Wave 1zimc: sweep findings for Wavefoundry's own lock files, which the
+    # scanner no longer selects or opens (mirrors the allowlist sweep above).
+    lock_findings = [e for e in exceptions if is_wavefoundry_lock_path(str(e.get("file", "")))]
+    if lock_findings:
+        for e in lock_findings:
+            exceptions.remove(e)
+        exceptions_changed = True
+
     # Sweep findings for files that no longer exist on disk.
     deleted = [e for e in exceptions if not (root / e["file"]).exists()]
     if deleted:
@@ -1590,6 +1621,10 @@ def check_hardcoded_secrets(
             rel = file_path.relative_to(root).as_posix()
         except ValueError:
             rel = file_path.as_posix()
+        # Wave 1zimc: an explicit ``files=`` list is filtered like selection,
+        # so a Wavefoundry lock file is never opened.
+        if is_wavefoundry_lock_path(rel):
+            continue
         file_scan_list.append((file_path, rel))
 
     # Phase 1: parallel file scanning via ProcessPoolExecutor (spawn + initializer).

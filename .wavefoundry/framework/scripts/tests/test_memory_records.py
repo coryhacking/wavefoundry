@@ -5080,7 +5080,7 @@ class MemoryAgentValidationTests(_MemoryCase):
         change_id = "1validk-feat validation"
         (wave / f"{change_id}.md").write_text(
             "# Validation\n\n"
-            f"{MEMBER_ID}: `{change_id}`\n\n## Decision Log\n\n"
+            f"{MEMBER_ID}: `{change_id}`\n\n## Acceptance Criteria\n\n## Tasks\n\n## Decision Log\n\n"
             "| Date | Decision | Reason | Alternatives |\n"
             "| --- | --- | --- | --- |\n"
             "| 2026-01-01 | Use `src/a.py` | owns the durable boundary | none |\n",

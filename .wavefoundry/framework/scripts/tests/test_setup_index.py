@@ -734,9 +734,9 @@ class SetupIndexTests(unittest.TestCase):
         with patch.object(fastembed, "TextEmbedding", _FakeEmbed), \
                 patch.object(_t, "perf_counter", side_effect=seq), \
                 patch.dict(os.environ, {}, clear=True):
-            coreml = self.mod._probe_embedding_provider(
+            coreml = self.mod._measure_embedding_provider(
                 self.mod.provider_policy.COREML_PROVIDER, model_name="m")
-            other = self.mod._probe_embedding_provider("OpenVINOExecutionProvider", model_name="m")
+            other = self.mod._measure_embedding_provider("OpenVINOExecutionProvider", model_name="m")
         self.assertTrue(coreml.ok, coreml.reason)
         self.assertIn("not a speedup gate", coreml.reason)
         self.assertIn("micro-benchmark", coreml.reason)  # 1p6et: timing labelled non-representative
@@ -1875,16 +1875,118 @@ class InstallIsolationTests(unittest.TestCase):
         cmd, _ = self._run_install(relative, uv=None)
         self.assertEqual(cmd[0], os.path.abspath(relative))
 
-    def test_bootstrap_installs_only_the_pinned_wheel_from_the_venv_base(self):
-        self.assertRegex(self.mod.UV_BOOTSTRAP_REQUIREMENT, r"^uv==\d+\.\d+\.\d+$")
-        with patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0)) as run, \
+    def _bootstrap_with(self, outcome):
+        """Run ``_bootstrap_uv`` with no uv anywhere and ``outcome`` (an exit code or an
+        exception) from pip; return (cmd, kwargs, file text at call time, stderr, result)."""
+        self.base.mkdir(parents=True, exist_ok=True)
+        seen = {}
+
+        def run(cmd, **kwargs):
+            seen["cmd"], seen["kwargs"] = cmd, kwargs
+            path = Path(cmd[cmd.index("-r") + 1])
+            seen["text"] = path.read_text(encoding="utf-8")
+            seen["path"] = path
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return subprocess.CompletedProcess(cmd, outcome)
+
+        err = io.StringIO()
+        with patch("subprocess.run", side_effect=run), \
                 patch.object(self.mod, "_uv_bin", return_value=None), \
-                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            self.mod._bootstrap_uv(FAKE_VENV_PYTHON)
-        cmd, kwargs = run.call_args_list[0].args[0], run.call_args_list[0].kwargs
-        self.assertEqual(cmd[0], os.path.abspath(FAKE_VENV_PYTHON))
-        self.assertEqual(cmd[1:], ["-m", "pip", "install", "--only-binary", ":all:", self.mod.UV_BOOTSTRAP_REQUIREMENT])
-        self.assertEqual(kwargs["cwd"], str(self.base))
+                redirect_stdout(io.StringIO()), redirect_stderr(err):
+            result = self.mod._bootstrap_uv(FAKE_VENV_PYTHON)
+        return seen, err.getvalue(), result
+
+    def _expected_line(self):
+        hashes = " ".join(f"--hash=sha256:{digest}" for _, digest in self.mod.UV_BOOTSTRAP_WHEEL_SHA256)
+        return f"{self.mod.UV_BOOTSTRAP_REQUIREMENT} {hashes}"
+
+    def test_bootstrap_installs_only_the_pinned_wheel_from_the_venv_base(self):
+        # Wave 1zimd (1zimj AC-1): pip runs from the tool-venv base with --require-hashes and a
+        # one-line requirements file, which is gone after success, failure and timeout alike.
+        self.assertRegex(self.mod.UV_BOOTSTRAP_REQUIREMENT, r"^uv==\d+\.\d+\.\d+$")
+        for outcome in (0, 1, subprocess.TimeoutExpired(["pip"], 1)):
+            with self.subTest(outcome=outcome):
+                seen, _, _ = self._bootstrap_with(outcome)
+                cmd, kwargs, path = seen["cmd"], seen["kwargs"], seen["path"]
+                self.assertEqual(cmd, [
+                    os.path.abspath(FAKE_VENV_PYTHON), "-m", "pip", "install", "--require-hashes",
+                    "--only-binary", ":all:", "--no-deps", "-r", str(path),
+                ])
+                self.assertTrue(path.is_absolute(), path)
+                self.assertEqual(path.parent, self.base)
+                self.assertEqual(kwargs["cwd"], str(self.base))
+                lines = [line for line in seen["text"].splitlines() if line.strip()]
+                self.assertEqual(lines, [self._expected_line()])
+                self.assertEqual(lines[0].count("--hash=sha256:"), len(self.mod.UV_BOOTSTRAP_WHEEL_SHA256))
+                self.assertFalse(path.exists(), "the requirements file must be removed")
+        self.assertEqual(list(self.base.iterdir()), [])
+
+    def test_uv_bootstrap_wheel_hashes_cover_the_pinned_version(self):
+        # Wave 1zimd (1zimj AC-2): bumping UV_BOOTSTRAP_REQUIREMENT without new hashes fails here.
+        version = self.mod.UV_BOOTSTRAP_REQUIREMENT.split("==", 1)[1]
+        wheels = self.mod.UV_BOOTSTRAP_WHEEL_SHA256
+        self.assertTrue(wheels)
+        names = [name for name, _ in wheels]
+        digests = [digest for _, digest in wheels]
+        for name, digest in wheels:
+            with self.subTest(wheel=name):
+                self.assertTrue(name.startswith(f"uv-{version}-"), name)
+                self.assertTrue(name.endswith(".whl"), name)
+                self.assertRegex(digest, r"^[0-9a-f]{64}$")
+        self.assertEqual(len(set(names)), len(names))
+        self.assertEqual(len(set(digests)), len(digests))
+        for platform in (r"-win_amd64\.whl$", r"-win_arm64\.whl$", r"-macosx_[0-9_]+_x86_64\.whl$",
+                         r"-macosx_[0-9_]+_arm64\.whl$", r"manylinux[^-]*_x86_64", r"manylinux[^-]*_aarch64",
+                         r"musllinux[^-]*_x86_64", r"_ppc64le\.whl$", r"_s390x\.whl$", r"_i686\.whl$",
+                         r"_armv7l\.whl$", r"_riscv64\.whl$", r"_armv6l\.whl$", r"-win32\.whl$"):
+            with self.subTest(platform=platform):
+                self.assertTrue(any(re.search(platform, name) for name in names), platform)
+
+    def test_a_failed_hash_bootstrap_is_reported_and_setup_falls_back_to_pip(self):
+        # Wave 1zimd (1zimj AC-3): a refused or failed pip install names the requirement and the
+        # recorded hashes, returns None, and _install_deps takes the existing plain-pip fallback.
+        seen, err, result = self._bootstrap_with(1)
+        self.assertIsNone(result)
+        self.assertIn(self.mod.UV_BOOTSTRAP_REQUIREMENT, err)
+        self.assertIn("recorded hashes", err)
+        self.assertIn("pip's output above", err)
+        calls = []
+
+        def run(cmd, **kwargs):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 1 if "--require-hashes" in cmd else 0)
+
+        err = io.StringIO()
+        with patch("subprocess.run", side_effect=run), \
+                patch.object(self.mod, "_uv_bin", return_value=None), \
+                redirect_stdout(io.StringIO()), redirect_stderr(err):
+            self.mod._install_deps(["fastembed"], FAKE_VENV_PYTHON)
+        self.assertEqual(len(calls), 2)
+        self.assertIn("--require-hashes", calls[0])
+        self.assertEqual(calls[1], [os.path.abspath(FAKE_VENV_PYTHON), "-m", "pip", "install", "fastembed"])
+        self.assertIn("recorded hashes", err.getvalue())
+        self.assertIn("Falling back to pip without package age enforcement", err.getvalue())
+
+    def test_an_unwritable_requirements_file_is_a_failed_bootstrap(self):
+        # Wave 1zimd (1zimj Requirement 2): an OSError creating or writing the file is reported like
+        # a failed bootstrap, runs no pip, and leaves no file behind.
+        self.base.mkdir(parents=True, exist_ok=True)
+        for target, name in ((self.mod.tempfile, "mkstemp"), (self.mod.os, "write")):
+            with self.subTest(fails=name):
+                err = io.StringIO()
+                with patch.object(target, name, side_effect=OSError("disk full")), \
+                        patch("subprocess.run") as run, \
+                        patch.object(self.mod, "_uv_bin", return_value=None), \
+                        redirect_stdout(io.StringIO()), redirect_stderr(err):
+                    result = self.mod._bootstrap_uv(FAKE_VENV_PYTHON)
+                self.assertIsNone(result)
+                run.assert_not_called()
+                self.assertIn(self.mod.UV_BOOTSTRAP_REQUIREMENT, err.getvalue())
+                self.assertIn("recorded hashes", err.getvalue())
+                # pip never ran, so the message must not point at pip's output.
+                self.assertNotIn("pip's output", err.getvalue())
+                self.assertEqual(list(self.base.iterdir()), [])
 
     def test_an_existing_uv_of_any_version_is_used_and_never_replaced(self):
         # A uv on PATH (any version) is found by _uv_bin, so no bootstrap runs.
@@ -1908,12 +2010,13 @@ class InstallIsolationTests(unittest.TestCase):
 
 
 class GpuDoctorProbeSerialTests(unittest.TestCase):
-    """Wave 1p8vc AC-4: the in-server `_probe_embedding_provider` must stay serial — fastembed's
+    """Wave 1p8vc AC-4: the probe measurement (`_measure_embedding_provider`, wave 1zime runs it in
+    the probe child) must stay serial: fastembed's
     parallel path spawns workers that re-load ORT and would write to the inherited MCP stdout fd."""
 
     def _probe_body(self) -> str:
         src = SETUP_INDEX_PATH.read_text(encoding="utf-8")
-        start = src.index("def _probe_embedding_provider(")
+        start = src.index("def _measure_embedding_provider(")
         # body runs until the next top-level `def `/`class ` at column 0
         rest = src[start + 1:]
         m = re.search(r"\n(?=def |class )", rest)
@@ -2561,7 +2664,7 @@ class CoremlProbeTempdirRetryTests(unittest.TestCase):
         with patch.object(fastembed, "TextEmbedding", self._fake_embed_factory(1, calls)), \
                 patch.object(self.mod, "_repair_probe_tempdir", return_value="temp directory present") as repair, \
                 redirect_stdout(io.StringIO()) as out:
-            probe = self.mod._probe_embedding_provider(
+            probe = self.mod._measure_embedding_provider(
                 self.mod.provider_policy.COREML_PROVIDER, model_name="m")
         self.assertTrue(probe.ok, probe.reason)
         self.assertEqual(len(calls), 2)  # exactly one retry
@@ -2574,7 +2677,9 @@ class CoremlProbeTempdirRetryTests(unittest.TestCase):
         import fastembed
 
         calls: list = []
+        # Wave 1zime: the probe spawns a child; drive the measurement in-process so the fake applies.
         with patch.object(fastembed, "TextEmbedding", self._fake_embed_factory(1, calls)), \
+                patch.object(self.mod, "_probe_embedding_provider", self.mod._measure_embedding_provider), \
                 patch.object(self.mod, "_repair_probe_tempdir", return_value="temp directory present"), \
                 patch.object(self.mod.provider_policy, "available_onnx_providers",
                              return_value=("CoreMLExecutionProvider", "CPUExecutionProvider")), \
@@ -2597,7 +2702,7 @@ class CoremlProbeTempdirRetryTests(unittest.TestCase):
         with patch.object(fastembed, "TextEmbedding", self._fake_embed_factory(99, calls)), \
                 patch.object(self.mod, "_repair_probe_tempdir", return_value="temp directory present"), \
                 redirect_stdout(io.StringIO()):
-            probe = self.mod._probe_embedding_provider(
+            probe = self.mod._measure_embedding_provider(
                 self.mod.provider_policy.COREML_PROVIDER, model_name="m")
         self.assertFalse(probe.ok)
         self.assertEqual(len(calls), 2)  # bounded: initial + one retry, never more
@@ -2622,7 +2727,7 @@ class CoremlProbeTempdirRetryTests(unittest.TestCase):
 
         with patch.object(fastembed, "TextEmbedding", _BoomEmbed), \
                 patch.object(self.mod, "_repair_probe_tempdir") as repair:
-            probe = self.mod._probe_embedding_provider(
+            probe = self.mod._measure_embedding_provider(
                 self.mod.provider_policy.COREML_PROVIDER, model_name="m")
         self.assertFalse(probe.ok)
         self.assertEqual(_BoomEmbed.count, 1)  # single attempt, no retry
@@ -2637,7 +2742,7 @@ class CoremlProbeTempdirRetryTests(unittest.TestCase):
         calls: list = []
         with patch.object(fastembed, "TextEmbedding", self._fake_embed_factory(99, calls)), \
                 patch.object(self.mod, "_repair_probe_tempdir") as repair:
-            probe = self.mod._probe_embedding_provider("OpenVINOExecutionProvider", model_name="m")
+            probe = self.mod._measure_embedding_provider("OpenVINOExecutionProvider", model_name="m")
         self.assertFalse(probe.ok)
         self.assertEqual(len(calls), 1)
         repair.assert_not_called()
@@ -2760,6 +2865,211 @@ class ProviderDecisionProvenanceTests(unittest.TestCase):
         decision = self.pp.select_embedding_providers(
             available_providers=("CPUExecutionProvider",))
         self.assertIn("decision-source=", self.pp.format_provider_decision(decision))
+
+
+_FAKE_FASTEMBED = """
+import os
+import signal
+
+_MODE = os.environ.get("WF_FAKE_EMBED_MODE", "ok")
+
+
+class TextEmbedding:
+    def __init__(self, *args, providers=None, **kwargs):
+        self.providers = list(providers or [])
+        if _MODE == "segv" and len(self.providers) > 1:
+            os.kill(os.getpid(), signal.SIGSEGV)
+
+    def embed(self, texts):
+        return [[0.1, 0.2, 0.3] for _ in texts]
+"""
+
+
+class ProviderProbeChildIsolationTests(unittest.TestCase):
+    """Wave 1zime (1zimk) AC-4 / AC-5: the provider probe runs its measurement
+    in a child process, so a native crash, a non-zero exit, an unparseable
+    result or a timeout rejects the candidate (CPU stays selected) instead of
+    ending ``wf setup`` or the MCP server."""
+
+    def setUp(self):
+        self.mod = load_setup_index()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.fake_dir = Path(tmp.name) / "fake-site"
+        (self.fake_dir / "fastembed").mkdir(parents=True)
+        (self.fake_dir / "fastembed" / "__init__.py").write_text(_FAKE_FASTEMBED, encoding="utf-8")
+        self.no_venv = str(Path(tmp.name) / "no-tool-venv")
+
+    def _child_env(self, mode: str) -> dict:
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("WAVEFOUNDRY_EMBED_PROVIDER", "WAVEFOUNDRY_EMBED_PROVIDER_SELECTED")}
+        env["PYTHONPATH"] = str(self.fake_dir)
+        env["WF_FAKE_EMBED_MODE"] = mode
+        env["WAVEFOUNDRY_TOOL_VENV"] = self.no_venv
+        return env
+
+    def _probe_with_child(self, code: str, provider: str = "CoreMLExecutionProvider"):
+        out = io.StringIO()
+        with patch.object(self.mod, "_provider_probe_child_command",
+                          return_value=[sys.executable, "-B", "-c", code]), redirect_stdout(out):
+            result = self.mod._probe_embedding_provider(provider)
+        return result, out.getvalue()
+
+    @unittest.skipIf(os.name == "nt", "POSIX signals")
+    def test_signal_death_is_rejected_and_named(self):
+        import signal as _signal
+
+        result, _out = self._probe_with_child("import os, signal; os.kill(os.getpid(), signal.SIGSEGV)")
+        self.assertFalse(result.ok)
+        self.assertIn(f"provider probe crashed (signal {int(_signal.SIGSEGV)}, SIGSEGV)", result.reason)
+
+    def test_windows_crash_code_is_rejected_and_named(self):
+        crashed = subprocess.CompletedProcess(
+            ["probe"], 0xC0000005, "", "Windows fatal exception: access violation\n")
+        with patch.object(self.mod, "_run_install_step", return_value=crashed):
+            result = self.mod._probe_embedding_provider("DmlExecutionProvider")
+        self.assertFalse(result.ok)
+        self.assertIn("provider probe crashed (exception code 0xC0000005)", result.reason)
+
+    def test_crash_code_boundary(self):
+        for code, crashed in ((0xC0000000, True), (0xC0000000 - 1, False)):
+            with self.subTest(code=hex(code)), patch.object(
+                    self.mod, "_run_install_step",
+                    return_value=subprocess.CompletedProcess(["probe"], code, "", "")):
+                result = self.mod._probe_embedding_provider("DmlExecutionProvider")
+            self.assertFalse(result.ok)
+            if crashed:
+                self.assertIn("provider probe crashed (exception code 0xC0000000)", result.reason)
+            else:
+                self.assertIn(f"provider probe exited {code}", result.reason)
+                self.assertNotIn("crashed", result.reason)
+
+    def test_child_entry_activates_the_tool_venv_and_writes_the_last_line(self):
+        pp = self.mod.provider_policy
+        measured = pp.ProviderProbeResult("X", True, "fine", candidate_seconds=1.0, cpu_seconds=2.0)
+        with patch.object(self.mod.venv_bootstrap, "activate_tool_venv") as activate, \
+                patch("faulthandler.enable") as fault, \
+                patch.object(self.mod, "_measure_embedding_provider", return_value=measured) as measure, \
+                redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(self.mod._provider_probe_child_main(["X", "m"]), 0)
+        activate.assert_called_once_with()
+        fault.assert_called_once()
+        measure.assert_called_once_with("X", model_name="m")
+        last = out.getvalue().splitlines()[-1]
+        self.assertEqual(last, self.mod._provider_probe_result_line(measured))
+
+    def test_nonzero_exit_names_the_status_and_stderr_tail(self):
+        result, _out = self._probe_with_child(
+            "import sys; sys.stderr.write('boom-detail\\n'); sys.exit(3)")
+        self.assertFalse(result.ok)
+        self.assertIn("exited 3", result.reason)
+        self.assertIn("boom-detail", result.reason)
+
+    def test_unparseable_result_is_rejected(self):
+        for code in ("print('hello')", "print('WF_PROBE_RESULT {not json')",
+                     "print('WF_PROBE_RESULT {\"provider\": \"x\"}')"):
+            with self.subTest(code=code):
+                result, _out = self._probe_with_child(code)
+                self.assertFalse(result.ok)
+                self.assertIn("no parseable result", result.reason)
+
+    def test_timeout_is_rejected_and_named(self):
+        started = time.monotonic()
+        with patch.object(self.mod, "PROVIDER_PROBE_TIMEOUT_SECONDS", 1):
+            result, _out = self._probe_with_child("import time; time.sleep(60)")
+        self.assertLess(time.monotonic() - started, 30, "the timeout bounds the probe")
+        self.assertFalse(result.ok)
+        self.assertIn("timed out after 1s", result.reason)
+
+    def test_the_probe_spawn_is_bounded_and_isolated(self):
+        seen: dict = {}
+
+        def fake_run(cmd, **kwargs):
+            seen.update(kwargs, cmd=cmd)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with patch.object(self.mod, "_run_install_step", side_effect=fake_run):
+            self.mod._probe_embedding_provider("DmlExecutionProvider", model_name="m")
+        self.assertEqual(seen["timeout"], self.mod.PROVIDER_PROBE_TIMEOUT_SECONDS)
+        self.assertEqual(self.mod.PROVIDER_PROBE_TIMEOUT_SECONDS, 600)
+        self.assertIs(seen["stdin"], subprocess.DEVNULL)
+        self.assertTrue(seen["capture_output"])
+        self.assertEqual(seen["cmd"][0], sys.executable)
+        self.assertIn("DmlExecutionProvider", seen["cmd"])
+        self.assertIn("m", seen["cmd"])
+
+    @unittest.skipIf(os.name == "nt", "POSIX signals")
+    def test_report_selects_cpu_after_a_crash_and_returns(self):
+        with patch.object(self.mod, "_provider_probe_child_command",
+                          return_value=[sys.executable, "-c", "import os, signal; os.kill(os.getpid(), signal.SIGSEGV)"]), \
+                patch.object(self.mod.provider_policy, "available_onnx_providers",
+                             return_value=("CoreMLExecutionProvider", "CPUExecutionProvider")), \
+                patch.dict(os.environ, {}, clear=True), redirect_stdout(io.StringIO()) as out:
+            decision = self.mod.report_embedding_provider_decision()
+        self.assertEqual(decision.selected_provider, "CPUExecutionProvider")
+        self.assertIn("crashed (signal", out.getvalue())
+
+    @unittest.skipIf(os.name == "nt", "POSIX signals")
+    def test_a_native_crash_in_the_measurement_never_reaches_the_caller(self):
+        # The caller is this test's own child process; the measurement's
+        # fastembed constructor kills its process with SIGSEGV. Isolated, the
+        # caller reports CPU and exits 0. In-process, the caller dies.
+        code = (
+            "import sys\n"
+            f"sys.path.insert(0, {str(SCRIPTS_ROOT)!r})\n"
+            "from unittest import mock\n"
+            "import setup_index\n"
+            "with mock.patch.object(setup_index.provider_policy, 'available_onnx_providers',\n"
+            "                       return_value=('CoreMLExecutionProvider', 'CPUExecutionProvider')):\n"
+            "    decision = setup_index.report_embedding_provider_decision()\n"
+            "print('RETURNED', decision.selected_provider)\n"
+        )
+        proc = subprocess.run([sys.executable, "-B", "-c", code], env=self._child_env("segv"),
+                              capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL)
+        self.assertEqual(proc.returncode, 0, f"the caller died: rc={proc.returncode}\n{proc.stderr[-2000:]}")
+        self.assertIn("RETURNED CPUExecutionProvider", proc.stdout)
+        self.assertIn("provider probe crashed (signal", proc.stdout)
+        self.assertIn("in _measure_embedding_provider", proc.stdout,
+                      "faulthandler's trace from the child is in the reported stderr tail")
+
+    def test_result_line_round_trips_through_the_parent_parser(self):
+        pp = self.mod.provider_policy
+        for original in (
+            pp.ProviderProbeResult("CoreMLExecutionProvider", True, "accepted", candidate_seconds=0.25, cpu_seconds=0.5),
+            pp.ProviderProbeResult("DmlExecutionProvider", False, "did not beat CPU"),
+        ):
+            with self.subTest(provider=original.provider):
+                line = self.mod._provider_probe_result_line(original)
+                self.assertTrue(line.startswith("WF_PROBE_RESULT "))
+                with redirect_stdout(io.StringIO()) as echoed:
+                    parsed = self.mod._provider_probe_outcome(
+                        original.provider, 0, "measuring...\n" + line + "\n", "")
+                self.assertEqual(parsed, original)
+                self.assertEqual(echoed.getvalue(), "measuring...\n", "other child lines are echoed")
+
+    def test_real_child_returns_the_same_result_shape(self):
+        with patch.dict(os.environ, self._child_env("ok"), clear=True), redirect_stdout(io.StringIO()):
+            coreml = self.mod._probe_embedding_provider("CoreMLExecutionProvider", model_name="m")
+            other = self.mod._probe_embedding_provider("OpenVINOExecutionProvider", model_name="m")
+        self.assertIsInstance(coreml, self.mod.provider_policy.ProviderProbeResult)
+        self.assertTrue(coreml.ok, coreml.reason)
+        self.assertIn("correctness alone", coreml.reason)
+        self.assertIsInstance(coreml.candidate_seconds, float)
+        self.assertIsInstance(coreml.cpu_seconds, float)
+        self.assertEqual(other.provider, "OpenVINOExecutionProvider")
+        self.assertIsInstance(other.ok, bool)
+        self.assertIsInstance(other.candidate_seconds, float)
+        self.assertIsInstance(other.cpu_seconds, float)
+
+    def test_cpu_only_host_probes_nothing(self):
+        with patch.object(self.mod, "_run_install_step") as spawn, \
+                patch.object(self.mod.provider_policy, "available_onnx_providers",
+                             return_value=("CPUExecutionProvider",)), \
+                patch.object(self.mod.provider_policy, "nvidia_gpu_present", return_value=False), \
+                patch.dict(os.environ, {}, clear=True), redirect_stdout(io.StringIO()):
+            decision = self.mod.report_embedding_provider_decision()
+        self.assertEqual(decision.selected_provider, "CPUExecutionProvider")
+        spawn.assert_not_called()
 
 
 if __name__ == "__main__":

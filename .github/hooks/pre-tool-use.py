@@ -223,10 +223,15 @@ def run_command(argv: list[str], timeout=None) -> subprocess.CompletedProcess[st
     # Wave 1p9bg: `timeout` (seconds) bounds the child; on expiry subprocess raises
     # TimeoutExpired, which the caller handles. None = unbounded (existing behavior for callers
     # that don't pass one).
+    # Wave 1zime (1zimk): the child (docs_lint.py) resolves its root from
+    # PROJECT_ROOT before the working directory; pin it to this hook's repo
+    # so an inherited value naming another repository cannot redirect it.
+    child_env = {**os.environ, "PROJECT_ROOT": str(REPO_ROOT)}
     if _wf_subprocess_util is not None:
         return _wf_subprocess_util.isolated_run(
             argv,
             cwd=REPO_ROOT,
+            env=child_env,
             text=True,
             capture_output=True,
             check=False,
@@ -235,6 +240,7 @@ def run_command(argv: list[str], timeout=None) -> subprocess.CompletedProcess[st
     return subprocess.run(
         argv,
         cwd=REPO_ROOT,
+        env=child_env,
         text=True,
         capture_output=True,
         check=False,

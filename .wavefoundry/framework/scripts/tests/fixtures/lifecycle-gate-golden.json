@@ -53,7 +53,7 @@
               "wf_review_event",
               "wf_review_wave"
             ],
-            "recovery_usage": "wf_review_wave(wave_id='0exxl fixture-active')"
+            "recovery_usage": "wf_review_wave(wave_id='0exxl fixture-active', phase='implementation')"
           },
           {
             "code": "open_changes_remaining",
@@ -66,11 +66,11 @@
         ],
         "isError": true,
         "next_tools": [
-          "wf_validate_docs",
-          "wf_current_wave"
+          "wf_current_wave",
+          "wf_validate_docs"
         ],
         "status": "error",
-        "usage": "wf_validate_docs()"
+        "usage": "wf_current_wave()"
       },
       "close:dry_run": {
         "data": {
@@ -123,7 +123,7 @@
               "wf_review_event",
               "wf_review_wave"
             ],
-            "recovery_usage": "wf_review_wave(wave_id='0exxl fixture-active')"
+            "recovery_usage": "wf_review_wave(wave_id='0exxl fixture-active', phase='implementation')"
           },
           {
             "code": "open_changes_remaining",
@@ -136,11 +136,11 @@
         ],
         "isError": true,
         "next_tools": [
-          "wf_validate_docs",
-          "wf_current_wave"
+          "wf_current_wave",
+          "wf_validate_docs"
         ],
         "status": "error",
-        "usage": "wf_validate_docs()"
+        "usage": "wf_current_wave()"
       },
       "prepare:create": {
         "data": {
@@ -152,10 +152,10 @@
               "red-team (fixed)"
             ],
             "fixed_seat": "red-team",
-            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line whose seats: field lists the seats actually run, each at most once, with per-seat evidence (or an explicit no-findings note) recorded in the wave record (e.g. `- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)`) before calling wf_prepare_wave(mode='create').",
+            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. This wave's review authority is the typed ledger, so record the outcome there: first the readiness review run, then each required lane's readiness approval, then the council verdict as a typed approval, wf_review_event(event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', mode='create', ...), whose evidence names the seats actually run, each at most once, with per-seat evidence or an explicit no-findings note (e.g. `wf_review_event(wave_id=<wave id>, event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', actor='wave-council', context_id=<fresh context id>, mode='create', evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)', 'artifact_or_test_id': <per-seat evidence reference>}, ...)`). A ## Review Checkpoints narrative is optional and is not authority: the gate reads only the typed approval. Then call wf_prepare_wave(mode='ready'), or mode='create' to also open the wave.",
             "rotating_seat": null,
             "rotating_seat_reason": "Bound to the current review-policy receipt.",
-            "verdict_format": "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)",
+            "verdict_format": "wf_review_event(wave_id=<wave id>, event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', actor='wave-council', context_id=<fresh context id>, mode='create', evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)', 'artifact_or_test_id': <per-seat evidence reference>}, ...)",
             "wave_id": "0exxl fixture-active"
           },
           "council_verdict_present": false,
@@ -166,6 +166,7 @@
           },
           "lint_passed": true,
           "mode": "create",
+          "pending_readiness_lanes": [],
           "readied": false,
           "readiness_receipts": 1,
           "repaired": 0,
@@ -208,7 +209,13 @@
           "updated": true,
           "wave_id": "0exxl fixture-active"
         },
-        "diagnostics": [],
+        "diagnostics": [
+          {
+            "advisory": true,
+            "code": "wave_objective_unpopulated",
+            "message": "The wave record's `## Objective` section is empty or still holds the scaffold placeholder. State the wave's load-bearing goal in one to three sentences: the readiness council reviews the wave against it and the dashboard wave card shows it."
+          }
+        ],
         "next_tools": [
           "wf_current_wave"
         ],
@@ -225,10 +232,10 @@
               "red-team (fixed)"
             ],
             "fixed_seat": "red-team",
-            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line whose seats: field lists the seats actually run, each at most once, with per-seat evidence (or an explicit no-findings note) recorded in the wave record (e.g. `- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)`) before calling wf_prepare_wave(mode='create').",
+            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. This wave's review authority is the typed ledger, so record the outcome there: first the readiness review run, then each required lane's readiness approval, then the council verdict as a typed approval, wf_review_event(event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', mode='create', ...), whose evidence names the seats actually run, each at most once, with per-seat evidence or an explicit no-findings note (e.g. `wf_review_event(wave_id=<wave id>, event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', actor='wave-council', context_id=<fresh context id>, mode='create', evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)', 'artifact_or_test_id': <per-seat evidence reference>}, ...)`). A ## Review Checkpoints narrative is optional and is not authority: the gate reads only the typed approval. Then call wf_prepare_wave(mode='ready'), or mode='create' to also open the wave.",
             "rotating_seat": null,
             "rotating_seat_reason": "Bound to the current review-policy receipt.",
-            "verdict_format": "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)",
+            "verdict_format": "wf_review_event(wave_id=<wave id>, event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', actor='wave-council', context_id=<fresh context id>, mode='create', evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)', 'artifact_or_test_id': <per-seat evidence reference>}, ...)",
             "wave_id": "0exxl fixture-active"
           },
           "council_verdict_present": false,
@@ -236,6 +243,7 @@
           "garden_passed": true,
           "lint_passed": true,
           "mode": "dry_run",
+          "pending_readiness_lanes": [],
           "readied": false,
           "readiness_receipts": 1,
           "repaired": 0,
@@ -278,7 +286,13 @@
           "updated": false,
           "wave_id": "0exxl fixture-active"
         },
-        "diagnostics": [],
+        "diagnostics": [
+          {
+            "advisory": true,
+            "code": "wave_objective_unpopulated",
+            "message": "The wave record's `## Objective` section is empty or still holds the scaffold placeholder. State the wave's load-bearing goal in one to three sentences: the readiness council reviews the wave against it and the dashboard wave card shows it."
+          }
+        ],
         "next_tools": [
           "wf_current_wave"
         ],
@@ -295,10 +309,10 @@
               "red-team (fixed)"
             ],
             "fixed_seat": "red-team",
-            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line whose seats: field lists the seats actually run, each at most once, with per-seat evidence (or an explicit no-findings note) recorded in the wave record (e.g. `- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)`) before calling wf_prepare_wave(mode='create').",
+            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. This wave's review authority is the typed ledger, so record the outcome there: first the readiness review run, then each required lane's readiness approval, then the council verdict as a typed approval, wf_review_event(event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', mode='create', ...), whose evidence names the seats actually run, each at most once, with per-seat evidence or an explicit no-findings note (e.g. `wf_review_event(wave_id=<wave id>, event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', actor='wave-council', context_id=<fresh context id>, mode='create', evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)', 'artifact_or_test_id': <per-seat evidence reference>}, ...)`). A ## Review Checkpoints narrative is optional and is not authority: the gate reads only the typed approval. Then call wf_prepare_wave(mode='ready'), or mode='create' to also open the wave.",
             "rotating_seat": null,
             "rotating_seat_reason": "Bound to the current review-policy receipt.",
-            "verdict_format": "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)",
+            "verdict_format": "wf_review_event(wave_id=<wave id>, event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', actor='wave-council', context_id=<fresh context id>, mode='create', evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)', 'artifact_or_test_id': <per-seat evidence reference>}, ...)",
             "wave_id": "0exxl fixture-active"
           },
           "council_verdict_present": false,
@@ -309,6 +323,7 @@
           },
           "lint_passed": true,
           "mode": "ready",
+          "pending_readiness_lanes": [],
           "readied": true,
           "readiness_receipts": 1,
           "repaired": 0,
@@ -351,7 +366,13 @@
           "updated": true,
           "wave_id": "0exxl fixture-active"
         },
-        "diagnostics": [],
+        "diagnostics": [
+          {
+            "advisory": true,
+            "code": "wave_objective_unpopulated",
+            "message": "The wave record's `## Objective` section is empty or still holds the scaffold placeholder. State the wave's load-bearing goal in one to three sentences: the readiness council reviews the wave against it and the dashboard wave card shows it."
+          }
+        ],
         "next_tools": [
           "wf_current_wave"
         ],
@@ -647,16 +668,16 @@
               "wf_review_event",
               "wf_review_wave"
             ],
-            "recovery_usage": "wf_review_wave(wave_id='0exxl fixture-active')"
+            "recovery_usage": "wf_review_wave(wave_id='0exxl fixture-active', phase='implementation')"
           }
         ],
         "isError": true,
         "next_tools": [
-          "wf_validate_docs",
-          "wf_current_wave"
+          "wf_current_wave",
+          "wf_validate_docs"
         ],
         "status": "error",
-        "usage": "wf_validate_docs()"
+        "usage": "wf_current_wave()"
       }
     },
     "missing_lane": {
@@ -711,7 +732,7 @@
               "wf_review_event",
               "wf_review_wave"
             ],
-            "recovery_usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane')"
+            "recovery_usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane', phase='implementation')"
           },
           {
             "code": "missing_wave_council_signoff",
@@ -733,11 +754,11 @@
         ],
         "isError": true,
         "next_tools": [
-          "wf_validate_docs",
-          "wf_current_wave"
+          "wf_current_wave",
+          "wf_validate_docs"
         ],
         "status": "error",
-        "usage": "wf_validate_docs()"
+        "usage": "wf_current_wave()"
       },
       "close:dry_run": {
         "data": {
@@ -790,7 +811,7 @@
               "wf_review_event",
               "wf_review_wave"
             ],
-            "recovery_usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane')"
+            "recovery_usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane', phase='implementation')"
           },
           {
             "code": "missing_wave_council_signoff",
@@ -812,11 +833,11 @@
         ],
         "isError": true,
         "next_tools": [
-          "wf_validate_docs",
-          "wf_current_wave"
+          "wf_current_wave",
+          "wf_validate_docs"
         ],
         "status": "error",
-        "usage": "wf_validate_docs()"
+        "usage": "wf_current_wave()"
       },
       "prepare:create": {
         "data": {
@@ -828,15 +849,18 @@
               "red-team (fixed)"
             ],
             "fixed_seat": "red-team",
-            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line whose seats: field lists the seats actually run, each at most once, with per-seat evidence (or an explicit no-findings note) recorded in the wave record (e.g. `- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)`) before calling wf_prepare_wave(mode='create').",
+            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. This wave's review authority is the typed ledger, so record the outcome there: first the readiness review run, then each required lane's readiness approval, then the council verdict as a typed approval, wf_review_event(event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', mode='create', ...), whose evidence names the seats actually run, each at most once, with per-seat evidence or an explicit no-findings note (e.g. `wf_review_event(wave_id=<wave id>, event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', actor='wave-council', context_id=<fresh context id>, mode='create', evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)', 'artifact_or_test_id': <per-seat evidence reference>}, ...)`). A ## Review Checkpoints narrative is optional and is not authority: the gate reads only the typed approval. Then call wf_prepare_wave(mode='ready'), or mode='create' to also open the wave.",
             "rotating_seat": null,
             "rotating_seat_reason": "Bound to the current review-policy receipt.",
-            "verdict_format": "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)",
+            "verdict_format": "wf_review_event(wave_id=<wave id>, event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', actor='wave-council', context_id=<fresh context id>, mode='create', evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)', 'artifact_or_test_id': <per-seat evidence reference>}, ...)",
             "wave_id": "0exxm fixture-missing-lane"
           },
           "garden_passed": true,
           "lint_passed": true,
           "mode": "create",
+          "pending_readiness_lanes": [
+            "code-reviewer"
+          ],
           "readiness_receipts": 1,
           "repaired": 0,
           "repairs_needed": 0,
@@ -879,16 +903,22 @@
         "diagnostics": [
           {
             "code": "missing_wave_council_signoff",
-            "message": "Required Wave Council signoff missing for prepare: wave-council-readiness. Record a typed approval event per missing key via wf_review_event(event='approval', signoff_key=<missing key above>, mode='create'); the approval projects into `## Review Evidence`. Do this before the wave can become active.",
+            "message": "Required Wave Council signoff missing for prepare: wave-council-readiness. Run the readiness review (wf_review_wave(phase='prepare') lists the pending actions), then record a typed approval event per missing key via wf_review_event(event='approval', signoff_key=<missing key above>, approval_phase='readiness', mode='create'); the approval projects into `## Review Evidence`. Do this before the wave can become active.",
             "recovery_tools": [
-              "wf_current_wave"
+              "wf_review_wave",
+              "wf_review_event"
             ],
-            "recovery_usage": "wf_current_wave()"
+            "recovery_usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane', phase='prepare')"
+          },
+          {
+            "advisory": true,
+            "code": "wave_objective_unpopulated",
+            "message": "The wave record's `## Objective` section is empty or still holds the scaffold placeholder. State the wave's load-bearing goal in one to three sentences: the readiness council reviews the wave against it and the dashboard wave card shows it."
           },
           {
             "advisory": true,
             "code": "readiness_lane_approvals_missing",
-            "message": "Implementation still requires current readiness approvals from: code-reviewer. Re-review the repaired packet and record approvals against the current receipt.",
+            "message": "Readiness approvals still needed from: code-reviewer. Run the readiness review and record each lane's readiness approval.",
             "missing_lanes": [
               "code-reviewer"
             ],
@@ -900,11 +930,13 @@
         ],
         "isError": true,
         "next_tools": [
+          "wf_review_wave",
+          "wf_review_event",
           "wf_validate_docs",
           "wf_current_wave"
         ],
         "status": "error",
-        "usage": "wf_validate_docs()"
+        "usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane', phase='prepare')"
       },
       "prepare:dry_run": {
         "data": {
@@ -916,15 +948,18 @@
               "red-team (fixed)"
             ],
             "fixed_seat": "red-team",
-            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line whose seats: field lists the seats actually run, each at most once, with per-seat evidence (or an explicit no-findings note) recorded in the wave record (e.g. `- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)`) before calling wf_prepare_wave(mode='create').",
+            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. This wave's review authority is the typed ledger, so record the outcome there: first the readiness review run, then each required lane's readiness approval, then the council verdict as a typed approval, wf_review_event(event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', mode='create', ...), whose evidence names the seats actually run, each at most once, with per-seat evidence or an explicit no-findings note (e.g. `wf_review_event(wave_id=<wave id>, event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', actor='wave-council', context_id=<fresh context id>, mode='create', evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)', 'artifact_or_test_id': <per-seat evidence reference>}, ...)`). A ## Review Checkpoints narrative is optional and is not authority: the gate reads only the typed approval. Then call wf_prepare_wave(mode='ready'), or mode='create' to also open the wave.",
             "rotating_seat": null,
             "rotating_seat_reason": "Bound to the current review-policy receipt.",
-            "verdict_format": "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)",
+            "verdict_format": "wf_review_event(wave_id=<wave id>, event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', actor='wave-council', context_id=<fresh context id>, mode='create', evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)', 'artifact_or_test_id': <per-seat evidence reference>}, ...)",
             "wave_id": "0exxm fixture-missing-lane"
           },
           "garden_passed": true,
           "lint_passed": true,
           "mode": "dry_run",
+          "pending_readiness_lanes": [
+            "code-reviewer"
+          ],
           "readiness_receipts": 1,
           "repaired": 0,
           "repairs_needed": 0,
@@ -967,16 +1002,22 @@
         "diagnostics": [
           {
             "code": "missing_wave_council_signoff",
-            "message": "Required Wave Council signoff missing for prepare: wave-council-readiness. Record a typed approval event per missing key via wf_review_event(event='approval', signoff_key=<missing key above>, mode='create'); the approval projects into `## Review Evidence`. Do this before the wave can become active.",
+            "message": "Required Wave Council signoff missing for prepare: wave-council-readiness. Run the readiness review (wf_review_wave(phase='prepare') lists the pending actions), then record a typed approval event per missing key via wf_review_event(event='approval', signoff_key=<missing key above>, approval_phase='readiness', mode='create'); the approval projects into `## Review Evidence`. Do this before the wave can become active.",
             "recovery_tools": [
-              "wf_current_wave"
+              "wf_review_wave",
+              "wf_review_event"
             ],
-            "recovery_usage": "wf_current_wave()"
+            "recovery_usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane', phase='prepare')"
+          },
+          {
+            "advisory": true,
+            "code": "wave_objective_unpopulated",
+            "message": "The wave record's `## Objective` section is empty or still holds the scaffold placeholder. State the wave's load-bearing goal in one to three sentences: the readiness council reviews the wave against it and the dashboard wave card shows it."
           },
           {
             "advisory": true,
             "code": "readiness_lane_approvals_missing",
-            "message": "Implementation still requires current readiness approvals from: code-reviewer. Re-review the repaired packet and record approvals against the current receipt.",
+            "message": "Readiness approvals still needed from: code-reviewer. Run the readiness review and record each lane's readiness approval.",
             "missing_lanes": [
               "code-reviewer"
             ],
@@ -988,11 +1029,13 @@
         ],
         "isError": true,
         "next_tools": [
+          "wf_review_wave",
+          "wf_review_event",
           "wf_validate_docs",
           "wf_current_wave"
         ],
         "status": "error",
-        "usage": "wf_validate_docs()"
+        "usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane', phase='prepare')"
       },
       "prepare:ready": {
         "data": {
@@ -1004,15 +1047,18 @@
               "red-team (fixed)"
             ],
             "fixed_seat": "red-team",
-            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line whose seats: field lists the seats actually run, each at most once, with per-seat evidence (or an explicit no-findings note) recorded in the wave record (e.g. `- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)`) before calling wf_prepare_wave(mode='create').",
+            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. This wave's review authority is the typed ledger, so record the outcome there: first the readiness review run, then each required lane's readiness approval, then the council verdict as a typed approval, wf_review_event(event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', mode='create', ...), whose evidence names the seats actually run, each at most once, with per-seat evidence or an explicit no-findings note (e.g. `wf_review_event(wave_id=<wave id>, event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', actor='wave-council', context_id=<fresh context id>, mode='create', evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)', 'artifact_or_test_id': <per-seat evidence reference>}, ...)`). A ## Review Checkpoints narrative is optional and is not authority: the gate reads only the typed approval. Then call wf_prepare_wave(mode='ready'), or mode='create' to also open the wave.",
             "rotating_seat": null,
             "rotating_seat_reason": "Bound to the current review-policy receipt.",
-            "verdict_format": "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)",
+            "verdict_format": "wf_review_event(wave_id=<wave id>, event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', actor='wave-council', context_id=<fresh context id>, mode='create', evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)', 'artifact_or_test_id': <per-seat evidence reference>}, ...)",
             "wave_id": "0exxm fixture-missing-lane"
           },
           "garden_passed": true,
           "lint_passed": true,
           "mode": "ready",
+          "pending_readiness_lanes": [
+            "code-reviewer"
+          ],
           "readiness_receipts": 1,
           "repaired": 0,
           "repairs_needed": 0,
@@ -1055,16 +1101,22 @@
         "diagnostics": [
           {
             "code": "missing_wave_council_signoff",
-            "message": "Required Wave Council signoff missing for prepare: wave-council-readiness. Record a typed approval event per missing key via wf_review_event(event='approval', signoff_key=<missing key above>, mode='create'); the approval projects into `## Review Evidence`. Do this before the wave can become active.",
+            "message": "Required Wave Council signoff missing for prepare: wave-council-readiness. Run the readiness review (wf_review_wave(phase='prepare') lists the pending actions), then record a typed approval event per missing key via wf_review_event(event='approval', signoff_key=<missing key above>, approval_phase='readiness', mode='create'); the approval projects into `## Review Evidence`. Do this before the wave can become active.",
             "recovery_tools": [
-              "wf_current_wave"
+              "wf_review_wave",
+              "wf_review_event"
             ],
-            "recovery_usage": "wf_current_wave()"
+            "recovery_usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane', phase='prepare')"
+          },
+          {
+            "advisory": true,
+            "code": "wave_objective_unpopulated",
+            "message": "The wave record's `## Objective` section is empty or still holds the scaffold placeholder. State the wave's load-bearing goal in one to three sentences: the readiness council reviews the wave against it and the dashboard wave card shows it."
           },
           {
             "advisory": true,
             "code": "readiness_lane_approvals_missing",
-            "message": "Implementation still requires current readiness approvals from: code-reviewer. Re-review the repaired packet and record approvals against the current receipt.",
+            "message": "Readiness approvals still needed from: code-reviewer. Run the readiness review and record each lane's readiness approval.",
             "missing_lanes": [
               "code-reviewer"
             ],
@@ -1076,11 +1128,13 @@
         ],
         "isError": true,
         "next_tools": [
+          "wf_review_wave",
+          "wf_review_event",
           "wf_validate_docs",
           "wf_current_wave"
         ],
         "status": "error",
-        "usage": "wf_validate_docs()"
+        "usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane', phase='prepare')"
       },
       "review:implementation": {
         "data": {
@@ -1371,16 +1425,16 @@
               "wf_review_event",
               "wf_review_wave"
             ],
-            "recovery_usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane')"
+            "recovery_usage": "wf_review_wave(wave_id='0exxm fixture-missing-lane', phase='implementation')"
           }
         ],
         "isError": true,
         "next_tools": [
-          "wf_validate_docs",
-          "wf_current_wave"
+          "wf_current_wave",
+          "wf_validate_docs"
         ],
         "status": "error",
-        "usage": "wf_validate_docs()"
+        "usage": "wf_current_wave()"
       }
     },
     "planned_with_verdict": {
@@ -1435,7 +1489,7 @@
               "wf_review_event",
               "wf_review_wave"
             ],
-            "recovery_usage": "wf_review_wave(wave_id='0exxk fixture-planned')"
+            "recovery_usage": "wf_review_wave(wave_id='0exxk fixture-planned', phase='implementation')"
           },
           {
             "code": "open_changes_remaining",
@@ -1448,11 +1502,11 @@
         ],
         "isError": true,
         "next_tools": [
-          "wf_validate_docs",
-          "wf_current_wave"
+          "wf_current_wave",
+          "wf_validate_docs"
         ],
         "status": "error",
-        "usage": "wf_validate_docs()"
+        "usage": "wf_current_wave()"
       },
       "close:dry_run": {
         "data": {
@@ -1505,7 +1559,7 @@
               "wf_review_event",
               "wf_review_wave"
             ],
-            "recovery_usage": "wf_review_wave(wave_id='0exxk fixture-planned')"
+            "recovery_usage": "wf_review_wave(wave_id='0exxk fixture-planned', phase='implementation')"
           },
           {
             "code": "open_changes_remaining",
@@ -1518,11 +1572,11 @@
         ],
         "isError": true,
         "next_tools": [
-          "wf_validate_docs",
-          "wf_current_wave"
+          "wf_current_wave",
+          "wf_validate_docs"
         ],
         "status": "error",
-        "usage": "wf_validate_docs()"
+        "usage": "wf_current_wave()"
       },
       "prepare:create": {
         "data": {
@@ -1534,10 +1588,10 @@
               "red-team (fixed)"
             ],
             "fixed_seat": "red-team",
-            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line whose seats: field lists the seats actually run, each at most once, with per-seat evidence (or an explicit no-findings note) recorded in the wave record (e.g. `- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)`) before calling wf_prepare_wave(mode='create').",
+            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. This wave's review authority is the typed ledger, so record the outcome there: first the readiness review run, then each required lane's readiness approval, then the council verdict as a typed approval, wf_review_event(event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', mode='create', ...), whose evidence names the seats actually run, each at most once, with per-seat evidence or an explicit no-findings note (e.g. `wf_review_event(wave_id=<wave id>, event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', actor='wave-council', context_id=<fresh context id>, mode='create', evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)', 'artifact_or_test_id': <per-seat evidence reference>}, ...)`). A ## Review Checkpoints narrative is optional and is not authority: the gate reads only the typed approval. Then call wf_prepare_wave(mode='ready'), or mode='create' to also open the wave.",
             "rotating_seat": null,
             "rotating_seat_reason": "Bound to the current review-policy receipt.",
-            "verdict_format": "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)",
+            "verdict_format": "wf_review_event(wave_id=<wave id>, event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', actor='wave-council', context_id=<fresh context id>, mode='create', evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)', 'artifact_or_test_id': <per-seat evidence reference>}, ...)",
             "wave_id": "0exxk fixture-planned"
           },
           "council_verdict_present": false,
@@ -1548,6 +1602,9 @@
           },
           "lint_passed": true,
           "mode": "create",
+          "pending_readiness_lanes": [
+            "code-reviewer"
+          ],
           "readied": false,
           "readiness_receipts": 1,
           "repaired": 0,
@@ -1594,8 +1651,13 @@
         "diagnostics": [
           {
             "advisory": true,
+            "code": "wave_objective_unpopulated",
+            "message": "The wave record's `## Objective` section is empty or still holds the scaffold placeholder. State the wave's load-bearing goal in one to three sentences: the readiness council reviews the wave against it and the dashboard wave card shows it."
+          },
+          {
+            "advisory": true,
             "code": "readiness_lane_approvals_missing",
-            "message": "Implementation still requires current readiness approvals from: code-reviewer. Re-review the repaired packet and record approvals against the current receipt.",
+            "message": "Readiness approvals still needed from: code-reviewer. Run the readiness review and record each lane's readiness approval.",
             "missing_lanes": [
               "code-reviewer"
             ],
@@ -1621,10 +1683,10 @@
               "red-team (fixed)"
             ],
             "fixed_seat": "red-team",
-            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line whose seats: field lists the seats actually run, each at most once, with per-seat evidence (or an explicit no-findings note) recorded in the wave record (e.g. `- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)`) before calling wf_prepare_wave(mode='create').",
+            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. This wave's review authority is the typed ledger, so record the outcome there: first the readiness review run, then each required lane's readiness approval, then the council verdict as a typed approval, wf_review_event(event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', mode='create', ...), whose evidence names the seats actually run, each at most once, with per-seat evidence or an explicit no-findings note (e.g. `wf_review_event(wave_id=<wave id>, event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', actor='wave-council', context_id=<fresh context id>, mode='create', evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)', 'artifact_or_test_id': <per-seat evidence reference>}, ...)`). A ## Review Checkpoints narrative is optional and is not authority: the gate reads only the typed approval. Then call wf_prepare_wave(mode='ready'), or mode='create' to also open the wave.",
             "rotating_seat": null,
             "rotating_seat_reason": "Bound to the current review-policy receipt.",
-            "verdict_format": "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)",
+            "verdict_format": "wf_review_event(wave_id=<wave id>, event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', actor='wave-council', context_id=<fresh context id>, mode='create', evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)', 'artifact_or_test_id': <per-seat evidence reference>}, ...)",
             "wave_id": "0exxk fixture-planned"
           },
           "council_verdict_present": false,
@@ -1632,6 +1694,9 @@
           "garden_passed": true,
           "lint_passed": true,
           "mode": "dry_run",
+          "pending_readiness_lanes": [
+            "code-reviewer"
+          ],
           "readied": false,
           "readiness_receipts": 1,
           "repaired": 0,
@@ -1677,8 +1742,13 @@
         "diagnostics": [
           {
             "advisory": true,
+            "code": "wave_objective_unpopulated",
+            "message": "The wave record's `## Objective` section is empty or still holds the scaffold placeholder. State the wave's load-bearing goal in one to three sentences: the readiness council reviews the wave against it and the dashboard wave card shows it."
+          },
+          {
+            "advisory": true,
             "code": "readiness_lane_approvals_missing",
-            "message": "Implementation still requires current readiness approvals from: code-reviewer. Re-review the repaired packet and record approvals against the current receipt.",
+            "message": "Readiness approvals still needed from: code-reviewer. Run the readiness review and record each lane's readiness approval.",
             "missing_lanes": [
               "code-reviewer"
             ],
@@ -1704,10 +1774,10 @@
               "red-team (fixed)"
             ],
             "fixed_seat": "red-team",
-            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line whose seats: field lists the seats actually run, each at most once, with per-seat evidence (or an explicit no-findings note) recorded in the wave record (e.g. `- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)`) before calling wf_prepare_wave(mode='create').",
+            "instructions": "Run each council seat in isolation against the admitted change docs and wave record. Verification must be code-grounded: verify each plan's load-bearing claims against the actual tree, not against the plan's own prose — cited file:line sites and symbols must resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' censuses must be complete. Do not approve a plan whose claims were checked only against its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a function, class, method, constant, test name, or distinguishing expression — rather than a bare file:line, because a symbol anchor resolves to today's text while a line anchor drifts hardest when a sibling wave edits the target concurrently. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can tell a deliberate line anchor from a lapsed one. Have wave-council synthesize findings. This wave's review authority is the typed ledger, so record the outcome there: first the readiness review run, then each required lane's readiness approval, then the council verdict as a typed approval, wf_review_event(event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', mode='create', ...), whose evidence names the seats actually run, each at most once, with per-seat evidence or an explicit no-findings note (e.g. `wf_review_event(wave_id=<wave id>, event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', actor='wave-council', context_id=<fresh context id>, mode='create', evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)', 'artifact_or_test_id': <per-seat evidence reference>}, ...)`). A ## Review Checkpoints narrative is optional and is not authority: the gate reads only the typed approval. Then call wf_prepare_wave(mode='ready'), or mode='create' to also open the wave.",
             "rotating_seat": null,
             "rotating_seat_reason": "Bound to the current review-policy receipt.",
-            "verdict_format": "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)",
+            "verdict_format": "wf_review_event(wave_id=<wave id>, event='approval', signoff_key='wave-council-readiness', approval_phase='readiness', actor='wave-council', context_id=<fresh context id>, mode='create', evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; primer-depth: standard; seats: <replace with the seats actually run, each at most once, e.g. red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker>; rotating-seat: none; strongest-challenge: <summary>; strongest-alternative: <summary>)', 'artifact_or_test_id': <per-seat evidence reference>}, ...)",
             "wave_id": "0exxk fixture-planned"
           },
           "council_verdict_present": false,
@@ -1718,6 +1788,9 @@
           },
           "lint_passed": true,
           "mode": "ready",
+          "pending_readiness_lanes": [
+            "code-reviewer"
+          ],
           "readied": true,
           "readiness_receipts": 1,
           "repaired": 0,
@@ -1763,8 +1836,13 @@
         "diagnostics": [
           {
             "advisory": true,
+            "code": "wave_objective_unpopulated",
+            "message": "The wave record's `## Objective` section is empty or still holds the scaffold placeholder. State the wave's load-bearing goal in one to three sentences: the readiness council reviews the wave against it and the dashboard wave card shows it."
+          },
+          {
+            "advisory": true,
             "code": "readiness_lane_approvals_missing",
-            "message": "Implementation still requires current readiness approvals from: code-reviewer. Re-review the repaired packet and record approvals against the current receipt.",
+            "message": "Readiness approvals still needed from: code-reviewer. Run the readiness review and record each lane's readiness approval.",
             "missing_lanes": [
               "code-reviewer"
             ],
@@ -2069,16 +2147,16 @@
               "wf_review_event",
               "wf_review_wave"
             ],
-            "recovery_usage": "wf_review_wave(wave_id='0exxk fixture-planned')"
+            "recovery_usage": "wf_review_wave(wave_id='0exxk fixture-planned', phase='implementation')"
           }
         ],
         "isError": true,
         "next_tools": [
-          "wf_validate_docs",
-          "wf_current_wave"
+          "wf_current_wave",
+          "wf_validate_docs"
         ],
         "status": "error",
-        "usage": "wf_validate_docs()"
+        "usage": "wf_current_wave()"
       }
     }
   }

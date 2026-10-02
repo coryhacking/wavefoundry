@@ -2295,7 +2295,13 @@ def phase_docs_gate(root: Path) -> None:
         if not py_script.exists():
             _log(f"  {label} not found — skipping.")
             continue
-        result = subprocess_util.isolated_run([_preferred_python(), str(py_script)], cwd=str(root), check=False)
+        # Wave 1zime (1zimk): both children resolve their root from PROJECT_ROOT
+        # before the working directory, so pin it to the target; an inherited
+        # value naming another repository would garden and lint THAT tree.
+        result = subprocess_util.isolated_run(
+            [_preferred_python(), str(py_script)], cwd=str(root), check=False,
+            env={**os.environ, "PROJECT_ROOT": str(root)},
+        )
         if result.returncode != 0:
             _err(f"Docs gate failed: {label} exited {result.returncode}")
             sys.exit(1)

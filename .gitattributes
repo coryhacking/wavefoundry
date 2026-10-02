@@ -18,6 +18,12 @@
 # `.wavefoundry/bin/* eol=lf` line above, so `wf.cmd` keeps CRLF (wave 1p7tz).
 *.cmd text eol=crlf
 
+
+# Vendored dashboard scripts and licences are byte-pinned by SHA-256 (wave 1zim2) and
+# reproducible from the npm registry tarballs (wave 1zimd): never convert their line endings,
+# so a Windows clone with autocrlf=true keeps the registry bytes.
+.wavefoundry/framework/dashboard/vendor/** -text
+
 # >>> wavefoundry line-endings (managed by render_platform_surfaces.py — edits here are overwritten) >>>
 # Shebang-bearing Wavefoundry launchers / hook bodies — always LF (autocrlf must not add CRLF).
 .wavefoundry/bin/* text eol=lf

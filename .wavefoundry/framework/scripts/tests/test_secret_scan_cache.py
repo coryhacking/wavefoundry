@@ -146,6 +146,13 @@ class NonGitMachineAuthorityTests(_CacheCase):
         ".wavefoundry/index-notes/readme.md",
     )
 
+    # Wave 1zimc (1zimg Requirement 9): Wavefoundry's own lock files are never
+    # selected, inside a git worktree or not, even when tracked.
+    LOCK_PATHS = (
+        ".wavefoundry/index/index-build.lock",
+        ".wavefoundry/locks/dashboard-server.lock",
+    )
+
     def _fixture(self):
         for rel in self.AUTHORITY_PATHS + self.CONTENT_PATHS:
             if rel != "docs/scan-findings.json":
@@ -176,7 +183,10 @@ class NonGitMachineAuthorityTests(_CacheCase):
         candidates = self._candidates()
         for rel in self.AUTHORITY_PATHS + self.CONTENT_PATHS + (untracked,):
             with self.subTest(candidate=rel):
-                self.assertIn(rel, candidates)
+                if rel in self.LOCK_PATHS:
+                    self.assertNotIn(rel, candidates)
+                else:
+                    self.assertIn(rel, candidates)
 
     def test_git_ls_files_failure_preserves_tracked_authority_in_fallback(self):
         from wave_lint_lib import secrets_validators as scanner
@@ -200,7 +210,10 @@ class NonGitMachineAuthorityTests(_CacheCase):
         self.assertIn(["git", "check-ignore", "--stdin"], commands)
         for rel in self.AUTHORITY_PATHS:
             with self.subTest(tracked_authority=rel):
-                self.assertIn(rel, candidates)
+                if rel in self.LOCK_PATHS:
+                    self.assertNotIn(rel, candidates)
+                else:
+                    self.assertIn(rel, candidates)
 
     def test_two_full_scans_keep_exact_cache_membership_without_index_internals(self):
         self._fixture()

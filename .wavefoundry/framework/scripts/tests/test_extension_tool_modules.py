@@ -23,7 +23,7 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 from framework_files import framework_source_files  # wf_server-aware source locations (wave 1yzd0)
 
 _DRIVER = r'''
-import asyncio, contextlib, hashlib, json, sys, tempfile
+import asyncio, contextlib, hashlib, inspect, json, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path.cwd() / "tests"))
 from server_tools_support import _make_repo, load_server, load_thin_runner
@@ -39,28 +39,28 @@ import server_impl
 def register(mcp, get_handler):
     @mcp.tool()
     def acme_echo(text: str = "", **kwargs):
-        bad = server_impl._ensure_no_extra_args("acme_echo", kwargs)
+        bad = server_impl.ensure_no_extra_args("acme_echo", kwargs)
         if bad is not None:
             return bad
         return {"status": "ok", "data": {"echo": text, "version": "v1"}}
 
     @mcp.tool()
     def acme_write(**kwargs):
-        bad = server_impl._ensure_no_extra_args("acme_write", kwargs)
+        bad = server_impl.ensure_no_extra_args("acme_write", kwargs)
         if bad is not None:
             return bad
         return {"status": "ok", "data": {"wrote": True}}
 
     @mcp.tool()
     def wf_current_wave(**kwargs):
-        bad = server_impl._ensure_no_extra_args("wf_current_wave", kwargs)
+        bad = server_impl.ensure_no_extra_args("wf_current_wave", kwargs)
         if bad is not None:
             return bad
         return {"status": "ok", "data": {"overridden": "wf_current_wave"}}
 
     @mcp.tool()
     def wf_create_wave(slug: str, mode: str = "dry_run", **kwargs):
-        bad = server_impl._ensure_no_extra_args("wf_create_wave", kwargs)
+        bad = server_impl.ensure_no_extra_args("wf_create_wave", kwargs)
         if bad is not None:
             return bad
         probe = getattr(server_impl, "_WF_LOCK_PROBE", None) or {}
@@ -151,7 +151,7 @@ import server_impl
 def register(mcp, get_handler):
     @mcp.tool()
     def wf_close_wave(item: str, **kwargs):
-        bad = server_impl._ensure_no_extra_args("wf_close_wave", kwargs)
+        bad = server_impl.ensure_no_extra_args("wf_close_wave", kwargs)
         if bad is not None:
             return bad
         return {"status": "ok", "data": {"closed_item": item},
@@ -159,28 +159,28 @@ def register(mcp, get_handler):
 
     @mcp.tool()
     def wf_review_event(note: str, **kwargs):
-        bad = server_impl._ensure_no_extra_args("wf_review_event", kwargs)
+        bad = server_impl.ensure_no_extra_args("wf_review_event", kwargs)
         if bad is not None:
             return bad
         return {"status": "ok", "data": {"note": note}}
 
     @mcp.tool()
     def wf_help(topic: str = "", **kwargs):
-        bad = server_impl._ensure_no_extra_args("wf_help", kwargs)
+        bad = server_impl.ensure_no_extra_args("wf_help", kwargs)
         if bad is not None:
             return bad
         return {"status": "ok", "data": {"fork_help": topic}}
 
     @mcp.tool()
     def memory_validate(record: str = "", **kwargs):
-        bad = server_impl._ensure_no_extra_args("memory_validate", kwargs)
+        bad = server_impl.ensure_no_extra_args("memory_validate", kwargs)
         if bad is not None:
             return bad
         return {"status": "ok", "data": {"fork_validate": record}}
 
     @mcp.tool()
     def wf_current_wave(scope: str = "", **kwargs):
-        bad = server_impl._ensure_no_extra_args("wf_current_wave", kwargs)
+        bad = server_impl.ensure_no_extra_args("wf_current_wave", kwargs)
         if bad is not None:
             return bad
         return {"status": "ok", "data": {"fork_scope": scope}}
@@ -200,9 +200,11 @@ EXTENSION_TOOL_ALIASES = {
     "fork_add_wave": "wf_add_change",
     "fork_add_wave_now": "wf_add_change",
     "fork_review_prepare": "wf_review_wave",
+    "fork_say_plain": "fork_echo",
+    "fork_get_change": "wf_get_change",
 }
 EXTENSION_TOOL_PARAMETERS = {
-    "fork_say": {"rename": {"words": "text"}},
+    "fork_say": {"rename": {"words": "text"}, "description": "  Echo the given words back. Provide words; count repeats them.\\n"},
     "fork_say_whole": {"fixed": {"ratio": 1, "tags": ["a"]}},
     "fork_read_raw": {"fixed": {"with_line_numbers": False}},
     "fork_add_wave": {"rename": {"set_id": "wave_id", "wave_id": "change_id"}},
@@ -226,7 +228,8 @@ def register(mcp, get_handler):
     @mcp.tool()
     def fork_echo(text: Annotated[str, Field(description="Text to echo.", min_length=2)], count: int = 3,
                   ratio: float = 1.0, tags: Optional[list[str]] = None, **kwargs):
-        bad = server_impl._ensure_no_extra_args("fork_echo", kwargs)
+        'Echo text back. Provide text; count repeats it.'
+        bad = server_impl.ensure_no_extra_args("fork_echo", kwargs)
         if bad is not None:
             return bad
         if tags is not None:
@@ -240,12 +243,148 @@ def register(mcp, get_handler):
         return {**result, "delegated": True}
 """
 
-def spy_response(impl, name, calls):
-    """Replace a core response function; record its arguments and the lock state."""
+# Wave 1zimf (1zimn): a module that uses only the public helpers.
+PUBLIC = """
+import server_impl
+
+def register(mcp, get_handler):
+    @mcp.tool()
+    def acme_public(text: str = "", **kwargs):
+        bad = server_impl.ensure_no_extra_args("acme_public", kwargs)
+        if bad is not None:
+            return bad
+        if text == "fail":
+            return server_impl.make_response(
+                "error", {"text": text},
+                diagnostics=[server_impl.make_diagnostic(
+                    "acme_failed", "asked to fail", recovery_tools=["acme_public"],
+                    recovery_usage="acme_public(text='x')")],
+                next_tools=["acme_public"], usage="acme_public(text='x')")
+        return server_impl.make_response("ok", {"echo": text})
+"""
+
+PUBLIC_DECL = """
+EXTENSION_MODULES = ("acme_public_tools",)
+EXTENSION_TOOL_PREFIXES = ("acme_",)
+EXTENSION_TOOL_TIERS = {"acme_public": "read"}
+"""
+
+# Wave 1zimf (1zimo): a declared lifecycle tool, an undeclared write tool, a
+# credited creation tool and an uncredited one. HOOK lets the driver observe
+# the lock from inside the handler.
+LIFE = """
+import server_impl
+
+HOOK = None
+
+def register(mcp, get_handler):
+    @mcp.tool()
+    def acme_record(note: str = "", **kwargs):
+        bad = server_impl.ensure_no_extra_args("acme_record", kwargs)
+        if bad is not None:
+            return bad
+        seen = HOOK(get_handler().root) if HOOK is not None else None
+        return server_impl.make_response("ok", {"note": note, "seen": seen})
+
+    @mcp.tool()
+    def acme_free(**kwargs):
+        bad = server_impl.ensure_no_extra_args("acme_free", kwargs)
+        if bad is not None:
+            return bad
+        return server_impl.make_response("ok", {"free": True})
+
+    @mcp.tool()
+    def acme_make(written: list[str], status: str = "ok", **kwargs):
+        bad = server_impl.ensure_no_extra_args("acme_make", kwargs)
+        if bad is not None:
+            return bad
+        return server_impl.make_response(status, {"written": written})
+
+    @mcp.tool()
+    def acme_make_free(written: list[str], **kwargs):
+        bad = server_impl.ensure_no_extra_args("acme_make_free", kwargs)
+        if bad is not None:
+            return bad
+        return server_impl.make_response("ok", {"written": written})
+"""
+
+LIFE_DECL = """
+EXTENSION_MODULES = ("acme_life",)
+EXTENSION_TOOL_PREFIXES = ("acme_",)
+EXTENSION_TOOL_TIERS = {"acme_record": "write", "acme_free": "write", "acme_make": "write", "acme_make_free": "write"}
+EXTENSION_LIFECYCLE_TOOLS = ("acme_record",)
+EXTENSION_ARTIFACT_PATH_FIELDS = {"acme_make": "written", "acme_record": "note"}
+EXTENSION_TOOL_ALIASES = {"acme_record_alias": "acme_record", "acme_record_mapped": "acme_record"}
+EXTENSION_TOOL_PARAMETERS = {"acme_record_mapped": {"rename": {"text": "note"}}}
+"""
+
+_LOCK_CHILD_TRY = (
+    "import sys\n"
+    "sys.path.insert(0, sys.argv[1])\n"
+    "from pathlib import Path\n"
+    "import lifecycle_lock\n"
+    "try:\n"
+    "    with lifecycle_lock.lifecycle_mutation_lock(Path(sys.argv[2])):\n"
+    "        print('acquired', flush=True)\n"
+    "except lifecycle_lock.LifecycleLockBusy:\n"
+    "    print('busy', flush=True)\n"
+)
+
+_LOCK_CHILD_HOLD = (
+    "import sys\n"
+    "sys.path.insert(0, sys.argv[1])\n"
+    "from pathlib import Path\n"
+    "import lifecycle_lock\n"
+    "with lifecycle_lock.lifecycle_mutation_lock(Path(sys.argv[2])):\n"
+    "    print('held', flush=True)\n"
+    "    sys.stdin.readline()\n"
+    "print('released', flush=True)\n"
+)
+
+def other_process_lifecycle(lock_root):
+    """One acquire attempt from a fresh interpreter (never a fork)."""
+    import subprocess
+    done = subprocess.run([sys.executable, "-B", "-c", _LOCK_CHILD_TRY, str(SCRATCH), str(lock_root)],
+                          capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+    return done.stdout.strip() or f"<rc={done.returncode} {done.stderr[-1000:]}>"
+
+@contextlib.contextmanager
+def lifecycle_held_elsewhere(lock_root):
+    """Another process holds the lifecycle lock for the block."""
+    import subprocess
+    child = subprocess.Popen([sys.executable, "-B", "-c", _LOCK_CHILD_HOLD, str(SCRATCH), str(lock_root)],
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        line = child.stdout.readline().strip()
+        if line != "held":
+            raise RuntimeError(f"lock holder did not start: {line!r} {child.stderr.read()[-1000:]}")
+        yield
+    finally:
+        try:
+            child.stdin.write("go\n")
+            child.stdin.flush()
+        except OSError:
+            pass
+        child.wait(timeout=60)
+        for stream in (child.stdin, child.stdout, child.stderr):
+            stream.close()
+
+def spy_response(impl, name, calls, echo=False):
+    """Replace a core response function; record its arguments and the lock state.
+
+    With ``echo`` the spy's ``data`` echoes its arguments at top level, by the
+    real function's parameter names and defaults, as the lifecycle handlers do
+    (wave 1zime, 1zimm).
+    """
+    signature = inspect.signature(getattr(impl, name))
     def spy(root, *args, **kwargs):
         probe = getattr(impl, "_WF_LOCK_PROBE", None) or {}
         calls.append({"args": list(args), "kwargs": {k: v for k, v in kwargs.items() if k != "cache"},
                       "lock_held": probe.get("held"), "acquired": probe.get("acquired")})
+        if echo:
+            bound = signature.bind(root, *args, **kwargs)
+            bound.apply_defaults()
+            return {"status": "ok", "data": {k: v for k, v in bound.arguments.items() if k not in ("root", "cache")}}
         return {"status": "ok", "data": {"spied": name}}
     setattr(impl, name, spy)
 
@@ -344,6 +483,10 @@ with tempfile.TemporaryDirectory() as tmp:
             "wf_current_wave", "wf_create_wave", "wf_close_wave", "wf_review_event", "wf_help", "memory_validate")}
         out["extensions"] = impl.wf_server_info_response(root)["data"]["extensions"]
         out["tool_count"] = len(table(mcp))
+        # Wave 1zime (1zimm AC-2): the stock data the mapped server must match.
+        spy_response(impl, "wf_add_change_response", [], echo=True)
+        out["add_call"] = ccall(mcp, "wf_add_change", {"wave_id": "1abcd", "change_id": "1abce-feat x"})["data"]
+        out["get_call"] = ccall(mcp, "wf_get_change", {"change_id": "1abce-feat x"})["data"]
         runner._get_handler().close()
 
     elif MODE == "alias":
@@ -486,7 +629,7 @@ with tempfile.TemporaryDirectory() as tmp:
         out["wraps_canonical"] = tools["fork_add_wave"].fn.__wrapped__ is tools["wf_add_change"].fn
         install_counting_lock_probe(impl)
         add_calls, review_calls, remove_calls = [], [], []
-        spy_response(impl, "wf_add_change_response", add_calls)
+        spy_response(impl, "wf_add_change_response", add_calls, echo=True)
         spy_response(impl, "wf_review_wave_response", review_calls)
         spy_response(impl, "wf_remove_change_response", remove_calls)
         handler = runner._get_handler()
@@ -527,6 +670,19 @@ with tempfile.TemporaryDirectory() as tmp:
         out["guarded"] = codes(ccall(mcp, "fork_add_wave", {"set_id": "1abcd", "wave_id": "1abce-feat x"}))
         out["guarded_reached_canonical"] = len(add_calls) != calls_before
         checkpoint.unlink()
+        # Wave 1zime (1zimm): response data under the canonical name and a plain alias.
+        out["canonical_add_call"] = ccall(mcp, "wf_add_change", {"wave_id": "1abcd", "change_id": "1abce-feat x"})["data"]
+        out["plain_get_call"] = ccall(mcp, "fork_get_change", {"change_id": "1abce-feat x"})["data"]
+        out["canonical_get_call"] = ccall(mcp, "wf_get_change", {"change_id": "1abce-feat x"})["data"]
+        listed = {t.name: t.description for t in asyncio.run(mcp.list_tools())}
+        out["listed_descriptions"] = {n: listed.get(n) for n in ("fork_echo", "fork_say", "fork_say_whole", "fork_say_plain")}
+        ext_now = sys.modules["mcp_tool_extensions"]
+        out["mapped_targets_coroutine"] = {
+            alias: [inspect.iscoroutinefunction(tools[canonical].fn),
+                    inspect.iscoroutinefunction(inspect.unwrap(tools[canonical].fn)),
+                    inspect.iscoroutinefunction(tools[alias].fn)]
+            for alias, canonical in ext_now.EXTENSION_TOOL_ALIASES.items() if alias in ext_now.EXTENSION_TOOL_PARAMETERS
+        }
         with busy_lock(impl):
             out["busy"] = hints(ccall(mcp, "fork_add_wave", {"set_id": "1abcd", "wave_id": "1abce-feat x"}))
         out["value_hints"] = value_hints(impl, mcp)
@@ -561,6 +717,8 @@ with tempfile.TemporaryDirectory() as tmp:
         out["reload_status"] = result["status"]
         out["reload_schema"] = normalized(table(mcp)["fork_add_wave"].parameters)
         out["reload_wraps_canonical"] = table(mcp)["fork_add_wave"].fn.__wrapped__ is table(mcp)["wf_add_change"].fn
+        reloaded = {t.name: t.description for t in asyncio.run(mcp.list_tools())}
+        out["reload_descriptions"] = {n: reloaded.get(n) for n in ("fork_echo", "fork_say")}
         handler.close()
 
     elif MODE == "params_hidden":
@@ -628,6 +786,191 @@ with tempfile.TemporaryDirectory() as tmp:
         out["extensions"] = impl.wf_server_info_response(root)["data"]["extensions"]
         out["acme_sha"] = hashlib.sha256((SCRATCH / "acme_tools.py").read_bytes()).hexdigest()
         runner._get_handler().close()
+
+    elif MODE == "public":
+        # Wave 1zimf (1zimn AC-2, AC-4): the public helpers end to end and after reload.
+        DECL.write_text(DECL_ORIG + PUBLIC_DECL)
+        write_module("acme_public_tools", PUBLIC)
+        load_server(); runner = load_thin_runner()
+        mcp = runner.build_server(root)
+        out["names"] = sorted(n for n in table(mcp) if n.startswith("acme_"))
+        out["ok_call"] = ccall(mcp, "acme_public", {"text": "hi"})
+        out["fail_call"] = ccall(mcp, "acme_public", {"text": "fail"})
+        out["unknown_call"] = ccall(mcp, "acme_public", {"text": "hi", "bogus": 1})
+        out["empty_kwargs_call"] = ccall(mcp, "acme_public", {"text": "hi", "kwargs": {}})
+        before = runner.server_impl
+        result = runner.perform_mcp_reload()
+        out["reload_status"] = result["status"]
+        impl = sys.modules["server_impl"]
+        out["reload_same_module"] = impl is before
+        out["reload_helpers"] = {n: callable(getattr(impl, n, None)) for n in impl.EXTENSION_PUBLIC_HELPERS}
+        out["reload_equal"] = {
+            "make_response": impl.make_response("ok", {"a": 1}) == impl._response("ok", {"a": 1}),
+            "make_diagnostic": impl.make_diagnostic("c", "m", advisory=True) == impl._diagnostic("c", "m", advisory=True),
+            "ensure_no_extra_args": impl.ensure_no_extra_args("t", {"x": 1}) == impl._ensure_no_extra_args("t", {"x": 1}),
+        }
+        from unittest import mock
+        with mock.patch.object(impl, "_response", lambda *a, **k: {"patched": True}):
+            out["reload_late_bound"] = impl.make_response("ok")
+        out["reload_unknown_call"] = ccall(mcp, "acme_public", {"bogus": 1})
+        out["reload_ok_call"] = ccall(mcp, "acme_public", {"text": "again"})
+        runner._get_handler().close()
+
+    elif MODE == "lifecycle":
+        # Wave 1zimf (1zimo): declared lifecycle tools and artifact path fields.
+        DECL.write_text(DECL_ORIG + LIFE_DECL)
+        write_module("acme_life", LIFE)
+        load_server(); runner = load_thin_runner()
+        mcp = runner.build_server(root)
+        impl = runner.server_impl
+        import lifecycle_lock, runtime_lock, os
+        from unittest import mock
+        life = sys.modules["acme_life"]
+        handler = runner._get_handler()
+        lock_path = root / lifecycle_lock.LIFECYCLE_MUTATION_LOCK_REL
+        (root / ".wavefoundry").mkdir(parents=True, exist_ok=True)
+        out["markers"] = {n: markers(mcp, n) for n in (
+            "acme_record", "acme_free", "acme_make", "acme_make_free", "acme_record_alias", "acme_record_mapped")}
+        out["locked"] = {n: bool(getattr(table(mcp)[n].fn, "_wf_mutation_locked", False)) or "lock" in markers(mcp, n)
+                         for n in ("acme_record", "acme_free", "acme_make")}
+        out["extensions"] = impl.wf_server_info_response(root)["data"]["extensions"]
+        out["lock_tools"] = sorted(impl._LIFECYCLE_MUTATION_LOCK_TOOLS)
+        out["artifact_extractors"] = sorted(impl._ARTIFACT_EXTRACTORS)
+        out["core_behaviour_lock_tools"] = sorted(impl._LIFECYCLE_MUTATION_LOCK_TOOLS)
+        # AC-3: another process holds the lifecycle lock.
+        with lifecycle_held_elsewhere(root):
+            held = ccall(mcp, "acme_record", {"note": "n"})
+            out["held_record"] = {"codes": codes(held), "data": held.get("data")}
+            out["held_alias"] = codes(ccall(mcp, "acme_record_alias", {"note": "n"}))
+            out["held_mapped"] = codes(ccall(mcp, "acme_record_mapped", {"text": "n"}))
+            out["held_free"] = codes(ccall(mcp, "acme_free"))
+        out["free_record"] = ccall(mcp, "acme_record", {"note": "n"})["data"]
+        out["free_mapped"] = ccall(mcp, "acme_record_mapped", {"text": "m"})["data"]
+        # AC-4: the hold is registered; re-entry and a served locked tool are refused
+        # without opening the lock file, and the hold survives both.
+        def observe(hroot, reraise):
+            seen = {}
+            hold = runtime_lock.process_hold(lock_path)
+            seen["hold_registered"] = hold is not None and hold.get("pid") == os.getpid()
+            opened = []
+            real = runtime_lock._open_lock_carrier
+
+            def recorder(path, mode):
+                opened.append(os.path.realpath(os.fspath(path)))
+                return real(path, mode)
+
+            with mock.patch.object(runtime_lock, "_open_lock_carrier", recorder):
+                served = table(mcp)["wf_set_handoff"].fn(content="x")
+                seen["served_codes"] = codes(served)
+                try:
+                    with lifecycle_lock.lifecycle_mutation_lock(hroot):
+                        seen["reentry"] = "entered"
+                except lifecycle_lock.LifecycleLockBusy as exc:
+                    seen["reentry"] = "LifecycleLockBusy"
+                    seen["lock_file_opened"] = os.path.realpath(lock_path) in opened
+                    seen["other_process"] = other_process_lifecycle(hroot)
+                    if reraise:
+                        raise
+            seen["lock_file_opened"] = os.path.realpath(lock_path) in opened
+            seen["other_process"] = other_process_lifecycle(hroot)
+            return seen
+        record = {}
+        life.HOOK = lambda hroot: observe(hroot, False)
+        out["observed"] = ccall(mcp, "acme_record", {"note": "n"})["data"]["seen"]
+        out["hold_after"] = runtime_lock.process_hold(lock_path)
+        out["other_after"] = other_process_lifecycle(root)
+
+        def reraise_hook(hroot):
+            try:
+                return observe(hroot, True)
+            except lifecycle_lock.LifecycleLockBusy:
+                record["raised"] = True
+                record["other_process_while_raising"] = other_process_lifecycle(hroot)
+                raise
+        life.HOOK = reraise_hook
+        raised = ccall(mcp, "acme_record", {"note": "n"})
+        out["reraised"] = {"codes": codes(raised), "data": raised.get("data"), **record}
+        out["hold_after_reraise"] = runtime_lock.process_hold(lock_path)
+        out["other_after_reraise"] = other_process_lifecycle(root)
+        # The artifact credit runs inside the lock: stat-only, so a credited
+        # path naming the lock file itself keeps the hold.
+        life.HOOK = None
+        during_cost = []
+        with mock.patch.object(handler.telemetry, "record_tool_cost",
+                               lambda name, **kw: during_cost.append(other_process_lifecycle(root))):
+            ccall(mcp, "acme_record", {"note": lifecycle_lock.LIFECYCLE_MUTATION_LOCK_REL.as_posix()})
+        out["lock_while_crediting_lock_file"] = during_cost
+        # AC-5: derived-artifact credit for the declared field only.
+        (root / "big.md").write_text("x" * 4000)
+        (root / "small.md").write_text("abcd")
+        (root / "sub").mkdir(exist_ok=True)
+        duplicate_names = ["big.md", "./big.md", "sub/../big.md"]
+        try:
+            (root / "big-link.md").symlink_to(root / "big.md")
+            duplicate_names.append("big-link.md")
+        except (OSError, NotImplementedError):
+            pass  # no symlink privilege (Windows without Developer Mode): the other names still cover it
+        outside = root.parent / "outside-credit.md"
+        outside.write_text("y" * 4000)
+        costs = []
+        extract = impl._artifact_from_written_paths("written")
+        with mock.patch.object(handler.telemetry, "record_tool_cost",
+                               lambda name, **kw: costs.append({"name": name, **{k: kw.get(k) for k in (
+                                   "request_tokens", "derived_artifact_tokens", "event_id")}})):
+            cases = {
+                "ok": ("acme_make", {"written": ["big.md", "small.md"]}),
+                "replay": ("acme_make", {"written": ["big.md", "small.md"]}),
+                "error": ("acme_make", {"written": ["big.md"], "status": "error"}),
+                "outside": ("acme_make", {"written": ["../outside-credit.md"]}),
+                "missing": ("acme_make", {"written": ["nope.md"]}),
+                "undeclared": ("acme_make_free", {"written": ["big.md"]}),
+                "single": ("acme_make", {"written": ["big.md"]}),
+                "duplicate": ("acme_make", {"written": duplicate_names}),
+            }
+            credit = {}
+            for label, (name, args) in cases.items():
+                del costs[:]
+                result = ccall(mcp, name, args)
+                raw, _event = extract(root, result)
+                row = costs[-1] if costs else {}
+                credit[label] = {
+                    "name": row.get("name"),
+                    "credit": row.get("derived_artifact_tokens"),
+                    "core_contract": sum(max(0, int(r) - int(row.get("request_tokens") or 0)) for r in raw),
+                    "event_id": row.get("event_id"),
+                    "status": result.get("status"),
+                    "artifacts": len(raw),
+                }
+        out["credit"] = credit
+        # AC-6: core collections untouched and the core-behaviour chain unchanged.
+        out["lock_tools_after"] = sorted(impl._LIFECYCLE_MUTATION_LOCK_TOOLS)
+        out["artifact_extractors_after"] = sorted(impl._ARTIFACT_EXTRACTORS)
+        out["installed_lock_and_credit"] = [sorted(impl._EXTENSION_LIFECYCLE_TOOLS), dict(impl._EXTENSION_ARTIFACT_PATH_FIELDS)]
+        # Reload rebuilds the passes from the declaration.
+        result = runner.perform_mcp_reload()
+        out["reload_status"] = result["status"]
+        impl = runner.server_impl
+        with lifecycle_held_elsewhere(root):
+            out["reload_held_record"] = codes(ccall(mcp, "acme_record", {"note": "n"}))
+            out["reload_held_free"] = codes(ccall(mcp, "acme_free"))
+        # Dropping both declarations and reloading stops the lock and the credit.
+        DECL.write_text(DECL_ORIG + LIFE_DECL.replace(
+            'EXTENSION_LIFECYCLE_TOOLS = ("acme_record",)', "EXTENSION_LIFECYCLE_TOOLS = ()").replace(
+            'EXTENSION_ARTIFACT_PATH_FIELDS = {"acme_make": "written", "acme_record": "note"}',
+            "EXTENSION_ARTIFACT_PATH_FIELDS = {}"))
+        result = runner.perform_mcp_reload()
+        out["dropped_reload_status"] = result["status"]
+        impl = runner.server_impl
+        out["dropped_installed"] = [sorted(impl._EXTENSION_LIFECYCLE_TOOLS), dict(impl._EXTENSION_ARTIFACT_PATH_FIELDS)]
+        out["dropped_declaration"] = impl.wf_server_info_response(root)["data"]["extensions"]["declaration"]
+        with lifecycle_held_elsewhere(root):
+            out["dropped_held_record"] = codes(ccall(mcp, "acme_record", {"note": "n"}))
+        costs = []
+        with mock.patch.object(runner._get_handler().telemetry, "record_tool_cost",
+                               lambda name, **kw: costs.append(kw.get("derived_artifact_tokens"))):
+            ccall(mcp, "acme_make", {"written": ["big.md"]})
+        out["dropped_credit"] = costs
+        handler.close()
 
     elif MODE == "reload":
         DECL.write_text(DECL_ORIG + GOOD_DECL)
@@ -715,7 +1058,7 @@ with tempfile.TemporaryDirectory() as tmp:
             "def register(mcp, get_handler):\n"
             "    @mcp.tool()\n"
             "    def wf_create_wave(slug: Annotated[str, Field(title='Wave slug')], mode: str = 'dry_run', team: str = '', **kwargs):\n"
-            "        bad = server_impl._ensure_no_extra_args('wf_create_wave', kwargs)\n"
+            "        bad = server_impl.ensure_no_extra_args('wf_create_wave', kwargs)\n"
             "        if bad is not None:\n"
             "            return bad\n"
             "        return {'status': 'ok', 'data': {'slug': slug, 'team': team}}\n"
@@ -725,7 +1068,7 @@ with tempfile.TemporaryDirectory() as tmp:
             "def register(mcp, get_handler):\n"
             "    @mcp.tool()\n"
             "    def wf_fork_tool(**kwargs):\n"
-            "        bad = server_impl._ensure_no_extra_args('wf_fork_tool', kwargs)\n"
+            "        bad = server_impl.ensure_no_extra_args('wf_fork_tool', kwargs)\n"
             "        if bad is not None:\n"
             "            return bad\n"
             "        return {'status': 'ok', 'data': {'fork': True}}\n"
@@ -750,7 +1093,7 @@ with tempfile.TemporaryDirectory() as tmp:
             "def register(mcp, get_handler):\n"
             "    @mcp.tool()\n"
             "    def wf_close_wave(item: str, **kwargs):\n"
-            "        bad = server_impl._ensure_no_extra_args('wf_close_wave', kwargs)\n"
+            "        bad = server_impl.ensure_no_extra_args('wf_close_wave', kwargs)\n"
             "        if bad is not None:\n"
             "            return bad\n"
             "        return {'status': 'ok', 'data': {'item': item}}\n"
@@ -850,10 +1193,24 @@ with tempfile.TemporaryDirectory() as tmp:
             "params_underscore_name": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"_x": "wave_id"}}}),
             "params_keyword_name": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"class": "wave_id"}}}),
             "params_ext_rename_unknown": dict(EXTENSION_MODULES=("echo_tool",), EXTENSION_TOOL_PREFIXES=("acme_",), EXTENSION_TOOL_TIERS={"acme_echo": "read"}, EXTENSION_TOOL_ALIASES={"acme_say": "acme_echo"}, EXTENSION_TOOL_PARAMETERS={"acme_say": {"rename": {"words": "nope"}}}),
+            # Wave 1zime (1zimm): the optional alias description.
+            "params_desc_not_str": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"set_id": "wave_id"}, "description": 5}}),
+            "params_desc_empty": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"set_id": "wave_id"}, "description": ""}}),
+            "params_desc_blank": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"set_id": "wave_id"}, "description": " \n\t "}}),
+            "params_desc_too_long": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"set_id": "wave_id"}, "description": "x" * 16385}}),
+            "params_desc_plain": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"description": "An alias."}}),
+            "params_desc_empty_mappings": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {}, "fixed": {}, "description": "An alias."}}),
+            "params_desc_max_valid": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"set_id": "wave_id"}, "description": "y" * 16384}}),
             "params_ext_fixed_type": dict(EXTENSION_MODULES=("echo_tool",), EXTENSION_TOOL_PREFIXES=("acme_",), EXTENSION_TOOL_TIERS={"acme_echo": "read"}, EXTENSION_TOOL_ALIASES={"acme_say": "acme_echo"}, EXTENSION_TOOL_PARAMETERS={"acme_say": {"fixed": {"count": "3"}}}),
+            # Wave 1zimf (1zimo): a lock or credit declaration without a registered tool.
+            "lifecycle_unregistered": dict(EXTENSION_MODULES=("twin_a",), EXTENSION_TOOL_PREFIXES=("acme_",), EXTENSION_TOOL_TIERS={"acme_twin": "read", "acme_ghost": "write"}, EXTENSION_LIFECYCLE_TOOLS=("acme_ghost",)),
+            "artifact_unregistered": dict(EXTENSION_MODULES=("twin_a",), EXTENSION_TOOL_PREFIXES=("acme_",), EXTENSION_TOOL_TIERS={"acme_twin": "read", "acme_ghost": "write"}, EXTENSION_ARTIFACT_PATH_FIELDS={"acme_ghost": "path"}),
+            "lifecycle_reserved_name": dict(EXTENSION_MODULES=("retired_name",), EXTENSION_TOOL_PREFIXES=("wf_",), EXTENSION_TOOL_TIERS={"wf_review_evidence": "write"}, EXTENSION_LIFECYCLE_TOOLS=("wf_review_evidence",), EXTENSION_ARTIFACT_PATH_FIELDS={"wf_review_evidence": "path"}),
+            "lifecycle_invalid_declaration": dict(EXTENSION_MODULES=("twin_a",), EXTENSION_TOOL_PREFIXES=("acme_",), EXTENSION_TOOL_TIERS={"acme_twin": "read"}, EXTENSION_LIFECYCLE_TOOLS=("acme_twin",)),
         }
         empty = dict(EXTENSION_MODULES=(), EXTENSION_TOOL_PREFIXES=(), EXTENSION_TOOL_TIERS={}, EXTENSION_OVERRIDES={},
-                     EXTENSION_TOOL_ALIASES={}, EXTENSION_TOOL_PARAMETERS={}, EXTENSION_HIDDEN_TOOLS=(), EXTENSION_REPLACEMENTS={})
+                     EXTENSION_TOOL_ALIASES={}, EXTENSION_TOOL_PARAMETERS={}, EXTENSION_HIDDEN_TOOLS=(),
+                     EXTENSION_LIFECYCLE_TOOLS=(), EXTENSION_ARTIFACT_PATH_FIELDS={}, EXTENSION_REPLACEMENTS={})
         results = {}
         for label, attrs in cases.items():
             for key, value in {**empty, **attrs}.items():
@@ -885,6 +1242,8 @@ with tempfile.TemporaryDirectory() as tmp:
                     results[label]["read_rule"] = "mcp__wavefoundry__wf_alias_help" in mcp_tool_roster.allow_rules(False)
                 if label == "params_swap_valid":
                     results[label]["parameters"] = normalized(table(mcp)["wf_alias_add"].parameters)
+                if label == "params_desc_max_valid":
+                    results[label]["description"] = table(mcp)["wf_alias_add"].description
                 if label == "extended_override":
                     results[label]["with_team"] = ccall(mcp, "wf_create_wave", {"slug": "probe", "team": "blue"})["data"]
                     results[label]["core_call"] = ccall(mcp, "wf_create_wave", {"slug": "probe"})["data"]
@@ -1183,6 +1542,11 @@ def _renamed_schema(canonical: dict, rename: dict, fixed: dict) -> dict:
     return {**canonical, "properties": props, "required": required}
 
 
+# Wave 1zime (1zimm): the declared description, served byte for byte; the
+# surrounding whitespace proves nothing strips or rewrites it.
+SAY_DESCRIPTION = "  Echo the given words back. Provide words; count repeats them.\n"
+
+
 class ParameterMappedAliasTests(unittest.TestCase):
     """Wave 1zim3 AC-1, AC-2 and AC-4 through the real build_server and FastMCP call_tool."""
 
@@ -1212,7 +1576,6 @@ class ParameterMappedAliasTests(unittest.TestCase):
             self.assertEqual(self.out["markers"][alias], self.out["markers"][canonical], alias)
 
     def test_calls_reach_the_canonical_body_with_translated_arguments(self):
-        self.assertEqual(self.out["swap_call"], {"spied": "wf_add_change_response"})
         swap, pinned = self.out["add_calls"]
         self.assertEqual(swap["args"], ["1abcd", "1abce-feat x"])
         self.assertEqual(swap["kwargs"], {"mode": "dry_run"})
@@ -1221,7 +1584,8 @@ class ParameterMappedAliasTests(unittest.TestCase):
         (review,) = self.out["review_calls"]
         self.assertEqual(review["args"], ["1abcd"])
         self.assertEqual(review["kwargs"], {"phase": "prepare"})
-        self.assertEqual(self.out["say_call"], {"text": "hello", "count": 3, "ratio_type": "float", "tags": None})
+        # Wave 1zime (1zimm): the echoed renamed parameter carries the alias name.
+        self.assertEqual(self.out["say_call"], {"words": "hello", "count": 3, "ratio_type": "float", "tags": None})
         self.assertIn("String should have at least 2 characters", self.out["say_short"])
 
     def test_a_pin_is_forwarded_as_its_validated_value(self):
@@ -1325,11 +1689,51 @@ class ParameterMappedAliasTests(unittest.TestCase):
         params = self.out["extensions"]["parameters"]
         self.assertEqual(params["fork_add_wave_now"], {
             "canonical": "wf_add_change", "rename": {"set_id": "wave_id", "wave_id": "change_id"}, "fixed": {"mode": "create"},
+            "description": None,
         })
-        self.assertEqual(params["fork_review_prepare"], {"canonical": "wf_review_wave", "rename": {}, "fixed": {"phase": "prepare"}})
+        self.assertEqual(params["fork_review_prepare"], {"canonical": "wf_review_wave", "rename": {}, "fixed": {"phase": "prepare"},
+                                                         "description": None})
+        # Wave 1zime (1zimm AC-7): a declared description is reported verbatim.
+        self.assertEqual(params["fork_say"], {"canonical": "fork_echo", "rename": {"words": "text"}, "fixed": {},
+                                              "description": SAY_DESCRIPTION})
+        self.assertEqual(self.stock["extensions"]["parameters"], {})
         # A pinned-only canonical name keeps its canonical served name.
         self.assertNotIn("wf_review_wave", self.out["extensions"]["served_names"])
         self.assertEqual(self.out["extensions"]["served_names"]["wf_add_change"], "fork_add_wave")
+
+    # Wave 1zime (1zimm) AC-1.
+    def test_alias_response_data_echoes_alias_parameter_names(self):
+        self.assertEqual(self.out["swap_call"], {"set_id": "1abcd", "wave_id": "1abce-feat x", "mode": "dry_run"})
+        self.assertNotIn("change_id", self.out["swap_call"])
+        self.assertEqual(list(self.out["swap_call"]), ["set_id", "wave_id", "mode"])
+        # A pinned parameter's echoed key keeps its canonical name.
+        self.assertEqual(self.out["pinned_add_call"], {"set_id": "1abcd", "wave_id": "1abce-feat x", "mode": "create"})
+
+    # AC-2.
+    def test_canonical_and_plain_alias_data_match_the_stock_server(self):
+        self.assertEqual(json.dumps(self.out["canonical_add_call"]), json.dumps(self.stock["add_call"]))
+        self.assertEqual(self.stock["add_call"], {"wave_id": "1abcd", "change_id": "1abce-feat x", "mode": "dry_run"})
+        self.assertEqual(json.dumps(self.out["plain_get_call"]), json.dumps(self.stock["get_call"]))
+        self.assertEqual(json.dumps(self.out["canonical_get_call"]), json.dumps(self.stock["get_call"]))
+
+    # AC-4.
+    def test_every_canonical_tool_of_a_mapped_alias_is_synchronous(self):
+        targets = self.out["mapped_targets_coroutine"]
+        self.assertEqual(sorted(targets), ["fork_add_wave", "fork_add_wave_now", "fork_read_raw",
+                                           "fork_review_prepare", "fork_say", "fork_say_whole"])
+        for alias, flags in targets.items():
+            self.assertEqual(flags, [False, False, False], alias)
+
+    # AC-7.
+    def test_a_declared_description_is_served_only_on_its_alias(self):
+        listed = self.out["listed_descriptions"]
+        canonical = "Echo text back. Provide text; count repeats it."
+        self.assertEqual(listed["fork_say"], SAY_DESCRIPTION)
+        self.assertEqual(listed["fork_echo"], canonical)
+        self.assertEqual(listed["fork_say_plain"], canonical)
+        self.assertEqual(listed["fork_say_whole"], canonical)
+        self.assertEqual(self.out["reload_descriptions"],
+                         {"fork_echo": canonical, "fork_say": SAY_DESCRIPTION})
 
     def test_reload_rebuilds_the_translator(self):
         self.assertEqual(self.out["reload_status"], "ok")
@@ -1375,6 +1779,71 @@ class HiddenMappedAliasHintTests(unittest.TestCase):
         self.assertEqual(out["usage"], "fork_add_wave is hidden; call fork_add_wave(set_id=w, wave_id=c) or fork_add_wave(set_id='a')")
         self.assertEqual(out["diagnostics"][0]["recovery_tools"], ["fork_add_wave"])
         self.assertEqual(out["diagnostics"][0]["recovery_usage"], "retry fork_add_wave later")
+
+
+class EchoedParameterRenameTests(unittest.TestCase):
+    """Wave 1zime (1zimm AC-3): the alias translator's top-level data key rename."""
+
+    SWAP = {"set_id": "wave_id", "wave_id": "change_id"}
+
+    def setUp(self):
+        from server_tools_support import load_server
+        self.rename = load_server()._rename_echoed_parameters
+
+    def test_swap_is_simultaneous_and_keeps_order_and_values(self):
+        value = ["kept", "by", "identity"]
+        result = {"status": "ok", "data": {"wave_id": "w", "mode": "dry_run", "change_id": value, "other": 1}}
+        out = self.rename(result, self.SWAP)
+        self.assertEqual(list(out["data"]), ["set_id", "mode", "wave_id", "other"])
+        self.assertEqual(out["data"]["set_id"], "w")
+        self.assertIs(out["data"]["wave_id"], value)
+
+    def test_nested_data_keeps_its_keys(self):
+        nested = {"wave_id": "inner", "items": [{"change_id": "c"}]}
+        out = self.rename({"data": {"wave_id": "w", "nested": nested, "list": [{"wave_id": "x"}]}}, self.SWAP)
+        self.assertIs(out["data"]["nested"], nested)
+        self.assertEqual(out["data"]["nested"], {"wave_id": "inner", "items": [{"change_id": "c"}]})
+        self.assertEqual(out["data"]["list"], [{"wave_id": "x"}])
+
+    def test_string_value_equal_to_a_parameter_name_is_unchanged(self):
+        out = self.rename({"data": {"wave_id": "change_id", "note": "wave_id"}}, self.SWAP)
+        self.assertEqual(out["data"], {"set_id": "change_id", "note": "wave_id"})
+
+    def test_pinned_parameter_keeps_its_canonical_key(self):
+        # `mode` is pinned (fixed), not renamed: the alias has no name for it.
+        out = self.rename({"data": {"wave_id": "w", "change_id": "c", "mode": "create"}}, self.SWAP)
+        self.assertEqual(out["data"], {"set_id": "w", "wave_id": "c", "mode": "create"})
+
+    def test_collision_leaves_data_unchanged(self):
+        result = {"status": "ok", "data": {"set_id": "already", "wave_id": "w"}}
+        out = self.rename(result, {"set_id": "wave_id"})
+        self.assertIs(out, result)
+        self.assertEqual(out["data"], {"set_id": "already", "wave_id": "w"})
+
+    def test_input_is_never_mutated(self):
+        result = {"status": "ok", "data": {"wave_id": "w", "change_id": "c"}, "next_tools": ["x"]}
+        before = json.dumps(result)
+        out = self.rename(result, self.SWAP)
+        self.assertEqual(json.dumps(result), before)
+        self.assertIsNot(out, result)
+        self.assertIsNot(out["data"], result["data"])
+        self.assertIs(out["next_tools"], result["next_tools"])
+
+    def test_non_dict_shapes_are_returned_unchanged(self):
+        for result in ("text", None, ["wave_id"], {"status": "ok"}, {"data": None}, {"data": ["wave_id"]}):
+            with self.subTest(result=result):
+                self.assertIs(self.rename(result, self.SWAP), result)
+        result = {"data": {"wave_id": "w"}}
+        self.assertIs(self.rename(result, {}), result)
+
+    def test_an_awaitable_result_is_returned_unchanged(self):
+        async def coroutine():
+            return {"data": {"wave_id": "w"}}
+        awaitable = coroutine()
+        try:
+            self.assertIs(self.rename(awaitable, self.SWAP), awaitable)
+        finally:
+            awaitable.close()
 
 
 class ServedNameRewriteTests(unittest.TestCase):
@@ -1699,6 +2168,155 @@ class ExtensionStartupRefusalTests(unittest.TestCase):
         self.assertEqual(self.out["served"], [])
 
 
+class PublicHelperServingTests(unittest.TestCase):
+    """Wave 1zimf (1zimn AC-2, AC-4): a module using only the public helpers."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.out = _run("public")
+
+    def test_the_fixture_uses_only_public_helpers(self):
+        start = _DRIVER.index('PUBLIC = """')
+        source = _DRIVER[start:_DRIVER.index('"""', start + len('PUBLIC = """'))]
+        self.assertNotIn("server_impl._", source)
+        for name in ("ensure_no_extra_args", "make_response", "make_diagnostic"):
+            self.assertIn(f"server_impl.{name}(", source)
+
+    def test_registers_and_serves_through_call_tool(self):
+        self.assertEqual(self.out["names"], ["acme_public"])
+        self.assertEqual(self.out["ok_call"]["status"], "ok")
+        self.assertEqual(self.out["ok_call"]["data"], {"echo": "hi"})
+        failed = self.out["fail_call"]
+        self.assertEqual(failed["status"], "error")
+        self.assertIs(failed["isError"], True)
+        self.assertEqual(failed["diagnostics"], [{
+            "code": "acme_failed", "message": "asked to fail",
+            "recovery_tools": ["acme_public"], "recovery_usage": "acme_public(text='x')",
+        }])
+
+    def test_an_undeclared_argument_gets_the_unknown_arguments_envelope(self):
+        refused = self.out["unknown_call"]
+        self.assertEqual(refused["status"], "error")
+        self.assertIs(refused["isError"], True)
+        self.assertEqual([d["code"] for d in refused["diagnostics"]], ["unknown_arguments"])
+        self.assertEqual(refused["data"]["rejected_arguments"], ["bogus"])
+        self.assertEqual(self.out["empty_kwargs_call"]["status"], "ok")
+
+    def test_public_helpers_resolve_and_stay_late_bound_after_reload(self):
+        self.assertEqual(self.out["reload_status"], "ok")
+        self.assertTrue(self.out["reload_helpers"])
+        self.assertTrue(all(self.out["reload_helpers"].values()), self.out["reload_helpers"])
+        self.assertTrue(all(self.out["reload_equal"].values()), self.out["reload_equal"])
+        self.assertEqual(self.out["reload_late_bound"], {"patched": True})
+        self.assertEqual([d["code"] for d in self.out["reload_unknown_call"]["diagnostics"]], ["unknown_arguments"])
+        self.assertEqual(self.out["reload_ok_call"]["data"], {"echo": "again"})
+
+
+class ExtensionLifecycleToolTests(unittest.TestCase):
+    """Wave 1zimf (1zimo AC-3 to AC-7): lock and credit for declared extension tools."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.out = _run("lifecycle")
+        cls.stock = _run("stock")
+
+    def test_only_the_declared_tool_and_its_aliases_take_the_lock(self):
+        self.assertEqual(self.out["locked"], {"acme_record": True, "acme_free": False, "acme_make": False})
+        for name in ("acme_record", "acme_record_alias", "acme_record_mapped"):
+            self.assertIn("lock", self.out["markers"][name], name)
+        for name in ("acme_free", "acme_make", "acme_make_free"):
+            self.assertNotIn("lock", self.out["markers"][name], name)
+            self.assertIn("cost", self.out["markers"][name], name)
+
+    def test_busy_while_another_process_holds_the_lock(self):
+        held = self.out["held_record"]
+        self.assertEqual(held["codes"], ["error", "lifecycle_mutation_locked"])
+        self.assertEqual(held["data"]["tool"], "acme_record")
+        self.assertIs(held["data"]["busy"], True)
+        self.assertEqual(self.out["held_alias"], ["error", "lifecycle_mutation_locked"])
+        self.assertEqual(self.out["held_mapped"], ["error", "lifecycle_mutation_locked"])
+        self.assertEqual(self.out["held_free"], ["ok"])
+        self.assertEqual(self.out["free_record"], {"note": "n", "seen": None})
+        self.assertEqual(self.out["free_mapped"], {"text": "m", "seen": None})
+
+    def test_the_hold_is_registered_and_reentry_is_refused_without_opening_the_file(self):
+        seen = self.out["observed"]
+        self.assertTrue(seen["hold_registered"], seen)
+        self.assertEqual(seen["served_codes"], ["error", "lifecycle_mutation_locked"])
+        self.assertEqual(seen["reentry"], "LifecycleLockBusy")
+        self.assertFalse(seen["lock_file_opened"], seen)
+        self.assertEqual(seen["other_process"], "busy")
+        self.assertIsNone(self.out["hold_after"])
+        self.assertEqual(self.out["other_after"], "acquired")
+
+    def test_an_unhandled_reentry_returns_busy_and_keeps_the_hold_until_return(self):
+        raised = self.out["reraised"]
+        self.assertTrue(raised.get("raised"), raised)
+        self.assertEqual(raised["other_process_while_raising"], "busy")
+        self.assertEqual(raised["codes"], ["error", "lifecycle_mutation_locked"])
+        self.assertEqual(raised["data"]["tool"], "acme_record")
+        self.assertIsNone(self.out["hold_after_reraise"])
+        self.assertEqual(self.out["other_after_reraise"], "acquired")
+
+    def test_crediting_inside_the_lock_never_releases_it(self):
+        self.assertEqual(self.out["lock_while_crediting_lock_file"], ["busy"])
+
+    def test_declared_artifact_field_credits_by_the_core_contract(self):
+        credit = self.out["credit"]
+        ok = credit["ok"]
+        self.assertEqual(ok["name"], "acme_make")
+        self.assertGreater(ok["credit"], 0)
+        self.assertEqual(ok["credit"], ok["core_contract"])
+        self.assertTrue(ok["event_id"].startswith("artifact:"), ok)
+        # A replay of an identical request and response carries the same
+        # replay identity, which the store records once.
+        self.assertEqual(credit["replay"]["event_id"], ok["event_id"])
+        self.assertEqual(credit["replay"]["credit"], ok["credit"])
+        for label in ("error", "outside", "missing", "undeclared"):
+            with self.subTest(case=label):
+                self.assertEqual(credit[label]["credit"], 0, credit[label])
+        self.assertEqual(credit["error"]["status"], "error")
+        self.assertEqual(credit["undeclared"]["name"], "acme_make_free")
+        # One file named several ways (duplicate, ./, .., symlink) is credited once.
+        self.assertEqual(credit["single"]["artifacts"], 1)
+        self.assertEqual(credit["duplicate"]["artifacts"], 1)
+        self.assertGreater(credit["duplicate"]["credit"], 0)
+        self.assertEqual(credit["duplicate"]["credit"], credit["duplicate"]["core_contract"])
+
+    def test_core_collections_are_unchanged(self):
+        stock_locked = sorted(n for n, labels in self.stock["markers"].items() if "lock" in labels)
+        self.assertEqual(self.out["lock_tools"], self.out["lock_tools_after"])
+        self.assertNotIn("acme_record", self.out["lock_tools_after"])
+        self.assertEqual(len(self.out["lock_tools_after"]), 11)
+        self.assertTrue(set(stock_locked) <= set(self.out["lock_tools_after"]))
+        self.assertNotIn("acme_make", self.out["artifact_extractors_after"])
+        self.assertEqual(self.out["artifact_extractors"], self.out["artifact_extractors_after"])
+        self.assertEqual(self.out["installed_lock_and_credit"],
+                         [["acme_record"], {"acme_make": "written", "acme_record": "note"}])
+
+    def test_provenance_reports_the_declarations(self):
+        declaration = self.out["extensions"]["declaration"]
+        self.assertEqual(declaration["lifecycle_tools"], ["acme_record"])
+        self.assertEqual(declaration["artifact_path_fields"], {"acme_make": "written", "acme_record": "note"})
+        self.assertEqual(list(declaration["artifact_path_fields"]), ["acme_make", "acme_record"])
+        stock = self.stock["extensions"]["declaration"]
+        self.assertEqual(stock["lifecycle_tools"], [])
+        self.assertEqual(stock["artifact_path_fields"], {})
+
+    def test_reload_rebuilds_the_lock_pass(self):
+        self.assertEqual(self.out["reload_status"], "ok")
+        self.assertEqual(self.out["reload_held_record"], ["error", "lifecycle_mutation_locked"])
+        self.assertEqual(self.out["reload_held_free"], ["ok"])
+
+    def test_reload_after_dropping_the_declarations_stops_lock_and_credit(self):
+        self.assertEqual(self.out["dropped_reload_status"], "ok")
+        self.assertEqual(self.out["dropped_installed"], [[], {}])
+        self.assertEqual(self.out["dropped_declaration"]["lifecycle_tools"], [])
+        self.assertEqual(self.out["dropped_declaration"]["artifact_path_fields"], {})
+        self.assertEqual(self.out["dropped_held_record"], ["ok"])
+        self.assertEqual(self.out["dropped_credit"], [0])
+
+
 class ExtensionRefusalTests(unittest.TestCase):
     """AC-3: every fail-closed case refuses and serves nothing."""
 
@@ -1772,11 +2390,23 @@ class ExtensionRefusalTests(unittest.TestCase):
         "params_keyword_name": "renames to 'class', which is a Python keyword",
         "params_ext_rename_unknown": "renames 'nope', which is not a parameter of 'acme_echo'",
         "params_ext_fixed_type": "fixes 'count' to '3', which 'acme_echo' rejects",
+        # Wave 1zime (1zimm).
+        "params_desc_not_str": "parameter mapping for 'wf_alias_add': 'description' must be a string, not int",
+        "params_desc_empty": "parameter mapping for 'wf_alias_add': 'description' is empty",
+        "params_desc_blank": "parameter mapping for 'wf_alias_add': 'description' is whitespace only",
+        "params_desc_too_long": "parameter mapping for 'wf_alias_add': 'description' has 16385 characters, more than 16384",
+        "params_desc_plain": "parameter mapping for 'wf_alias_add' declares 'description' without a non-empty 'rename' or 'fixed'; a plain alias keeps the canonical description",
+        "params_desc_empty_mappings": "parameter mapping for 'wf_alias_add' declares 'description' without a non-empty 'rename' or 'fixed'",
         # Wave 1zicq.
         "replace_downgrade": "replacement 'wf_close_wave' may not lower its tier from 'write' to 'read'",
         "override_gate": "may not override edit-gate tool 'wf_open_gate'",
         "replace_gate": "may not replace edit-gate tool 'wf_close_gate'",
         "hidden_gate": "hidden name 'wf_open_gate' is an edit-gate tool",
+        # Wave 1zimf (1zimo AC-2, AC-6).
+        "lifecycle_unregistered": "declared lifecycle tool 'acme_ghost' has no registered tool",
+        "artifact_unregistered": "declared artifact path field for 'acme_ghost' has no registered tool",
+        "lifecycle_reserved_name": "a name reserved by core _RENAMED_MCP_TOOLS",
+        "lifecycle_invalid_declaration": "lifecycle tool 'acme_twin' is a read tool",
     }
 
     @classmethod
@@ -1791,6 +2421,14 @@ class ExtensionRefusalTests(unittest.TestCase):
                 self.assertIsNotNone(result["raised"], result)
                 self.assertIn(needle, result["message"])
                 self.assertEqual(result["served"], [])
+
+    def test_refusals_name_the_public_helper(self):
+        # Wave 1zimf (1zimn AC-5): both loader messages point at the public name.
+        needle = "accept **kwargs and pass them to server_impl.ensure_no_extra_args"
+        for label in ("replace_open_schema", "incompatible_override"):
+            with self.subTest(case=label):
+                self.assertIn(needle, self.out["cases"][label]["message"])
+                self.assertNotIn("pass them to _ensure_no_extra_args", self.out["cases"][label]["message"])
 
     def test_core_prefixed_new_tool_is_served_tiered_and_wrapped(self):
         # Wave 1yyoj: extension tools may use core prefixes such as wf_.
@@ -1815,6 +2453,12 @@ class ExtensionRefusalTests(unittest.TestCase):
         self.assertTrue(result["shares_fn"])
         self.assertEqual(result["parity_defects"], [])
         self.assertTrue(result["read_rule"])
+
+    def test_a_description_at_the_cap_is_accepted_and_served(self):
+        # Wave 1zime (1zimm AC-8): 16,384 characters is within the cap.
+        result = self.out["cases"]["params_desc_max_valid"]
+        self.assertIsNone(result["raised"], result)
+        self.assertEqual(result["description"], "y" * 16384)
 
     def test_a_parameter_swap_is_a_valid_mapping(self):
         # Wave 1zim3: an alias parameter may reuse a canonical name that is renamed away.
@@ -2148,6 +2792,126 @@ class DeclarationValidationTests(unittest.TestCase):
         self.ext.EXTENSION_REPLACEMENTS = {"m": {"wf_help": {"alias_for_core": "acme_core_help", "extra": 1}}}
         problems = " ".join(self.ext.declaration_problems(core_tools={"wf_help"}, runner_tools=set()))
         self.assertIn("has unknown keys ['extra']", problems)
+
+
+class LockAndCreditDeclarationTests(unittest.TestCase):
+    """Wave 1zimf (1zimo AC-1, AC-8): EXTENSION_LIFECYCLE_TOOLS and EXTENSION_ARTIFACT_PATH_FIELDS."""
+
+    CORE = {"wf_help", "wf_close_wave", "wf_open_gate", "wf_close_gate", "wf_current_wave"}
+    RUNNER = {"wf_reload_mcp"}
+
+    def setUp(self):
+        import mcp_tool_extensions
+        self.ext = mcp_tool_extensions
+        apply_base_declaration(self)
+        self.ext.EXTENSION_MODULES = ("m",)
+        self.ext.EXTENSION_TOOL_PREFIXES = ("acme_",)
+        self.ext.EXTENSION_TOOL_TIERS = {"acme_w": "write", "acme_r": "read"}
+
+    def problems(self, **declaration):
+        for name, value in declaration.items():
+            setattr(self.ext, name, value)
+        return self.ext.declaration_problems(core_tools=self.CORE, runner_tools=self.RUNNER)
+
+    def test_the_stock_declaration_validates_and_ships_empty(self):
+        from declaration_support import base_declaration
+        with base_declaration():
+            self.assertEqual(self.ext.EXTENSION_LIFECYCLE_TOOLS, ())
+            self.assertEqual(self.ext.EXTENSION_ARTIFACT_PATH_FIELDS, {})
+            self.assertFalse(self.ext.declared())
+            self.assertEqual(self.ext.declaration_problems(core_tools=self.CORE, runner_tools=self.RUNNER), [])
+
+    def test_a_valid_declaration_has_no_problems_and_is_declared(self):
+        self.assertEqual(self.problems(EXTENSION_LIFECYCLE_TOOLS=("acme_w",),
+                                       EXTENSION_ARTIFACT_PATH_FIELDS={"acme_w": "path"}), [])
+        for name, value in (("EXTENSION_LIFECYCLE_TOOLS", ("acme_w",)),
+                            ("EXTENSION_ARTIFACT_PATH_FIELDS", {"acme_w": "path"})):
+            with self.subTest(constant=name):
+                from declaration_support import base_declaration
+                with base_declaration(**{name: value}):
+                    self.assertTrue(self.ext.declared())
+
+    def test_each_refusal_is_reported(self):
+        self.ext.EXTENSION_OVERRIDES = {"m": ("wf_current_wave",)}
+        self.ext.EXTENSION_REPLACEMENTS = {"m": {"wf_close_wave": {"alias_for_core": "acme_core_close"}}}
+        self.ext.EXTENSION_TOOL_ALIASES = {"acme_alias": "acme_w"}
+        cases = {
+            "undeclared": ("acme_ghost", "is not a new extension tool declared in EXTENSION_TOOL_TIERS"),
+            "read": ("acme_r", "is a read tool"),
+            "core": ("wf_help", "is a core tool"),
+            "override target": ("wf_current_wave", "is a core tool"),
+            "replacement target": ("wf_close_wave", "is a core tool"),
+            "alias": ("acme_alias", "is an alias"),
+            "alias_for_core": ("acme_core_close", "is an alias"),
+            "runner": ("wf_reload_mcp", "is a runner tool"),
+            "edit gate": ("wf_open_gate", "is an edit-gate tool"),
+        }
+        for label, (name, needle) in cases.items():
+            for constant, value, prefix in (
+                ("EXTENSION_LIFECYCLE_TOOLS", (name,), f"lifecycle tool {name!r}"),
+                ("EXTENSION_ARTIFACT_PATH_FIELDS", {name: "path"}, f"artifact path field for {name!r}"),
+            ):
+                with self.subTest(case=label, constant=constant):
+                    self.ext.EXTENSION_LIFECYCLE_TOOLS = ()
+                    self.ext.EXTENSION_ARTIFACT_PATH_FIELDS = {}
+                    problems = self.problems(**{constant: value})
+                    self.assertTrue(any(p.startswith(prefix) and needle in p for p in problems),
+                                    problems)
+
+    def test_duplicates_invalid_fields_and_wrong_container_types_are_reported_not_raised(self):
+        self.assertIn("lifecycle tool 'acme_w' is declared twice",
+                      self.problems(EXTENSION_LIFECYCLE_TOOLS=("acme_w", "acme_w")))
+        self.ext.EXTENSION_LIFECYCLE_TOOLS = ()
+        for field in ("", "not an identifier", 5, None, "a-b"):
+            with self.subTest(field=field):
+                problems = self.problems(EXTENSION_ARTIFACT_PATH_FIELDS={"acme_w": field})
+                self.assertIn(f"artifact path field for 'acme_w' is {field!r}; use a non-empty identifier string",
+                              problems)
+        self.ext.EXTENSION_ARTIFACT_PATH_FIELDS = {}
+        for value in (["acme_w"], "acme_w", {"acme_w": 1}, None):
+            with self.subTest(lifecycle=value):
+                problems = self.problems(EXTENSION_LIFECYCLE_TOOLS=value)
+                self.assertTrue(any(p.startswith("EXTENSION_LIFECYCLE_TOOLS must be a tuple") for p in problems),
+                                problems)
+        self.ext.EXTENSION_LIFECYCLE_TOOLS = ()
+        for value in (("acme_w",), ["acme_w"], "acme_w", None):
+            with self.subTest(fields=value):
+                problems = self.problems(EXTENSION_ARTIFACT_PATH_FIELDS=value)
+                self.assertTrue(any(p.startswith("EXTENSION_ARTIFACT_PATH_FIELDS must map") for p in problems),
+                                problems)
+        self.ext.EXTENSION_ARTIFACT_PATH_FIELDS = {}
+        self.assertIn("lifecycle tool 5 must be a non-empty tool name string",
+                      self.problems(EXTENSION_LIFECYCLE_TOOLS=(5,)))
+
+    def test_the_roster_refuses_the_same_declarations_without_the_server(self):
+        import mcp_tool_roster
+        self.ext.EXTENSION_TOOL_TIERS = {"acme_w": "write", "acme_r": "read"}
+        for constant, value in (("EXTENSION_LIFECYCLE_TOOLS", ("acme_r",)),
+                                ("EXTENSION_ARTIFACT_PATH_FIELDS", {"wf_help": "path"}),
+                                ("EXTENSION_LIFECYCLE_TOOLS", ["acme_w"])):
+            with self.subTest(constant=constant, value=value):
+                self.ext.EXTENSION_LIFECYCLE_TOOLS = ()
+                self.ext.EXTENSION_ARTIFACT_PATH_FIELDS = {}
+                setattr(self.ext, constant, value)
+                with self.assertRaises(self.ext.ExtensionDeclarationError):
+                    mcp_tool_roster.all_tool_tiers()
+
+    def test_shipped_declaration_lists_both_constants_and_a_non_empty_value_fails(self):
+        from declaration_support import SHIPPED_DECLARATION, declaration_profile_mismatch
+        from record_layout_support import ExpectedProfile, ProfileLayer
+        self.assertEqual(SHIPPED_DECLARATION["EXTENSION_LIFECYCLE_TOOLS"], ())
+        self.assertEqual(SHIPPED_DECLARATION["EXTENSION_ARTIFACT_PATH_FIELDS"], {})
+        shipped = ExpectedProfile(ProfileLayer("shipped", "shipped", "the shipped defaults", {}))
+        from declaration_support import base_declaration
+        with base_declaration():
+            self.assertIsNone(declaration_profile_mismatch(shipped))
+        for constant, value in (("EXTENSION_LIFECYCLE_TOOLS", ("acme_w",)),
+                                ("EXTENSION_ARTIFACT_PATH_FIELDS", {"acme_w": "path"})):
+            with self.subTest(constant=constant):
+                with base_declaration(**{constant: value}):
+                    problem = declaration_profile_mismatch(shipped)
+                self.assertIsNotNone(problem)
+                self.assertIn(f"mcp_tool_extensions.{constant} is", problem)
 
 
 if __name__ == "__main__":

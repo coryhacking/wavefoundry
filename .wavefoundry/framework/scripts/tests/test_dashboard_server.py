@@ -1901,6 +1901,18 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
             digest = hashlib.sha256((vendor / rel).read_bytes()).hexdigest()
             self.assertIn(f"| `{rel}` |", notice)
             self.assertIn(digest, notice, rel)
+        # Wave 1zimd (1zimi AC-2): each package has a registry row with its tarball URL and a
+        # well-formed npm dist.integrity (sha512, 88 base64 characters ending "=="). Offline: the
+        # suite pins presence and form; the README's reproduce commands check the values.
+        for name, version in (("react", "18.3.1"), ("react-dom", "18.3.1"), ("elkjs", "0.10.0")):
+            with self.subTest(package=f"{name}@{version}"):
+                url = f"https://registry.npmjs.org/{name}/-/{name}-{version}.tgz"
+                row = re.compile(
+                    rf"^\| `{re.escape(name)}@{re.escape(version)}` \| `{re.escape(url)}` \| "
+                    r"`sha512-[A-Za-z0-9+/]{86}==` \|$",
+                    re.MULTILINE,
+                )
+                self.assertEqual(len(row.findall(notice)), 1, f"registry row for {name}@{version}")
 
     def test_host_check_refuses_missing_and_foreign_hosts(self):
         # Wave 1zim2 (1zilx AC-2): refused with 421 before any routing.
@@ -5296,3 +5308,53 @@ class DashboardManagedIdentityTests(unittest.TestCase):
             result = self.impl.wf_stop_dashboard_response(self.root)
         terminate.assert_called_once_with(424242)
         self.assertTrue(result['data']['stopped'])
+
+
+class DashboardTaskkillBoundTests(unittest.TestCase):
+    """Wave 1zime (1zimk) AC-6: the Windows ``taskkill`` that stops the
+    dashboard is bounded; a hung ``taskkill`` reports "not stopped" (or
+    "stopped" once the pid is gone) instead of blocking the tool call."""
+
+    def setUp(self):
+        load_dashboard_modules()
+        from wf_server import server_impl
+
+        self.impl = server_impl
+        self.dh = sys.modules['dashboard_handlers']
+        self.assertIs(sys.modules['wf_server.server_impl'], server_impl)
+
+    def _run_windows(self, run_side_effect, running: bool):
+        import subprocess
+        from types import SimpleNamespace
+
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append((cmd, kwargs))
+            if isinstance(run_side_effect, BaseException):
+                raise run_side_effect
+            return run_side_effect
+
+        with patch.object(self.dh, 'os', SimpleNamespace(name='nt')), \
+             patch.object(self.impl, '_mcp_subprocess_run', side_effect=fake_run), \
+             patch.object(self.impl, '_pid_is_running', return_value=running):
+            stopped = self.dh._terminate_dashboard_pid(424242)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0][:3], ['taskkill', '/PID', '424242'])
+        return stopped, calls[0][1]
+
+    def test_taskkill_passes_a_timeout(self):
+        import subprocess
+
+        stopped, kwargs = self._run_windows(subprocess.CompletedProcess(['taskkill'], 0), running=False)
+        self.assertTrue(stopped)
+        self.assertEqual(kwargs.get('timeout'), 10)
+
+    def test_timeout_returns_false_while_running_and_true_once_gone(self):
+        import subprocess
+
+        hung = subprocess.TimeoutExpired(['taskkill'], 10)
+        stopped, _ = self._run_windows(hung, running=True)
+        self.assertFalse(stopped, 'a hung taskkill with the pid still running is "not stopped"')
+        stopped, _ = self._run_windows(hung, running=False)
+        self.assertTrue(stopped, 'a hung taskkill whose target is gone is "stopped"')
