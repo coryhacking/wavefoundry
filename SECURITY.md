@@ -4,8 +4,12 @@
 
 | Version | Supported |
 |---|---|
-| 1.0.x | Yes |
-| < 1.0 | No |
+| 1.28.x (latest release) | Yes |
+| < 1.28 | No |
+
+Only the latest minor release line receives security fixes. Upgrade to the
+latest release before reporting, and check it against the affected versions
+listed in a published advisory.
 
 ## Reporting a vulnerability
 
@@ -27,7 +31,8 @@ is given in the release notes unless you request otherwise.
 ## Scope
 
 Wavefoundry runs locally as a subprocess of an AI agent host. It has no
-network-facing service in the current architecture. The primary risk
+network-facing service in the current architecture; the optional repository
+dashboard listens on loopback only. The primary risk
 surface is:
 
 - **File-system access** — MCP tools read and write within declared
@@ -37,7 +42,11 @@ surface is:
 - **Dependency supply chain** — compromised or vulnerable Python
   dependencies are in scope. The setup script enforces a 21-day package
   age guard via `uv --exclude-newer` to reduce exposure to newly published
-  malicious packages.
+  malicious packages, and installs its own `uv` only from hash-verified
+  wheels.
+- **Local concurrency and lock integrity** — defects that let two local
+  processes mutate the same wave state at once, or that corrupt index or
+  lifecycle records, are in scope.
 
 For the internal threat model and trust boundary analysis, see
 [`docs/architecture/threat-model.md`](docs/architecture/threat-model.md).
