@@ -442,13 +442,13 @@ def _bootstrap_uv(venv_python: Path, root: Path | None = None, *, lock=None) -> 
                 **_lock_passing_kwargs(lock),
             )
         except subprocess.TimeoutExpired:
-            # Wave 1p9it: uv is an OPTIONAL supply-chain age guard; a stalled `pip install uv` (hung PyPI
-            # fetch behind a corp MITM / flaky proxy) must not hang setup. Fail loud for THIS stage and fall
-            # back to plain pip for the actual dependency install (which is itself deadline-bounded).
+            # Wave 1p9it: a stalled `pip install uv` (hung PyPI fetch behind a corp MITM / flaky proxy) must
+            # not hang setup, so fail loud for THIS stage. Wave 1zls6: dependencies install only through uv,
+            # so the caller then refuses to install rather than falling back to plain pip.
             print(
                 f"Installing uv timed out after {uv_timeout:g}s (`pip install uv`). This is almost always a "
                 "stalled PyPI fetch — check network/proxy/TLS reachability to https://pypi.org (corp MITM / "
-                "flaky proxy). Falling back to plain pip without the package-age guard; raise "
+                "flaky proxy). Setup cannot continue without uv; raise "
                 "`setup.uv_bootstrap_timeout_seconds` in docs/workflow-config.json if the network is "
                 "legitimately slow.",
                 file=sys.stderr,
@@ -728,12 +728,31 @@ def install_requirement_specs(
             pass
 
 
+def _uv_required_message(*, windows: bool | None = None) -> str:
+    """The refusal ``_install_deps`` prints when no uv can be found or installed (wave 1zls6)."""
+    if windows is None:
+        windows = os.name == "nt"
+    rerun = "`.\\.wavefoundry\\bin\\wf.cmd setup`" if windows else "`wf setup`"
+    return (
+        "Dependencies are installed only through uv, which applies the 21-day package-age guard, and uv "
+        "could not be found or installed, so nothing was installed. To recover, either rerun "
+        f"{rerun} once network, proxy or TLS access to the package index works, which retries the "
+        "pinned, hash-verified uv bootstrap (an index mirror must be configured for both installers: "
+        "pip's settings for the bootstrap, and UV_INDEX_URL for the dependency install, since uv does "
+        "not read pip's settings); or install uv through one of its official methods (the standalone "
+        "installer at https://docs.astral.sh/uv/, an OS package manager, or `pipx install uv`) so it is "
+        f"on PATH, then rerun {rerun}. Do not install the dependencies with pip by hand: that bypasses "
+        "the package-age guard."
+    )
+
+
 def _install_deps(missing: list[str], venv_python: Path, root: Path | None = None, *, lock=None) -> None:
     """Install missing packages into the tool venv.
 
-    Prefers ``uv`` with ``--exclude-newer`` (21-day package age guard) to reduce
-    supply-chain risk from newly published packages.  Falls back to plain pip when
-    uv is not available and cannot be bootstrapped, but prints a prominent warning.
+    Installs only through ``uv`` with ``--exclude-newer`` (21-day package age guard) to
+    reduce supply-chain risk from newly published packages. When no uv exists and the
+    hash-pinned bootstrap fails, nothing is installed and setup exits with
+    ``SystemExit(2)``; there is no plain-pip fallback (wave 1zls6).
     """
     display = " ".join(
         f'"{dep}"' if ("[" in dep or ">=" in dep or "<" in dep) else dep
@@ -746,28 +765,23 @@ def _install_deps(missing: list[str], venv_python: Path, root: Path | None = Non
 
     uv = _uv_bin(venv_python) or _bootstrap_uv(venv_python, root, lock=lock)
 
-    if uv is not None:
-        cutoff = _exclude_newer_cutoff(days=21)
-        print(f"Using uv with --exclude-newer {cutoff} (21-day package age guard)", flush=True)
-        cmd = [
-            str(uv), "pip", "install", *_uv_config_args(),
-            "--python", str(venv_python),
-            "--exclude-newer", cutoff,
-        ] + missing
-        # uv treats SSL_CERT_FILE as its EXCLUSIVE trust anchor; scrub it + use native TLS so a
-        # corp bundle set for the model download cannot break uv's PyPI verification (wave 1p8tf).
-        run_env = _uv_install_env()
-    else:
-        print(
-            "WARNING: uv not available and could not be installed. "
-            "Falling back to pip without package age enforcement. "
-            "Install uv (https://docs.astral.sh/uv/) for supply-chain age checks.",
-            file=sys.stderr,
-        )
-        cmd = [str(venv_python), "-m", "pip", "install"] + missing
-        # pip cannot portably use the OS store; point it at the merged-superset bundle when one
-        # exists so it reaches PyPI whether PyPI is public or MITM-intercepted (wave 1p8tf).
-        run_env = _pip_tls_env()
+    if uv is None:
+        # Wave 1zls6: fail closed. A plain-pip install would drop the package-age guard on exactly the
+        # machines where something already failed. The callers hold the install lock, which their
+        # context manager releases on the way out.
+        print(_uv_required_message(), file=sys.stderr)
+        raise SystemExit(2)
+
+    cutoff = _exclude_newer_cutoff(days=21)
+    print(f"Using uv with --exclude-newer {cutoff} (21-day package age guard)", flush=True)
+    cmd = [
+        str(uv), "pip", "install", *_uv_config_args(),
+        "--python", str(venv_python),
+        "--exclude-newer", cutoff,
+    ] + missing
+    # uv treats SSL_CERT_FILE as its EXCLUSIVE trust anchor; scrub it + use native TLS so a
+    # corp bundle set for the model download cannot break uv's PyPI verification (wave 1p8tf).
+    run_env = _uv_install_env()
 
     deps_timeout = _setup_deadlines(root)["dep_install_timeout_seconds"]
     try:
@@ -783,9 +797,8 @@ def _install_deps(missing: list[str], venv_python: Path, root: Path | None = Non
         # Wave 1p9it: a stalled dependency download/resolve (hung PyPI fetch behind a corp MITM / flaky
         # proxy) is a Phase-1 hang path. Fail loud with network/proxy/TLS guidance rather than blocking
         # setup forever.
-        installer = "uv" if uv is not None else "pip"
         print(
-            f"Dependency install timed out after {deps_timeout:g}s ({installer}). A stalled package "
+            f"Dependency install timed out after {deps_timeout:g}s (uv). A stalled package "
             "download/resolve is almost always a network/proxy/TLS problem — check reachability to "
             "https://pypi.org (corp MITM / flaky proxy / offline). Fix connectivity and rerun "
             "`wf setup`; raise `setup.dep_install_timeout_seconds` in docs/workflow-config.json (at most "
@@ -795,10 +808,11 @@ def _install_deps(missing: list[str], venv_python: Path, root: Path | None = Non
         )
         raise SystemExit(2)
     if result.returncode != 0:
-        installer = "uv" if uv is not None else "pip"
         print(
-            f"{installer} install failed (exit {result.returncode}). "
-            "Check the output above and install manually, then rerun setup_index.py.",
+            f"uv install failed (exit {result.returncode}). "
+            "Check uv's output above (usually network, proxy or TLS access to the package index), "
+            "fix the cause, then rerun `wf setup`; do not install the dependencies with pip by hand, "
+            "which bypasses the package-age guard.",
             file=sys.stderr,
         )
         if SQLITE_VEC_REQUIREMENT in missing:
@@ -844,7 +858,7 @@ def ensure_deps(root: Path | None = None) -> None:
     if still_missing:
         print(
             f"Dependencies installed but still not importable: {', '.join(still_missing)}\n"
-            "This may mean pip installed into a different environment. "
+            "This may mean the installer wrote into a different environment. "
             "Try running setup_index.py with the correct Python interpreter.",
             file=sys.stderr,
         )

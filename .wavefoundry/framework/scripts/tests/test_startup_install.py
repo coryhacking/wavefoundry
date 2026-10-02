@@ -529,11 +529,13 @@ class UvConfigIsolationTests(_Tmp):
             calls = []
             with patch.object(setup_index, "_run_install_step", side_effect=lambda cmd, **kw: calls.append(kw) or MagicMock(returncode=0)):
                 setup_index.install_requirement_specs([PSUTIL])
-            with patch.object(setup_index, "_uv_bin", return_value=None), \
-                    patch.object(setup_index, "_bootstrap_uv", return_value=None), \
+            # Wave 1zls6: dependency installs run only through uv, so the setup install is given one.
+            with patch.object(setup_index, "_uv_bin", return_value=Path(self.dir / "fake-uv")), \
+                    patch.object(setup_index, "_bootstrap_uv") as bootstrap, \
                     patch.object(setup_index, "_run_install_step", side_effect=lambda cmd, **kw: calls.append(kw) or MagicMock(returncode=0)), \
                     contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                 setup_index._install_deps(["fastembed"], Path(sys.executable))
+            bootstrap.assert_not_called()
             with patch.object(setup_index, "_uv_bin", return_value=None), \
                     patch.object(setup_index, "_run_install_step", side_effect=lambda cmd, **kw: calls.append(kw) or MagicMock(returncode=1)), \
                     contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):

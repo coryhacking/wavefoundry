@@ -705,8 +705,17 @@ class FrameworkWideSubprocessIsolationGuard(unittest.TestCase):
         self.assertIn("venv_bootstrap.tool_venv_python()", resolver)
         self.assertNotIn("windowless_pythonw", resolver,
                          "the :134 resolver must NOT be pythonw-converted (it feeds venv path-math)")
-        # The console pip install keeps the venv python (operator sees streaming install progress).
-        self.assertIn('cmd = [str(venv_python), "-m", "pip", "install"]', src)
+        # The console installs keep the venv python (operator sees streaming install progress). Wave
+        # 1zls6 removed the plain-pip dependency install: the only pip spawn is the uv bootstrap, and
+        # the uv dependency install targets the same interpreter.
+        self.assertIn('[str(venv_python), "-m", "pip", "install", "--require-hashes"', src)
+        install_deps = next(
+            (_ast.get_source_segment(src, fn) or "" for fn in _ast.walk(tree)
+             if isinstance(fn, _ast.FunctionDef) and fn.name == "_install_deps"), None)
+        self.assertIsNotNone(install_deps, "setup_index._install_deps not found")
+        self.assertIn('"--python", str(venv_python)', install_deps)
+        self.assertNotIn("windowless_pythonw", install_deps)
+        self.assertNotIn("pythonw", install_deps)
         # venv_bootstrap.tool_venv_python itself stays pythonw-free (shared by in-process callers).
         vb = (SCRIPTS_ROOT / "venv_bootstrap.py").read_text(encoding="utf-8")
         self.assertNotIn("windowless_pythonw", vb,

@@ -35,6 +35,8 @@ RETIRED_GRAPH_STATE_RELPATH = (
 PYPROJECT_PATH = SCRIPTS_ROOT.parents[2] / "pyproject.toml"
 
 FAKE_VENV_PYTHON = Path("/fake/venv/bin/python")
+# Wave 1zls6: dependency installs run only through uv, so install tests name one explicitly.
+FAKE_UV = Path("/fake/uv")
 
 
 def load_setup_index():
@@ -143,7 +145,8 @@ class VersionAwareDependencyTests(unittest.TestCase):
     def test_install_deps_carries_pinned_spec(self):
         # AC-4: the flagged spec (e.g. apsw==3.53.4.0) reaches the installer command verbatim, so an
         # existing older apsw resolves to the pinned version.
-        with patch("subprocess.run") as mock_run:
+        with patch("subprocess.run") as mock_run, \
+                patch.object(self.mod, "_uv_bin", return_value=FAKE_UV):
             mock_run.return_value = MagicMock(returncode=0)
             with redirect_stdout(io.StringIO()):
                 self.mod._install_deps(["apsw==3.53.4.0"], FAKE_VENV_PYTHON)
@@ -392,17 +395,23 @@ class SetupIndexTests(unittest.TestCase):
         mock_install.assert_called_once_with(missing, FAKE_VENV_PYTHON, None, lock=None)
 
     def test_install_deps_invokes_pip_via_venv_python(self):
-        """_install_deps uses the venv Python, not sys.executable."""
-        with patch("subprocess.run") as mock_run:
+        """_install_deps targets the venv Python (uv pip install --python), not sys.executable."""
+        uv_env = {"WF_TEST_UV_INSTALL_ENV": "1"}
+        with patch("subprocess.run") as mock_run, patch.object(self.mod, "_uv_bin", return_value=FAKE_UV), \
+                patch.object(self.mod, "_uv_install_env", return_value=uv_env):
             mock_run.return_value = MagicMock(returncode=0)
             with redirect_stdout(io.StringIO()):
                 self.mod._install_deps(["fastembed", "mcp[cli]", "tree-sitter>=0.24,<0.26"], FAKE_VENV_PYTHON)
 
         cmd = mock_run.call_args[0][0]
+        self.assertEqual(cmd[:3], [str(FAKE_UV), "pip", "install"])
+        # The 21-day package-age guard is on the setup install (wave 1zls6): a date-shaped cutoff.
+        self.assertIn("--exclude-newer", cmd)
+        self.assertRegex(cmd[cmd.index("--exclude-newer") + 1], r"^\d{4}-\d{2}-\d{2}")
+        # The uv child gets uv's TLS environment, not pip's.
+        self.assertEqual(mock_run.call_args.kwargs["env"].get("WF_TEST_UV_INSTALL_ENV"), "1")
         # Absolute (wave 1zicq): installs run from the tool-venv base.
-        self.assertEqual(cmd[0], os.path.abspath(FAKE_VENV_PYTHON))
-        self.assertIn("-m", cmd)
-        self.assertIn("pip", cmd)
+        self.assertEqual(cmd[cmd.index("--python") + 1], os.path.abspath(FAKE_VENV_PYTHON))
         # Raw dep strings passed to subprocess — no shell quoting
         self.assertIn("fastembed", cmd)
         self.assertIn("mcp[cli]", cmd)
@@ -411,11 +420,11 @@ class SetupIndexTests(unittest.TestCase):
         self.assertNotIn('"mcp[cli]"', cmd)
         self.assertNotIn('"tree-sitter>=0.24,<0.26"', cmd)
         # Must not use sys.executable
-        self.assertNotEqual(cmd[0], sys.executable)
+        self.assertNotEqual(cmd[cmd.index("--python") + 1], sys.executable)
 
     def test_install_deps_does_not_use_break_system_packages(self):
         """_install_deps never passes --break-system-packages."""
-        with patch("subprocess.run") as mock_run:
+        with patch("subprocess.run") as mock_run, patch.object(self.mod, "_uv_bin", return_value=FAKE_UV):
             mock_run.return_value = MagicMock(returncode=1)
             with redirect_stderr(io.StringIO()):
                 with redirect_stdout(io.StringIO()):
@@ -423,18 +432,27 @@ class SetupIndexTests(unittest.TestCase):
                         self.mod._install_deps(["fastembed"], FAKE_VENV_PYTHON)
 
         all_calls = mock_run.call_args_list
+        self.assertEqual(len(all_calls), 1)
+        self.assertEqual(all_calls[0][0][0][0], str(FAKE_UV))
         for c in all_calls:
             cmd = c[0][0]
             self.assertNotIn("--break-system-packages", cmd)
 
     def test_install_deps_exits_on_pip_failure(self):
-        with patch("subprocess.run") as mock_run:
+        err = io.StringIO()
+        with patch("subprocess.run") as mock_run, patch.object(self.mod, "_uv_bin", return_value=FAKE_UV):
             mock_run.return_value = MagicMock(returncode=1)
-            with redirect_stderr(io.StringIO()):
+            with redirect_stderr(err):
                 with redirect_stdout(io.StringIO()):
                     with self.assertRaises(SystemExit) as raised:
                         self.mod._install_deps(["fastembed"], FAKE_VENV_PYTHON)
         self.assertEqual(raised.exception.code, 2)
+        mock_run.assert_called_once()
+        self.assertEqual(mock_run.call_args[0][0][0], str(FAKE_UV))
+        # Wave 1zls6: uv is the only dependency installer, so the failure names it.
+        self.assertIn("uv install failed (exit 1)", err.getvalue())
+        self.assertIn("do not install the dependencies with pip by hand", err.getvalue())
+        self.assertNotIn("install manually", err.getvalue())
 
     def _make_popen_mock(self, returncode: int = 0, lines: list[str] | None = None) -> MagicMock:
         proc = MagicMock()
@@ -1863,17 +1881,114 @@ class InstallIsolationTests(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("--python") + 1], os.path.abspath(FAKE_VENV_PYTHON))
         self.assertEqual(kwargs["cwd"], str(self.base))
 
-    def test_pip_fallback_runs_from_the_venv_base(self):
-        cmd, kwargs = self._run_install(FAKE_VENV_PYTHON, uv=None)
-        self.assertEqual(cmd[1:4], ["-m", "pip", "install"])
-        self.assertEqual(kwargs["cwd"], str(self.base))
+    def _refused_install(self, venv_python):
+        """Run ``_install_deps`` with no uv and a failed bootstrap; return (install calls, stderr)."""
+        err = io.StringIO()
+        with patch.object(self.mod, "_uv_bin", return_value=None), \
+                patch.object(self.mod, "_bootstrap_uv", return_value=None), \
+                patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0)) as run, \
+                redirect_stdout(io.StringIO()), redirect_stderr(err):
+            with self.assertRaises(SystemExit) as raised:
+                self.mod._install_deps(["fastembed"], venv_python)
+        self.assertEqual(raised.exception.code, 2)
+        return run.call_args_list, err.getvalue()
+
+    def assert_uv_required_refusal(self, message, command="`wf setup`"):
+        # Wave 1zls6 (Requirement 1): what the refusal must tell the operator.
+        self.assertIn("only through uv", message)
+        self.assertIn("package-age guard", message)
+        self.assertIn("nothing was installed", message)
+        self.assertIn(f"rerun {command}", message)
+        self.assertIn("hash-verified uv bootstrap", message)
+        self.assertIn("UV_INDEX_URL", message)
+        self.assertIn("pip's settings", message)
+        self.assertIn("https://docs.astral.sh/uv/", message)
+        self.assertIn("OS package manager", message)
+        self.assertIn("`pipx install uv`", message)
+        self.assertIn("Do not install the dependencies with pip by hand", message)
+        self.assertNotIn("Falling back", message)
+
+    def test_no_uv_refuses_without_running_any_install(self):
+        # Wave 1zls6 (AC-1): with no uv and the bootstrap returning None, nothing runs and setup stops.
+        calls, err = self._refused_install(FAKE_VENV_PYTHON)
+        self.assertEqual(calls, [])
+        self.assert_uv_required_refusal(err)
+
+    def test_the_refusal_names_the_windows_command_form(self):
+        message = self.mod._uv_required_message(windows=True)
+        self.assert_uv_required_refusal(message, command="`.\\.wavefoundry\\bin\\wf.cmd setup`")
+        self.assertNotIn("`wf setup`", message)
+        self.assert_uv_required_refusal(self.mod._uv_required_message(windows=False))
 
     def test_a_relative_interpreter_path_is_made_absolute(self):
         relative = Path("rel") / "venv" / "bin" / "python"
         cmd, _ = self._run_install(relative, uv=Path("/fake/uv"))
         self.assertEqual(cmd[cmd.index("--python") + 1], os.path.abspath(relative))
-        cmd, _ = self._run_install(relative, uv=None)
-        self.assertEqual(cmd[0], os.path.abspath(relative))
+        calls, err = self._refused_install(relative)
+        self.assertEqual(calls, [])
+        self.assert_uv_required_refusal(err)
+
+    def test_every_install_deps_caller_refuses_inside_the_held_lock(self):
+        # Wave 1zls6 (Requirement 4): ensure_deps and ensure_migration_deps reach the same refusal
+        # while the install lock is held, and the lock is released on the way out.
+        events = []
+
+        @contextlib.contextmanager
+        def held():
+            events.append("acquire")
+            try:
+                yield "lock"
+            finally:
+                events.append("release")
+
+        def bootstrap(*args, **kwargs):
+            events.append("bootstrap")
+            return None
+
+        for name, call_it in (("ensure_deps", lambda: self.mod.ensure_deps(Path(self.tmp.name))),
+                              ("ensure_migration_deps", lambda: self.mod.ensure_migration_deps(Path(self.tmp.name)))):
+            with self.subTest(caller=name):
+                events.clear()
+                err = io.StringIO()
+                with patch.object(self.mod, "_held_install_lock", held), \
+                        patch.object(self.mod, "_satisfied_without_lock", return_value=False), \
+                        patch.object(self.mod, "_bootstrap_venv", return_value=FAKE_VENV_PYTHON), \
+                        patch.object(self.mod, "_missing_in_venv", return_value=["fastembed"]), \
+                        patch.object(self.mod, "_uv_bin", return_value=None), \
+                        patch.object(self.mod, "_bootstrap_uv", side_effect=bootstrap), \
+                        patch("subprocess.run") as run, \
+                        redirect_stdout(io.StringIO()), redirect_stderr(err):
+                    with self.assertRaises(SystemExit) as raised:
+                        call_it()
+                self.assertEqual(raised.exception.code, 2)
+                run.assert_not_called()
+                self.assertEqual(events, ["acquire", "bootstrap", "release"])
+                self.assert_uv_required_refusal(err.getvalue())
+
+    def test_the_only_pip_install_is_the_hash_pinned_uv_bootstrap(self):
+        # Wave 1zls6 (AC-4): setup_index.py holds exactly one ``"-m", "pip", "install"`` command, inside
+        # _bootstrap_uv and carrying --require-hashes, so a plain-pip dependency fallback cannot return.
+        import ast
+
+        tree = ast.parse(SETUP_INDEX_PATH.read_text(encoding="utf-8"))
+        found = []
+
+        def visit(node, function):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                function = node.name
+            if isinstance(node, (ast.List, ast.Tuple)):
+                values = [elt.value if isinstance(elt, ast.Constant) else None for elt in node.elts]
+                for i in range(len(values) - 2):
+                    if values[i:i + 3] == ["-m", "pip", "install"]:
+                        found.append((function, values))
+            for child in ast.iter_child_nodes(node):
+                visit(child, function)
+
+        visit(tree, None)
+        self.assertEqual(len(found), 1, found)
+        function, values = found[0]
+        self.assertEqual(function, "_bootstrap_uv")
+        self.assertIn("--require-hashes", values)
 
     def _bootstrap_with(self, outcome):
         """Run ``_bootstrap_uv`` with no uv anywhere and ``outcome`` (an exit code or an
@@ -1943,14 +2058,16 @@ class InstallIsolationTests(unittest.TestCase):
             with self.subTest(platform=platform):
                 self.assertTrue(any(re.search(platform, name) for name in names), platform)
 
-    def test_a_failed_hash_bootstrap_is_reported_and_setup_falls_back_to_pip(self):
+    def test_a_failed_hash_bootstrap_is_reported_and_setup_refuses_to_install(self):
         # Wave 1zimd (1zimj AC-3): a refused or failed pip install names the requirement and the
-        # recorded hashes, returns None, and _install_deps takes the existing plain-pip fallback.
+        # recorded hashes and returns None. Wave 1zls6 (AC-1): _install_deps then installs nothing
+        # and stops, after exactly one install command (the hash-pinned bootstrap).
         seen, err, result = self._bootstrap_with(1)
         self.assertIsNone(result)
         self.assertIn(self.mod.UV_BOOTSTRAP_REQUIREMENT, err)
         self.assertIn("recorded hashes", err)
         self.assertIn("pip's output above", err)
+        self.base.mkdir(parents=True, exist_ok=True)
         calls = []
 
         def run(cmd, **kwargs):
@@ -1958,15 +2075,16 @@ class InstallIsolationTests(unittest.TestCase):
             return subprocess.CompletedProcess(cmd, 1 if "--require-hashes" in cmd else 0)
 
         err = io.StringIO()
-        with patch("subprocess.run", side_effect=run), \
+        with patch.object(self.mod, "_run_install_step", side_effect=run), \
                 patch.object(self.mod, "_uv_bin", return_value=None), \
                 redirect_stdout(io.StringIO()), redirect_stderr(err):
-            self.mod._install_deps(["fastembed"], FAKE_VENV_PYTHON)
-        self.assertEqual(len(calls), 2)
+            with self.assertRaises(SystemExit) as raised:
+                self.mod._install_deps(["fastembed"], FAKE_VENV_PYTHON)
+        self.assertEqual(raised.exception.code, 2)
+        self.assertEqual(len(calls), 1, calls)
         self.assertIn("--require-hashes", calls[0])
-        self.assertEqual(calls[1], [os.path.abspath(FAKE_VENV_PYTHON), "-m", "pip", "install", "fastembed"])
         self.assertIn("recorded hashes", err.getvalue())
-        self.assertIn("Falling back to pip without package age enforcement", err.getvalue())
+        self.assert_uv_required_refusal(err.getvalue())
 
     def test_an_unwritable_requirements_file_is_a_failed_bootstrap(self):
         # Wave 1zimd (1zimj Requirement 2): an OSError creating or writing the file is reported like
@@ -2102,29 +2220,34 @@ class SetupPhase1DeadlineTests(unittest.TestCase):
         self.assertIn("venv", msg)
         self.assertIn("timed out", msg)
 
-    def test_bootstrap_uv_timeout_falls_back_with_loud_message(self):
+    def test_bootstrap_uv_timeout_is_loud_and_promises_no_fallback(self):
         with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="pip install uv", timeout=1)):
             err = io.StringIO()
             with redirect_stderr(err), redirect_stdout(io.StringIO()):
                 result = self.mod._bootstrap_uv(FAKE_VENV_PYTHON)
-        # uv is optional: a stalled bootstrap is loud but returns None so the caller falls back to pip.
+        # A stalled bootstrap is loud and returns None; wave 1zls6: the caller then refuses to install.
         self.assertIsNone(result)
         msg = err.getvalue().lower()
         self.assertIn("uv", msg)
         self.assertIn("timed out", msg)
         self.assertIn("pypi", msg)
+        self.assertIn("cannot continue without uv", msg)
+        self.assertIn("setup.uv_bootstrap_timeout_seconds", msg)
+        self.assertNotIn("falling back", msg)
+        self.assertNotIn("plain pip", msg)
 
     def test_install_deps_timeout_fails_loud_with_network_guidance(self):
-        with patch.object(self.mod, "_uv_bin", return_value=None):
-            with patch.object(self.mod, "_bootstrap_uv", return_value=None):  # force the plain-pip path
-                with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="pip", timeout=1)):
-                    err = io.StringIO()
-                    with redirect_stderr(err), redirect_stdout(io.StringIO()):
-                        with self.assertRaises(SystemExit) as raised:
-                            self.mod._install_deps(["fastembed"], FAKE_VENV_PYTHON)
+        with patch.object(self.mod, "_uv_bin", return_value=FAKE_UV):
+            with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="uv", timeout=1)) as run:
+                err = io.StringIO()
+                with redirect_stderr(err), redirect_stdout(io.StringIO()):
+                    with self.assertRaises(SystemExit) as raised:
+                        self.mod._install_deps(["fastembed"], FAKE_VENV_PYTHON)
         self.assertEqual(raised.exception.code, 2)
+        self.assertEqual(run.call_args[0][0][0], str(FAKE_UV))
         msg = err.getvalue().lower()
         self.assertIn("timed out", msg)
+        self.assertIn("(uv)", msg)
         self.assertIn("pypi", msg)  # names network/proxy/TLS reachability
 
     def test_bootstrap_venv_forwards_configured_timeout(self):
@@ -2155,11 +2278,12 @@ class SetupPhase1DeadlineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self._write_config(root, {"dep_install_timeout_seconds": 13})
-            with patch.object(self.mod, "_uv_bin", return_value=None):
-                with patch.object(self.mod, "_bootstrap_uv", return_value=None):  # plain-pip path
-                    with patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0)) as run:
-                        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                            self.mod._install_deps(["fastembed"], FAKE_VENV_PYTHON, root)
+            with patch.object(self.mod, "_uv_bin", return_value=FAKE_UV):
+                with patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0)) as run:
+                    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                        self.mod._install_deps(["fastembed"], FAKE_VENV_PYTHON, root)
+        run.assert_called_once()
+        self.assertEqual(run.call_args_list[0].args[0][0], str(FAKE_UV))
         self.assertEqual(run.call_args_list[0].kwargs.get("timeout"), 13.0)
 
     def test_lock_held_deadlines_are_capped_at_twice_their_defaults(self):
@@ -2186,13 +2310,13 @@ class SetupPhase1DeadlineTests(unittest.TestCase):
         self.assertEqual(self.mod._setup_deadlines(None), dict(self.mod._SETUP_DEADLINE_KEYS))
 
     def test_install_deps_timeout_message_names_the_cap(self):
-        with patch.object(self.mod, "_uv_bin", return_value=None):
-            with patch.object(self.mod, "_bootstrap_uv", return_value=None):
-                with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="pip", timeout=1)):
-                    err = io.StringIO()
-                    with redirect_stderr(err), redirect_stdout(io.StringIO()):
-                        with self.assertRaises(SystemExit):
-                            self.mod._install_deps(["fastembed"], FAKE_VENV_PYTHON)
+        with patch.object(self.mod, "_uv_bin", return_value=FAKE_UV):
+            with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="uv", timeout=1)) as run:
+                err = io.StringIO()
+                with redirect_stderr(err), redirect_stdout(io.StringIO()):
+                    with self.assertRaises(SystemExit):
+                        self.mod._install_deps(["fastembed"], FAKE_VENV_PYTHON)
+        run.assert_called_once()
         self.assertIn("at most 3600s", err.getvalue())
 
     # --- AC-2: in-process model-warm wall-clock deadline ----------------------------------------------

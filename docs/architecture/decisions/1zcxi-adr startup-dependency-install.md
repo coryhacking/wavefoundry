@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: accepted
-Last verified: 2026-09-29
+Last verified: 2026-10-02
 
 ## Context
 
@@ -23,7 +23,7 @@ MCP startup installs the missing or version-incompatible declared dependencies w
 - A pull that adds or re-pins a requirement no longer leaves the MCP server unable to start on any host; the agent sees the install in `wf_server_info` and the setup notice.
 - A background install keeps the server inside short host startup timeouts when the missing package is deferrable (`psutil` is).
 - An upgrade whose dependency install fails says so, names `wf setup`, and does not claim an index publication failure it never attempted.
-- uv's 21-day age guard applies to every unattended install; the pip fallback stays available only to operator-run `wf setup`.
+- uv's 21-day age guard applies to every unattended install; the pip fallback stays available only to operator-run `wf setup`. (2026-10-02: wave `1zls6` removed that fallback; operator-run `wf setup` now installs dependencies only through uv and stops when uv cannot be found or bootstrapped.)
 
 **Negative:**
 
@@ -42,7 +42,7 @@ The installed specs come from `setup_requirements.py` in the checkout, the same 
 - **Start degraded and recommend `wf setup`.** Keeps report-only, but a pull adding a package the server imports still leaves it unable to start. Rejected by the operator.
 - **Always install before starting.** Simpler, but a short host timeout kills the server mid-install on every start. Replaced by background installs for deferrable packages.
 - **Install absent packages only.** Avoids re-pinning the shared environment, but a pull that re-pins a package would not self-heal. Rejected by the operator.
-- **Reuse `ensure_deps` at startup.** It can recreate the shared environment, plans GPU packages from hardware probes, and falls back to pip. Rejected in readiness review.
+- **Reuse `ensure_deps` at startup.** It can recreate the shared environment, plans GPU packages from hardware probes, and (before wave `1zls6`) fell back to pip. Rejected in readiness review.
 - **An operator opt-out variable.** Rejected by the operator.
 
 ## Related
