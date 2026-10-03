@@ -1893,8 +1893,15 @@ class InstallIsolationTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, 2)
         return run.call_args_list, err.getvalue()
 
-    def assert_uv_required_refusal(self, message, command="`wf setup`"):
+    @staticmethod
+    def platform_setup_command():
+        # Wave 1zlu5: the same platform rule _uv_required_message applies.
+        return "`.\\.wavefoundry\\bin\\wf.cmd setup`" if os.name == "nt" else "`wf setup`"
+
+    def assert_uv_required_refusal(self, message, command=None):
         # Wave 1zls6 (Requirement 1): what the refusal must tell the operator.
+        if command is None:
+            command = self.platform_setup_command()
         self.assertIn("only through uv", message)
         self.assertIn("package-age guard", message)
         self.assertIn("nothing was installed", message)
@@ -1908,6 +1915,13 @@ class InstallIsolationTests(unittest.TestCase):
         self.assertIn("Do not install the dependencies with pip by hand", message)
         self.assertNotIn("Falling back", message)
 
+    def test_the_default_expected_command_follows_the_platform(self):
+        # Wave 1zlu5: callers that pass no command expect what this platform's message says.
+        for os_name, expected in (("nt", "`.\\.wavefoundry\\bin\\wf.cmd setup`"), ("posix", "`wf setup`")):
+            with self.subTest(os_name=os_name), patch.object(os, "name", os_name):
+                self.assertEqual(self.platform_setup_command(), expected)
+                self.assert_uv_required_refusal(self.mod._uv_required_message())
+
     def test_no_uv_refuses_without_running_any_install(self):
         # Wave 1zls6 (AC-1): with no uv and the bootstrap returning None, nothing runs and setup stops.
         calls, err = self._refused_install(FAKE_VENV_PYTHON)
@@ -1918,7 +1932,7 @@ class InstallIsolationTests(unittest.TestCase):
         message = self.mod._uv_required_message(windows=True)
         self.assert_uv_required_refusal(message, command="`.\\.wavefoundry\\bin\\wf.cmd setup`")
         self.assertNotIn("`wf setup`", message)
-        self.assert_uv_required_refusal(self.mod._uv_required_message(windows=False))
+        self.assert_uv_required_refusal(self.mod._uv_required_message(windows=False), command="`wf setup`")
 
     def test_a_relative_interpreter_path_is_made_absolute(self):
         relative = Path("rel") / "venv" / "bin" / "python"

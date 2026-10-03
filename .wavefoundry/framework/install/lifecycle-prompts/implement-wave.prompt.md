@@ -32,7 +32,11 @@ Correct an agent-only misreading directly from the established requirement. Rout
 1. Use repository-native navigation and the Wavefoundry code tools to identify
    ownership, callers, and established patterns before editing.
 2. Implement only admitted scope and preserve unrelated working-tree changes.
-3. Update AC and task checkboxes as evidence is produced.
+3. Update AC and task checkboxes as evidence is produced. When one change
+   finishes before the others, `wf_close_change(wave_id, change_id, mode)`
+   closes it to `complete` (dry-run first) and moves the dependents whose
+   `Depends On:` names it to `ready`; the wave stays open and `Close wave`
+   remains the only wave close.
 4. Run focused tests after each bounded repair and the canonical project suite
    before delivery review.
 5. Record findings when discovered during an exceptional named checkpoint or

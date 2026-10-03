@@ -2402,39 +2402,45 @@ regex = 'GUARDFIXTURE_[A-Z]{10}'
 
     def test_failed_publication_keeps_guard_skipped_files_out_of_the_scan_cache(self):
         import scan_secrets
+        # Change 1zltu: scan_secrets imports the scanner at call time, so use
+        # the module in sys.modules, not the one bound when this file loaded.
+        from wave_lint_lib import secrets_validators as sv
         skipped = self._write("omitted.txt", b"\0binary")
         clean = self._write("clean.txt", b"ordinary\n")
         scan_dir = self.root / ".wavefoundry/index/scan"
         with patch.object(scan_secrets, "_auto_max_workers", return_value=1):
             output = io.StringIO()
-            with patch.object(_sv, "update_scanner_skips", side_effect=OSError("fixture publication failure")):
+            with patch.object(sv, "update_scanner_skips", side_effect=OSError("fixture publication failure")):
                 with contextlib.redirect_stderr(output):
                     scan_secrets.update_secrets_scan(root=self.root, scan_dir=scan_dir, changed=set(), removed=set(), full=True)
             self.assertIn("could not be persisted", output.getvalue())
             self.assertFalse(self.ledger.exists())
             # Nothing from the failed run reached the ledger, so NONE of its
             # evaluated paths is cached, not only the guard-skipped one.
-            self.assertLessEqual({skipped.name, clean.name}, set(_sv.unpublished_scanner_skips()))
+            self.assertLessEqual({skipped.name, clean.name}, set(sv.unpublished_scanner_skips()))
             result = scan_secrets.update_secrets_scan(
                 root=self.root, scan_dir=scan_dir, changed={skipped.name, clean.name}, removed=set(),
             )
         self.assertEqual(result["files_skipped"], 0)  # neither file was cached by the failed run
         self.assertEqual(result["files_scanned"], 2)  # both are re-evaluated and published
-        self.assertEqual(_sv.unpublished_scanner_skips(), [])
+        self.assertEqual(sv.unpublished_scanner_skips(), [])
         self.assertEqual(self.notice()["scanner_skips"][0]["file"], skipped.name)
 
     def test_failed_publication_of_a_clear_does_not_pin_the_stale_row(self):
         import scan_secrets
+        # Change 1zltu: scan_secrets imports the scanner at call time, so use
+        # the module in sys.modules, not the one bound when this file loaded.
+        from wave_lint_lib import secrets_validators as sv
         path = self._write("blob.txt", b"\0binary")
         scan_dir = self.root / ".wavefoundry/index/scan"
         with patch.object(scan_secrets, "_auto_max_workers", return_value=1):
             scan_secrets.update_secrets_scan(root=self.root, scan_dir=scan_dir, changed=set(), removed=set(), full=True)
             self.assertEqual(self.notice()["scanner_skips"][0]["file"], path.name)
             path.write_bytes(b"clean text\n")
-            with patch.object(_sv, "update_scanner_skips", side_effect=OSError("fixture publication failure")):
+            with patch.object(sv, "update_scanner_skips", side_effect=OSError("fixture publication failure")):
                 with contextlib.redirect_stderr(io.StringIO()):
                     scan_secrets.update_secrets_scan(root=self.root, scan_dir=scan_dir, changed={path.name}, removed=set())
-            self.assertIn(path.name, _sv.unpublished_scanner_skips())
+            self.assertIn(path.name, sv.unpublished_scanner_skips())
             self.assertEqual(self.notice()["scanner_skips"][0]["file"], path.name)  # the clear never landed
             result = scan_secrets.update_secrets_scan(root=self.root, scan_dir=scan_dir, changed={path.name}, removed=set())
         self.assertEqual(result["files_scanned"], 1)  # not cached by the failed run, so re-evaluated

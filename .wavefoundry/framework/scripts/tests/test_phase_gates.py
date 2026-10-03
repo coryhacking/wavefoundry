@@ -84,7 +84,7 @@ class PhaseGateTests(unittest.TestCase):
 
     def test_schema_errors_lint_and_prepare_without_lint_subprocess(self):
         from wave_lint_lib.core_validators import check_workflow_config
-        cases = [({'close': {'required_lanes': ['security-reviewer']}}, 'phase_gates.close.required_lanes'),
+        cases = [({'close': {'required_lanes': 'security-reviewer'}}, 'phase_gates.close.required_lanes'),
             ({'review': {}}, 'phase_gates.review'),
             ({'prepare': {'mystery': []}}, 'phase_gates.prepare.mystery'),
             ({'close': {'required_sensors': ['absent']}}, 'phase_gates.close.required_sensors'),
@@ -415,6 +415,295 @@ class PhaseGateTests(unittest.TestCase):
             response = method(self.root, 'zzzzz absent', **kwargs)
             self.assertEqual(response['status'], 'error')
             self.assertEqual(response['data']['configured_gates'], [])
+
+
+class PhaseLaneTests(unittest.TestCase):
+    """Wave 1zlu1 (change 1zlu4): `phase_gates.<phase>.required_lanes`."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = _make_repo(Path(self.tmp.name))
+        self.config = copy.deepcopy(_WAVE_REVIEW_CONFIG)
+        _write_config(self.root, self.config)
+        self.wave_md = self.wave = None
+        self.stack = ExitStack()
+        self.addCleanup(self.stack.close)
+        for name, value in [('run_validate', _stub_validate), ('run_garden', _stub_garden),
+                ('_run_post_write_lint', lambda *a, **k: {'mode': 'stubbed'})]:
+            self.stack.enter_context(patch.object(self.srv, name, value))
+
+    def configure(self, phase_gates=None, **extra):
+        self.config = copy.deepcopy(_WAVE_REVIEW_CONFIG)
+        if phase_gates is not None:
+            self.config['phase_gates'] = phase_gates
+        self.config.update(extra)
+        _write_config(self.root, self.config)
+        if self.wave is None:
+            # The record's review-status projection is rendered from the
+            # config, so the wave is built after the first configuration.
+            self.wave_md, self.wave = _build_one(self.srv, self.root, 'lane-fixture', status='active')
+
+    def ready(self, approvals=('wave-council-readiness', 'code-reviewer')):
+        seed_state(self.srv, self.root, self.wave, approvals)
+        return self.srv.wf_prepare_wave_response(self.root, self.wave, mode='ready')
+
+    def approve(self, key, phase='delivery'):
+        from test_lifecycle_golden import _approval_evidence, _APPROVAL_INTEGRITY
+        response = self.srv.wf_review_event_response(
+            self.root, self.wave, 'approval', key, f'lane-{key}-{phase}', mode='create',
+            signoff_key=key, approval_phase=phase, fresh_context=True, independent=True,
+            evidence=_approval_evidence(key), integrity_checks=dict(_APPROVAL_INTEGRITY))
+        self.assertNotEqual(response['status'], 'error', response)
+
+    def delivery(self):
+        from test_lifecycle_gates import LifecycleGateBehaviorTests
+        gates = self.srv.lifecycle_gates
+        ctx = gates.GateContext(self.root, self.wave_md, self.wave_md.read_text(), 'create',
+                                _stub_validate(self.root), 'close')
+        helper = LifecycleGateBehaviorTests()
+        helper.srv = self.srv
+        helper.delivery_approvals(ctx)
+
+    def close_missing(self):
+        response = self.srv.wf_close_wave_response(self.root, self.wave, mode='dry_run')
+        return [d for d in response['diagnostics'] if d['code'] == 'missing_required_lane']
+
+    def codes(self, response):
+        return [d['code'] for d in response.get('diagnostics') or []]
+
+    def line(self, label):
+        import re
+        match = re.search(rf'(?m)^- Required {label} lanes: (.*)$', self.wave_md.read_text())
+        return match.group(1) if match else None
+
+    # AC-1 --------------------------------------------------------------
+    def test_required_lanes_validation(self):
+        import review_policy
+        from wave_lint_lib.core_validators import check_workflow_config
+        ok = {'phase_gates': {'prepare': {'required_lanes': ['design-review']},
+                              'close': {'required_lanes': ['release-review'], 'required_sensors': []}}}
+        normalized, errors = review_policy.normalize_phase_gates(ok)
+        self.assertEqual(errors, ())
+        self.assertEqual(normalized['prepare']['required_lanes'], ['design-review'])
+        self.assertEqual(normalized['close']['required_lanes'], ['release-review'])
+        cases = [({'close': {'required_lanes': 'release-review'}}, 'phase_gates.close.required_lanes must be a list'),
+                 ({'close': {'required_lanes': ['']}}, 'phase_gates.close.required_lanes[0] must be a non-empty lane name'),
+                 ({'prepare': {'required_lanes': [5]}}, 'phase_gates.prepare.required_lanes[0] must be a non-empty lane name'),
+                 ({'close': {'required_lanes': ['a', 'a']}}, "phase_gates.close.required_lanes[1]: duplicate lane 'a'"),
+                 ({'close': {'required_lanes': [' x', 'x']}}, "phase_gates.close.required_lanes[1]: duplicate lane 'x'"),
+                 ({'close': {'mystery': []}}, 'phase_gates.close.mystery: unknown field'),
+                 ({'review': {'required_lanes': ['a']}}, 'phase_gates.review: unknown phase')]
+        for gates, message in cases:
+            with self.subTest(message=message):
+                self.assertIn(message, review_policy.normalize_phase_gates({'phase_gates': gates})[1])
+                self.configure(gates)
+                self.assertIn(f'docs/workflow-config.json: {message}', check_workflow_config(self.root))
+
+    # AC-2 --------------------------------------------------------------
+    def test_delivery_only_lane(self):
+        self.configure({'close': {'required_lanes': ['release-review']}})
+        response = self.ready()
+        self.assertNotEqual(response['status'], 'error', response)
+        self.assertEqual(response['data']['delivery_only_lanes'], ['release-review'])
+        self.assertEqual(response['data']['pending_readiness_lanes'], [])
+        self.assertEqual(self.line('review'), 'code-reviewer')
+        self.assertEqual(self.line('delivery'), 'code-reviewer, release-review')
+        _authority, missing = self.srv._prepare_lane_review_state(self.root, self.wave_md, self.wave_md.read_text())
+        self.assertEqual(missing, [])
+        review = self.srv.wf_review_wave_response(self.root, self.wave, phase='implementation')
+        self.assertIn('release-review', review['data']['required_lanes'])
+        self.delivery()
+        self.assertIn('release-review', self.close_missing()[0]['message'])
+        self.approve('release-review')
+        self.assertEqual(self.close_missing(), [])
+
+    def test_delivery_only_roster_is_not_reported_empty_at_review(self):
+        """Delivery review F2: with no base lanes and one delivery-only lane,
+        the implementation-phase advisory reads the delivery roster."""
+        self.configure({'close': {'required_lanes': ['release-review']}}, required_review_lanes=[])
+        response = self.ready(approvals=('wave-council-readiness',))
+        self.assertNotEqual(response['status'], 'error', response)
+        self.assertEqual(self.line('delivery'), 'release-review')
+        review = self.srv.wf_review_wave_response(self.root, self.wave, phase='implementation')
+        self.assertIn('release-review', review['data']['required_lanes'])
+        self.assertNotIn('required_review_lanes_empty', self.codes(review))
+        prepare_review = self.srv.wf_review_wave_response(self.root, self.wave, phase='prepare')
+        self.assertIn('required_review_lanes_empty', self.codes(prepare_review))
+        # Reverification nit 2: the readiness advisory names the delivery lanes.
+        message = next(d['message'] for d in prepare_review['diagnostics']
+                       if d['code'] == 'required_review_lanes_empty')
+        self.assertIn('No readiness review lanes are required', message)
+        self.assertIn('release-review', message)
+
+    def test_readiness_only_lane(self):
+        self.configure({'prepare': {'required_lanes': ['design-review']}})
+        response = self.ready()
+        self.assertNotEqual(response['status'], 'error', response)
+        self.assertEqual(response['data']['pending_readiness_lanes'], ['design-review'])
+        self.assertEqual(self.line('review'), 'code-reviewer, design-review')
+        self.assertEqual(self.line('delivery'), 'code-reviewer')
+        review = self.srv.wf_review_wave_response(self.root, self.wave, phase='implementation')
+        self.assertNotIn('design-review', review['data']['required_lanes'])
+        prepare_review = self.srv.wf_review_wave_response(self.root, self.wave, phase='prepare')
+        self.assertIn('design-review', prepare_review['data']['required_lanes'])
+        keys = self.srv._guided_review_signoff_keys(self.root, self.wave_md, self.wave_md.read_text(),
+                                                    approval_phase='delivery')
+        self.assertNotIn('design-review', keys)
+        self.delivery()
+        self.assertEqual(self.close_missing(), [])
+
+    # AC-3 --------------------------------------------------------------
+    def test_every_site_reads_the_pure_helper(self):
+        self.configure()
+        import review_policy
+        import review_evidence
+        self.ready()
+        text = self.wave_md.read_text()
+
+        def sentinel(config, phase):
+            return [f'architecture-sentinel-{phase}']
+
+        with patch.object(review_policy, 'project_lanes_for_phase', sentinel):
+            change_ids = self.srv._extract_change_ids_from_wave_text(text)
+            brief = self.srv._build_prepare_council_brief(self.wave, text, change_ids, typed=True)
+            state, errors = self.srv._prepare_policy_state(self.root, self.wave_md, text, change_ids, brief)
+            self.assertEqual(errors, ())
+            self.assertIn('architecture-sentinel-prepare', state['required_lanes'])
+            self.assertNotIn('architecture-sentinel-close', state['required_lanes'])
+            self.assertIn('architecture-sentinel-close', state['delivery_lanes'])
+            _authority, missing = self.srv._prepare_lane_review_state(self.root, self.wave_md, text)
+            self.assertIn('architecture-sentinel-prepare', missing)
+            readiness = self.srv._guided_review_signoff_keys(self.root, self.wave_md, text, approval_phase='readiness')
+            delivery = self.srv._guided_review_signoff_keys(self.root, self.wave_md, text, approval_phase='delivery')
+            self.assertIn('architecture-sentinel-prepare', readiness)
+            self.assertNotIn('architecture-sentinel-close', readiness)
+            self.assertIn('architecture-sentinel-close', delivery)
+            self.assertNotIn('architecture-sentinel-prepare', delivery)
+            for phase, expected in (('prepare', 'prepare'), ('implementation', 'close')):
+                review = self.srv.wf_review_wave_response(self.root, self.wave, phase=phase)
+                self.assertIn(f'architecture-sentinel-{expected}', review['data']['required_lanes'], phase)
+            shared = self.srv.lifecycle_gates._evaluate_shared_delivery_state(
+                self.root, self.wave_md, text, _stub_validate(self.root))
+            self.assertIn('architecture-sentinel-close', shared['required_lanes'])
+            self.assertNotIn('architecture-sentinel-prepare', shared['required_lanes'])
+            coverage = self.srv._audit_harness_coverage(self.root)
+            self.assertTrue(coverage['dimensions']['architecture']['covered'])
+            keys = review_evidence.required_review_status_keys(self.root, text)
+            self.assertIn('architecture-sentinel-prepare', keys)
+            self.assertIn('architecture-sentinel-close', keys)
+        override = review_evidence.required_review_status_keys(
+            self.root, text, config_override={'required_review_lanes': ['override-lane']})
+        self.assertIn('override-lane', override)
+        file_keys = review_evidence.required_review_status_keys(self.root, '')
+        self.assertIn('code-reviewer', file_keys)
+        self.assertNotIn('code-reviewer', review_evidence.required_review_status_keys(
+            self.root, '', config_override={'required_review_lanes': ['override-lane']}))
+
+    # AC-4 --------------------------------------------------------------
+    def test_delivery_line_written_only_when_rosters_differ(self):
+        self.configure()
+        replace = self.srv._replace_required_review_lanes
+        text = '## Participants\n\n- Required review lanes: a\n- Required delivery lanes: a, b\n\n## Next\n'
+        self.assertNotIn('Required delivery lanes', replace(text, ['a'], ['a']))
+        self.assertIn('- Required review lanes: a\n- Required delivery lanes: a, c\n', replace(text, ['a'], ['a', 'c']))
+        self.assertEqual(replace(text, ['a']), text.replace('- Required review lanes: a', '- Required review lanes: a'))
+        self.ready()
+        self.assertIsNone(self.line('delivery'))
+
+    def test_existing_delivery_line_is_removed_when_rosters_become_equal(self):
+        self.configure({'close': {'required_lanes': ['release-review']}})
+        self.ready()
+        self.assertIsNotNone(self.line('delivery'))
+        self.configure()
+        self.srv.wf_prepare_wave_response(self.root, self.wave, mode='ready')
+        self.assertIsNone(self.line('delivery'))
+
+    def _stale(self):
+        return [d for d in self.srv.lifecycle_gate_support._review_policy_receipt_diagnostics(
+            self.root, self.wave_md, self.wave_md.read_text()) if d['code'] == 'review_policy_receipt_stale']
+
+    def test_roster_staleness_per_line(self):
+        self.configure({'close': {'required_lanes': ['release-review']}})
+        self.ready()
+        self.assertEqual(self._stale(), [])
+        original = self.wave_md.read_text()
+        edits = {
+            'hand-edited delivery line': original.replace(
+                '- Required delivery lanes: code-reviewer, release-review', '- Required delivery lanes: code-reviewer'),
+            'stale readiness line': original.replace(
+                '- Required review lanes: code-reviewer', '- Required review lanes: code-reviewer, extra'),
+            'deleted delivery line': original.replace(
+                '- Required delivery lanes: code-reviewer, release-review\n', ''),
+        }
+        for label, edited in edits.items():
+            with self.subTest(case=label):
+                self.assertNotEqual(edited, original)
+                self.wave_md.write_text(edited)
+                self.assertTrue(self._stale(), label)
+        self.wave_md.write_text(original)
+
+    # AC-5 --------------------------------------------------------------
+    def test_digest_unchanged_without_phase_gates(self):
+        self.configure()
+        import review_policy
+        self.assertEqual(review_policy.REVIEW_POLICY_EVALUATOR_VERSION, 7)
+        text = self.wave_md.read_text()
+        change_ids = self.srv._extract_change_ids_from_wave_text(text)
+        brief = self.srv._build_prepare_council_brief(self.wave, text, change_ids, typed=True)
+        state, _errors = self.srv._prepare_policy_state(self.root, self.wave_md, text, change_ids, brief)
+        changes = []
+        for change_id in change_ids:
+            body = (self.wave_md.parent / f'{change_id}.md').read_bytes()
+            changes.append((change_id, change_id.split('-', 1)[0].rsplit('-', 1)[-1], body))
+        # The pre-change computation: the base lane list, no phase_gates key.
+        expected = review_policy.policy_input_digest(
+            wave_review=state['policy'], project_lanes=['code-reviewer'], review_policies={},
+            changes=changes, requested_lanes=review_policy.extract_requested_review_lanes(text))
+        self.assertEqual(state['policy_input_digest'], expected)
+        self.assertEqual(state['delivery_lanes'], state['required_lanes'])
+        self.assertEqual(state['delivery_only_lanes'], [])
+        self.configure({'close': {'required_lanes': ['release-review']}})
+        moved, _ = self.srv._prepare_policy_state(self.root, self.wave_md, text, change_ids, brief)
+        self.assertNotEqual(moved['policy_input_digest'], expected)
+
+    # AC-6 --------------------------------------------------------------
+    def test_non_list_required_review_lanes_is_a_config_error(self):
+        import review_policy
+        import review_evidence
+        from wave_lint_lib.core_validators import check_workflow_config
+        for value in ('code-reviewer', {'lane': 'code-reviewer'}):
+            with self.subTest(value=value):
+                self.configure(required_review_lanes=value)
+                self.assertIn('docs/workflow-config.json: required_review_lanes must be a list',
+                              check_workflow_config(self.root))
+                with self.assertRaises(review_policy.ProjectLanesConfigError):
+                    self.srv._read_project_required_review_lanes(self.root)
+                with self.assertRaises(review_policy.ProjectLanesConfigError):
+                    review_policy.project_lanes_for_phase(self.config, 'close')
+                prepare = self.srv.wf_prepare_wave_response(self.root, self.wave, mode='ready')
+                self.assertEqual(prepare['status'], 'error', prepare)
+                self.assertIn('required_review_lanes must be a list', json.dumps(prepare))
+                review = self.srv.wf_review_wave_response(self.root, self.wave, phase='implementation')
+                self.assertIn('required_review_lanes_invalid', self.codes(review))
+                close = self.srv.wf_close_wave_response(self.root, self.wave, mode='dry_run')
+                self.assertIn('required_review_lanes_invalid', self.codes(close))
+                coverage = self.srv._audit_harness_coverage(self.root)
+                self.assertIn('required_review_lanes must be a list', coverage['config_error'])
+                self.assertIsInstance(self.srv.wf_audit_response(self.root), dict)
+        self.configure()
+        del self.config['required_review_lanes']
+        _write_config(self.root, self.config)
+        self.assertEqual(self.srv._read_project_required_review_lanes(self.root), [])
+        keys = review_evidence.required_review_status_keys(
+            self.root, '', config_override={'required_review_lanes': [5, 'kept-lane']})
+        self.assertIn('kept-lane', keys)
+        self.assertNotIn('5', keys)
+
 
 if __name__ == '__main__':
     unittest.main()

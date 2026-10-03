@@ -262,16 +262,40 @@ ALLOWED_ITEM_STATUS_TRANSITIONS = {
 }
 
 TERMINAL_CHANGE_STATUSES = ("complete", "completed", "done", "deferred", "moved", "superseded")
+# Wave 1zls7 (1zlu0): the one definition of "done" for a change record.  Wave
+# close and the docs-lint dependency rule read it: a change in `implemented`
+# does not block wave close and satisfies a dependent, but `implemented` stays
+# non-terminal (a change is closed only when it reaches a terminal status).
+DONE_CHANGE_STATUSES = frozenset(TERMINAL_CHANGE_STATUSES) | {"implemented"}
+
+
+def is_done(status: "str | None", anchor_type: str) -> bool:
+    """True when a work record is done (wave 1zls7, 1zlu0).
+
+    A ``change`` record is done when its status is in ``DONE_CHANGE_STATUSES``;
+    a legacy ``item`` record when its status is in ``TERMINAL_ITEM_STATUSES``.
+    A record with no status (or a status the record parser could not read) is
+    not done, and neither is any status no framework set defines.
+    """
+    if not status:
+        return False
+    if anchor_type == "change":
+        return status in DONE_CHANGE_STATUSES
+    return status in TERMINAL_ITEM_STATUSES
 PROGRESSABLE_CHANGE_STATUSES = ("ready", "active", "review", "complete", "completed")
 ALLOWED_CHANGE_STATUS_TRANSITIONS = {
     "planned": {"planned", "ready", "active", "blocked", "deferred", "moved", "retry", "superseded", "complete", "completed"},
-    "ready": {"ready", "active", "blocked", "review", "complete", "completed", "retry", "moved", "superseded"},
-    "active": {"active", "blocked", "review", "complete", "completed", "retry", "moved", "superseded"},
+    "ready": {"ready", "active", "blocked", "review", "complete", "completed", "retry", "moved", "superseded", "implemented"},
+    "active": {"active", "blocked", "review", "complete", "completed", "retry", "moved", "superseded", "implemented"},
     "blocked": {"blocked", "ready", "active", "retry", "deferred", "moved", "superseded"},
-    "review": {"review", "active", "complete", "completed", "retry", "blocked", "moved", "superseded"},
+    "review": {"review", "active", "complete", "completed", "retry", "blocked", "moved", "superseded", "implemented"},
     "complete": {"complete"},
     "completed": {"completed"},
     "deferred": {"deferred", "ready", "active", "superseded"},
+    # Wave 1zlu1 (1zlu2): `implemented` is a recognized change status, reached
+    # from `ready`, `active` and `review` (delivery review F5), that
+    # `wf_close_change` closes to `complete`; it stays non-terminal.
+    "implemented": {"implemented", "complete", "completed"},
     "moved": {"moved"},
     "retry": {"retry", "ready", "active", "blocked", "review", "complete", "completed", "moved", "superseded"},
     "superseded": {"superseded"},
@@ -306,6 +330,17 @@ ITEM_STATUS_PATTERN = re.compile(r"^Item Status:\s+`([a-z0-9-]+)`$", re.MULTILIN
 PREVIOUS_ITEM_STATUS_PATTERN = re.compile(r"^Previous Item Status:\s+`([a-z0-9-]+)`$", re.MULTILINE)
 CHANGE_STATUS_PATTERN = re.compile(rf"^{_vocab.MEMBER_STATUS_LABEL_RE}:\s+`([a-z0-9-]+)`$", re.MULTILINE)
 PREVIOUS_CHANGE_STATUS_PATTERN = re.compile(rf"^{_vocab.PREVIOUS_STATUS_LABEL_RE}:\s+`([a-z0-9-]+)`$", re.MULTILINE)
+# Wave 1zls7 (1zlu0 repair): any line labelled as a status, whatever its value.
+# The record parser attributes such a line to the current record even when the
+# strict patterns above cannot read its value, so wave close can read an
+# unreadable status as open rather than skip it.
+CHANGE_STATUS_LABEL_LINE_PATTERN = re.compile(rf"^{_vocab.MEMBER_STATUS_LABEL_RE}:")
+ITEM_STATUS_LABEL_LINE_PATTERN = re.compile(r"^Item Status:")
+# A line labelled as a record id with a backticked id, whatever the id's
+# shape. A prose line with the id label and no backticked id starts no
+# record.
+CHANGE_ID_LABEL_LINE_PATTERN = re.compile(rf"^{_vocab.MEMBER_ID_LABEL_RE}:\s*`(?P<id>[^`]+)`")
+ITEM_ID_LABEL_LINE_PATTERN = re.compile(r"^Item ID:\s*`(?P<id>[^`]+)`")
 DEPENDS_ON_LINE_PATTERN = re.compile(r"^Depends On:\s+(.+)$", re.MULTILINE)
 BACKTICK_TOKEN_PATTERN = re.compile(r"`([a-z0-9][a-z0-9-]*)`")
 BACKTICK_VALUE_PATTERN = re.compile(r"`([^`]+)`")

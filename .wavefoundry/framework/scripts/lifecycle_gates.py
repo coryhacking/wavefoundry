@@ -68,10 +68,22 @@ def has_blocking_diagnostics(diagnostics: Iterable[Mapping[str, Any]]) -> bool:
 
 
 def _wave_review_policy_diagnostics(root: Path) -> list[dict[str, Any]]:
+    # Wave 1zlu1 (1zlu4): a present, non-list `required_review_lanes` is a
+    # blocking config error at Prepare, Review and Close, never no lanes.
+    lane_diagnostics: list[dict[str, Any]] = []
+    try:
+        lifecycle_gate_support._read_project_required_review_lanes(root)
+    except lifecycle_gate_support.ProjectLanesConfigError as exc:
+        lane_diagnostics.append(lifecycle_gate_support._diagnostic(
+            "required_review_lanes_invalid",
+            f"{exc}; no project lane can be read from it, so the review gate refuses.",
+            recovery_tools=["wf_validate_docs"],
+            recovery_usage="Make docs/workflow-config.json required_review_lanes a list of lane names, then call wf_validate_docs().",
+        ))
     policy = lifecycle_gate_support._read_wave_council_policy(root)
     if not policy.get("invalid"):
-        return []
-    return [
+        return lane_diagnostics
+    return lane_diagnostics + [
         lifecycle_gate_support._diagnostic(
             "review_policy_reprepare_required",
             str(error),
@@ -273,8 +285,14 @@ def _evaluate_shared_delivery_state(
 
     wave_id = wave_md.parent.name
     authority = resolve_review_authority(root, wave_md, wave_text=wave_text)
-    wave_lanes = lifecycle_gate_support._extract_required_review_lanes(wave_text)
-    project_lanes = lifecycle_gate_support._read_project_required_review_lanes(root)
+    # Wave 1zlu1 (1zlu4): Review and Close read the delivery roster and the
+    # close-phase project lanes.  A config error blocks through
+    # `_wave_review_policy_diagnostics` below.
+    wave_lanes = lifecycle_gate_support._extract_required_delivery_lanes(wave_text)
+    try:
+        project_lanes = lifecycle_gate_support._project_lanes_for_phase(root, "close")
+    except lifecycle_gate_support.ProjectLanesConfigError:
+        project_lanes = []
     required_lanes = list(
         dict.fromkeys([*wave_lanes, *project_lanes])
     )

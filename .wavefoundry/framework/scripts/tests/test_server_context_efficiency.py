@@ -82,6 +82,7 @@ SERIALIZED_WAVE_WRITERS = {
     "wf_implement_wave",
     "wf_reopen_wave",
     "wf_close_wave",
+    "wf_close_change",
     "wf_garden_docs",
 }
 
@@ -690,9 +691,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 srv.context_efficiency,
                 "pending_wave_ids",
                 return_value={"ok": True, "pending": pending},
-            ), patch.object(
-                ce_handlers,
-                "_project_context_efficiency_wave",
+            ), patch(
+                # Change 1zltu: patch through sys.modules; server_impl reaches
+                # this handler module at call time, after any eviction.
+                "wf_server.context_efficiency_handlers._project_context_efficiency_wave",
                 side_effect=lambda _root, wave_id, **_kwargs: responses[wave_id],
             ) as project:
                 automatic = srv.project_pending_context_efficiency_root(
@@ -707,9 +709,10 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 srv.context_efficiency,
                 "pending_wave_ids",
                 return_value={"ok": True, "pending": pending},
-            ), patch.object(
-                ce_handlers,
-                "_project_context_efficiency_wave",
+            ), patch(
+                # Change 1zltu: patch through sys.modules; server_impl reaches
+                # this handler module at call time, after any eviction.
+                "wf_server.context_efficiency_handlers._project_context_efficiency_wave",
                 side_effect=lambda _root, wave_id, **_kwargs: responses[wave_id],
             ) as project:
                 hard_boundary = srv.project_pending_context_efficiency_root(root)
@@ -4319,6 +4322,128 @@ class LifecycleFocusReportingTests(unittest.TestCase):
             },
         )
         self.assertEqual(classifier_callers, {"_lifecycle_context_result"})
+
+
+class PathFreeMonitorRowTests(unittest.TestCase):
+    """Wave 1zls7 (1zodv, AC-4): the projection monitor's ``monitor_error`` row
+    and the ``authority_unavailable`` row never carry an absolute path, driven
+    through the real monitor loop."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name) / "repo"
+        (self.root / "docs").mkdir(parents=True)
+        (self.root / "docs" / "workflow-config.json").write_text("{}", encoding="utf-8")
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        self.outside = Path(outside.name) / "elsewhere" / "state.db"
+
+    def _forms(self):
+        forms = set()
+        for absolute in {str(self.root), str(self.root.resolve()), str(self.outside), str(self.outside.resolve())}:
+            for form in (absolute, absolute.replace("\\", "/"), absolute.replace("/", "\\")):
+                forms.add(form)
+                forms.add(json.dumps(form)[1:-1])
+        return forms
+
+    def _assert_path_free(self, row):
+        text = json.dumps(row)
+        for form in self._forms():
+            self.assertNotIn(form, text)
+
+    def _tick(self, patches):
+        handler = srv.ImplHandler.__new__(srv.ImplHandler)
+        handler.root = self.root
+        handler._ce_projection_observed = {}
+        handler._ce_projection_status = {}
+        handler._ce_projection_stop = handler._ce_projection_thread = None
+        with patch.object(srv, "_read_ce_projection_config", return_value={
+                "enabled": True, "interval_seconds": .01, "quiet_period_seconds": 0}), \
+                patch.object(srv.context_efficiency, "replay_spool", return_value=None):
+            stack = [patch.object(target, name, **kw) for (target, name), kw in patches.items()]
+            for item in stack:
+                item.start()
+            try:
+                handler._start_ce_projection_monitor()
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline and not handler._ce_projection_status:
+                    time.sleep(.01)
+            finally:
+                handler._stop_ce_projection_monitor()
+                for item in stack:
+                    item.stop()
+        self.assertTrue(handler._ce_projection_status, "the monitor did not tick")
+        return dict(handler._ce_projection_status)
+
+    def _exceptions(self):
+        import errno
+        from runtime_lock import RuntimeLockBusy
+
+        inside = self.root / "docs" / "notes" / "x" / "state.md"
+        return {
+            "oserror_inside": OSError(errno.ENOENT, "No such file or directory", str(inside)),
+            "oserror_outside": OSError(errno.EACCES, "Permission denied", str(self.outside)),
+            "runtime_lock_busy": RuntimeLockBusy(
+                errno.EAGAIN, f"Runtime lock busy: {self.root / '.wavefoundry' / 'x.lock'}"),
+            "value_error_path": ValueError(f"cannot read {self.outside}"),
+            "value_error_backslash": ValueError("cannot read " + str(self.root).replace("/", "\\")),
+            # The root glued to a word, which the absolute-path pattern alone does not see.
+            "value_error_glued_root": ValueError(f"cache key cache{self.root}"),
+            # Review F3a: a filename that climbs out of the root through ``..``.
+            "oserror_climbing": OSError(errno.EACCES, "Permission denied",
+                                        str(self.root) + "/a/../../sibling/secret"),
+            # Review F3b: a message-only OSError (no errno, no filename).
+            "oserror_message_only": OSError(
+                f"rollback failed; recoverable body remains at {self.root / 'notes' / 'x.md'}"),
+        }
+
+    def test_monitor_error_rows_are_path_free(self):
+        expected = {
+            "oserror_inside": "FileNotFoundError ENOENT on docs/notes/x/state.md",
+            "oserror_outside": "PermissionError EACCES",
+            "runtime_lock_busy": "RuntimeLockBusy EAGAIN",
+            "value_error_path": "ValueError",
+            "value_error_backslash": "ValueError",
+            "value_error_glued_root": "ValueError",
+            "oserror_climbing": "PermissionError EACCES",
+            "oserror_message_only": "OSError",
+        }
+        for label, exc in self._exceptions().items():
+            with self.subTest(case=label):
+                row = self._tick({(srv, "_maybe_project_context_efficiency"): {"side_effect": exc}})
+                self.assertEqual(row["reason"], "monitor_error")
+                self.assertEqual(row["error"], expected[label])
+                self._assert_path_free(row)
+
+    def test_a_path_free_message_only_oserror_keeps_its_text(self):
+        """Review F3b: a message-only OSError follows the text rule, not bare ``OSError``."""
+        message = "rollback failed; recoverable body remains at docs/notes/x.md"
+        row = self._tick({(srv, "_maybe_project_context_efficiency"): {"side_effect": OSError(message)}})
+        self.assertEqual(row["error"], f"OSError: {message}")
+
+    def test_a_repository_relative_monitor_diagnostic_is_kept(self):
+        message = "ambiguous_wave_id 1aaaa at docs/notes/1aaaa x/state.md"
+        row = self._tick({(srv, "_maybe_project_context_efficiency"): {"side_effect": ValueError(message)}})
+        self.assertEqual(row["error"], f"ValueError: {message}")
+
+    def test_authority_unavailable_rows_are_path_free(self):
+        for label, exc in self._exceptions().items():
+            with self.subTest(case=label):
+                # The shape the real producer writes (read_store_health).
+                error = f"context-efficiency store is unreadable: {type(exc).__name__}: {exc}"
+                row = self._tick({(srv.context_efficiency, "pending_wave_ids"): {"return_value": {
+                    "ok": False, "pending": [], "status": "corrupt", "error": error}}})
+                self.assertEqual(row["reason"], "authority_unavailable")
+                self.assertEqual(row["error"], "corrupt")
+                self._assert_path_free(row)
+
+    def test_a_repository_relative_authority_diagnostic_is_kept(self):
+        message = "ambiguous_wave_id 1aaaa at docs/notes/1aaaa x/state.md"
+        row = self._tick({(srv.context_efficiency, "pending_wave_ids"): {"return_value": {
+            "ok": False, "pending": [], "status": "failed", "error": message}}})
+        self.assertEqual(row["reason"], "authority_unavailable")
+        self.assertEqual(row["error"], message)
 
 
 if __name__ == "__main__":

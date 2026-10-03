@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-02
+Last verified: 2026-10-03
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -122,11 +122,12 @@ merge time; the shipped declarations are empty and change nothing.
 | Declaration | Meaning |
 | --- | --- |
 | `EXTENSION_MODULES` | Flat module names, in registration order. Each is a single `.py` file directly in the framework scripts directory that defines `register(mcp, get_handler)`. |
+| `EXTENSION_HELPER_MODULES` | Flat helper module names that extension modules import, in load order (wave `1zls8`). Each is a single `.py` file directly in the framework scripts directory, loaded, hashed and reloaded like an extension module; its `register`, if any, is never called (see **Helper modules**). |
 | `EXTENSION_TOOL_PREFIXES` | Prefixes every new extension tool name must start with. A core prefix such as `wf_` is allowed; a distribution-specific prefix is recommended (see **New tools**). |
 | `EXTENSION_TOOL_TIERS` | Permission tier (`read` or `write`) for every new extension tool. |
 | `EXTENSION_OVERRIDES` | Core tools each module replaces, keyed by module name. |
 | `EXTENSION_TOOL_ALIASES` | Additional served names, `{alias: canonical_name}` (wave `1z8oz`). |
-| `EXTENSION_TOOL_PARAMETERS` | Parameter mappings for declared aliases, `{alias: {"rename": {alias_param: canonical_param}, "fixed": {canonical_param: value}, "description": text}}` (wave `1zim3`); `description` is optional (wave `1zime`). |
+| `EXTENSION_TOOL_PARAMETERS` | Parameter mappings for declared aliases, `{alias: {"rename": {alias_param: canonical_param}, "fixed": {canonical_param: value}, "description": text, "response_keys": {path: new_key}}}` (wave `1zim3`); `description` is optional (wave `1zime`), and so is `response_keys`, which renames keys of the canonical response `data` (wave `1zls8`). |
 | `EXTENSION_HIDDEN_TOOLS` | Canonical names that are not served; each must have an alias without fixed parameters. |
 | `EXTENSION_REPLACEMENTS` | Core names a module reuses with an incompatible handler, `{module: {core_name: {"alias_for_core": name, "tier": optional "read" or "write"}}}`. |
 | `EXTENSION_LIFECYCLE_TOOLS` | New write-tier extension tools that run under the lifecycle mutation lock (wave `1zimf`). |
@@ -142,10 +143,26 @@ the helpers named in `server_impl.EXTENSION_PUBLIC_HELPERS` (wave `1zimf`):
 `ensure_no_extra_args(tool_name, kwargs)` (the typed `unknown_arguments` envelope, or `None`;
 an empty `kwargs={}` payload is accepted), `make_response(status, data=None, *, diagnostics=None,
 next_tools=None, usage="")` (the standard envelope, with `isError: True` on `"error"`),
-`make_diagnostic(code, message, *, recovery_tools=None, recovery_usage="", advisory=False)` and
-`change_doc_response(root, kind, slug, *, cache=None)` (see **Change kinds**). Each is a thin
-wrapper that calls its private counterpart at call time, so it follows a reload; removing or
-renaming one, or changing its signature, is a breaking change recorded in the CHANGELOG.
+`make_diagnostic(code, message, *, recovery_tools=None, recovery_usage="", advisory=False)`,
+`change_doc_response(root, kind, slug, *, cache=None)` (see **Change kinds**) and, since wave
+`1zls8`, the lifecycle helpers a wrapper of a core lifecycle tool needs:
+`find_wave_record(root, wave_id_or_prefix, wave_dirs=None)` (the tuple `(wave_md,
+requested_read_error, unreadable_siblings)`; it raises `record_paths.AmbiguousWaveId` for one wave
+id at two paths, `ValueError` for a prefix matching distinct ids and
+`record_paths.RecordLayoutInvalid` for an invalid layout), `refuse_if_archived(root, token, kind)`
+(the `archived_record_read_only` diagnostic when the `"wave"` or `"change"` target exists only in
+the read-only archive, else `None`), `fail_closed_on_record_layout(tool)` (a decorator that turns
+an invalid record layout or a duplicated wave id into the structured refusal core tools return),
+`attach_lint(envelope, root, mode)` (the post-write lint state under `data.lint`; none on
+`dry_run` or on an error envelope, and the status never changes), `refresh_index_for_paths(root,
+paths)` (a background index refresh for written paths, returning `{"project": bool}`),
+`list_waves(root, wave_dirs=None)` and `wf_review_wave_response(root, wave_id,
+phase="implementation")`. The nine helpers other than `list_waves` and `wf_review_wave_response`
+are thin wrappers that call their private counterparts at call time; those two are the
+module-level functions themselves, looked up on `server_impl` at call time. So every name follows
+a reload and a test patch of the private name. `wf_review_wave_response` is the response function:
+the served `wf_review_wave` adds focus and context-efficiency recording around it. Removing or
+renaming a listed name, or changing its signature, is a breaking change recorded in the CHANGELOG.
 Underscore-prefixed helpers such as `server_impl._ensure_no_extra_args` are reachable but are not
 a stable public API. There is no public lock or busy helper: an extension tool that needs the
 lifecycle mutation lock declares it in `EXTENSION_LIFECYCLE_TOOLS` (see **Lifecycle tools and
@@ -155,6 +172,29 @@ Only after every module has staged and every check passes are the tools installe
 table. Installation happens before the prefix contract, argument-model normalization and the
 `MIDDLEWARE` chain, so extension tools receive the same wrappers as core tools. Nothing is
 discovered: a module that is not declared is never loaded.
+
+**Helper modules (wave `1zls8`).** A distribution's extension modules may share code through
+helper modules named in `EXTENSION_HELPER_MODULES`. Each is loaded in declaration order, before any
+extension module, through the extension loader: its `.py` file must sit directly in the scripts
+directory under exactly the declared name (the file listing is compared on every platform, so a
+declared name whose case differs from the file is refused even on a case-insensitive volume with
+`PYTHONCASEOK` set), it is executed from the bytes that are hashed, it is marked as an extension
+module, and a name the server already imported unmarked is refused. Its `register`, if it defines
+one, is never called, and nothing it defines is served. A helper may import only helpers declared
+before it: importing a later-declared helper loads that helper unmarked, and loading it is then
+refused, so the order mistake fails registration rather than running unhashed bytes. Every
+install first evicts each module an earlier install marked, even when the declaration was emptied,
+so a reload re-executes every declared helper from current disk bytes and a dropped helper is no
+longer importable. When an install fails, it also drops each declared helper or extension module
+it imported from the scripts directory, so after fixing the declaration a second `wf_reload_mcp`
+succeeds without a restart. Neither an extension module nor a helper module may take the name of a
+framework flat script (`mcp_tool_extensions.FRAMEWORK_SCRIPT_MODULE_NAMES`), and both names must be
+ASCII identifiers. A module that imports a helper should itself be declared as a helper (or as an
+extension module): an undeclared importer is never evicted, so after a reload it keeps the stale
+helper it imported. A fork's own flat script in the scripts directory that is neither an extension
+nor a helper module fails the framework-script census test, which pins
+`FRAMEWORK_SCRIPT_MODULE_NAMES` to the directory less the declared modules, so declare each such
+file as an extension or helper module.
 
 **Overrides.** A module may replace a core tool only when `EXTENSION_OVERRIDES` names it for that
 module. The replacement is served under the core name, so prompts, seeds, allowlists and server
@@ -167,15 +207,34 @@ rejects undeclared arguments), it accepts every parameter of the tool it replace
 value schema (type, format, enum, items and nested definitions; titles, descriptions, defaults and
 examples may differ), and it requires no parameter the replaced tool left optional. An override may
 add optional parameters; an added required parameter is refused. Value schemas must match exactly,
-so widening a type (for example `str` to `str | None`) is refused too. Returning the typed `unknown_arguments` diagnostic
+so widening a type (for example `str` to `str | None`) is refused too. One exception (wave `1zlu1`): an optional core parameter added after the extension API shipped, listed in `server_impl._OVERRIDE_OMITTABLE_CORE_PARAMETERS` (today only `parent` on `wf_create_wave`), may be omitted by an override. The server then refuses any call that passes it with the standard `unknown_arguments` envelope, through an outermost wrapper that runs before the upgrade guard, the lifecycle lock and cost recording, so the override's handler never sees it whatever it does with `**kwargs`; `wf_server_info` lists it under the module's `omitted_core_parameters`. An override that declares such a parameter must match its core schema exactly, and an override should declare it to offer it. Returning the typed `unknown_arguments` diagnostic
 for undeclared arguments is the extension's obligation: pass `kwargs` to
 `server_impl.ensure_no_extra_args(tool_name, kwargs)` and return its envelope when it is not
 `None`. Replacing the MCP tool does not change the server's internal callers of core response
 functions. To delegate to the core tool, call `mcp.core_handler(name)` during `register` (wave
 `1zim3`): it returns the core tool's handler as registered, before argument normalization and the
 `MIDDLEWARE` chain, so calling it from the override takes the lifecycle lock and records cost once,
-through the override's own name-keyed wrappers. Asking for a name the module did not declare as an
-override raises, which refuses registration.
+through the override's own name-keyed wrappers. Since wave `1zls8` it returns a thin measuring
+wrapper around that handler, which returns the core result unchanged (the same object), propagates
+its exceptions and carries no lock, guard or cost wrapper. For a name that records its own cost
+(the lifecycle tools that write context-efficiency workflow records and the `code_*` and
+`docs_search` retrieval tools, `_COST_EXEMPT_TOOLS`), the core records the core response and the
+server records only what the override adds after the core call: one event with no request tokens
+and the final response size less the size of every self-recording core result the call received,
+only when that is above zero; when the override never delegates to a self-recording core, one
+event with its request and whole response. The figure is an estimate of what the override added. A
+delegating override that adds fields therefore counts as two events in the context-efficiency
+**Tool calls** column (the core's and the addition), one that adds nothing counts as the core's
+event only, and one that never delegates counts once. Call `core_handler` on the thread or task
+that runs the override: the measurement scope is a context variable, which a thread-pool worker
+does not inherit, so a core call made in an executor thread is not subtracted and its size counts
+as the override's addition. For a lifecycle core that publishes the context-efficiency checkpoint
+(create, prepare, review and a mutating close), the checkpoint is published inside the core call,
+before the override's delta event is written, so the delta lands in the next checkpoint, or outside
+the wave once a sealing close has cleared focus. An override of a lifecycle-locked name already runs its whole body,
+before and after the core call, inside the lifecycle lock and behind the upgrade publication
+guard, because both are keyed on the served name, so it never takes the lock itself. Asking for a
+name the module did not declare as an override raises, which refuses registration.
 
 **Aliases and hidden names (wave `1z8oz`).** A distribution can serve a tool under its own
 vocabulary. Each alias is installed after the `MIDDLEWARE` chain as a copy of the canonical
@@ -206,7 +265,7 @@ apply once and stay keyed on the canonical name. The alias takes the canonical t
 annotations. Its description is the canonical text, which keeps canonical parameter names, unless
 the entry declares its own `description` (wave `1zime`): a string, non-empty after stripping
 whitespace and at most 16,384 characters, allowed only on an entry with a non-empty `rename` or
-`fixed` (a plain alias keeps the canonical description). The alias is listed with that text
+`fixed` or `response_keys` (a plain alias keeps the canonical description). The alias is listed with that text
 unchanged; the canonical tool, its plain aliases and mapped aliases without `description` keep the
 canonical description, and `wf_server_info` reports the text (or `null`) in the alias's
 `extensions.parameters` entry. A distribution that declares `description` needs a framework that
@@ -215,13 +274,41 @@ through a mapped alias (wave `1zime`), each top-level `data` key that echoes a r
 uses the alias's name, in one simultaneous pass in the same key position, so a swap does not
 chain; values never change. Nested `data`, diagnostic messages, pinned parameters (the alias has
 no name for them) and keys that are not renamed parameters keep canonical names. When the renamed
-`data` would hold the same key twice, `data` is left unchanged. Calls under the canonical name, a
-plain alias, a replacement or a core-behaviour alias are unaffected. An alias
+`data` would hold the same key twice, `data` is left unchanged. Since wave `1zls8` an entry may
+also declare `response_keys`, `{path: new_key}`, to answer in the alias's vocabulary below the top
+level: `path` names one key of the canonical response `data` in canonical names, dot-separated,
+where a segment ending in `[]` means each element of the list at that key (for example
+`{"changes": "items", "changes[].id": "item_id"}`), and `new_key` renames that last key only, so
+no value moves to another level. The echo renames and `response_keys` apply in one walk over the
+canonical structure after the call: at each object a declared parent path reaches, its renames
+apply in one simultaneous pass in the same key positions (a swap does not chain), and at the top
+level the echo renames and the single-segment paths form that one pass. A parent rename and a
+child rename on the same branch both apply. A path whose intermediate value is absent, or is not a
+dict (for a plain segment) or a list (for a `[]` segment), is skipped for that object, and a list
+element that is not a dict is skipped. When an object's renamed keys would hold one key twice,
+that object keeps its canonical keys, renames elsewhere (including its children) still apply, and
+the response gains one advisory diagnostic `response_key_rename_skipped` naming each skipped
+declared path once; a collision caused only by echo renames adds no advisory and keeps the rule
+above, so an entry without `response_keys` answers byte-identically. Values are carried by
+identity, every dict and list on a renamed branch is a new shallow copy, the canonical result is
+never mutated, and status, the other diagnostics, `next_tools`, `usage` and diagnostic messages
+never change. Cost recording, extractors, the lifecycle lock and the publication guard run inside
+the canonical callable, before the rename, keyed on the canonical name. Distributions should pin
+their alias responses in their own tests, because a declared path that a later core response no
+longer has is skipped silently. A distribution that declares `response_keys` needs a framework
+that accepts it: an older server refuses the unknown key and serves only runner tools. Calls under
+the canonical name, a plain alias, a replacement or a core-behaviour alias are unaffected. An alias
 parameter may reuse a canonical name only when that name is renamed away, so a swap such as
 `{"set_id": "wave_id", "wave_id": "change_id"}` is valid. A declaration is refused when a mapping
-names something that is not an alias, has a key other than `rename`, `fixed` and `description`,
-declares a `description` that is not a string, is empty or whitespace only, exceeds 16,384
-characters or sits on an entry with neither `rename` nor `fixed`, renames from a
+names something that is not an alias, has a key other than `rename`, `fixed`, `description` and
+`response_keys`, declares a `description` that is not a string, is empty or whitespace only,
+exceeds 16,384 characters or sits on an entry with none of `rename`, `fixed` and `response_keys`,
+declares a `response_keys` that is not a mapping, has more than 64 entries, or has a path that is
+not dot-separated keys each optionally ending in `[]` (matched in full, so a trailing newline is
+refused), ends in `[]`, has more than eight segments, renames to a name that is not an identifier
+or to its own last key, renames two keys under one parent to the same name, renames a
+single-segment path that is a parameter `rename` already renames, or renames a single-segment path
+to an alias parameter name in `rename`, renames from a
 name that is not a canonical parameter or renames one canonical parameter twice, fixes a name that
 is not a canonical parameter or that it also renames, fixes a value the canonical field rejects,
 serves a parameter name twice, uses a parameter name that is not an identifier, starts with an
@@ -327,7 +414,17 @@ response naming the tool, and the hold registered in `runtime_lock`'s process-ho
 handler that re-enters the lifecycle lock, or calls another lifecycle-locked tool through the served
 surface, gets `LifecycleLockBusy` without the lock file being opened, and the outer hold stays
 until the outer call returns; a declared tool calls core functions directly, never a served locked
-tool. `EXTENSION_ARTIFACT_PATH_FIELDS` names, per tool, the response `data` field that holds the
+tool. Since wave `1zls7` only a refusal at acquisition maps to a lifecycle lock refusal, and every
+refusal names `.wavefoundry/lifecycle-mutation.lock` by its repository-relative path, never the
+absolute one: `lifecycle_mutation_locked` (`data.busy` true) when another process holds the lock,
+or another call in this server process holds it from another thread; `lifecycle_lock_unavailable`
+(not busy, retrying does not help) when the server cannot prove ownership, naming only the cause
+class; and `lifecycle_lock_reentry` (no other session involved, not a retry) when the call, or an
+extension it invoked, re-enters the lock on its own thread, whether at a nested served tool's
+acquisition or raised by the handler body. Any other exception from the body propagates unchanged,
+and the lock is released on every path. `project_publication_busy` refusals are path-free too:
+they name the project publication lock and the lifecycle lock by their
+repository-relative paths and the cause class. `EXTENSION_ARTIFACT_PATH_FIELDS` names, per tool, the response `data` field that holds the
 repository-relative paths it wrote; the main cost pass credits them exactly as the core
 `wf_new_<kind>` extractors do, and only for names that have no core extractor: `status == "ok"`
 only; the field may hold a path string, a list of strings or `{"path": ...}` mappings, or a
@@ -350,13 +447,17 @@ extractors are fixed by core; overrides and replacements keep the core name's lo
 **Failure.** Registration refuses, naming the module and cause, when:
 
 - the declaration is invalid: a module name that is not a flat identifier or is declared twice, a
-  reserved framework or standard-library module name, an empty prefix, a tier other than
+  reserved framework or standard-library module name, a framework flat script name, a helper
+  module name that breaks the same rules or is also an extension module, a helper declaration that
+  is not a tuple, an empty prefix, a tier other than
   `read`/`write`, a tier declared for an existing tool, an override target or a name without a
   declared extension prefix, overrides for an undeclared module, an override of a runner tool or of a tool
   core does not register, or the same override declared twice or by two modules;
 - a declared module is a module the server already imported by that public name before
-  registration, has no `.py` source whose resolved parent is the resolved scripts directory, lacks
-  `register`, or raises during it. A framework script added in a later release under the same file
+  registration, has no `.py` source whose resolved parent is the resolved scripts directory or no
+  file named exactly `<name>.py` there, lacks `register`, or raises during it; a declared helper
+  module has the same location, name or collision problem, imports a later-declared helper, or
+  raises while importing. A framework script added in a later release under the same file
   name replaces the extension file on upgrade, so give extension modules distribution-specific
   names;
 - a module registers an existing tool it did not declare as an override, a name another module
@@ -392,24 +493,30 @@ raise, which stops the allowlist renderer and upgrade allowlist reconciliation.
 module is re-executed, so edited declarations and extension modules are served after reload.
 Reload removes every served name except the runner tools, so aliases, hidden names and replacements
 are rebuilt from the declaration, and a declaration made invalid fails closed.
-Undeclared helper modules an extension imports are not purged.
+Since wave `1zls8` declared helper modules are evicted and re-executed too, and a helper dropped
+from the declaration is no longer in `sys.modules`; undeclared modules an extension imports are
+not purged.
 
 **Provenance.** `wf_server_info` reports an `extensions` object: `declaration` (repository-relative
 path, SHA-256, declared prefixes and tiers, and, since wave `1zimf`, `lifecycle_tools` as a sorted
 list and `artifact_path_fields` as a mapping sorted by tool, both empty for the stock
-declaration), `modules` (for each loaded module its path, the
+declaration, and, since wave `1zls8`, `helper_modules`, the declared helper names in load order),
+`helper_modules` (for each loaded helper module its `module`, path and the SHA-256 of the exact
+bytes executed; wave `1zls8`), `modules` (for each loaded module its path, the
 SHA-256 of the exact bytes executed, its new tools with tiers, the core tools it overrides and the
 core names it replaces), `aliases`, `hidden`, `replacements` (core name, module, `alias_for_core`
-and served tier), `parameters` (for each mapped alias its canonical name, `rename` and `fixed`;
-wave `1zim3`) and `served_names` (the canonical-to-served map the hint rewrite uses for list
-hints and whole names). With no declarations, `modules`, `aliases`, `hidden`, `replacements`,
+and served tier), `parameters` (for each mapped alias its canonical name, `rename` and `fixed`
+(wave `1zim3`), its `description` (wave `1zime`) and its `response_keys` sorted by path, empty
+when none (wave `1zls8`)) and `served_names` (the canonical-to-served map the hint rewrite uses for list
+hints and whole names). With no declarations, `helper_modules`, `modules`, `aliases`, `hidden`, `replacements`,
 `parameters` and `served_names` are empty.
 
 **Trust boundary.** Extension modules are distribution code and run with the server's authority.
 Nothing is loaded from a target repository. An extension that rebinds existing tool objects, their handlers or wrapper
 names in place (the `MIDDLEWARE` entries bind late), or that mutates the server after registration,
 is outside what staging detects. A new extension tool that writes wave lifecycle records must be
-declared in `EXTENSION_LIFECYCLE_TOOLS`. Imports made by an extension module are not hashed.
+declared in `EXTENSION_LIFECYCLE_TOOLS`. Imports of declared helper modules are hashed and
+reloaded; any other import is neither.
 
 **Server package layout (wave `1yzd0`, ADR `1yx4m`).** The composition root `server_impl`, the
 registry `mcp_tool_registry` and the ten `*_handlers` modules live in `scripts/wf_server/`. What a
@@ -1045,6 +1152,7 @@ action when known.
 `wf_list_waves(limit: int = 50)`
 
 - Lists known waves with ID, status, and change count.
+- Each wave carries a derived `parent` (wave 1zlu1): the POSIX path of its folder's parent relative to the waves root, or `null` for a direct child of the waves root. It is read from the discovered folder, not stored in the record.
 - Optional `limit`: max waves to return, default `50`, clamped `[1, 200]`.
 - When the listing is empty but the waves root holds folders with files and
   none contains the profile's record file, the response adds the advisory
@@ -1094,7 +1202,7 @@ action when known.
   The lifecycle writers that take an existing wave or change id (`wf_add_change`,
   `wf_remove_change`, `wf_mark_ac`, `wf_mark_task`, `wf_review_event`,
   `wf_prepare_wave`, `wf_pause_wave`, `wf_review_wave`, `wf_implement_wave`,
-  `wf_close_wave`, `wf_reopen_wave`) refuse an archive-only id with
+  `wf_close_wave`, `wf_close_change`, `wf_reopen_wave`) refuse an archive-only id with
   `archived_record_read_only` instead of the not-found diagnostic, and change
   nothing.
 - Change lookup is namespace-scoped to change docs; wave lookup is namespace-scoped
@@ -1133,9 +1241,11 @@ reads.
 
 ### Lifecycle Mutations
 
-`wf_create_wave(slug: str, mode: str = "dry_run")`
+`wf_create_wave(slug: str, mode: str = "dry_run", parent: str | None = None)`
 
-- Creates a wave record under `docs/waves/<wave-id>/wave.md` using lifecycle wave IDs.
+- Creates a wave record under `docs/waves/<wave-id>/wave.md` (the configured waves root) using lifecycle wave IDs.
+- Optional `parent` (wave 1zlu1): an existing folder relative to the waves root, `/`-separated (`\` is folded to `/`), for example `q4/auth`; the wave is created as `<waves root>/<parent>/<wave-id>/` with one non-recursive `mkdir`. It needs the nested record layout. It is refused with `invalid_arguments` (one reason; nothing written; no lifecycle prefix consumed, because it is validated before the id is minted) when the layout is flat; the value is empty or only whitespace or separators; it is absolute under POSIX or Windows rules (leading `/` or `\`, a drive such as `C:`, a UNC prefix); a component is `..` or dot-prefixed; a component is a symlink or the folder does not resolve inside the waves root; a folder from the first component down holds the record file; the parent's depth plus one exceeds `max_depth` (the discovery depth); or the folder does not exist or is not a directory. Under the publication lock the parent is re-checked (a folder swapped for a symlink is refused), and an id prefix already used by a wave folder at another path (live or archived) is refused with `ambiguous_wave_id`.
+- `data.parent` is the parent folder's POSIX path below the waves root as spelled on disk (case folding and Windows' stripped trailing dots and spaces report the folder actually used), or `null` without a `parent`; `data.path` stays repo-relative.
 - In apply/create mode, requests a background docs-index refresh for the new wave doc without blocking the MCP response.
 
 `wf_add_change(wave_id: str, change_id: str, mode: str = "dry_run")`
@@ -1155,7 +1265,7 @@ change remains active outside the wave.
 - Must reject duplicate staged + wave copies rather than silently picking one.
 - On successful apply/create writes, requests a background docs-index refresh without relying on editor hooks.
 
-**Unreadable wave records (wave 1v0lw): shared refusal contract for `wf_create_wave`, `wf_add_change`, `wf_remove_change`, `wf_prepare_wave`, `wf_implement_wave`, `wf_pause_wave`, `wf_review_wave`, `wf_review_event`, `wf_mark_ac`, `wf_mark_task`, `wf_close_wave`, and `wf_reopen_wave`:**
+**Unreadable wave records (wave 1v0lw): shared refusal contract for `wf_create_wave`, `wf_add_change`, `wf_remove_change`, `wf_prepare_wave`, `wf_implement_wave`, `wf_pause_wave`, `wf_review_wave`, `wf_review_event`, `wf_mark_ac`, `wf_mark_task`, `wf_close_wave`, `wf_close_change`, and `wf_reopen_wave`:**
 
 - A `wave.md` that exists but cannot be read (invalid UTF-8, permissions)
   **refuses, never raises**: `status: "error"` with a `wave_record_unreadable`
@@ -1187,16 +1297,19 @@ change remains active outside the wave.
 
 `wf_prepare_wave(wave_id: str, mode: str = "dry_run")` — modes: `dry_run` (alias: `evaluate`) / `ready` / `create`
 
+- Phase-scoped project lanes (wave `1zlu1`): `required_review_lanes` lanes are required at readiness and delivery; `phase_gates.prepare.required_lanes` at readiness only and `phase_gates.close.required_lanes` at delivery only (risk-triggered and requested lanes apply to both). Prepare selects two rosters: the readiness roster, written to `- Required review lanes:` and carried by the receipt as before, and the delivery roster, written to a `- Required delivery lanes:` line directly after it only when it differs (an existing delivery line is removed when the rosters become equal; an absent line means the same as readiness). `data.delivery_only_lanes` names the lanes that apply at delivery only; they are not in `pending_readiness_lanes` and are not gated at readiness. `data.review_policy` also carries `delivery_lanes`. A stale readiness line or a delivery roster (line, or readiness fallback) that no longer matches the current delivery selection is `review_policy_receipt_stale`. A present `required_review_lanes` that is not a list is never read as no lanes: Implement, Review and Close report it as the blocking `required_review_lanes_invalid` (as do the guided review-event continuation and Prepare's policy gate), and Prepare refuses through the policy-state config error. `REVIEW_POLICY_EVALUATOR_VERSION` stays 7, and a config without `phase_gates` keeps its digest.
+
 - Every Prepare response reports `data.readiness_receipts`: the number of `review_policy_receipt` records before the ledger's first `initial_delivery` run, or all receipts when no such run exists, evaluated after any receipt publication by this call. A resolved readable empty ledger counts as `0`; an unresolved wave or unavailable/unreadable ledger counts as `null`, never a fabricated zero. The field is present on success and error responses, including outer refusal paths.
 - Only Prepare emits `readiness_receipt_publications_high` with `advisory: true` when `readiness_receipts` exceeds the named threshold of 5. It describes unusually frequent Prepare publications and invites inspection of review churn. Five is the historical 90th percentile, not a review-round budget: multiple review passes may share one receipt, so the count neither measures rounds nor proves convergence. The ledger-derived count is not reset by settlement prose or a fresh council, and the advisory never changes the Prepare outcome.
 - Only Prepare emits `readiness_lane_approvals_missing` with `advisory: true`, naming required lanes without a current readiness approval. Derive the lane set and approval currency exactly as `wf_implement_wave` does (the same configured wave/project lane union and readiness signoff-current predicate), after any receipt publication by the call. An unresolved wave or unavailable authority produces no invented lane result and does not replace existing errors. This advisory does not change Prepare's outcome or waive activation's existing lane-approval requirement. Its message distinguishes a first pass from a lapse (wave `1zime`): a lane with no readiness approval recorded at all reads "Readiness approvals still needed from: ..." and points at the readiness review; a lane whose approval lapsed with a superseded receipt keeps the re-review wording.
 - Every Prepare response's `data` carries `pending_readiness_lanes` (wave `1zime`): the same lane list, empty when none is pending, or `null` when it cannot be computed (an unresolved wave, an unreadable record or ledger errors, the cases where the advisory is skipped).
+- `prepare_council_verdict_misplaced` (wave `1zls7`, `advisory: true`) is appended beside `prepare_council_verdict_missing` in every Prepare mode, and in `wf_implement_wave`'s legacy branch, when a verdict-shaped list item (one carrying the bracketed `[prepare-council]` token outside inline code and fenced code) sits somewhere other than `wave.md` under `## Review Checkpoints`: under another `wave.md` heading (a `###` inside Review Checkpoints counts, since the verdict parser ends the section at any heading) or in an admitted change document. It names each location as repository-relative path and nearest heading (at most five, then a count) and says the verdict belongs in `wave.md` under `## Review Checkpoints`. On a declared wave the same code is appended beside `missing_wave_council_signoff` when any prose verdict line exists, saying a prose verdict is not readiness authority and that readiness is recorded as `wave-council-readiness` through `wf_review_event`. It never changes the status, a blocking diagnostic, `next_tools` or `usage`, and the server moves nothing.
 - Every Prepare mode emits `wave_objective_unpopulated` with `advisory: true` (wave `1zime`) when the wave record's `## Objective` body, stripped, is empty or is only one angle-bracket placeholder, as the `wf_create_wave` scaffold leaves it. It is computed by the observational wrapper, so error envelopes carry it too, and never changes the status.
 - The council brief (`data.council_brief.instructions` and `verdict_format`) is keyed on the rotating seat and the resolved review authority (wave `1zime`); the receipt-bound and unbound briefs render the same text for the same pair. On a declared wave it says to record the readiness run, each required lane's readiness approval and then the council verdict as the typed approval `wf_review_event(event='approval', signoff_key='wave-council-readiness', ...)`; a `## Review Checkpoints` narrative is optional and not authority; it ends with `wf_prepare_wave(mode='ready')`, or `mode='create'` to also open the wave. Legacy waves keep the structured `prepare-council` prose line.
 - **Blocked-envelope hints (wave `1zime`):** an error envelope from `wf_prepare_wave`, `wf_review_wave` or `wf_close_wave` takes `usage` from the FIRST blocking diagnostic in emitted order that set the status; when it carries `recovery_usage` that is the usage, and its `recovery_tools` followed by the branch defaults (without duplicates) are `next_tools`, and when it carries none the branch defaults stand. A later diagnostic never overrides an earlier blocker, so a docs-lint error still recommends `wf_validate_docs()`. The `another_wave_active` branch keeps its explicit hint. On a declared wave `missing_wave_council_signoff` and the prepare-phase `missing_required_lane` recover to `wf_review_wave(wave_id=..., phase='prepare')` with `wf_review_event`; legacy wording and recovery are unchanged. A readiness-gate block recommends a retry in the caller's mode, never `mode='create'` for a `ready` call.
 - A newly published superseding receipt in `ready`/`create` emits `review_policy_receipt_superseded`, including when readiness approvals are missing. Genesis and unchanged publications do not. Optional non-semantic `policy_inputs` metadata identifies changed admitted documents or project policy when the predecessor provides it; older receipts retain the unattributable fallback. This metadata does not alter the digest, receipt identity, evaluator version, or nested Prepare receipt envelope. Readiness review repeats the advisory while any lane's latest readiness approval names an older receipt; partial reapproval does not clear it, delivery reapproval does not substitute, and all-lane readiness reapproval clears it without deleting history. Unaffected review scope may be reapproved by reference; affected scope must be reviewed first.
 
-- Every handler response includes `configured_gates`; reached required sensors run in `ready`/`create`, while dry-run reports `would_run` without execution. A handler response that returns early carries an empty list. A response produced by a registration wrapper, or returned by a tool body before it calls its handler, carries no `configured_gates` key at all, which today means the lock's busy and unavailable refusals, the upgrade guard's in-progress and busy refusals, and the tool body's unknown-argument refusal. Read the key defensively. configured_gates outcomes: `would_run/passed/failed/invalid`.
+- Every handler response includes `configured_gates`; reached required sensors run in `ready`/`create`, while dry-run reports `would_run` without execution. A handler response that returns early carries an empty list. A response produced by a registration wrapper, or returned by a tool body before it calls its handler, carries no `configured_gates` key at all, which today means the lock's busy, unavailable and re-entry refusals, the upgrade guard's in-progress and busy refusals, and the tool body's unknown-argument refusal. Read the key defensively. configured_gates outcomes: `would_run/passed/failed/invalid`.
 
 - Validates that every admitted change doc is wave-owned.
 - Repairs staged-only admitted docs by moving them into `docs/waves/<wave-id>/`
@@ -1248,6 +1361,8 @@ during `ready`/`create` (readiness mutations); `dry_run` is read-only.
 
 `wf_review_wave(wave_id: str, phase: str = "implementation")`
 
+- `phase="prepare"` reads the readiness roster (`- Required review lanes:` plus the prepare-phase project lanes); `phase="implementation"`, the shared delivery gate and `wf_close_wave` read the delivery roster (`- Required delivery lanes:` when present, otherwise the readiness line, plus the close-phase project lanes), so a readiness-only lane is not required at Review or Close (wave `1zlu1`).
+
 - Every handler response includes `configured_gates: []`: review is read-only and has no configurable sensor phase. A response produced by a registration wrapper, or returned by a tool body before it calls its handler, carries no `configured_gates` key at all.
 
 - A failing `phase="prepare"` review never recommends implementation (wave `1zime`): when `review_actions.recommended_next_action` exists, `usage` is a pure call expression, `wf_review_event(wave_id=..., <the action's state_args>, actor=...)`, so the served-name hint rewrite can rename it, and `data.next_action_note` explains that the caller adds the action's `required_caller_inputs` and `mode='create'`; otherwise the first lint, lane or review-evidence blocker names the remedy (see **Blocked-envelope hints** under `wf_prepare_wave`). `wf_implement_wave(..., mode='dry_run')` is recommended only when the readiness review passes. A failing implementation review takes its hint from the first diagnostic in `blocking_diagnostics`; on a declared wave the delivery `missing_required_lane` recovers to `wf_review_wave(wave_id=..., phase='implementation')`.
@@ -1288,6 +1403,14 @@ above: typed-exclusive on declared waves, prose only on legacy waves.
 - Mark one exact acceptance criterion or task as complete (`state="x"`) or intentionally deferred (`state="~"`). They are deliberately not generic document editors: absent or ambiguous targets are refused, and only the selected checkbox (plus a supplied AC deferral note) changes. `wf_mark_ac` applies the exact docs-lint rationale rule for required-priority ACs; tasks retain the validator's more permissive rule. Logical checkbox labels include indented continuation lines, so a wrapped task is addressed by its full normalized label; duplicate labels are refused instead of guessed.
 - Refusals are recoverable: an unknown wave points to `wf_current_wave`; an absent or ambiguous item points to `wf_get_change`. Ambiguous responses return matching labels and instruct the agent not to choose arbitrarily—retry with the exact full label, or make truly identical labels distinct in the change document before retrying. An absent target returns every parsed label in that section so the caller can pick the right one; that branch reports the candidates without the not-arbitrarily instruction, which applies only where several labels genuinely matched. A required AC deferral without a valid note tells the agent to retry `wf_mark_ac` with `reason`.
 - A successful `wf_mark_ac(state="~")` on a declared wave with review policy configured atomically writes the deferred AC, publishes its new review-policy receipt, and reprojects review state. Its `review_receipt_refreshed` object identifies that receipt and gives the fresh readiness review actions, and the supersession is **also reported as a diagnostic** rather than only as that payload field, because publishing the receipt moves any current readiness approval to non-current, and reporting that only in the payload field left it out of the diagnostics an agent actually reads. It does **not** create or carry forward approvals for the changed contract. If this publication fails, the AC is not changed; inspect the returned recovery diagnostic, correct the named review-state problem, and retry the same call rather than manually editing the checkbox, ledger, or projection. Completion and task marks remain receipt-neutral; legacy or policy-disabled waves retain their ordinary tracking-only behavior.
+
+`wf_close_change(wave_id, change_id, mode="dry_run")` (wave 1zlu1)
+
+- Closes ONE admitted change inside an OPEN wave without closing the wave, and moves the dependents its close unblocks to `ready`. `wave_id` takes a unique prefix; `change_id` must be the full admitted id. Modes: `dry_run` (read-only) and `create` (alias `apply`); any other mode returns `invalid_arguments` with `valid_modes`. Undeclared arguments are refused. It is a lifecycle writer: serialized by the lifecycle mutation lock (a held lock returns the busy response), `create` holds the project publication lock, it is `write` tier, registered as a `lifecycle` publication writer, and an invalid record layout or archive-only wave id is refused like the other lifecycle writers.
+- Gate: every failing gate is reported as its own diagnostic, in both modes, and nothing is written: `wave_not_open` (the wave `Status:` is not `active` or `implementing`), `change_not_admitted` (no member block under the member heading), `change_doc_missing` / `change_doc_unreadable`, `change_status_not_closable` (the closable statuses are derived at call time from the docs-lint constants: progressable or done, not terminal, and allowed to move to `complete`, which today is `ready`, `active`, `review` and `implemented`), `change_status_drift` (the change document and the wave record disagree), `silent_unchecked_items` (the close-wave checkbox collector, filtered to this change; an open item in another change does not block), and `dependencies_not_done` (a wave-record `Depends On:` target that is not done, terminal or `implemented`, or that is not admitted to this wave).
+- Writes (`create`): the change document's `Change Status:` and `Status:` header lines become `complete`; the wave-record block becomes `complete` with `Previous Change Status` set to the prior status (wave record only, so the review-policy digest does not move). Activation candidates are only the other changes whose wave-record `Depends On:` names the closed change; each candidate that is `planned` or `blocked` and whose dependencies are now all done moves to `ready` in both files (never `active`). Dependencies declared only in a change document are reported as the advisory `dependencies_not_in_wave_record` and never activated. Labels follow the vocabulary profile; status values are never translated.
+- Lint: the new statuses are checked in memory against the transition table and the dependency rule first (`close_change_transition_invalid`); docs-lint scoped to the written documents runs before and after the write, and a failure the write introduced restores every written file and returns `close_change_lint_failed`. Pre-existing failures never roll back; `dry_run` reports them as the advisory `close_change_lint_preexisting`.
+- Response `data`: `wave_id`, `change_id`, `mode`, `previous_status`, `status`, `planned_writes`, `written` (repo-relative paths, empty in `dry_run`), `activated` and `not_activated` (each with `change_id`, `previous_status` and, for skipped ones, `reason`), and the post-write `lint` attachment on `create`. No review evidence is read or written, no ledger event is appended, and reopening a completed change is not supported.
 
 `wf_close_wave(wave_id: str, mode: str = "dry_run")`
 

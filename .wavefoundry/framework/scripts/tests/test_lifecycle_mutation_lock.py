@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -125,11 +126,15 @@ class MutationLockTests(unittest.TestCase):
             self.assertEqual(out["data"]["ran"], True)
 
     def test_busy_response_shape(self):
-        resp = srv._lifecycle_mutation_busy_response("wf_close_wave", "/x/lifecycle-mutation.lock")
+        busy = srv.LifecycleMutationBusy("lifecycle mutation lock is held: /x/lifecycle-mutation.lock")
+        resp = srv._lifecycle_mutation_busy_response("wf_close_wave", busy)
         self.assertEqual(resp["status"], "error")
         self.assertTrue(resp["data"]["busy"])
         codes = [d["code"] for d in resp["diagnostics"]]
         self.assertIn("lifecycle_mutation_locked", codes)
+        # Wave 1zls7 (1zlts): built from attributes, never from str(busy).
+        self.assertNotIn("/x/", resp["diagnostics"][0]["message"])
+        self.assertIn(".wavefoundry/lifecycle-mutation.lock", resp["diagnostics"][0]["message"])
 
     def test_non_census_tools_not_wrapped(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -761,7 +766,9 @@ class LifecycleHoldRegistryTests(unittest.TestCase):
         self.assertEqual(holder.errors, [])
         self.assertEqual(_other_process_lifecycle(self.root), "acquired")
 
-    def test_middleware_returns_busy_for_a_reentered_tool_call(self):
+    def test_middleware_returns_reentry_for_a_reentered_tool_call(self):
+        # Wave 1zls7 (1zlts): a same-thread re-entry is reported as
+        # ``lifecycle_lock_reentry``, not as another session's contention.
         called = []
 
         def tool(**kwargs):
@@ -774,8 +781,8 @@ class LifecycleHoldRegistryTests(unittest.TestCase):
             self.assertEqual(_other_process_lifecycle(self.root), "busy")
         self.assertEqual(called, [])
         self.assertEqual(result["status"], "error")
-        self.assertIn(
-            "lifecycle_mutation_locked", [d["code"] for d in result["diagnostics"]]
+        self.assertEqual(
+            ["lifecycle_lock_reentry"], [d["code"] for d in result["diagnostics"]]
         )
         self.assertEqual(wrapped()["status"], "ok")
 
@@ -940,7 +947,13 @@ class LifecycleOpenerCensusTests(unittest.TestCase):
         lines = self._matches()["wf_server/server_impl.py"]
         self.assertTrue(lines)
         for line in lines:
-            self.assertIn("LIFECYCLE_MUTATION_LOCK_REL.name", line)
+            # Wave 1zls7 (1zlts): the repository-relative text names the lock
+            # in refusal messages too; still a message-only use.
+            self.assertTrue(
+                "LIFECYCLE_MUTATION_LOCK_REL.name" in line
+                or "LIFECYCLE_MUTATION_LOCK_REL.as_posix()" in line,
+                line,
+            )
             self.assertNotIn("RuntimeFileLock", line)
             self.assertNotIn("open(", line)
 
@@ -1179,3 +1192,396 @@ class LifecycleHoldGuardOrderingTests(unittest.TestCase):
                 with self.re.project_state_publication_lock(self.root, wait=True):
                     self.fail("entered while another process held lifecycle")
         self.assertEqual(opened, [True])
+
+
+_HOLD_TRANSACTION = _CHILD_PRELUDE + (
+    "import lifecycle_lock\n"
+    "with lifecycle_lock.lifecycle_publication_transaction(root):\n"
+    "    print('held', flush=True)\n"
+    "    sys.stdin.readline()\n"
+    "print('released', flush=True)\n"
+)
+
+
+class LifecycleRefusalContractTests(unittest.TestCase):
+    """Wave 1zls7 (1zlts): the refusal names the lock actually held, by its
+    repository-relative path, and never leaks the absolute path."""
+
+    LOCK_REL = ".wavefoundry/lifecycle-mutation.lock"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        _repo(self.root)
+        self.ll = srv._lifecycle_lock_authority
+
+    def _wrapped(self, tool_name, fn, get_handler=None):
+        class _Tool: ...
+        class _TM: ...
+        class _MCP: ...
+        tool = _Tool(); tool.fn = fn
+        tm = _TM(); tm._tools = {tool_name: tool}
+        mcp = _MCP(); mcp._tool_manager = tm
+        handler = SimpleNamespace(root=self.root)
+        srv._wrap_lifecycle_mutation_lock(mcp, get_handler or (lambda: handler))
+        return tool.fn
+
+    def _assert_path_free(self, result):
+        text = json.dumps(result)
+        for absolute in {str(self.root), str(self.root.resolve()), os.fspath(self.root.resolve()).replace("\\", "/")}:
+            self.assertNotIn(absolute, text)
+            self.assertNotIn(json.dumps(absolute)[1:-1], text)
+
+    @staticmethod
+    def _codes(result):
+        return [d["code"] for d in result["diagnostics"]]
+
+    def test_contention_from_another_process_names_the_relative_lock_once(self):
+        # AC-1
+        holder = _Child(_HOLD_LIFECYCLE, self.root)
+        self.addCleanup(holder.close)
+        self.assertEqual(holder.expect(60), "held")
+        called = []
+        result = self._wrapped("wf_close_wave", lambda **kw: called.append(kw))()
+        holder.say()
+        self.assertEqual(holder.expect(60), "released")
+        self.assertEqual(called, [])
+        self.assertEqual(self._codes(result), ["lifecycle_mutation_locked"])
+        self.assertIs(result["data"]["busy"], True)
+        message = result["diagnostics"][0]["message"]
+        self.assertIn(self.LOCK_REL, message)
+        self.assertIn("another process", message)
+        self.assertLessEqual(message.count("lock is held"), 1, message)
+        self._assert_path_free(result)
+
+    def test_contention_from_another_thread_says_this_server_process(self):
+        # AC-8 (last sentence)
+        holder = _HeldOnThread(self.ll, self.root)
+        try:
+            result = self._wrapped("wf_add_change", lambda **kw: {"status": "ok"})()
+        finally:
+            holder.stop()
+        self.assertEqual(self._codes(result), ["lifecycle_mutation_locked"])
+        message = result["diagnostics"][0]["message"]
+        self.assertIn("another call in this server process", message)
+        self.assertIn(self.LOCK_REL, message)
+        self._assert_path_free(result)
+
+    def test_unavailable_at_acquire_is_not_busy(self):
+        # AC-2
+        import errno
+        rl = sys.modules[self.ll.RuntimeFileLock.__module__]
+
+        def refuse(lock_self):
+            raise rl.RuntimeLockError(
+                errno.ENOLCK, f"Unable to acquire runtime lock {lock_self.path}: no locks")
+
+        called = []
+        wrapped = self._wrapped("wf_set_handoff", lambda **kw: called.append(kw))
+        with patch.object(self.ll.RuntimeFileLock, "acquire", refuse):
+            result = wrapped()
+        self.assertEqual(called, [])
+        self.assertEqual(self._codes(result), ["lifecycle_lock_unavailable"])
+        self.assertIsNot(result["data"].get("busy"), True)
+        message = result["diagnostics"][0]["message"]
+        self.assertIn(self.LOCK_REL, message)
+        self.assertIn("RuntimeLockError", message)
+        self.assertNotIn("Retry once", message)
+        self._assert_path_free(result)
+
+    def test_body_reentry_is_reported_as_reentry_and_the_hold_is_released(self):
+        # AC-3
+        def body(**kwargs):
+            with self.ll.lifecycle_mutation_lock(self.root):
+                self.fail("re-entry ran its body")
+
+        result = self._wrapped("wf_set_handoff", body)()
+        self.assertEqual(self._codes(result), ["lifecycle_lock_reentry"])
+        message = result["diagnostics"][0]["message"]
+        self.assertIn("no other session", message)
+        self.assertIn(self.LOCK_REL, message)
+        self._assert_path_free(result)
+        self.assertIsNone(self.ll.process_hold(self.root / self.ll.LIFECYCLE_MUTATION_LOCK_REL))
+        self.assertEqual(_other_process_lifecycle(self.root), "acquired")
+
+    def test_nested_wrapped_call_on_the_same_thread_is_reentry(self):
+        # AC-3: an extension body invoking another wrapped tool.
+        inner = self._wrapped("wf_set_handoff", lambda **kw: {"status": "ok"})
+        seen = {}
+
+        def outer(**kwargs):
+            seen["inner"] = inner()
+            return {"status": "ok", "data": {}}
+
+        self.assertEqual(self._wrapped("wf_create_wave", outer)()["status"], "ok")
+        self.assertEqual(self._codes(seen["inner"]), ["lifecycle_lock_reentry"])
+        self._assert_path_free(seen["inner"])
+        self.assertEqual(_other_process_lifecycle(self.root), "acquired")
+
+    def test_non_lock_body_exception_propagates_and_releases(self):
+        # AC-5
+        def body(**kwargs):
+            raise ValueError("body failure")
+
+        with self.assertRaisesRegex(ValueError, "body failure"):
+            self._wrapped("wf_close_wave", body)()
+        self.assertEqual(_other_process_lifecycle(self.root), "acquired")
+
+    def test_body_lock_refusals_that_are_not_reentry_propagate(self):
+        # AC-5 / Requirement 1: only acquisition maps to the lifecycle
+        # refusal; a busy lock raised by the body is not reported as one.
+        for raised in (
+            srv.LifecycleMutationBusy("raised by the body"),
+            self.ll.LifecycleLockBusy("some other lock is held"),
+        ):
+            with self.subTest(raised=type(raised).__name__):
+                def body(**kwargs):
+                    raise raised
+
+                with self.assertRaises(type(raised)):
+                    self._wrapped("wf_close_wave", body)()
+                self.assertEqual(_other_process_lifecycle(self.root), "acquired")
+
+    def test_root_resolution_refusal_names_only_the_exception_class(self):
+        # AC-8: no str(exc) text in the root-resolution refusal.
+        secret = str(self.root / "secret-home")
+
+        def broken():
+            raise RuntimeError(f"cannot resolve {secret}")
+
+        result = self._wrapped("wf_prepare_wave", lambda **kw: {"status": "ok"}, broken)()
+        self.assertEqual(self._codes(result), ["lifecycle_lock_unavailable"])
+        message = result["diagnostics"][0]["message"]
+        self.assertIn("RuntimeError", message)
+        self.assertNotIn("cannot resolve", message)
+        self._assert_path_free(result)
+
+    def test_upgrade_guard_publication_refusal_is_path_free(self):
+        # AC-8: a real ProjectPublicationUnavailable while another process
+        # holds the upgrade shape (lifecycle, then publication).
+        review_evidence = sys.modules[srv.ProjectPublicationUnavailable.__module__]
+        holder = _Child(_HOLD_TRANSACTION, self.root)
+        self.addCleanup(holder.close)
+        self.assertEqual(holder.expect(60), "held")
+
+        def body(**kwargs):
+            with review_evidence.project_state_publication_lock(self.root, wait=True):
+                self.fail("entered while another process held the transaction")
+
+        class _Tool: ...
+        tool = _Tool(); tool.fn = body
+        mcp = SimpleNamespace(_tool_manager=SimpleNamespace(_tools={"wf_prepare_wave": tool}))
+        srv._wrap_upgrade_publication_guard(mcp, lambda: SimpleNamespace(root=self.root))
+        with patch.object(srv.publication_control, "publication_block_reason", return_value=None):
+            result = tool.fn()
+        holder.say()
+        self.assertEqual(holder.expect(60), "released")
+        self.assertEqual(self._codes(result), ["project_publication_busy"])
+        message = result["diagnostics"][0]["message"]
+        self.assertIn(self.LOCK_REL, message)
+        self._assert_path_free(result)
+
+    def test_context_efficiency_publication_error_is_path_free(self):
+        # Requirement 4a sibling: the projection's ``error`` reaches
+        # ``data.context_efficiency_persistence`` of lifecycle tool responses.
+        _wave(self.root, "1aaaa demo")
+        holder = _Child(_HOLD_TRANSACTION, self.root)
+        self.addCleanup(holder.close)
+        self.assertEqual(holder.expect(60), "held")
+        result = srv._project_context_efficiency_wave(self.root, "1aaaa demo", automatic=True)
+        holder.say()
+        self.assertEqual(holder.expect(60), "released")
+        self.assertEqual(result.get("reason"), "publication_lock_busy", result)
+        self._assert_path_free(result)
+
+
+class MemoryToolPublicationRefusalTests(unittest.TestCase):
+    """Wave 1zls7 (1zodv, AC-3): ``memory_consolidate`` and ``memory_purge`` are
+    registered publication writers, so the upgrade guard wraps the real
+    handlers: a held publication lock returns the path-free
+    ``project_publication_busy`` refusal, and an upgrade checkpoint refuses
+    them before the handler runs."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        _repo(self.root)
+        (self.root / "docs" / "agents").mkdir(parents=True, exist_ok=True)
+        review_evidence = sys.modules[srv.ProjectPublicationUnavailable.__module__]
+        self.LOCK_REL = review_evidence.PROJECT_STATE_PUBLICATION_LOCK_REL.as_posix()
+        self.ll = srv._lifecycle_lock_authority
+        import memory_records
+
+        for memory_id in ("mem-alpha-one", "mem-alpha-two"):
+            content = memory_records.render_memory_record(
+                memory_id=memory_id, kind="decision", summary=f"Lesson from {memory_id}.",
+                evidence=["`1abcd-bug some-change` observed"], targets=["src/a.py"],
+                title=f"Lesson {memory_id}", confidence=0.8, status="active",
+                supersedes="", date="2026-10-01",
+            )
+            memory_records.write_memory_record(self.root, content, memory_id)
+        self.calls = {
+            "memory_consolidate": lambda: srv.memory_consolidate_response(
+                self.root, mode="create", memory_ids=["mem-alpha-one", "mem-alpha-two"],
+                title="Consolidated", summary="Both lessons in one record.", reviewed=True,
+                eligibility_confirmed=True,
+            ),
+            "memory_purge": lambda: srv.memory_purge_response(
+                self.root, "mem-alpha-one", reviewed=True,
+            ),
+        }
+
+    def _guarded(self, name):
+        entered = []
+
+        def body(**kwargs):
+            entered.append(name)
+            return self.calls[name]()
+
+        class _Tool: ...
+        tool = _Tool(); tool.fn = body
+        mcp = SimpleNamespace(_tool_manager=SimpleNamespace(_tools={name: tool}))
+        srv._wrap_upgrade_publication_guard(mcp, lambda: SimpleNamespace(root=self.root))
+        return tool.fn, entered
+
+    def _assert_path_free(self, result):
+        text = json.dumps(result)
+        forms = set()
+        for absolute in {str(self.root), str(self.root.resolve())}:
+            for form in (absolute, absolute.replace("\\", "/"), absolute.replace("/", "\\")):
+                forms.add(form)
+                forms.add(json.dumps(form)[1:-1])
+        for form in forms:
+            self.assertNotIn(form, text)
+
+    def _assert_busy(self, result, name):
+        self.assertEqual([d["code"] for d in result["diagnostics"]], ["project_publication_busy"], result)
+        self.assertEqual(result["status"], "error")
+        self.assertIs(result["data"]["publication_applied"], False)
+        self.assertEqual(result["data"]["tool"], name)
+        self.assertIn(self.LOCK_REL, result["diagnostics"][0]["message"])
+        self._assert_path_free(result)
+
+    def test_both_tools_are_registered_fail_fast_memory_writers(self):
+        import publication_control
+
+        for name in ("memory_consolidate", "memory_purge"):
+            writer = publication_control._BY_TOOL[name]
+            self.assertEqual(
+                (writer.producer, writer.contention_policy, writer.surface, writer.memory_recovery),
+                ("memory", "fail_fast", "tool", False),
+            )
+
+    def test_another_process_holding_the_locks_gets_the_path_free_busy_refusal(self):
+        holder = _Child(_HOLD_TRANSACTION, self.root)
+        self.addCleanup(holder.close)
+        self.assertEqual(holder.expect(60), "held")
+        try:
+            results = {}
+            for name in ("memory_consolidate", "memory_purge"):
+                fn, entered = self._guarded(name)
+                results[name] = fn()
+                self.assertEqual(entered, [name])
+        finally:
+            holder.say()
+        self.assertEqual(holder.expect(60), "released")
+        for name, result in results.items():
+            with self.subTest(tool=name):
+                self._assert_busy(result, name)
+
+    def test_another_thread_running_a_lifecycle_mutation_gets_the_busy_refusal(self):
+        publication = _Child(_HOLD_PUBLICATION, self.root)
+        self.addCleanup(publication.close)
+        self.assertEqual(publication.expect(60), "held")
+        holder = _HeldOnThread(self.ll, self.root)
+        try:
+            results = {name: self._guarded(name)[0]() for name in ("memory_consolidate", "memory_purge")}
+        finally:
+            holder.stop()
+            publication.say()
+        self.assertEqual(holder.errors, [])
+        for name, result in results.items():
+            with self.subTest(tool=name):
+                self._assert_busy(result, name)
+                self.assertIn("another call in this server process", result["diagnostics"][0]["message"])
+
+    def test_an_upgrade_checkpoint_refuses_both_tools_before_the_handler(self):
+        checkpoint = self.root / ".wavefoundry" / "upgrade-in-progress.json"
+        checkpoint.write_text(json.dumps({"current_phase": "surface_rendering"}), encoding="utf-8")
+        for name in ("memory_consolidate", "memory_purge"):
+            with self.subTest(tool=name):
+                fn, entered = self._guarded(name)
+                result = fn()
+                self.assertEqual([d["code"] for d in result["diagnostics"]], ["upgrade_in_progress"])
+                self.assertIs(result["data"]["upgrade_in_progress"], True)
+                self.assertEqual(entered, [])
+                self._assert_path_free(result)
+
+    def test_a_purge_failure_renders_without_an_absolute_path(self):
+        """Requirement 3, last sentence: ``memory_purge_failed`` follows the
+        Requirement 4 rendering rule."""
+        import errno
+
+        mem = srv._load_script("memory_records")
+        inside = self.root / "docs" / "agents" / "memory" / "mem-alpha-one.md"
+        cases = {
+            "oserror_inside": (OSError(errno.EACCES, "Permission denied", str(inside)),
+                               "PermissionError EACCES on docs/agents/memory/mem-alpha-one.md"),
+            "oserror_outside": (OSError(errno.EACCES, "Permission denied", "/elsewhere/x.md"),
+                                "PermissionError EACCES"),
+            "value_error_path": (ValueError(f"cannot purge {inside}"), "ValueError"),
+            "value_error_relative": (ValueError("mem-alpha-one: not retired"), "mem-alpha-one: not retired"),
+        }
+        for label, (exc, expected) in cases.items():
+            with self.subTest(case=label):
+                with patch.object(mem, "resolve_purge_memory_source", side_effect=exc):
+                    result = self._guarded("memory_purge")[0]()
+                self.assertEqual([d["code"] for d in result["diagnostics"]], ["memory_purge_failed"])
+                self.assertEqual(result["diagnostics"][0]["message"], expected)
+                self._assert_path_free(result)
+                self.assertNotIn("/elsewhere", json.dumps(result))
+
+    def test_a_consolidation_failure_renders_without_an_absolute_path(self):
+        """Review F2: ``memory_consolidation_failed`` renders the failure and a
+        rollback failure by the Requirement 4 rule."""
+        import errno
+
+        mem = srv._load_script("memory_records")
+        inside = self.root / "docs" / "agents" / "memory" / "mem-alpha-two.md"
+        cases = {
+            "oserror_inside": (OSError(errno.EIO, "I/O error", str(inside)),
+                               "OSError EIO on docs/agents/memory/mem-alpha-two.md"),
+            "oserror_outside": (OSError(errno.EIO, "I/O error", "/elsewhere/x.md"), "OSError EIO"),
+        }
+        for label, (exc, expected) in cases.items():
+            with self.subTest(case=label):
+                with patch.object(mem, "archive_memory_record", side_effect=exc):
+                    result = self._guarded("memory_consolidate")[0]()
+                self.assertEqual([d["code"] for d in result["diagnostics"]], ["memory_consolidation_failed"])
+                self.assertEqual(result["diagnostics"][0]["message"], expected)
+                self.assertIs(result["data"]["rollback_completed"], True)
+                self._assert_path_free(result)
+                self.assertNotIn("/elsewhere", json.dumps(result))
+
+    def test_a_consolidation_rollback_failure_renders_without_an_absolute_path(self):
+        import errno
+
+        mem = srv._load_script("memory_records")
+        real_write = Path.write_bytes
+
+        def failing_write(path, data):
+            if path.name.startswith("mem-alpha"):
+                raise PermissionError(errno.EACCES, "Permission denied", str(path))
+            return real_write(path, data)
+
+        with patch.object(mem, "archive_memory_record",
+                          side_effect=OSError(errno.EIO, "I/O error", "/elsewhere/x.md")), \
+                patch.object(Path, "write_bytes", failing_write):
+            result = self._guarded("memory_consolidate")[0]()
+        message = result["diagnostics"][0]["message"]
+        self.assertIs(result["data"]["rollback_completed"], False)
+        self.assertRegex(message, r"^OSError EIO; rollback incomplete: PermissionError EACCES on [^/].*mem-alpha-\w+\.md$")
+        self._assert_path_free(result)
+        self.assertNotIn("/elsewhere", json.dumps(result))

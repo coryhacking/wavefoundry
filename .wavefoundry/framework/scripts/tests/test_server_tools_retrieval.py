@@ -13953,11 +13953,12 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
         names = sorted(self.srv._registered_mcp_tool_names(mcp))
 
         def assert_tool_registry(candidate: list[str]) -> None:
-            self.assertEqual(len(candidate), 90)  # 1vqqi added the read-tier wf_techdocs_audit
+            self.assertEqual(len(candidate), 91)  # 1vqqi added the read-tier wf_techdocs_audit; 1zlu1 wf_close_change
             self.assertEqual(
                 hashlib.sha256("\n".join(candidate).encode("utf-8")).hexdigest(),
-                # 1vqqi: roster digest re-measured after wf_techdocs_audit joined the surface.
-                "e497f88258818f415468d708ac1624f74862ba5934c095012875e160edb8b7cb",
+                # 1vqqi: roster digest re-measured after wf_techdocs_audit joined the surface;
+                # 1zlu1: re-measured after wf_close_change joined it.
+                "76539ef9515bf041f6edf5ec3f0749440f2f07c78f2df0ec20ea3677c629f06d",
             )
 
         assert_tool_registry(names)

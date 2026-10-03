@@ -27,6 +27,7 @@ from .constants import (
     CHANGE_ID_PATTERN,
     CHANGE_REFERENCE_PATTERN,
     CHANGE_STATUS_PATTERN,
+    CHANGE_STATUS_LABEL_LINE_PATTERN,
     DEPENDS_ON_LINE_PATTERN,
     FACTOR_REVIEW_MARKERS,
     HYBRID_LEGACY_MARKERS,
@@ -34,6 +35,7 @@ from .constants import (
     ITEM_REFERENCE_PATTERN,
     ITEM_ID_PATTERN,
     ITEM_STATUS_PATTERN,
+    ITEM_STATUS_LABEL_LINE_PATTERN,
     JOURNAL_DISALLOWED_PATTERNS,
     JOURNAL_GOVERNANCE_MARKERS,
     MEMORY_CONFIDENCE_PATTERN,
@@ -69,6 +71,8 @@ from .constants import (
     SLUG_PATTERN,
     TERMINAL_CHANGE_STATUSES,
     TERMINAL_ITEM_STATUSES,
+    DONE_CHANGE_STATUSES,
+    is_done,
     WAVE_WATCHPOINT_MARKERS,
     WAVE_REFERENCE_PATTERN,
     WAVE_ID_PATTERN,
@@ -249,6 +253,27 @@ def _normalize_ac_priority(raw_priority: str) -> str:
     return normalized if normalized in _AC_PRIORITY_VALUES else "unknown"
 
 
+def _lint_ac_items(ac_section: str) -> list[tuple[str | None, str]]:
+    """``(mark, text)`` for every AC bullet in ``ac_section`` in order.
+
+    Wave 1zls7 (1zltr): a line the shared parser reads as a checklist item
+    (blockquoted, or carrying an unusual mark such as ``[-]``) is read as the
+    close gate reads it; any other ``-`` bullet keeps the ``_AC_LINE_RE``
+    reading (``mark`` is ``None`` for a plain bullet).  Pass a section read
+    through ``change_doc_checklist.section_text`` so fenced lines are blank.
+    """
+    items: list[tuple[str | None, str]] = []
+    for line in ac_section.split("\n"):
+        checklist = change_doc_checklist.CHECKLIST_ITEM_RE.match(line)
+        if checklist is not None:
+            items.append((checklist.group("mark"), checklist.group("text")))
+            continue
+        plain = _AC_LINE_RE.match(line)
+        if plain is not None:
+            items.append((plain.group("mark"), plain.group("text")))
+    return items
+
+
 def _parse_ac_items_for_lint(ac_section: str, priority_section: str) -> tuple[list[str], list[str]]:
     """Return AC priorities in bullet order plus the raw priority table rows."""
     priority_rows: list[str] = []
@@ -263,8 +288,8 @@ def _parse_ac_items_for_lint(ac_section: str, priority_section: str) -> tuple[li
             priority_map[ac_id] = priority
 
     ac_priorities: list[str] = []
-    for index, match in enumerate(_AC_LINE_RE.finditer(ac_section)):
-        text = match.group("text").strip()
+    for index, (_mark, raw_text) in enumerate(_lint_ac_items(ac_section)):
+        text = raw_text.strip()
         # Wave 1zime (1zimq): the id comes only from the start of the item.
         ac_id = change_doc_checklist.leading_ac_id(text) or ""
         priority = priority_map.get(ac_id)
@@ -279,7 +304,8 @@ def _parse_ac_items_for_lint(ac_section: str, priority_section: str) -> tuple[li
 def _check_ac_priority_alignment(text: str, rel: str) -> list[str]:
     failures: list[str] = []
     sections = _extract_sections(text)
-    ac_section = sections.get("## Acceptance Criteria", "")
+    # Wave 1zls7 (1zltr): the AC section is read as the close gate reads it.
+    ac_section = change_doc_checklist.section_text(text, "Acceptance Criteria").strip()
     priority_section = sections.get("## AC Priority", "")
     if not ac_section or not priority_section:
         return failures
@@ -316,14 +342,18 @@ _INLINE_NOTE_MIN_CHARS = 40
 
 def _check_checkbox_ac_syntax(text: str, rel: str) -> list[str]:
     """Fail when an Acceptance Criteria section exists with items but none use checkbox syntax."""
-    sections = _extract_sections(text)
-    ac_section = sections.get("## Acceptance Criteria", "")
+    # Wave 1zls7 (1zltr): the section is read as the close gate reads it, and
+    # any checklist item the shared parser reads (an unusual mark included,
+    # which `_check_checklist_list_markers` reports) is checkbox syntax.
+    ac_section = change_doc_checklist.section_text(text, "Acceptance Criteria").strip()
     if not ac_section:
         return []
     has_items = bool(_AC_LINE_RE.search(ac_section))
     if not has_items:
         return []
-    has_any_checkbox = bool(_CHECKBOX_AC_LINE_RE.search(ac_section))
+    has_any_checkbox = bool(_CHECKBOX_AC_LINE_RE.search(ac_section)) or any(
+        change_doc_checklist.checklist_items(ac_section)
+    )
     if has_any_checkbox:
         return []
     has_plain_bullets = bool(_PLAIN_AC_LINE_RE.search(ac_section))
@@ -338,14 +368,17 @@ def _check_checkbox_ac_syntax(text: str, rel: str) -> list[str]:
 
 def _check_checkbox_task_syntax(text: str, rel: str) -> list[str]:
     """Fail when a Tasks section contains bullet items without checkbox syntax."""
-    sections = _extract_sections(text)
-    tasks_section = sections.get("## Tasks", "")
+    # Wave 1zls7 (1zltr): the section is read as the close gate reads it; a
+    # `- [-] step` is a checklist item with an unusual mark, reported by
+    # `_check_checklist_list_markers`, not a plain bullet.
+    tasks_section = change_doc_checklist.section_text(text, "Tasks").strip()
     if not tasks_section:
         return []
     task_lines = [line for line in tasks_section.splitlines() if line.lstrip().startswith("- ")]
     if not task_lines:
         return []
-    if all(_CHECKBOX_TASK_LINE_RE.match(line) for line in task_lines):
+    if all(_CHECKBOX_TASK_LINE_RE.match(line) or change_doc_checklist.CHECKLIST_ITEM_RE.match(line)
+           for line in task_lines):
         return []
     return [
         f"{rel}: `## Tasks` uses plain bullet format; "
@@ -373,9 +406,17 @@ def _check_checklist_list_markers(text: str, rel: str) -> list[str]:
                 f"use `## {heading}` and merge its checklist items into that section"
             )
         for match in change_doc_checklist.section_items(text, heading, include_near_miss=True):
+            item = f"{match.group('marker')} [{match.group('mark')}] {match.group('text').strip()}"
+            # Wave 1zls7 (1zltr): an unusual mark is open at close; name it so
+            # the author writes one of the three canonical marks.
+            if not change_doc_checklist.is_canonical_mark(match.group("mark")):
+                failures.append(
+                    f"{rel}: `## {heading}` checklist item `{match.group('text').strip()}` uses the "
+                    f"mark `[{match.group('mark')}]`, which the close gate reads as open; "
+                    "use `[ ]`, `[x]` or `[~]`"
+                )
             if change_doc_checklist.is_canonical_marker(match.group("marker")):
                 continue
-            item = f"{match.group('marker')} [{match.group('mark')}] {match.group('text').strip()}"
             failures.append(
                 f"{rel}: `## {heading}` checklist item `{item}` uses the list marker "
                 f"`{match.group('marker')}`; write it in the canonical `- [ ] ...` form "
@@ -641,7 +682,8 @@ def _check_tilde_required_ac_has_inline_note(text: str, rel: str) -> list[str]:
       - at least ``_INLINE_NOTE_MIN_CHARS`` characters of prose after the AC label.
     """
     sections = _extract_sections(text)
-    ac_section = sections.get("## Acceptance Criteria", "")
+    # Wave 1zls7 (1zltr): the AC section is read as the close gate reads it.
+    ac_section = change_doc_checklist.section_text(text, "Acceptance Criteria").strip()
     priority_section = sections.get("## AC Priority", "")
     if not ac_section:
         return []
@@ -663,8 +705,8 @@ def _check_tilde_required_ac_has_inline_note(text: str, rel: str) -> list[str]:
     # Walk AC bullets in order; for each `[~]` AC at required priority, check for inline note.
     failures: list[str] = []
     ac_index = 0
-    for match in _AC_LINE_RE.finditer(ac_section):
-        text_part = match.group("text").strip()
+    for mark, raw_text in _lint_ac_items(ac_section):
+        text_part = raw_text.strip()
         # Wave 1zime (1zimq): the id comes only from the start of the item, so
         # an id cited later never lends its priority.
         ac_id = change_doc_checklist.leading_ac_id(text_part) or ""
@@ -680,7 +722,7 @@ def _check_tilde_required_ac_has_inline_note(text: str, rel: str) -> list[str]:
         if priority != "required":
             continue
         # Only check ACs that use the tilde marker.
-        if match.group("mark") != "~":
+        if mark != "~":
             continue
 
         # Has an inline italic segment?
@@ -1032,6 +1074,10 @@ class WorkRecord:
     path: str = ""
     wave_id: str | None = None
     anchor_type: str = "change"
+    # Wave 1zls7 (1zlu0 repair): every status line attributed to the record,
+    # in order; ``None`` for a status-labelled line whose value the strict
+    # pattern cannot read.  ``status`` keeps the last readable value.
+    status_values: list[str | None] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -1060,10 +1106,14 @@ def _parse_change_records(text: str, rel: str) -> list[WorkRecord]:
         status_match = CHANGE_STATUS_PATTERN.match(line)
         if status_match:
             current.status = status_match.group(1)
+            current.status_values.append(current.status)
             continue
         previous_status_match = PREVIOUS_CHANGE_STATUS_PATTERN.match(line)
         if previous_status_match:
             current.previous_status = previous_status_match.group(1)
+            continue
+        if CHANGE_STATUS_LABEL_LINE_PATTERN.match(line):
+            current.status_values.append(None)
             continue
         depends_match = DEPENDS_ON_LINE_PATTERN.match(line)
         if depends_match:
@@ -1073,6 +1123,28 @@ def _parse_change_records(text: str, rel: str) -> list[WorkRecord]:
     if records and (_vocab.MEMBER_HEADING in text or any(record.status is not None for record in records)):
         return records
     return []
+
+
+def _unmet_dependency_message(rel: str, record: WorkRecord, dependency_record: WorkRecord) -> str:
+    """The docs-lint failure for a progressable record whose dependency is not
+    done (wave 1zls7, 1zlu0).  The requirement wording follows the
+    DEPENDENCY's anchor type, as ``is_done`` does: a change dependency must be
+    done (terminal or `implemented`), a legacy item dependency terminal."""
+    if dependency_record.anchor_type == "change":
+        requirement = (
+            "The dependency must reach a done status (terminal, or `implemented`)"
+            f"{allowed_values_suffix(DONE_CHANGE_STATUSES)}"
+        )
+    else:
+        requirement = (
+            "The dependency must reach a terminal status"
+            f"{allowed_values_suffix(TERMINAL_ITEM_STATUSES)}"
+        )
+    state = f"is still `{dependency_record.status}`" if dependency_record.status else "has no readable status"
+    return (
+        f"{rel}: {record.anchor_type} `{record.record_id}` is `{record.status}` but dependency "
+        f"`{dependency_record.record_id}` {state}. {requirement}"
+    )
 
 
 def _parse_legacy_item_records(text: str, rel: str) -> list[WorkRecord]:
@@ -1094,10 +1166,14 @@ def _parse_legacy_item_records(text: str, rel: str) -> list[WorkRecord]:
         status_match = ITEM_STATUS_PATTERN.match(line)
         if status_match:
             current.status = status_match.group(1)
+            current.status_values.append(current.status)
             continue
         previous_status_match = PREVIOUS_ITEM_STATUS_PATTERN.match(line)
         if previous_status_match:
             current.previous_status = previous_status_match.group(1)
+            continue
+        if ITEM_STATUS_LABEL_LINE_PATTERN.match(line):
+            current.status_values.append(None)
             continue
         depends_match = DEPENDS_ON_LINE_PATTERN.match(line)
         if depends_match:
@@ -1719,13 +1795,11 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                     failures.append(f"{rel}: {record.anchor_type} `{record.record_id}` depends on unknown {dependency_label} `{dependency}`")
                     continue
                 progressable_statuses = PROGRESSABLE_CHANGE_STATUSES if record.anchor_type == "change" else PROGRESSABLE_ITEM_STATUSES
-                terminal_statuses = TERMINAL_CHANGE_STATUSES if record.anchor_type == "change" else TERMINAL_ITEM_STATUSES
-                if record.status in progressable_statuses and dependency_record.status not in terminal_statuses:
-                    failures.append(
-                        f"{rel}: {record.anchor_type} `{record.record_id}` is `{record.status}` but dependency `{dependency}` "
-                        f"is still `{dependency_record.status}`. The dependency must reach a terminal status"
-                        f"{allowed_values_suffix(terminal_statuses)}"
-                    )
+                # Wave 1zls7 (1zlu0): a dependency is satisfied when it is done
+                # by the one predicate wave close reads; `implemented` counts
+                # for change records, legacy items keep their terminal set.
+                if record.status in progressable_statuses and not is_done(dependency_record.status, dependency_record.anchor_type):
+                    failures.append(_unmet_dependency_message(rel, record, dependency_record))
 
         non_terminal_states = {
             record.status

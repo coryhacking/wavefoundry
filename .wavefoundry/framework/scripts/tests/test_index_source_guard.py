@@ -1,6 +1,7 @@
 """Automatic source writers and builders exclude each other with real OS locks."""
 from contextlib import contextmanager
 import errno
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -107,6 +108,66 @@ with indexer._index_build_lock(root/'.wavefoundry/index'), index_source_guard.in
         self.assertTrue((self.root / '.wavefoundry/index/index-build.lock').exists())
         self.assertTrue((self.root / '.wavefoundry/locks/index-source-mutation.lock').exists())
 
+    def assert_path_free(self, error):
+        self.assertIsInstance(error, str)
+        for form in {str(self.root), json.dumps(str(self.root))[1:-1], str(self.root).replace('/', '\\\\')}:
+            self.assertNotIn(form, error)
+        self.assertNotIn(json.dumps(str(self.root))[1:-1], json.dumps(error))
+
+    def test_busy_projection_row_names_the_lock_without_an_absolute_path(self):
+        """Delivery review (wave 1zls7): the row index_health surfaces through
+        background_monitors carries the class, errno name and the
+        repository-relative lock path, never the absolute lock path."""
+        code = '''import sys
+from pathlib import Path
+import index_source_guard
+with index_source_guard.index_source_guard(Path(sys.argv[1])):
+ print('held',flush=True)
+ sys.stdin.readline()
+'''
+        env = dict(os.environ, PYTHONPATH=str(SCRIPTS), PYTHONDONTWRITEBYTECODE='1')
+        child = subprocess.Popen([sys.executable, '-B', '-c', code, str(self.root)],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE, text=True, env=env)
+        try:
+            self.assertEqual(child.stdout.readline().strip(), 'held')
+            row = server._project_context_efficiency_wave(self.root, self.wave, automatic=True)
+        finally:
+            child.stdin.write('\n'); child.stdin.flush()
+            child.communicate(timeout=3)
+        self.assertEqual(row['reason'], 'index_source_busy')
+        self.assert_path_free(row['error'])
+        self.assertTrue(row['error'].startswith('RuntimeLockBusy E'), row['error'])
+        self.assertTrue(row['error'].endswith('.wavefoundry/locks/index-source-mutation.lock'), row['error'])
+        self.assertEqual(self.wave_md.read_bytes(), self.before)
+
+    def test_unavailable_and_failed_projection_rows_are_path_free(self):
+        lock = self.root / '.wavefoundry/locks/index-source-mutation.lock'
+        # The modules the called function actually resolves at run time: its
+        # own globals, never sys.modules (an in-process reload earlier in the
+        # same run leaves this test's ``server`` binding on the old modules).
+        projection_globals = server._project_context_efficiency_wave.__globals__
+        live_guard = projection_globals['index_source_guard']
+        live_ce = projection_globals['context_efficiency']
+
+        @contextmanager
+        def unavailable(root, *, wait=True):
+            raise live_guard.RuntimeLockError(errno.EIO, f'Unable to acquire runtime lock {lock}: denied')
+            yield
+
+        with patch.object(live_guard, 'index_source_guard', unavailable):
+            row = server._project_context_efficiency_wave(self.root, self.wave, automatic=True)
+        self.assertEqual(row.get('reason'), 'index_source_unavailable', row)
+        self.assertEqual(row.get('error'), 'RuntimeLockError EIO on .wavefoundry/locks/index-source-mutation.lock')
+
+        with patch.object(live_ce, 'read_wave_snapshot',
+                          side_effect=PermissionError(errno.EACCES, 'denied', str(self.wave_md))):
+            row = server._project_context_efficiency_wave(self.root, self.wave, automatic=True)
+        self.assertEqual(row.get('persistence'), 'failed', row)
+        self.assertEqual(row.get('error'), 'PermissionError EACCES')
+        for error in (row['error'],):
+            self.assert_path_free(error)
+
     def test_same_process_build_excludes_monitor_and_unlocked_carrier_allows_write(self):
         with self.monitor() as handler:
             with indexer._index_build_lock(self.root / '.wavefoundry/index'), guard.index_source_guard(self.root):
@@ -147,9 +208,12 @@ with indexer._index_build_lock(root/'.wavefoundry/index'), index_source_guard.in
             self.assertTrue(source_read.is_set())
 
     def test_unknown_acquisition_preserves_pending_work(self):
-        with patch.object(guard.RuntimeFileLock, 'acquire', side_effect=guard.RuntimeLockError(errno.EIO, 'probe failure')):
+        # The guard module the called function resolves (its own globals),
+        # which an in-process reload may have replaced since this module imported.
+        live_guard = server._project_context_efficiency_wave.__globals__['index_source_guard']
+        with patch.object(live_guard.RuntimeFileLock, 'acquire', side_effect=live_guard.RuntimeLockError(errno.EIO, 'probe failure')):
             result = server._project_context_efficiency_wave(self.root, self.wave, automatic=True)
-        self.assertEqual(result['reason'], 'index_source_unavailable')
+        self.assertEqual(result.get('reason'), 'index_source_unavailable', result)
         self.assertEqual(self.wave_md.read_bytes(), self.before)
         self.assertTrue(self.ce.read_wave_snapshot(self.root, self.wave)['pending'])
 

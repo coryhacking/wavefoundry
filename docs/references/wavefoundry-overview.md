@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-12
+Last verified: 2026-10-03
 
 ---
 
@@ -114,6 +114,8 @@ Projects declare which lanes are structurally required:
 ```
 
 `wf_review_wave` reads this config and includes all declared lanes in `required_lanes` alongside the always-required operator lane. `wf_close_wave` blocks on any missing declared-lane signoff — the same enforcement pattern as operator signoff. A project that declares a lane is required cannot close a wave without it.
+
+A lane that can only judge one phase is declared under `phase_gates` (wave 1zlu1): `"phase_gates": {"close": {"required_lanes": ["release-review"]}}` requires `release-review` at delivery (Review and Close) only, and `phase_gates.prepare.required_lanes` at readiness only. Prepare reports a delivery-only lane in `delivery_only_lanes` and writes a `- Required delivery lanes:` line in the wave record. A `required_review_lanes` value that is not a list is a config error.
 
 ---
 

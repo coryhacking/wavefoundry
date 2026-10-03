@@ -1950,14 +1950,86 @@ class DocsLintFixtureTests(unittest.TestCase):
             failures = "\n".join(wave_validators.check_wave_docs(root))
         finally:
             shutil.rmtree(root)
+        # Wave 1zls7 (1zlu0) Requirement 6: the change-record message names
+        # the done set wave close reads (terminal statuses plus `implemented`).
         self.assertIn(
             f"change `{self.FOLLOW_UP_CHANGE_ID}` is `ready` but dependency "
             f"`{self.VALID_CHANGE_ID}` is still `planned`. "
-            "The dependency must reach a terminal status; allowed:",
+            "The dependency must reach a done status (terminal, or `implemented`); allowed:",
             failures,
         )
-        for status in wave_validators.TERMINAL_CHANGE_STATUSES:
+        for status in wave_validators.DONE_CHANGE_STATUSES:
             self.assertIn(f"`{status}`", failures)
+
+    def test_implemented_dependency_satisfies_a_dependent_change(self) -> None:
+        """Wave 1zls7 (1zlu0) AC-6: an `implemented` dependency satisfies a
+        `ready` dependent; an `active` one still fails with the done-set
+        message."""
+        from wave_lint_lib import wave_validators
+
+        def dependency_failures(dep_status: str) -> list[str]:
+            root = self.copy_fixture()
+            wave_doc = root / self.WAVE_DOC_PATH
+            wave_doc.write_text(
+                wave_doc.read_text(encoding="utf-8").replace(
+                    _v("Change Status: `complete`"), _v(f"Change Status: `{dep_status}`"), 1
+                ),
+                encoding="utf-8",
+            )
+            try:
+                return [f for f in wave_validators.check_wave_docs(root)
+                        if f"but dependency `{self.VALID_CHANGE_ID}`" in f]
+            finally:
+                shutil.rmtree(root)
+
+        self.assertEqual(dependency_failures("implemented"), [])
+        active = dependency_failures("active")
+        self.assertEqual(len(active), 1, active)
+        self.assertIn(
+            f"is still `active`. The dependency must reach a done status (terminal, or `implemented`); allowed: "
+            + ", ".join(f"`{status}`" for status in sorted(wave_validators.DONE_CHANGE_STATUSES)),
+            active[0],
+        )
+
+    def test_a_dependency_with_no_status_is_not_done(self) -> None:
+        """Delivery review N2c: a dependency whose status line is missing does
+        not satisfy a progressable dependent."""
+        from wave_lint_lib import wave_validators
+
+        root = self.copy_fixture()
+        wave_doc = root / self.WAVE_DOC_PATH
+        wave_doc.write_text(
+            wave_doc.read_text(encoding="utf-8").replace(_v("Change Status: `complete`") + "\n", "", 1),
+            encoding="utf-8",
+        )
+        try:
+            failures = [f for f in wave_validators.check_wave_docs(root)
+                        if f"but dependency `{self.VALID_CHANGE_ID}`" in f]
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn(
+            f"change `{self.FOLLOW_UP_CHANGE_ID}` is `ready` but dependency `{self.VALID_CHANGE_ID}` "
+            "has no readable status. The dependency must reach a done status (terminal, or `implemented`)",
+            failures[0],
+        )
+
+    def test_dependency_wording_follows_the_dependency_anchor_type(self) -> None:
+        """Delivery review N4: the requirement wording keys on the
+        DEPENDENCY's anchor type, as the done predicate does."""
+        from wave_lint_lib import wave_validators
+        from wave_lint_lib.wave_validators import WorkRecord, _unmet_dependency_message
+
+        change = WorkRecord(record_id="1abcd-bug dependent", status="ready", anchor_type="change")
+        item = WorkRecord(record_id="item-a", status="review", anchor_type="item")
+        message = _unmet_dependency_message("w.md", change, item)
+        self.assertIn("dependency `item-a` is still `review`. The dependency must reach a terminal status", message)
+        for status in wave_validators.TERMINAL_ITEM_STATUSES:
+            self.assertIn(f"`{status}`", message)
+        self.assertNotIn("`implemented`", message)
+        dependency = WorkRecord(record_id="1abcd-bug dep", status="active", anchor_type="change")
+        message = _unmet_dependency_message("w.md", item, dependency)
+        self.assertIn("is still `active`. The dependency must reach a done status (terminal, or `implemented`)", message)
 
     def test_watchpoint_marker_message_lists_every_marker_that_satisfies_it(self) -> None:
         """Delivery review: the message hand-listed 3 of 6 markers.
@@ -1979,6 +2051,39 @@ class DocsLintFixtureTests(unittest.TestCase):
             source,
             "the watchpoint message must derive its marker list from the constant",
         )
+
+    def test_implemented_is_reachable_from_ready_active_and_review(self) -> None:
+        """Wave 1zlu1 delivery review F5: `implemented` is reached from
+        `ready`, `active` and `review` and closes to `complete`; a block moving
+        `active` -> `implemented` lints clean, and a fixture with the
+        transition removed from the table fails."""
+        from unittest import mock
+
+        from wave_lint_lib import wave_validators
+
+        table = wave_validators.ALLOWED_CHANGE_STATUS_TRANSITIONS
+        for origin in ("ready", "active", "review"):
+            self.assertIn("implemented", table[origin], origin)
+        self.assertIn("complete", table["implemented"])
+        root = self.copy_fixture()
+        wave_doc = root / self.WAVE_DOC_PATH
+        wave_doc.write_text(
+            wave_doc.read_text(encoding="utf-8").replace(
+                _v("Previous Change Status: `planned`\nChange Status: `complete`"),
+                _v("Previous Change Status: `active`\nChange Status: `implemented`"),
+                1,
+            ),
+            encoding="utf-8",
+        )
+        try:
+            failures = [f for f in wave_validators.check_wave_docs(root) if "status progression" in f]
+            narrowed = {k: (v - {"implemented"} if k == "active" else v) for k, v in table.items()}
+            with mock.patch.object(wave_validators, "ALLOWED_CHANGE_STATUS_TRANSITIONS", narrowed):
+                refused = [f for f in wave_validators.check_wave_docs(root) if "status progression" in f]
+        finally:
+            shutil.rmtree(root)
+        self.assertEqual(failures, [])
+        self.assertTrue(any("`active` -> `implemented`" in f for f in refused), refused)
 
     def test_the_printed_set_is_read_from_the_constant_not_hand_written(self) -> None:
         """AC-4: vary the CONSTANT, not the fixture, and the message must follow.
@@ -6425,3 +6530,82 @@ class SeedProfileKeyTests(unittest.TestCase):
         self.assertIn('code_patterns', profile)
         self.assertEqual(seed.count('code_patterns'), 4)
         self.assertNotRegex(seed, r'\bcode_pattern\b')
+
+
+class LineEndingParityTests(unittest.TestCase):
+    """Wave 1zls7 (1zodv, AC-6): docs-lint gives the same per-change findings
+    for a wave record and change doc saved with CRLF endings as for the same
+    documents saved with LF endings, through the real CLI over a temp root."""
+
+    def setUp(self) -> None:
+        self.helper = DocsLintFixtureTests()
+
+    def _defective_root(self) -> Path:
+        root = self.helper.copy_fixture()
+        change_doc = root / self.helper.AC_REPO_STATE_DOC
+        text = change_doc.read_text(encoding="utf-8")
+        text = text.replace(
+            "## Acceptance Criteria\n\n- [x] AC-1: Fixture criterion satisfied.\n",
+            "## Acceptance Criteria\n\n- [~] AC-1: Fixture criterion.\n"
+            "- [x] AC-2: An AC with no priority row.\n\n"
+            "## Tasks\n\n- a plain task bullet\n* [x] a starred task\n",
+        )
+        change_doc.write_text(text, encoding="utf-8")
+        return root
+
+    def _records(self, root: Path) -> list[Path]:
+        return [root / self.helper.WAVE_DOC_PATH, root / self.helper.AC_REPO_STATE_DOC]
+
+    def _findings(self, root: Path) -> tuple[int, list[str]]:
+        result = self.helper.run_docs_lint(root)
+        lines = [line for line in (result.stdout + result.stderr).splitlines()
+                 if line.strip() and "docs-lint" not in line.split(":", 1)[0]]
+        return result.returncode, sorted(lines)
+
+    def test_crlf_records_get_the_same_per_change_findings_as_lf(self) -> None:
+        root = self._defective_root()
+        try:
+            for path in self._records(root):
+                path.write_bytes(path.read_bytes().replace(b"\r\n", b"\n"))
+            lf_code, lf = self._findings(root)
+            for path in self._records(root):
+                data = path.read_bytes()
+                path.write_bytes(data.replace(b"\n", b"\r\n"))
+                self.assertIn(b"\r\n", path.read_bytes())
+            crlf_code, crlf = self._findings(root)
+        finally:
+            shutil.rmtree(root)
+        # The per-change rules ran: each injected defect is reported under LF.
+        joined = "\n".join(lf)
+        self.assertIn("fixture-core.md", joined)
+        for marker in ("uncategorized", "plain bullet", "list marker", "inline status note"):
+            self.assertIn(marker, joined)
+        self.assertEqual(lf_code, 1)
+        self.assertEqual((crlf_code, crlf), (lf_code, lf))
+
+    def test_crlf_records_get_the_same_findings_in_incremental_mode(self) -> None:
+        """The routine edit-feedback path (``--changed``) reads the changed set
+        from git; a CRLF edit gets the same per-change findings as an LF one."""
+        if shutil.which("git") is None:
+            self.skipTest("git is not installed")
+        results = {}
+        for ending in (b"\n", b"\r\n"):
+            root = self._defective_root()
+            try:
+                for path in self._records(root):
+                    path.write_bytes(path.read_bytes().replace(b"\r\n", b"\n"))
+                for args in (("init", "-q"), ("add", "-A"),
+                             ("-c", "user.email=t@example.com", "-c", "user.name=t",
+                              "-c", "core.autocrlf=false", "commit", "-qm", "base")):
+                    subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
+                for path in self._records(root):
+                    data = path.read_bytes() + b"\n<!-- edited -->\n"
+                    path.write_bytes(data.replace(b"\n", ending))
+                result = self.helper.run_docs_lint_with_args(root, "--changed")
+                results[ending] = (result.returncode, sorted(
+                    line for line in (result.stdout + result.stderr).splitlines() if "fixture-core.md" in line))
+            finally:
+                shutil.rmtree(root)
+        self.assertEqual(results[b"\n"][0], 1)
+        self.assertTrue(any("plain bullet" in line for line in results[b"\n"][1]), results)
+        self.assertEqual(results[b"\r\n"], results[b"\n"])

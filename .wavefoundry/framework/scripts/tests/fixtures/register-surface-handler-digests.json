@@ -1,6 +1,6 @@
 {
   "captured_at": "f4063a85",
-  "description": "SHA-256 of each @mcp.tool handler's exact source (decorators through last line, dedented) inside register_mcp_surface, captured before wave 1y0h1 edited server_impl.py. Wave 1ypxw updates only wf_review_wave and wf_review_event for approved receipt-currency docstrings; all other captured hashes are retained. Wave 1z8tz updates only docs_search and code_search for the restored tag vocabulary (memory) and the rechunk remedy in their docstrings.",
+  "description": "SHA-256 of each @mcp.tool handler's exact source (decorators through last line, dedented) inside register_mcp_surface, captured before wave 1y0h1 edited server_impl.py. Wave 1ypxw updates only wf_review_wave and wf_review_event for approved receipt-currency docstrings; all other captured hashes are retained. Wave 1z8tz updates only docs_search and code_search for the restored tag vocabulary (memory) and the rechunk remedy in their docstrings. Wave 1zlu1 adds wf_close_change and updates only wf_create_wave for its new optional parent parameter.",
   "handlers": {
     "code_ask": "d893cd2791ad0ade83b0a5d07997aa5afe049b7d5fd19a5b74cc890a31ae0ad9",
     "code_callgraph": "5fc05322e7ac0234ee2d14eb298175dd112fab1c21f66f032cba1db9928fa958",
@@ -40,10 +40,11 @@
     "wf_add_change": "bf51992ef7307885da6227a8398d5e551368e6d2247ac82fb72fbe171bf38675",
     "wf_audit": "118ba0444d099996041435b77a833f7b0deedc63381059f6d9551fc96c942b09",
     "wf_audit_install": "e27e7935479a181fea9b7db5749d60b33e34e24c61cd029a6df96469036fe7af",
+    "wf_close_change": "79bbd74df2e5dfa3d75f3094b3120a00b7f0ff24cc556174937bffe47ccfc1f6",
     "wf_close_gate": "17f7219afca7a384c6a9dd756e0d44166894b3075a042d7df01ff8fee59b5626",
     "wf_close_wave": "1ad6210807eb935272b5a710145f713cc1d60cd75a5de0000445c6e7ee395fa1",
     "wf_context_efficiency_eval": "b4be8b9da9bc6e021ef3a9bcedfb76f1849161eea70b47dc0d4edaaffa434edb",
-    "wf_create_wave": "e27fd2e1610dfdfceeba9e1f9ba9d4952b636b3ca5626e877fdf61a736b693d8",
+    "wf_create_wave": "3b7a2a51f6eb9a33cdd1f4285802a148a67abbd74b103965426b91aa6ef2f140",
     "wf_current_wave": "554bdaf9155701bd73ec908f84e1d94ab4479dd2f6e6c6558d69853dc9c366cc",
     "wf_garden_docs": "3d03b6af33e37448e0e3352d468387869fd595732e27e26b6cd09b71b17c023e",
     "wf_gate_status": "ec79fbcc18f89d4030441595bdb7f1fa99d5a20a23a34d6857d5831b52044249",

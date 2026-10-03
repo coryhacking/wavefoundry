@@ -318,6 +318,160 @@ EXTENSION_TOOL_ALIASES = {"acme_record_alias": "acme_record", "acme_record_mappe
 EXTENSION_TOOL_PARAMETERS = {"acme_record_mapped": {"rename": {"text": "note"}}}
 """
 
+# Wave 1zls8 (1zltx): declared helper modules and an extension module that
+# uses only the public helper contract. The helper's register must never run.
+HELPER = """
+VERSION = "h1"
+REGISTER_CALLS = []
+
+def describe():
+    return VERSION
+
+def register(mcp, get_handler):
+    REGISTER_CALLS.append(1)
+
+    @mcp.tool()
+    def acme_helper_leak(**kwargs):
+        return {"status": "ok"}
+"""
+
+HELPER_EXTRA = """
+EXTRA = True
+"""
+
+CONTRACT = """
+import server_impl
+import acme_shared
+
+def register(mcp, get_handler):
+    @mcp.tool()
+    def acme_touch(wave_id: str, mode: str = "dry_run", **kwargs):
+        bad = server_impl.ensure_no_extra_args("acme_touch", kwargs)
+        if bad is not None:
+            return bad
+        return touch(get_handler().root, wave_id, mode)
+
+@server_impl.fail_closed_on_record_layout("acme_touch")
+def touch(root, wave_id, mode):
+    wave_md, _read_error, _unreadable = server_impl.find_wave_record(root, wave_id)
+    if wave_md is None:
+        archived = server_impl.refuse_if_archived(root, wave_id, "wave")
+        if archived is not None:
+            return server_impl.make_response("error", {"wave_id": wave_id}, diagnostics=[archived])
+        return server_impl.make_response("error", {"wave_id": wave_id}, diagnostics=[
+            server_impl.make_diagnostic("wave_not_found", "no such wave")])
+    refreshed = server_impl.refresh_index_for_paths(root, [wave_md]) if mode == "create" else None
+    envelope = server_impl.make_response("ok", {"wave_id": wave_id, "helper": acme_shared.describe(),
+                                                "refreshed": refreshed, "mode": mode})
+    return server_impl.attach_lint(envelope, root, mode)
+"""
+
+HELPER_DECL = """
+EXTENSION_HELPER_MODULES = ("acme_shared", "acme_extra")
+EXTENSION_MODULES = ("acme_contract",)
+EXTENSION_TOOL_PREFIXES = ("acme_",)
+EXTENSION_TOOL_TIERS = {"acme_touch": "write"}
+"""
+
+# Wave 1zls8 (1zlty): declared response-key renames on mapped aliases.
+KEYS_DECL = """
+EXTENSION_TOOL_PREFIXES = ("fork_",)
+EXTENSION_TOOL_ALIASES = {
+    "fork_get_items": "wf_get_change",
+    "fork_get_plain": "wf_get_change",
+    "fork_add_item": "wf_add_change",
+}
+EXTENSION_TOOL_PARAMETERS = {
+    "fork_get_items": {"response_keys": {"changes": "items", "changes[].id": "item_id"},
+                       "description": "Get one item, or every item of a set."},
+    "fork_add_item": {"rename": {"set_id": "wave_id", "item_id": "change_id"},
+                      "response_keys": {"changes": "items", "changes[].change_id": "item_id", "meta.count": "total",
+                                        "meta.list[].key": "item_key", "absent.deep": "never", "scalar.inner": "never"}},
+}
+"""
+
+NESTED_RESULT = {
+    "status": "ok",
+    "data": {
+        "wave_id": "1abcd", "change_id": "1abce-enh x", "mode": "dry_run",
+        "changes": [
+            {"change_id": "a", "item_id": "already"},
+            {"change_id": "b", "note": "renamed"},
+            {"change_id": "c", "item_id": "also there"},
+            "not a dict",
+        ],
+        "meta": {"count": 2, "list": [{"key": 1}, 7, {"other": 2}]},
+        "scalar": 5,
+    },
+    "diagnostics": [{"code": "existing", "message": "kept"}],
+    "next_tools": ["probe_next"],
+    "usage": "probe_next(item='a')",
+}
+
+# Wave 1zls8 (1zltz): overrides of a self-recording lifecycle tool and a
+# self-recording retrieval tool, plus a non-exempt override, each delegating
+# through core_handler as BEHAVIOUR says. HOOK observes the lock after the
+# core call returns; LAST holds the core and final results of the last call.
+MEASURED = """
+import server_impl
+
+BEHAVIOUR = {"wf_close_wave": "add", "code_outline": "add"}
+EVENTS = []
+LAST = {}
+CORES = {}
+HOOK = None
+
+def _finish(name, how, result, get_handler):
+    LAST[name] = {"core": result}
+    seen = HOOK(get_handler().root) if HOOK is not None else None
+    if how == "same":
+        final = result
+    else:
+        final = {**result, "fork_added": "x" * 400, **({"seen": seen} if seen is not None else {})}
+    LAST[name]["final"] = final
+    return final
+
+def register(mcp, get_handler):
+    CORES["wf_close_wave"] = mcp.core_handler("wf_close_wave")
+    CORES["code_outline"] = mcp.core_handler("code_outline")
+    CORES["wf_current_wave"] = mcp.core_handler("wf_current_wave")
+
+    @mcp.tool()
+    def wf_close_wave(wave_id: str, mode: str = "dry_run", **kwargs):
+        EVENTS.append("close_body")
+        bad = server_impl.ensure_no_extra_args("wf_close_wave", kwargs)
+        if bad is not None:
+            return bad
+        how = BEHAVIOUR["wf_close_wave"]
+        if how == "self":
+            return {"status": "ok", "data": {"answered": wave_id}}
+        if how == "non_exempt_core":
+            return {**CORES["wf_current_wave"](), "fork_added": "y"}
+        return _finish("wf_close_wave", how, CORES["wf_close_wave"](wave_id=wave_id, mode=mode), get_handler)
+
+    @mcp.tool()
+    def code_outline(path: str, **kwargs):
+        bad = server_impl.ensure_no_extra_args("code_outline", kwargs)
+        if bad is not None:
+            return bad
+        how = BEHAVIOUR["code_outline"]
+        if how == "self":
+            return {"status": "ok", "data": {"path": path, "symbols": []}}
+        return _finish("code_outline", how, CORES["code_outline"](path=path), get_handler)
+
+    @mcp.tool()
+    def wf_current_wave(**kwargs):
+        bad = server_impl.ensure_no_extra_args("wf_current_wave", kwargs)
+        if bad is not None:
+            return bad
+        return {**CORES["wf_current_wave"](), "fork_current": True}
+"""
+
+MEASURED_DECL = """
+EXTENSION_MODULES = ("fork_measured",)
+EXTENSION_OVERRIDES = {"fork_measured": ("wf_close_wave", "code_outline", "wf_current_wave")}
+"""
+
 _LOCK_CHILD_TRY = (
     "import sys\n"
     "sys.path.insert(0, sys.argv[1])\n"
@@ -487,6 +641,9 @@ with tempfile.TemporaryDirectory() as tmp:
         spy_response(impl, "wf_add_change_response", [], echo=True)
         out["add_call"] = ccall(mcp, "wf_add_change", {"wave_id": "1abcd", "change_id": "1abce-feat x"})["data"]
         out["get_call"] = ccall(mcp, "wf_get_change", {"change_id": "1abce-feat x"})["data"]
+        # Wave 1zls8 (1zltz AC-4): the stock declaration adds no cost keyword.
+        out["cost_pass_kwargs"] = sorted(impl._cost_pass_kwargs())
+        out["deltas_installed"] = sorted(impl._EXTENSION_OVERRIDE_DELTAS)
         runner._get_handler().close()
 
     elif MODE == "alias":
@@ -766,6 +923,10 @@ with tempfile.TemporaryDirectory() as tmp:
         out["call_tool_lock_released"] = impl._WF_LOCK_PROBE["held"] is False
         bad_via = ccall(mcp, "wf_current_wave", {"bogus": 1})
         out["call_tool_unknown_arg"] = [d["code"] for d in bad_via.get("diagnostics", [])]
+        # Wave 1zlu1 (F3): this override omits the omittable core `parent`, so
+        # a call passing it is refused by the override's strict schema.
+        bad_parent = ccall(mcp, "wf_create_wave", {"slug": "probe", "parent": "q4"})
+        out["call_tool_parent_refused"] = [bad_parent.get("status")] + [d["code"] for d in bad_parent.get("diagnostics", [])]
         out["call_tool_echo"] = ccall(mcp, "acme_echo", {"text": "hi"})["data"]["echo"]
         reg = impl._TOOL_REGISTRY
         out["parity_defects"] = [d.name for d in reg.parity_defects]
@@ -1021,7 +1182,7 @@ with tempfile.TemporaryDirectory() as tmp:
             "    @mcp.tool()\n"
             "    def wf_current_wave():\n        return {}\n"
             "    @mcp.tool()\n"
-            "    def wf_create_wave(mode: str = 'x', **kwargs):\n        return {}\n"
+            "    def wf_create_wave(mode: str = 'x', parent: 'str | None' = None, **kwargs):\n        return {}\n"
             "    @mcp.tool()\n"
             "    def wf_help(goal: str, **kwargs):\n        return {}\n"
         ))
@@ -1042,13 +1203,26 @@ with tempfile.TemporaryDirectory() as tmp:
         write_module("type_change", (
             "def register(mcp, get_handler):\n"
             "    @mcp.tool()\n"
-            "    def wf_create_wave(slug: int, mode: str = 'dry_run', **kwargs):\n        return {}\n"
+            "    def wf_create_wave(slug: int, mode: str = 'dry_run', parent: 'str | None' = None, **kwargs):\n        return {}\n"
+        ))
+        write_module("parent_swallow", (
+            "CALLS = []\n"
+            "def register(mcp, get_handler):\n"
+            "    @mcp.tool()\n"
+            "    def wf_create_wave(slug: str, mode: str = 'dry_run', **kwargs):\n"
+            "        CALLS.append(sorted(kwargs))\n"
+            "        return {'status': 'ok', 'got': sorted(kwargs)}\n"
+        ))
+        write_module("parent_change", (
+            "def register(mcp, get_handler):\n"
+            "    @mcp.tool()\n"
+            "    def wf_create_wave(slug: str, mode: str = 'dry_run', parent: int = 0, **kwargs):\n        return {}\n"
         ))
         write_module("default_change", (
             "import server_impl\n"
             "def register(mcp, get_handler):\n"
             "    @mcp.tool()\n"
-            "    def wf_create_wave(slug: str, mode: str = 'create', **kwargs):\n"
+            "    def wf_create_wave(slug: str, mode: str = 'create', parent: 'str | None' = None, **kwargs):\n"
             "        return {'status': 'ok', 'data': {'mode': mode}}\n"
         ))
         write_module("extended_tools", (
@@ -1057,7 +1231,7 @@ with tempfile.TemporaryDirectory() as tmp:
             "import server_impl\n"
             "def register(mcp, get_handler):\n"
             "    @mcp.tool()\n"
-            "    def wf_create_wave(slug: Annotated[str, Field(title='Wave slug')], mode: str = 'dry_run', team: str = '', **kwargs):\n"
+            "    def wf_create_wave(slug: Annotated[str, Field(title='Wave slug')], mode: str = 'dry_run', team: str = '', parent: 'str | None' = None, **kwargs):\n"
             "        bad = server_impl.ensure_no_extra_args('wf_create_wave', kwargs)\n"
             "        if bad is not None:\n"
             "            return bad\n"
@@ -1111,11 +1285,41 @@ with tempfile.TemporaryDirectory() as tmp:
         outside.mkdir()
         (outside / "escaped.py").write_text("def register(mcp, get_handler):\n    pass\n")
         (SCRATCH / "escaped.py").symlink_to(outside / "escaped.py")
+        # Wave 1zls8 (1zltx): helper fixtures. A plainly imported module that
+        # is not a framework script backs the already-imported cases, since a
+        # framework script name is now refused by the declaration itself.
+        write_module("plain_imported", "X = 1\n")
+        import plain_imported  # noqa: F401
+        # A module-level __getattr__ answers every name, __wf_extension__ included.
+        write_module("lazy_truthy", "def __getattr__(name):\n    return True\n")
+        import lazy_truthy  # noqa: F401
+        write_module("helper_first", "import helper_second\n")
+        write_module("helper_second", "Y = 2\n")
+        write_module("helper_raises", "raise RuntimeError('helper boom')\n")
+        write_module("acme_helper", "Z = 3\n")
+        write_module("helper_with_register", (
+            "CALLS = []\n"
+            "def register(mcp, get_handler):\n"
+            "    CALLS.append(1)\n"
+        ))
 
         cases = {
             "missing_module": dict(EXTENSION_MODULES=("not_there",)),
             "outside_scripts": dict(EXTENSION_MODULES=("escaped",)),
-            "already_imported": dict(EXTENSION_MODULES=("record_paths",)),
+            "already_imported": dict(EXTENSION_MODULES=("plain_imported",)),
+            # Wave 1zls8 (1zltx): framework script names and helper modules.
+            "framework_script_name": dict(EXTENSION_MODULES=("record_paths",)),
+            "helper_framework_script": dict(EXTENSION_HELPER_MODULES=("lifecycle_lock",)),
+            "helper_outside_scripts": dict(EXTENSION_HELPER_MODULES=("escaped",)),
+            "helper_miscased": dict(EXTENSION_HELPER_MODULES=("Acme_Helper",)),
+            "helper_already_imported": dict(EXTENSION_HELPER_MODULES=("plain_imported",)),
+            "helper_lazy_truthy": dict(EXTENSION_HELPER_MODULES=("lazy_truthy",)),
+            "module_lazy_truthy": dict(EXTENSION_MODULES=("lazy_truthy",)),
+            "helper_out_of_order": dict(EXTENSION_HELPER_MODULES=("helper_first", "helper_second")),
+            "helper_import_raises": dict(EXTENSION_HELPER_MODULES=("helper_raises",)),
+            "helper_missing": dict(EXTENSION_HELPER_MODULES=("helper_not_there",)),
+            "helper_also_module": dict(EXTENSION_MODULES=("acme_tools",), EXTENSION_HELPER_MODULES=("acme_tools",)),
+            "helper_with_register": dict(EXTENSION_HELPER_MODULES=("helper_with_register",), EXTENSION_TOOL_ALIASES={"wf_alias_help": "wf_help"}),
             "stdlib_name": dict(EXTENSION_MODULES=("json",)),
             "reserved_name": dict(EXTENSION_MODULES=("server_impl",)),
             "no_register": dict(EXTENSION_MODULES=("no_register",)),
@@ -1141,6 +1345,8 @@ with tempfile.TemporaryDirectory() as tmp:
             "type_changed_override": dict(EXTENSION_MODULES=("type_change",), EXTENSION_OVERRIDES={"type_change": ("wf_create_wave",)}),
             "extended_override": dict(EXTENSION_MODULES=("extended_tools",), EXTENSION_OVERRIDES={"extended_tools": ("wf_create_wave",)}),
             "default_changed_override": dict(EXTENSION_MODULES=("default_change",), EXTENSION_OVERRIDES={"default_change": ("wf_create_wave",)}),
+            "parent_changed_override": dict(EXTENSION_MODULES=("parent_change",), EXTENSION_OVERRIDES={"parent_change": ("wf_create_wave",)}),
+            "parent_swallowing_override": dict(EXTENSION_MODULES=("parent_swallow",), EXTENSION_OVERRIDES={"parent_swallow": ("wf_create_wave",)}),
             "withdrawn_override": dict(EXTENSION_MODULES=("withdrawer",), EXTENSION_OVERRIDES={"withdrawer": ("wf_current_wave",)}),
             "served_table_write": dict(EXTENSION_MODULES=("served_writer",), EXTENSION_TOOL_PREFIXES=("acme_",), EXTENSION_TOOL_TIERS={"acme_sneak": "read"}),
             "incompatible_override": dict(EXTENSION_MODULES=("bad_compat",), EXTENSION_OVERRIDES={"bad_compat": ("wf_current_wave", "wf_create_wave", "wf_help")}),
@@ -1200,6 +1406,9 @@ with tempfile.TemporaryDirectory() as tmp:
             "params_desc_too_long": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"set_id": "wave_id"}, "description": "x" * 16385}}),
             "params_desc_plain": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"description": "An alias."}}),
             "params_desc_empty_mappings": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {}, "fixed": {}, "description": "An alias."}}),
+            # Wave 1zls8 (1zlty): response_keys refused by the server's declaration check.
+            "params_response_keys_bad_path": dict(EXTENSION_TOOL_ALIASES={"wf_alias_get": "wf_get_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_get": {"response_keys": {"changes\n": "items"}}}),
+            "params_response_keys_echo": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"set_id": "wave_id"}, "response_keys": {"wave_id": "set_key"}}}),
             "params_desc_max_valid": dict(EXTENSION_TOOL_ALIASES={"wf_alias_add": "wf_add_change"}, EXTENSION_TOOL_PARAMETERS={"wf_alias_add": {"rename": {"set_id": "wave_id"}, "description": "y" * 16384}}),
             "params_ext_fixed_type": dict(EXTENSION_MODULES=("echo_tool",), EXTENSION_TOOL_PREFIXES=("acme_",), EXTENSION_TOOL_TIERS={"acme_echo": "read"}, EXTENSION_TOOL_ALIASES={"acme_say": "acme_echo"}, EXTENSION_TOOL_PARAMETERS={"acme_say": {"fixed": {"count": "3"}}}),
             # Wave 1zimf (1zimo): a lock or credit declaration without a registered tool.
@@ -1208,7 +1417,7 @@ with tempfile.TemporaryDirectory() as tmp:
             "lifecycle_reserved_name": dict(EXTENSION_MODULES=("retired_name",), EXTENSION_TOOL_PREFIXES=("wf_",), EXTENSION_TOOL_TIERS={"wf_review_evidence": "write"}, EXTENSION_LIFECYCLE_TOOLS=("wf_review_evidence",), EXTENSION_ARTIFACT_PATH_FIELDS={"wf_review_evidence": "path"}),
             "lifecycle_invalid_declaration": dict(EXTENSION_MODULES=("twin_a",), EXTENSION_TOOL_PREFIXES=("acme_",), EXTENSION_TOOL_TIERS={"acme_twin": "read"}, EXTENSION_LIFECYCLE_TOOLS=("acme_twin",)),
         }
-        empty = dict(EXTENSION_MODULES=(), EXTENSION_TOOL_PREFIXES=(), EXTENSION_TOOL_TIERS={}, EXTENSION_OVERRIDES={},
+        empty = dict(EXTENSION_MODULES=(), EXTENSION_HELPER_MODULES=(), EXTENSION_TOOL_PREFIXES=(), EXTENSION_TOOL_TIERS={}, EXTENSION_OVERRIDES={},
                      EXTENSION_TOOL_ALIASES={}, EXTENSION_TOOL_PARAMETERS={}, EXTENSION_HIDDEN_TOOLS=(),
                      EXTENSION_LIFECYCLE_TOOLS=(), EXTENSION_ARTIFACT_PATH_FIELDS={}, EXTENSION_REPLACEMENTS={})
         results = {}
@@ -1217,7 +1426,7 @@ with tempfile.TemporaryDirectory() as tmp:
                 setattr(ext, key, value)
             for mod in ("acme_tools", "no_register", "raiser", "undeclared_override", "bad_compat", "twin_a", "twin_b", "unprefixed", "escaped", "not_there",
                         "async_tools", "bypass_manager", "bypass_table", "tamperer", "resource_tools", "prompt_tools",
-                        "withdrawer", "served_writer", "type_change", "default_change", "extended_tools",
+                        "withdrawer", "served_writer", "type_change", "parent_change", "parent_swallow", "default_change", "extended_tools",
                         "wf_fork", "retired_name", "reserved_name", "replace_close", "open_replacement", "ask_undeclared", "echo_tool"):
                 if getattr(sys.modules.get(mod), "__wf_extension__", False):
                     sys.modules.pop(mod, None)
@@ -1244,11 +1453,30 @@ with tempfile.TemporaryDirectory() as tmp:
                     results[label]["parameters"] = normalized(table(mcp)["wf_alias_add"].parameters)
                 if label == "params_desc_max_valid":
                     results[label]["description"] = table(mcp)["wf_alias_add"].description
+                if label == "helper_with_register":
+                    results[label]["register_calls"] = list(sys.modules["helper_with_register"].CALLS)
+                    results[label]["helpers"] = [h["module"] for h in (impl._EXTENSION_PROVENANCE or {}).get("helper_modules", [])]
+                if label == "parent_swallowing_override":
+                    # Wave 1zlu1 (N1): the handler swallows **kwargs, so only
+                    # the structural guard can refuse an omitted parameter.
+                    spy = sys.modules["parent_swallow"].CALLS
+                    refused = ccall(mcp, "wf_create_wave", {"slug": "s", "parent": "q4"})
+                    results[label]["refused"] = [refused.get("status")] + [d["code"] for d in refused.get("diagnostics", [])]
+                    results[label]["rejected"] = (refused.get("data") or {}).get("rejected_arguments")
+                    results[label]["calls_after_refusal"] = list(spy)
+                    results[label]["plain"] = ccall(mcp, "wf_create_wave", {"slug": "s"}).get("got")
+                    results[label]["calls_after_plain"] = list(spy)
+                    results[label]["markers"] = list(markers(mcp, "wf_create_wave"))
                 if label == "extended_override":
                     results[label]["with_team"] = ccall(mcp, "wf_create_wave", {"slug": "probe", "team": "blue"})["data"]
                     results[label]["core_call"] = ccall(mcp, "wf_create_wave", {"slug": "probe"})["data"]
             except BaseException as exc:
                 results[label] = {"raised": type(exc).__name__, "message": str(exc), "served": sorted(table(mcp))}
+                if label.startswith("helper_"):
+                    # Wave 1zls8 (1zltx): a failed install leaves no declared module it imported.
+                    results[label]["left_in_modules"] = sorted(
+                        name for name in ("helper_first", "helper_second", "helper_raises", "acme_helper", "escaped")
+                        if name in sys.modules)
             impl._COST_FOCUS_EXTRACTORS.pop("wf_fixture_reserved", None)
         out["cases"] = results
         # Wave 1z8oz: registering again after a replacement leaves no replaced state behind.
@@ -1287,11 +1515,304 @@ with tempfile.TemporaryDirectory() as tmp:
             setattr(ext, key, value)
         runner._get_handler().close()
 
+    elif MODE == "response_keys":
+        # Wave 1zls8 (1zlty AC-2 to AC-6): declared response-key renames through call_tool.
+        DECL.write_text(DECL_ORIG + KEYS_DECL)
+        load_server(); runner = load_thin_runner()
+        mcp = runner.build_server(root)
+        impl = runner.server_impl
+        import copy
+        created = impl.wf_create_wave_response(root, "keyed", mode="create")
+        wave_id = created["data"]["wave_id"]
+        # One admitted change, written in the loaded vocabulary.
+        vp = impl._vocab
+        wave_md = impl.find_wave_record(root, wave_id)[0]
+        change_id = "1abce-enh keyed-item"
+        (wave_md.parent / f"{change_id}.md").write_text(
+            f"# Keyed Item\n\n{vp.MEMBER_ID_LABEL}: `{change_id}`\n{vp.MEMBER_STATUS_LABEL}: `planned`\n", encoding="utf-8")
+        with wave_md.open("a", encoding="utf-8") as record:
+            record.write(f"\n{vp.MEMBER_ID_LABEL}: `{change_id}`\n{vp.MEMBER_STATUS_LABEL}: `planned`\n")
+        out["admitted"] = [c["id"] for c in impl.wf_get_change_response(root, wave_id=wave_id)["data"]["changes"]]
+        out["items_bulk"] = ccall(mcp, "fork_get_items", {"wave_id": wave_id})
+        out["canonical_bulk"] = ccall(mcp, "wf_get_change", {"wave_id": wave_id})
+        out["plain_bulk"] = ccall(mcp, "fork_get_plain", {"wave_id": wave_id})
+        out["items_unknown"] = ccall(mcp, "fork_get_items", {"wave_id": wave_id, "bogus": 1})
+        out["listed_description"] = {t.name: t.description for t in asyncio.run(mcp.list_tools())}.get("fork_get_items")
+        # A fixture core response with nested lists, collisions and wrong types.
+        source = copy.deepcopy(NESTED_RESULT)
+        impl.wf_add_change_response = lambda root_, *a, **k: source
+        before = copy.deepcopy(source)
+        result = table(mcp)["fork_add_item"].fn(set_id="1abcd", item_id="1abce-enh x")
+        out["nested"] = result
+        out["nested_input_unchanged"] = source == before
+        out["nested_identity"] = {
+            "note_value": result["data"]["items"][1]["note"] is source["data"]["changes"][1]["note"],
+            "collided_element": result["data"]["items"][0] is source["data"]["changes"][0],
+            "list_is_new": result["data"]["items"] is not source["data"]["changes"],
+            "renamed_element_is_new": result["data"]["items"][1] is not source["data"]["changes"][1],
+            "meta_is_new": result["data"]["meta"] is not source["data"]["meta"],
+            "meta_list_is_new": result["data"]["meta"]["list"] is not source["data"]["meta"]["list"],
+            "untouched_element": result["data"]["meta"]["list"][2] is source["data"]["meta"]["list"][2],
+            "diagnostics_input_unchanged": source["diagnostics"] == before["diagnostics"],
+        }
+        out["canonical_add"] = ccall(mcp, "wf_add_change", {"wave_id": "1abcd", "change_id": "1abce-enh x"})
+        out["extensions"] = impl.wf_server_info_response(root)["data"]["extensions"]
+        runner._get_handler().close()
+
+    elif MODE == "override_costs":
+        # Wave 1zls8 (1zltz AC-1, AC-2, AC-4 to AC-6, AC-9, AC-10).
+        DECL.write_text(DECL_ORIG + MEASURED_DECL)
+        write_module("fork_measured", MEASURED)
+        load_server(); runner = load_thin_runner()
+        mcp = runner.build_server(root)
+        impl = runner.server_impl
+        import context_efficiency, lifecycle_lock, runtime_lock, os
+        from unittest import mock
+        fork = sys.modules["fork_measured"]
+        handler = runner._get_handler()
+        size = lambda value: context_efficiency.estimate_tokens_utf8(json.dumps(value, sort_keys=True, default=str))
+        (root / "mod.py").write_text("def alpha():\n    return 1\n\nclass Beta:\n    def gamma(self):\n        return 2\n")
+        out["markers"] = {n: markers(mcp, n) for n in ("wf_close_wave", "code_outline", "wf_current_wave")}
+        out["deltas_installed"] = sorted(impl._EXTENSION_OVERRIDE_DELTAS)
+        out["cost_pass_kwargs"] = sorted(impl._cost_pass_kwargs())
+        out["override_deltas"] = sorted(impl._cost_pass_kwargs().get("override_deltas", ()))
+
+        def recorded(name, call_args, behaviours):
+            fork.BEHAVIOUR.update(behaviours)
+            costs, workflow = [], []
+            real_workflow = handler.telemetry.record_workflow
+            with mock.patch.object(handler.telemetry, "record_tool_cost",
+                                   lambda tool, **kw: costs.append({"name": tool, **{k: kw.get(k) for k in (
+                                       "request_tokens", "response_tokens", "derived_artifact_tokens")}})), \
+                    mock.patch.object(handler.telemetry, "record_workflow",
+                                      lambda *a, **k: workflow.append(a[2]) or real_workflow(*a, **k)):
+                result = ccall(mcp, name, call_args)
+            last = fork.LAST.pop(name, None)
+            return {"costs": costs, "workflow": workflow, "status": result.get("status"),
+                    "added": "fork_added" in result,
+                    "expected_delta": size(last["final"]) - size(last["core"]) if last else None,
+                    "core_size": size(last["core"]) if last else None}
+
+        close_args = {"wave_id": "1abcd", "mode": "dry_run"}
+        out["close_add"] = recorded("wf_close_wave", close_args, {"wf_close_wave": "add"})
+        out["close_same"] = recorded("wf_close_wave", close_args, {"wf_close_wave": "same"})
+        out["close_self"] = recorded("wf_close_wave", close_args, {"wf_close_wave": "self"})
+        out["close_non_exempt_core"] = recorded("wf_close_wave", close_args, {"wf_close_wave": "non_exempt_core"})
+        out["close_self_request"] = size({"wave_id": "1abcd", "mode": "dry_run"})
+        out["close_self_response"] = size({"status": "ok", "data": {"answered": "1abcd"}})
+        # A direct core call outside any override records the core's own events only.
+        costs, workflow = [], []
+        real_workflow = handler.telemetry.record_workflow
+        with mock.patch.object(handler.telemetry, "record_tool_cost", lambda tool, **kw: costs.append(tool)), \
+                mock.patch.object(handler.telemetry, "record_workflow",
+                                  lambda *a, **k: workflow.append(a[2]) or real_workflow(*a, **k)):
+            fork.CORES["wf_close_wave"](wave_id="1abcd", mode="dry_run")
+        out["direct_core"] = {"costs": costs, "workflow": workflow}
+        out["outline_add"] = recorded("code_outline", {"path": "mod.py"}, {"code_outline": "add"})
+        out["outline_same"] = recorded("code_outline", {"path": "mod.py"}, {"code_outline": "same"})
+        out["outline_self"] = recorded("code_outline", {"path": "mod.py"}, {"code_outline": "self"})
+        out["outline_self_request"] = size({"path": "mod.py"})
+        out["outline_self_response"] = size({"status": "ok", "data": {"path": "mod.py", "symbols": []}})
+        out["current"] = recorded("wf_current_wave", {}, {})
+        costs = []
+        with mock.patch.object(handler.telemetry, "record_tool_cost", lambda tool, **kw: costs.append(
+                {"name": tool, "request_tokens": kw.get("request_tokens"), "response_tokens": kw.get("response_tokens")})):
+            current_result = table(mcp)["wf_current_wave"].fn()
+        out["current_direct"] = {"costs": costs, "request": size({}), "response": size(current_result)}
+        # AC-5: observational. A failing telemetry write and an active checkpoint
+        # leave the result unchanged and record nothing.
+        fork.BEHAVIOUR.update({"code_outline": "add"})
+        def boom(*a, **k):
+            raise RuntimeError("telemetry down")
+        with mock.patch.object(handler.telemetry, "record_tool_cost", boom):
+            failing = ccall(mcp, "code_outline", {"path": "mod.py"})
+        out["failing_telemetry"] = {"status": failing.get("status"), "added": "fork_added" in failing}
+        checkpoint = root / ".wavefoundry" / "upgrade-in-progress.json"
+        checkpoint.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint.write_text(json.dumps({"current_phase": "extracting"}))
+        guarded_costs = []
+        with mock.patch.object(handler.telemetry, "record_tool_cost", lambda tool, **kw: guarded_costs.append(tool)):
+            during = ccall(mcp, "code_outline", {"path": "mod.py"})
+            out["checkpoint_outline"] = {"status": during.get("status"), "added": "fork_added" in during,
+                                         "costs": list(guarded_costs)}
+            # AC-10: the guard refuses the override of a locked exempt name before its body runs.
+            del fork.EVENTS[:]
+            fork.BEHAVIOUR.update({"wf_close_wave": "add"})
+            refused = ccall(mcp, "wf_close_wave", close_args)
+            out["checkpoint_close"] = {"codes": codes(refused), "body_ran": list(fork.EVENTS),
+                                       "costs": list(guarded_costs)}
+        checkpoint.unlink()
+        # AC-6: after core_handler returns, the override still holds the lifecycle lock.
+        lock_path = root / lifecycle_lock.LIFECYCLE_MUTATION_LOCK_REL
+        def observe(hroot):
+            hold = runtime_lock.process_hold(lock_path)
+            return {"hold_registered": hold is not None and hold.get("pid") == os.getpid(),
+                    "other_process": other_process_lifecycle(hroot)}
+        fork.HOOK = observe
+        observed = ccall(mcp, "wf_close_wave", close_args)
+        fork.HOOK = None
+        out["lock_after_core"] = observed.get("seen")
+        out["lock_after_return"] = other_process_lifecycle(root)
+        # AC-9: the stage calls count in the context-efficiency totals.
+        created = impl.wf_create_wave_response(root, "measured", mode="create")
+        wave_id = created["data"]["wave_id"]
+        def calls():
+            snapshot = context_efficiency.read_wave_snapshot(root, wave_id)
+            return {"review": snapshot["stages"].get("review", {}).get("calls", 0),
+                    "total": snapshot["totals"]["calls"] + context_efficiency.read_general_totals(root)["calls"]}
+        handler.telemetry.set_focus(wave_id, "review")
+        counts = {}
+        before = calls()
+        fork.CORES["wf_close_wave"](wave_id=wave_id, mode="dry_run")
+        counts["direct"] = {k: v - before[k] for k, v in calls().items()}
+        for how in ("same", "add"):
+            fork.BEHAVIOUR.update({"wf_close_wave": how})
+            handler.telemetry.set_focus(wave_id, "review")
+            before = calls()
+            ccall(mcp, "wf_close_wave", {"wave_id": wave_id, "mode": "dry_run"})
+            counts[how] = {k: v - before[k] for k, v in calls().items()}
+        out["calls"] = counts
+        # A failure after the extension install clears the installed override deltas.
+        from mcp.server.fastmcp import FastMCP
+        with mock.patch.object(impl, "_install_served_names", boom):
+            try:
+                impl.register_mcp_surface(FastMCP("late_failure"), runner._get_handler)
+                out["late_failure"] = "served"
+            except RuntimeError:
+                out["late_failure"] = "raised"
+        out["deltas_after_late_failure"] = sorted(impl._EXTENSION_OVERRIDE_DELTAS)
+        handler.close()
+
+    elif MODE == "helpers":
+        # Wave 1zls8 (1zltx AC-2, AC-3, AC-5, AC-10, AC-11): declared helper
+        # modules, the public lifecycle helpers end to end, and reload.
+        DECL.write_text(DECL_ORIG + HELPER_DECL)
+        write_module("acme_shared", HELPER)
+        write_module("acme_extra", HELPER_EXTRA)
+        write_module("acme_contract", CONTRACT)
+        load_server(); runner = load_thin_runner()
+        mcp = runner.build_server(root)
+        impl = runner.server_impl
+        from unittest import mock
+        from record_layout_support import patch_layout
+        from test_archive_root import ARCHIVE_REL, SECOND, _module_copies, _write_archive
+        sha = lambda name: hashlib.sha256((SCRATCH / f"{name}.py").read_bytes()).hexdigest()
+        marked = lambda name: getattr(sys.modules.get(name), "__wf_extension__", None)
+        out["names"] = sorted(n for n in table(mcp) if n.startswith("acme_"))
+        out["register_calls"] = list(sys.modules["acme_shared"].REGISTER_CALLS)
+        out["marked"] = {n: marked(n) for n in ("acme_shared", "acme_extra", "acme_contract")}
+        info = impl.wf_server_info_response(root)["data"]["extensions"]
+        out["helper_provenance"] = info["helper_modules"]
+        out["declared_helpers"] = info["declaration"]["helper_modules"]
+        out["helper_sha"] = {n: sha(n) for n in ("acme_shared", "acme_extra")}
+        created = impl.wf_create_wave_response(root, "helped", mode="create")
+        wave_id = created["data"]["wave_id"]
+        refreshes = []
+        with mock.patch.object(impl, "_trigger_background_index_refresh_for_paths",
+                               lambda r, paths: refreshes.append([Path(x).name for x in paths]) or {"project": True}), \
+                mock.patch.object(impl, "_run_post_write_lint", lambda r: {"passed": True, "stub": True}):
+            out["touch_create"] = ccall(mcp, "acme_touch", {"wave_id": wave_id, "mode": "create"})
+            out["touch_dry_run"] = ccall(mcp, "acme_touch", {"wave_id": wave_id})
+        out["refreshes"] = refreshes
+        out["record_filename"] = impl._vocab.RECORD_FILENAME
+        # Archived and record-layout refusals in the core shape.
+        _write_archive(root)
+        rps, vps = _module_copies(impl)
+        with patch_layout(modules=rps, archive_root=ARCHIVE_REL), contextlib.ExitStack() as stack:
+            for vp in vps:
+                stack.enter_context(mock.patch.object(vp, "ARCHIVE_PROFILE", SECOND))
+            out["touch_archived"] = ccall(mcp, "acme_touch", {"wave_id": "1a000"})
+            out["core_archived"] = ccall(mcp, "wf_pause_wave", {"wave_id": "1a000", "mode": "create"})
+        with patch_layout(modules=rps, waves_root="../x"):
+            out["touch_invalid"] = ccall(mcp, "acme_touch", {"wave_id": wave_id})
+            out["core_invalid"] = ccall(mcp, "wf_pause_wave", {"wave_id": wave_id, "mode": "dry_run"})
+        # AC-5: an edited helper is served, with its new hash, after reload.
+        write_module("acme_shared", HELPER.replace('VERSION = "h1"', 'VERSION = "h2"'))
+        result = runner.perform_mcp_reload()
+        out["edit_reload_status"] = result["status"]
+        impl = runner.server_impl
+        out["edit_touch"] = ccall(mcp, "acme_touch", {"wave_id": wave_id})["data"].get("helper")
+        out["edit_provenance"] = impl.wf_server_info_response(root)["data"]["extensions"]["helper_modules"]
+        out["edit_sha"] = sha("acme_shared")
+        # AC-2: the wrappers resolve and stay late-bound after the reload.
+        out["reload_helpers"] = {n: callable(getattr(impl, n, None)) for n in impl.EXTENSION_PUBLIC_HELPERS}
+        with mock.patch.object(impl, "_find_wave_md_detailed", lambda *a, **k: ("patched", None, [])):
+            out["reload_late_bound"] = impl.find_wave_record(root, wave_id)[0]
+        # AC-10: a dropped helper is evicted on reload.
+        DECL.write_text(DECL_ORIG + HELPER_DECL.replace('("acme_shared", "acme_extra")', '("acme_shared",)'))
+        result = runner.perform_mcp_reload()
+        out["drop_reload_status"] = result["status"]
+        out["drop_in_modules"] = {n: n in sys.modules for n in ("acme_shared", "acme_extra", "acme_contract")}
+        # AC-11: a helper edited to import a later-declared helper is refused
+        # on reload, and fixing the order recovers without a restart.
+        DECL.write_text(DECL_ORIG + HELPER_DECL)
+        write_module("acme_shared", "import acme_extra\n" + HELPER)
+        result = runner.perform_mcp_reload()
+        out["order_reload_status"] = result["status"]
+        out["order_reload_text"] = json.dumps(result)[:4000]
+        out["order_served"] = sorted(n for n in table(mcp) if n.startswith("acme_"))
+        out["order_in_modules"] = {n: n in sys.modules for n in ("acme_shared", "acme_extra", "acme_contract")}
+        DECL.write_text(DECL_ORIG + HELPER_DECL.replace('("acme_shared", "acme_extra")', '("acme_extra", "acme_shared")'))
+        result = runner.perform_mcp_reload()
+        out["fixed_reload_status"] = result["status"]
+        out["fixed_reload_text"] = json.dumps(result)[:4000]
+        out["fixed_names"] = sorted(n for n in table(mcp) if n.startswith("acme_"))
+        out["fixed_marked"] = {n: marked(n) for n in ("acme_shared", "acme_extra", "acme_contract")}
+        # AC-10: an emptied declaration evicts every extension and helper module.
+        DECL.write_text(DECL_ORIG)
+        result = runner.perform_mcp_reload()
+        out["empty_reload_status"] = result["status"]
+        out["empty_in_modules"] = {n: n in sys.modules for n in ("acme_shared", "acme_extra", "acme_contract")}
+        out["empty_provenance"] = runner.server_impl.wf_server_info_response(root)["data"]["extensions"]["helper_modules"]
+        runner._get_handler().close()
+
+    elif MODE == "caseok":
+        # Wave 1zls8 (1zltx AC-6, Requirement 10): run with PYTHONCASEOK=1. A
+        # declared name whose case differs from its file is refused on every
+        # platform, for a helper and for an extension module.
+        import importlib.machinery, os
+        from mcp.server.fastmcp import FastMCP
+        load_server(); runner = load_thin_runner()
+        runner.build_server(root)
+        impl = runner.server_impl
+        ext = sys.modules["mcp_tool_extensions"]
+        write_module("acme_case_helper", "VALUE = 1\n")
+        write_module("acme_case_tools", (
+            "import server_impl\n"
+            "def register(mcp, get_handler):\n"
+            "    @mcp.tool()\n"
+            "    def acme_case(**kwargs):\n"
+            "        return {'status': 'ok'}\n"
+        ))
+        scripts = str(Path(impl.SCRIPTS_DIR).resolve())
+        out["caseok"] = os.environ.get("PYTHONCASEOK")
+        out["find_spec_resolves_miscased"] = importlib.machinery.PathFinder.find_spec("Acme_Case_Helper", [scripts]) is not None
+        results = {}
+        for label, attrs in (
+            ("helper", dict(EXTENSION_HELPER_MODULES=("Acme_Case_Helper",))),
+            ("module", dict(EXTENSION_MODULES=("Acme_Case_Tools",), EXTENSION_TOOL_PREFIXES=("acme_",),
+                            EXTENSION_TOOL_TIERS={"acme_case": "read"})),
+            ("helper_exact", dict(EXTENSION_HELPER_MODULES=("acme_case_helper",))),
+        ):
+            for key, value in attrs.items():
+                setattr(ext, key, value)
+            mcp = FastMCP("case")
+            try:
+                impl.register_mcp_surface(mcp, runner._get_handler)
+                results[label] = {"raised": None, "served": sorted(table(mcp)),
+                                  "helpers": [h["module"] for h in (impl._EXTENSION_PROVENANCE or {}).get("helper_modules", [])]}
+            except BaseException as exc:
+                results[label] = {"raised": type(exc).__name__, "message": str(exc), "served": sorted(table(mcp))}
+            for key in attrs:
+                setattr(ext, key, type(getattr(ext, key))())
+        out["cases"] = results
+        runner._get_handler().close()
+
 print(json.dumps(out))
 '''
 
 
-def _run(mode: str) -> dict:
+def _run(mode: str, env: dict | None = None) -> dict:
     with tempfile.TemporaryDirectory() as temp:
         scratch = Path(temp) / "scripts"
         shutil.copytree(SCRIPTS, scratch, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
@@ -1302,7 +1823,7 @@ def _run(mode: str) -> dict:
         result = subprocess.run(
             [sys.executable, "-B", "-c", _DRIVER, mode],
             cwd=scratch,
-            env=dict(os.environ, PYTHONPATH=str(scratch), PYTHONDONTWRITEBYTECODE="1"),
+            env=dict(os.environ, PYTHONPATH=str(scratch), PYTHONDONTWRITEBYTECODE="1", **(env or {})),
             capture_output=True,
             text=True,
             timeout=300,
@@ -1687,15 +2208,16 @@ class ParameterMappedAliasTests(unittest.TestCase):
 
     def test_provenance_lists_parameter_mappings(self):
         params = self.out["extensions"]["parameters"]
+        # Wave 1zls8 (1zlty AC-6): every entry reports response_keys, empty when undeclared.
         self.assertEqual(params["fork_add_wave_now"], {
             "canonical": "wf_add_change", "rename": {"set_id": "wave_id", "wave_id": "change_id"}, "fixed": {"mode": "create"},
-            "description": None,
+            "description": None, "response_keys": {},
         })
         self.assertEqual(params["fork_review_prepare"], {"canonical": "wf_review_wave", "rename": {}, "fixed": {"phase": "prepare"},
-                                                         "description": None})
+                                                         "description": None, "response_keys": {}})
         # Wave 1zime (1zimm AC-7): a declared description is reported verbatim.
         self.assertEqual(params["fork_say"], {"canonical": "fork_echo", "rename": {"words": "text"}, "fixed": {},
-                                              "description": SAY_DESCRIPTION})
+                                              "description": SAY_DESCRIPTION, "response_keys": {}})
         self.assertEqual(self.stock["extensions"]["parameters"], {})
         # A pinned-only canonical name keeps its canonical served name.
         self.assertNotIn("wf_review_wave", self.out["extensions"]["served_names"])
@@ -1844,6 +2366,168 @@ class EchoedParameterRenameTests(unittest.TestCase):
             self.assertIs(self.rename(awaitable, self.SWAP), awaitable)
         finally:
             awaitable.close()
+
+
+class ResponseKeyRenameTests(unittest.TestCase):
+    """Wave 1zls8 (1zlty AC-3 to AC-5): the combined echo and response-key walk."""
+
+    def setUp(self):
+        from server_tools_support import load_server
+        impl = load_server()
+        self.walk = lambda result, rename, keys: impl._rename_response_keys(result, rename, impl._response_key_tree(keys))
+
+    def test_nested_paths_rename_only_their_last_key_in_place(self):
+        result = {"status": "ok", "data": {"changes": [{"change_id": "a", "x": 1}], "wave_id": "w"}}
+        out = self.walk(result, {}, {"changes": "items", "changes[].change_id": "item_id"})
+        self.assertEqual(out["data"], {"items": [{"item_id": "a", "x": 1}], "wave_id": "w"})
+        self.assertEqual(list(out["data"]), ["items", "wave_id"])
+        self.assertNotIn("diagnostics", out)
+
+    def test_a_swap_does_not_chain(self):
+        out = self.walk({"data": {"a": 1, "b": 2, "c": 3}}, {}, {"a": "b", "b": "a"})
+        self.assertEqual(list(out["data"].items()), [("b", 1), ("a", 2), ("c", 3)])
+
+    def test_echo_and_single_segment_keys_share_one_top_level_pass(self):
+        out = self.walk({"data": {"wave_id": "w", "changes": [], "mode": "m"}},
+                        {"set_id": "wave_id"}, {"changes": "items"})
+        self.assertEqual(list(out["data"]), ["set_id", "items", "mode"])
+
+    def test_a_collision_keeps_that_object_canonical_with_one_advisory(self):
+        result = {"status": "ok", "data": {"changes": [{"change_id": "a", "item_id": "x"}, {"change_id": "b"},
+                                                       {"change_id": "c", "item_id": "y"}]},
+                  "diagnostics": [{"code": "existing", "message": "m"}], "next_tools": ["t"], "usage": "u"}
+        out = self.walk(result, {}, {"changes": "items", "changes[].change_id": "item_id"})
+        self.assertEqual(out["data"]["items"], [{"change_id": "a", "item_id": "x"}, {"item_id": "b"},
+                                                {"change_id": "c", "item_id": "y"}])
+        advisory = [d for d in out["diagnostics"] if d["code"] == "response_key_rename_skipped"]
+        self.assertEqual(len(advisory), 1)
+        self.assertTrue(advisory[0]["advisory"])
+        self.assertEqual(advisory[0]["message"].count("changes[].change_id"), 1)
+        self.assertIn("stayed canonical because a rename at the same object would duplicate a key already present",
+                      advisory[0]["message"])
+        self.assertEqual(out["diagnostics"][0], {"code": "existing", "message": "m"})
+        self.assertEqual((out["status"], out["next_tools"], out["usage"]), ("ok", ["t"], "u"))
+
+    def test_a_top_level_collision_still_applies_child_renames(self):
+        out = self.walk({"data": {"changes": [{"change_id": "a"}], "items": 1}}, {},
+                        {"changes": "items", "changes[].change_id": "item_id"})
+        self.assertEqual(out["data"], {"changes": [{"item_id": "a"}], "items": 1})
+        self.assertTrue(out["diagnostics"][0]["message"].endswith(": changes."), out["diagnostics"])
+
+    def test_an_echo_only_collision_adds_no_advisory_and_returns_the_result(self):
+        result = {"status": "ok", "data": {"set_id": "already", "wave_id": "w"}}
+        self.assertIs(self.walk(result, {"set_id": "wave_id"}, {}), result)
+        # With response_keys elsewhere, the echo collision still names only declared paths.
+        out = self.walk({"data": {"set_id": "s", "wave_id": "w", "meta": {"count": 1}}},
+                        {"set_id": "wave_id"}, {"meta.count": "total"})
+        self.assertEqual(out["data"], {"set_id": "s", "wave_id": "w", "meta": {"total": 1}})
+        self.assertNotIn("diagnostics", out)
+
+    def test_absent_and_wrongly_typed_paths_are_skipped(self):
+        result = {"data": {"meta": 5, "list": {"k": 1}, "rows": [1, "x", None, {"k": 2}]}}
+        out = self.walk(result, {}, {"meta.count": "n", "list[].k": "key", "rows[].k": "key", "gone.x": "y"})
+        self.assertEqual(out["data"], {"meta": 5, "list": {"k": 1}, "rows": [1, "x", None, {"key": 2}]})
+        self.assertIs(self.walk({"data": {"meta": 5}}, {}, {"meta.count": "n"})["data"]["meta"], 5)
+
+    def test_values_keep_identity_and_the_input_is_never_mutated(self):
+        import copy
+        leaf = ["kept"]
+        untouched = {"z": 1}
+        result = {"status": "ok", "data": {"changes": [{"change_id": leaf, "keep": untouched}], "other": untouched},
+                  "next_tools": ["n"]}
+        before = copy.deepcopy(result)
+        out = self.walk(result, {}, {"changes[].change_id": "item_id"})
+        self.assertEqual(result, before)
+        self.assertIs(out["data"]["changes"][0]["item_id"], leaf)
+        self.assertIs(out["data"]["changes"][0]["keep"], untouched)
+        self.assertIs(out["data"]["other"], untouched)
+        self.assertIsNot(out["data"], result["data"])
+        self.assertIsNot(out["data"]["changes"], result["data"]["changes"])
+        self.assertIsNot(out["data"]["changes"][0], result["data"]["changes"][0])
+        self.assertIs(out["next_tools"], result["next_tools"])
+
+    def test_unchanged_shapes_are_returned_as_is(self):
+        keys = {"changes": "items"}
+        for result in ("text", None, ["changes"], {"status": "ok"}, {"data": None}, {"data": ["changes"]},
+                       {"data": {"other": 1}}):
+            with self.subTest(result=result):
+                self.assertIs(self.walk(result, {}, keys), result)
+        result = {"data": {"changes": 1}}
+        self.assertIs(self.walk(result, {}, {}), result)
+
+        async def coroutine():
+            return {"data": {"changes": 1}}
+        awaitable = coroutine()
+        try:
+            self.assertIs(self.walk(awaitable, {}, keys), awaitable)
+        finally:
+            awaitable.close()
+
+
+class ResponseKeyServingTests(unittest.TestCase):
+    """Wave 1zls8 (1zlty AC-2 to AC-6) through call_tool."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.out = _run("response_keys")
+
+    def test_a_bulk_alias_answers_in_its_own_keys_with_canonical_values(self):
+        out = self.out
+        self.assertEqual(out["admitted"], ["1abce-enh keyed-item"])
+        items, canonical = out["items_bulk"], out["canonical_bulk"]
+        self.assertEqual(items["status"], "ok", items)
+        self.assertNotIn("changes", items["data"])
+        self.assertEqual(len(items["data"]["items"]), 1)
+        self.assertEqual(len(canonical["data"]["changes"]), 1)
+        for got, want in zip(items["data"]["items"], canonical["data"]["changes"]):
+            self.assertEqual(got, {("item_id" if key == "id" else key): value for key, value in want.items()})
+        self.assertEqual({k: v for k, v in items["data"].items() if k != "items"},
+                         {k: v for k, v in canonical["data"].items() if k != "changes"})
+        self.assertEqual(out["listed_description"], "Get one item, or every item of a set.")
+
+    def test_canonical_plain_alias_and_unknown_arguments_answer_unchanged(self):
+        out = self.out
+        self.assertEqual(out["plain_bulk"]["data"], out["canonical_bulk"]["data"])
+        self.assertIn("changes", out["canonical_bulk"]["data"])
+        unknown = out["items_unknown"]
+        self.assertEqual([d["code"] for d in unknown["diagnostics"]], ["unknown_arguments"])
+        self.assertIn("rejected_arguments", unknown["data"])
+        self.assertIn("supported_arguments", unknown["data"])
+
+    def test_nested_lists_collisions_and_wrong_types_through_the_translator(self):
+        data = self.out["nested"]["data"]
+        self.assertEqual(list(data), ["set_id", "item_id", "mode", "items", "meta", "scalar"])
+        self.assertEqual(data["items"], [
+            {"change_id": "a", "item_id": "already"},
+            {"item_id": "b", "note": "renamed"},
+            {"change_id": "c", "item_id": "also there"},
+            "not a dict",
+        ])
+        self.assertEqual(data["meta"], {"total": 2, "list": [{"item_key": 1}, 7, {"other": 2}]})
+        self.assertEqual(data["scalar"], 5)
+        diagnostics = self.out["nested"]["diagnostics"]
+        self.assertEqual(diagnostics[0], {"code": "existing", "message": "kept"})
+        skipped = [d for d in diagnostics if d["code"] == "response_key_rename_skipped"]
+        self.assertEqual(len(skipped), 1, diagnostics)
+        self.assertEqual(skipped[0]["message"].count("changes[].change_id"), 1)
+        self.assertNotIn("wave_id", skipped[0]["message"])
+        self.assertEqual(self.out["nested"]["status"], "ok")
+        self.assertEqual(self.out["nested"]["next_tools"], ["probe_next"])
+        self.assertEqual(self.out["nested"]["usage"], "probe_next(item='a')")
+
+    def test_the_input_is_unchanged_and_values_keep_identity(self):
+        self.assertTrue(self.out["nested_input_unchanged"])
+        self.assertEqual(self.out["nested_identity"], {
+            "note_value": True, "collided_element": True, "list_is_new": True, "renamed_element_is_new": True,
+            "meta_is_new": True, "meta_list_is_new": True, "untouched_element": True,
+            "diagnostics_input_unchanged": True,
+        })
+
+    def test_provenance_reports_the_declared_response_keys(self):
+        params = self.out["extensions"]["parameters"]
+        self.assertEqual(params["fork_get_items"]["response_keys"], {"changes": "items", "changes[].id": "item_id"})
+        self.assertEqual(list(params["fork_add_item"]["response_keys"]),
+                         sorted(["changes", "changes[].change_id", "meta.count", "meta.list[].key", "absent.deep", "scalar.inner"]))
 
 
 class ServedNameRewriteTests(unittest.TestCase):
@@ -2111,8 +2795,13 @@ class ExtensionServingTests(unittest.TestCase):
         self.assertEqual(self.out["call_tool_write_blocked"], ["error", "upgrade_in_progress"])
 
     def test_overrides_inherit_exactly_the_core_wrappers(self):
-        for name in ("wf_current_wave", "wf_create_wave"):
-            self.assertEqual(self.out["markers"][name], self.stock["markers"][name], name)
+        self.assertEqual(self.out["markers"]["wf_current_wave"], self.stock["markers"]["wf_current_wave"])
+        # Wave 1zls8 (1zltz): an override of a cost-exempt core name also gets
+        # the innermost delta recorder, since the core it may delegate to
+        # records only its own response.
+        # Wave 1zlu1 (N1): this override omits `parent`, so the outermost
+        # omitted-parameter guard is added after the core chain.
+        self.assertEqual(self.out["markers"]["wf_create_wave"], ["cost"] + self.stock["markers"]["wf_create_wave"] + ["omitted"])
         self.assertIn("lock", self.out["markers"]["wf_create_wave"])
 
     def test_new_tools_are_wrapped_costed_and_upgrade_guarded(self):
@@ -2135,6 +2824,11 @@ class ExtensionServingTests(unittest.TestCase):
         self.assertEqual(module["sha256"], self.out["acme_sha"])
         self.assertEqual(module["tools"], [{"name": "acme_echo", "tier": "read"}, {"name": "acme_write", "tier": "write"}])
         self.assertEqual(module["overrides"], ["wf_create_wave", "wf_current_wave"])
+        # Wave 1zlu1 (F3): the pre-1zlu1 override signature omits `parent`.
+        self.assertEqual(module["omitted_core_parameters"], {"wf_create_wave": ["parent"]})
+
+    def test_override_omitting_parent_installs_and_refuses_a_parent_argument(self):
+        self.assertEqual(self.out["call_tool_parent_refused"], ["error", "unknown_arguments"])
 
 
 class ExtensionReloadTests(unittest.TestCase):
@@ -2212,6 +2906,264 @@ class PublicHelperServingTests(unittest.TestCase):
         self.assertEqual(self.out["reload_ok_call"]["data"], {"echo": "again"})
 
 
+class HelperModuleTests(unittest.TestCase):
+    """Wave 1zls8 (1zltx AC-2, AC-3, AC-5, AC-10, AC-11): declared helper modules."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.out = _run("helpers")
+
+    def test_helpers_load_marked_and_register_is_never_called(self):
+        out = self.out
+        self.assertEqual(out["names"], ["acme_touch"])
+        self.assertEqual(out["register_calls"], [])
+        self.assertEqual(out["marked"], {"acme_shared": True, "acme_extra": True, "acme_contract": True})
+
+    def test_provenance_reports_each_helper_path_and_hash(self):
+        out = self.out
+        self.assertEqual(out["declared_helpers"], ["acme_shared", "acme_extra"])
+        self.assertEqual([h["module"] for h in out["helper_provenance"]], ["acme_shared", "acme_extra"])
+        for entry in out["helper_provenance"]:
+            with self.subTest(helper=entry["module"]):
+                self.assertTrue(entry["path"].endswith(f"{entry['module']}.py"), entry)
+                self.assertEqual(entry["sha256"], out["helper_sha"][entry["module"]])
+
+    def test_the_contract_only_module_serves_through_call_tool(self):
+        out = self.out
+        created = out["touch_create"]
+        self.assertEqual(created["status"], "ok", created)
+        self.assertEqual(created["data"]["helper"], "h1")
+        self.assertEqual(created["data"]["refreshed"], {"project": True})
+        self.assertEqual(created["data"]["lint"], {"passed": True, "stub": True})
+        self.assertEqual(out["refreshes"], [[out["record_filename"]]])
+        dry = out["touch_dry_run"]
+        self.assertEqual(dry["status"], "ok", dry)
+        self.assertNotIn("lint", dry["data"])
+
+    def test_archived_and_record_layout_refusals_take_the_core_shape(self):
+        out = self.out
+        touch, core = out["touch_archived"], out["core_archived"]
+        self.assertEqual(touch["status"], "error")
+        touch_diag = [d for d in touch["diagnostics"] if d["code"] == "archived_record_read_only"]
+        core_diag = [d for d in core["diagnostics"] if d["code"] == "archived_record_read_only"]
+        self.assertEqual(len(touch_diag), 1, touch)
+        self.assertEqual(touch_diag, core_diag)
+        touch, core = out["touch_invalid"], out["core_invalid"]
+        self.assertEqual(touch["status"], core["status"])
+        self.assertEqual(touch["status"], "error")
+        self.assertEqual(touch["diagnostics"], core["diagnostics"])
+        self.assertEqual(touch["data"]["tool"], "acme_touch")
+        for key in ("record_layout_valid", "diagnostics_detail"):
+            self.assertEqual(touch["data"][key], core["data"][key], key)
+
+    def test_an_edited_helper_is_served_with_its_new_hash_after_reload(self):
+        # Known-bad (AC-5): without helper preloading the helper is imported
+        # only by the extension module's import, has no hash and keeps the old bytes.
+        out = self.out
+        self.assertEqual(out["edit_reload_status"], "ok")
+        self.assertEqual(out["edit_touch"], "h2")
+        shared = [h for h in out["edit_provenance"] if h["module"] == "acme_shared"]
+        self.assertEqual(len(shared), 1, out["edit_provenance"])
+        self.assertEqual(shared[0]["sha256"], out["edit_sha"])
+        self.assertNotEqual(out["edit_sha"], out["helper_sha"]["acme_shared"])
+
+    def test_the_wrappers_resolve_and_stay_late_bound_after_reload(self):
+        self.assertTrue(all(self.out["reload_helpers"].values()), self.out["reload_helpers"])
+        self.assertEqual(len(self.out["reload_helpers"]), 11)
+        self.assertEqual(self.out["reload_late_bound"], "patched")
+
+    def test_a_dropped_helper_and_an_emptied_declaration_are_evicted(self):
+        out = self.out
+        self.assertEqual(out["drop_reload_status"], "ok")
+        self.assertEqual(out["drop_in_modules"], {"acme_shared": True, "acme_extra": False, "acme_contract": True})
+        self.assertEqual(out["empty_reload_status"], "ok")
+        self.assertEqual(out["empty_in_modules"], {"acme_shared": False, "acme_extra": False, "acme_contract": False})
+        self.assertEqual(out["empty_provenance"], [])
+
+    def test_an_out_of_order_import_is_refused_on_reload_and_a_fixed_order_recovers(self):
+        out = self.out
+        self.assertIn("register_surface_failed", out["order_reload_text"])
+        self.assertIn("collides with a module the server already imported", out["order_reload_text"])
+        self.assertEqual(out["order_served"], [])
+        self.assertEqual(out["order_in_modules"], {"acme_shared": False, "acme_extra": False, "acme_contract": False})
+        self.assertEqual(out["fixed_reload_status"], "ok", out["fixed_reload_text"])
+        self.assertEqual(out["fixed_names"], ["acme_touch"])
+        self.assertEqual(out["fixed_marked"], {"acme_shared": True, "acme_extra": True, "acme_contract": True})
+
+
+class MiscasedModuleTests(unittest.TestCase):
+    """Wave 1zls8 (1zltx AC-6, Requirement 10): the exact-name check under PYTHONCASEOK=1."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.out = _run("caseok", env={"PYTHONCASEOK": "1"})
+
+    def test_a_miscased_helper_and_extension_module_are_refused(self):
+        self.assertEqual(self.out["caseok"], "1")
+        for label in ("helper", "module"):
+            with self.subTest(case=label, find_spec_resolves=self.out["find_spec_resolves_miscased"]):
+                result = self.out["cases"][label]
+                self.assertIsNotNone(result["raised"], result)
+                self.assertIn("has no .py source directly in", result["message"])
+                self.assertIn("(no file named exactly", result["message"])
+                self.assertEqual(result["served"], [])
+
+    def test_the_exact_name_still_loads(self):
+        result = self.out["cases"]["helper_exact"]
+        self.assertIsNone(result["raised"], result)
+        self.assertEqual(result["helpers"], ["acme_case_helper"])
+
+
+class OverrideCostRecordingTests(unittest.TestCase):
+    """Wave 1zls8 (1zltz): what an override of a self-recording tool adds is recorded."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.stock = _run("stock")
+        cls.out = _run("override_costs")
+
+    def test_only_exempt_override_targets_get_the_delta_recorder(self):
+        out = self.out
+        self.assertEqual(out["deltas_installed"], ["code_outline", "wf_close_wave"])
+        self.assertEqual(out["override_deltas"], ["code_outline", "wf_close_wave"])
+        self.assertIn("cost", out["markers"]["wf_close_wave"])
+        self.assertIn("cost", out["markers"]["code_outline"])
+        self.assertEqual(self.stock["cost_pass_kwargs"], [])
+        self.assertEqual(self.stock["deltas_installed"], [])
+
+    def test_a_delegating_lifecycle_override_records_only_what_it_adds(self):
+        add = self.out["close_add"]
+        self.assertTrue(add["added"])
+        self.assertGreater(add["expected_delta"], 0)
+        self.assertEqual(add["costs"], [{"name": "wf_close_wave", "request_tokens": 0,
+                                         "response_tokens": add["expected_delta"], "derived_artifact_tokens": 0}])
+        self.assertEqual(self.out["close_same"]["costs"], [])
+
+    def test_the_core_recording_is_unchanged_by_the_override(self):
+        out = self.out
+        self.assertEqual(out["direct_core"]["costs"], [])
+        self.assertTrue(out["direct_core"]["workflow"])
+        for label in ("close_add", "close_same"):
+            with self.subTest(case=label):
+                self.assertEqual(out[label]["workflow"], out["direct_core"]["workflow"])
+
+    def test_a_delegating_retrieval_override_records_only_what_it_adds(self):
+        add = self.out["outline_add"]
+        self.assertTrue(add["added"])
+        self.assertEqual(add["status"], "ok")
+        self.assertGreater(add["expected_delta"], 0)
+        self.assertEqual(add["costs"], [{"name": "code_outline", "request_tokens": 0,
+                                         "response_tokens": add["expected_delta"], "derived_artifact_tokens": 0}])
+        self.assertEqual(self.out["outline_same"]["costs"], [])
+
+    def test_an_override_that_never_delegates_records_its_request_and_response(self):
+        out = self.out
+        self.assertEqual(out["close_self"]["costs"], [{"name": "wf_close_wave", "request_tokens": out["close_self_request"],
+                                                       "response_tokens": out["close_self_response"],
+                                                       "derived_artifact_tokens": 0}])
+        self.assertEqual(out["close_self"]["workflow"], [])
+        self.assertEqual(out["outline_self"]["costs"], [{"name": "code_outline", "request_tokens": out["outline_self_request"],
+                                                         "response_tokens": out["outline_self_response"],
+                                                         "derived_artifact_tokens": 0}])
+
+    def test_a_non_exempt_core_inside_the_scope_counts_as_the_override_answering(self):
+        # Its core recorded nothing, so the whole call is the single event.
+        costs = self.out["close_non_exempt_core"]["costs"]
+        self.assertEqual(len(costs), 1, costs)
+        self.assertGreater(costs[0]["request_tokens"], 0)
+        self.assertGreater(costs[0]["response_tokens"], 0)
+
+    def test_a_non_exempt_override_records_as_before(self):
+        current, direct = self.out["current"], self.out["current_direct"]
+        self.assertEqual(len(current["costs"]), 1, current)
+        self.assertEqual(direct["costs"], [{"name": "wf_current_wave", "request_tokens": direct["request"],
+                                            "response_tokens": direct["response"]}])
+
+    def test_recording_is_observational(self):
+        out = self.out
+        self.assertEqual(out["failing_telemetry"], {"status": "ok", "added": True})
+        self.assertEqual(out["checkpoint_outline"], {"status": "ok", "added": True, "costs": []})
+
+    def test_the_guard_refuses_a_locked_exempt_override_before_its_body(self):
+        refused = self.out["checkpoint_close"]
+        self.assertEqual(refused["codes"], ["error", "upgrade_in_progress"])
+        self.assertEqual(refused["body_ran"], [])
+        self.assertEqual(refused["costs"], [])
+
+    def test_the_override_runs_under_the_lock_after_the_core_call(self):
+        self.assertEqual(self.out["lock_after_core"], {"hold_registered": True, "other_process": "busy"})
+        self.assertEqual(self.out["lock_after_return"], "acquired")
+
+    def test_a_late_registration_failure_clears_the_installed_deltas(self):
+        self.assertEqual(self.out["late_failure"], "raised")
+        self.assertEqual(self.out["deltas_after_late_failure"], [])
+
+    def test_the_stage_call_count_rises_only_by_a_real_addition(self):
+        calls = self.out["calls"]
+        self.assertGreater(calls["direct"]["review"], 0, calls)
+        self.assertEqual(calls["same"], calls["direct"], calls)
+        self.assertEqual(calls["add"]["review"], calls["direct"]["review"] + 1, calls)
+        self.assertEqual(calls["add"]["total"], calls["direct"]["total"] + 1, calls)
+
+
+class MeasuredCoreHandlerTests(unittest.TestCase):
+    """Wave 1zls8 (1zltz AC-3): the measuring wrapper core_handler returns."""
+
+    def setUp(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        from server_tools_support import load_server
+        self.impl = load_server()
+        self.result = {"status": "ok", "data": {"value": "x" * 40}}
+        self.error = ValueError("core failed")
+
+        def exempt(**kwargs):
+            if kwargs.get("fail"):
+                raise self.error
+            return self.result
+
+        table = {"code_outline": SimpleNamespace(fn=exempt), "wf_current_wave": SimpleNamespace(fn=lambda **k: {"n": 1})}
+        patcher = mock.patch.object(self.impl.mcp_tool_extensions, "EXTENSION_OVERRIDES",
+                                    {"m": ("code_outline", "wf_current_wave")})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        surface = self.impl._extension_staging_surface(table)
+        surface.wf_registering = "m"
+        self.exempt = surface.core_handler("code_outline")
+        self.non_exempt = surface.core_handler("wf_current_wave")
+        surface.wf_registering = None
+
+    def test_the_result_is_the_core_object_and_exceptions_propagate(self):
+        self.assertIs(self.exempt(), self.result)
+        with self.assertRaises(ValueError) as raised:
+            self.exempt(fail=True)
+        self.assertIs(raised.exception, self.error)
+
+    def test_no_active_scope_only_calls_through(self):
+        self.assertIsNone(self.impl._OVERRIDE_COST_SCOPE.get())
+        self.assertIs(self.exempt(), self.result)
+        self.assertIsNone(self.impl._OVERRIDE_COST_SCOPE.get())
+
+    def test_only_a_self_recording_core_adds_to_the_innermost_scope(self):
+        var = self.impl._OVERRIDE_COST_SCOPE
+        outer, inner = [], []
+        outer_token = var.set(outer)
+        try:
+            self.non_exempt()
+            self.assertEqual(outer, [])
+            inner_token = var.set(inner)
+            try:
+                self.exempt()
+            finally:
+                var.reset(inner_token)
+            self.assertEqual(inner, [self.impl._response_size_tokens(self.result)])
+            self.assertEqual(outer, [])
+            self.exempt()
+            self.assertEqual(len(outer), 1)
+        finally:
+            var.reset(outer_token)
+
+
 class ExtensionLifecycleToolTests(unittest.TestCase):
     """Wave 1zimf (1zimo AC-3 to AC-7): lock and credit for declared extension tools."""
 
@@ -2242,18 +3194,21 @@ class ExtensionLifecycleToolTests(unittest.TestCase):
     def test_the_hold_is_registered_and_reentry_is_refused_without_opening_the_file(self):
         seen = self.out["observed"]
         self.assertTrue(seen["hold_registered"], seen)
-        self.assertEqual(seen["served_codes"], ["error", "lifecycle_mutation_locked"])
+        # Wave 1zls7 (1zlts): a served locked tool called from this body is a
+        # same-thread re-entry, not another session's contention.
+        self.assertEqual(seen["served_codes"], ["error", "lifecycle_lock_reentry"])
         self.assertEqual(seen["reentry"], "LifecycleLockBusy")
         self.assertFalse(seen["lock_file_opened"], seen)
         self.assertEqual(seen["other_process"], "busy")
         self.assertIsNone(self.out["hold_after"])
         self.assertEqual(self.out["other_after"], "acquired")
 
-    def test_an_unhandled_reentry_returns_busy_and_keeps_the_hold_until_return(self):
+    def test_an_unhandled_reentry_returns_reentry_and_keeps_the_hold_until_return(self):
         raised = self.out["reraised"]
         self.assertTrue(raised.get("raised"), raised)
         self.assertEqual(raised["other_process_while_raising"], "busy")
-        self.assertEqual(raised["codes"], ["error", "lifecycle_mutation_locked"])
+        # Wave 1zls7 (1zlts): a body-raised re-entry is reported as such.
+        self.assertEqual(raised["codes"], ["error", "lifecycle_lock_reentry"])
         self.assertEqual(raised["data"]["tool"], "acme_record")
         self.assertIsNone(self.out["hold_after_reraise"])
         self.assertEqual(self.out["other_after_reraise"], "acquired")
@@ -2287,7 +3242,7 @@ class ExtensionLifecycleToolTests(unittest.TestCase):
         stock_locked = sorted(n for n, labels in self.stock["markers"].items() if "lock" in labels)
         self.assertEqual(self.out["lock_tools"], self.out["lock_tools_after"])
         self.assertNotIn("acme_record", self.out["lock_tools_after"])
-        self.assertEqual(len(self.out["lock_tools_after"]), 11)
+        self.assertEqual(len(self.out["lock_tools_after"]), 12)  # wave 1zlu1 added wf_close_change
         self.assertTrue(set(stock_locked) <= set(self.out["lock_tools_after"]))
         self.assertNotIn("acme_make", self.out["artifact_extractors_after"])
         self.assertEqual(self.out["artifact_extractors"], self.out["artifact_extractors_after"])
@@ -2324,6 +3279,18 @@ class ExtensionRefusalTests(unittest.TestCase):
         "missing_module": "has no .py source",
         "outside_scripts": "outside",
         "already_imported": "already imported",
+        # Wave 1zls8 (1zltx AC-4, AC-6).
+        "framework_script_name": "module 'record_paths' matches the framework script record_paths.py",
+        "helper_framework_script": "helper module 'lifecycle_lock' matches the framework script lifecycle_lock.py",
+        "helper_outside_scripts": "outside",
+        "helper_miscased": "(no file named exactly Acme_Helper.py)",
+        "helper_already_imported": "'plain_imported' collides with a module the server already imported",
+        "helper_lazy_truthy": "'lazy_truthy' collides with a module the server already imported",
+        "module_lazy_truthy": "'lazy_truthy' collides with a module the server already imported",
+        "helper_out_of_order": "'helper_second' collides with a module the server already imported",
+        "helper_import_raises": "'helper_raises' failed to import",
+        "helper_missing": "has no .py source",
+        "helper_also_module": "helper module 'acme_tools' is also declared in EXTENSION_MODULES",
         "stdlib_name": "standard-library",
         "reserved_name": "framework or standard-library",
         "no_register": "defines no register",
@@ -2346,6 +3313,7 @@ class ExtensionRefusalTests(unittest.TestCase):
         "resource_registered": "registers MCP resources",
         "prompt_registered": "registers MCP prompts",
         "type_changed_override": "changes the schema of parameters ['slug']",
+        "parent_changed_override": "changes the schema of parameters ['parent']",
         "withdrawn_override": "removes tools it registered",
         "served_table_write": "changes the served tool table directly",
         # Wave 1z8oz.
@@ -2395,8 +3363,11 @@ class ExtensionRefusalTests(unittest.TestCase):
         "params_desc_empty": "parameter mapping for 'wf_alias_add': 'description' is empty",
         "params_desc_blank": "parameter mapping for 'wf_alias_add': 'description' is whitespace only",
         "params_desc_too_long": "parameter mapping for 'wf_alias_add': 'description' has 16385 characters, more than 16384",
-        "params_desc_plain": "parameter mapping for 'wf_alias_add' declares 'description' without a non-empty 'rename' or 'fixed'; a plain alias keeps the canonical description",
-        "params_desc_empty_mappings": "parameter mapping for 'wf_alias_add' declares 'description' without a non-empty 'rename' or 'fixed'",
+        # Wave 1zls8 (1zlty): the description rule names response_keys too.
+        "params_desc_plain": "parameter mapping for 'wf_alias_add' declares 'description' without a non-empty 'rename', 'fixed' or 'response_keys'; a plain alias keeps the canonical description",
+        "params_desc_empty_mappings": "parameter mapping for 'wf_alias_add' declares 'description' without a non-empty 'rename', 'fixed' or 'response_keys'",
+        "params_response_keys_bad_path": "parameter mapping for 'wf_alias_get': response key path 'changes\\n' is not a dot-separated key path",
+        "params_response_keys_echo": "parameter mapping for 'wf_alias_add': response key path 'wave_id' is a renamed parameter",
         # Wave 1zicq.
         "replace_downgrade": "replacement 'wf_close_wave' may not lower its tier from 'write' to 'read'",
         "override_gate": "may not override edit-gate tool 'wf_open_gate'",
@@ -2421,6 +3392,19 @@ class ExtensionRefusalTests(unittest.TestCase):
                 self.assertIsNotNone(result["raised"], result)
                 self.assertIn(needle, result["message"])
                 self.assertEqual(result["served"], [])
+
+    def test_a_failed_helper_install_leaves_no_declared_module_imported(self):
+        # Wave 1zls8 (1zltx Requirement 5): the failure cleanup pops what the
+        # install imported, including an out-of-order helper loaded unmarked.
+        for label in ("helper_out_of_order", "helper_import_raises", "helper_miscased"):
+            with self.subTest(case=label):
+                self.assertEqual(self.out["cases"][label]["left_in_modules"], [])
+
+    def test_a_helper_register_is_never_called_and_serves_nothing(self):
+        result = self.out["cases"]["helper_with_register"]
+        self.assertIsNone(result["raised"], result)
+        self.assertEqual(result["register_calls"], [])
+        self.assertEqual(result["helpers"], ["helper_with_register"])
 
     def test_refusals_name_the_public_helper(self):
         # Wave 1zimf (1zimn AC-5): both loader messages point at the public name.
@@ -2478,6 +3462,18 @@ class ExtensionRefusalTests(unittest.TestCase):
         self.assertEqual(result["with_team"], {"slug": "probe", "team": "blue"})
         self.assertEqual(result["core_call"], {"slug": "probe", "team": ""})
 
+    def test_swallowing_override_omitting_parent_is_refused_structurally(self):
+        """Wave 1zlu1 (N1): a handler that swallows **kwargs still never sees
+        an omitted core parameter; the outermost guard refuses the call."""
+        result = self.out["cases"]["parent_swallowing_override"]
+        self.assertIsNone(result["raised"], result)
+        self.assertEqual(result["refused"], ["error", "unknown_arguments"])
+        self.assertEqual(result["rejected"], ["parent"])
+        self.assertEqual(result["calls_after_refusal"], [], "the handler must not run")
+        self.assertNotIn("parent", result["plain"])
+        self.assertEqual(len(result["calls_after_plain"]), 1, "a call without parent reaches the handler")
+        self.assertEqual(result["markers"][-1], "omitted", "the guard is outermost")
+
     def test_incompatible_overrides_are_refused(self):
         result = self.out["cases"]["incompatible_override"]
         self.assertIsNotNone(result["raised"], result)
@@ -2516,6 +3512,9 @@ NON_BEHAVIOR_COLLECTIONS = {
     # Declaration validation only: names no override, replacement or hidden
     # name may target (wave 1zicq); it keys no served behaviour.
     ("mcp_tool_extensions.py", "EDIT_GATE_TOOLS"),
+    # Flat script module names a declared module may not take (wave 1zls8,
+    # 1zltx); "memory_backfill" is also a tool name, but these are modules.
+    ("mcp_tool_extensions.py", "FRAMEWORK_SCRIPT_MODULE_NAMES"),
     ("mcp_tool_roster.py", "RUNNER_TOOLS"),
     ("mcp_tool_roster.py", "TOOL_TIERS"),
     ("reconcile_scan.py", "_CONFIG_KEY_TOOL_NAMES"),
@@ -2533,6 +3532,9 @@ NON_BEHAVIOR_COLLECTIONS = {
     ("wf_server/server_impl.py", "_REFERENCE_ONLY_GRAPH_TOOLS"),
     ("wf_server/server_impl.py", "_LIFECYCLE_CONTEXT_STAGES"),
     ("wf_server/server_impl.py", "_TRACKING_CONTEXT_TOOLS"),
+    # Override compatibility only: core parameters an override may omit
+    # (wave 1zlu1, F3); it reserves no name and keys no served behaviour.
+    ("wf_server/server_impl.py", "_OVERRIDE_OMITTABLE_CORE_PARAMETERS"),
     ("upgrade_extensions.py", "_CONFIG_KEY_RENAMES"),
     ("wave_lint_lib/constants.py", "WORKFLOW_REQUIRED_KEYS"),
 }
@@ -2583,6 +3585,47 @@ def _tool_name_collections() -> set[tuple[str, str]]:
                     continue
                 found.add((rel, target_names[0]))
     return found
+
+
+class OverrideOmittableParameterTests(unittest.TestCase):
+    """Wave 1zlu1 (F3, reverification nit 1): the compatibility check itself."""
+
+    @classmethod
+    def setUpClass(cls):
+        from server_tools_support import load_server
+        try:
+            from mcp.server.fastmcp import FastMCP
+        except ImportError:
+            raise unittest.SkipTest("mcp package not installed")
+        cls.impl = load_server()
+        mcp = FastMCP("omittable")
+        cls.impl.register_mcp_surface(mcp, lambda: None)
+        cls.core = mcp._tool_manager._tools["wf_create_wave"]
+
+    def staged(self, mutate):
+        import copy
+        from types import SimpleNamespace
+        schema = copy.deepcopy(self.core.parameters)
+        mutate(schema)
+        return SimpleNamespace(parameters=schema)
+
+    def test_an_omitted_parent_is_accepted_and_reported(self):
+        staged = self.staged(lambda s: s["properties"].pop("parent"))
+        self.assertIsNone(self.impl._override_compatibility_problem("wf_create_wave", self.core, staged))
+        self.assertEqual(self.impl._override_omitted_core_parameters("wf_create_wave", self.core, staged), ["parent"])
+
+    def test_a_declared_parent_with_another_schema_is_refused(self):
+        def mutate(schema):
+            schema["properties"]["parent"] = {"default": 0, "title": "Parent", "type": "integer"}
+        staged = self.staged(mutate)
+        self.assertEqual(self.impl._override_omitted_core_parameters("wf_create_wave", self.core, staged), [])
+        self.assertEqual(self.impl._override_compatibility_problem("wf_create_wave", self.core, staged),
+                         "override 'wf_create_wave' changes the schema of parameters ['parent']")
+
+    def test_omission_is_only_for_listed_parameters(self):
+        staged = self.staged(lambda s: s["properties"].pop("mode"))
+        self.assertEqual(self.impl._override_compatibility_problem("wf_create_wave", self.core, staged),
+                         "override 'wf_create_wave' drops parameters ['mode']")
 
 
 class ReservedNameCensusTests(unittest.TestCase):
@@ -2689,6 +3732,7 @@ class DeclarationValidationTests(unittest.TestCase):
     def test_each_new_constant_alone_makes_the_declaration_declared(self):
         # Wave 1z8oz: an aliases-only or hide-only declaration is validated, not ignored.
         for key, value in (
+            ("EXTENSION_HELPER_MODULES", ("acme_shared",)),
             ("EXTENSION_TOOL_ALIASES", {"wf_alias_help": "wf_help"}),
             ("EXTENSION_HIDDEN_TOOLS", ("wf_help",)),
             ("EXTENSION_REPLACEMENTS", {"m": {"wf_help": {"alias_for_core": "wf_core_help"}}}),
@@ -2792,6 +3836,187 @@ class DeclarationValidationTests(unittest.TestCase):
         self.ext.EXTENSION_REPLACEMENTS = {"m": {"wf_help": {"alias_for_core": "acme_core_help", "extra": 1}}}
         problems = " ".join(self.ext.declaration_problems(core_tools={"wf_help"}, runner_tools=set()))
         self.assertIn("has unknown keys ['extra']", problems)
+
+
+class RosterReloadPurgeTests(unittest.TestCase):
+    """Wave 1zls8 delivery repair (N1): a server reload purges the roster with
+    the declaration module, so a roster imported first never validates an
+    evicted declaration."""
+
+    def test_a_roster_imported_before_a_server_load_follows_the_live_declaration(self):
+        from unittest import mock
+        from server_tools_support import load_server
+        import mcp_tool_roster  # noqa: F401  (imported before the reload, as an earlier test would)
+        load_server()
+        import mcp_tool_extensions as ext_now
+        import mcp_tool_roster as roster_now
+        self.assertIs(roster_now.mcp_tool_extensions, ext_now)
+        with mock.patch.object(ext_now, "EXTENSION_TOOL_ALIASES", {"wf_alias_add": "wf_add_change"}), \
+                mock.patch.object(ext_now, "EXTENSION_TOOL_PARAMETERS", {"wf_alias_add": {"rename": {"kwargs": "wave_id"}}}):
+            with self.assertRaises(ext_now.ExtensionDeclarationError):
+                roster_now.all_tool_tiers()
+
+
+class ResponseKeyDeclarationTests(unittest.TestCase):
+    """Wave 1zls8 (1zlty AC-1): the response_keys declaration checks."""
+
+    CORE = {"wf_get_change", "wf_add_change"}
+    RUNNER = {"wf_reload_mcp"}
+
+    def setUp(self):
+        import mcp_tool_extensions
+        self.ext = mcp_tool_extensions
+        apply_base_declaration(self)
+        self.ext.EXTENSION_TOOL_ALIASES = {"wf_alias_get": "wf_get_change"}
+
+    def problems(self, spec):
+        self.ext.EXTENSION_TOOL_PARAMETERS = {"wf_alias_get": spec}
+        return self.ext.declaration_problems(core_tools=self.CORE, runner_tools=self.RUNNER)
+
+    def test_valid_declarations(self):
+        for spec in (
+            {"response_keys": {"changes": "items", "changes[].id": "item_id"}},
+            {"response_keys": {"a": "b", "b": "a"}},
+            {"response_keys": {"changes": "items"}, "description": "Items."},
+            {"rename": {"item": "change_id"}, "response_keys": {"change": "entry", "changes[].change_id": "item"}},
+            {"response_keys": {".".join(["k"] * 8): "x"}},
+            {"response_keys": {f"k{i}": f"n{i}" for i in range(64)}},
+        ):
+            with self.subTest(spec=spec):
+                self.assertEqual(self.problems(spec), [])
+        self.assertTrue(self.ext.declared())
+
+    def test_each_refusal_is_reported(self):
+        label = "parameter mapping for 'wf_alias_get'"
+        cases = {
+            "not a mapping": ({"response_keys": ["changes"]}, f"{label}: 'response_keys' must map response key paths to new key names, not list"),
+            "bad syntax": ({"response_keys": {"changes..id": "x"}}, f"{label}: response key path 'changes..id' is not a dot-separated key path"),
+            "trailing newline": ({"response_keys": {"changes\n": "x"}}, f"{label}: response key path 'changes\\n' is not a dot-separated key path"),
+            "not a string": ({"response_keys": {5: "x"}}, f"{label}: response key path 5 is not a dot-separated key path"),
+            "trailing list": ({"response_keys": {"changes[]": "x"}}, f"{label}: response key path 'changes[]' must end in a key, not '[]'"),
+            "too deep": ({"response_keys": {".".join(["k"] * 9): "x"}}, f"{label}: response key path '{'.'.join(['k'] * 9)}' has 9 segments, more than 8"),
+            "too many": ({"response_keys": {f"k{i}": f"n{i}" for i in range(65)}}, f"{label}: 'response_keys' has 65 entries, more than 64"),
+            "not an identifier": ({"response_keys": {"changes": "new-key"}}, f"{label}: response key path 'changes' renames to 'new-key', which is not an identifier"),
+            "unchanged": ({"response_keys": {"changes[].id": "id"}}, f"{label}: response key path 'changes[].id' renames 'id' to itself"),
+            "static collision": ({"response_keys": {"changes[].id": "key", "changes[].path": "key"}}, f"{label}: response key paths 'changes[].id' and 'changes[].path' both rename to 'key'"),
+            "echoed parameter": ({"rename": {"item": "change_id"}, "response_keys": {"change_id": "entry"}}, f"{label}: response key path 'change_id' is a renamed parameter, whose echoed key 'rename' already renames"),
+            "alias parameter name": ({"rename": {"item": "change_id"}, "response_keys": {"changes": "item"}}, f"{label}: response key path 'changes' renames to 'item', an alias parameter name in 'rename'"),
+        }
+        for case, (spec, needle) in cases.items():
+            with self.subTest(case=case):
+                self.assertIn(needle, self.problems(spec))
+
+    def test_a_nested_key_may_reuse_an_alias_parameter_name(self):
+        self.assertEqual(self.problems({"rename": {"item": "change_id"}, "response_keys": {"changes[].id": "item"}}), [])
+
+    def test_the_roster_refuses_the_same_declarations_without_the_server(self):
+        from unittest import mock
+        import mcp_tool_roster
+        ext = mcp_tool_roster.mcp_tool_extensions
+        with mock.patch.object(ext, "EXTENSION_TOOL_ALIASES", {"wf_alias_get": "wf_get_change"}):
+            for spec in ({"response_keys": {"changes[]": "x"}}, {"response_keys": "changes"},
+                         {"response_keys": {"changes": "items"}, "pin": {}}):
+                with self.subTest(spec=spec):
+                    with mock.patch.object(ext, "EXTENSION_TOOL_PARAMETERS", {"wf_alias_get": spec}):
+                        with self.assertRaises(ext.ExtensionDeclarationError):
+                            mcp_tool_roster.all_tool_tiers()
+            with mock.patch.object(ext, "EXTENSION_TOOL_PARAMETERS", {"wf_alias_get": {"response_keys": {"changes": "items"}}}):
+                self.assertIn("wf_alias_get", mcp_tool_roster.all_tool_tiers())
+
+
+class HelperModuleDeclarationTests(unittest.TestCase):
+    """Wave 1zls8 (1zltx AC-4, AC-7): EXTENSION_HELPER_MODULES and FRAMEWORK_SCRIPT_MODULE_NAMES."""
+
+    CORE = {"wf_help"}
+    RUNNER = {"wf_reload_mcp"}
+
+    def setUp(self):
+        import mcp_tool_extensions
+        self.ext = mcp_tool_extensions
+        apply_base_declaration(self)
+
+    def problems(self, **declaration):
+        for name, value in declaration.items():
+            setattr(self.ext, name, value)
+        return self.ext.declaration_problems(core_tools=self.CORE, runner_tools=self.RUNNER)
+
+    def test_a_valid_helper_declaration_has_no_problems(self):
+        self.assertEqual(self.problems(EXTENSION_HELPER_MODULES=("acme_shared", "acme_more"),
+                                       EXTENSION_MODULES=("acme_tools",)), [])
+
+    def test_each_helper_refusal_is_reported(self):
+        cases = {
+            "not an identifier": (("acme-shared",), "helper module 'acme-shared' is not a flat single-file module name"),
+            "not a string": ((5,), "helper module 5 is not a flat single-file module name"),
+            "non-ASCII NFD": (("acme\u0301_x",), "helper module 'acme\u0301_x' is not an ASCII module name; use ASCII letters, digits and underscores"),
+            "non-ASCII NFC": (("acm\u00e9_x",), "helper module 'acm\u00e9_x' is not an ASCII module name; use ASCII letters, digits and underscores"),
+            "declared twice": (("acme_shared", "acme_shared"), "helper module 'acme_shared' is declared twice"),
+            "reserved": (("server_impl",), "helper module 'server_impl' collides with a framework or standard-library module"),
+            "standard library": (("json",), "helper module 'json' collides with a framework or standard-library module"),
+            "framework script": (("record_paths",), "helper module 'record_paths' matches the framework script record_paths.py; give it a distribution-specific name"),
+            "also a module": (("acme_tools",), "helper module 'acme_tools' is also declared in EXTENSION_MODULES"),
+        }
+        for label, (helpers, needle) in cases.items():
+            with self.subTest(case=label):
+                problems = self.problems(EXTENSION_MODULES=("acme_tools",), EXTENSION_HELPER_MODULES=helpers)
+                self.assertIn(needle, problems)
+        for value in (["acme_shared"], "acme_shared", {"acme_shared": 1}, None):
+            with self.subTest(value=value):
+                self.assertEqual(self.problems(EXTENSION_HELPER_MODULES=value),
+                                 [f"EXTENSION_HELPER_MODULES must be a tuple of module names, not {type(value).__name__}"])
+
+    def test_a_non_ascii_extension_module_name_is_refused(self):
+        # Wave 1zls8 delivery repair (N6b): an NFD name passes isidentifier().
+        self.assertTrue("acme\u0301_x".isidentifier())
+        for name in ("acme\u0301_x", "acm\u00e9_x"):
+            with self.subTest(name=name):
+                self.assertIn(f"module {name!r} is not an ASCII module name; use ASCII letters, digits and underscores",
+                              self.problems(EXTENSION_MODULES=(name,)))
+
+    def test_an_extension_module_naming_a_framework_script_is_refused(self):
+        self.assertIn("module 'indexer' matches the framework script indexer.py; give it a distribution-specific name",
+                      self.problems(EXTENSION_MODULES=("indexer",)))
+
+    def test_the_roster_refuses_the_same_declarations_without_the_server(self):
+        # Patched on the declaration module the roster itself imported, which
+        # a server load in another test may have replaced in sys.modules.
+        from unittest import mock
+        import mcp_tool_roster
+        ext = mcp_tool_roster.mcp_tool_extensions
+        for modules, helpers in ((("acme_tools",), ("record_paths",)), (("acme_tools",), ["acme_shared"]),
+                                 (("acme_tools",), ("json",)), (("acme_tools",), ("acme_tools",)),
+                                 (("indexer",), ())):
+            with self.subTest(modules=modules, helpers=helpers):
+                with mock.patch.object(ext, "EXTENSION_MODULES", modules), \
+                        mock.patch.object(ext, "EXTENSION_HELPER_MODULES", helpers):
+                    with self.assertRaises(ext.ExtensionDeclarationError):
+                        mcp_tool_roster.all_tool_tiers()
+        with mock.patch.object(ext, "EXTENSION_MODULES", ()), \
+                mock.patch.object(ext, "EXTENSION_HELPER_MODULES", ("acme_shared",)):
+            self.assertIn("wf_help", mcp_tool_roster.all_tool_tiers())
+
+    def test_the_framework_script_census_matches_the_scripts_directory(self):
+        # The flat scripts on disk, less the modules the current declaration
+        # lists (a distribution's own files), are exactly the declared set.
+        import mcp_tool_extensions
+        declared = set(mcp_tool_extensions.EXTENSION_MODULES) | set(mcp_tool_extensions.EXTENSION_HELPER_MODULES)
+        flat = framework_source_files(include_aliases=True)
+        stems = {path.stem for path in flat if path.parent == SCRIPTS} - declared
+        self.assertEqual(set(mcp_tool_extensions.FRAMEWORK_SCRIPT_MODULE_NAMES), stems)
+
+    def test_the_stock_declaration_validates_and_ships_no_helpers(self):
+        from declaration_support import SHIPPED_DECLARATION, base_declaration, declaration_profile_mismatch
+        from record_layout_support import ExpectedProfile, ProfileLayer
+        self.assertEqual(SHIPPED_DECLARATION["EXTENSION_HELPER_MODULES"], ())
+        with base_declaration():
+            self.assertEqual(self.ext.EXTENSION_HELPER_MODULES, ())
+            self.assertFalse(self.ext.declared())
+            self.assertEqual(self.ext.declaration_problems(core_tools=self.CORE, runner_tools=self.RUNNER), [])
+        shipped = ExpectedProfile(ProfileLayer("shipped", "shipped", "the shipped defaults", {}))
+        with base_declaration(EXTENSION_HELPER_MODULES=("acme_shared",)):
+            problem = declaration_profile_mismatch(shipped)
+        self.assertIsNotNone(problem)
+        self.assertIn("mcp_tool_extensions.EXTENSION_HELPER_MODULES is", problem)
 
 
 class LockAndCreditDeclarationTests(unittest.TestCase):

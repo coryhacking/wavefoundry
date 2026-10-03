@@ -434,14 +434,25 @@ class LifecycleGoldenTests(unittest.TestCase):
         # brief text, one advisory and one data field changed; nothing else.
         # Each delta is reverted onto the old value so the walk below still
         # proves every status, code and advisory flag unchanged.
+        # Wave 1zls7 (1zlu0 Requirement 7): the `open_changes_remaining`
+        # message names each open change id with its status; that message is
+        # the one declared delta for this code, reverted the same way.
         hint_message_codes = {"missing_wave_council_signoff", "missing_required_lane",
-                              "readiness_lane_approvals_missing"}
+                              "readiness_lane_approvals_missing", "open_changes_remaining"}
         for name, responses in after['fixtures'].items():
             for route, response in responses.items():
                 old_response = before['fixtures'][name][route]
                 if route.startswith('prepare:'):
                     self.assertIn('pending_readiness_lanes', response['data'])
                     response['data'].pop('pending_readiness_lanes')
+                    # Wave 1zlu1 (1zlu4): Prepare reports the delivery roster.
+                    # These fixtures declare no phase lanes, so it equals the
+                    # readiness roster and nothing applies at delivery only.
+                    self.assertEqual(response['data'].pop('delivery_only_lanes', []), [])
+                    policy = response['data'].get('review_policy')
+                    if isinstance(policy, dict):
+                        self.assertEqual(policy.pop('delivery_lanes'), policy['required_lanes'])
+                        self.assertEqual(policy.pop('delivery_only_lanes'), [])
                     response['diagnostics'] = [
                         diagnostic for diagnostic in response['diagnostics']
                         if diagnostic.get('code') != 'wave_objective_unpopulated'

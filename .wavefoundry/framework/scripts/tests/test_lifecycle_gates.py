@@ -208,6 +208,8 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
         expected = {
             "lifecycle_mutation_locked", "lifecycle_lock_unavailable",
             "upgrade_in_progress", "project_publication_busy", "unknown_arguments",
+            # Wave 1zls7 (1zlts): a same-thread re-entry of the lifecycle lock.
+            "lifecycle_lock_reentry",
         }
 
         # Derive the candidate set from the rule's own scope, then compare.  An
@@ -373,6 +375,46 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
         self.assertIsNot(busy_diag.get('advisory'), True, 'contention must not be advisory')
         self.assertFalse(response['data']['changed'])
         self.assertFalse(response['data']['review_receipt_refreshed'])
+
+    def test_mark_ac_publication_refusal_is_path_free_under_the_upgrade_shape(self):
+        """Wave 1zls7 (1zlts AC-8): another process holds the upgrade shape
+        (lifecycle, then publication); the refusal names repository-relative
+        locks only."""
+        import json
+        import subprocess
+        import sys
+
+        ctx = self.context(phase='close')
+        change = _member_doc(ctx.wave_md)
+        scripts = Path(self.srv.SCRIPTS_DIR)
+        child = subprocess.Popen(
+            [sys.executable, '-B', '-c',
+             'import sys; sys.path.insert(0, sys.argv[1])\n'
+             'from pathlib import Path\n'
+             'import lifecycle_lock\n'
+             'with lifecycle_lock.lifecycle_publication_transaction(Path(sys.argv[2])):\n'
+             '    print("held", flush=True)\n'
+             '    sys.stdin.readline()\n',
+             str(scripts), str(ctx.root)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            self.assertEqual(child.stdout.readline().strip(), 'held', child.stderr)
+            response = self.srv._mark_change_item_response(
+                ctx.root, ctx.wave_md.parent.name, change.stem, 'AC-1', '~',
+                target_section='Acceptance Criteria', reason='probe', mode='create')
+        finally:
+            child.stdin.write('go\n')
+            child.stdin.close()
+            child.wait(timeout=60)
+            child.stdout.close()
+            child.stderr.close()
+        codes = [d['code'] for d in response.get('diagnostics', [])]
+        self.assertEqual(codes, ['project_publication_busy'], response)
+        message = response['diagnostics'][0]['message']
+        self.assertIn('.wavefoundry/lifecycle-mutation.lock', message)
+        text = json.dumps(response)
+        for absolute in {str(ctx.root), str(Path(ctx.root).resolve())}:
+            self.assertNotIn(absolute, text)
 
     def test_evidence_guard_conjuncts(self):
         """1yd99 AC-7: the dead conjunct is gone and the lookalike is intact.

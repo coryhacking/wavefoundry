@@ -483,9 +483,28 @@ class LocalizationHelperTests(unittest.TestCase):
         self.assertTrue(same)
 
     def test_waves_dir_and_rel_follow_the_loaded_layout(self) -> None:
-        with mock.patch.object(record_paths, "WAVES_ROOT", "docs/delivery/sets"):
+        # Change 1zltu: patch through sys.modules. server_impl evicts and
+        # re-imports record_paths, and the helpers import it at call time, so
+        # patching the object this module bound at import would patch a stale
+        # module once any test in the process has loaded the server.
+        with mock.patch("record_paths.WAVES_ROOT", "docs/delivery/sets"):
             self.assertEqual(waves_dir(Path("/r")), Path("/r/docs/delivery/sets"))
             self.assertEqual(waves_rel("a b", "set.md"), "docs/delivery/sets/a b/set.md")
+
+    def test_waves_helpers_follow_the_patch_after_the_server_evicts_record_paths(self) -> None:
+        """Change 1zltu: the leaking pair in one interpreter. Reloading the
+        server runs its eviction block, so ``record_paths`` in ``sys.modules``
+        is no longer the object this module bound at import; the patch above
+        must still reach the module the helpers read."""
+        import importlib
+
+        from server_tools_support import load_server
+
+        srv = load_server()
+        importlib.reload(srv)
+        self.assertIsNot(sys.modules["record_paths"], record_paths,
+                         "precondition: the eviction block must have replaced record_paths")
+        self.test_waves_dir_and_rel_follow_the_loaded_layout()
 
 
 class ApplyProfileTests(unittest.TestCase):

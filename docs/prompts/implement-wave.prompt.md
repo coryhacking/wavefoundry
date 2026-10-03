@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-22
+Last verified: 2026-10-03
 
 Shortcut: **`Implement wave`**
 
@@ -25,7 +25,7 @@ Correct an agent-only misreading directly from the established requirement. Rout
 ## Execution
 
 1. Orient per change with the code tools and the tool's `retrieval_posture` directive; follow seed 180's exploration contract and its unavailable-MCP fallback.
-2. Follow seed 180's ReAct execution model; implement admitted scope only, follow `docs/repo-profile.json` `code_patterns`, and mark each completed AC and task in the completing pass with `wf_mark_ac` and `wf_mark_task`.
+2. Follow seed 180's ReAct execution model; implement admitted scope only, follow `docs/repo-profile.json` `code_patterns`, and mark each completed AC and task in the completing pass with `wf_mark_ac` and `wf_mark_task`. When one change finishes before the others, `wf_close_change(wave_id, change_id, mode)` closes it to `complete` (dry-run first) and moves the dependents whose `Depends On:` names it to `ready`; the wave stays open and `Close wave` remains the only wave close.
 3. Follow seed 180's **Builder-lane allocation** and **Host-neutral orchestration** for lane selection and delegated work (`frontend-developer` for UI; `data-engineer` only where seed 050's database evidence renders that role).
 4. Run focused tests per change and the canonical suite before delivery review; verify that the change addresses the stated problem.
 5. Follow seed 209's typed authoring contract: the coordinator is the writing hand; record `repair_start` before mutation and obtain distinct fresh reverification, treating `recommended_fix` as a hypothesis to re-derive from the code.

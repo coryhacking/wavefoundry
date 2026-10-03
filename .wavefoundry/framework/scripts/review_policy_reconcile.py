@@ -85,7 +85,7 @@ KNOWN_SECTION_REPLACEMENTS: dict[str, tuple[tuple[str, str], ...]] = {
         ),
         (
             "Required review lanes from readiness must participate during execution.",
-            "Required review lanes from readiness participate during **Review wave** after implementation evidence is complete. During implementation, request a named checkpoint only when a high-risk boundary needs independent judgment before work can safely continue.",
+            "The delivery roster (the readiness roster, or the wave record's `Required delivery lanes` when project `phase_gates` scope a lane to one phase) participates during **Review wave** after implementation evidence is complete. During implementation, request a named checkpoint only when a high-risk boundary needs independent judgment before work can safely continue.",
         ),
     ),
     "docs/prompts/review-wave.prompt.md": (

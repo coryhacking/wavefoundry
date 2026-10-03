@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-01
+Last verified: 2026-10-03
 
 Shortcut: **`Package Wavefoundry`** | Legacy: **`Package wave framework`** / **`Package wave context`**
 
@@ -39,7 +39,15 @@ python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH
    d. State the current version, the recommended new version, and the highest-impact change driving the recommendation.
    e. Ask the operator to confirm the version or specify a different one before continuing. Do not proceed to step 3 until the operator confirms.
 3. Review the uv bootstrap pin: `UV_BOOTSTRAP_REQUIREMENT` in `.wavefoundry/framework/scripts/setup_index.py` is the exact uv that `wf setup` installs only when neither the tool environment nor `PATH` has a uv. When a newer uv release has been public for at least the 21-day package-age window and publishes wheels for Windows, macOS and Linux, bump the pin in this release; otherwise keep it. Bumping `UV_BOOTSTRAP_REQUIREMENT` also replaces `UV_BOOTSTRAP_WHEEL_SHA256` beside it with every `bdist_wheel` entry's `filename` and `digests.sha256` from `https://pypi.org/pypi/uv/<version>/json`; the reviewer confirms the wheel count against the release's file list on PyPI, and the version and hashes change in the same commit (the suite fails on a recorded filename for another version). Keeping the pin keeps the hashes. An existing uv is never replaced.
-4. Run framework tests:
+4. Optional, when network access is available: verify the vendored dashboard scripts against the npm registry:
+
+```bash
+python3 -B .wavefoundry/framework/scripts/verify_vendored_scripts.py
+```
+
+   A mismatch or missing file (exit 1, which wins over any package that could not be checked), a line labelled `refused:` (a non-registry URL, a redirect that left the registry or a tarball over the size cap, exit 2) or an unparseable vendor README (a missing or repeated table header, a table row that does not match its format, an indented row, a row missing its leading pipe, or a row after a blank line inside a table, exit 2, naming the line) stops the release until it is resolved. When the check cannot be run or cannot reach the registry (a line labelled `download failed:`, exit 2), say so in the release hand-off.
+
+5. Run framework tests:
 
 ```bash
 python3 -B .wavefoundry/framework/scripts/run_tests.py
@@ -53,7 +61,7 @@ python3 -B .wavefoundry/framework/scripts/run_tests.py --profile second
 
    Every file must pass; a skip beyond the default run's must come from a test marked `default_profile_only`. This run is a release check, not delivery evidence for a wave. Then run `python3 -B .wavefoundry/framework/scripts/run_tests.py --profile declared` the same way, which runs the suite with a sample distribution tool declaration (a plain and a parameter-mapped alias) and must pass with no skips beyond the default run's.
 
-5. **Update root `CHANGELOG.md`** — the canonical release history. The wavefoundry repo's root `CHANGELOG.md` is the single source of truth; `build_pack.py` copies it into the pack zip at `.wavefoundry/CHANGELOG.md` so consumer projects receive an in-tree changelog on every upgrade (offline-readable, MCP-indexable, no GitHub fetch required). The wavefoundry repo does NOT carry `.wavefoundry/CHANGELOG.md` — root is the only place release history is maintained.
+6. **Update root `CHANGELOG.md`** — the canonical release history. The wavefoundry repo's root `CHANGELOG.md` is the single source of truth; `build_pack.py` copies it into the pack zip at `.wavefoundry/CHANGELOG.md` so consumer projects receive an in-tree changelog on every upgrade (offline-readable, MCP-indexable, no GitHub fetch required). The wavefoundry repo does NOT carry `.wavefoundry/CHANGELOG.md` — root is the only place release history is maintained.
 
    **Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).** Each release uses `## [MAJOR.MINOR.PATCH]` (date filled in at release time) with `### Added / Changed / Deprecated / Removed / Fixed / Security` subsections. Bullets are git-commit-message-style — terse, operator-impact-focused, not chronological. Two cases:
 
@@ -66,10 +74,10 @@ python3 -B .wavefoundry/framework/scripts/run_tests.py --profile second
 
    **Changelog completeness and amendments:** the entry must be COMPLETE — covering every landed change for the version — before the final pack that goes out for field testing, so the archive's internal changelog matches what ships. If the changelog is amended after a pack was built (late fixes, post-test additions), rebuild before publishing: a released zip must never carry a stale internal changelog. When only the changelog changed, the rebuild differs from the tested archive in that one file, which keeps ship-what-you-tested honest. For the actual publish, prefer `build_pack.py --release`: its preflight requires a clean tree on `main` with the matching changelog section and then builds fresh, so the uploaded archive cannot lag the repo.
    - Also list every sensor registered `advisory` without a `decided_wave` in `.wavefoundry/framework/scripts/wave_lint_lib/constants.py` (`SENSOR_POLARITY_REGISTRY`) with its introducing wave, and decide each; a flip to `blocking`, or a decision to keep it advisory, is a recorded change in a later wave, never a release-day edit. Entries with a `decided_wave` are settled and are not re-raised.
-6. Ensure `docs/prompts/prompt-surface-manifest.json` `framework_revision` matches the packaged revision unless you intentionally use `--skip-manifest-check`.
-7. Run the packaging command once. It stamps `.wavefoundry/framework/VERSION` and creates one self-contained `wavefoundry-<version>.zip`: normally extractable as the feature pack and directly executable for protocol-1→2 upgrades. No framework index is built or shipped (framework seeds fold into each project's docs index at setup/upgrade).
-8. Review the feature ZIP, its model-set asset when requested, and stamped `VERSION` for consistency. Spot-check that `CHANGELOG.md` is present in the feature ZIP (`unzip -l <feature-zip> | grep CHANGELOG`), that the latest section matches the version just stamped, and that the model-set manifest declares the intended set version, fingerprint, component revisions, hashes, and licenses. Internal bridge composition files must be removed from `dist/` after assembly.
-9. Hand off diff + suggested commit message unless the operator explicitly asks to finalize the commit in this request.
+7. Ensure `docs/prompts/prompt-surface-manifest.json` `framework_revision` matches the packaged revision unless you intentionally use `--skip-manifest-check`.
+8. Run the packaging command once. It stamps `.wavefoundry/framework/VERSION` and creates one self-contained `wavefoundry-<version>.zip`: normally extractable as the feature pack and directly executable for protocol-1→2 upgrades. No framework index is built or shipped (framework seeds fold into each project's docs index at setup/upgrade).
+9. Review the feature ZIP, its model-set asset when requested, and stamped `VERSION` for consistency. Spot-check that `CHANGELOG.md` is present in the feature ZIP (`unzip -l <feature-zip> | grep CHANGELOG`), that the latest section matches the version just stamped, and that the model-set manifest declares the intended set version, fingerprint, component revisions, hashes, and licenses. Internal bridge composition files must be removed from `dist/` after assembly.
+10. Hand off diff + suggested commit message unless the operator explicitly asks to finalize the commit in this request.
 
 ## Output
 

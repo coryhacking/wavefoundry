@@ -19,6 +19,7 @@ import record_paths
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 from gardener_metadata import ambiguous_excluded_headings, canonical_review_policy_body
 from review_policy import (
+    ProjectLanesConfigError,
     REVIEW_POLICY_EVALUATOR_VERSION,
     REVIEW_POLICY_SCHEMA_VERSION,
     build_policy_receipt,
@@ -31,6 +32,7 @@ from review_policy import (
     normalize_wave_review_policy,
     normalize_phase_gates,
     policy_input_snapshot,
+    project_required_review_lanes,
     select_required_review_lanes,
 )
 from review_evidence import (
@@ -42,6 +44,7 @@ from review_evidence import (
     validate_review_evidence_records,
 )
 import review_evidence
+import review_policy  # the pure lane helper is called through the module (wave 1zlu1)
 import change_doc_checklist  # shared checklist parser (wave 1zime, 1zimq)
 
 
@@ -56,12 +59,19 @@ def _read_workflow_config(root: Path) -> dict:
 
 
 def _read_project_required_review_lanes(root: Path) -> list[str]:
-    """Return project-declared required review lanes from workflow-config.json."""
-    cfg = _read_workflow_config(root)
-    raw = cfg.get("required_review_lanes", [])
-    if not isinstance(raw, list):
-        return []
-    return [str(lane).strip() for lane in raw if isinstance(lane, str) and str(lane).strip()]
+    """Return project-declared required review lanes from workflow-config.json.
+
+    Wave 1zlu1 (1zlu4): a present, non-list value raises
+    ``ProjectLanesConfigError`` instead of reading as no lanes."""
+    return project_required_review_lanes(_read_workflow_config(root))
+
+
+def _project_lanes_for_phase(root: Path, phase: str) -> list[str]:
+    """Root-reading wrapper over ``review_policy.project_lanes_for_phase``
+    (wave 1zlu1, change 1zlu4): the project lanes required at ``phase``
+    (``prepare`` or ``close``).  Raises ``ProjectLanesConfigError`` for a
+    non-list ``required_review_lanes``."""
+    return review_policy.project_lanes_for_phase(_read_workflow_config(root), phase)
 
 
 def _read_wave_council_policy(root: Path) -> dict[str, Any]:
@@ -254,10 +264,41 @@ _CLOSE_GATE_AC_ID_RE = re.compile(r"(AC-[\w\-]+)")
 
 
 def _extract_close_gate_section(text: str, heading: str) -> str:
-    """Extract H2 section content by heading name (without `## ` prefix)."""
-    pattern = re.compile(rf"^## {re.escape(heading)}\s*\n(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
-    match = pattern.search(text)
-    return match.group(1) if match else ""
+    """Extract the first exact ``## <heading>`` section body (heading name
+    without the ``## `` prefix), read through the shared parser so fenced code
+    neither ends the section nor contributes lines (wave 1zls7, 1zltr)."""
+    bodies = change_doc_checklist.section_bodies(text, heading)
+    return change_doc_checklist.unfenced_text(bodies[0]) if bodies else ""
+
+
+def _close_gate_change_ids(wave_text: str) -> list[str]:
+    """Admitted change ids for the close checklist gate (wave 1zls7, 1zltr).
+
+    Read through docs-lint's record parser, which strips each line, so an
+    indented member id block cannot escape the gate; only ``change``
+    records are kept (the parser's legacy ``item`` fallback ids are not change
+    documents).  Column-0 ids the lint parser does not accept (a non-lint id
+    shape) are kept too, so no id the gate read before is dropped.
+    """
+    from wave_lint_lib.wave_validators import _parse_work_records
+
+    ids: list[str] = []
+    for record in _parse_work_records(wave_text, ""):
+        if record.anchor_type == "change" and record.record_id not in ids:
+            ids.append(record.record_id)
+    for change_id in _CHANGE_ID_PATTERN.findall(wave_text):
+        if change_id not in ids:
+            ids.append(change_id)
+    return ids
+
+
+def _close_gate_item_text(match: "re.Match[str]") -> str:
+    """Item text for a close finding; an unusual mark is shown (``[-] step``)."""
+    text_part = match.group("text").strip()
+    mark = match.group("mark")
+    if not change_doc_checklist.is_canonical_mark(mark):
+        text_part = f"[{mark}] {text_part}"
+    return text_part[:120]
 
 
 def _close_gate_parse_ac_priority(priority_section: str) -> dict[str, str]:
@@ -281,14 +322,18 @@ def _close_gate_parse_ac_priority(priority_section: str) -> dict[str, str]:
 
 
 def _collect_silent_unchecked_items_for_close(wave_md: Path, wave_text: str) -> list[dict[str, str]]:
-    """Walk admitted change docs; return silent ``[ ]`` items that block close.
+    """Walk admitted change docs; return silent open items that block close.
 
     Wave 1p31b (1p32k): the close-time hard gate. Every AC and task must be ``[x]`` or
     ``[~]`` at close. AC items at ``not-this-scope`` priority are exempt. Returns a list of
     ``{'change_id', 'item_type' ('AC' or 'task'), 'item_id', 'item_text'}`` dicts.
+    Wave 1zls7 (1zltr): an item is open unless its mark is ``x``, ``X`` or ``~``
+    (an unusual mark such as ``[-]`` is open and shown in ``item_text``), items
+    are read through the shared parser (blockquoted items count; fenced
+    examples do not), and change ids come from docs-lint's record parser.
     """
     findings: list[dict[str, str]] = []
-    for change_id in _CHANGE_ID_PATTERN.findall(wave_text):
+    for change_id in _close_gate_change_ids(wave_text):
         change_path = wave_md.parent / f"{change_id}.md"
         if not change_path.exists():
             # 1v0lx: absent is not "nothing to check". The gate cannot verify
@@ -354,8 +399,8 @@ def _collect_silent_unchecked_items_for_close(wave_md: Path, wave_text: str) -> 
         for ac_section in change_doc_checklist.section_bodies(
             change_text, "Acceptance Criteria", include_near_miss=True
         ):
-            for match in _CLOSE_GATE_CHECKBOX_LINE_RE.finditer(ac_section):
-                if match.group("mark") != " ":
+            for match in change_doc_checklist.checklist_items(ac_section):
+                if not change_doc_checklist.is_open_mark(match.group("mark")):
                     continue
                 text_part = match.group("text").strip()
                 ac_id = change_doc_checklist.leading_ac_id(text_part) or "<unidentified>"
@@ -366,22 +411,21 @@ def _collect_silent_unchecked_items_for_close(wave_md: Path, wave_text: str) -> 
                     "change_id": change_id,
                     "item_type": "AC",
                     "item_id": ac_id,
-                    "item_text": text_part[:120],
+                    "item_text": _close_gate_item_text(match),
                 })
 
-        # Walk task items — every silent `[ ]` blocks close (no priority exemption for tasks).
+        # Walk task items: every open item blocks close (no priority exemption for tasks).
         for task_section in change_doc_checklist.section_bodies(
             change_text, "Tasks", include_near_miss=True
         ):
-            for match in _CLOSE_GATE_CHECKBOX_LINE_RE.finditer(task_section):
-                if match.group("mark") != " ":
+            for match in change_doc_checklist.checklist_items(task_section):
+                if not change_doc_checklist.is_open_mark(match.group("mark")):
                     continue
-                text_part = match.group("text").strip()
                 findings.append({
                     "change_id": change_id,
                     "item_type": "task",
                     "item_id": "",
-                    "item_text": text_part[:120],
+                    "item_text": _close_gate_item_text(match),
                 })
     return findings
 
@@ -501,13 +545,66 @@ def _noncanonical_checklist_headings(change_text: str) -> list[str]:
 def _noncanonical_checklist_items(change_text: str) -> list[str]:
     """Checklist items in ``## Acceptance Criteria`` or ``## Tasks`` (or a
     near-miss section of either) whose list marker is not the canonical ``-``
-    (wave 1zime, 1zimq), as ``marker [m] text``."""
+    (wave 1zime, 1zimq) or whose mark is not a space, ``x``, ``X`` or ``~``
+    (wave 1zls7, 1zltr), as ``marker [m] text``."""
     found: list[str] = []
     for heading in ("Acceptance Criteria", "Tasks"):
         for match in change_doc_checklist.section_items(change_text, heading, include_near_miss=True):
-            if not change_doc_checklist.is_canonical_marker(match.group("marker")):
+            if (not change_doc_checklist.is_canonical_marker(match.group("marker"))
+                    or not change_doc_checklist.is_canonical_mark(match.group("mark"))):
                 found.append(f"{match.group('marker')} [{match.group('mark')}] {match.group('text').strip()[:120]}")
     return found
+
+
+_REQUIRED_DELIVERY_LANES_RE = re.compile(r"^-\s*Required delivery lanes\s*:\s*(?P<lanes>.+?)\s*$", re.IGNORECASE)
+
+
+def _participants_lines(wave_text: str) -> list[str]:
+    """The stripped lines of the wave record's ``## Participants`` section."""
+    lines: list[str] = []
+    in_participants = False
+    for raw in wave_text.splitlines():
+        line = raw.strip()
+        if line.startswith("## Participants"):
+            in_participants = True
+            continue
+        if in_participants and line.startswith("## "):
+            break
+        if in_participants:
+            lines.append(line)
+    return lines
+
+
+def _roster_values(value: str) -> list[str]:
+    lanes: list[str] = []
+    for lane in value.split(","):
+        normalized = lane.strip().strip("`").strip()
+        if normalized and normalized.lower() not in {"none", "—", "-"} and normalized not in lanes:
+            lanes.append(normalized)
+    return lanes
+
+
+def _extract_required_delivery_line(wave_text: str) -> Optional[list[str]]:
+    """The ``- Required delivery lanes:`` roster (wave 1zlu1, change 1zlu4),
+    or ``None`` when the wave record has no such line."""
+    for line in _participants_lines(wave_text):
+        match = _REQUIRED_DELIVERY_LANES_RE.match(line)
+        if match:
+            return _roster_values(match.group("lanes"))
+    return None
+
+
+def _extract_required_delivery_lanes(wave_text: str) -> list[str]:
+    """The delivery roster (Review and Close): the ``Required delivery
+    lanes`` line when present, otherwise the readiness roster."""
+    delivery = _extract_required_delivery_line(wave_text)
+    return delivery if delivery is not None else _extract_required_review_lanes(wave_text)
+
+
+def _extract_required_lanes_for_phase(wave_text: str, phase: str) -> list[str]:
+    """The wave-record roster for ``phase``: ``prepare`` reads the readiness
+    line, ``close`` the delivery roster."""
+    return _extract_required_review_lanes(wave_text) if phase == "prepare" else _extract_required_delivery_lanes(wave_text)
 
 
 def _extract_required_review_lanes(wave_text: str) -> list[str]:
@@ -645,7 +742,14 @@ def _prepare_policy_state(
     if policy_errors or phase_errors or policy is None:
         return None, tuple(PolicyInputError("config", e) for e in (*policy_errors, *phase_errors))
     requested = extract_requested_review_lanes(wave_text)
-    project_lanes = tuple(_read_project_required_review_lanes(root))
+    try:
+        # The digest keeps receiving the base list (both phases); the two
+        # rosters below add each phase's own lanes (wave 1zlu1, 1zlu4).
+        project_lanes = tuple(project_required_review_lanes(config))
+        readiness_project_lanes = tuple(review_policy.project_lanes_for_phase(config, "prepare"))
+        delivery_project_lanes = tuple(review_policy.project_lanes_for_phase(config, "close"))
+    except ProjectLanesConfigError as exc:
+        return None, (PolicyInputError("config", str(exc)),)
     change_inputs: list[tuple[str, str, bytes]] = []
     change_texts: list[str] = []
     errors: list[PolicyInputError] = []
@@ -681,7 +785,12 @@ def _prepare_policy_state(
         return None, tuple(errors)
     required_lanes, reasons = select_required_review_lanes(
         requested_lanes=requested,
-        project_lanes=project_lanes,
+        project_lanes=readiness_project_lanes,
+        change_texts=change_texts,
+    )
+    delivery_lanes, _delivery_reasons = select_required_review_lanes(
+        requested_lanes=requested,
+        project_lanes=delivery_project_lanes,
         change_texts=change_texts,
     )
     digest, policy_inputs = policy_input_snapshot(
@@ -742,6 +851,10 @@ def _prepare_policy_state(
         "policy": policy,
         "requested_lanes": list(requested),
         "required_lanes": list(required_lanes),
+        # Wave 1zlu1 (1zlu4): the delivery roster (Review and Close) and the
+        # lanes it adds over readiness; the receipt keeps the readiness roster.
+        "delivery_lanes": list(delivery_lanes),
+        "delivery_only_lanes": [lane for lane in delivery_lanes if lane not in required_lanes],
         "reasons": {key: list(value) for key, value in reasons.items()},
         "delivery_council_required": delivery_council,
         "policy_input_digest": digest,
@@ -790,6 +903,19 @@ def _review_policy_receipt_diagnostics(
             _diagnostic(
                 "review_policy_receipt_stale",
                 "Persisted Required review lanes no longer match the current policy inputs; re-Prepare.",
+                recovery_tools=["wf_prepare_wave"],
+                recovery_usage=f"wf_prepare_wave(wave_id={wave_md.parent.name!r}, mode='ready')",
+                advisory=advisory,
+            )
+        )
+    # Wave 1zlu1 (1zlu4): the delivery roster (the line, or the readiness
+    # line when it is absent) is compared with the delivery selection too.
+    persisted_delivery = tuple(_extract_required_delivery_lanes(wave_text))
+    if persisted_delivery != tuple(state["delivery_lanes"]):
+        diagnostics.append(
+            _diagnostic(
+                "review_policy_receipt_stale",
+                "Persisted Required delivery lanes no longer match the current policy inputs; re-Prepare.",
                 recovery_tools=["wf_prepare_wave"],
                 recovery_usage=f"wf_prepare_wave(wave_id={wave_md.parent.name!r}, mode='ready')",
                 advisory=advisory,

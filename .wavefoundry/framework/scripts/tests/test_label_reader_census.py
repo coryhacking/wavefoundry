@@ -102,6 +102,8 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("wf_server/server_impl.py", "f\"{_vocab.MEMBER_ID_LABEL}: `{change_id}`\\n{_vocab.MEMBER_STATUS_LABEL}: `planned`\\n\""): "writer",
     ("wf_server/server_impl.py", "lambda _m: f\"{_vocab.BACKREF_LABEL}: {wave_md.parent.name}\""): "writer",
     ("wf_server/server_impl.py", "lambda _m: f\"{_vocab.MEMBER_ID_LABEL}: `{change_id}`\""): "writer",
+    # wf_close_change (wave 1zlu1): writes the wave-record previous-status line.
+    ("wf_server/server_impl.py", "previous_line = indent + _vocab.PREVIOUS_STATUS_LABEL + f\": `{previous}`\" + ending"): "writer",
 }
 
 

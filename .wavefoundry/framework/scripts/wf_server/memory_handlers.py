@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 
 from lifecycle_gate_support import _diagnostic
+from lifecycle_lock import path_free_exception_text
 from review_evidence import read_review_event_ledger
 
 
@@ -1989,7 +1990,9 @@ def memory_purge_response(root: Path, memory_id: str, reviewed: bool = False,
             result = mem.purge_memory_record(root, memory_id, eligibility_confirmed=eligibility_confirmed)
         except (FileNotFoundError, ValueError, OSError) as exc:
             return server_impl._response("error", {"purged": False}, diagnostics=[_diagnostic(
-                "memory_purge_failed", str(exc),
+                # Wave 1zls7 (1zodv): path-free; an OSError renders its class,
+                # errno name and repository-relative filename only.
+                "memory_purge_failed", path_free_exception_text(exc, root, prefix_class=False),
                 recovery_tools=["memory_purge", "memory_search"],
                 recovery_usage=(
                     f"memory_purge(memory_id={memory_id!r}, reviewed=True)  # retry "
@@ -2184,13 +2187,18 @@ def memory_consolidate_response(
                     manifest_path.write_bytes(manifest_before)
                 rollback_completed = True
             except OSError as rollback_exc:
-                rollback_error = f"; rollback incomplete: {rollback_exc}"
+                # Wave 1zls7 (1zodv): path-free, like memory_purge_failed.
+                rollback_error = (
+                    "; rollback incomplete: "
+                    + path_free_exception_text(rollback_exc, root, prefix_class=False)
+                )
             return server_impl._response("error", {
                 "updated": False,
                 "rollback_completed": rollback_completed,
                 "replacement_id": replacement_id or None,
             }, diagnostics=[_diagnostic(
-                "memory_consolidation_failed", f"{exc}{rollback_error}", recovery_tools=["memory_consolidate"], recovery_usage="memory_consolidate(mode='dry_run')")],
+                "memory_consolidation_failed",
+                f"{path_free_exception_text(exc, root, prefix_class=False)}{rollback_error}", recovery_tools=["memory_consolidate"], recovery_usage="memory_consolidate(mode='dry_run')")],
                 next_tools=["memory_consolidate"], usage="")
         finally:
             _memory_finalize(root, fence)

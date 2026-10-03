@@ -57,7 +57,7 @@
           },
           {
             "code": "open_changes_remaining",
-            "message": "Wave has unresolved change statuses: planned.",
+            "message": "Wave has unresolved change statuses: `0exxlz-ref fixture-change` is `planned`.",
             "recovery_tools": [
               "wf_current_wave"
             ],
@@ -127,7 +127,7 @@
           },
           {
             "code": "open_changes_remaining",
-            "message": "Wave has unresolved change statuses: planned.",
+            "message": "Wave has unresolved change statuses: `0exxlz-ref fixture-change` is `planned`.",
             "recovery_tools": [
               "wf_current_wave"
             ],
@@ -160,6 +160,7 @@
           },
           "council_verdict_present": false,
           "council_verdict_valid": false,
+          "delivery_only_lanes": [],
           "garden_passed": true,
           "lint": {
             "mode": "stubbed"
@@ -176,6 +177,10 @@
           ],
           "review_policy": {
             "delivery_council_required": false,
+            "delivery_lanes": [
+              "code-reviewer"
+            ],
+            "delivery_only_lanes": [],
             "policy_input_digest": "4e6fa245b788287404a9788b643aa76da7f4315bc4faccd7d4829bd46fa86dee",
             "reasons": {
               "code-reviewer": [
@@ -240,6 +245,7 @@
           },
           "council_verdict_present": false,
           "council_verdict_valid": false,
+          "delivery_only_lanes": [],
           "garden_passed": true,
           "lint_passed": true,
           "mode": "dry_run",
@@ -253,6 +259,10 @@
           ],
           "review_policy": {
             "delivery_council_required": false,
+            "delivery_lanes": [
+              "code-reviewer"
+            ],
+            "delivery_only_lanes": [],
             "policy_input_digest": "4e6fa245b788287404a9788b643aa76da7f4315bc4faccd7d4829bd46fa86dee",
             "reasons": {
               "code-reviewer": [
@@ -317,6 +327,7 @@
           },
           "council_verdict_present": false,
           "council_verdict_valid": false,
+          "delivery_only_lanes": [],
           "garden_passed": true,
           "lint": {
             "mode": "stubbed"
@@ -333,6 +344,10 @@
           ],
           "review_policy": {
             "delivery_council_required": false,
+            "delivery_lanes": [
+              "code-reviewer"
+            ],
+            "delivery_only_lanes": [],
             "policy_input_digest": "4e6fa245b788287404a9788b643aa76da7f4315bc4faccd7d4829bd46fa86dee",
             "reasons": {
               "code-reviewer": [
@@ -745,7 +760,7 @@
           },
           {
             "code": "open_changes_remaining",
-            "message": "Wave has unresolved change statuses: planned.",
+            "message": "Wave has unresolved change statuses: `0exxmz-ref fixture-change` is `planned`.",
             "recovery_tools": [
               "wf_current_wave"
             ],
@@ -824,7 +839,7 @@
           },
           {
             "code": "open_changes_remaining",
-            "message": "Wave has unresolved change statuses: planned.",
+            "message": "Wave has unresolved change statuses: `0exxmz-ref fixture-change` is `planned`.",
             "recovery_tools": [
               "wf_current_wave"
             ],
@@ -869,6 +884,10 @@
           ],
           "review_policy": {
             "delivery_council_required": false,
+            "delivery_lanes": [
+              "code-reviewer"
+            ],
+            "delivery_only_lanes": [],
             "policy_input_digest": "b7410b7ce4df011d07acd14c3ba81c532857079bbd36b19bde4c60cab4e95d13",
             "reasons": {
               "code-reviewer": [
@@ -968,6 +987,10 @@
           ],
           "review_policy": {
             "delivery_council_required": false,
+            "delivery_lanes": [
+              "code-reviewer"
+            ],
+            "delivery_only_lanes": [],
             "policy_input_digest": "b7410b7ce4df011d07acd14c3ba81c532857079bbd36b19bde4c60cab4e95d13",
             "reasons": {
               "code-reviewer": [
@@ -1067,6 +1090,10 @@
           ],
           "review_policy": {
             "delivery_council_required": false,
+            "delivery_lanes": [
+              "code-reviewer"
+            ],
+            "delivery_only_lanes": [],
             "policy_input_digest": "b7410b7ce4df011d07acd14c3ba81c532857079bbd36b19bde4c60cab4e95d13",
             "reasons": {
               "code-reviewer": [
@@ -1493,7 +1520,7 @@
           },
           {
             "code": "open_changes_remaining",
-            "message": "Wave has unresolved change statuses: planned.",
+            "message": "Wave has unresolved change statuses: `0exxkz-ref fixture-change` is `planned`.",
             "recovery_tools": [
               "wf_current_wave"
             ],
@@ -1563,7 +1590,7 @@
           },
           {
             "code": "open_changes_remaining",
-            "message": "Wave has unresolved change statuses: planned.",
+            "message": "Wave has unresolved change statuses: `0exxkz-ref fixture-change` is `planned`.",
             "recovery_tools": [
               "wf_current_wave"
             ],
@@ -1596,6 +1623,7 @@
           },
           "council_verdict_present": false,
           "council_verdict_valid": false,
+          "delivery_only_lanes": [],
           "garden_passed": true,
           "lint": {
             "mode": "stubbed"
@@ -1615,6 +1643,10 @@
           "retrieval_posture": "MCP-first retrieval during implementation AND review: search, read, and navigate code through the code_* and docs_search tools first, while implementing changes and equally while verifying review claims against the tree; harness shell and file search are fallback. This scope includes repair and reverification work inside review cycles (censuses, region reads, claim checks); executed probes (test runs, mutation probes, git operations) remain shell work. Carry this same posture into the prompt of any subagent briefed for investigation or verification. When fallback is genuinely the right instrument (bulk-mechanical edits, docs-only work), record a 'Gapfill:' entry in a Progress Log explaining why. That same recorded entry clears the retrieval_posture_gap advisory raised at implementation review and close when implement-stage retrieval telemetry is near zero against a non-trivial code diff.",
           "review_policy": {
             "delivery_council_required": false,
+            "delivery_lanes": [
+              "code-reviewer"
+            ],
+            "delivery_only_lanes": [],
             "policy_input_digest": "a962f6a8943f52b414facb38b3839a610f471b983f27d328792cba38f3142277",
             "reasons": {
               "code-reviewer": [
@@ -1691,6 +1723,7 @@
           },
           "council_verdict_present": false,
           "council_verdict_valid": false,
+          "delivery_only_lanes": [],
           "garden_passed": true,
           "lint_passed": true,
           "mode": "dry_run",
@@ -1706,6 +1739,10 @@
           ],
           "review_policy": {
             "delivery_council_required": false,
+            "delivery_lanes": [
+              "code-reviewer"
+            ],
+            "delivery_only_lanes": [],
             "policy_input_digest": "a962f6a8943f52b414facb38b3839a610f471b983f27d328792cba38f3142277",
             "reasons": {
               "code-reviewer": [
@@ -1782,6 +1819,7 @@
           },
           "council_verdict_present": false,
           "council_verdict_valid": false,
+          "delivery_only_lanes": [],
           "garden_passed": true,
           "lint": {
             "mode": "stubbed"
@@ -1800,6 +1838,10 @@
           ],
           "review_policy": {
             "delivery_council_required": false,
+            "delivery_lanes": [
+              "code-reviewer"
+            ],
+            "delivery_only_lanes": [],
             "policy_input_digest": "a962f6a8943f52b414facb38b3839a610f471b983f27d328792cba38f3142277",
             "reasons": {
               "code-reviewer": [

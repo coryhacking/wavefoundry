@@ -31,6 +31,26 @@ files extracted from it.
 
 ## Reproduce and check
 
+In the Wavefoundry source repository, one command runs the whole check:
+`python3 .wavefoundry/framework/scripts/verify_vendored_scripts.py` (on Windows, `py -3` in
+place of `python3`). It downloads each tarball in the registry table from
+`https://registry.npmjs.org/` only, compares its SHA-512 with the recorded `dist.integrity`,
+reads the recorded source file from the tarball in memory, and compares its SHA-256 and bytes
+with the vendored file and the file table. It exits 0 when every check passes, 1 when any check
+fails (even when another package could not be checked), and 2 when the check could not be made
+and nothing failed (this README cannot be parsed, or a download failed or was refused). Each
+table is found by its exact header line, and every row must match the table's format; a
+malformed row, an indented row, a row missing its leading pipe, or a row after a blank
+line inside a table stops the check
+(exit 2, naming the line) rather than being skipped. Every
+redirect target is checked before it is followed, so a host off the registry is never
+contacted. A deliberate refusal (a non-registry URL, a redirect that left the registry, a
+tarball over the size cap) prints `refused:`; a download that could not complete prints
+`download failed:`.
+It uses the network, so it is optional and never part of the default test suite;
+it is development-only and is not included in the framework distribution, so a target repository
+does not have it and uses the manual procedure below.
+
 Run these in an empty scratch folder, once per package. The example uses `react@18.3.1`;
 substitute the package, version, source path and vendored path from the tables above.
 

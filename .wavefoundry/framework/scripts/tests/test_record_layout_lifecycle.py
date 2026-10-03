@@ -19,6 +19,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from record_layout_support import SHIPPED_DEFAULTS, apply_layout, default_profile_only, patch_layout
@@ -225,6 +226,7 @@ class InvalidLayoutFailsClosedTests(_RepoCase):
                 root, "1abcd", "approval", "qa", "ctx-1", mode="create", signoff_key="qa",
             )),
             ("wf_close_wave", lambda: srv.wf_close_wave_response(root, "1abcd", mode="create")),
+            ("wf_close_change", lambda: srv.wf_close_change_response(root, "1abcd", "1abce", mode="create")),
             ("wf_pause_wave", lambda: srv.wf_pause_wave_response(root, "1abcd", mode="create")),
             ("wf_implement_wave", lambda: srv.wf_implement_wave_response(root, "1abcd", mode="create")),
             ("wf_review_wave", lambda: srv.wf_review_wave_response(root, "1abcd")),
@@ -314,6 +316,7 @@ class WrapperFailClosedTests(_RepoCase):
         return (
             ("wf_prepare_wave", lambda: self._tool("wf_prepare_wave")(wave_id, mode="dry_run")),
             ("wf_close_wave", lambda: self._tool("wf_close_wave")(wave_id, mode="dry_run")),
+            ("wf_close_change", lambda: self._tool("wf_close_change")(wave_id, "1abce", mode="dry_run")),
             ("wf_implement_wave", lambda: self._tool("wf_implement_wave")(wave_id, mode="dry_run")),
             ("wf_review_wave", lambda: self._tool("wf_review_wave")(wave_id)),
             ("wf_mark_ac", lambda: self._tool("wf_mark_ac")(wave_id, "1abce", "AC-1", "x", mode="dry_run")),
@@ -359,8 +362,276 @@ class WrapperFailClosedTests(_RepoCase):
         self._assert_every_wrapper_refuses(wave_id, "ambiguous_wave_id")
 
 
+def core_schema_drift(tool: str, golden: dict, live: dict) -> list[str]:
+    """Change 1zltu: how a live ``inputSchema`` drifted from the golden core.
+
+    Every golden property must exist live with an identical property schema
+    (type or ``anyOf``, ``default`` presence and value, ``title``), and the
+    live ``required`` set must equal the golden one. A live property the
+    golden lacks is allowed only when it is optional (an override may add
+    one); an added required parameter is drift. Returns one message per
+    problem, empty when the core contract holds.
+    """
+    problems: list[str] = []
+    golden_props = golden.get("properties", {})
+    live_props = live.get("properties", {})
+    golden_required = set(golden.get("required", []))
+    live_required = set(live.get("required", []))
+    for param, schema in sorted(golden_props.items()):
+        if param not in live_props:
+            problems.append(f"{tool}: core parameter {param!r} is missing")
+        elif live_props[param] != schema:
+            problems.append(f"{tool}: core parameter {param!r} changed: {live_props[param]!r} != {schema!r}")
+    for param in sorted(set(live_props) - set(golden_props)):
+        if param in live_required:
+            problems.append(f"{tool}: added parameter {param!r} is required")
+    if live_required != golden_required:
+        problems.append(
+            f"{tool}: required set drifted: {sorted(live_required)} != {sorted(golden_required)}")
+    return problems
+
+
+class CreateWaveParentTests(_RepoCase):
+    """Wave 1zlu1 (change 1zlu3): `wf_create_wave(..., parent=...)` creates a
+    wave inside an existing grouping folder of the nested layout."""
+
+    NESTED = {**RELOCATED, "nested": True, "max_depth": 4}
+
+    def setUp(self):
+        super().setUp()
+        self._layout(**self.NESTED)
+        self.waves = self.root / "project" / "records" / "waves"
+        self.waves.mkdir(parents=True, exist_ok=True)
+        lint = unittest.mock.patch.object(self.srv, "_attach_lint_to_response", side_effect=lambda e, *a, **k: e)
+        lint.start()
+        self.addCleanup(lint.stop)
+
+    def _snapshot(self) -> list[str]:
+        return sorted(
+            str(p.relative_to(self.root)) for p in self.root.rglob("*")
+            if ".wavefoundry" not in p.relative_to(self.root).parts
+        )
+
+    def _next_prefix(self) -> str:
+        return self.srv._lifecycle_module().build_id(
+            "wave", "probe", legacy=False, commit=False, repo_root=self.root
+        ).split(" ", 1)[0]
+
+    def _create(self, parent, mode="create", slug="grouped"):
+        return self.srv.wf_create_wave_response(self.root, slug, mode=mode, parent=parent)
+
+    def test_creates_inside_an_existing_parent(self):
+        (self.waves / "q4" / "auth").mkdir(parents=True)
+        before = self._snapshot()
+        dry = self._create("q4/auth", mode="dry_run")
+        self.assertEqual(dry["status"], "dry_run", dry)
+        self.assertEqual(self._snapshot(), before)
+        created = self._create("q4/auth")
+        self.assertEqual(created["status"], "ok", created)
+        data = created["data"]
+        self.assertEqual(data["parent"], "q4/auth")
+        self.assertEqual(dry["data"]["parent"], "q4/auth")
+        self.assertEqual(dry["data"]["path"], data["path"])
+        self.assertTrue(data["path"].startswith("project/records/waves/q4/auth/"), data["path"])
+        wave_dir = (self.root / data["path"]).parent
+        self.assertTrue((wave_dir / vp.RECORD_FILENAME).is_file())
+        self.assertTrue((wave_dir / "events.jsonl").is_file())
+        listed = self.srv.wf_list_waves_response(self.root)["data"]["waves"]
+        entry = next(w for w in listed if w["wave_id"] == data["wave_id"])
+        self.assertEqual(entry["parent"], "q4/auth")
+        current = self.srv.wf_current_wave_response(self.root)["data"]["waves"]
+        self.assertIn(data["wave_id"], [w["wave_id"] for w in current])
+        from wave_lint_lib import wave_validators
+        failures = [f for f in wave_validators.check_wave_docs(self.root) if data["wave_id"] in f]
+        self.assertEqual(failures, [])
+
+    def test_direct_child_lists_a_null_parent(self):
+        created = self.srv.wf_create_wave_response(self.root, "flat-child", mode="create")
+        self.assertIsNone(created["data"]["parent"])
+        listed = self.srv.wf_list_waves_response(self.root)["data"]["waves"]
+        self.assertEqual([w["parent"] for w in listed], [None])
+
+    def _assert_refused(self, parent, *, fragment: str = "") -> None:
+        before, prefix = self._snapshot(), self._next_prefix()
+        for mode in ("dry_run", "create"):
+            with self.subTest(parent=parent, mode=mode):
+                result = self._create(parent, mode=mode)
+                self.assertEqual(result["status"], "error", result)
+                self.assertEqual([d["code"] for d in result["diagnostics"]], ["invalid_arguments"], result)
+                if fragment:
+                    self.assertIn(fragment, result["diagnostics"][0]["message"])
+                self.assertEqual(self._snapshot(), before, "a refused parent creates nothing")
+                self.assertEqual(self._next_prefix(), prefix, "a refused parent consumes no prefix")
+
+    def test_flat_layout_refuses_parent(self):
+        self._layout(**{**RELOCATED, "nested": False})
+        (self.waves / "q4").mkdir()
+        self._assert_refused("q4", fragment="NESTED")
+
+    def test_empty_values_are_refused(self):
+        for value in ("", "   ", "///", "\\\\"):
+            self._assert_refused(value, fragment="empty")
+
+    def test_absolute_values_are_refused(self):
+        # Each value names folders that exist once read as relative, so only
+        # the absolute check can refuse it.
+        (self.waves / "abs").mkdir()
+        (self.waves / "server" / "share").mkdir(parents=True)
+        self._assert_refused("/abs", fragment="absolute")
+        self._assert_refused("\\\\server\\share", fragment="absolute")
+        if os.name != "nt":
+            (self.waves / "C:" / "x").mkdir(parents=True)
+        self._assert_refused("C:\\x", fragment="absolute")
+
+    def test_dot_dot_and_dot_prefixed_components_are_refused(self):
+        for name in ("a", "b", ".hidden"):
+            (self.waves / name).mkdir()
+        self._assert_refused("a/../b", fragment="'..'")
+        self._assert_refused(".hidden", fragment="'.hidden'")
+
+    @unittest.skipIf(os.name == "nt", "creating a symlink needs a privilege on Windows")
+    def test_symlinked_component_is_refused(self):
+        (self.waves / "real").mkdir()
+        os.symlink(self.waves / "real", self.waves / "link", target_is_directory=True)
+        self._assert_refused("link", fragment="symlink")
+
+    def test_folder_inside_a_wave_folder_is_refused(self):
+        (self.waves / "w1" / "sub").mkdir(parents=True)
+        (self.waves / "w1" / vp.RECORD_FILENAME).write_text("x\n", encoding="utf-8")
+        self._assert_refused("w1", fragment="inside the wave folder")
+        self._assert_refused("w1/sub", fragment="inside the wave folder")
+
+    def test_parent_at_max_depth_is_refused(self):
+        (self.waves / "a" / "b" / "c" / "d").mkdir(parents=True)
+        self._assert_refused("a/b/c/d", fragment="discovery depth")
+        created = self._create("a/b/c")
+        self.assertEqual(created["status"], "ok", created)
+
+    def test_missing_parent_and_file_parent_are_refused(self):
+        (self.waves / "file.txt").write_text("x\n", encoding="utf-8")
+        self._assert_refused("missing", fragment="does not exist")
+        self._assert_refused("file.txt", fragment="does not exist")
+
+    def test_depth_rule_matches_discovery(self):
+        for max_depth in (1, 2):
+            with self.subTest(max_depth=max_depth):
+                self._layout(**{**self.NESTED, "max_depth": max_depth})
+                (self.waves / f"g{max_depth}" / "h").mkdir(parents=True)
+                deepest = "/".join([f"g{max_depth}", "h"][: max_depth - 1])
+                if deepest:
+                    created = self._create(deepest, slug=f"depth-{max_depth}")
+                    self.assertEqual(created["status"], "ok", created)
+                    found = [w["wave_id"] for w in self.srv.list_waves(self.root)]
+                    self.assertIn(created["data"]["wave_id"], found)
+                one_deeper = "/".join([f"g{max_depth}", "h"][:max_depth])
+                self._assert_refused(one_deeper, fragment="discovery depth")
+
+    def test_colliding_id_prefix_is_refused(self):
+        (self.waves / "q4").mkdir()
+        other = self.waves / "elsewhere" / "1abcd old"
+        other.mkdir(parents=True)
+        (other / vp.RECORD_FILENAME).write_text(f"{vp.RECORD_TITLE}\n\nStatus: planned\n", encoding="utf-8")
+        before = self._snapshot()
+        lifecycle = self.srv._lifecycle_module()
+        with unittest.mock.patch.object(lifecycle, "build_id", return_value="1abcd new"):
+            result = self._create("q4")
+        self.assertEqual(result["status"], "error", result)
+        self.assertEqual([d["code"] for d in result["diagnostics"]], ["ambiguous_wave_id"])
+        self.assertEqual(self._snapshot(), before)
+
+    @unittest.skipIf(os.name == "nt", "creating a symlink needs a privilege on Windows")
+    def test_parent_swapped_for_a_symlink_after_validation_is_refused(self):
+        (self.waves / "q4").mkdir()
+        real = self.srv._wave_parent_parts
+
+        def swap(roots, parent):
+            parts = real(roots, parent)
+            os.rename(self.waves / "q4", self.waves / "q4-real")
+            os.symlink(self.waves / "q4-real", self.waves / "q4", target_is_directory=True)
+            return parts
+
+        with unittest.mock.patch.object(self.srv, "_wave_parent_parts", side_effect=swap):
+            result = self._create("q4")
+        self.assertEqual(result["status"], "error", result)
+        self.assertIn("changed during creation", result["diagnostics"][0]["message"])
+        self.assertEqual(list((self.waves / "q4-real").iterdir()), [])
+
+    @unittest.skipIf(os.name == "nt", "creating a symlink needs a privilege on Windows")
+    def test_parent_swapped_for_an_outside_symlink_after_the_recheck_writes_nothing_outside(self):
+        """Delivery review F1: a swap after the in-lock re-check (here inside
+        `wave_id_of`) must not let the record be written outside the repo."""
+        (self.waves / "q4").mkdir()
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        outside_dir = Path(outside.name)
+        real = self.srv.record_paths.wave_id_of
+        swapped = []
+
+        def swap(wave_dir):
+            if not swapped:
+                swapped.append(True)
+                os.rename(self.waves / "q4", self.waves / "q4-real")
+                os.symlink(outside_dir, self.waves / "q4", target_is_directory=True)
+            return real(wave_dir)
+
+        with unittest.mock.patch.object(self.srv.record_paths, "wave_id_of", side_effect=swap):
+            result = self._create("q4")
+        self.assertTrue(swapped)
+        self.assertEqual(result["status"], "error", result)
+        self.assertEqual([d["code"] for d in result["diagnostics"]], ["invalid_arguments"])
+        self.assertEqual(list(outside_dir.iterdir()), [], "nothing is written or left outside the repo")
+        self.assertEqual(list((self.waves / "q4-real").iterdir()), [])
+
+    def test_parent_is_reported_as_spelled_on_disk(self):
+        (self.waves / "Q4" / "Auth").mkdir(parents=True)
+        if not (self.waves / "q4" / "auth").exists():
+            self.skipTest("case-sensitive filesystem")
+        created = self._create("q4/auth")
+        self.assertEqual(created["status"], "ok", created)
+        self.assertEqual(created["data"]["parent"], "Q4/Auth")
+
+    def test_without_parent_the_result_is_unchanged(self):
+        self._layout(**RELOCATED)
+        dry = self.srv.wf_create_wave_response(self.root, "plain", mode="dry_run")
+        created = self.srv.wf_create_wave_response(self.root, "plain", mode="create")
+        self.assertIsNone(dry["data"]["parent"])
+        self.assertIsNone(created["data"]["parent"])
+        self.assertEqual(Path(created["data"]["path"]).parent.parent.as_posix(), RELOCATED["waves_root"])
+
+
 class SchemaPinAndReloadTests(unittest.TestCase):
     """AC-6."""
+
+    def test_core_schema_drift_on_synthetic_schemas(self):
+        """Change 1zltu: identical and extra-optional pass; extra-required and a
+        changed type or default on a core parameter fail."""
+        golden = {
+            "properties": {
+                "change_id": {"title": "Change Id", "type": "string"},
+                "mode": {"default": "dry_run", "title": "Mode", "type": "string"},
+            },
+            "required": ["change_id"],
+        }
+
+        def variant(**edits):
+            live = json.loads(json.dumps(golden))
+            for key, value in edits.items():
+                if key == "required":
+                    live["required"] = value
+                else:
+                    live["properties"][key] = value
+            return live
+
+        self.assertEqual(core_schema_drift("t", golden, variant()), [])
+        self.assertEqual(core_schema_drift("t", golden, variant(extra={"default": None, "title": "Extra"})), [])
+        added_required = core_schema_drift(
+            "t", golden, variant(extra={"title": "Extra", "type": "string"}, required=["change_id", "extra"]))
+        self.assertTrue(added_required)
+        self.assertTrue(any("'extra'" in p and "required" in p and p.startswith("t:") for p in added_required))
+        self.assertTrue(core_schema_drift("t", golden, variant(mode={"default": "dry_run", "title": "Mode", "type": "integer"})))
+        self.assertTrue(core_schema_drift("t", golden, variant(mode={"default": "create", "title": "Mode", "type": "string"})))
+        self.assertTrue(core_schema_drift("t", golden, variant(mode={"title": "Mode", "type": "string"})))
+        self.assertTrue(core_schema_drift("t", golden, variant(required=[])))
 
     def test_eight_lifecycle_tool_schemas_match_the_golden_fixture(self):
         golden = json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))["tools"]
@@ -374,10 +645,10 @@ class SchemaPinAndReloadTests(unittest.TestCase):
         for name in EIGHT_TOOLS:
             with self.subTest(tool=name):
                 live = mcp._tool_manager._tools[name].parameters
-                self.assertEqual(
-                    sorted(live["properties"]), sorted(golden[name]["inputSchema"]["properties"]),
-                    f"{name}: parameter set drifted from the golden fixture",
-                )
+                # Change 1zltu: compare the core contract fully (types,
+                # defaults, titles, required), not only parameter names.
+                self.assertEqual(core_schema_drift(name, golden[name]["inputSchema"], live), [],
+                                 f"{name}: core schema drifted from the golden fixture")
 
     def test_record_paths_is_evicted_on_reload(self):
         srv = load_server()

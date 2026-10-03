@@ -84,6 +84,10 @@ for _wll_key in list(sys.modules):
             "index_source_guard",
             "path_containment",
             "mcp_tool_extensions",
+            # Wave 1zls8: the roster validates through the declaration module
+            # it imported, so it is purged with it and never validates an
+            # evicted copy.
+            "mcp_tool_roster",
         }
         or _wll_key in _PACKAGE_PURGE_KEYS
     ):
@@ -405,6 +409,7 @@ from lifecycle_gate_support import (
     _docs_lint_warning_diagnostics,
     _extract_change_ids_from_wave_text,
     _extract_close_gate_section,
+    _extract_required_lanes_for_phase,
     _extract_required_review_lanes,
     _load_framework_test_runner,
     _missing_required_change_sections,
@@ -412,6 +417,7 @@ from lifecycle_gate_support import (
     _prepare_council_instructions,
     _prepare_council_verdict_template,
     _prepare_policy_state,
+    _project_lanes_for_phase,
     _read_error_detail,
     _read_project_required_review_lanes,
     _read_wave_council_policy,
@@ -474,6 +480,7 @@ import publication_control
 from gardener_metadata import ambiguous_excluded_headings, canonical_review_policy_body
 from review_policy import (
     FULL_COUNCIL_TRIGGER_FIELDS,
+    ProjectLanesConfigError,
     REVIEW_POLICY_EVALUATOR_VERSION,
     REVIEW_POLICY_SCHEMA_VERSION,
     build_policy_receipt,
@@ -494,6 +501,7 @@ from review_evidence import (
     INDEPENDENCE_DIAGNOSTIC_CODES,
     PROTOCOL_VERSION,
     ProjectPublicationUnavailable,
+    publication_unavailable_detail,
     REQUEST_DIGEST_FIELD,
     REVIEW_ACTION_CAP,
     REVIEW_ACTION_TRUNCATED_DIAGNOSTIC,
@@ -4187,15 +4195,18 @@ def _ensure_no_extra_args(tool_name: str, kwargs: dict[str, Any]) -> Optional[di
 
 # --- Public extension helpers (wave 1zimf, changes 1zimn and 1zimp) ----------
 # The stable surface for distribution extension handlers
-# (docs/specs/mcp-tool-surface.md, Registration). Each is a thin wrapper that
-# looks up its private counterpart at call time, so a test patch of the
-# private name and an in-place wf_reload_mcp both reach the current function.
-# Removing or renaming one, or changing its signature, is a breaking change
-# recorded in the CHANGELOG. There is deliberately no lock or busy helper: an
-# extension tool that needs the lifecycle lock declares it in
+# (docs/specs/mcp-tool-surface.md, Registration). Each wrapper below looks up
+# its private counterpart at call time, so a test patch of the private name
+# and an in-place wf_reload_mcp both reach the current function; list_waves and
+# wf_review_wave_response (wave 1zls8, change 1zltx) are the module-level
+# functions themselves. Removing or renaming one, or changing its signature, is
+# a breaking change recorded in the CHANGELOG. There is deliberately no lock or
+# busy helper: an extension tool that needs the lifecycle lock declares it in
 # mcp_tool_extensions.EXTENSION_LIFECYCLE_TOOLS.
 EXTENSION_PUBLIC_HELPERS: tuple[str, ...] = (
     "ensure_no_extra_args", "make_response", "make_diagnostic", "change_doc_response",
+    "find_wave_record", "refuse_if_archived", "fail_closed_on_record_layout", "attach_lint",
+    "refresh_index_for_paths", "list_waves", "wf_review_wave_response",
 )
 
 
@@ -4246,6 +4257,39 @@ def change_doc_response(root, kind, slug, *, cache=None) -> dict:
             usage="wf_help(goal='plan_feature')",
         )
     return _change_create_response(Path(root), kind, slug, mode="create", cache=cache)
+
+
+def find_wave_record(root, wave_id_or_prefix, wave_dirs=None):
+    """``(wave_md, requested_read_error, unreadable_siblings)`` for one wave token (change 1zltx).
+
+    Raises ``record_paths.AmbiguousWaveId`` for one wave id at two paths,
+    ``ValueError`` for a prefix matching distinct ids and
+    ``record_paths.RecordLayoutInvalid`` for an invalid record layout.
+    """
+    return _find_wave_md_detailed(root, wave_id_or_prefix, wave_dirs)
+
+
+def refuse_if_archived(root, token, kind):
+    """The ``archived_record_read_only`` diagnostic when a writer's ``kind``
+    ("wave" or "change") target exists only in the read-only archive, else ``None``."""
+    return _refuse_if_archived(root, token, kind)
+
+
+def fail_closed_on_record_layout(tool):
+    """Decorator for a response function: an invalid record layout or a
+    duplicated wave id becomes the structured refusal core tools return."""
+    return _fail_closed_on_record_layout(tool)
+
+
+def attach_lint(envelope, root, mode):
+    """Add the post-write lint state under ``data.lint``; no lint on
+    ``dry_run`` or on an error envelope, and the status never changes."""
+    return _attach_lint_to_response(envelope, root, mode)
+
+
+def refresh_index_for_paths(root, paths):
+    """Request a background index refresh for written paths; returns ``{"project": bool}``."""
+    return _trigger_background_index_refresh_for_paths(root, paths)
 
 
 def _normalize_first_party_tool_argument_models(mcp: Any) -> None:
@@ -5963,7 +6007,10 @@ def wf_list_waves_response(root: Path, limit: int = 50, cache: Optional[McpRepoC
     if ambiguous is not None:
         return ambiguous
     has_more = len(all_waves) > n
-    waves = all_waves[:n]
+    # Wave 1zlu1 (1zlu3): each entry carries its derived `parent`, the wave
+    # folder's parent below the waves root (null for a direct child), read
+    # from the discovered folder rather than stored in the record.
+    waves = [{**wave, "parent": _wave_listing_parent(root, wave)} for wave in all_waves[:n]]
     metrics: dict[str, dict[str, Any]] = {}
     try:
         exploration = _load_script("exploration_avoided")
@@ -6022,6 +6069,17 @@ def wf_list_waves_response(root: Path, limit: int = 50, cache: Optional[McpRepoC
         next_tools=["wf_current_wave"] if waves else ["wf_list_plans"],
         usage="wf_current_wave()" if waves else "wf_list_plans()",
     )
+
+
+def _wave_listing_parent(root: Path, wave: Mapping[str, Any]) -> Optional[str]:
+    """POSIX path of a listed wave folder's parent relative to the waves root,
+    or ``None`` for a direct child (wave 1zlu1, change 1zlu3)."""
+    try:
+        wave_dir = (root / str(wave.get("path") or "")).parent
+        parts = wave_dir.relative_to(record_paths.load_record_roots(root).waves).parts
+    except (ValueError, record_paths.RecordLayoutInvalid):
+        return None
+    return "/".join(parts[:-1]) or None
 
 
 @_fail_closed_on_record_layout("wf_list_plans")
@@ -6863,6 +6921,24 @@ def _resolve_unique_change_doc(root: Path, change_id: str) -> tuple[Optional[dic
     return matches[0], None
 
 
+def _mark_item_block_end(lines: list[str], index: int) -> int:
+    """One past the last continuation line of the checklist item at ``index``
+    (wave 1zls7, 1zltr): indented, non-blank, non-item, non-heading lines at
+    the item's own blockquote depth."""
+    depth = change_doc_checklist.split_blockquote(lines[index])[0]
+    end = index + 1
+    for probe in range(index + 1, len(lines)):
+        probe_depth, rest = change_doc_checklist.split_blockquote(lines[probe])
+        if probe_depth != depth or not rest.strip():
+            break
+        if change_doc_checklist.CHECKLIST_ITEM_RE.match(lines[probe]) or rest.lstrip().startswith("#"):
+            break
+        if not rest.startswith((" ", "\t")):
+            break
+        end = probe + 1
+    return end
+
+
 @_fail_closed_on_record_layout("wf_mark_item")
 def _mark_change_item_response(
     root: Path, wave_id: str, change_id: str, item_label: str, state: str,
@@ -6916,7 +6992,10 @@ def _mark_change_item_response(
             )],
         )
     try:
-        text = path.read_text(encoding="utf-8")
+        # Delivery review (wave 1zls7): read the document's own line endings
+        # so marking rewrites only the mark; ``text`` stays in the
+        # universal-newline form every other reader sees.
+        raw = path.read_bytes().decode("utf-8")
     except (OSError, UnicodeError) as exc:
         return _response(
             "error",
@@ -6930,34 +7009,39 @@ def _mark_change_item_response(
             next_tools=["wf_validate_docs"],
             usage="wf_validate_docs()",
         )
-    section = ""
-    candidates: list[tuple[int, re.Match[str], str]] = []
+    text = raw.replace("\r\n", "\n").replace("\r", "\n")
+    if "\r" in raw.replace("\r\n", ""):
+        # A lone carriage return is a line break to every other reader; keep
+        # the old rewrite for such a document rather than misread its lines.
+        raw = text
+    # Wave 1zls7 (1zltr): items and section boundaries come from the shared
+    # checklist parser, so every item the close gate blocks on (a blockquoted
+    # item, an unusual mark, an item in a near-miss section) can be marked,
+    # and a fenced example item or a fenced `## ` line is not read.  Marking
+    # rewrites only the mark character.
+    lines = raw.split("\n")
+    candidates: list[tuple[int, re.Match[str], int]] = []
     all_labels: list[str] = []
-    lines = text.splitlines(keepends=True)
-    for index, line in enumerate(lines):
-        heading = re.fullmatch(r"##\s+(.+?)\s*\r?\n?", line)
-        if heading:
-            section = heading.group(1).strip()
+    requested = item_label.strip().lower()
+    for index in change_doc_checklist.section_line_indexes(
+        raw, target_section, include_near_miss=True
+    ):
+        match = change_doc_checklist.CHECKLIST_ITEM_RE.match(lines[index])
+        if match is None:
             continue
-        match = re.match(r"(?P<prefix>\s*-\s*\[)[ x~X](?P<suffix>\]\s+)(?P<label>.*?)(?:\r?\n)?$", line)
-        if match and section == target_section:
-            label_parts = [match.group("label").strip()]
-            for probe in range(index + 1, len(lines)):
-                continuation = lines[probe]
-                if not continuation.strip() or re.match(r"\s*-\s*\[[ x~X]\]", continuation) or continuation.lstrip().startswith("#"):
-                    break
-                if not continuation.startswith((" ", "\t")):
-                    break
-                label_parts.append(continuation.strip())
-            full_label = " ".join(label_parts)
-            all_labels.append(full_label)
-            label = full_label.lower()
-            requested = item_label.strip().lower()
-            if label == requested or label.startswith(requested + ":"):
-                candidates.append((index, match, section))
+        item_end = _mark_item_block_end(lines, index)
+        label_parts = [match.group("text").strip()] + [
+            change_doc_checklist.split_blockquote(continuation)[1].strip()
+            for continuation in lines[index + 1:item_end]
+        ]
+        full_label = " ".join(label_parts)
+        all_labels.append(full_label)
+        label = full_label.lower()
+        if label == requested or label.startswith(requested + ":"):
+            candidates.append((index, match, item_end))
     if len(candidates) != 1:
         code = "ambiguous_mark_target" if candidates else "mark_target_not_found"
-        candidate_labels = [candidate.group("label").strip() for _, candidate, _ in candidates] if candidates else all_labels
+        candidate_labels = [candidate.group("text").strip() for _, candidate, _ in candidates] if candidates else all_labels
         if candidates:
             message = (
                 f"Expected exactly one {target_section} item matching `{item_label}`; found {len(candidates)}. "
@@ -6979,15 +7063,19 @@ def _mark_change_item_response(
                 recovery_usage=f"wf_get_change(change_id='{change_id}')",
             )],
         )
-    lines = text.splitlines(keepends=True)
-    index, match, target_section = candidates[0]
+    index, match, block_end = candidates[0]
+    line = lines[index]
+    mark_start, mark_end = match.span("mark")
+    text_end = match.end("text")
     if state == "~" and target_section == "Acceptance Criteria" and reason.strip():
-        suffix = match.group("suffix") + match.group("label").rstrip("\r\n") + f" *{reason.strip()}*"
+        lines[index] = (
+            line[:mark_start] + state + line[mark_end:text_end]
+            + f" *{reason.strip()}*" + line[text_end:]
+        )
     else:
-        suffix = match.group("suffix") + match.group("label").rstrip("\r\n")
-    ending = "\r\n" if lines[index].endswith("\r\n") else "\n" if lines[index].endswith("\n") else ""
-    lines[index] = f"{match.group('prefix')}{state}{suffix}{ending}"
-    updated = "".join(lines)
+        lines[index] = line[:mark_start] + state + line[mark_end:]
+    updated_raw = "\n".join(lines)
+    updated = updated_raw.replace("\r\n", "\n")
     if state == "~":
         from wave_lint_lib.wave_validators import _check_tilde_required_ac_has_inline_note
         failures = _check_tilde_required_ac_has_inline_note(updated, _repo_rel(root, path))
@@ -7006,22 +7094,12 @@ def _mark_change_item_response(
     # and reproduce it again as the replacement. A first-line-only measure
     # undercounts a wrapped acceptance criterion several times over, and
     # acceptance criteria are exactly where the saving concentrates.
-    block_end = index + 1
-    for probe in range(index + 1, len(lines)):
-        nxt = lines[probe]
-        if not nxt.strip():
-            break
-        if re.match(r"\s*-\s*\[[ x~X]\]", nxt) or nxt.lstrip().startswith("#"):
-            break
-        if not nxt.startswith((" ", "\t")):
-            break
-        block_end = probe + 1
-    matched_text = "".join(lines[index:block_end])
+    matched_text = "\n".join(lines[index:block_end]) + ("\n" if block_end < len(lines) else "")
     data = {"wave_id": wave_md.parent.name, "change_id": change_id, "item_label": item_label, "state": state, "path": _repo_rel(root, path), "matched_text": matched_text}
     mode_s = mode.strip().lower()
     if mode_s not in {"create", "apply"}:
         return _response("ok", {**data, "changed": updated != text})
-    if updated == text:
+    if updated_raw == raw:
         return _response("ok", {**data, "changed": False})
 
     # Completion and task tracking are receipt-neutral. An AC deferral is
@@ -7034,7 +7112,7 @@ def _mark_change_item_response(
         and _read_workflow_config(root).get("wave_review") is not None
     )
     if not refresh_receipt:
-        _atomic_replace_text(path, updated, "wf-mark")
+        _atomic_replace_text(path, updated_raw, "wf-mark")
         return _response("ok", {**data, "changed": True})
 
     try:
@@ -7075,7 +7153,7 @@ def _mark_change_item_response(
                 wave_md,
                 live_wave,
                 policy_state,
-                change_updates=((path, text, updated),),
+                change_updates=((path, text, updated, updated_raw),),
             )
     except ProjectPublicationUnavailable as exc:
         # Wave 1yd99: `ProjectPublicationUnavailable` derives from `RuntimeError`,
@@ -7091,8 +7169,8 @@ def _mark_change_item_response(
             {**data, "changed": False, "review_receipt_refreshed": False},
             diagnostics=[_diagnostic(
                 "project_publication_busy",
-                "The AC was not deferred because another process holds the project "
-                f"publication lock: {_read_error_detail(exc)}. Retry the same wf_mark_ac "
+                "The AC was not deferred because the project publication lock could "
+                f"not be taken: {publication_unavailable_detail(exc)}. Retry the same wf_mark_ac "
                 "call once the other lifecycle write finishes; nothing was changed.",
                 recovery_tools=["wf_mark_ac"],
                 recovery_usage=(
@@ -7398,9 +7476,14 @@ def _change_block_pattern(change_id: str) -> re.Pattern[str]:
 
 
 def _replace_required_review_lanes(
-    wave_text: str, required_lanes: Iterable[str]
+    wave_text: str, required_lanes: Iterable[str], delivery_lanes: Optional[Iterable[str]] = None,
 ) -> str:
-    """Replace the single Prepare-owned roster field without touching prose."""
+    """Replace the single Prepare-owned roster field without touching prose.
+
+    Wave 1zlu1 (1zlu4): with ``delivery_lanes``, a ``- Required delivery
+    lanes:`` line is written directly after the readiness roster when the two
+    rosters differ, and any existing delivery line is removed when they are
+    equal (an absent line means "same as readiness")."""
 
     pattern = re.compile(
         r"(?mi)^-\s*Required review lanes\s*:\s*[^\n]*$"
@@ -7413,7 +7496,17 @@ def _replace_required_review_lanes(
         )
     lanes = tuple(dict.fromkeys(str(lane) for lane in required_lanes if str(lane)))
     rendered = "- Required review lanes: " + (", ".join(lanes) if lanes else "none")
-    return pattern.sub(rendered, wave_text, count=1)
+    replaced = pattern.sub(rendered, wave_text, count=1)
+    if delivery_lanes is None:
+        return replaced
+    delivery = tuple(dict.fromkeys(str(lane) for lane in delivery_lanes if str(lane)))
+    replaced = re.sub(r"(?mi)^-\s*Required delivery lanes\s*:[^\n]*\n?", "", replaced)
+    if delivery == lanes:
+        return replaced
+    line = pattern.search(replaced)
+    assert line is not None
+    delivery_line = "\n- Required delivery lanes: " + (", ".join(delivery) if delivery else "none")
+    return replaced[: line.end()] + delivery_line + replaced[line.end():]
 
 
 def _staleness_recovery_tools(error: str) -> list[str]:
@@ -7518,12 +7611,17 @@ def _publish_prepare_policy_state(
     wave_text: str,
     state: Mapping[str, Any],
     *,
-    change_updates: Iterable[tuple[Path, str, str]] = (),
+    change_updates: Iterable[tuple[Path, str, str] | tuple[Path, str, str, str]] = (),
 ) -> str:
-    """Publish a receipt transition and its projections as one recoverable unit."""
+    """Publish a receipt transition and its projections as one recoverable unit.
+
+    Each change update is ``(path, expected, updated)`` or, to keep the
+    document's own line endings, ``(path, expected, updated, updated_bytes_text)``
+    whose last element is what is written (``expected`` and ``updated`` are in
+    the universal-newline form ``read_text`` returns)."""
 
     roster_text = _replace_required_review_lanes(
-        wave_text, state["required_lanes"]
+        wave_text, state["required_lanes"], state.get("delivery_lanes")
     )
     with project_state_publication_lock(root):
         # Revalidate the inspected wave identity and roster shape immediately
@@ -7543,7 +7641,7 @@ def _publish_prepare_policy_state(
             raise ValueError("wave changed during Prepare policy publication; retry")
         _replace_required_review_lanes(live, state["required_lanes"])
         normalized_updates = tuple(change_updates)
-        for path, expected, _updated in normalized_updates:
+        for path, expected, *_updated in normalized_updates:
             if path.read_text(encoding="utf-8") != expected:
                 raise ValueError(
                     f"admitted change `{path.name}` changed during receipt publication; retry"
@@ -7570,8 +7668,8 @@ def _publish_prepare_policy_state(
             )
         replacements.append((contained_wave, final.encode("utf-8"), "prepare-projection"))
         replacements.extend(
-            (path, updated.encode("utf-8"), "receipt-change")
-            for path, _expected, updated in normalized_updates
+            (path, update[-1].encode("utf-8"), "receipt-change")
+            for path, _expected, *update in normalized_updates
         )
         _replace_artifacts_transactionally(root, replacements)
         return final
@@ -7631,29 +7729,126 @@ def _contained_wave_review_paths(root: Path, wave_md: Path) -> tuple[Path, Path]
     return expected_wave_md, expected_events
 
 
-def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
+def _wave_parent_parts(roots: "record_paths.RecordRoots", parent: Any) -> list[str]:
+    """Validate ``wf_create_wave``'s ``parent`` (wave 1zlu1, change 1zlu3) and
+    return its components below the waves root.
+
+    Raises ``ValueError`` naming the one reason it is refused: the layout is
+    flat; the value is empty; it is absolute on either platform; a component is
+    ``..`` or dot-prefixed; a component is a symlink or the folder does not
+    resolve inside the waves root; a folder from the first component down holds
+    the record file; the new wave would sit deeper than ``max_depth``; or the
+    folder does not exist or is not a directory.  Nothing is created."""
+    if not roots.nested:
+        raise ValueError(
+            "`parent` needs the nested record layout (record_paths.NESTED is false), "
+            "where wave folders below the waves root are discovered."
+        )
+    if not isinstance(parent, str):
+        raise ValueError("`parent` must be a string path relative to the waves root.")
+    raw = parent.replace("\\", "/")
+    if not raw.strip().strip("/").strip():
+        raise ValueError("`parent` is empty; name an existing folder relative to the waves root.")
+    from pathlib import PurePosixPath, PureWindowsPath
+
+    windows = PureWindowsPath(parent)
+    if (
+        parent.startswith(("/", "\\"))
+        or PurePosixPath(raw).is_absolute()
+        or windows.is_absolute()
+        or windows.drive
+        or windows.anchor
+    ):
+        raise ValueError(f"`parent` {parent!r} is absolute; give a path relative to the waves root.")
+    parts = [part for part in raw.split("/") if part]
+    for part in parts:
+        if part == ".." or part.startswith("."):
+            raise ValueError(
+                f"`parent` {parent!r} has the component {part!r}; `..` and dot-prefixed folders are refused "
+                "(discovery never enters a dot folder)."
+            )
+    if len(parts) + 1 > roots.max_depth:
+        raise ValueError(
+            f"`parent` {parent!r} is {len(parts)} level(s) deep, so the wave folder would sit at depth "
+            f"{len(parts) + 1}, beyond the discovery depth {roots.max_depth} (record_paths.MAX_DEPTH)."
+        )
+    parent_dir = roots.waves.joinpath(*parts)
+    if record_paths._has_symlink_component(roots.waves, parts) or not record_paths._resolved_inside(
+        roots.waves, parent_dir
+    ):
+        raise ValueError(
+            f"`parent` {parent!r} goes through a symlink or does not resolve inside the waves root."
+        )
+    for index in range(1, len(parts) + 1):
+        holder = roots.waves.joinpath(*parts[:index])
+        if record_paths._has_wave_md(holder):
+            raise ValueError(
+                f"`parent` {parent!r} is inside the wave folder {'/'.join(parts[:index])!r}; "
+                "a wave folder's subfolders are never discovered."
+            )
+    if not parent_dir.is_dir():
+        raise ValueError(
+            f"`parent` {parent!r} does not exist as a folder under the waves root; create the grouping "
+            "folder first (it is never created for you)."
+        )
+    return parts
+
+
+def _wave_parent_on_disk(waves: Path, parts: list[str]) -> str:
+    """The parent folder's POSIX path below the waves root as spelled on disk
+    (case folding and Windows' stripped trailing dots and spaces resolve to
+    the folder actually used)."""
+    current = waves
+    spelled: list[str] = []
+    for part in parts:
+        target = current / part
+        name = part
+        try:
+            names = os.listdir(current)
+        except OSError:
+            names = []
+        if part not in names:
+            for candidate in names:
+                try:
+                    if os.path.samefile(current / candidate, target):
+                        name = candidate
+                        break
+                except OSError:
+                    continue
+        spelled.append(name)
+        current = current / name
+    return "/".join(spelled)
+
+
+def create_wave(root: Path, slug: str, mode: str = "dry_run", parent: Optional[str] = None) -> dict[str, Any]:
     slug_s = (slug or "").strip()
     mode_s = "create" if mode == "apply" else mode
     if not slug_s:
         raise ValueError("Wave slug must be a non-empty string.")
     if mode_s not in {"dry_run", "create"}:
         raise ValueError(f"Unsupported mode '{mode}'.")
+    roots = record_paths.load_record_roots(root)
+    # Wave 1zlu1 (1zlu3): a refused `parent` is refused before the id is
+    # minted, so it never consumes a lifecycle prefix in either mode.
+    parent_parts = _wave_parent_parts(roots, parent) if parent is not None else None
     # Wave 1p3dk / 1p3ds: dry_run previews the wave_id without burning the
     # lifecycle slot. A subsequent apply call returns the same id.
     wave_id = _lifecycle_module().build_id(
         "wave", slug_s, legacy=False, commit=(mode_s == "create"), repo_root=root,
     )
-    wave_dir = record_paths.load_record_roots(root).waves / wave_id
+    parent_dir = roots.waves.joinpath(*parent_parts) if parent_parts else roots.waves
+    wave_dir = parent_dir / wave_id
     wave_md = _vocab.record_file(wave_dir)
     rel_path = str(wave_md.relative_to(root)).replace("\\", "/")
     exists = wave_md.exists()
+    parent_field = {"parent": _wave_parent_on_disk(roots.waves, parent_parts) if parent_parts else None}
     # Wave 1t9w9: waves no longer scaffold journals — in-flight capture goes
     # to Progress Logs and memory candidates, close-time distillation to
     # memory_propose + validation. Existing journals are historical artifacts.
     if mode_s == "dry_run":
         return {
             "wave_id": wave_id, "path": rel_path, "mode": mode_s,
-            "created": False, "exists": exists,
+            "created": False, "exists": exists, **parent_field,
         }
     wave_md, events_path = _contained_wave_review_paths(root, wave_md)
     today_iso = datetime.date.today().isoformat()
@@ -7724,21 +7919,73 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run") -> dict[str, Any]:
                 "wave_id": wave_id, "path": rel_path, "mode": mode_s,
                 "created": False, "exists": True,
                 "events_path": str(events_path.relative_to(root.resolve())).replace("\\", "/"),
+                **parent_field,
             }
-        wave_dir.mkdir(parents=True, exist_ok=True)
+        if parent_parts:
+            # Wave 1zlu1 (1zlu3): re-check the parent under the lock (a folder
+            # swapped for a symlink after validation is refused), refuse an id
+            # prefix already used by a wave folder at another path, create the
+            # wave folder with one non-recursive mkdir, and check it landed
+            # inside the parent.
+            if record_paths._has_symlink_component(roots.waves, parent_parts) or not record_paths._resolved_inside(
+                roots.waves, parent_dir
+            ):
+                raise ValueError(
+                    f"`parent` {parent!r} changed during creation: it goes through a symlink or no "
+                    "longer resolves inside the waves root."
+                )
+            new_prefix = record_paths.wave_id_of(wave_dir)
+            others = [
+                existing
+                for existing in (
+                    *record_paths.discover_wave_dirs(root, roots),
+                    *record_paths.discover_archive_dirs(root, roots),
+                )
+                if record_paths.wave_id_of(existing) == new_prefix
+                and not (existing.exists() and wave_dir.exists() and os.path.samefile(existing, wave_dir))
+            ]
+            if others:
+                raise record_paths.AmbiguousWaveId(
+                    record_paths.ambiguous_wave_id_diagnostics(root, [*others, wave_dir])
+                )
+            existed_before = os.path.lexists(wave_dir)
+            wave_dir.mkdir(exist_ok=True)
+            # Delivery review F1 (wave 1zlu1): `parent_dir` and `wave_dir`
+            # resolve through the same swapped link, so containment in the
+            # parent alone proves nothing; the new folder must also resolve
+            # inside the waves root with no symlink on its path.
+            if (
+                not record_paths._resolved_inside(parent_dir, wave_dir)
+                or not record_paths._resolved_inside(roots.waves, wave_dir)
+                or record_paths._has_symlink_component(roots.waves, [*parent_parts, wave_id])
+            ):
+                if not existed_before:
+                    try:
+                        wave_dir.rmdir()  # only an empty folder; never a tree
+                    except OSError:
+                        pass
+                raise ValueError(
+                    f"`parent` {parent!r} changed during creation: the new wave folder goes through a "
+                    "symlink or does not resolve inside the waves root."
+                )
+        else:
+            wave_dir.mkdir(parents=True, exist_ok=True)
         _atomic_replace_bytes(events_path, b"", "create-events")
         _atomic_replace_text(wave_md, new_wave_text, "create-wave")
     return {
         "wave_id": wave_id, "path": rel_path, "mode": mode_s,
         "created": True, "exists": False,
         "events_path": str(events_path.relative_to(root.resolve())).replace("\\", "/"),
+        **parent_field,
     }
 
 
 @_fail_closed_on_record_layout("wf_create_wave")
-def wf_create_wave_response(root: Path, slug: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
+def wf_create_wave_response(
+    root: Path, slug: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None, parent: Optional[str] = None,
+) -> dict[str, Any]:
     try:
-        result = create_wave(root, slug, mode)
+        result = create_wave(root, slug, mode, parent=parent)
     except _WaveRecordUnreadableError as exc:
         return _wave_record_unreadable_response(
             root, exc.wave_md, exc.read_error, data={"slug": slug, "mode": mode}
@@ -9337,7 +9584,16 @@ def _audit_harness_coverage(root: Path) -> dict[str, Any]:
     """Report which harness dimensions have at least one sensor configured."""
     cfg = _read_workflow_config(root)
     sensors = _read_project_sensors(root)
-    required_lanes = _read_project_required_review_lanes(root)
+    # Wave 1zlu1 (1zlu4): configured coverage is the union of both phases'
+    # project lanes; a non-list `required_review_lanes` is reported here and
+    # counts no lane coverage, so the audit still returns.
+    config_error: Optional[str] = None
+    try:
+        required_lanes = list(dict.fromkeys(
+            [*_project_lanes_for_phase(root, "prepare"), *_project_lanes_for_phase(root, "close")]
+        ))
+    except ProjectLanesConfigError as exc:
+        required_lanes, config_error = [], str(exc)
     lanes_lower = [l.lower() for l in required_lanes]
 
     maintainability_covered = len(sensors) > 0
@@ -9357,6 +9613,7 @@ def _audit_harness_coverage(root: Path) -> dict[str, Any]:
         "coverage_ratio": f"{covered_count}/3",
         "covered_count": covered_count,
         "dimensions": dimensions,
+        **({"config_error": config_error} if config_error else {}),
     }
 
 
@@ -9630,6 +9887,121 @@ def _prepare_council_verdict_info(wave_text: str) -> dict[str, Any]:
     }
 
 
+# Wave 1zls7 (1zltv): where a verdict-shaped line was written instead of
+# `## Review Checkpoints`.  A hit is a list item whose text, outside inline
+# code, carries the bracketed `[prepare-council]` token, on a line outside
+# fenced code (read with the shared fence helper; a fenced `## ` line is not a
+# heading either).  Headings are otherwise found
+# as `_prepare_council_verdict_info` finds them (any `#{1,6}` heading ends the
+# section), so a verdict under a `###` inside Review Checkpoints is outside the
+# section the parser reads and is named by that `###` heading.
+_VERDICT_LOCATION_HEADING_RE = re.compile(r"^(#{1,6} .+)$")
+_VERDICT_LOCATION_ITEM_RE = re.compile(r"^[ \t]*(?:>[ \t]*)*(?:[-*+]|\d{1,9}[.)])[ \t]+(?P<text>.*)$")
+_VERDICT_LOCATION_INLINE_CODE_RE = re.compile(r"(`+).+?\1")
+_VERDICT_LOCATION_TOKEN = "[prepare-council]"
+_VERDICT_LOCATION_LIMIT = 5
+
+
+def _verdict_line_headings(text: str) -> list[tuple[str, bool]]:
+    """``(nearest preceding heading, inside ## Review Checkpoints)`` for each
+    verdict-shaped line in ``text``."""
+    lines = text.split("\n")
+    fenced = change_doc_checklist.fenced_line_flags(lines)
+    heading = ""
+    hits: list[tuple[str, bool]] = []
+    for line, is_fenced in zip(lines, fenced):
+        # A fenced line is neither a heading nor a verdict line.
+        if is_fenced:
+            continue
+        heading_match = _VERDICT_LOCATION_HEADING_RE.match(line.rstrip("\r"))
+        if heading_match:
+            heading = heading_match.group(1).strip()
+            continue
+        item = _VERDICT_LOCATION_ITEM_RE.match(line)
+        if item is None:
+            continue
+        visible = _VERDICT_LOCATION_INLINE_CODE_RE.sub("", item.group("text"))
+        if _VERDICT_LOCATION_TOKEN in visible.casefold():
+            hits.append((heading, heading == "## Review Checkpoints"))
+    return hits
+
+
+def _prepare_council_verdict_locations(
+    root: Path, wave_md: Path, wave_text: str, *, include_review_checkpoints: bool
+) -> list[str]:
+    """Repository-relative ``path`` under ``heading`` for each verdict-shaped
+    line in the wave record (outside Review Checkpoints unless
+    ``include_review_checkpoints``) and in each admitted change document; an
+    unreadable or absent change document is skipped (other gates report it)."""
+    locations: list[str] = []
+
+    def _add(path: Path, heading: str) -> None:
+        location = f"`{_repo_rel(root, path)}` under `{heading or '(no heading)'}`"
+        if location not in locations:
+            locations.append(location)
+
+    for heading, in_section in _verdict_line_headings(wave_text):
+        if include_review_checkpoints or not in_section:
+            _add(wave_md, heading)
+    for change_id in _extract_change_ids_from_wave_text(wave_text):
+        try:
+            candidates = (
+                _wave_change_doc_path(root, wave_md, change_id),
+                _plan_change_doc_path(root, change_id),
+            )
+            change_path = next((path for path in candidates if path.is_file()), None)
+            if change_path is None:
+                continue
+            change_text = change_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError, ValueError):
+            continue
+        for heading, _in_section in _verdict_line_headings(change_text):
+            _add(change_path, heading)
+    return locations
+
+
+def _prepare_council_location_advisory(
+    root: Path, wave_md: Path, wave_text: str,
+    diagnostics: Sequence[Mapping[str, Any]], *, typed: bool,
+) -> Optional[dict[str, Any]]:
+    """Advisory ``prepare_council_verdict_misplaced`` (wave 1zls7, 1zltv).
+
+    Prose authority: when ``prepare_council_verdict_missing`` was emitted and a
+    verdict-shaped line sits elsewhere, name where it was found.  Typed
+    authority: when ``missing_wave_council_signoff`` was emitted and any prose
+    verdict line exists (Review Checkpoints included), say a prose verdict is
+    not readiness authority.  Never blocking; ``None`` when there is nothing to
+    say or the advisory is already present.
+    """
+    codes = {diagnostic.get("code") for diagnostic in diagnostics}
+    if "prepare_council_verdict_misplaced" in codes:
+        return None
+    trigger = "missing_wave_council_signoff" if typed else "prepare_council_verdict_missing"
+    if trigger not in codes:
+        return None
+    locations = _prepare_council_verdict_locations(
+        root, wave_md, wave_text, include_review_checkpoints=typed
+    )
+    if not locations:
+        return None
+    named = "; ".join(locations[:_VERDICT_LOCATION_LIMIT])
+    if len(locations) > _VERDICT_LOCATION_LIMIT:
+        named += f"; and {len(locations) - _VERDICT_LOCATION_LIMIT} more"
+    if typed:
+        message = (
+            f"A prose prepare-council verdict line was found at {named}. A prose verdict is not "
+            "readiness authority on this wave: readiness is recorded as `wave-council-readiness` "
+            "through `wf_review_event` (event='approval', approval_phase='readiness')."
+        )
+    else:
+        message = (
+            f"A prepare-council verdict line was found outside `## Review Checkpoints`: {named}. "
+            f"The verdict belongs in `{_vocab.RECORD_FILENAME}` under `## Review Checkpoints`, the only place it is "
+            "read; move the line there (the server does not move it)."
+        )
+    return _diagnostic("prepare_council_verdict_misplaced", message, advisory=True)
+
+
 def _council_seat_alignment_issues(
     verdict_info: Mapping[str, Any], council_brief: Mapping[str, Any]
 ) -> list[str]:
@@ -9815,11 +10187,20 @@ def _guided_review_signoff_keys(
 ) -> list[str]:
     """Return the existing required-signoff order for one guided phase."""
 
+    # Wave 1zlu1 (1zlu4): readiness reads the readiness roster and the
+    # prepare-phase project lanes; delivery reads the delivery roster and the
+    # close-phase lanes.  A config error blocks through the policy
+    # diagnostics, so the advice keeps the record's own roster.
+    roster_phase = "prepare" if approval_phase == "readiness" else "close"
+    try:
+        project_lanes = _project_lanes_for_phase(root, roster_phase)
+    except ProjectLanesConfigError:
+        project_lanes = []
     lanes = list(
         dict.fromkeys(
             [
-                *_extract_required_review_lanes(wave_text),
-                *_read_project_required_review_lanes(root),
+                *_extract_required_lanes_for_phase(wave_text, roster_phase),
+                *project_lanes,
             ]
         )
     )
@@ -10686,8 +11067,12 @@ def _wave_objective_unpopulated(wave_text: str) -> bool:
 
 def _prepare_lane_review_state(root: Path, wave_md: Path, wave_text: str):
     """One roster/currency calculation for Prepare advice and activation."""
+    # Wave 1zlu1 (1zlu4): the readiness roster and the prepare-phase lanes.
     wave_lanes = _extract_required_review_lanes(wave_text)
-    project_lanes = _read_project_required_review_lanes(root)
+    try:
+        project_lanes = _project_lanes_for_phase(root, "prepare")
+    except ProjectLanesConfigError:
+        project_lanes = []  # refused at Prepare through the policy diagnostics
     required_lanes = wave_lanes + [lane for lane in project_lanes if lane not in wave_lanes]
     authority = resolve_review_authority(root, wave_md, wave_text=wave_text)
     missing_lanes = [
@@ -11000,6 +11385,15 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
     diagnostics.extend(council_result.diagnostics)
     _prepare_authority = council_result.data["authority"]
     required_council_signoffs = council_result.data["required_council_signoffs"]
+
+    def _append_verdict_location_advisory() -> None:
+        # Wave 1zls7 (1zltv): advisory only; appended after the status and
+        # remedy of the envelope are decided, so neither moves.
+        advisory = _prepare_council_location_advisory(
+            root, wave_md, text, diagnostics, typed=_prepare_authority.typed
+        )
+        if advisory is not None:
+            diagnostics.append(advisory)
     # Discovery remains an orchestration concern; only create claims the OPEN slot.
     other_active = _find_other_active_wave(root, wave_md, cache=cache) if _activating else None
     activation_result = lifecycle_gates.PREPARE_ACTIVATION_GATES[1](
@@ -11019,6 +11413,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
             next_tools_list, usage_hint = _blocked_envelope_hint(
                 diagnostics, ["wf_validate_docs", "wf_current_wave"], "wf_validate_docs()"
             )
+        _append_verdict_location_advisory()
         return _prepare_envelope("error", error_data, next_tools=next_tools_list, usage=usage_hint)
     # Prepare-phase Wave Council review — final step of wf_prepare_wave (12sp5).
     # The brief remains available on both branches. Only legacy waves consume
@@ -11053,6 +11448,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
                     recovery_usage=f"wf_prepare_wave(mode={mode_s!r})",
                 )
             )
+            _append_verdict_location_advisory()
             return _prepare_envelope(
                 "ready_for_council_review",
                 {"wave_id": wave_id, "mode": mode_s, "council_brief": council_brief},
@@ -11068,6 +11464,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
             recovery_usage="wf_prepare_wave(mode='create')",
             advisory=True,
         ))
+        _append_verdict_location_advisory()
     elif not verdict_valid:
         if seat_alignment_issues:
             diagnostics.append(
@@ -11116,6 +11513,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
             result = gate(gate_ctx)
             diagnostics.extend(result.diagnostics)
             configured_gates.extend(result.data.get("configured_gates", []))
+        _append_verdict_location_advisory()
     if _has_blocking_diagnostics():
         error_data = {"wave_id": wave_id, "mode": mode_s, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "repairs_needed": repairs_needed, "repaired": repaired}
         error_data["required_council_signoffs"] = required_council_signoffs
@@ -11168,7 +11566,10 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
     # ready and dry-run modes never do (fail-safe — never affects the result).
     if mode_s == "create":
         _regenerate_codebase_map_safe(root)
-    resp_data = {"wave_id": wave_id, "mode": mode_s, "readied": mode_s == "ready", "transitioned_to_active": transitioned_to_active, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "updated": updated, "repairs_needed": repairs_needed, "repaired": repaired, "required_council_signoffs": required_council_signoffs, "council_brief": council_brief, "council_verdict_present": verdict_present, "council_verdict_valid": verdict_valid, "review_policy": policy_response}
+    resp_data = {"wave_id": wave_id, "mode": mode_s, "readied": mode_s == "ready", "transitioned_to_active": transitioned_to_active, "change_count": len(change_ids), "lint_passed": lint_passed, "garden_passed": garden_passed, "updated": updated, "repairs_needed": repairs_needed, "repaired": repaired, "required_council_signoffs": required_council_signoffs, "council_brief": council_brief, "council_verdict_present": verdict_present, "council_verdict_valid": verdict_valid, "review_policy": policy_response,
+                 # Wave 1zlu1 (1zlu4): lanes that apply at delivery (Review and
+                 # Close) only; they are not gated at readiness.
+                 "delivery_only_lanes": list(policy_state["delivery_only_lanes"]) if policy_state is not None else []}
     if transitioned_to_active:
         # Wave 1t72b (1t67p): prepare-and-open ACTIVATES the wave, so it must
         # serve the same in-band posture directive as wf_implement_wave —
@@ -11318,23 +11719,48 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
     )
     authority = prelude.data["authority"]
     review_evidence_diagnostics = prelude.diagnostics
-    # Merge lanes from wave.md Participants table and project-declared required_review_lanes
-    wave_lanes = _extract_required_review_lanes(wave_text)
-    project_lanes = _read_project_required_review_lanes(root)
-    extra_lanes = [l for l in project_lanes if l not in wave_lanes]
-    required_lanes = (["operator"] + wave_lanes + extra_lanes) if phase_s == "implementation" else wave_lanes + extra_lanes
-    empty_roster_advisory = (
-        _diagnostic(
-            "required_review_lanes_empty",
-            "This declared wave has no required review lanes in `## Participants` "
-            "or project configuration. The lane gate is intentionally non-blocking "
-            "while empty; add explicit lanes when independent review is required.",
-        )
-        if authority.typed and not wave_lanes and not project_lanes
-        else None
-    )
+
+    def _empty_roster_advisory(lanes: list[str], delivery_lanes: Sequence[str] = ()) -> Optional[dict[str, Any]]:
+        if not authority.typed or lanes:
+            return None
+        if delivery_lanes:
+            # Wave 1zlu1 (reverification nit 2): readiness is empty but
+            # delivery is not, so name what delivery will require.
+            message = (
+                "No readiness review lanes are required for this declared wave; delivery "
+                f"(Review and Close) requires: {', '.join(delivery_lanes)}. The readiness lane "
+                "gate is intentionally non-blocking while empty."
+            )
+        else:
+            message = (
+                "This declared wave has no required review lanes in `## Participants` "
+                "or project configuration. The lane gate is intentionally non-blocking "
+                "while empty; add explicit lanes when independent review is required."
+            )
+        return _diagnostic("required_review_lanes_empty", message)
 
     if phase_s == "prepare":
+        # Merge lanes from wave.md Participants table and project-declared required_review_lanes.
+        # Wave 1zlu1 (1zlu4): the prepare phase reads the readiness roster and
+        # the prepare-phase lanes.  The implementation phase reads the shared
+        # delivery gate's roster below (delivery review F2).
+        wave_lanes = _extract_required_lanes_for_phase(wave_text, "prepare")
+        try:
+            project_lanes = _project_lanes_for_phase(root, "prepare")
+        except ProjectLanesConfigError:
+            project_lanes = []  # blocked through the policy diagnostics
+        extra_lanes = [l for l in project_lanes if l not in wave_lanes]
+        required_lanes = wave_lanes + extra_lanes
+        delivery_roster: list[str] = []
+        if not required_lanes:
+            try:
+                delivery_project = _project_lanes_for_phase(root, "close")
+            except ProjectLanesConfigError:
+                delivery_project = []
+            delivery_roster = list(dict.fromkeys(
+                [*_extract_required_lanes_for_phase(wave_text, "close"), *delivery_project]
+            ))
+        empty_roster_advisory = _empty_roster_advisory(required_lanes, delivery_roster)
         # Prepare-phase: signoff currency via the authority facade (legacy
         # waves read ## Prepare Review Evidence; declared waves read typed
         # approvals only). No operator signoff required at this phase.
@@ -11440,6 +11866,9 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
     required_council_signoffs = shared["required_council_signoffs"]
     council_results = shared["council_results"]
     diagnostics = list(shared["diagnostics"])
+    # Wave 1zlu1 delivery review F2: the advisory reads the delivery roster
+    # the gate itself enforces, so a delivery-only lane is never "empty".
+    empty_roster_advisory = _empty_roster_advisory(list(shared["required_lanes"]))
     if empty_roster_advisory is not None:
         diagnostics.append(empty_roster_advisory)
     max_severity = shared["max_severity"]
@@ -11808,6 +12237,11 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
                 recovery_tools=["wf_review_wave", "wf_review_event"],
                 recovery_usage=f"wf_review_wave(wave_id={wave_id!r}, phase='prepare')",
             ))
+            _verdict_advisory = _prepare_council_location_advisory(
+                root, wave_md, wave_text, diagnostics, typed=True
+            )
+            if _verdict_advisory is not None:
+                diagnostics.append(_verdict_advisory)
     else:
         verdict_info = _prepare_council_verdict_info(wave_text)
         if not verdict_info.get("present"):
@@ -11819,6 +12253,11 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
                 recovery_tools=["wf_prepare_wave", "wf_current_wave"],
                 recovery_usage=f"wf_prepare_wave(wave_id={wave_id!r}, mode='dry_run')",
             ))
+            _verdict_advisory = _prepare_council_location_advisory(
+                root, wave_md, wave_text, diagnostics, typed=False
+            )
+            if _verdict_advisory is not None:
+                diagnostics.append(_verdict_advisory)
         elif not verdict_info.get("valid"):
             diagnostics.append(_diagnostic(
                 "prepare_council_verdict_invalid",
@@ -12301,6 +12740,80 @@ def _memory_validation_diagnostics(root: Path, wave_id: str) -> list[dict[str, A
 # restored rather than leaked into a long-lived server process.
 
 
+def _close_open_work_records(wave_text: str) -> list[tuple[Optional[str], Optional[str]]]:
+    """``(record id, status)`` for every work record in ``wave_text`` that is
+    not done (wave 1zls7, 1zlu0).
+
+    Openness comes from ``wave_lint_lib.constants.is_done``, and status is read
+    as a union of two readings, failing closed:
+
+    - docs-lint's record parser (``wave_validators._parse_work_records``, each
+      line stripped), where a record is open when ANY status line attributed
+      to it is not done (so a later duplicate, fenced example or indented line
+      reading done cannot hide an open status), when a status-labelled line it
+      owns cannot be read (``None``), or when it has no status line;
+    - a looser line walk that starts a record at every id-labelled line with
+      a backticked id, whatever the id's shape, and judges each
+      status-labelled line by its own label; it adds the records whose id the
+      lint parser does not accept (as the close checklist gate keeps such
+      column-0 ids) and status lines of the other anchor's label inside a
+      parsed record, and a status-labelled line before any id line is open,
+      reported with record id ``None``.
+
+    No status list lives here.
+    """
+    from wave_lint_lib import constants as lint_constants
+    from wave_lint_lib.wave_validators import _parse_work_records
+
+    open_records: list[tuple[Optional[str], Optional[str]]] = []
+
+    def _add(record_id: Optional[str], status: Optional[str]) -> None:
+        if not any(existing == record_id for existing, _status in open_records):
+            open_records.append((record_id, status))
+
+    parsed = _parse_work_records(wave_text, "")
+    parsed_ids = {record.record_id for record in parsed}
+    for record in parsed:
+        for value in record.status_values or [None]:
+            if not lint_constants.is_done(value, record.anchor_type):
+                _add(record.record_id, value)
+                break
+
+    loose: list[tuple[Optional[str], list[tuple[Optional[str], str]]]] = []
+    current: Optional[list[tuple[Optional[str], str]]] = None
+    for raw_line in wave_text.splitlines():
+        line = raw_line.strip()
+        id_match = (lint_constants.CHANGE_ID_LABEL_LINE_PATTERN.match(line)
+                    or lint_constants.ITEM_ID_LABEL_LINE_PATTERN.match(line))
+        if id_match:
+            current = []
+            loose.append((id_match.group("id"), current))
+            continue
+        for label, strict, anchor in (
+            (lint_constants.CHANGE_STATUS_LABEL_LINE_PATTERN, lint_constants.CHANGE_STATUS_PATTERN, "change"),
+            (lint_constants.ITEM_STATUS_LABEL_LINE_PATTERN, lint_constants.ITEM_STATUS_PATTERN, "item"),
+        ):
+            if label.match(line):
+                strict_match = strict.match(line)
+                value = strict_match.group(1) if strict_match else None
+                if current is None:
+                    _add(None, value)
+                else:
+                    current.append((value, anchor))
+                break
+    for record_id, statuses in loose:
+        if record_id in parsed_ids and not statuses:
+            continue  # read above; the lint parser judged its missing status
+        # A parsed record's loose statuses are checked too: the lint parser
+        # attributes only its own anchor's status label, so an Item Status
+        # line inside a change record is read here.
+        for value, anchor in statuses or [(None, "change")]:
+            if not lint_constants.is_done(value, anchor):
+                _add(record_id, value)
+                break
+    return open_records
+
+
 @_configured_phase_envelope
 @_fail_closed_on_record_layout("wf_close_wave")
 def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
@@ -12341,15 +12854,21 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     shared_result = lifecycle_gates.CLOSE_SHARED_GATES[0](gate_ctx)
     shared = {**shared_result.data, "diagnostics": shared_result.diagnostics}
     authority = shared["authority"]
-    statuses = [status.lower() for status in _CHANGE_STATUS_PATTERN.findall(text)]
-    open_statuses = {"stub", "planned", "ready", "active"}
-    unresolved = [s for s in statuses if s in open_statuses]
+    # Wave 1zls7 (1zlu0): openness comes from docs-lint's record parser and
+    # the one done predicate beside the lint constants; an unknown or
+    # unreadable status is open.
+    open_records = _close_open_work_records(text)
     diagnostics: list[dict[str, Any]] = list(shared["diagnostics"])
     diagnostics.extend(lifecycle_gates.CLOSE_SHARED_GATES[1](
         gate_ctx, garden_passed=garden_passed
     ).diagnostics)
-    if unresolved:
-        diagnostics.append(_diagnostic("open_changes_remaining", f"Wave has unresolved change statuses: {', '.join(sorted(set(unresolved)))}.", recovery_tools=["wf_current_wave"], recovery_usage="wf_current_wave()"))
+    if open_records:
+        open_list = "; ".join(
+            "a status line outside any record" if record_id is None
+            else f"`{record_id}` is `{status}`" if status else f"`{record_id}` has no readable status"
+            for record_id, status in open_records
+        )
+        diagnostics.append(_diagnostic("open_changes_remaining", f"Wave has unresolved change statuses: {open_list}.", recovery_tools=["wf_current_wave"], recovery_usage="wf_current_wave()"))
     required_lanes = list(shared["required_lanes"])
     empty_roster_advisory = (
         _diagnostic(
@@ -12526,6 +13045,554 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     # observations, but this advisory reader never scans or writes itself.
     envelope["data"].update(scanner_skip_notice(root))
     return envelope
+
+
+# --- wf_close_change (wave 1zlu1, change 1zlu2) -------------------------------
+# Close ONE change inside an open wave and move the dependents its close
+# unblocks to `ready`.  The gate repeats docs-lint's own rules (the transition
+# table, the terminal and done sets, the dependency rule) read from
+# `wave_lint_lib.constants` at call time; no status list lives here beyond the
+# two values the tool writes and the two it activates from.
+
+_CLOSE_CHANGE_VALID_MODES = ["dry_run", "create"]
+_CLOSE_CHANGE_TARGET_STATUS = "complete"
+_CLOSE_CHANGE_ACTIVATED_STATUS = "ready"
+_CLOSE_CHANGE_ACTIVATABLE_STATUSES = ("planned", "blocked")
+
+
+def _close_change_closable_statuses() -> frozenset[str]:
+    """Statuses `wf_close_change` may close, derived from the lint constants:
+    progressable or done, not terminal, and allowed to move to `complete`."""
+    from wave_lint_lib import constants as lint_constants
+
+    candidates = set(lint_constants.PROGRESSABLE_CHANGE_STATUSES) | set(lint_constants.DONE_CHANGE_STATUSES)
+    return frozenset(
+        status for status in candidates
+        if status not in lint_constants.TERMINAL_CHANGE_STATUSES
+        and _CLOSE_CHANGE_TARGET_STATUS in lint_constants.ALLOWED_CHANGE_STATUS_TRANSITIONS.get(status, ())
+    )
+
+
+def _close_change_member_section(lines: list[str]) -> tuple[int, int]:
+    """``(start, end)`` line indexes of the wave record's member list (the
+    profile's ``MEMBER_HEADING`` up to the next ``## `` heading); ``(0, 0)``
+    when the record has no member heading."""
+    for index, line in enumerate(lines):
+        if line.rstrip("\r\n").strip() == _vocab.MEMBER_HEADING:
+            end = len(lines)
+            for probe in range(index + 1, len(lines)):
+                if lines[probe].lstrip().startswith("## "):
+                    end = probe
+                    break
+            return index + 1, end
+    return 0, 0
+
+
+def _close_change_block(lines: list[str], change_id: str) -> Optional[tuple[int, int]]:
+    """``(start, end)`` line indexes of ``change_id``'s block inside the member
+    list: from its id line to the next id line or heading."""
+    from wave_lint_lib import constants as lint_constants
+
+    start, end = _close_change_member_section(lines)
+    block_start: Optional[int] = None
+    for index in range(start, end):
+        stripped = lines[index].strip()
+        id_match = lint_constants.CHANGE_ID_LABEL_LINE_PATTERN.match(stripped)
+        if block_start is not None and id_match:
+            return block_start, index
+        if id_match and id_match.group("id") == change_id:
+            match = lint_constants.CHANGE_ID_PATTERN.match(stripped)
+            if match and match.group(1) == change_id:
+                block_start = index
+    if block_start is not None:
+        return block_start, end
+    return None
+
+
+def _close_change_rewrite_block(text: str, change_id: str, new_status: str, previous: str) -> Optional[str]:
+    """``text`` with ``change_id``'s wave-record block set to ``new_status``
+    and its previous-status line set to ``previous`` (an existing previous
+    line is replaced), in the order the block regex expects: id, previous,
+    status.  ``None`` when the block has no single readable status line."""
+    from wave_lint_lib import constants as lint_constants
+
+    lines = text.splitlines(keepends=True)
+    block = _close_change_block(lines, change_id)
+    if block is None:
+        return None
+    start, end = block
+    status_indexes = [
+        index for index in range(start + 1, end)
+        if lint_constants.CHANGE_STATUS_LABEL_LINE_PATTERN.match(lines[index].strip())
+    ]
+    if len(status_indexes) != 1:
+        return None
+    status_index = status_indexes[0]
+    status_line = lines[status_index]
+    indent = status_line[: len(status_line) - len(status_line.lstrip())]
+    match = re.match(rf"^{_vocab.MEMBER_STATUS_LABEL_RE}:\s+`[a-z0-9-]+`[ \t]*(\r?\n)?$", status_line.lstrip())
+    if match is None:
+        return None
+    ending = match.group(1) or ("\r\n" if "\r\n" in text else "\n")
+    label_end = status_line.index(":", len(indent))
+    new_status_line = f"{status_line[:label_end]}: `{new_status}`{match.group(1) or ''}"
+    previous_line = indent + _vocab.PREVIOUS_STATUS_LABEL + f": `{previous}`" + ending
+    rewritten: list[str] = []
+    for index in range(len(lines)):
+        if start < index < end and re.match(rf"^{_vocab.PREVIOUS_STATUS_LABEL_RE}:", lines[index].strip()):
+            continue  # replaced by the line written before the status line
+        if index == status_index:
+            rewritten.append(previous_line)
+            rewritten.append(new_status_line)
+            continue
+        rewritten.append(lines[index])
+    return "".join(rewritten)
+
+
+def _close_change_doc_header(raw: str) -> tuple[str, str]:
+    """``(leading metadata, rest)``: the change document split at its first
+    ``## `` heading line."""
+    match = re.search(r"(?m)^## ", raw)
+    if match is None:
+        return raw, ""
+    return raw[: match.start()], raw[match.start():]
+
+
+def _close_change_doc_status(raw: str) -> Optional[str]:
+    """The change document's status as docs-lint reads it, from its leading
+    metadata; ``None`` when it has no readable status line."""
+    from wave_lint_lib import constants as lint_constants
+
+    header, _rest = _close_change_doc_header(raw.replace("\r\n", "\n"))
+    match = lint_constants.CHANGE_STATUS_PATTERN.search(header)
+    return match.group(1) if match else None
+
+
+def _close_change_rewrite_doc(raw: str, new_status: str) -> Optional[str]:
+    """``raw`` with the change document's member-status and ``Status:``
+    header lines set to ``new_status``.  No previous-status line is written
+    into a change document: it is a review-policy carrier key that is not
+    normalized, so writing it would move the digest."""
+    header, rest = _close_change_doc_header(raw)
+    match = re.search(rf"(?m)^{_vocab.MEMBER_STATUS_LABEL_RE}:\s+`([a-z0-9-]+)`[ \t]*(?=\r?$)", header)
+    if match is None:
+        return None
+    header = header[: match.start(1)] + new_status + header[match.end(1):]
+    header = re.sub(
+        r"(?m)^(Status:[ \t]*)(`?)[^`\r\n]*?(`?)([ \t]*)(?=\r?$)",
+        lambda m: f"{m.group(1)}{m.group(2)}{new_status}{m.group(3)}{m.group(4)}", header, count=1,
+    )
+    return header + rest
+
+
+def _close_change_scoped_lint(root: Path, paths: list[Path]) -> list[str]:
+    """docs-lint's per-document checks scoped to ``paths``, keeping only the
+    failures that name one of them.  Runs in process and takes no lock (no
+    lock is used in ``docs_lint.py`` or ``wave_lint_lib``), so it is safe
+    under the project publication lock."""
+    from wave_lint_lib import helpers as lint_helpers
+    from wave_lint_lib import wave_validators
+    from wave_lint_lib.metadata_validators import check_metadata
+
+    lint_helpers.read_text_cache_clear()
+    failures: list[str] = []
+    for path in paths:
+        failures.extend(check_metadata(root, path))
+    failures.extend(wave_validators.check_wave_docs(root, only=set(paths)))
+    rels = {_repo_rel(root, path) for path in paths}
+    named = [failure for failure in failures if any(rel in failure for rel in rels)]
+    return list(dict.fromkeys(named))
+
+
+def _close_change_in_memory_violations(wave_text: str, written_ids: list[str]) -> list[str]:
+    """The lint rules a rewritten wave record would break for the records the
+    tool writes: the transition table and the dependency rule."""
+    from wave_lint_lib import constants as lint_constants
+    from wave_lint_lib.wave_validators import _parse_change_records
+
+    records = _parse_change_records(wave_text, "")
+    by_id = {record.record_id: record for record in records}
+    violations: list[str] = []
+    for record_id in written_ids:
+        record = by_id.get(record_id)
+        if record is None or record.status is None:
+            violations.append(f"`{record_id}` has no readable status after the rewrite")
+            continue
+        if record.previous_status is not None:
+            allowed = lint_constants.ALLOWED_CHANGE_STATUS_TRANSITIONS.get(record.previous_status, set())
+            if record.status not in allowed:
+                violations.append(
+                    f"`{record_id}` would move `{record.previous_status}` -> `{record.status}`, "
+                    "which docs-lint does not allow"
+                )
+        if record.status in lint_constants.PROGRESSABLE_CHANGE_STATUSES:
+            for dependency in record.depends_on:
+                dependency_record = by_id.get(dependency)
+                if dependency_record is None or not lint_constants.is_done(
+                    dependency_record.status, dependency_record.anchor_type
+                ):
+                    violations.append(
+                        f"`{record_id}` would be `{record.status}` while dependency `{dependency}` is not done"
+                    )
+    return violations
+
+
+@_fail_closed_on_record_layout("wf_close_change")
+def wf_close_change_response(
+    root: Path, wave_id: str, change_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None,
+) -> dict[str, Any]:
+    """Close one admitted change (`complete`) and activate its dependents.
+
+    Wave 1zlu1 (1zlu2).  ``dry_run`` reports every failing gate and the
+    planned writes; ``create`` (alias ``apply``) writes the change document
+    header and the wave-record block, moves each dependent whose wave-record
+    ``Depends On:`` names the closed change and whose dependencies are now all
+    done from ``planned``/``blocked`` to ``ready``, and restores every written
+    file when a post-write scoped docs-lint finds a failure the write
+    introduced.  No review evidence is read or written."""
+    from wave_lint_lib import constants as lint_constants
+    from wave_lint_lib.wave_validators import _parse_change_records
+
+    raw_mode = (mode or "").strip().lower()
+    mode_s = "create" if raw_mode == "apply" else raw_mode
+    base = {"wave_id": wave_id, "change_id": change_id, "mode": mode_s}
+    if mode_s not in {"dry_run", "create"}:
+        return _response(
+            "error", {**base, "mode": mode, "valid_modes": _CLOSE_CHANGE_VALID_MODES},
+            diagnostics=[_diagnostic("invalid_arguments", f"Unsupported mode '{mode}'. Valid modes: {_CLOSE_CHANGE_VALID_MODES}.")],
+            next_tools=["wf_help"], usage="wf_help()",
+        )
+    try:
+        wave_md, wave_read_error, unreadable_waves = _find_wave_md_detailed(root, wave_id)
+    except ValueError as exc:
+        return _response(
+            "error", base,
+            diagnostics=[_diagnostic("invalid_arguments", str(exc), recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")],
+            next_tools=["wf_list_waves"], usage="wf_list_waves()",
+        )
+    if wave_md is None:
+        if unreadable_waves:
+            return _wave_resolution_unreadable_response(wave_id, unreadable_waves, data=base)
+        return _response(
+            "error", base,
+            diagnostics=[_refuse_if_archived(root, wave_id, "wave") or _diagnostic(
+                "wave_not_found", f"No wave found matching '{wave_id}'.",
+                recovery_tools=["wf_list_waves", "wf_current_wave"], recovery_usage="wf_current_wave()",
+            )],
+            next_tools=["wf_list_waves"], usage="wf_list_waves()",
+        )
+    text, wave_read_error = _read_wave_record_text(wave_md)
+    if text is None:
+        return _wave_record_unreadable_response(root, wave_md, wave_read_error, data=base)
+    try:
+        # The rewrite works on the record's own line endings; ``text`` (the
+        # seam's universal-newline read) drives every gate.
+        wave_raw = wave_md.read_bytes().decode("utf-8")
+    except (OSError, UnicodeError) as exc:
+        return _wave_record_unreadable_response(root, wave_md, _read_error_detail(exc), data=base)
+    canonical_wave_m = _WAVE_ID_PATTERN.search(text)
+    canonical_wave_id = canonical_wave_m.group(1) if canonical_wave_m else wave_md.parent.name
+    base = {**base, "wave_id": canonical_wave_id}
+    wave_rel = _repo_rel(root, wave_md)
+    diagnostics: list[dict[str, Any]] = []
+
+    # Gate: the wave is open.
+    status_m = _STATUS_PATTERN.search(text)
+    wave_status = status_m.group(1).strip().lower() if status_m else ""
+    if wave_status not in {"active", "implementing"}:
+        diagnostics.append(_diagnostic(
+            "wave_not_open",
+            f"Wave '{canonical_wave_id}' has status '{wave_status or 'unknown'}'; a change can be closed only "
+            "in an OPEN wave (`active` or `implementing`).",
+            recovery_tools=["wf_current_wave"], recovery_usage="wf_current_wave()",
+        ))
+
+    # Gate: the change is admitted (a member block under the member heading).
+    lines = text.splitlines(keepends=True)
+    block = _close_change_block(lines, change_id)
+    records = _parse_change_records(text, wave_rel)
+    by_id = {record.record_id: record for record in records}
+    record = by_id.get(change_id)
+    if block is None or record is None:
+        diagnostics.append(_diagnostic(
+            "change_not_admitted",
+            f"`{change_id}` is not an admitted change of wave '{canonical_wave_id}' (no member block under "
+            f"`{_vocab.MEMBER_HEADING}`). Pass the FULL admitted change id.",
+            recovery_tools=["wf_current_wave", "wf_get_change"],
+            recovery_usage=f"wf_get_change(change_id={change_id!r})",
+        ))
+
+    # Gate: the change document exists and is readable.
+    doc_path = _wave_change_doc_path(root, wave_md, change_id)
+    doc_raw: Optional[str] = None
+    if not doc_path.is_file():
+        diagnostics.append(_diagnostic(
+            "change_doc_missing",
+            f"No change document at {_repo_rel(root, doc_path)}.",
+            recovery_tools=["wf_get_change", "wf_current_wave"],
+            recovery_usage=f"wf_get_change(change_id={change_id!r})",
+        ))
+    else:
+        try:
+            doc_raw = doc_path.read_bytes().decode("utf-8")
+        except (OSError, UnicodeError) as exc:
+            diagnostics.append(_diagnostic(
+                "change_doc_unreadable",
+                f"Could not read {_repo_rel(root, doc_path)}: {_read_error_detail(exc)}",
+                recovery_tools=["wf_validate_docs"], recovery_usage="wf_validate_docs()",
+            ))
+
+    # Gate: the current status is closable, and both files agree.
+    previous_status = record.status if record is not None else None
+    if record is not None:
+        closable = _close_change_closable_statuses()
+        if previous_status not in closable:
+            diagnostics.append(_diagnostic(
+                "change_status_not_closable",
+                f"`{change_id}` is `{previous_status or 'unreadable'}` in {wave_rel}; it can be closed only from "
+                f"one of: {', '.join(f'`{s}`' for s in sorted(closable))}.",
+                recovery_tools=["wf_current_wave"], recovery_usage="wf_current_wave()",
+            ))
+        if doc_raw is not None:
+            doc_status = _close_change_doc_status(doc_raw)
+            if doc_status != previous_status:
+                diagnostics.append(_diagnostic(
+                    "change_status_drift",
+                    f"Change status drift: {_vocab.RECORD_FILENAME} says `{previous_status}` but "
+                    f"{_repo_rel(root, doc_path)} says `{doc_status}`. Make the two agree, then retry; nothing was written.",
+                    recovery_tools=["wf_get_change", "wf_current_wave"],
+                    recovery_usage=f"wf_get_change(change_id={change_id!r})",
+                ))
+
+    # Gate: the per-change checkbox gate (close's own collector, this change only).
+    if block is not None:
+        findings = [
+            item for item in lifecycle_gate_support._collect_silent_unchecked_items_for_close(wave_md, text)
+            if item["change_id"] == change_id
+        ]
+        doc_codes = {"missing": None, "unreadable": None}
+        open_items = []
+        for item in findings:
+            if item["item_type"] == "change document" and item["item_id"] in doc_codes:
+                continue  # reported by the document gate above
+            open_items.append(item)
+        if open_items:
+            listed = "\n".join(
+                f"  - {item['change_id']} "
+                f"{'[' + item['item_id'] + ']' if item['item_id'] else '[task]'} {item['item_type']}: {item['item_text']}"
+                for item in open_items
+            )
+            diagnostics.append(_diagnostic(
+                "silent_unchecked_items",
+                f"`{change_id}` has {len(open_items)} open checklist finding(s); mark each AC and task `[x]` or "
+                f"`[~]` before closing the change:\n{listed}",
+                recovery_tools=["wf_mark_ac", "wf_mark_task", "wf_get_change"],
+                recovery_usage=f"wf_get_change(change_id={change_id!r})",
+            ))
+
+    # Gate: every wave-record dependency is done.
+    if record is not None:
+        not_done = []
+        for dependency in record.depends_on:
+            dependency_record = by_id.get(dependency)
+            if dependency_record is None:
+                not_done.append(f"`{dependency}` (not admitted to this wave)")
+            elif not lint_constants.is_done(dependency_record.status, dependency_record.anchor_type):
+                not_done.append(f"`{dependency}` is `{dependency_record.status}`")
+        if not_done:
+            diagnostics.append(_diagnostic(
+                "dependencies_not_done",
+                f"`{change_id}` depends on changes that are not done: {'; '.join(not_done)}.",
+                recovery_tools=["wf_current_wave"], recovery_usage="wf_current_wave()",
+            ))
+
+    if diagnostics:
+        return _response(
+            "error", {**base, "previous_status": previous_status, "written": [], "activated": [], "not_activated": []},
+            diagnostics=diagnostics, next_tools=["wf_current_wave", "wf_get_change"], usage="wf_current_wave()",
+        )
+    assert record is not None and doc_raw is not None and previous_status is not None
+
+    # Plan the writes: the closed change, then each dependent it unblocks.
+    new_wave = _close_change_rewrite_block(wave_raw, change_id, _CLOSE_CHANGE_TARGET_STATUS, previous_status)
+    new_doc = _close_change_rewrite_doc(doc_raw, _CLOSE_CHANGE_TARGET_STATUS)
+    if new_wave is None or new_doc is None:
+        return _response(
+            "error", {**base, "previous_status": previous_status, "written": [], "activated": [], "not_activated": []},
+            diagnostics=[_diagnostic(
+                "change_status_unreadable",
+                f"`{change_id}` has no single readable status line to rewrite in "
+                f"{wave_rel} or {_repo_rel(root, doc_path)}.",
+                recovery_tools=["wf_validate_docs"], recovery_usage="wf_validate_docs()",
+            )],
+            next_tools=["wf_validate_docs"], usage="wf_validate_docs()",
+        )
+    statuses_after = {rid: rec.status for rid, rec in by_id.items()}
+    statuses_after[change_id] = _CLOSE_CHANGE_TARGET_STATUS
+    doc_updates: list[tuple[Path, str, str]] = [(doc_path, doc_raw, new_doc)]
+    activated: list[dict[str, Any]] = []
+    not_activated: list[dict[str, Any]] = []
+    advisories: list[dict[str, Any]] = []
+    written_ids = [change_id]
+    for candidate in records:
+        if candidate.record_id == change_id or change_id not in candidate.depends_on:
+            continue
+        entry = {"change_id": candidate.record_id, "previous_status": candidate.status}
+        if candidate.status not in _CLOSE_CHANGE_ACTIVATABLE_STATUSES:
+            not_activated.append({**entry, "reason": "status_not_activatable"})
+            continue
+        pending = [
+            dependency for dependency in candidate.depends_on
+            if dependency not in by_id or not lint_constants.is_done(statuses_after.get(dependency), "change")
+        ]
+        if pending:
+            not_activated.append({**entry, "reason": "dependencies_not_done", "dependencies": pending})
+            continue
+        if _CLOSE_CHANGE_ACTIVATED_STATUS not in lint_constants.ALLOWED_CHANGE_STATUS_TRANSITIONS.get(candidate.status, set()):
+            not_activated.append({**entry, "reason": "transition_not_allowed"})
+            continue
+        candidate_path = _wave_change_doc_path(root, wave_md, candidate.record_id)
+        try:
+            candidate_raw = candidate_path.read_bytes().decode("utf-8")
+        except (OSError, UnicodeError):
+            not_activated.append({**entry, "reason": "change_doc_unreadable"})
+            continue
+        if _close_change_doc_status(candidate_raw) != candidate.status:
+            not_activated.append({**entry, "reason": "change_status_drift"})
+            continue
+        candidate_wave = _close_change_rewrite_block(new_wave, candidate.record_id, _CLOSE_CHANGE_ACTIVATED_STATUS, candidate.status)
+        candidate_doc = _close_change_rewrite_doc(candidate_raw, _CLOSE_CHANGE_ACTIVATED_STATUS)
+        if candidate_wave is None or candidate_doc is None:
+            not_activated.append({**entry, "reason": "change_status_unreadable"})
+            continue
+        new_wave = candidate_wave
+        doc_updates.append((candidate_path, candidate_raw, candidate_doc))
+        statuses_after[candidate.record_id] = _CLOSE_CHANGE_ACTIVATED_STATUS
+        written_ids.append(candidate.record_id)
+        activated.append({**entry, "status": _CLOSE_CHANGE_ACTIVATED_STATUS})
+    # Legacy: a dependency declared only in a change document's own
+    # `Depends On:` line is reported, never activated.
+    for other in records:
+        if other.record_id == change_id or change_id in other.depends_on:
+            continue
+        other_path = _wave_change_doc_path(root, wave_md, other.record_id)
+        try:
+            other_text = other_path.read_bytes().decode("utf-8")
+        except (OSError, UnicodeError):
+            continue
+        legacy_targets = [
+            value
+            for line in lint_constants.DEPENDS_ON_LINE_PATTERN.findall(other_text.replace("\r\n", "\n"))
+            for value in lint_constants.BACKTICK_VALUE_PATTERN.findall(line)
+        ]
+        if change_id in legacy_targets:
+            not_activated.append({
+                "change_id": other.record_id, "previous_status": other.status,
+                "reason": "dependencies_not_in_wave_record",
+            })
+            advisories.append(_diagnostic(
+                "dependencies_not_in_wave_record",
+                f"`{other.record_id}` declares a dependency on `{change_id}` only in its change document; "
+                f"dependencies are read from the {_vocab.RECORD_FILENAME} `Depends On:` line, so it was not activated.",
+                recovery_tools=["wf_current_wave"], recovery_usage="wf_current_wave()", advisory=True,
+            ))
+    violations = _close_change_in_memory_violations(new_wave, written_ids)
+    if violations:
+        return _response(
+            "error", {**base, "previous_status": previous_status, "written": [], "activated": [], "not_activated": not_activated},
+            diagnostics=[_diagnostic(
+                "close_change_transition_invalid",
+                "The close would leave the wave record failing docs-lint: " + "; ".join(violations) + ". Nothing was written.",
+                recovery_tools=["wf_validate_docs", "wf_current_wave"], recovery_usage="wf_validate_docs()",
+            )],
+            next_tools=["wf_validate_docs"], usage="wf_validate_docs()",
+        )
+    write_paths = [path for path, _old, _new in doc_updates] + [wave_md]
+    planned_writes = [_repo_rel(root, path) for path in write_paths]
+    data: dict[str, Any] = {
+        **base,
+        "previous_status": previous_status,
+        "status": _CLOSE_CHANGE_TARGET_STATUS,
+        "planned_writes": planned_writes,
+        "written": [],
+        "activated": activated,
+        "not_activated": not_activated,
+    }
+    baseline = _close_change_scoped_lint(root, write_paths)
+    if mode_s == "dry_run":
+        preexisting = [
+            _diagnostic(
+                "close_change_lint_preexisting",
+                f"docs-lint already fails on a document this close would write: {failure}",
+                recovery_tools=["wf_validate_docs"], recovery_usage="wf_validate_docs()", advisory=True,
+            )
+            for failure in baseline
+        ]
+        return _response(
+            "dry_run", data, diagnostics=advisories + preexisting or None,
+            next_tools=["wf_close_change"],
+            usage=f"wf_close_change(wave_id={canonical_wave_id!r}, change_id={change_id!r}, mode='create')",
+        )
+
+    # create: write every document, then lint the written documents and
+    # restore every one if the write introduced a failure.
+    originals = [(path, path.read_bytes()) for path in write_paths]
+    written: list[Path] = []
+    try:
+        for path, _old, new in doc_updates:
+            _atomic_replace_bytes(path, new.encode("utf-8"), "wf-close-change")
+            written.append(path)
+        _atomic_replace_bytes(wave_md, new_wave.encode("utf-8"), "wf-close-change")
+        written.append(wave_md)
+        after = _close_change_scoped_lint(root, write_paths)
+        introduced = [failure for failure in after if failure not in baseline]
+    except OSError as exc:
+        introduced = None
+        write_error = _read_error_detail(exc)
+    else:
+        write_error = ""
+    if introduced is None or introduced:
+        restore_failed: list[str] = []
+        for path, payload in originals:
+            if path not in written:
+                continue
+            try:
+                _atomic_replace_bytes(path, payload, "wf-close-change-restore")
+            except OSError:
+                restore_failed.append(_repo_rel(root, path))
+        if cache:
+            cache.invalidate()
+        restore_note = (
+            f" Restoring failed for {', '.join(restore_failed)}; those files are left changed."
+            if restore_failed else " Every written file was restored."
+        )
+        if introduced is None:
+            diagnostic = _diagnostic(
+                "close_change_write_failed",
+                f"Writing the close failed ({write_error}).{restore_note}",
+                recovery_tools=["wf_current_wave"], recovery_usage="wf_current_wave()",
+            )
+        else:
+            diagnostic = _diagnostic(
+                "close_change_lint_failed",
+                "docs-lint failed on the written documents, so the close was rolled back:\n"
+                + "\n".join(f"  - {failure}" for failure in introduced) + f"\n{restore_note.strip()}",
+                recovery_tools=["wf_validate_docs", "wf_current_wave"], recovery_usage="wf_validate_docs()",
+            )
+        return _response(
+            "error", {**data, "status": previous_status, "activated": [], "restore_failed": restore_failed,
+                      **({"lint_failures": introduced} if introduced else {})},
+            diagnostics=[diagnostic], next_tools=["wf_validate_docs"], usage="wf_validate_docs()",
+        )
+    if cache:
+        cache.invalidate()
+    _trigger_background_index_refresh_for_paths(root, write_paths)
+    envelope = _response(
+        "ok", {**data, "written": planned_writes},
+        diagnostics=advisories or None,
+        next_tools=["wf_current_wave"], usage="wf_current_wave()",
+    )
+    return _attach_lint_to_response(envelope, root, mode_s)
 
 
 @_fail_closed_on_record_layout("wf_reopen_wave")
@@ -16961,7 +18028,8 @@ class ImplHandler:
                         "last_checked_at": time.time(),
                         "triggered": False,
                         "reason": "monitor_error",
-                        "error": f"{type(exc).__name__}: {exc}",
+                        # Wave 1zls7 (1zodv): path-free, like the other index_health rows.
+                        "error": _lifecycle_lock_authority.path_free_exception_text(exc, root),
                     }
 
         thread = threading.Thread(
@@ -17069,8 +18137,13 @@ def _extension_provenance_for_response(root: Path) -> dict[str, Any]:
         entry = dict(entry)
         entry["path"] = _rel(entry["path"])
         modules.append(entry)
+    # Wave 1zls8 (1zltx): each loaded helper module's path and SHA-256.
+    helper_modules = [
+        {**entry, "path": _rel(entry["path"])} for entry in provenance.get("helper_modules") or []
+    ]
     return {
         "declaration": declaration,
+        "helper_modules": helper_modules,
         "modules": modules,
         # Wave 1z8oz: served aliases, hidden names, replacements, and the
         # canonical-to-served map response hints follow.
@@ -17346,6 +18419,8 @@ _LIFECYCLE_MUTATION_LOCK_TOOLS: frozenset[str] = frozenset({
     "wf_prepare_wave",
     "wf_pause_wave",
     "wf_close_wave",
+    # Wave 1zlu1 (1zlu2): closes one change and activates its dependents.
+    "wf_close_change",
     "wf_reopen_wave",
     "wf_implement_wave",
     "wf_set_handoff",
@@ -17354,39 +18429,142 @@ _LIFECYCLE_MUTATION_LOCK_TOOLS: frozenset[str] = frozenset({
 })
 
 
+_LIFECYCLE_REFUSAL_LOCK_REL = _lifecycle_lock_authority.LIFECYCLE_MUTATION_LOCK_REL.as_posix()
+
+
 class LifecycleMutationBusy(RuntimeError):
-    """Another session holds the per-root lifecycle mutation lock."""
+    """The per-root lifecycle mutation lock could not be ACQUIRED.
+
+    Wave 1zls7 (1zlts): raised only for a refusal at acquisition, never for a
+    lock refusal the tool body raises. ``kind`` is ``busy`` (another process),
+    ``in_process`` (another thread of this server holds it), ``reentry`` (the
+    calling thread already holds it) or ``unavailable`` (ownership cannot be
+    proven); ``lock_rel`` is the repository-relative lock path and ``cause``
+    the underlying exception class. Responses are built from these attributes,
+    never from ``str()``, which may carry the absolute path.
+    """
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        kind: str = "busy",
+        lock_rel: str | None = None,
+        cause: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.lock_rel = lock_rel or _LIFECYCLE_REFUSAL_LOCK_REL
+        self.cause = cause
+
+    @classmethod
+    def from_lock_refusal(cls, exc: BaseException) -> "LifecycleMutationBusy":
+        lock_rel = getattr(exc, "lock_rel", None)
+        if isinstance(exc, _lifecycle_lock_authority.LifecycleLockUnavailable):
+            kind = "unavailable"
+        elif getattr(exc, "reentry", False):
+            kind = "reentry" if getattr(exc, "same_thread", False) else "in_process"
+        else:
+            kind = "busy"
+        return cls(
+            str(exc), kind=kind, lock_rel=lock_rel,
+            cause=getattr(exc, "cause", None) or type(exc).__name__,
+        )
 
 
 @contextmanager
 def _lifecycle_mutation_lock(root: Path):
     """Non-blocking per-root lifecycle mutation lock.
 
-    Raises :class:`LifecycleMutationBusy` when another process holds it. The
-    lock file persists as a last-owner record (like index-build.lock); the OS
-    lock is the authority.
+    Raises :class:`LifecycleMutationBusy` when the lock cannot be ACQUIRED.
+    An exception raised by the body, a lock refusal included, propagates
+    unchanged and the lock is still released (wave 1zls7, 1zlts). The lock
+    file persists as a last-owner record (like index-build.lock); the OS lock
+    is the authority.
     """
-    try:
-        with _lifecycle_lock_authority.lifecycle_mutation_lock(root, strict=True):
-            yield
-    except (
-        _lifecycle_lock_authority.LifecycleLockBusy,
-        _lifecycle_lock_authority.LifecycleLockUnavailable,
-    ) as exc:
-        raise LifecycleMutationBusy(str(exc)) from exc
+    with contextlib.ExitStack() as stack:
+        try:
+            stack.enter_context(
+                _lifecycle_lock_authority.lifecycle_mutation_lock(root, strict=True)
+            )
+        except (
+            _lifecycle_lock_authority.LifecycleLockBusy,
+            _lifecycle_lock_authority.LifecycleLockUnavailable,
+        ) as exc:
+            raise LifecycleMutationBusy.from_lock_refusal(exc) from exc
+        yield
 
 
-def _lifecycle_mutation_busy_response(tool_name: str, lock_path_hint: str) -> dict[str, Any]:
+def _lifecycle_refusal_data(tool_name: str, **extra: Any) -> dict[str, Any]:
+    return {
+        "tool": tool_name, "lock": _LIFECYCLE_MUTATION_LOCK_NAME, **extra,
+        **({"readiness_receipts": None} if tool_name == "wf_prepare_wave" else {}),
+    }
+
+
+def _lifecycle_lock_reentry_response(tool_name: str, lock_rel: str | None = None) -> dict[str, Any]:
+    """This call (or an extension it invoked) re-entered the lock it holds."""
+    rel = lock_rel or _LIFECYCLE_REFUSAL_LOCK_REL
     return _response(
         "error",
-        {"tool": tool_name, "busy": True, "lock": _LIFECYCLE_MUTATION_LOCK_NAME, **({"readiness_receipts": None} if tool_name == "wf_prepare_wave" else {})},
+        _lifecycle_refusal_data(tool_name, busy=False, reentry=True),
+        diagnostics=[_diagnostic(
+            "lifecycle_lock_reentry",
+            (
+                f"This call (or an extension it invoked) tried to take {rel} while "
+                "this server process already holds it for the same call; no other "
+                "session is involved. Nothing further was attempted. Retrying will "
+                "not help: the tool or extension must not take the lifecycle lock "
+                "again inside a lifecycle mutation."
+            ),
+        )],
+        next_tools=["wf_server_info"],
+    )
+
+
+def _lifecycle_mutation_busy_response(tool_name: str, busy: Any = None) -> dict[str, Any]:
+    """Structured refusal for a lifecycle lock that could not be acquired.
+
+    ``busy`` is the :class:`LifecycleMutationBusy` (any other value is read as
+    contention from another process). The message names the lock by its
+    repository-relative path and never repeats the lower-level exception text.
+    """
+    kind = getattr(busy, "kind", "busy")
+    rel = getattr(busy, "lock_rel", None) or _LIFECYCLE_REFUSAL_LOCK_REL
+    if kind == "reentry":
+        return _lifecycle_lock_reentry_response(tool_name, rel)
+    if kind == "unavailable":
+        cause = getattr(busy, "cause", None) or "an unknown lock error"
+        return _response(
+            "error",
+            _lifecycle_refusal_data(tool_name, busy=False, mutation_applied=False),
+            diagnostics=[_diagnostic(
+                "lifecycle_lock_unavailable",
+                (
+                    f"The server cannot prove ownership of {rel} ({cause}), so no "
+                    "lifecycle mutation was attempted and nothing was changed. "
+                    "Retrying will not help until the cause is fixed (for example "
+                    "a filesystem without byte-range locks)."
+                ),
+                recovery_tools=["wf_server_info"],
+                recovery_usage="wf_server_info()",
+            )],
+            next_tools=["wf_server_info"],
+        )
+    holder = (
+        "another call in this server process holds it"
+        if kind == "in_process"
+        else "another process holds it"
+    )
+    return _response(
+        "error",
+        _lifecycle_refusal_data(tool_name, busy=True),
         diagnostics=[_diagnostic(
             "lifecycle_mutation_locked",
             (
-                f"Another session is running a lifecycle mutation on this repository "
-                f"(the {_LIFECYCLE_MUTATION_LOCK_NAME} at {lock_path_hint} is held). "
-                "No state was changed. Retry once the other operation finishes; the "
-                "lock is released automatically when its holder exits."
+                f"The lifecycle mutation lock {rel} is held: {holder}. No state "
+                "was changed. Retry once that operation finishes; the lock is "
+                "released automatically when its holder exits."
             ),
             recovery_tools=[tool_name, "wf_current_wave"],
             recovery_usage=f"{tool_name}(...) once the concurrent mutation completes",
@@ -17404,7 +18582,9 @@ def _wrap_lifecycle_mutation_lock(
     Wraps each census-covered tool so the whole operation runs under the
     per-root strict lock. Failure discipline: a busy or unavailable lock
     returns a structured refusal; authority-bearing mutations never run
-    unguarded.
+    unguarded. Only acquisition maps to that refusal (wave 1zls7, 1zlts): a
+    same-process re-entry raised by the body returns ``lifecycle_lock_reentry``
+    and every other body exception propagates unchanged.
 
     ``extension_tools`` (wave 1zimf, main pass only) names new extension
     tools declared in ``EXTENSION_LIFECYCLE_TOOLS``; each gets exactly this
@@ -17426,6 +18606,7 @@ def _wrap_lifecycle_mutation_lock(
                 try:
                     root = get_handler().root
                 except Exception as exc:  # noqa: BLE001
+                    # Wave 1zls7: the class only; the text may carry a path.
                     return _response(
                         "error",
                         {"tool": tool_name, "mutation_applied": False, **({"readiness_receipts": None} if tool_name == "wf_prepare_wave" else {})},
@@ -17433,16 +18614,28 @@ def _wrap_lifecycle_mutation_lock(
                             _diagnostic(
                                 "lifecycle_lock_unavailable",
                                 "Cannot resolve the repository root required to prove "
-                                f"lifecycle-lock ownership: {exc}",
+                                f"lifecycle-lock ownership ({type(exc).__name__}).",
                             )
                         ],
                         next_tools=["wf_server_info"],
                     )
+                acquired = False
                 try:
                     with _lifecycle_mutation_lock(root):
-                        return fn(*args, **kwargs)
+                        acquired = True
+                        try:
+                            return fn(*args, **kwargs)
+                        except _lifecycle_lock_authority.LifecycleLockBusy as body_exc:
+                            if not getattr(body_exc, "reentry", False):
+                                raise
+                            # Released by the enclosing ``with`` before return.
+                            return _lifecycle_lock_reentry_response(
+                                tool_name, getattr(body_exc, "lock_rel", None)
+                            )
                 except LifecycleMutationBusy as busy:
-                    return _lifecycle_mutation_busy_response(tool_name, str(busy))
+                    if acquired:
+                        raise  # raised by the body, not by acquisition
+                    return _lifecycle_mutation_busy_response(tool_name, busy)
             locked._wf_mutation_locked = True  # type: ignore[attr-defined]
             return locked
 
@@ -17514,7 +18707,12 @@ def _wrap_upgrade_publication_guard(
                         diagnostics=[
                             _diagnostic(
                                 "project_publication_busy",
-                                str(exc),
+                                # Wave 1zls7: path-free; str(exc) carries
+                                # absolute lock paths.
+                                "The project publication lock could not be "
+                                f"taken: {publication_unavailable_detail(exc)}. "
+                                "Nothing was published; retry once the other "
+                                "lifecycle write finishes.",
                             )
                         ],
                         next_tools=["wf_upgrade_status", tool_name],
@@ -17567,6 +18765,7 @@ _COST_FOCUS_EXTRACTORS: dict[str, Any] = {
 def _wrap_first_party_tool_costs(
     mcp: Any, get_handler: Any, *, extractor_free: Collection[str] = (),
     artifact_extractors: Optional[Mapping[str, Any]] = None,
+    override_deltas: Collection[str] = (),
 ) -> None:
     """Post-registration pass: wrap uninstrumented first-party tools with a
     debit recorder (plus artifact credit where an extractor exists). Purely
@@ -17579,6 +18778,12 @@ def _wrap_first_party_tool_costs(
     tools declared in ``EXTENSION_ARTIFACT_PATH_FIELDS`` to their extractor,
     used only for names absent from ``_ARTIFACT_EXTRACTORS``, which is never
     changed.
+
+    ``override_deltas`` (wave 1zls8, 1zltz, main pass only) names installed
+    overrides of names in ``_COST_EXEMPT_TOOLS``: the core they delegate to
+    records its own cost, so each gets ``_override_delta_recorder``, which
+    records only what the override adds (or the whole call when it never
+    delegates).
     """
     extension_extractors = dict(artifact_extractors or {})
     try:
@@ -17589,12 +18794,16 @@ def _wrap_first_party_tool_costs(
         for name, tool in tools.items():
             # An exempt core handler records its own cost; a replacing
             # handler served under that name does not (wave 1z8oz).
-            if name in _COST_EXEMPT_TOOLS and name not in extractor_free:
+            delta_only = name in _COST_EXEMPT_TOOLS and name not in extractor_free
+            if delta_only and name not in override_deltas:
                 continue
             if not any(name.startswith(prefix) for prefix in _served_tool_prefixes()):
                 continue
             original = getattr(tool, "fn", None)
             if original is None or getattr(original, "_wf_cost_wrapped", False):
+                continue
+            if delta_only:
+                tool.fn = _override_delta_recorder(name, original, get_handler)
                 continue
 
             def _make(tool_name: str, fn: Any, extractors: bool) -> Any:
@@ -17718,6 +18927,66 @@ def _wrap_first_party_tool_costs(
         pass
 
 
+def _override_delta_recorder(tool_name: str, fn: Any, get_handler: Any) -> Any:
+    """Cost wrapper for an override of a self-recording core name (wave 1zls8, 1zltz).
+
+    Opens a measurement scope for the call, then records at most one event:
+    when the override delegated to a self-recording core, only a positive
+    ``final - core`` response delta with no request (the core recorded it);
+    when it never did, the request and the whole response. Observational like
+    the cost wrapper: silent while the publication checkpoint reports a
+    reason, any recording failure swallowed, the result returned unchanged.
+    """
+    scope_var = _OVERRIDE_COST_SCOPE
+
+    @functools.wraps(fn)
+    def delta_recorded(*args: Any, **kwargs: Any) -> Any:
+        scope: list[int] = []
+        token = scope_var.set(scope)
+        try:
+            result = fn(*args, **kwargs)
+        finally:
+            scope_var.reset(token)
+        try:
+            handler = get_handler()
+            if publication_control.publication_checkpoint_reason(
+                handler.root, "context_efficiency"
+            ) is not None:
+                return result
+            final_tokens = _response_size_tokens(result)
+            if scope:
+                delta = final_tokens - sum(scope)
+                if delta > 0:
+                    handler.telemetry.record_tool_cost(
+                        tool_name,
+                        request_tokens=0,
+                        response_tokens=delta,
+                        derived_artifact_tokens=0,
+                        source_proofs=None,
+                        focus_override=None,
+                        event_id=uuid.uuid4().hex,
+                    )
+            else:
+                request_json = json.dumps(
+                    {k: v for k, v in kwargs.items() if k != "kwargs"}, sort_keys=True, default=str
+                )
+                handler.telemetry.record_tool_cost(
+                    tool_name,
+                    request_tokens=context_efficiency.estimate_tokens_utf8(request_json),
+                    response_tokens=final_tokens,
+                    derived_artifact_tokens=0,
+                    source_proofs=None,
+                    focus_override=None,
+                    event_id=uuid.uuid4().hex,
+                )
+        except Exception:
+            pass
+        return result
+
+    delta_recorded._wf_cost_wrapped = True  # type: ignore[attr-defined]
+    return delta_recorded
+
+
 _SETUP_NOTICE_MAX_CHARS = 600
 
 
@@ -17765,6 +19034,43 @@ def setup_not_ready_diagnostic(result: Mapping[str, Any]) -> dict[str, Any]:
         recovery_tools=["index_health"],
         recovery_usage="index_health()",
     )
+
+
+def _wrap_omitted_core_parameters(
+    mcp: Any, get_handler: Any, omitted: Mapping[str, Collection[str]],
+) -> None:
+    """Refuse a call that passes a core parameter its override omits (wave 1zlu1, F3/N1).
+
+    The published schema of such an override closes it, but the runtime
+    argument model collects undeclared keys into ``**kwargs``, so the refusal
+    would otherwise rest on the handler calling ``ensure_no_extra_args``. This
+    pass makes it structural: before the wrapped callable runs, any omitted
+    parameter in the call (top level or inside a legacy ``kwargs`` object)
+    returns the standard ``unknown_arguments`` envelope.
+    """
+    registry = getattr(getattr(mcp, "_tool_manager", None), "_tools", None)
+    if not isinstance(registry, dict):
+        return
+    for name, params in omitted.items():
+        tool = registry.get(name)
+        original = getattr(tool, "fn", None)
+        if original is None or inspect.iscoroutinefunction(original):
+            continue
+
+        def _make(tool_name: str, fn: Any, names: frozenset[str]) -> Any:
+            @functools.wraps(fn)
+            def omitted_guard(*args: Any, **kwargs: Any) -> Any:
+                carried = {key: kwargs[key] for key in kwargs if key in names}
+                nested = kwargs.get("kwargs")
+                if isinstance(nested, dict):
+                    carried.update({key: nested[key] for key in nested if key in names})
+                if carried:
+                    return _ensure_no_extra_args(tool_name, carried)
+                return fn(*args, **kwargs)
+
+            return omitted_guard
+
+        tool.fn = _make(name, original, frozenset(params))
 
 
 def _wrap_setup_notice(mcp: Any, get_handler: Any) -> None:
@@ -18177,13 +19483,69 @@ _EXTENSION_REPLACED_CORE: dict[str, Any] = {}
 _EXTENSION_LIFECYCLE_TOOLS: set[str] = set()
 _EXTENSION_ARTIFACT_PATH_FIELDS: dict[str, str] = {}
 
+# Wave 1zls8 (1zltz): installed override targets in _COST_EXEMPT_TOOLS, whose
+# core records its own cost. Read only by the main MIDDLEWARE pass, which
+# records what the override adds; cleared whenever registration fails.
+_EXTENSION_OVERRIDE_DELTAS: set[str] = set()
+# Wave 1zlu1 (1zlu3, F3/N1): per installed override, the omittable core
+# parameters it does not declare; `_wrap_omitted_core_parameters` refuses a
+# call carrying one before any other wrapper runs.
+_EXTENSION_OMITTED_PARAMETERS: dict[str, frozenset[str]] = {}
+
+# Wave 1zls8 (1zltz): the per-call measurement scope of an override of a
+# cost-exempt name. The delta recorder sets a list; the measured core handler
+# appends the size of each self-recording core result to the innermost scope.
+# Both capture this variable when they are built, because an in-place
+# wf_reload_mcp re-executes this module and rebinds the global.
+_OVERRIDE_COST_SCOPE: "contextvars.ContextVar[Optional[list[int]]]" = contextvars.ContextVar(
+    "wf_override_cost_scope", default=None
+)
+
+
+def _response_size_tokens(result: Any) -> int:
+    """The cost wrapper's response estimate: sorted JSON of a dict or list, else 0."""
+    if not isinstance(result, (dict, list)):
+        return 0
+    return context_efficiency.estimate_tokens_utf8(json.dumps(result, sort_keys=True, default=str))
+
+
+def _measured_core_handler(name: str, handler: Any) -> Any:
+    """What ``core_handler(name)`` returns (wave 1zls8, 1zltz).
+
+    Calls the core callable unchanged and returns its result (the same object)
+    or raises what it raises. For a core that records its own cost (a name in
+    ``_COST_EXEMPT_TOOLS``) it adds the result's size to the active
+    measurement scope, so the override's delta recorder subtracts it; a
+    non-exempt core recorded nothing, so its result counts as the override's.
+    With no active scope (another thread, or no override call) it only calls
+    through.
+    """
+    scope_var = _OVERRIDE_COST_SCOPE
+    records_own_cost = name in _COST_EXEMPT_TOOLS
+
+    @functools.wraps(handler)
+    def measured(*args: Any, **kwargs: Any) -> Any:
+        result = handler(*args, **kwargs)
+        if records_own_cost:
+            scope = scope_var.get()
+            if scope is not None:
+                try:
+                    scope.append(_response_size_tokens(result))
+                except Exception:
+                    pass
+        return result
+
+    return measured
+
 
 def _cost_pass_kwargs() -> dict[str, Any]:
-    """Main-pass cost keywords: none unless a replacement or a declared
-    artifact path field is installed."""
+    """Main-pass cost keywords: none unless a replacement, a declared
+    artifact path field or an override of a cost-exempt name is installed."""
     kwargs: dict[str, Any] = {}
     if _EXTENSION_REPLACED_CORE:
         kwargs["extractor_free"] = frozenset(_EXTENSION_REPLACED_CORE)
+    if _EXTENSION_OVERRIDE_DELTAS:
+        kwargs["override_deltas"] = frozenset(_EXTENSION_OVERRIDE_DELTAS)
     if _EXTENSION_ARTIFACT_PATH_FIELDS:
         kwargs["artifact_extractors"] = {
             tool: _artifact_from_written_paths(field)
@@ -18371,7 +19733,15 @@ def _extension_declaration_provenance() -> dict[str, Any]:
         # Wave 1zimf (1zimo): what the lock and credit declarations grant.
         "lifecycle_tools": _sorted_names(getattr(mcp_tool_extensions, "EXTENSION_LIFECYCLE_TOOLS", ())),
         "artifact_path_fields": _sorted_fields(getattr(mcp_tool_extensions, "EXTENSION_ARTIFACT_PATH_FIELDS", {})),
+        # Wave 1zls8 (1zltx): the declared helper modules, in load order.
+        "helper_modules": _declared_names(getattr(mcp_tool_extensions, "EXTENSION_HELPER_MODULES", ())),
     }
+
+
+def _declared_names(names: Any) -> list[Any]:
+    """A declared name tuple as a list in declaration order, for provenance; a
+    malformed one (refused by validation) as empty."""
+    return list(names) if isinstance(names, tuple) else []
 
 
 def _sorted_names(names: Any) -> list[Any]:
@@ -18393,6 +19763,7 @@ def _sorted_fields(fields: Any) -> dict[Any, Any]:
 def _empty_extension_provenance() -> dict[str, Any]:
     return {
         "declaration": _extension_declaration_provenance(),
+        "helper_modules": [],
         "modules": [],
         "aliases": {},
         "hidden": [],
@@ -18440,7 +19811,9 @@ def _extension_staging_surface(core_table: Optional[Mapping[str, Any]] = None) -
     ``core_handler(name)`` (wave 1zim3) returns the served core handler of a
     name the registering module declares as an override; staging runs before
     argument normalization and the MIDDLEWARE chain, so that handler carries
-    no wrapper and the override's own name-keyed wrappers apply once.
+    no wrapper and the override's own name-keyed wrappers apply once. Since
+    wave 1zls8 (1zltz) it is wrapped by ``_measured_core_handler``, which
+    returns the core result unchanged and carries no lock, guard or cost wrapper.
     """
     from mcp.server.fastmcp import FastMCP
 
@@ -18465,7 +19838,9 @@ def _extension_staging_surface(core_table: Optional[Mapping[str, Any]] = None) -
             handler = getattr((core_table or {}).get(name), "fn", None)
             if handler is None:
                 raise ExtensionLoadError(f"core tool {name!r} has no handler to delegate to")
-            return handler
+            # Wave 1zls8 (1zltz): a thin measuring wrapper, so the override's
+            # delta recorder can subtract what a self-recording core recorded.
+            return _measured_core_handler(name, handler)
 
     return _RecordingSurface()
 
@@ -18481,11 +19856,28 @@ def _load_extension_module(module_name: str) -> tuple[Any, Path, str]:
     import types
 
     existing = sys.modules.get(module_name)
-    if existing is not None and not getattr(existing, "__wf_extension__", False):
+    # Wave 1zls8: the strict marker test eviction uses, so a module whose
+    # module-level __getattr__ answers every name never counts as marked.
+    if existing is not None and not (
+        isinstance(existing, types.ModuleType) and vars(existing).get("__wf_extension__") is True
+    ):
         raise ExtensionLoadError(
             f"extension module {module_name!r} collides with a module the server already imported"
         )
     scripts_dir = SCRIPTS_DIR.resolve()
+    # Wave 1zls8 (1zltx): the exact file name must be listed, on every
+    # platform. On a case-insensitive volume with PYTHONCASEOK set, find_spec
+    # resolves a mis-cased name and Path.resolve can keep the declared case, so
+    # the stem comparison below would pass.
+    try:
+        listed = os.listdir(scripts_dir)
+    except OSError as exc:
+        raise ExtensionLoadError(f"extension module {module_name!r} cannot list {scripts_dir}: {exc}") from exc
+    if f"{module_name}.py" not in listed:
+        raise ExtensionLoadError(
+            f"extension module {module_name!r} has no .py source directly in {scripts_dir} "
+            f"(no file named exactly {module_name}.py)"
+        )
     spec = importlib.machinery.PathFinder.find_spec(module_name, [str(scripts_dir)])
     origin = getattr(spec, "origin", None) if spec is not None else None
     if not origin or not str(origin).endswith(".py"):
@@ -18537,6 +19929,24 @@ def _normalized_parameter_schema(schema: Any, root: Mapping[str, Any], depth: in
     }
 
 
+# Optional core parameters added after the extension API shipped; an override
+# may omit them (calls that pass one are refused by its strict schema).
+_OVERRIDE_OMITTABLE_CORE_PARAMETERS = {"wf_create_wave": frozenset({"parent"})}  # wave 1zlu1 (1zlu3)
+
+
+def _override_omitted_core_parameters(name: str, core_tool: Any, staged_tool: Any) -> list[str]:
+    """The omittable core parameters (``_OVERRIDE_OMITTABLE_CORE_PARAMETERS``)
+    that the override of ``name`` does not declare; a required core parameter
+    is never omittable."""
+    core_schema = getattr(core_tool, "parameters", None) or {}
+    staged_schema = getattr(staged_tool, "parameters", None) or {}
+    omittable = set(_OVERRIDE_OMITTABLE_CORE_PARAMETERS.get(name, ())) - set(core_schema.get("required", []))
+    return sorted(
+        param for param in omittable
+        if param in core_schema.get("properties", {}) and param not in staged_schema.get("properties", {})
+    )
+
+
 def _override_compatibility_problem(name: str, core_tool: Any, staged_tool: Any) -> Optional[str]:
     """Structural call-compatibility on normalized published schemas."""
     core_schema = getattr(core_tool, "parameters", None) or {}
@@ -18546,7 +19956,10 @@ def _override_compatibility_problem(name: str, core_tool: Any, staged_tool: Any)
             f"override {name!r} does not reject undeclared arguments; its handler must "
             "accept **kwargs and pass them to server_impl.ensure_no_extra_args"
         )
-    missing = set(core_schema.get("properties", {})) - set(staged_schema.get("properties", {}))
+    # Wave 1zlu1 delivery review F3: an omitted omittable parameter is neither
+    # "dropped" nor "changed"; one the override declares must still match.
+    omitted = set(_override_omitted_core_parameters(name, core_tool, staged_tool))
+    missing = set(core_schema.get("properties", {})) - set(staged_schema.get("properties", {})) - omitted
     if missing:
         return f"override {name!r} drops parameters {sorted(missing)}"
     newly_required = set(staged_schema.get("required", [])) - set(core_schema.get("required", []))
@@ -18558,12 +19971,52 @@ def _override_compatibility_problem(name: str, core_tool: Any, staged_tool: Any)
     staged_props = staged_schema.get("properties", {})
     changed = sorted(
         param for param in core_props
-        if _normalized_parameter_schema(core_props[param], core_schema)
+        if param not in omitted
+        and _normalized_parameter_schema(core_props[param], core_schema)
         != _normalized_parameter_schema(staged_props.get(param), staged_schema)
     )
     if changed:
         return f"override {name!r} changes the schema of parameters {changed}"
     return None
+
+
+def _evict_extension_modules() -> None:
+    """Remove every ``sys.modules`` entry the extension loader marked (wave 1zls8, 1zltx).
+
+    Iterates a snapshot, and counts an entry as marked only when it is a real
+    module whose own namespace holds ``__wf_extension__ = True``, so a lazy
+    proxy or a module with dynamic attribute lookup is never evicted.
+    """
+    for name, module in list(sys.modules.items()):
+        if isinstance(module, types.ModuleType) and vars(module).get("__wf_extension__") is True:
+            sys.modules.pop(name, None)
+
+
+def _pop_new_declared_modules(present: Collection[str]) -> None:
+    """After a failed install, drop each declared helper or extension module
+    this install imported (wave 1zls8, 1zltx).
+
+    A name counts when it is in ``sys.modules`` now but was not in ``present``
+    and its ``__file__`` resolves directly in the scripts directory, marked or
+    not, so an out-of-order helper import loaded unmarked does not outlive the
+    failure and a fixed declaration reloads without a restart.
+    """
+    scripts_dir = SCRIPTS_DIR.resolve()
+    names: list[str] = []
+    for declared in (getattr(mcp_tool_extensions, "EXTENSION_HELPER_MODULES", ()),
+                     getattr(mcp_tool_extensions, "EXTENSION_MODULES", ())):
+        if isinstance(declared, (tuple, list)):
+            names.extend(name for name in declared if isinstance(name, str))
+    for name in names:
+        module = sys.modules.get(name)
+        if module is None or name in present:
+            continue
+        try:
+            source = Path(getattr(module, "__file__", None) or "").resolve()
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if source.parent == scripts_dir:
+            sys.modules.pop(name, None)
 
 
 def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
@@ -18572,13 +20025,29 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
     Raises before touching the served table when anything is invalid. Each
     replaced core Tool is captured, already argument-normalized, into
     ``_EXTENSION_REPLACED_CORE`` before its name is handed to the module.
+    Every module an earlier install marked is evicted first, even for an
+    emptied declaration, and a failed install drops the declared modules it
+    imported (wave 1zls8, 1zltx).
     """
+    _evict_extension_modules()
     _EXTENSION_REPLACED_CORE.clear()
+    _EXTENSION_OVERRIDE_DELTAS.clear()
+    _EXTENSION_OMITTED_PARAMETERS.clear()
     _EXTENSION_LIFECYCLE_TOOLS.clear()
     _EXTENSION_ARTIFACT_PATH_FIELDS.clear()
     provenance = _empty_extension_provenance()
     if not mcp_tool_extensions.declared():
         return provenance
+    present = set(sys.modules)
+    try:
+        return _install_declared_extension_tools(mcp, get_handler, provenance)
+    except BaseException:
+        _pop_new_declared_modules(present)
+        raise
+
+
+def _install_declared_extension_tools(mcp: Any, get_handler: Any, provenance: dict[str, Any]) -> dict[str, Any]:
+    """The body of ``_install_extension_tools`` for a non-empty declaration."""
     roster = _load_script("mcp_tool_roster")
     runner = set(roster.RUNNER_TOOLS)
     table = mcp._tool_manager._tools
@@ -18589,6 +20058,12 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
     tiers = dict(mcp_tool_extensions.EXTENSION_TOOL_TIERS)
     prefixes = tuple(mcp_tool_extensions.EXTENSION_TOOL_PREFIXES)
     reserved = _reserved_tool_name_collections()
+
+    # Wave 1zls8 (1zltx): declared helper modules load first, in declaration
+    # order, through the same loader; nothing they define is served.
+    for module_name in mcp_tool_extensions.EXTENSION_HELPER_MODULES:
+        _helper, source_path, digest = _load_extension_module(module_name)
+        provenance["helper_modules"].append({"module": module_name, "path": str(source_path), "sha256": digest})
 
     staging = _extension_staging_surface(table)
     staged_by: dict[str, str] = {}
@@ -18679,6 +20154,9 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
             "tools": [{"name": name, "tier": tiers.get(name)} for name in sorted(new_tools)],
             "overrides": sorted(overrides),
             "replacements": sorted(replacements),
+            # Wave 1zlu1 (F3): per override, the omittable core parameters it
+            # does not declare (callers passing one are refused).
+            "omitted_core_parameters": {},
         })
     for name in sorted(set(tiers) - set(staged_by)):
         problems.append(f"declared tier for {name!r} has no registered tool")
@@ -18719,6 +20197,10 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
             problem = _override_compatibility_problem(name, table[name], staged_table[name])
             if problem:
                 problems.append(problem)
+            omitted = _override_omitted_core_parameters(name, table[name], staged_table[name])
+            if omitted:
+                entry["omitted_core_parameters"][name] = omitted
+                _EXTENSION_OMITTED_PARAMETERS[name] = frozenset(omitted)
         for name in entry["replacements"]:
             if name not in staged_table:
                 continue  # already refused above
@@ -18743,6 +20225,9 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
             mcp.remove_tool(name)
         table[name] = tool
     _EXTENSION_REPLACED_CORE.update(captured)
+    _EXTENSION_OVERRIDE_DELTAS.update(
+        name for entry in provenance["modules"] for name in entry["overrides"] if name in _COST_EXEMPT_TOOLS
+    )
     _EXTENSION_LIFECYCLE_TOOLS.update(lifecycle_tools)
     _EXTENSION_ARTIFACT_PATH_FIELDS.update(artifact_fields)
     provenance["aliases"] = dict(mcp_tool_extensions.EXTENSION_TOOL_ALIASES)
@@ -18763,6 +20248,8 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
             "fixed": dict(spec.get("fixed") or {}),
             # Wave 1zime: the declared alias description, or None.
             "description": spec.get("description"),
+            # Wave 1zls8 (1zlty): the declared response key renames, sorted by path.
+            "response_keys": dict(sorted((spec.get("response_keys") or {}).items())),
         }
         for alias, spec in sorted(mcp_tool_extensions.EXTENSION_TOOL_PARAMETERS.items())
     }
@@ -18929,23 +20416,114 @@ def _rename_echoed_parameters(result: Any, rename: Mapping[str, str]) -> Any:
     and pinned parameters keep their names. A rename that would produce the
     same key twice leaves the result unchanged, as does a result that is not
     a dict, has no dict ``data``, or is awaitable. The input is never
-    mutated: the renamed ``data`` is a new dict in a shallow copy.
+    mutated: the renamed ``data`` is a new dict in a shallow copy. Since wave
+    1zls8 (1zlty) this is the response-key walk with no declared paths.
     """
-    if not rename or inspect.isawaitable(result) or not isinstance(result, dict):
+    return _rename_response_keys(result, rename, _response_key_tree({}))
+
+
+def _response_key_tree(response_keys: Mapping[str, str]) -> dict[str, Any]:
+    """A declared ``response_keys`` map as a tree keyed by canonical segments (wave 1zls8, 1zlty).
+
+    Each node holds ``renames`` (last key to new key) and ``paths`` (last key
+    to its declared path) for the object it is reached at, and ``children``
+    keyed by ``(key, is_list)``, where ``is_list`` means each element of the
+    list at that key.
+    """
+    def node() -> dict[str, Any]:
+        return {"renames": {}, "paths": {}, "children": {}}
+
+    tree = node()
+    for path, new_key in response_keys.items():
+        *parents, last = path.split(".")
+        current = tree
+        for segment in parents:
+            key = (segment[:-2], True) if segment.endswith("[]") else (segment, False)
+            current = current["children"].setdefault(key, node())
+        current["renames"][last] = new_key
+        current["paths"][last] = path
+    return tree
+
+
+def _rename_keys_in(obj: dict, node: Mapping[str, Any], echo: Mapping[str, str], skipped: set[str]) -> dict:
+    """``obj`` with ``node``'s renames applied, or ``obj`` itself when nothing changed.
+
+    Children are walked first along the canonical keys, so a parent rename and
+    a child rename on the same branch both apply. A path whose value is absent
+    or of the wrong type is skipped, as is a non-dict list element. This
+    object's renames (``echo`` joins them at the top level) apply in one
+    simultaneous pass in the same key positions; when they would hold one key
+    twice, its keys stay canonical, its children's renames still apply, and
+    each declared path present here is added to ``skipped``. Every renamed
+    container is new, so the input is never mutated, and values keep identity.
+    """
+    values: dict[Any, Any] = {}
+    for (key, is_list), child in node["children"].items():
+        if key not in obj:
+            continue
+        value = obj[key]
+        if is_list and isinstance(value, list):
+            items = [
+                _rename_keys_in(item, child, {}, skipped) if isinstance(item, dict) else item
+                for item in value
+            ]
+            if any(new is not old for new, old in zip(items, value)):
+                values[key] = items
+        elif not is_list and isinstance(value, dict):
+            renamed_child = _rename_keys_in(value, child, {}, skipped)
+            if renamed_child is not value:
+                values[key] = renamed_child
+    renames = {**echo, **node["renames"]}
+    if any(key in renames for key in obj):
+        renamed: dict[Any, Any] = {}
+        for key, value in obj.items():
+            new_key = renames.get(key, key)
+            if new_key in renamed:
+                skipped.update(path for last, path in node["paths"].items() if last in obj)
+                break
+            renamed[new_key] = values.get(key, value)
+        else:
+            return renamed
+    if not values:
+        return obj
+    return {key: values.get(key, value) for key, value in obj.items()}
+
+
+def _rename_response_keys(result: Any, rename: Mapping[str, str], tree: Mapping[str, Any]) -> Any:
+    """A mapped alias's response in its own vocabulary (waves 1zime and 1zls8, 1zlty).
+
+    The echo renames from ``rename`` and the declared ``response_keys`` paths
+    (as ``_response_key_tree``) apply in one walk over ``result["data"]``; at
+    the top level the echo renames and the single-segment paths form one pass.
+    When a declared path's object is left canonical by a collision, one
+    advisory ``response_key_rename_skipped`` names each skipped path once; a
+    collision caused only by echo renames adds none. Status, other
+    diagnostics, ``next_tools`` and ``usage`` never change, and a result that
+    is not a dict, has no dict ``data``, or is awaitable is returned as is.
+    """
+    if inspect.isawaitable(result) or not isinstance(result, dict):
         return result
     data = result.get("data")
     if not isinstance(data, dict):
         return result
-    to_alias = {canonical_param: alias_param for alias_param, canonical_param in rename.items()}
-    if not any(key in to_alias for key in data):
+    echo = {canonical_param: alias_param for alias_param, canonical_param in rename.items()}
+    if not echo and not tree["renames"] and not tree["children"]:
         return result
-    renamed: dict[Any, Any] = {}
-    for key, value in data.items():
-        new_key = to_alias.get(key, key)
-        if new_key in renamed:
-            return result
-        renamed[new_key] = value
-    return {**result, "data": renamed}
+    skipped: set[str] = set()
+    renamed = _rename_keys_in(data, tree, echo, skipped)
+    if renamed is data and not skipped:
+        return result
+    out = {**result, "data": renamed}
+    if skipped:
+        out["diagnostics"] = list(result.get("diagnostics") or []) + [
+            _diagnostic(
+                "response_key_rename_skipped",
+                "These declared response keys stayed canonical because a rename at the same "
+                f"object would duplicate a key already present: {', '.join(sorted(skipped))}.",
+                advisory=True,
+            )
+        ]
+    return out
 
 
 def _mapped_alias_tool(
@@ -18968,6 +20546,8 @@ def _mapped_alias_tool(
 
     rename = dict(spec.get("rename") or {})
     fixed = _validated_fixed_values(canonical_tool, spec.get("fixed") or {})
+    # Wave 1zls8 (1zlty): the declared response key renames, built once.
+    response_tree = _response_key_tree(dict(spec.get("response_keys") or {}))
     renamed_away = set(rename.values())
     to_canonical = {
         param: param for param in _canonical_argument_fields(canonical_tool)
@@ -18995,8 +20575,9 @@ def _mapped_alias_tool(
             return _rewrite_served_names(refused, served_names, alias_calls)
         call = {to_canonical[key]: value for key, value in arguments.items() if key in accepted}
         call.update(copy.deepcopy(fixed))
-        # Wave 1zime: echoed renamed parameters answer in the alias's names.
-        return _rename_echoed_parameters(target(**call), rename)
+        # Waves 1zime and 1zls8 (1zlty): echoed renamed parameters and the
+        # declared response keys answer in the alias's names, in one walk.
+        return _rename_response_keys(target(**call), rename, response_tree)
 
     update = {
         "name": alias,
@@ -20165,12 +21746,21 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 'wf_map', get_handler().root, {'address': address}, exc)
 
     @mcp.tool(annotations=_MUTATING_TOOL)
-    def wf_create_wave(slug: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
-        """Create a wave record under docs/waves using a lifecycle wave ID.
+    def wf_create_wave(slug: str, mode: str = "dry_run", parent: Optional[str] = None, **kwargs: Any) -> dict[str, Any]:
+        """Create a wave record under the waves root using a lifecycle wave ID.
 
         Args:
             slug: Kebab-case wave topic slug.
             mode: Either "dry_run" or "create".
+            parent: Optional existing folder, relative to the waves root
+                (for example "q4/auth"), to create the wave in. Needs the
+                nested record layout; refused (invalid_arguments, nothing
+                written, no lifecycle prefix consumed) when the layout is flat
+                or the value is empty, absolute, holds a `..` or dot-prefixed
+                component, goes through a symlink or outside the waves root,
+                lies inside a wave folder, would place the wave beyond the
+                discovery depth, or does not exist. data.parent reports the
+                folder as spelled on disk (null without a parent).
         """
         bad = _ensure_no_extra_args("wf_create_wave", kwargs)
         if bad is not None:
@@ -20180,7 +21770,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         lock = project_state_publication_lock(handler.root) if mutating else contextlib.nullcontext()
         with lock:
             result = wf_create_wave_response(
-                handler.root, slug, mode=mode, cache=handler.cache
+                handler.root, slug, mode=mode, cache=handler.cache, parent=parent
             )
             canonical = str(_context_data(result).get("wave_id", ""))
             if not canonical:
@@ -20196,7 +21786,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 ),
                 flush=mutating,
                 transfer_general=mutating,
-                request_arguments={"slug": slug, "mode": mode},
+                request_arguments={"slug": slug, "mode": mode, **({"parent": parent} if parent is not None else {})},
             )
 
     @mcp.tool(annotations=_MUTATING_TOOL)
@@ -20964,6 +22554,48 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 # producers' buckets into the closing wave.
                 transfer_general=mutating,
                 request_arguments={"wave_id": wave_id, "mode": mode},
+            )
+
+    @mcp.tool(annotations=_DESTRUCTIVE_TOOL)
+    def wf_close_change(wave_id: str, change_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
+        """Close ONE admitted change inside an OPEN wave and activate its dependents.
+
+        Gate (every failing gate is reported, in dry_run and create): the wave
+        is OPEN (active or implementing); the change is admitted to it; its
+        change document exists and is readable; its status is closable (read
+        from the docs-lint constants: ready, active, review or implemented)
+        and agrees between the wave record and the change document; it has no
+        silent `[ ]` AC or task (the close-wave checkbox gate, this change
+        only); every dependency on its wave-record `Depends On:` line is done
+        (terminal or implemented).
+
+        Writes (create): `complete` into the change document's status lines
+        and the wave-record block, with the previous status recorded in the
+        wave record only. Each other change whose wave-record `Depends On:`
+        names the closed change, is `planned` or `blocked`, and whose
+        dependencies are now all done moves to `ready` (never `active`);
+        data.activated and data.not_activated report each candidate. A scoped
+        docs-lint runs before and after the write; a failure the write
+        introduced restores every written file (`close_change_lint_failed`).
+        No review evidence or ledger event is written, and the review-policy
+        receipt does not move. Reopening a completed change is not supported.
+
+        Args:
+            wave_id: Wave ID or unique prefix.
+            change_id: The FULL admitted change id.
+            mode: "dry_run" (default, read-only; reports planned writes and
+                pre-existing lint failures) or "create" (alias "apply").
+                Any other value returns an error with "valid_modes".
+        """
+        bad = _ensure_no_extra_args("wf_close_change", kwargs)
+        if bad is not None:
+            return bad
+        handler = get_handler()
+        mutating = (mode or "").strip().lower() in {"create", "apply"}
+        lock = project_state_publication_lock(handler.root) if mutating else contextlib.nullcontext()
+        with lock:
+            return wf_close_change_response(
+                handler.root, wave_id, change_id, mode=mode, cache=handler.cache
             )
 
     # --- Change creation ---
@@ -23371,12 +25003,23 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             chain = MIDDLEWARE + (
                 _served_name_rewrite(served_names, frozenset(_EXTENSION_REPLACED_CORE), alias_calls),
             )
+        if _EXTENSION_OMITTED_PARAMETERS:
+            # Wave 1zlu1 (F3/N1): outermost, so a call carrying a parameter
+            # the override omits is refused before the guard, lock or cost
+            # wrappers run, whatever the override's handler does with kwargs.
+            omitted_map = dict(_EXTENSION_OMITTED_PARAMETERS)
+            chain = chain + ((
+                "omitted",
+                lambda mcp, get_handler: _wrap_omitted_core_parameters(mcp, get_handler, omitted_map),
+            ),)
         mcp_tool_registry.apply_middleware(mcp, get_handler, chain)
         if mcp_tool_extensions.declared():
             _install_served_names(mcp, get_handler)
     except BaseException:
         _EXTENSION_PROVENANCE = None
         _EXTENSION_REPLACED_CORE.clear()
+        _EXTENSION_OVERRIDE_DELTAS.clear()
+        _EXTENSION_OMITTED_PARAMETERS.clear()
         _EXTENSION_LIFECYCLE_TOOLS.clear()
         _EXTENSION_ARTIFACT_PATH_FIELDS.clear()
         _strip_to_runner_tools(mcp)

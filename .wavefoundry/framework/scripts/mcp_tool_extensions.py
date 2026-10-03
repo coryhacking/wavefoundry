@@ -5,7 +5,9 @@ at merge time to add tools to, or explicitly override tools on, the one
 Wavefoundry MCP server. Nothing is discovered: the server loads only the
 modules named here, each a single-file module directly in this scripts
 directory that defines ``register(mcp, get_handler)``. Wave 1z8oz adds served
-aliases, hidden canonical names and replacements of core names.
+aliases, hidden canonical names and replacements of core names. Wave 1zls8 adds
+declared helper modules, which extension modules import and the server hashes
+and reloads, and declared response-key renames for parameter-mapped aliases.
 
 Stdlib-only and import-light on purpose: the permission-allowlist renderer
 and upgrade read the declared tiers through ``mcp_tool_roster`` without
@@ -17,6 +19,7 @@ Shipped values are empty, which leaves the stock tool surface unchanged.
 from __future__ import annotations
 
 import keyword
+import re
 import sys
 from typing import Collection, Mapping
 
@@ -31,6 +34,13 @@ TIER_WRITE = "write"
 
 # Flat module names, in registration order.
 EXTENSION_MODULES: tuple[str, ...] = ()
+
+# Flat helper module names that extension modules import, in load order (wave
+# 1zls8, change 1zltx). Each is a single ``.py`` file directly in this scripts
+# directory, loaded before any extension module, hashed into provenance and
+# re-executed on reload; its ``register``, if any, is never called. A helper
+# may import only helpers declared before it.
+EXTENSION_HELPER_MODULES: tuple[str, ...] = ()
 
 # Prefixes every NEW extension tool name must start with. A core prefix such
 # as "wf_" is allowed; a distribution-specific prefix is recommended, because a
@@ -53,14 +63,19 @@ EXTENSION_TOOL_ALIASES: Mapping[str, str] = {}
 
 # Parameter mappings for declared aliases (wave 1zim3):
 # ``{alias: {"rename": {alias_param: canonical_param}, "fixed": {canonical_param: value},
-#            "description": text}}``.
+#            "description": text, "response_keys": {path: new_key}}}``.
 # Every canonical parameter that is neither renamed nor fixed passes through
 # under its own name. The alias serves a translator into the canonical tool's
 # wrapped callable, so every control stays keyed on the canonical name. Top-level
 # response ``data`` keys that echo a renamed parameter carry the alias name. The
 # optional ``description`` (wave 1zime) replaces the canonical description for
-# this alias only; it needs a non-empty ``rename`` or ``fixed`` and is at most
-# ALIAS_DESCRIPTION_MAX_CHARS characters.
+# this alias only; it needs a non-empty ``rename``, ``fixed`` or ``response_keys``
+# and is at most ALIAS_DESCRIPTION_MAX_CHARS characters. The optional
+# ``response_keys`` (wave 1zls8, change 1zlty) renames keys of the canonical
+# response ``data``: each path names one key in canonical names, dot-separated,
+# with ``[]`` meaning each element of the list at that key (for example
+# ``{"changes": "items", "changes[].id": "item_id"}``); the new name replaces
+# the last key only, and values never change.
 EXTENSION_TOOL_PARAMETERS: Mapping[str, Mapping[str, object]] = {}
 
 # Canonical names that are not served. Each must have an alias without fixed
@@ -99,6 +114,15 @@ EDIT_GATE_TOOLS = frozenset({"wf_open_gate", "wf_close_gate"})
 # keeps a runaway declaration out of every tool listing.
 ALIAS_DESCRIPTION_MAX_CHARS = 16_384
 
+# The most segments one response_keys path may have, and the most entries one
+# alias may declare (wave 1zls8, change 1zlty). Core responses nest well under
+# eight levels, and the rename walk stays proportional to the declaration.
+RESPONSE_KEY_MAX_DEPTH = 8
+RESPONSE_KEY_MAX_ENTRIES = 64
+
+# A response_keys path: dot-separated keys, each optionally ending in "[]".
+_RESPONSE_KEY_PATH = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\[\])?(\.[A-Za-z_][A-Za-z0-9_]*(\[\])?)*")
+
 # Names a declared module may never take: the extension machinery itself and
 # the server's composition modules. Standard-library names are refused too,
 # and the server additionally refuses any name it has already imported.
@@ -126,6 +150,41 @@ RESERVED_MODULE_NAMES = frozenset({
 })
 
 
+# The stem of every flat ``.py`` file the framework ships in this scripts
+# directory (wave 1zls8, change 1zltx). No extension or helper module may take
+# one: the server's collision check catches only a script it has already
+# imported, and a helper needs no ``register``, so a helper declaration naming
+# a framework script would otherwise execute that script as a hashed helper. A
+# census test pins this set to the directory, less the names the declaration
+# lists.
+FRAMEWORK_SCRIPT_MODULE_NAMES = frozenset({
+    '_tag_utils', 'accel_embedder', 'agent_surface_integrity', 'ann_reference_eval', 'build_pack',
+    'build_scan_allowlist', 'change_doc_checklist', 'check_version', 'chunker', 'cli_stdio',
+    'commit_provenance', 'context_efficiency', 'dashboard_handlers', 'dashboard_lib',
+    'dashboard_server', 'design_token_build', 'docs_gardener', 'docs_lint', 'eval_chunker',
+    'exploration_avoided', 'gardener_metadata', 'gen_codebase_map', 'gpu_doctor',
+    'graph_call_census', 'graph_cluster', 'graph_di_signals', 'graph_indexer',
+    'graph_quality_eval', 'graph_query', 'graph_snapshot', 'graph_store', 'index_compatibility',
+    'index_paths', 'index_source_guard', 'index_state_store', 'indexer', 'install_log_lib',
+    'lexical_ranking_eval', 'lifecycle_gate_support', 'lifecycle_gates', 'lifecycle_id',
+    'lifecycle_lock', 'machine_authority', 'marker_namespaces', 'mcp_tool_extensions',
+    'mcp_tool_roster', 'memory_backfill', 'memory_cli', 'memory_eval', 'memory_records',
+    'memory_supply', 'model_bundle', 'operator_identity', 'path_containment', 'process_info',
+    'project_context_efficiency', 'provider_policy', 'prune_framework', 'public_contract',
+    'publication_control', 'reconcile_scan', 'record_paths', 'render_agent_surfaces',
+    'render_platform_surfaces', 'repair_ppol_memory_staging', 'repo_root', 'retrieval_eval',
+    'review_evidence', 'review_policy', 'review_policy_reconcile', 'review_policy_upgrade',
+    'run_secrets_scan', 'run_tests', 'runtime_advisory', 'runtime_lock', 'scan_secrets',
+    'scanner_skips', 'score_context_efficiency_pairs', 'sensor_runner', 'server', 'server_impl',
+    'setup_index', 'setup_readiness', 'setup_reconciliation', 'setup_requirements',
+    'setup_wavefoundry', 'sqlite_runtime', 'sqlite_storage_migration', 'sqlite_vector_store',
+    'storage_identity', 'subprocess_util', 'techdocs_audit', 'techdocs_audit_lib',
+    'techdocs_baseline', 'tree_sitter_cache', 'upgrade_bridge_bootstrap', 'upgrade_bundle',
+    'upgrade_extensions', 'upgrade_lib', 'upgrade_protocol', 'upgrade_wavefoundry',
+    'venv_bootstrap', 'verify_vendored_scripts', 'vocabulary_profile', 'wave_gate', 'wf_cli',
+})
+
+
 class ExtensionDeclarationError(ValueError):
     """The extension declaration is invalid; nothing may be served from it."""
 
@@ -133,7 +192,8 @@ class ExtensionDeclarationError(ValueError):
 def declared() -> bool:
     """True when any extension declaration is non-empty."""
     return bool(
-        EXTENSION_MODULES or EXTENSION_TOOL_PREFIXES or EXTENSION_TOOL_TIERS or EXTENSION_OVERRIDES
+        EXTENSION_MODULES or EXTENSION_HELPER_MODULES or EXTENSION_TOOL_PREFIXES or EXTENSION_TOOL_TIERS
+        or EXTENSION_OVERRIDES
         or EXTENSION_TOOL_ALIASES or EXTENSION_TOOL_PARAMETERS or EXTENSION_HIDDEN_TOOLS
         or EXTENSION_REPLACEMENTS or EXTENSION_LIFECYCLE_TOOLS or EXTENSION_ARTIFACT_PATH_FIELDS
     )
@@ -208,15 +268,8 @@ def declaration_problems(
     runner = set(runner_tools)
 
     seen_modules: set[str] = set()
-    for module_name in EXTENSION_MODULES:
-        if not isinstance(module_name, str) or not module_name.isidentifier():
-            problems.append(f"module {module_name!r} is not a flat single-file module name")
-            continue
-        if module_name in seen_modules:
-            problems.append(f"module {module_name!r} is declared twice")
-        seen_modules.add(module_name)
-        if module_name in RESERVED_MODULE_NAMES or module_name in sys.stdlib_module_names:
-            problems.append(f"module {module_name!r} collides with a framework or standard-library module")
+    problems.extend(_module_name_problems("module", EXTENSION_MODULES, seen_modules))
+    problems.extend(_helper_module_problems(seen_modules))
 
     for prefix in EXTENSION_TOOL_PREFIXES:
         if not isinstance(prefix, str) or not prefix:
@@ -252,6 +305,49 @@ def declaration_problems(
             owners[name] = module_name
     problems.extend(_alias_hide_replacement_problems(core, runner, seen_modules, owners, core_tiers or {}))
     problems.extend(_lock_and_credit_problems(core, runner))
+    return problems
+
+
+def _module_name_problems(label: str, names: Collection[object], seen: set[str]) -> list[str]:
+    """The flat module name rules for ``EXTENSION_MODULES`` and
+    ``EXTENSION_HELPER_MODULES``; each valid identifier is added to ``seen``."""
+    problems: list[str] = []
+    for module_name in names:
+        if not isinstance(module_name, str) or not module_name.isidentifier():
+            problems.append(f"{label} {module_name!r} is not a flat single-file module name")
+            continue
+        if not module_name.isascii():
+            # Wave 1zls8: a non-ASCII identifier (an NFD "acmé" among them)
+            # would pass here and fail only at load; file names on disk may be
+            # normalized differently per platform.
+            problems.append(
+                f"{label} {module_name!r} is not an ASCII module name; use ASCII letters, digits and underscores"
+            )
+            continue
+        if module_name in seen:
+            problems.append(f"{label} {module_name!r} is declared twice")
+        seen.add(module_name)
+        if module_name in RESERVED_MODULE_NAMES or module_name in sys.stdlib_module_names:
+            problems.append(f"{label} {module_name!r} collides with a framework or standard-library module")
+        elif module_name in FRAMEWORK_SCRIPT_MODULE_NAMES:
+            problems.append(
+                f"{label} {module_name!r} matches the framework script {module_name}.py; "
+                "give it a distribution-specific name"
+            )
+    return problems
+
+
+def _helper_module_problems(extension_modules: set[str]) -> list[str]:
+    """``EXTENSION_HELPER_MODULES`` (wave 1zls8, change 1zltx): the extension
+    module name rules, no name in both declarations, and a tuple value. A wrong
+    container type is reported, never raised."""
+    helpers = EXTENSION_HELPER_MODULES
+    if not isinstance(helpers, tuple):
+        return [f"EXTENSION_HELPER_MODULES must be a tuple of module names, not {type(helpers).__name__}"]
+    problems = _module_name_problems("helper module", helpers, set())
+    for module_name in helpers:
+        if isinstance(module_name, str) and module_name in extension_modules:
+            problems.append(f"helper module {module_name!r} is also declared in EXTENSION_MODULES")
     return problems
 
 
@@ -426,8 +522,9 @@ def _alias_hide_replacement_problems(
 
 def _alias_description_problems(label: str, spec: Mapping[str, object]) -> list[str]:
     """The optional alias ``description`` (wave 1zime): a non-blank string within
-    the cap, on an entry that renames or pins (a plain alias has the canonical
-    parameters, so the canonical description stays accurate)."""
+    the cap, on an entry that renames, pins or renames response keys (wave
+    1zls8, change 1zlty); a plain alias has the canonical parameters and
+    response, so the canonical description stays accurate."""
     problems: list[str] = []
     description = spec["description"]
     if not isinstance(description, str):
@@ -440,11 +537,64 @@ def _alias_description_problems(label: str, spec: Mapping[str, object]) -> list[
         problems.append(
             f"{label}: 'description' has {len(description)} characters, more than {ALIAS_DESCRIPTION_MAX_CHARS}"
         )
-    if not spec.get("rename") and not spec.get("fixed"):
+    if not spec.get("rename") and not spec.get("fixed") and not spec.get("response_keys"):
         problems.append(
-            f"{label} declares 'description' without a non-empty 'rename' or 'fixed'; "
+            f"{label} declares 'description' without a non-empty 'rename', 'fixed' or 'response_keys'; "
             "a plain alias keeps the canonical description"
         )
+    return problems
+
+
+def _response_key_problems(label: str, response_keys: object, rename: Mapping[object, object]) -> list[str]:
+    """The optional ``response_keys`` map (wave 1zls8, change 1zlty).
+
+    Each path names one key of the canonical response ``data`` in canonical
+    names (``[]`` after a segment means each element of that list), and the
+    new name replaces the last key only. Reported, never raised.
+    """
+    if not isinstance(response_keys, Mapping):
+        return [f"{label}: 'response_keys' must map response key paths to new key names, "
+                f"not {type(response_keys).__name__}"]
+    problems: list[str] = []
+    if len(response_keys) > RESPONSE_KEY_MAX_ENTRIES:
+        problems.append(
+            f"{label}: 'response_keys' has {len(response_keys)} entries, more than {RESPONSE_KEY_MAX_ENTRIES}"
+        )
+    renamed_canonical = set(rename.values())
+    alias_parameters = set(rename)
+    targets: dict[tuple[str, str], str] = {}
+    for path, new_key in response_keys.items():
+        if not isinstance(path, str) or not _RESPONSE_KEY_PATH.fullmatch(path):
+            problems.append(f"{label}: response key path {path!r} is not a dot-separated key path")
+            continue
+        segments = path.split(".")
+        if segments[-1].endswith("[]"):
+            problems.append(f"{label}: response key path {path!r} must end in a key, not '[]'")
+            continue
+        if len(segments) > RESPONSE_KEY_MAX_DEPTH:
+            problems.append(
+                f"{label}: response key path {path!r} has {len(segments)} segments, more than {RESPONSE_KEY_MAX_DEPTH}"
+            )
+        if not isinstance(new_key, str) or not new_key.isidentifier():
+            problems.append(f"{label}: response key path {path!r} renames to {new_key!r}, which is not an identifier")
+            continue
+        if new_key == segments[-1]:
+            problems.append(f"{label}: response key path {path!r} renames {new_key!r} to itself")
+        parent = ".".join(segments[:-1])
+        if (parent, new_key) in targets:
+            problems.append(
+                f"{label}: response key paths {targets[(parent, new_key)]!r} and {path!r} both rename to {new_key!r}"
+            )
+        else:
+            targets[(parent, new_key)] = path
+        if len(segments) == 1 and path in renamed_canonical:
+            problems.append(
+                f"{label}: response key path {path!r} is a renamed parameter, whose echoed key 'rename' already renames"
+            )
+        if len(segments) == 1 and new_key in alias_parameters:
+            problems.append(
+                f"{label}: response key path {path!r} renames to {new_key!r}, an alias parameter name in 'rename'"
+            )
     return problems
 
 
@@ -472,7 +622,7 @@ def _parameter_mapping_problems(aliases: Mapping[str, str], runner: set[str]) ->
         if not isinstance(spec, Mapping):
             problems.append(f"{label} must be a mapping with 'rename' and/or 'fixed'")
             continue
-        unknown = sorted(set(spec) - {"rename", "fixed", "description"})
+        unknown = sorted(set(spec) - {"rename", "fixed", "description", "response_keys"})
         if unknown:
             problems.append(f"{label} has unknown keys {unknown}")
         if "description" in spec:
@@ -500,6 +650,8 @@ def _parameter_mapping_problems(aliases: Mapping[str, str], runner: set[str]) ->
                 problems.append(f"{label} fixes {canonical_param!r}, which is not a parameter name")
             elif canonical_param in targets:
                 problems.append(f"{label} fixes {canonical_param!r}, which it also renames")
+        if "response_keys" in spec:
+            problems.extend(_response_key_problems(label, spec["response_keys"], rename))
     return problems
 
 

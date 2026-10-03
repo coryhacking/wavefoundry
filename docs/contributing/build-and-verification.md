@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-02
+Last verified: 2026-10-03
 
 ## Verification Commands
 
@@ -56,6 +56,16 @@ WF_UPDATE_TOOL_SURFACE_GOLDEN=1 python3 .wavefoundry/framework/scripts/run_tests
 ```
 
 Without the flag the test never writes. The fixture lives under the framework test tree, so it is inside the close-time receipt hash and outside the distribution pack. The same module carries the runtime roster parity test (registered set equals `mcp_tool_roster.all_tool_tiers()` in both directions, which for the stock declaration is `TOOL_TIERS`; with declared extensions it adds validated extension tiers, aliases and `alias_for_core` names and omits hidden names, wave `1z8oz`; the AST registration parity test in `test_render_platform_surfaces` stays on `TOOL_TIERS` as the core-source gate) and the behavioral wrapper-order test (cost innermost, lifecycle lock middle, upgrade-publication guard outermost of the three, with the five wrong permutations as negative controls). The setup-readiness notice wrapper added in wave `1z2mc` runs outside all three and only adds a diagnostic; `test_mcp_tool_registry` pins its label as the last `MIDDLEWARE` entry. The `rewrite` wrapper for aliased or replaced names (wave `1z8oz`) is appended at registration only when declared, so the pinned tuple and stock responses are unchanged.
+
+### Vendored dashboard scripts: optional online check (wave 1zls7)
+
+The default suite checks offline that the vendored dashboard scripts match the SHA-256 values recorded in `.wavefoundry/framework/dashboard/vendor/README.md` and that each registry row is well formed. It cannot check that the recorded `dist.integrity` is the registry's or that the files came from those tarballs. That check needs the network, so it is a separate, optional script outside the default suite:
+
+```bash
+python3 .wavefoundry/framework/scripts/verify_vendored_scripts.py
+```
+
+It downloads each recorded tarball from `https://registry.npmjs.org/` only (refusing any other URL, and checking every redirect target before it is followed so an off-registry host is never contacted, with a timeout and a size cap, honouring the standard proxy environment variables), compares the tarball's SHA-512 with the recorded integrity, and compares each vendored file with its tarball member in memory. Exit 0 means every check passed, 1 a mismatch or missing member (even when another package could not be checked), and 2 that the check could not be made and nothing mismatched (the README cannot be parsed, or a download failed or was refused). Each README table is found by its exact header line, and every row in it must match the table's format: a malformed row, an indented row, a row missing its leading pipe, or a row after a blank line inside the table (before the next `## ` heading) exits 2 and is named, never skipped. A refusal prints `refused:` (a non-registry URL, a redirect that left the registry, a tarball over the size cap) and stops a release; a download that could not complete prints `download failed:`. Run it when updating a vendored file and, when network access is available, while packaging (see **Package Wavefoundry**). The script is development-only: `build_pack` excludes it from the distribution, and its offline tests (`tests/test_verify_vendored_scripts.py`) inject the download, or serve it from a local loopback server with proxies neutralised, and never open a connection off the machine.
 
 ## Semantic Index And Offline Search
 

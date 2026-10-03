@@ -231,13 +231,14 @@ class ArchiveWriterRefusalTests(_ArchiveCase):
             "wf_review_wave": lambda: srv.wf_review_wave_response(root, wave),
             "wf_implement_wave": lambda: srv.wf_implement_wave_response(root, wave, mode="create"),
             "wf_close_wave": lambda: srv.wf_close_wave_response(root, wave, mode="create"),
+            "wf_close_change": lambda: srv.wf_close_change_response(root, wave, change, mode="create"),
             "wf_reopen_wave": lambda: srv.wf_reopen_wave_response(root, wave),
         }
 
     def test_every_writer_refuses_an_archived_wave_and_writes_nothing(self) -> None:
         before = _tree_digest(self.root / ARCHIVE_REL)
         calls = self._calls()
-        self.assertEqual(len(calls), 11)
+        self.assertEqual(len(calls), 12)
         for name, call in calls.items():
             with self.subTest(writer=name):
                 response = call()

@@ -382,13 +382,34 @@ def normalize_phase_gates(config: Mapping[str, Any]) -> tuple[dict[str, Any], tu
             errors.append(f"{path} must be an object")
             continue
         for key in block:
-            if key != "required_sensors":
+            if key not in ("required_sensors", "required_lanes"):
                 errors.append(f"{path}.{key}: unknown field")
+        # Wave 1zlu1 (1zlu4): lanes required at this phase only, validated as
+        # strictly as the sensor names.  An older framework refuses the key.
+        lanes = block.get("required_lanes", [])
+        phase_lanes: list[str] = []
+        if not isinstance(lanes, list):
+            errors.append(f"{path}.required_lanes must be a list")
+        else:
+            for index, lane in enumerate(lanes):
+                entry_path = f"{path}.required_lanes[{index}]"
+                if not isinstance(lane, str) or not lane.strip():
+                    errors.append(f"{entry_path} must be a non-empty lane name")
+                    continue
+                # Strip before the duplicate check: readers strip lane names,
+                # so " x" and "x" are the same lane.
+                lane = lane.strip()
+                if lane in phase_lanes:
+                    errors.append(f"{entry_path}: duplicate lane {lane!r}")
+                    continue
+                phase_lanes.append(lane)
         names = block.get("required_sensors", [])
         if not isinstance(names, list):
             errors.append(f"{path}.required_sensors must be a list")
             continue
         normalized[phase] = {"required_sensors": []}
+        if "required_lanes" in block:
+            normalized[phase]["required_lanes"] = phase_lanes
         seen: set[str] = set()
         for index, name in enumerate(names):
             entry_path = f"{path}.required_sensors[{index}]"
@@ -415,6 +436,45 @@ def normalize_phase_gates(config: Mapping[str, Any]) -> tuple[dict[str, Any], tu
             ) or not command[0]:
                 errors.append(f"sensors[{sensor_index}].command ({entry_path}): required sensor must use a non-empty list of string arguments")
     return normalized, tuple(errors)
+
+
+#: The docs-lint and Prepare message for a present, non-list
+#: ``required_review_lanes`` (wave 1zlu1, change 1zlu4).
+REQUIRED_REVIEW_LANES_NOT_LIST = "docs/workflow-config.json: required_review_lanes must be a list"
+
+
+class ProjectLanesConfigError(ValueError):
+    """A present ``required_review_lanes`` that is not a list (wave 1zlu1,
+    change 1zlu4).  Raised, never mapped to an empty roster: silently dropping
+    every project-required lane on a typo is a fail-open."""
+
+
+def project_required_review_lanes(config: Mapping[str, Any]) -> list[str]:
+    """The base ``required_review_lanes`` (required at both phases) from an
+    already-loaded config.  An absent key is no lanes; an entry that is not a
+    non-empty string is dropped; a present non-list value raises
+    :class:`ProjectLanesConfigError`."""
+    raw = config.get("required_review_lanes", [])
+    if not isinstance(raw, list):
+        raise ProjectLanesConfigError(REQUIRED_REVIEW_LANES_NOT_LIST)
+    return [lane.strip() for lane in raw if isinstance(lane, str) and lane.strip()]
+
+
+def project_lanes_for_phase(config: Mapping[str, Any], phase: str) -> list[str]:
+    """Project lanes required at ``phase`` (``prepare`` or ``close``): the base
+    ``required_review_lanes`` followed by ``phase_gates.<phase>.required_lanes``,
+    order-preserving and de-duplicated (wave 1zlu1, change 1zlu4).  Pure: it
+    reads no file.  Malformed phase entries are left to
+    :func:`normalize_phase_gates`, which reports them."""
+    if phase not in ("prepare", "close"):
+        raise ValueError(f"unknown review phase {phase!r}")
+    lanes = project_required_review_lanes(config)
+    gates = config.get("phase_gates")
+    block = gates.get(phase) if isinstance(gates, dict) else None
+    extra = block.get("required_lanes", []) if isinstance(block, dict) else []
+    if isinstance(extra, list):
+        lanes.extend(lane.strip() for lane in extra if isinstance(lane, str) and lane.strip())
+    return list(dict.fromkeys(lanes))
 
 
 def migrate_wave_review_policy(value: object) -> dict[str, Any]:

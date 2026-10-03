@@ -145,6 +145,8 @@ Projects declare which lanes are required in `docs/workflow-config.json`:
 
 `wf_review_wave` reads this config and includes all declared lanes in `required_lanes` alongside the always-required operator lane. `wf_close_wave` blocks if any declared lane lacks a recorded signoff.
 
+`required_review_lanes` lanes apply at readiness (Prepare) and delivery (Review and Close). A lane that can only judge one phase is declared under `phase_gates` instead: `"phase_gates": {"close": {"required_lanes": ["release-review"]}}` requires it at delivery only, `phase_gates.prepare.required_lanes` at readiness only. Prepare reports delivery-only lanes and records them on a `- Required delivery lanes:` line after `- Required review lanes:` in the wave record (written only when the rosters differ). A `required_review_lanes` value that is not a list is a config error that lint and the lifecycle gates report, never an empty roster.
+
 Projects that enable Wave Council should also declare an explicit council policy in `docs/workflow-config.json`, for example:
 
 ```json

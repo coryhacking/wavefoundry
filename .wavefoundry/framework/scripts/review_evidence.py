@@ -19,6 +19,7 @@ legacy records and are not rewritten by upgrade.
 
 from __future__ import annotations
 
+import errno
 import json
 import hashlib
 import os
@@ -30,6 +31,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
+import review_policy  # the pure lane helper is called through the module (wave 1zlu1)
 from typing import Any, Iterable, Mapping
 from runtime_lock import (
     RuntimeFileLock,
@@ -40,6 +42,7 @@ from runtime_lock import (
 )
 from review_policy import (
     GENESIS_RECEIPT_PARENT,
+    ProjectLanesConfigError,
     REVIEW_POLICY_RECEIPT_RECORD_TYPE,
     current_policy_receipt,
     derive_receipt_id,
@@ -94,7 +97,38 @@ PROTOCOL_VERSION = 1
 
 
 class ProjectPublicationUnavailable(RuntimeError):
-    """The project publication boundary could not be owned immediately."""
+    """The project publication boundary could not be owned immediately.
+
+    Wave 1zls7: ``str()`` may carry absolute lock paths for local logs;
+    ``detail`` is the path-free reason (repository-relative lock names and the
+    cause class) that tool responses show, read through
+    :func:`publication_unavailable_detail`.
+    """
+
+    def __init__(self, message: str, *, detail: str | None = None) -> None:
+        super().__init__(message)
+        self.detail = detail
+
+
+def _lock_cause(exc: BaseException) -> str:
+    """The exception class and errno name, without the exception's text."""
+    code = errno.errorcode.get(getattr(exc, "errno", None) or 0)
+    return f"{type(exc).__name__} {code}" if code else type(exc).__name__
+
+
+def publication_unavailable_detail(exc: BaseException) -> str:
+    """Path-free reason for a publication refusal, for tool responses.
+
+    Never renders ``str(exc)``: the lock messages embed absolute paths.
+    """
+    detail = getattr(exc, "detail", None)
+    if isinstance(detail, str) and detail:
+        return detail
+    return (
+        f"the project publication lock "
+        f"({PROJECT_STATE_PUBLICATION_LOCK_REL.as_posix()}) could not be owned "
+        f"({type(exc).__name__})"
+    )
 FINDING_SYNTHESIS_MARKER_BEGIN = "<!-- wave:finding-synthesis begin -->"
 FINDING_SYNTHESIS_MARKER_END = "<!-- wave:finding-synthesis end -->"
 REVIEW_STATUS_MARKER_BEGIN = "<!-- wave:review-status begin -->"
@@ -952,7 +986,11 @@ def project_state_publication_lock(repo_root: Path, *, wait: bool = True):
     thread_lock_acquired = _WRITE_THREAD_LOCK.acquire(blocking=wait)
     if not thread_lock_acquired:
         raise ProjectPublicationUnavailable(
-            "project publication lock is busy in this process"
+            "project publication lock is busy in this process",
+            detail=(
+                f"{PROJECT_STATE_PUBLICATION_LOCK_REL.as_posix()} is held by "
+                "another call in this server process"
+            ),
         )
     try:
         depth = int(getattr(_WRITE_LOCK_STATE, "depth", 0))
@@ -974,7 +1012,12 @@ def project_state_publication_lock(repo_root: Path, *, wait: bool = True):
             raise ProjectPublicationUnavailable(
                 "project publication lock is already held by this thread in this "
                 f"process (pid {os.getpid()}, lifecycle publication transaction); "
-                "publish inside that hold instead of acquiring it again"
+                "publish inside that hold instead of acquiring it again",
+                detail=(
+                    f"{PROJECT_STATE_PUBLICATION_LOCK_REL.as_posix()} is already "
+                    "held by this call's lifecycle publication transaction in "
+                    "this server process"
+                ),
             )
         lock = RuntimeFileLock(publication_path, blocking=False)
         try:
@@ -982,7 +1025,11 @@ def project_state_publication_lock(repo_root: Path, *, wait: bool = True):
         except RuntimeLockBusy as exc:
             if not wait:
                 raise ProjectPublicationUnavailable(
-                    f"project publication lock is busy: {exc}"
+                    f"project publication lock is busy: {exc}",
+                    detail=(
+                        f"{PROJECT_STATE_PUBLICATION_LOCK_REL.as_posix()} is "
+                        "held by another process"
+                    ),
                 ) from exc
             # Ordinary publishers preserve their historical serialization.
             # Upgrade is different: it owns the outer lifecycle lock before
@@ -1006,7 +1053,19 @@ def project_state_publication_lock(repo_root: Path, *, wait: bool = True):
                         lifecycle_probe.acquire()
                     except (RuntimeLockBusy, RuntimeLockError) as lifecycle_exc:
                         raise ProjectPublicationUnavailable(
-                            f"project publication lock is unavailable during lifecycle mutation: {lifecycle_exc}"
+                            f"project publication lock is unavailable during lifecycle mutation: {lifecycle_exc}",
+                            detail=(
+                                f"{PROJECT_STATE_PUBLICATION_LOCK_REL.as_posix()} "
+                                "is held while another process runs a lifecycle "
+                                f"mutation ({_LIFECYCLE_MUTATION_LOCK_REL.as_posix()} "
+                                "is held)"
+                                if isinstance(lifecycle_exc, RuntimeLockBusy)
+                                else
+                                f"{PROJECT_STATE_PUBLICATION_LOCK_REL.as_posix()} "
+                                "is held and ownership of "
+                                f"{_LIFECYCLE_MUTATION_LOCK_REL.as_posix()} cannot "
+                                f"be proven ({_lock_cause(lifecycle_exc)})"
+                            ),
                         ) from lifecycle_exc
                     else:
                         lifecycle_probe.release()
@@ -1016,7 +1075,13 @@ def project_state_publication_lock(repo_root: Path, *, wait: bool = True):
                     raise ProjectPublicationUnavailable(
                         "project publication lock is unavailable during lifecycle "
                         f"mutation: the lifecycle lock is held by another thread of "
-                        f"this process (pid {os.getpid()}): {lifecycle_path}"
+                        f"this process (pid {os.getpid()}): {lifecycle_path}",
+                        detail=(
+                            f"{PROJECT_STATE_PUBLICATION_LOCK_REL.as_posix()} is "
+                            "held while another call in this server process runs "
+                            "a lifecycle mutation "
+                            f"({_LIFECYCLE_MUTATION_LOCK_REL.as_posix()} is held)"
+                        ),
                     )
                 # Held by the calling thread: skip the probe and wait like an
                 # ordinary publisher. Lock order is fixed (lifecycle, then
@@ -1028,11 +1093,21 @@ def project_state_publication_lock(repo_root: Path, *, wait: bool = True):
                 lock.acquire()
             except RuntimeLockError as blocking_exc:
                 raise ProjectPublicationUnavailable(
-                    f"project publication lock is unavailable: {blocking_exc}"
+                    f"project publication lock is unavailable: {blocking_exc}",
+                    detail=(
+                        "ownership of "
+                        f"{PROJECT_STATE_PUBLICATION_LOCK_REL.as_posix()} cannot "
+                        f"be proven ({_lock_cause(blocking_exc)})"
+                    ),
                 ) from blocking_exc
         except RuntimeLockError as exc:
             raise ProjectPublicationUnavailable(
-                f"project publication lock is unavailable: {exc}"
+                f"project publication lock is unavailable: {exc}",
+                detail=(
+                    "ownership of "
+                    f"{PROJECT_STATE_PUBLICATION_LOCK_REL.as_posix()} cannot "
+                    f"be proven ({_lock_cause(exc)})"
+                ),
             ) from exc
         try:
             _WRITE_LOCK_STATE.depth = 1
@@ -1904,8 +1979,10 @@ def required_review_status_keys(
             break
         if not in_participants:
             continue
+        # Wave 1zlu1 (1zlu4): both rosters, readiness and delivery, are
+        # listed, so the projection shows every lane required at some phase.
         match = re.match(
-            r"^-\s*Required review lanes\s*:\s*(?P<lanes>.+?)\s*$",
+            r"^-\s*Required (?:review|delivery) lanes\s*:\s*(?P<lanes>.+?)\s*$",
             line,
             re.IGNORECASE,
         )
@@ -1931,9 +2008,15 @@ def required_review_status_keys(
                 config = loaded
         except (OSError, UnicodeError, json.JSONDecodeError):
             pass
-    project_lanes = config.get("required_review_lanes", [])
-    if isinstance(project_lanes, list):
-        lanes.extend(str(value).strip() for value in project_lanes if str(value).strip())
+    # Wave 1zlu1 (1zlu4): the pure phase helper on the config this function
+    # holds (so `config_override` is honoured), both phases.  A non-list
+    # `required_review_lanes` is reported by lint; the lanes still readable
+    # (the wave-record lines) are kept.
+    try:
+        lanes.extend(review_policy.project_lanes_for_phase(config, "prepare"))
+        lanes.extend(review_policy.project_lanes_for_phase(config, "close"))
+    except ProjectLanesConfigError:
+        pass
 
     council_keys: list[str] = []
     council = config.get("wave_review")
@@ -4488,6 +4571,7 @@ __all__ = [
     "PROJECT_STATE_PUBLICATION_LOCK_REL",
     "PROTOCOL_VERSION",
     "ProjectPublicationUnavailable",
+    "publication_unavailable_detail",
     "REQUEST_DIGEST_FIELD",
     "REVIEW_STATUS_MARKER_BEGIN",
     "REVIEW_STATUS_MARKER_END",

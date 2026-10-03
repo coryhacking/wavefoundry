@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-01
+Last verified: 2026-10-03
 
 ## Configuration
 
@@ -23,16 +23,18 @@ Project policy enters through typed configuration, never through imported reposi
 ```json
 {
   "sensors": [{"name": "release-check", "dimension": "reliability", "command": ["python3", "scripts/release_check.py"]}],
-  "phase_gates": {"close": {"required_sensors": ["release-check"]}},
+  "phase_gates": {"close": {"required_sensors": ["release-check"], "required_lanes": ["release-review"]}},
   "subprocess_ops": {"sensor_timeout_seconds": 120}
 }
 ```
 
-Only `prepare` and `close` are accepted phase keys, each with only `required_sensors`, a list of known sensor names. Unknown fields (including `required_lanes`), unknown sensors, and required sensors with string commands are rejected by docs lint and prepare. Sensor declarations must be list-form when required sensors are named; unrelated legacy sensor configuration retains its existing behavior. Review-lane policy remains in `required_review_lanes`.
+Only `prepare` and `close` are accepted phase keys, each with `required_sensors` (a list of known sensor names), `required_lanes` (a list of review lane names, wave 1zlu1), or both. Unknown fields, unknown sensors, required sensors with string commands, and a `required_lanes` that is not a list or holds an empty, non-string or duplicate entry are rejected by docs lint and prepare (an older framework refuses `required_lanes` as an unknown field). Sensor declarations must be list-form when required sensors are named; unrelated legacy sensor configuration retains its existing behavior.
+
+Review-lane policy: `required_review_lanes` names lanes required at both readiness (Prepare) and delivery (Review and Close); `phase_gates.prepare.required_lanes` adds lanes required at readiness only and `phase_gates.close.required_lanes` lanes required at delivery only. Risk-triggered and requested lanes apply to both phases. One pure helper, `review_policy.project_lanes_for_phase(config, phase)`, gives every reader its phase's project lanes (with a root-reading wrapper in `lifecycle_gate_support.py`). The wave record keeps `- Required review lanes:` as the readiness roster; Prepare writes `- Required delivery lanes:` directly after it only when the delivery roster differs, and an absent line means the same as readiness. A present `required_review_lanes` that is not a list is a config error (docs lint reports it, Prepare refuses through its policy-state config error, and Implement, Review and Close report the blocking `required_review_lanes_invalid`), never an empty roster. Configs without `phase_gates` keep their review-policy digest; adding `required_lanes` moves it, as adding a required sensor does.
 
 Prepare `ready`/`create` executes required sensors with the server's environment and `PATH`, using the repository root as the working directory; close `create` (alias `apply`) executes them on the same terms, but only when no blocking diagnostic has accumulated by the time its sensor gate runs. Required commands use argument lists, never a shell. Nonzero exits, timeouts, and launch failures block the phase. Prefer fast checks: `subprocess_ops.sensor_timeout_seconds` defaults to 120 seconds. Explicit `wf_run_sensors` shares this runner and timeout; its existing string-command support remains available there.
 
-Read-only `dry_run` (including prepare alias `evaluate`) executes nothing. Reached gates report `would_run` and a `phase_sensor_not_executed` advisory; this is not proof that a sensor passes. A blocked close `create` reports the same row shape and the same advisory code, with the message naming the blocking-diagnostic condition rather than read-only mode, and read-only takes precedence when both apply. Every prepare, review and close response produced by the handler includes `configured_gates`; review's list is always empty, and a handler response that returns before the gate stage carries an empty list. Entries identify the phase, sensor, configuration source, outcome and duration. A response produced by a registration wrapper, or returned by a tool body before it calls its handler, carries no `configured_gates` key at all. The rule is stated over the producing layer rather than over call order, because one of its own members is returned from an `except` clause after the handler was invoked and raised: the upgrade-publication guard's busy refusal. It currently resolves to five members, today the lifecycle mutation lock's busy and unavailable refusals, the upgrade-publication guard's in-progress and busy refusals, and the tool body's unknown-argument refusal. A consumer therefore reads the key defensively rather than unconditionally.
+Read-only `dry_run` (including prepare alias `evaluate`) executes nothing. Reached gates report `would_run` and a `phase_sensor_not_executed` advisory; this is not proof that a sensor passes. A blocked close `create` reports the same row shape and the same advisory code, with the message naming the blocking-diagnostic condition rather than read-only mode, and read-only takes precedence when both apply. Every prepare, review and close response produced by the handler includes `configured_gates`; review's list is always empty, and a handler response that returns before the gate stage carries an empty list. Entries identify the phase, sensor, configuration source, outcome and duration. A response produced by a registration wrapper, or returned by a tool body before it calls its handler, carries no `configured_gates` key at all. The rule is stated over the producing layer rather than over call order, because two of its own members are returned from an `except` clause after the handler was invoked and raised: the upgrade-publication guard's busy refusal and, for a re-entry raised by the body, the lifecycle lock's re-entry refusal (wave 1zls7). It currently resolves to six members, today the lifecycle mutation lock's busy, unavailable and re-entry refusals, the upgrade-publication guard's in-progress and busy refusals, and the tool body's unknown-argument refusal. A consumer therefore reads the key defensively rather than unconditionally.
 
 Prepare sensors run at its existing readiness stage. A failed sensor can leave an already-published policy receipt, which is not an approval. Legacy waves without a valid council verdict do not reach that stage and report an empty list. Close runs its sensor stage only when no blocking diagnostic has accumulated at that point, so a doomed close reports its sensors as `would_run` rather than executing them; the bound is what the gate stage can see, and two later checks can still fail a close whose sensors already ran. Policy digests include nonempty phase-gate declarations and the referenced sensor definitions; editing either invalidates readiness. With no phase gates, existing digests remain unchanged.
 
@@ -78,8 +80,15 @@ lock):
   acquire and registration as one step under `process_hold_guard()`, and the
   entry is removed before the OS lock is released. A re-entry from any thread
   of the holding process is refused with `LifecycleLockBusy` before the file
-  is opened, which the middleware maps to the same busy response (wave
-  1zimc). The registry lives in `runtime_lock`, which an MCP reload does not
+  is opened (wave 1zimc). Since wave 1zls7 the middleware maps only a refusal
+  at acquisition: another process, or another thread of this server, holding
+  the lock returns `lifecycle_mutation_locked`; a lock whose ownership cannot
+  be proven returns `lifecycle_lock_unavailable`, which is not busy; and a
+  same-thread re-entry, at a nested tool's acquisition or raised by the tool
+  body, returns `lifecycle_lock_reentry`, which names no other session. Other
+  body exceptions propagate. The refusals name the lock by its
+  repository-relative path, built from attributes on the lock exceptions,
+  never from their text, which carries the absolute path. The registry lives in `runtime_lock`, which an MCP reload does not
   evict, so a hold taken before a reload stays visible to the re-imported
   `lifecycle_lock` and `review_evidence`.
 - **`project_state_publication_lock`**

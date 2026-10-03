@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: accepted
-Last verified: 2026-09-18
+Last verified: 2026-10-03
 
 ## Context
 
@@ -27,6 +27,8 @@ The two mutating phases carry different preconditions, and the difference is nar
 > Second paragraph opening sentence: "Mutating lifecycle calls now execute configured project commands with the host environment and repository working directory."
 >
 > Third paragraph, in full: "The two mutating phases carry different preconditions, and the difference is deliberate. Prepare's readiness stage runs only under typed authority or a present and valid council verdict, so the digest binding over declared sensors means an unreviewed edit to a sensor command lapses the approvals and the command does not execute. Close carries no equivalent precondition: its blocking predicate is evaluated after every gate has run, so `wf_close_wave` in `create` (or its `apply` alias) executes the declared close sensors even on a wave that is far from closable, including one whose approvals are absent or whose review evidence is invalid. That ordering is what lets an operator see sensor results beside the other blockers in a single pass rather than one gate at a time. The cost is that the digest binding is a real control on prepare only. `phase_gates` therefore carries the same trust requirement as a commit hook: anything a project declares there runs on the close path on every `create` or `apply` attempt that reaches the gate stage, so treat the key as executable content under review, not as configuration that is inert until a wave is ready."
+
+> **Amended 2026-10-02 by wave `1zlu1 lifecycle-features-for-distributions` (`1zlu4-enh`).** `required_lanes` joined the `phase_gates` block for `prepare` and `close`, validated as strictly as `required_sensors`. The alternative below was rejected because phase lanes would duplicate lane policy without owning lane selection; the amendment keeps selection in one place (`review_policy.project_lanes_for_phase` feeds every reader), so `required_review_lanes` keeps meaning both phases and `phase_gates` only scopes extra lanes to one phase. `REVIEW_POLICY_EVALUATOR_VERSION` stays 7: `phase_gates` already enters the digest whole when present.
 
 ## Alternatives Considered
 

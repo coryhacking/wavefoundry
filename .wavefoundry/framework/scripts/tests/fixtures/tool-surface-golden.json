@@ -1572,6 +1572,39 @@
       },
       "tier": "read"
     },
+    "wf_close_change": {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "change_id": {
+            "title": "Change Id",
+            "type": "string"
+          },
+          "mode": {
+            "default": "dry_run",
+            "title": "Mode",
+            "type": "string"
+          },
+          "wave_id": {
+            "title": "Wave Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "change_id",
+          "wave_id"
+        ],
+        "title": "wf_close_changeArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
     "wf_close_gate": {
       "annotations": {
         "destructiveHint": false,
@@ -1688,6 +1721,18 @@
             "default": "dry_run",
             "title": "Mode",
             "type": "string"
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Parent"
           },
           "slug": {
             "title": "Slug",

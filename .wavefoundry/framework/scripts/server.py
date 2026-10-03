@@ -780,6 +780,37 @@ def perform_mcp_reload(*, notify: str = "schedule") -> dict[str, Any]:
         )
 
 
+def _fastmcp_settings_class() -> Any:
+    """mcp's FastMCP ``Settings`` class, or None when this mcp release lacks it."""
+    try:
+        from mcp.server.fastmcp import server as fastmcp_server
+    except Exception:
+        return None
+    return getattr(fastmcp_server, "Settings", None)
+
+
+def _disable_fastmcp_dotenv() -> None:
+    """Change 1zltt: stop FastMCP from reading a ``.env`` for its settings.
+
+    In mcp 1.x (verified on 1.28.1 with pydantic-settings 2.14.2)
+    ``FastMCP.__init__`` builds ``mcp.server.fastmcp.server.Settings``, whose
+    ``model_config`` has ``env_file=".env"`` relative to the process working
+    directory. The host may launch the server anywhere, so an unrelated
+    ``.env`` that this process cannot read or decode crashed startup.
+    Wavefoundry configures FastMCP only in code, so the dotenv source is
+    disabled on the class (pydantic-settings consults ``model_config`` at
+    each instantiation). Process-wide and idempotent; a release without the
+    class or the key is left alone, and this never raises.
+    """
+    try:
+        settings_cls = _fastmcp_settings_class()
+        config = getattr(settings_cls, "model_config", None)
+        if isinstance(config, dict) and "env_file" in config:
+            config["env_file"] = None
+    except Exception:
+        return
+
+
 def build_server(root: Path):
     from mcp.server.fastmcp import FastMCP
 
@@ -789,6 +820,7 @@ def build_server(root: Path):
     if identity_warning:
         print(f"wavefoundry: {identity_warning}", file=sys.stderr)
     _set_handler(server_impl.build_handler(root))
+    _disable_fastmcp_dotenv()
     mcp = FastMCP("wavefoundry_mcp")
     _set_mcp(mcp)  # Wave 131bt (131d8): expose for perform_mcp_reload tool refresh.
     server_impl.register_mcp_surface(mcp, _get_handler)

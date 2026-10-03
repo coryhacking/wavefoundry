@@ -189,6 +189,8 @@ SHIPPED_DEFAULTS: "dict[str, dict[str, Any]]" = {
 # default-profile-only marker skip.
 SHIPPED_DECLARATION: "dict[str, Any]" = {
     "EXTENSION_MODULES": (),
+    # Wave 1zls8 (1zltx): declared helper modules.
+    "EXTENSION_HELPER_MODULES": (),
     "EXTENSION_TOOL_PREFIXES": (),
     "EXTENSION_TOOL_TIERS": {},
     "EXTENSION_OVERRIDES": {},

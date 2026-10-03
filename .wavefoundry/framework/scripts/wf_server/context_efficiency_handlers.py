@@ -12,7 +12,9 @@ import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm
 import index_source_guard
 import record_paths
 from lifecycle_gate_support import _read_wave_record_text
-from review_evidence import ProjectPublicationUnavailable
+from lifecycle_lock import _cause_label  # class and errno name, no exception text (wave 1zls7)
+from lifecycle_lock import path_free_text
+from review_evidence import ProjectPublicationUnavailable, publication_unavailable_detail
 
 if TYPE_CHECKING:
     from wf_server.server_impl import ImplHandler
@@ -50,7 +52,10 @@ def _read_ce_projection_config(root: Path) -> dict[str, Any]:
 def _pending_ce_generations(root: Path) -> tuple[dict[str, int], str | None]:
     state = context_efficiency.pending_wave_ids(root)
     if not state.get("ok"):
-        return {}, str(state.get("error") or state.get("status") or "unavailable")
+        # Wave 1zls7 (1zodv): the authority_unavailable row in index_health is
+        # path-free; an error text naming an absolute path falls back to the status.
+        return {}, (path_free_text(str(state.get("error") or ""), root)
+                    or str(state.get("status") or "unavailable"))
     generations: dict[str, int] = {}
     for wave_id in state.get("pending", []):
         snapshot = context_efficiency.read_wave_snapshot(root, str(wave_id))
@@ -224,16 +229,20 @@ def _project_context_efficiency_wave(
                 else {}
             ),
         }
+    # Wave 1zls7 (delivery review): these rows reach index_health through
+    # data.background_monitors, so they carry the exception class, errno name
+    # and the repository-relative lock path, never the exception text (which
+    # holds the absolute lock path).
     except index_source_guard.RuntimeLockBusy as exc:
         return {
             "persistence": "durable", "projection": "pending",
-            "reason": "index_source_busy", "error": str(exc),
+            "reason": "index_source_busy", "error": _index_source_lock_label(exc),
             "wave_id": canonical_wave,
         }
     except index_source_guard.RuntimeLockError as exc:
         return {
             "persistence": "durable", "projection": "pending",
-            "reason": "index_source_unavailable", "error": str(exc),
+            "reason": "index_source_unavailable", "error": _index_source_lock_label(exc),
             "wave_id": canonical_wave,
         }
     except ProjectPublicationUnavailable as exc:
@@ -241,16 +250,23 @@ def _project_context_efficiency_wave(
             "persistence": "durable",
             "projection": "pending",
             "reason": "publication_lock_busy",
-            "error": str(exc),
+            # Wave 1zls7: reaches data.context_efficiency_persistence of
+            # lifecycle tool responses, so path-free like the tool refusals.
+            "error": publication_unavailable_detail(exc),
             "wave_id": canonical_wave,
         }
     except Exception as exc:
         return {
             "persistence": "failed",
             "projection": "pending",
-            "error": f"{type(exc).__name__}: {exc}",
+            "error": _cause_label(exc),
             "wave_id": canonical_wave,
         }
+
+
+def _index_source_lock_label(exc: BaseException) -> str:
+    """``<class> <errno name> on <repo-relative lock path>`` (wave 1zls7)."""
+    return f"{_cause_label(exc)} on {index_source_guard.INDEX_SOURCE_LOCK_REL.as_posix()}"
 
 
 def _flush_context_efficiency(

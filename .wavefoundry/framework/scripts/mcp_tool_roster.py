@@ -108,6 +108,7 @@ TOOL_TIERS: dict[str, str] = {
     "wf_validate_docs": TIER_READ,
     # ── Mutating lifecycle / gates / evidence ────────────────────────────
     "wf_add_change": TIER_WRITE,
+    "wf_close_change": TIER_WRITE,
     "wf_close_gate": TIER_WRITE,
     "wf_close_wave": TIER_WRITE,
     "wf_create_wave": TIER_WRITE,

@@ -171,6 +171,7 @@ Wave orchestration contract:
 - **Synchronization:** participants report outputs, blockers, invalidated assumptions, and review findings often enough for the coordinator to keep the wave coherent
 - **Escalation:** the coordinator pauses, replans, adds reviewers, reassigns changes or tasks, splits work, or supersedes the wave when assumptions fail or dependencies shift materially; when a gate is blocked by an artifact the wave does not own, the coordinator presents the exact fix and a yes/no decision to the operator in the same message that reports the block (seed-209, wave 1wuju)
 - **Closure readiness:** the coordinator decides when scoped work and required reviews are satisfied; **terminal closure** (e.g. `Completed at`, `Status: completed`, closure reconciliation) runs only after **explicit operator confirmation** (`Close wave` / `Finalize feature` or confirmed yes), not automatically at the end of `Implement wave`
+- **Finishing one change mid-wave:** When one change finishes before the others, `wf_close_change(wave_id, change_id, mode)` closes it to `complete` (dry-run first) and moves the dependents whose `Depends On:` names it to `ready`; the wave stays open and `Close wave` remains the only wave close.
 
 Coordinator decision rights:
 

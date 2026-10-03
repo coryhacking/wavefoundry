@@ -20,6 +20,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 import types
 import unittest
@@ -1135,16 +1136,12 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         )
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}), \
              patch.object(self.srv.lifecycle_gate_support, "_required_wave_council_signoffs", return_value=[]) as _gate_mock_2, \
-             patch.object(self.srv, "_extract_required_review_lanes", return_value=[]) as _gate_mock_3_server, \
              patch.object(self.srv.lifecycle_gate_support, "_extract_required_review_lanes", return_value=[]) as _gate_mock_3, \
-             patch.object(self.srv, "_read_project_required_review_lanes", return_value=[]) as _gate_mock_4_server, \
              patch.object(self.srv.lifecycle_gate_support, "_read_project_required_review_lanes", return_value=[]) as _gate_mock_4:
             response = self.srv.wf_review_wave_response(self.root, wave_id)
             _gate_mock_2.assert_called()
             _gate_mock_3.assert_called()
-            _gate_mock_3_server.assert_called()
             _gate_mock_4.assert_called()
-            _gate_mock_4_server.assert_called()
         self.assertEqual(response["status"], "error", response)
         self.assertIn(
             "missing_executable_approval_evidence",
@@ -5685,6 +5682,196 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         self.assertNotIn("event='list'", usages)
 
 
+class CloseWaveOpenStatusTests(unittest.TestCase):
+    """Wave 1zls7 (1zlu0): close refuses while any change is not done."""
+
+    WAVE_ID = "1200z close-status"
+
+    def setUp(self):
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def _wave(self, records: str) -> Path:
+        wave_dir = _waves_dir(self.root) / self.WAVE_ID
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        wave_md = wave_dir / vocabulary_profile.RECORD_FILENAME
+        wave_md.write_text(
+            _loc("# Wave Record\n"
+                 f"wave-id: `{self.WAVE_ID}`\n"
+                 "Status: active\n\n"
+                 "## Changes\n\n")
+            + records
+            + _loc("\n## Review Evidence\n\n- operator-signoff: approved\n"),
+            encoding="utf-8",
+        )
+        for change_id in re.findall(r"`(1200z-[^`]+)`", records):
+            (wave_dir / f"{change_id}.md").write_text(
+                _loc(f"# Sample\n\nChange ID: `{change_id}`\n\n## Acceptance Criteria\n\n## Tasks\n"),
+                encoding="utf-8")
+        return wave_md
+
+    @staticmethod
+    def _change(change_id: str, status: str, indent: str = "") -> str:
+        return (indent + _loc(f"Change ID: `{change_id}`\n")
+                + indent + _loc(f"Change Status: `{status}`\n\n"))
+
+    def _close(self, mode: str = "dry_run"):
+        with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}), \
+             patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            return self.srv.wf_close_wave_response(self.root, self.WAVE_ID, mode=mode)
+
+    def _open_diagnostic(self, response):
+        found = [d for d in response["diagnostics"] if d["code"] == "open_changes_remaining"]
+        return found[0] if found else None
+
+    def _assert_refused(self, records: str, *expected: str):
+        wave_md = self._wave(records)
+        before = wave_md.read_bytes()
+        for mode in ("dry_run", "create"):
+            with self.subTest(mode=mode):
+                response = self._close(mode)
+                self.assertEqual(response["status"], "error", response)
+                diagnostic = self._open_diagnostic(response)
+                self.assertIsNotNone(diagnostic, response["diagnostics"])
+                self.assertEqual(diagnostic["recovery_tools"], ["wf_current_wave"])
+                for text in expected:
+                    self.assertIn(text, diagnostic["message"])
+                self.assertEqual(wave_md.read_bytes(), before, "a refused close writes nothing")
+
+    def test_blocked_review_and_retry_refuse_close(self):
+        """AC-1 and AC-4: each refusal names the change and its status."""
+        for status in ("blocked", "review", "retry"):
+            with self.subTest(status=status):
+                self._assert_refused(
+                    self._change("1200z-bug done-one", "complete") + self._change("1200z-bug open-one", status),
+                    f"`1200z-bug open-one` is `{status}`",
+                )
+
+    def test_unknown_status_and_legacy_item_refuse_close(self):
+        """AC-2: an unknown token and a legacy item outside the item terminal set."""
+        self._assert_refused(self._change("1200z-bug odd", "landed"), "`1200z-bug odd` is `landed`")
+        second = tempfile.TemporaryDirectory()
+        self.addCleanup(second.cleanup)
+        self.root = Path(second.name)
+        self._assert_refused("Item ID: `item-a`\nItem Status: `review`\n\n", "`item-a` is `review`")
+
+    def test_unreadable_status_refuses_close(self):
+        """Requirement 2: a status the lint parser cannot read is open."""
+        self._assert_refused(self._change("1200z-bug upper", "Complete"), "`1200z-bug upper` has no readable status")
+
+    def test_indented_record_refuses_close(self):
+        """AC-3: an indented `Change Status` line is read."""
+        self._assert_refused(self._change("1200z-bug indented", "review", indent="  "),
+                             "`1200z-bug indented` is `review`")
+
+    def test_a_later_done_status_line_cannot_hide_an_open_one(self):
+        """Delivery review B1: every status line attributed to a record is
+        read, so a later done line (a duplicate, a fenced example under a later
+        heading, an indented list line) cannot close a record that is open."""
+        shapes = {
+            "duplicate": _loc("Change Status: `complete`\n\n"),
+            "fenced": _loc("## Notes\n\n```text\nChange Status: `complete`\n```\n\n"),
+            "indented": "- example:\n\n  " + _loc("Change Status: `complete`\n\n"),
+        }
+        for name, tail in shapes.items():
+            for status in ("planned", "active"):
+                with self.subTest(shape=name, status=status):
+                    root = tempfile.TemporaryDirectory()
+                    self.addCleanup(root.cleanup)
+                    self.root = Path(root.name)
+                    self._assert_refused(self._change("1200z-bug hidden", status) + tail,
+                                         f"`1200z-bug hidden` is `{status}`")
+
+    def test_a_record_with_no_status_line_stays_open(self):
+        self._assert_refused(_loc("Change ID: `1200z-bug bare`\n\n"),
+                             "`1200z-bug bare` has no readable status")
+
+    def test_an_unreadable_status_line_beside_a_done_one_is_open(self):
+        """Fail closed: a status-labelled line the strict pattern cannot read
+        still belongs to the record and keeps it open."""
+        self._assert_refused(self._change("1200z-bug mixed", "complete") + _loc("Change Status: `Complete`\n\n"),
+                             "`1200z-bug mixed` has no readable status")
+
+    def test_an_id_outside_the_lint_shape_is_read_by_the_line_walk(self):
+        """Fail closed: a record whose id the lint parser rejects is still
+        read (the column-0 reading HEAD used), and it is named; a done one
+        passes."""
+        self._assert_refused(self._change("1200z-bug valid", "complete") + self._change("odd-id", "review"),
+                             "`odd-id` is `review`")
+        second = tempfile.TemporaryDirectory()
+        self.addCleanup(second.cleanup)
+        self.root = Path(second.name)
+        self._wave(self._change("1200z-bug valid", "complete") + self._change("odd-id", "complete"))
+        self.assertIsNone(self._open_diagnostic(self._close()))
+
+    def test_a_status_line_outside_every_record_is_open(self):
+        """Fail closed: a status line no record claims refuses close."""
+        self._assert_refused(_loc("Change Status: `planned`\n\n") + self._change("1200z-bug after", "complete"),
+                             "outside any record")
+
+    def test_an_item_status_line_inside_a_change_record_is_read(self):
+        """Delivery reverification F1: the lint parser attributes only the
+        change label in a change record, so the line walk reads the other."""
+        self._assert_refused(self._change("1200z-bug mixed-label", "complete") + _loc("Item Status: `planned`\n\n"),
+                             "`1200z-bug mixed-label` is `planned`")
+
+    def test_a_prose_id_label_starts_no_record(self):
+        """Delivery reverification F2: an id label with no backticked id is
+        prose, not a record without a status."""
+        self._wave(self._change("1200z-bug prose", "complete") + _loc("Change ID: assigned at planning\n\n"))
+        for mode in ("dry_run", "create"):
+            with self.subTest(mode=mode):
+                self.assertIsNone(self._open_diagnostic(self._close(mode)))
+
+    def test_done_statuses_pass_the_open_change_check(self):
+        """AC-3 and AC-6: every done status passes; `implemented` is the only
+        difference from the terminal set."""
+        from wave_lint_lib import constants as lint_constants
+        self.assertEqual(lint_constants.DONE_CHANGE_STATUSES - set(lint_constants.TERMINAL_CHANGE_STATUSES),
+                         {"implemented"})
+        records = "".join(self._change(f"1200z-bug done-{index}", status)
+                          for index, status in enumerate(sorted(lint_constants.DONE_CHANGE_STATUSES)))
+        self._wave(records)
+        for mode in ("dry_run", "create"):
+            with self.subTest(mode=mode):
+                self.assertIsNone(self._open_diagnostic(self._close(mode)))
+
+    def test_close_reads_the_lint_done_set(self):
+        """AC-3: dropping a status from the lint constant makes it refuse."""
+        constants_module = sys.modules["wave_lint_lib.constants"]
+        self._wave(self._change("1200z-bug implemented", "implemented"))
+        self.assertIsNone(self._open_diagnostic(self._close()))
+        with patch.object(constants_module, "DONE_CHANGE_STATUSES",
+                          constants_module.DONE_CHANGE_STATUSES - {"implemented"}):
+            diagnostic = self._open_diagnostic(self._close())
+        self.assertIsNotNone(diagnostic)
+        self.assertIn("`1200z-bug implemented` is `implemented`", diagnostic["message"])
+
+    def test_close_path_holds_no_status_list(self):
+        """AC-5: no literal collection of status names and no
+        `_CHANGE_STATUS_PATTERN` in the close path."""
+        from wave_lint_lib import constants as lint_constants
+        vocabulary = (set(lint_constants.ALLOWED_CHANGE_STATUS_TRANSITIONS)
+                      | set(lint_constants.ALLOWED_ITEM_STATUS_TRANSITIONS)
+                      | set(lint_constants.DONE_CHANGE_STATUSES) | {"stub", "implementing"})
+        for function in (self.srv.wf_close_wave_response, self.srv._close_open_work_records):
+            source = textwrap.dedent(inspect.getsource(inspect.unwrap(function)))
+            with self.subTest(function=function.__name__):
+                self.assertNotIn("_CHANGE_STATUS_PATTERN", source)
+                for node in ast.walk(ast.parse(source)):
+                    elements = []
+                    if isinstance(node, (ast.Set, ast.Tuple, ast.List)):
+                        elements = node.elts
+                    elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                          and node.func.id in {"frozenset", "set", "tuple"}):
+                        elements = [arg for arg in node.args if isinstance(arg, ast.Constant)]
+                    names = {e.value for e in elements if isinstance(e, ast.Constant) and isinstance(e.value, str)}
+                    self.assertFalse(names & vocabulary,
+                                     f"status names {sorted(names & vocabulary)} in a literal collection")
+
+
 class MarkChangeItemRecoveryTests(unittest.TestCase):
     """1ug66: narrow marking errors must guide a safe retry, never a guess."""
 
@@ -5777,6 +5964,121 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
         self.assertEqual(diagnostic["code"], "tilde_rationale_required")
         self.assertIn("wf_mark_ac", diagnostic["message"])
         self.assertIn("reason", diagnostic["message"])
+
+    def _close_findings(self):
+        wave_md = self.wave_dir / vocabulary_profile.RECORD_FILENAME
+        wave_text = (
+            _loc(f"# Wave Record\nwave-id: `{self.wave_id}`\nStatus: implementing\n\n"
+                 "## Changes\n\nChange ID: `1200c-mark-sample`\nChange Status: `implementing`\n")
+        )
+        wave_md.write_text(wave_text, encoding="utf-8")
+        return self.srv.lifecycle_gate_support._collect_silent_unchecked_items_for_close(wave_md, wave_text)
+
+    def test_blockquoted_and_unusual_mark_items_are_markable(self):
+        """1zltr AC-7: an item the close gate blocks on can be marked; only
+        the mark character changes (prefix, marker and text are kept)."""
+        body = (
+            "# Sample\n\n## Acceptance Criteria\n\n> - [ ] AC-1: quoted criterion\n\n"
+            "## Tasks\n\n- [-] dash step\n```md\n- [-] dash step\n```\n\n"
+            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n"
+            "| AC-1 | required | Core |\n"
+        )
+        self._write_change(body)
+        self.assertEqual(len(self._close_findings()), 2)
+        ac = self.srv._mark_change_item_response(
+            self.root, self.wave_id, "1200c-mark-sample", "AC-1", "x",
+            target_section="Acceptance Criteria", mode="create",
+        )
+        self.assertEqual(ac["status"], "ok", ac)
+        task = self.srv._mark_change_item_response(
+            self.root, self.wave_id, "1200c-mark-sample", "dash step", "x",
+            target_section="Tasks", mode="create",
+        )
+        self.assertEqual(task["status"], "ok", task)
+        self.assertEqual(task["data"]["matched_text"], "- [x] dash step\n")
+        expected = body.replace("> - [ ] AC-1", "> - [x] AC-1").replace(
+            "- [-] dash step\n```", "- [x] dash step\n```", 1)
+        self.assertEqual((self.wave_dir / "1200c-mark-sample.md").read_text(encoding="utf-8"), expected)
+        self.assertEqual(self._close_findings(), [])
+
+    def test_mark_reads_near_miss_sections(self):
+        """1zltr AC-7: a near-miss heading is read by the mark tools as the
+        close gate reads it."""
+        body = "# Sample\n\n##  Tasks\n\n   - [ ] indented step\n"
+        self._write_change(body)
+        response = self.srv._mark_change_item_response(
+            self.root, self.wave_id, "1200c-mark-sample", "indented step", "x",
+            target_section="Tasks", mode="create",
+        )
+        self.assertEqual(response["status"], "ok", response)
+        self.assertEqual((self.wave_dir / "1200c-mark-sample.md").read_text(encoding="utf-8"),
+                         body.replace("[ ]", "[x]"))
+
+    def test_quoted_wrapped_criterion_marks_by_its_logical_label_with_reason(self):
+        body = (
+            "# Sample\n\n## Acceptance Criteria\n\n> - [ ] AC-1: wrapped\n>   criterion\n\n"
+            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n"
+            "| AC-1 | required | Core |\n"
+        )
+        self._write_change(body)
+        response = self.srv._mark_change_item_response(
+            self.root, self.wave_id, "1200c-mark-sample", "AC-1: wrapped criterion", "~",
+            target_section="Acceptance Criteria", reason="Operator removed it during implementation", mode="create",
+        )
+        self.assertEqual(response["status"], "ok", response)
+        self.assertEqual(response["data"]["matched_text"], "> - [~] AC-1: wrapped *Operator removed it during implementation*\n>   criterion\n")
+
+    def test_marking_a_crlf_document_changes_only_the_mark(self):
+        """Delivery review: a CRLF document keeps every line ending; only the
+        mark (and an AC deferral's inline reason) changes."""
+        body = (
+            "# Sample\r\n\r\n## Acceptance Criteria\r\n\r\n- [ ] AC-1: first\r\n- [ ] AC-2: wrapped\r\n"
+            "  criterion\r\n\r\n## Tasks\r\n\r\n- [ ] Implement\r\n\r\n"
+            "## AC Priority\r\n\r\n| AC | Priority | Rationale |\r\n| --- | --- | --- |\r\n"
+            "| AC-1 | required | Core |\r\n| AC-2 | required | Core |\r\n"
+        ).encode("utf-8")
+        path = self.wave_dir / "1200c-mark-sample.md"
+        path.write_bytes(body)
+        task = self.srv._mark_change_item_response(
+            self.root, self.wave_id, "1200c-mark-sample", "Implement", "x",
+            target_section="Tasks", mode="create",
+        )
+        self.assertEqual(task["status"], "ok", task)
+        self.assertTrue(task["data"]["changed"])
+        expected = body.replace(b"- [ ] Implement", b"- [x] Implement")
+        self.assertEqual(path.read_bytes(), expected)
+        ac = self.srv._mark_change_item_response(
+            self.root, self.wave_id, "1200c-mark-sample", "AC-2: wrapped criterion", "~",
+            target_section="Acceptance Criteria", reason="Dropped", mode="create",
+        )
+        self.assertEqual(ac["status"], "ok", ac)
+        expected = expected.replace(b"- [ ] AC-2: wrapped\r\n", b"- [~] AC-2: wrapped *Dropped*\r\n")
+        self.assertEqual(path.read_bytes(), expected)
+        again = self.srv._mark_change_item_response(
+            self.root, self.wave_id, "1200c-mark-sample", "Implement", "x",
+            target_section="Tasks", mode="create",
+        )
+        self.assertFalse(again["data"]["changed"])
+        self.assertEqual(path.read_bytes(), expected)
+
+    def test_a_line_at_another_blockquote_depth_ends_the_item(self):
+        """Delivery review N2b: a deeper or shallower quoted line is not a
+        continuation of the item, however it is indented."""
+        for item, other in (("> - [ ] AC-1: quoted", ">>   deeper line"),
+                            (">> - [ ] AC-1: quoted", ">   shallower line")):
+            with self.subTest(other=other):
+                body = (
+                    f"# Sample\n\n## Acceptance Criteria\n\n{item}\n{other}\n\n"
+                    "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n"
+                    "| AC-1 | required | Core |\n"
+                )
+                self._write_change(body)
+                response = self.srv._mark_change_item_response(
+                    self.root, self.wave_id, "1200c-mark-sample", "AC-1: quoted", "x",
+                    target_section="Acceptance Criteria",
+                )
+                self.assertEqual(response["status"], "ok", response)
+                self.assertEqual(response["data"]["matched_text"], item.replace("[ ]", "[x]") + "\n")
 
 
 class PrepareCouncilVerdictParserTests(unittest.TestCase):
@@ -10023,7 +10325,19 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 ("_attach_prepare_readiness_advisories", "_diagnostic", "readiness_lane_approvals_missing"),
                 # Wave 1zime (1ziml): the unwritten-objective reminder, observational.
                 ("_attach_prepare_readiness_advisories", "_diagnostic", "wave_objective_unpopulated"),
+                # Wave 1zls7 (1zltv): the verdict location hint, appended only
+                # after a missing verdict or readiness approval already decided
+                # the envelope; it softens no blocker.
+                ("_prepare_council_location_advisory", "_diagnostic", "prepare_council_verdict_misplaced"),
                 ("policy_advisory_gate", "_review_policy_receipt_diagnostics", "<helper-call>"),
+                # Wave 1zlu1 (1zlu2): wf_close_change's dry-run report of a lint
+                # failure that already exists on a document it would write, and
+                # its report of a dependency declared only in a change document.
+                # Neither softens a gate: every closing gate is a separate
+                # blocking diagnostic, and a create still rolls back on any
+                # failure the write introduces.
+                ("wf_close_change_response", "_diagnostic", "close_change_lint_preexisting"),
+                ("wf_close_change_response", "_diagnostic", "dependencies_not_in_wave_record"),
                 # Wave 1vbuu (1vbut): code_impact's test-visibility note is a
                 # read-only retrieval advisory on a query tool, not a lifecycle
                 # gate; it can soften nothing because code_impact gates nothing.
@@ -10053,6 +10367,9 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 # Optional attribution never gates an otherwise valid review.
                 ("wf_review_event_response", "_diagnostic", "operator_identity_unresolved"),
                 ("wf_review_event_response", "_diagnostic", "artifact_or_test_id_ephemeral"),
+                # Wave 1zls8 (1zlty): a mapped alias's skipped response-key rename
+                # is a note on an extension alias response; it gates nothing.
+                ("_rename_response_keys", "_diagnostic", "response_key_rename_skipped"),
             },
             "exactly these sites may be advisory. A tag added, removed, or "
             "MOVED onto another diagnostic changes this set even when the count "
@@ -10471,6 +10788,28 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             message.index(f"new current receipt {new_id}"),
             "each id must sit under its own label, not the other's",
         )
+
+    def test_a_crlf_deferral_refreshes_the_receipt_and_keeps_line_endings(self):
+        """Delivery review (wave 1zls7): the receipt-publishing deferral path
+        writes the document with its own line endings, and the policy reads
+        the universal-newline text every other reader sees."""
+        self._write_config(transition_policy="applies-from-next-prepare")
+        wave_id, _wave_md, change_path = self._prepared_wave_with_change("crlf")
+        lf = change_path.read_bytes()
+        self.assertNotIn(b"\r", lf)
+        change_path.write_bytes(lf.replace(b"\n", b"\r\n"))
+        marked = self.srv._mark_change_item_response(
+            self.root, wave_id, "1abc-bug sample", "AC-1", "~",
+            target_section="Acceptance Criteria", mode="create",
+            reason="Deferred on a CRLF document.",
+        )
+        self.assertEqual(marked["status"], "ok", marked)
+        self.assertTrue(marked["data"]["review_receipt_refreshed"])
+        written = change_path.read_bytes()
+        self.assertEqual(written.count(b"\r\n"), lf.count(b"\n"))
+        self.assertNotIn(b"\r", written.replace(b"\r\n", b""))
+        self.assertIn(b"- [~] AC-1", written)
+        self.assertIn(b"*Deferred on a CRLF document.*\r\n", written)
 
     def test_an_ac_completion_mark_reports_no_supersession(self):
         """1upba AC-5 absence half, on the Acceptance Criteria path.
@@ -12636,6 +12975,31 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         self.assertIn("missing_wave_council_signoff", self._codes(result))
         self.assertEqual(self.wave_md.read_bytes(), before, "rejection must not mutate the wave")
 
+    def test_typed_wave_missing_readiness_points_a_prose_verdict_at_wf_review_event(self):
+        """Wave 1zls7 (1zltv) AC-3: a prose verdict on a declared wave missing
+        `wave-council-readiness` gets the typed-authority advisory; status,
+        blocking diagnostics, next_tools and usage are unchanged."""
+        self._drop_approval("wave-council-readiness")
+        rel = _waves_rel(self.wave_md.parent.name, vocabulary_profile.RECORD_FILENAME)
+        for fn, kwargs in ((self.srv.wf_implement_wave_response, {"mode": "dry_run"}),
+                           (self.srv.wf_prepare_wave_response, {"mode": "dry_run"})):
+            with self.subTest(tool=fn.__name__):
+                response = self._run(fn, self.root, self.wave_id, **kwargs)
+                self.assertIn("missing_wave_council_signoff", self._codes(response))
+                [advisory] = [d for d in response["diagnostics"]
+                              if d["code"] == "prepare_council_verdict_misplaced"]
+                self.assertIs(advisory.get("advisory"), True)
+                for text in ("wf_review_event", "wave-council-readiness",
+                             "not readiness authority", f"`{rel}` under `## Review Checkpoints`"):
+                    self.assertIn(text, advisory["message"])
+                with patch.object(self.srv, "_prepare_council_location_advisory", return_value=None):
+                    baseline = self._run(fn, self.root, self.wave_id, **kwargs)
+                self.assertEqual(response["status"], baseline["status"])
+                self.assertEqual(response.get("next_tools"), baseline.get("next_tools"))
+                self.assertEqual(response.get("usage"), baseline.get("usage"))
+                self.assertEqual([d for d in response["diagnostics"] if d["code"] != "prepare_council_verdict_misplaced"],
+                                 baseline["diagnostics"])
+
     def test_implement_accepts_declared_typed_readiness_without_prose_verdict(self):
         """Typed readiness is sufficient even when Review Checkpoints has no verdict."""
         text = self.wave_md.read_text(encoding="utf-8")
@@ -13161,6 +13525,155 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
                              self.root, self.wave_id, mode="ready")
         self.assertEqual(prepared["status"], "ok", prepared)
         self.assertEqual(review_policy.current_policy_receipt(self._records()), before)
+
+
+class CouncilVerdictLocationHintTests(unittest.TestCase):
+    """Wave 1zls7 (1zltv): a verdict line written outside `## Review
+    Checkpoints` on a prose-authority wave gets an advisory naming where it
+    was found; nothing else in the envelope moves."""
+
+    LINT_OK = {"passed": True, "errors": [], "warnings": [], "output": ""}
+    GARDEN_OK = {"passed": True, "files_updated": 0, "updated": [], "output": ""}
+    WAVE_ID = "1200a legacy-wave"
+    CHANGE_ID = "1200a-feat sample"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def _write(self, *, wave_extra: str = "", checkpoints: str = "", progress: str = "x\n"):
+        wave_dir = _waves_dir(self.root) / self.WAVE_ID
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
+            _loc("# Wave Record\n"
+                 f"wave-id: `{self.WAVE_ID}`\n"
+                 "Status: active\n\n"
+                 "## Changes\n\n"
+                 f"Change ID: `{self.CHANGE_ID}`\n"
+                 "Change Status: `complete`\n\n"
+                 "## Participants\n\n"
+                 "| Role | Lane | Owns |\n|------|------|------|\n| code-reviewer | review | x |\n\n"
+                 "## Prepare Review Evidence\n\n- code-reviewer: approved\n\n")
+            + wave_extra
+            + (f"## Review Checkpoints\n\n{checkpoints}\n" if checkpoints else "")
+            + "## Review Evidence\n\n- operator-signoff: approved\n- code-reviewer: approved\n",
+            encoding="utf-8",
+        )
+        (wave_dir / f"{self.CHANGE_ID}.md").write_text(
+            _loc(f"# Sample\n\nChange ID: `{self.CHANGE_ID}`\nChange Status: `complete`\n\n"
+                 "## Rationale\n\nx\n\n## Requirements\n\n1. x\n\n## Scope\n\nx\n\n"
+                 "## Acceptance Criteria\n\n- [x] x\n\n## Tasks\n\n- [x] x\n\n"
+                 "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n"
+                 "| AC-1 | required | x |\n\n"
+                 f"## Progress Log\n\n{progress}"),
+            encoding="utf-8",
+        )
+
+    def _run(self, fn, *args, **kwargs):
+        with patch.object(self.srv, "run_validate", return_value=self.LINT_OK), \
+             patch.object(self.srv, "run_garden", return_value=self.GARDEN_OK), \
+             patch.object(self.srv, "_trigger_background_index_refresh_for_paths"):
+            return fn(*args, **kwargs)
+
+    CALLS = (("prepare:dry_run", "wf_prepare_wave_response", "dry_run"),
+             ("prepare:create", "wf_prepare_wave_response", "create"),
+             ("implement:dry_run", "wf_implement_wave_response", "dry_run"))
+
+    def _responses(self, write_kwargs):
+        """Each call twice on a fresh fixture: as is, and with the advisory
+        helper disabled (the baseline the hint must not move)."""
+        results = {}
+        for label, name, mode in self.CALLS:
+            self._write(**write_kwargs)
+            live = self._run(getattr(self.srv, name), self.root, self.WAVE_ID, mode=mode)
+            self._write(**write_kwargs)
+            with patch.object(self.srv, "_prepare_council_location_advisory", return_value=None):
+                baseline = self._run(getattr(self.srv, name), self.root, self.WAVE_ID, mode=mode)
+            results[label] = (live, baseline)
+        return results
+
+    def _assert_hint(self, write_kwargs, *expected):
+        for label, (live, baseline) in self._responses(write_kwargs).items():
+            with self.subTest(call=label):
+                codes = [d["code"] for d in live["diagnostics"]]
+                self.assertIn("prepare_council_verdict_missing", codes)
+                [advisory] = [d for d in live["diagnostics"] if d["code"] == "prepare_council_verdict_misplaced"]
+                self.assertIs(advisory.get("advisory"), True)
+                self.assertIn(f"belongs in `{vocabulary_profile.RECORD_FILENAME}` under `## Review Checkpoints`",
+                              advisory["message"])
+                for text in expected:
+                    self.assertIn(text, advisory["message"])
+                self._assert_unchanged(live, baseline)
+
+    def _assert_unchanged(self, live, baseline):
+        self.assertEqual(live["status"], baseline["status"])
+        self.assertEqual(live.get("next_tools"), baseline.get("next_tools"))
+        self.assertEqual(live.get("usage"), baseline.get("usage"))
+        self.assertEqual([d for d in live.get("diagnostics") or [] if d["code"] != "prepare_council_verdict_misplaced"],
+                         baseline.get("diagnostics") or [])
+
+    def test_verdict_in_a_change_document_progress_log(self):
+        """AC-1."""
+        self._assert_hint(
+            {"progress": _prepare_council_verdict_line() + "\n"},
+            f"`{_waves_rel(self.WAVE_ID, self.CHANGE_ID + '.md')}` under `## Progress Log`",
+        )
+
+    def test_verdict_under_watchpoints_and_under_a_nested_heading(self):
+        """AC-2."""
+        rel = _waves_rel(self.WAVE_ID, vocabulary_profile.RECORD_FILENAME)
+        self._assert_hint(
+            {"wave_extra": "## Watchpoints\n\n" + _prepare_council_verdict_line() + "\n\n"},
+            f"`{rel}` under `## Watchpoints`",
+        )
+        self._assert_hint(
+            {"checkpoints": "- prepare wave completed\n\n### Council\n\n" + _prepare_council_verdict_line() + "\n"},
+            f"`{rel}` under `### Council`",
+        )
+
+    def test_no_hint_for_prose_inline_code_fences_or_a_valid_verdict(self):
+        """AC-4."""
+        cases = {
+            "none": {},
+            "prose": {"progress": "The prepare-council review ran; see [prepare-council] in prose.\n"},
+            "inline_code": {"progress": "- the `[prepare-council]` token belongs in Review Checkpoints\n"},
+            "fenced": {"progress": "```md\n" + _prepare_council_verdict_line() + "\n```\n"},
+            "valid_in_place": {"checkpoints": _prepare_council_verdict_line() + "\n",
+                               "progress": _prepare_council_verdict_line() + "\n"},
+        }
+        for case, write_kwargs in cases.items():
+            for label, (live, baseline) in self._responses(write_kwargs).items():
+                with self.subTest(case=case, call=label):
+                    self.assertNotIn("prepare_council_verdict_misplaced",
+                                     [d["code"] for d in live.get("diagnostics") or []])
+                    self._assert_unchanged(live, baseline)
+
+    def test_a_fenced_heading_does_not_name_the_location(self):
+        """Delivery review: a `## ` line inside fenced code is not the heading
+        a later verdict line sits under."""
+        fenced_heading = "```md\n## Fenced Example\n```\n\n"
+        self.assertEqual(self.srv._verdict_line_headings(
+            "## Progress Log\n\n" + fenced_heading + _prepare_council_verdict_line() + "\n"),
+            [("## Progress Log", False)])
+        self._assert_hint(
+            {"progress": fenced_heading + _prepare_council_verdict_line() + "\n"},
+            f"`{_waves_rel(self.WAVE_ID, self.CHANGE_ID + '.md')}` under `## Progress Log`",
+        )
+
+    def test_at_most_five_locations_are_named(self):
+        progress = "".join(f"## Heading {i}\n\n{_prepare_council_verdict_line()}\n\n" for i in range(7))
+        self._write(progress=progress)
+        response = self._run(self.srv.wf_prepare_wave_response, self.root, self.WAVE_ID, mode="dry_run")
+        [advisory] = [d for d in response["diagnostics"] if d["code"] == "prepare_council_verdict_misplaced"]
+        self.assertIn("`## Heading 4`", advisory["message"])
+        self.assertNotIn("`## Heading 5`", advisory["message"])
+        self.assertIn("and 2 more", advisory["message"])
 
 
 class LegacyProseGateParityTests(unittest.TestCase):

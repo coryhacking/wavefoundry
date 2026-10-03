@@ -945,6 +945,23 @@ process.stdout.write(JSON.stringify(rendered.map(text)));
             self.assertNotIn(".wavefoundry/framework/scripts/repair_ppol_memory_staging.py", zf.namelist())
         self.assertFalse(any("tests/" in e for e in entries))
 
+    def test_manifest_does_not_list_the_vendored_scripts_verifier(self):
+        """Wave 1zls7 (1zltw AC-4): the network-using verifier is development-only."""
+        fw = self.tmp / "mini-fw"
+        fw.mkdir(parents=True)
+        scripts_dir = fw / "scripts"
+        scripts_dir.mkdir(parents=True)
+        (scripts_dir / "verify_vendored_scripts.py").write_text("x", encoding="utf-8")
+        (scripts_dir / "kept.py").write_text("x", encoding="utf-8")
+        path = build_pack.build_zip(self.tmp, "1.0.0", "2tm5", framework_dir=fw, write_version=False, update_manifest=False, inject_install_templates=False)
+        with zipfile.ZipFile(path) as zf:
+            manifest_text = zf.read(".wavefoundry/framework/MANIFEST").decode()
+            names = zf.namelist()
+        entries = {line for line in manifest_text.splitlines() if line.strip()}
+        self.assertIn("scripts/kept.py", entries)
+        self.assertNotIn("scripts/verify_vendored_scripts.py", entries)
+        self.assertNotIn(".wavefoundry/framework/scripts/verify_vendored_scripts.py", names)
+
     def test_lint_exclusions_doc_ships_in_pack(self):
         """Wave 1p3b9 (1p3b5): the operator-visible `lint-exclusions.md`
         reference doc lives under `.wavefoundry/framework/docs/` so it ships

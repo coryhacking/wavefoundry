@@ -10,6 +10,11 @@ from pathlib import Path
 from runtime_lock import RuntimeFileLock, RuntimeLockBusy, RuntimeLockError
 
 
+# The carrier's repository-relative path, for messages that must not carry an
+# absolute path (wave 1zls7).
+INDEX_SOURCE_LOCK_REL = Path(".wavefoundry/locks/index-source-mutation.lock")
+
+
 @contextmanager
 def index_source_guard(root: Path, *, wait: bool = True):
     """Hold source exclusion, or raise on contention/error without yielding.
@@ -18,6 +23,6 @@ def index_source_guard(root: Path, *, wait: bool = True):
     reads. Automatic writers use ``wait=False`` before any publication lock;
     they must also acquire that publication lock without waiting.
     """
-    path = Path(root).resolve() / ".wavefoundry/locks/index-source-mutation.lock"
+    path = Path(root).resolve() / INDEX_SOURCE_LOCK_REL
     with RuntimeFileLock(path, blocking=wait):
         yield
