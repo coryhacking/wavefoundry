@@ -465,6 +465,15 @@ class LifecycleGoldenTests(unittest.TestCase):
                 if isinstance(brief, dict) and isinstance(old_brief, dict):
                     for key in ('instructions', 'verdict_format'):
                         brief[key] = old_brief[key]
+                if route.startswith('close:'):
+                    # Wave 1zoju (1zodx): close gains the blocking
+                    # `change_status_drift` gate; these fixtures' change
+                    # documents carry no header status, so every close
+                    # capture reports it. It is the one declared addition.
+                    response['diagnostics'] = [
+                        diagnostic for diagnostic in response['diagnostics']
+                        if diagnostic.get('code') != 'change_status_drift'
+                    ]
                 old_diagnostics = old_response.get('diagnostics') or []
                 new_diagnostics = response.get('diagnostics') or []
                 self.assertEqual([d.get('code') for d in new_diagnostics],

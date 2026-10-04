@@ -464,6 +464,178 @@ class CloseChangeRegistrationTests(unittest.TestCase):
             self.assertTrue(result["data"]["busy"])
 
 
+class FencedDependsOnTests(_CloseChangeCase):
+    """Wave 1zoju (1zogm): a `Depends On:` line inside a closed fenced block is
+    an example, not a declaration; a fenced status line is still read."""
+
+    def fence_after(self, change_id: str, body: str, *, closer: str = "```") -> None:
+        """Insert a fenced block holding ``body`` after ``change_id``'s status line."""
+        text = self.wave_md.read_text(encoding="utf-8")
+        lines = text.split("\n")
+        start = lines.index(f"{vp.MEMBER_ID_LABEL}: `{change_id}`")
+        status = next(i for i in range(start, len(lines)) if lines[i].startswith(f"{vp.MEMBER_STATUS_LABEL}:"))
+        block = ["", "```text", *body.split("\n")] + ([closer] if closer else []) + [""]
+        lines[status + 1:status + 1] = block
+        self.wave_md.write_text("\n".join(lines), encoding="utf-8")
+
+    def lint_with_warnings(self) -> "tuple[list[str], list[str]]":
+        from wave_lint_lib import helpers, wave_validators
+
+        helpers.read_text_cache_clear()
+        warnings: list[str] = []
+        failures = list(wave_validators.check_wave_docs(self.root, warnings=warnings))
+        return failures, warnings
+
+    def test_fenced_dependency_does_not_activate(self) -> None:
+        """AC-1: closing A leaves B (fenced dependency only) `planned`."""
+        self.wave([(A, "active", "planned"), (B, "planned")])
+        self.fence_after(B, f"Depends On: `{A}`")
+        result = self.close()
+        self.assertEqual(result["status"], "ok", result)
+        self.assertEqual(result["data"]["activated"], [])
+        self.assertEqual(self.block_status(B), (None, "planned"))
+        self.assertEqual(self.doc_statuses(B), ("planned", "planned"))
+
+    def test_fenced_dependency_lints_clean_with_a_warning(self) -> None:
+        """AC-2: no dependency or syntax failure; the warning names B's line."""
+        self.wave([(A, "active", "planned"), (B, "ready", "planned")])
+        self.fence_after(B, f"Depends On: `{A}`\nDepends On: {A}")
+        failures, warnings = self.lint_with_warnings()
+        self.assertEqual([f for f in failures if "Depends On" in f or "depend" in f], [], failures)
+        fenced = [w for w in warnings if "inside a fenced block" in w]
+        self.assertEqual(len(fenced), 2, warnings)
+        for warning in fenced:
+            self.assertIn(f"under `{B}`", warning)
+            self.assertIn("is not read as a dependency", warning)
+
+    def test_unfenced_dependency_still_gates_and_unterminated_fence_is_read(self) -> None:
+        """AC-3: an unterminated fence leaves the line read as a dependency."""
+        self.wave([(A, "active", "planned"), (B, "planned")])
+        self.fence_after(B, f"Depends On: `{A}`", closer="")
+        from wave_lint_lib.wave_validators import _parse_change_records
+
+        records = {r.record_id: r for r in _parse_change_records(self.wave_md.read_text(encoding="utf-8"), "")}
+        self.assertEqual(records[B].depends_on, [A])
+        _failures, warnings = self.lint_with_warnings()
+        self.assertEqual([w for w in warnings if "inside a fenced block" in w], [])
+        result = self.close()
+        self.assertEqual(result["status"], "ok", result)
+        self.assertEqual([a["change_id"] for a in result["data"]["activated"]], [B])
+
+    def test_fenced_status_line_still_keeps_a_record_open(self) -> None:
+        """AC-4: the 1zlu0 fail-closed status reading survives."""
+        self.wave([(A, "complete", "active")])
+        self.fence_after(A, f"{vp.MEMBER_STATUS_LABEL}: `active`")
+        text = self.wave_md.read_text(encoding="utf-8")
+        self.assertEqual(srv._close_open_work_records(text), [(A, "active")])
+        with patch.object(srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}), \
+             patch.object(srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+            response = srv.wf_close_wave_response(self.root, WAVE_ID[:5], mode="dry_run")
+        self.assertEqual(response["status"], "error", response)
+        self.assertIn("open_changes_remaining", self.codes(response))
+
+    def test_every_reader_sees_the_same_dependency_set(self) -> None:
+        """AC-6: the record parser, the implement-wave parser and the close
+        path agree. A fenced ``## `` line sits before C's unfenced dependency,
+        so a fence-unaware section split would drop it."""
+        from wave_lint_lib.wave_validators import _parse_change_records
+
+        self.wave([(A, "active", "planned"), (B, "planned"), (C, "planned", None, (A,)),
+                   (D, "planned", None, (A, E)), (E, "complete", "planned")])
+        self.fence_after(B, f"## Example heading\nDepends On: `{A}`")
+        self.fence_after(D, f"Depends On: `{E}`, `{A}`")
+        text = self.wave_md.read_text(encoding="utf-8")
+        self.assertIn("## Example heading", text.split(f"{vp.MEMBER_ID_LABEL}: `{C}`")[0])
+        expected = {C: [A], D: [A, E]}
+        records = {r.record_id: r.depends_on for r in _parse_change_records(text, "") if r.depends_on}
+        self.assertEqual(records, expected)
+        self.assertEqual(srv._wave_member_dependencies(text), expected)
+        result = self.close(mode="dry_run")
+        # Repair F1: the close path activates exactly the unfenced dependents,
+        # including C after the fenced `## ` line.
+        self.assertEqual([a["change_id"] for a in result["data"]["activated"]], [C, D])
+        self.assertEqual(result["data"]["not_activated"], [])
+
+    def test_the_close_path_reads_each_unfenced_dependency_once(self) -> None:
+        """AC-6 (reverification R1): with E still open, the close path names
+        E as D's only unmet dependency, once, so a dropped or fenced-duplicated
+        dependency is visible."""
+        self.wave([(A, "active", "planned"), (B, "planned"), (C, "planned", None, (A,)),
+                   (D, "planned", None, (A, E)), (E, "planned")])
+        self.fence_after(B, f"## Example heading\nDepends On: `{A}`")
+        self.fence_after(D, f"Depends On: `{E}`, `{A}`")
+        result = self.close(mode="dry_run")
+        self.assertEqual([a["change_id"] for a in result["data"]["activated"]], [C])
+        not_activated = result["data"]["not_activated"]
+        self.assertEqual([entry["change_id"] for entry in not_activated], [D])
+        self.assertEqual(not_activated[0]["reason"], "dependencies_not_done")
+        self.assertEqual(not_activated[0]["dependencies"], [E])
+
+    def test_fenced_heading_after_a_member_does_not_end_the_member_list(self) -> None:
+        """Repair F1: a fenced ``## `` line after B leaves C's block readable,
+        so closing A activates C."""
+        self.wave([(A, "active", "planned"), (B, "planned"), (C, "planned", None, (A,))])
+        self.fence_after(B, "## Example heading")
+        result = self.close()
+        self.assertEqual(result["status"], "ok", result)
+        self.assertEqual([a["change_id"] for a in result["data"]["activated"]], [C])
+        self.assertEqual(self.block_status(C), ("planned", "ready"))
+
+    def test_fenced_member_heading_example_does_not_start_the_member_list(self) -> None:
+        """Repair F1: a fenced member-heading example above the real heading
+        is not the member list, so A is still admitted."""
+        self.wave([(A, "active", "planned"), (B, "planned", None, (A,))])
+        text = self.wave_md.read_text(encoding="utf-8")
+        example = f"```text\n{vp.MEMBER_HEADING}\n\nAn example only.\n```\n\n"
+        self.wave_md.write_text(text.replace(f"{vp.MEMBER_HEADING}\n", example + f"{vp.MEMBER_HEADING}\n", 1),
+                                encoding="utf-8")
+        self.assertEqual(self.wave_md.read_text(encoding="utf-8").count(vp.MEMBER_HEADING), 2)
+        result = self.close()
+        self.assertEqual(result["status"], "ok", result)
+        self.assertNotIn("change_not_admitted", self.codes(result))
+        self.assertEqual([a["change_id"] for a in result["data"]["activated"]], [B])
+
+    def test_admission_never_inserts_inside_a_fence(self) -> None:
+        """Repair F1: `wf_add_change`'s insertion ignores fenced headings, both
+        a fenced ``## `` line inside the member list and a fenced member-heading
+        example above it."""
+        import change_doc_checklist
+
+        member = f"{vp.MEMBER_ID_LABEL}: `{A}`\n{vp.MEMBER_STATUS_LABEL}: `planned`\n"
+        cases = {
+            "fenced_end": (f"# Wave\n\n{vp.MEMBER_HEADING}\n\n{member}\n```text\n## Example\n```\n\n"
+                           "## Watchpoints\n\n- w\n"),
+            "fenced_start": (f"# Wave\n\n```text\n{vp.MEMBER_HEADING}\n```\n\n{vp.MEMBER_HEADING}\n\n{member}\n"
+                             "## Watchpoints\n\n- w\n"),
+        }
+        for name, text in cases.items():
+            with self.subTest(case=name):
+                out = srv._insert_change_block_into_changes_section(text, B)
+                lines = out.split("\n")
+                flags = change_doc_checklist.fenced_line_flags(lines)
+                index = lines.index(f"{vp.MEMBER_ID_LABEL}: `{B}`")
+                self.assertFalse(flags[index], out)
+                self.assertLess(index, lines.index("## Watchpoints"), out)
+                self.assertGreater(index, lines.index(f"{vp.MEMBER_ID_LABEL}: `{A}`"), out)
+
+    def test_fenced_change_doc_dependency_is_not_a_legacy_declaration(self) -> None:
+        """Requirement 2: the close-change legacy reader skips fenced lines."""
+        legacy = _doc_text(B, "planned", extra_header=f"\n```text\nDepends On: `{A}`\n```\n\n")
+        self.wave([(A, "active"), (B, "planned")], docs={B: legacy})
+        result = self.close()
+        self.assertEqual(result["status"], "ok", result)
+        self.assertNotIn("dependencies_not_in_wave_record", self.codes(result))
+
+    def test_crlf_record_reads_the_same(self) -> None:
+        """Requirement 5: LF and CRLF records read the same."""
+        self.wave([(A, "active", "planned"), (B, "planned"), (C, "planned", None, (A,))])
+        self.fence_after(B, f"## Example heading\nDepends On: `{A}`")
+        text = self.wave_md.read_text(encoding="utf-8")
+        self.assertEqual(srv._wave_member_dependencies(text.replace("\n", "\r\n")),
+                         srv._wave_member_dependencies(text))
+        self.assertEqual(srv._wave_member_dependencies(text), {C: [A]})
+
+
 class CloseWaveCompletedChangeTests(unittest.TestCase):
     """Requirement 8: wave close treats a closed change as finished."""
 

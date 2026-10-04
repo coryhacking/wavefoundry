@@ -597,7 +597,6 @@ def _markdown_table_rows(section_text: str) -> list[list[str]]:
 
 
 _AC_ID_RE = re.compile(r"(AC-[\w\-]+)")
-_TERMINAL_CHANGE_STATUSES = {"complete", "completed", "closed"}
 
 
 def _parse_ac_priority_counts(section_text: str) -> dict[str, int]:
@@ -622,8 +621,20 @@ def _parse_ac_priority_counts(section_text: str) -> dict[str, int]:
     return counts
 
 
+def _lint_constants():
+    """``wave_lint_lib.constants``, imported when first needed (wave 1zoju,
+    1zody): the upgrade imports this module to stop the dashboard from a tree
+    whose scripts may predate ``wave_lint_lib``."""
+    from wave_lint_lib import constants
+
+    return constants
+
+
 def _is_terminal_change_status(status: str) -> bool:
-    return status.strip().lower() in _TERMINAL_CHANGE_STATUSES
+    """A change is done by the framework's one done set (wave 1zoju, 1zody):
+    ``DONE_CHANGE_STATUSES``, read at call time, which wave close and the
+    docs-lint dependency rule read too."""
+    return status.strip().lower() in _lint_constants().DONE_CHANGE_STATUSES
 
 
 def _parse_progress_log(section_text: str) -> list[dict[str, str]]:
@@ -1895,6 +1906,8 @@ def collect_dashboard_snapshot(root: Path, skip_git: bool = False) -> dict[str, 
             "entrypoint": config["entrypoint"],
             "terminology": config["terminology"],
             "terminology_ignored": config["terminology_ignored"],
+            # Wave 1zoju (1zody): the page's isDone reads this, not a list of its own.
+            "done_change_statuses": sorted(_lint_constants().DONE_CHANGE_STATUSES),
         },
         "project": {
             "name": project_name,

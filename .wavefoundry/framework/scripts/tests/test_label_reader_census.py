@@ -95,7 +95,6 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("wave_lint_lib/wave_validators.py", "stable {_vocab.MEMBER_ID_LABEL}s in backticks"): "message",
     ("wave_lint_lib/wave_validators.py", "references unknown `\" + _vocab.ID_KEY + \"`"): "message",
     ("wave_lint_lib/wave_validators.py", "references unknown \" + _vocab.MEMBER_ID_LABEL + \" `"): "message",
-    ("wf_server/server_impl.py", "Update {_vocab.RECORD_FILENAME} {_vocab.MEMBER_STATUS_LABEL} fields"): "message",
     # _change_block_pattern: the status lines follow a literal "\n" (the id line is anchored with ^).
     ("wf_server/server_impl.py",
      "\\n(?:{_vocab.PREVIOUS_STATUS_LABEL_RE}:\\s+`[^`]+`\\n)?{_vocab.MEMBER_STATUS_LABEL_RE}:"): "newline_anchored",

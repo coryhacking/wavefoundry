@@ -377,14 +377,15 @@ class RealSurfaceRegistryTests(_BootedSurface):
     def test_marker_records_the_wrappers_that_applied(self):
         # AC-3: all four wrappers apply to wf_add_change; wf_prepare_wave is
         # cost-exempt, so it carries the lock, the guard and the setup notice.
+        # Wave 1zoju (1zodw): the final render pass wraps every served tool.
         registry = self.impl._TOOL_REGISTRY
         self.assertEqual(
             getattr(registry.get("wf_add_change").callable, reg.MIDDLEWARE_MARKER),
-            ("cost", "lock", "guard", "setup"),
+            ("cost", "lock", "guard", "setup", "render"),
         )
         self.assertEqual(
             getattr(registry.get("wf_prepare_wave").callable, reg.MIDDLEWARE_MARKER),
-            ("lock", "guard", "setup"),
+            ("lock", "guard", "setup", "render"),
         )
 
     def test_chain_is_declared_in_application_order(self):

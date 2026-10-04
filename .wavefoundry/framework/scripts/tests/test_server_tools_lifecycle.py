@@ -2575,9 +2575,11 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             encoding="utf-8",
         )
         # 1v0lx: close blocks on a missing admitted document; model it on disk.
+        # Wave 1zoju (1zodx): with a header status matching the wave record.
         for cid in self.srv._CHANGE_ID_PATTERN.findall(wave_md.read_text(encoding="utf-8")):
             (wave_md.parent / f"{cid}.md").write_text(
-                _loc(f"# Sample\n\nChange ID: `{cid}`\n\n## Acceptance Criteria\n\n## Tasks\n"), encoding="utf-8")
+                _loc(f"# Sample\n\nChange ID: `{cid}`\nChange Status: `complete`\n\n"
+                     "## Acceptance Criteria\n\n## Tasks\n"), encoding="utf-8")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
                 result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="create")
@@ -3136,10 +3138,15 @@ class OperatorSignoffTests(unittest.TestCase):
     def _write_admitted_docs(self) -> None:
         # 1v0lx: close now blocks on a missing admitted document, so a
         # close-path fixture must model a valid wave with its docs on disk.
+        # Wave 1zoju (1zodx): each document's header status matches its
+        # wave-record status, as close now requires.
+        from wave_lint_lib.wave_validators import _parse_change_records
         text = self.wave_md.read_text(encoding="utf-8")
+        statuses = {r.record_id: r.status for r in _parse_change_records(text, "")}
         for cid in self.srv._CHANGE_ID_PATTERN.findall(text):
             (self.wave_md.parent / f"{cid}.md").write_text(
-                _loc(f"# Sample\n\nChange ID: `{cid}`\n\n## Acceptance Criteria\n\n## Tasks\n"), encoding="utf-8")
+                _loc(f"# Sample\n\nChange ID: `{cid}`\nChange Status: `{statuses[cid]}`\n\n"
+                     "## Acceptance Criteria\n\n## Tasks\n"), encoding="utf-8")
 
     def test_wf_close_wave_succeeds_with_operator_signoff(self):
         self.wave_md.write_text(self._base_wave(with_operator_signoff=True), encoding="utf-8")
@@ -6507,6 +6514,47 @@ class WaveStatusDriftDetectionTests(unittest.TestCase):
         resp = self.srv.wf_current_wave_response(self.root)
         self.assertEqual(resp["status"], "ok")
 
+    def test_missing_header_status_is_named_not_none(self):
+        """Delivery repair: a change document with no header status reads as
+        `no header status`, never `None`."""
+        wave_dir = _waves_dir(self.root) / "test-wave"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
+            _loc("# Wave Record\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-01-01\n\nwave-id: `test-wave`\nTitle: Test Wave\n\n## Changes\n\n"
+                 "Change ID: `1abcd-bug bare`\nChange Status: `active`\n"),
+            encoding="utf-8",
+        )
+        (wave_dir / "1abcd-bug bare.md").write_text("# Bare\n\n## Notes\n\nText.\n", encoding="utf-8")
+        resp = self.srv.wf_current_wave_response(self.root)
+        drift = [d for d in resp.get("diagnostics") or [] if d.get("code") == "change_status_drift"]
+        self.assertEqual(len(drift), 1, resp.get("diagnostics"))
+        self.assertIn("wave record `active` vs change document no header status", drift[0]["message"])
+        self.assertNotIn("None", drift[0]["message"])
+
+    def test_prefix_id_is_found_only_at_its_exact_path(self):
+        """Wave 1zoju (1zodx) AC-5: `1abcd-bug x` is read from `1abcd-bug x.md`
+        only, never from `1abcd-bug x-two.md`, and only from its header."""
+        wave_dir = _waves_dir(self.root) / "test-wave"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
+            _loc("# Wave Record\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-01-01\n\nwave-id: `test-wave`\nTitle: Test Wave\n\n## Changes\n\n"
+                 "Change ID: `1abcd-bug x`\nChange Status: `active`\n\nChange ID: `1abcd-bug x-two`\nChange Status: `active`\n"),
+            encoding="utf-8",
+        )
+        (wave_dir / "1abcd-bug x-two.md").write_text(
+            _loc("# Two\n\nChange ID: `1abcd-bug x-two`\nChange Status: `active`\n"), encoding="utf-8")
+        (wave_dir / "1abcd-bug x.md").write_text(
+            _loc("# X\n\nChange ID: `1abcd-bug x`\nChange Status: `planned`\n\n## Notes\n\nChange Status: `active`\n"),
+            encoding="utf-8")
+        resp = self.srv.wf_current_wave_response(self.root)
+        drift = [d for d in resp.get("diagnostics") or [] if d.get("code") == "change_status_drift"]
+        self.assertEqual(len(drift), 1, resp.get("diagnostics"))
+        self.assertIn("1abcd-bug x: ", drift[0]["message"])
+        self.assertIn("change document `planned`", drift[0]["message"])
+        self.assertIn("Reconcile the wave record and the change document", drift[0]["message"])
+        self.assertNotIn("x-two", drift[0]["message"])
+        self.assertEqual(resp["status"], "ok")
+
 
 class EditGateToolTests(unittest.TestCase):
     """12ax9/12sf9: wf_open_gate / wf_close_gate / wf_gate_status MCP tools."""
@@ -6775,6 +6823,99 @@ class WaveCloseHandoffPreservationTests(unittest.TestCase):
         self.assertTrue(handoff.exists())
         content = handoff.read_text(encoding="utf-8")
         self.assertIn("Session Handoff", content)
+
+
+class CloseWaveStatusDriftTests(unittest.TestCase):
+    """Wave 1zoju (1zodx): close refuses while a member's wave-record status
+    and change-document status disagree, before close's own writes; the
+    convergent re-close of an already-closed wave is unaffected."""
+
+    CHANGE = "1200d-bug drifted"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def _wave(self, wave_status: str, member_status: str, doc_status: str) -> Path:
+        wave_dir = _waves_dir(self.root) / "dr-test"
+        wave_dir.mkdir(parents=True, exist_ok=True)
+        wave_md = wave_dir / vocabulary_profile.RECORD_FILENAME
+        wave_md.write_text(
+            _loc(f"# Wave Record\n\nOwner: Engineering\nStatus: {wave_status}\nLast verified: 2026-05-01\n\n"
+                 "wave-id: `dr-test`\nTitle: DR Test\n\n## Changes\n\n"
+                 f"Change ID: `{self.CHANGE}`\nChange Status: `{member_status}`\n\n"
+                 "## Wave Summary\n\nTest.\n\n## Journal Watchpoints\n\n- Test.\n"
+                 "\n## Review Signoff Evidence\n\n- operator-signoff: approved\n"
+                 "- 2026-05-01: approved and signoff complete.\n"),
+            encoding="utf-8",
+        )
+        (wave_dir / f"{self.CHANGE}.md").write_text(
+            _loc(f"# Drifted\n\nChange ID: `{self.CHANGE}`\nChange Status: `{doc_status}`\nStatus: {doc_status}\n\n"
+                 "## Acceptance Criteria\n\n- [x] AC-1: Done.\n\n## Tasks\n\n- [x] Do it.\n"),
+            encoding="utf-8",
+        )
+        return wave_md
+
+    def _close(self, mode: str):
+        garden = {"passed": True, "files_updated": 0, "updated": [], "output": "docs-gardener: ok\n"}
+        with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}), \
+             patch.object(self.srv, "run_garden", return_value=garden), \
+             patch.object(self.srv, "_attach_lint_to_response", side_effect=lambda envelope, *a, **k: envelope), \
+             patch.object(self.srv, "_auto_populate_memory_for_wave", lambda *a, **k: None), \
+             patch.object(self.srv, "_maybe_optimize_index_on_close", lambda *a, **k: None):
+            return self.srv.wf_close_wave_response(self.root, "dr-test", mode=mode)
+
+    @staticmethod
+    def _drift(response):
+        return [d for d in response.get("diagnostics") or [] if d["code"] == "change_status_drift"]
+
+    def _handoff(self) -> Path:
+        return self.root / "docs" / "agents" / "session-handoff.md"
+
+    def test_drift_blocks_close_and_writes_nothing(self):
+        """AC-4: dry run and create refuse; create writes no status, summary or handoff."""
+        wave_md = self._wave("active", "complete", "active")
+        change_doc = wave_md.parent / f"{self.CHANGE}.md"
+        before = (wave_md.read_bytes(), change_doc.read_bytes())
+        handoff_before = self._handoff().read_bytes() if self._handoff().exists() else None
+        for mode in ("dry_run", "create"):
+            with self.subTest(mode=mode):
+                response = self._close(mode)
+                self.assertEqual(response["status"], "error", response)
+                drift = self._drift(response)
+                self.assertEqual(len(drift), 1, response["diagnostics"])
+                self.assertIn(f"`{self.CHANGE}` is `complete`", drift[0]["message"])
+                self.assertIn("`active` in its change document", drift[0]["message"])
+                self.assertEqual(drift[0]["recovery_tools"], ["wf_get_change", "wf_current_wave"])
+                self.assertFalse(drift[0].get("advisory", False))
+                self.assertEqual((wave_md.read_bytes(), change_doc.read_bytes()), before)
+                self.assertEqual(self._handoff().read_bytes() if self._handoff().exists() else None,
+                                 handoff_before)
+
+    def test_matching_statuses_close(self):
+        self._wave("active", "complete", "complete")
+        response = self._close("create")
+        self.assertEqual(response["status"], "ok", response)
+        self.assertTrue(response["data"]["transitioned_to_closed"])
+
+    def test_already_closed_wave_reconverges_despite_drift(self):
+        """AC-7: the 1seax convergent re-close is unaffected by the gate."""
+        self._wave("closed", "complete", "active")
+        if self._handoff().exists():
+            self._handoff().unlink()
+        response = self._close("create")
+        self.assertEqual(response["status"], "ok", response)
+        self.assertIs(response["data"]["transitioned_to_closed"], False)
+        self.assertEqual(self._drift(response), [])
+        self.assertTrue(self._handoff().exists())
+        self.assertEqual(response["data"]["handoff_path"], "docs/agents/session-handoff.md")
 
 
 class BulkWaveGetChangeTests(unittest.TestCase):
@@ -10370,6 +10511,11 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 # Wave 1zls8 (1zlty): a mapped alias's skipped response-key rename
                 # is a note on an extension alias response; it gates nothing.
                 ("_rename_response_keys", "_diagnostic", "response_key_rename_skipped"),
+                # Wave 1zoju (1zojt): the stale helper reference report and its
+                # skipped-module note are read-only notes on wf_server_info,
+                # which gates nothing.
+                ("wf_server_info_response", "_diagnostic", "extension_helper_stale_reference"),
+                ("wf_server_info_response", "_diagnostic", "extension_helper_stale_scan_skipped"),
             },
             "exactly these sites may be advisory. A tag added, removed, or "
             "MOVED onto another diagnostic changes this set even when the count "
@@ -14316,10 +14462,16 @@ class ReopenWavePurposeStageTests(unittest.TestCase):
             "unseal_wave",
             wraps=self.srv.context_efficiency.unseal_wave,
         ) as unseal_spy:
-            with self.assertRaises(TypeError) as caught:
-                self._tool("wf_reopen_wave")(wave_id=self.wave_id)
+            # Wave 1zoju (1zodw): the served callable's TypeError is rendered by
+            # the final render pass, so a direct call gets the error envelope;
+            # an MCP client is still refused by the schema before the call.
+            result = self._tool("wf_reopen_wave")(wave_id=self.wave_id)
 
-        self.assertIn("purpose", str(caught.exception))
+        self.assertEqual(result["status"], "error")
+        (diagnostic,) = result["diagnostics"]
+        self.assertEqual(diagnostic["code"], "tool_unhandled_exception")
+        self.assertTrue(diagnostic["message"].startswith("TypeError: "), diagnostic)
+        self.assertIn("purpose", diagnostic["message"])
         self.assertEqual(
             self.wave_md.read_text(encoding="utf-8"), before_text,
             "an omitted purpose must not mutate wave status",
@@ -16234,6 +16386,26 @@ class ImplementDependencyProducerTests(unittest.TestCase):
         self.assertEqual(result["data"]["serialization_points"], [first, second])
         self.assertEqual(result["next_tools"], ["wf_mark_ac", "wf_mark_task", "wf_review_wave", "wf_current_wave"])
         self.assertIn("FULL change id", result["usage"])
+
+    def test_fenced_dependency_is_not_reported(self):
+        """Wave 1zoju (1zogm) AC-5: a member whose only `Depends On:` line is
+        fenced reports none; a non-fenced one still resolves."""
+        first, second, third = self.ids
+        self.declare(second, [first])
+        text = self.wave_md.read_text()
+        anchor = _loc(f"Change ID: `{third}`\n")
+        fenced = f"\n```text\nDepends On: `{second}`\n```\n\n"
+        status_line = next(line for line in text.split(anchor, 1)[1].splitlines(keepends=True)
+                           if line.startswith(_loc("Change Status:")))
+        text = text.replace(anchor + status_line, anchor + status_line + fenced, 1)
+        self.wave_md.write_text(text)
+        # Requirement 2: the change-document fallback skips a fenced line too.
+        path = self.wave_md.parent / f"{third}.md"
+        path.write_text(path.read_text() + f"\n```text\nDepends On: `{first}`\n```\n")
+        self.ready()
+        result = self.srv.wf_implement_wave_response(self.root, self.wave_id, mode="dry_run")
+        self.assertEqual(result["status"], "dry_run", result)
+        self.assertEqual([c["depends_on"] for c in result["data"]["ordered_changes"]], [[], [first], []])
 
     def test_invalid_authoritative_tokens_are_advisory_not_legacy_prefixes(self):
         first, second, third = self.ids

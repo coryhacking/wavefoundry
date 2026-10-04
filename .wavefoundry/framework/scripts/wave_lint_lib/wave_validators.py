@@ -1091,9 +1091,13 @@ def _parse_change_records(text: str, rel: str) -> list[WorkRecord]:
     records: list[WorkRecord] = []
     lines = text.splitlines()
     current: WorkRecord | None = None
+    # Wave 1zoju (1zogm): a `Depends On:` line inside a closed fenced block is
+    # an example, not a declaration; every other branch still reads fenced
+    # lines (the close-status union stays fail-closed).
+    fenced = change_doc_checklist.fenced_line_flags(lines)
     current_wave_id = WAVE_ID_PATTERN.findall(text)
     wave_id = current_wave_id[0] if len(current_wave_id) == 1 else None
-    for raw_line in lines:
+    for raw_line, is_fenced in zip(lines, fenced):
         line = raw_line.strip()
         change_match = CHANGE_ID_PATTERN.match(line)
         if change_match:
@@ -1115,7 +1119,7 @@ def _parse_change_records(text: str, rel: str) -> list[WorkRecord]:
         if CHANGE_STATUS_LABEL_LINE_PATTERN.match(line):
             current.status_values.append(None)
             continue
-        depends_match = DEPENDS_ON_LINE_PATTERN.match(line)
+        depends_match = None if is_fenced else DEPENDS_ON_LINE_PATTERN.match(line)
         if depends_match:
             current.depends_on.extend(BACKTICK_VALUE_PATTERN.findall(depends_match.group(1)))
     if current is not None:
@@ -1123,6 +1127,36 @@ def _parse_change_records(text: str, rel: str) -> list[WorkRecord]:
     if records and (_vocab.MEMBER_HEADING in text or any(record.status is not None for record in records)):
         return records
     return []
+
+
+def fenced_member_dependency_lines(text: str) -> list[tuple[int, str | None, str]]:
+    """Each fenced `Depends On:` line inside a wave record's member section
+    (wave 1zoju, 1zogm), as ``(line number, owning record id, stripped line)``.
+
+    The section starts at an unfenced member heading and ends at the next
+    unfenced ``## `` heading; the owner is the record the parsers attribute the
+    line to (the last id line above it, fenced or not)."""
+    lines = text.splitlines()
+    fenced = change_doc_checklist.fenced_line_flags(lines)
+    heading = re.compile(rf"{_vocab.MEMBER_HEADING_RE}[ \t]*")
+    found: list[tuple[int, str | None, str]] = []
+    inside = False
+    owner: str | None = None
+    for number, (raw_line, is_fenced) in enumerate(zip(lines, fenced), start=1):
+        if not is_fenced and raw_line.startswith("## "):
+            inside = heading.fullmatch(raw_line) is not None
+            owner = None
+            continue
+        if not inside:
+            continue
+        line = raw_line.strip()
+        id_match = CHANGE_ID_PATTERN.match(line) or ITEM_ID_PATTERN.match(line)
+        if id_match:
+            owner = id_match.group(1)
+            continue
+        if is_fenced and DEPENDS_ON_LINE_PATTERN.match(line):
+            found.append((number, owner, line))
+    return found
 
 
 def _unmet_dependency_message(rel: str, record: WorkRecord, dependency_record: WorkRecord) -> str:
@@ -1151,9 +1185,10 @@ def _parse_legacy_item_records(text: str, rel: str) -> list[WorkRecord]:
     records: list[WorkRecord] = []
     lines = text.splitlines()
     current: WorkRecord | None = None
+    fenced = change_doc_checklist.fenced_line_flags(lines)  # wave 1zoju (1zogm)
     current_wave_id = WAVE_ID_PATTERN.findall(text)
     wave_id = current_wave_id[0] if len(current_wave_id) == 1 else None
-    for raw_line in lines:
+    for raw_line, is_fenced in zip(lines, fenced):
         line = raw_line.strip()
         item_match = ITEM_ID_PATTERN.match(line)
         if item_match:
@@ -1175,7 +1210,7 @@ def _parse_legacy_item_records(text: str, rel: str) -> list[WorkRecord]:
         if ITEM_STATUS_LABEL_LINE_PATTERN.match(line):
             current.status_values.append(None)
             continue
-        depends_match = DEPENDS_ON_LINE_PATTERN.match(line)
+        depends_match = None if is_fenced else DEPENDS_ON_LINE_PATTERN.match(line)
         if depends_match:
             current.depends_on.extend(BACKTICK_VALUE_PATTERN.findall(depends_match.group(1)))
     if current is not None:
@@ -1188,6 +1223,61 @@ def _parse_work_records(text: str, rel: str) -> list[WorkRecord]:
     if change_records:
         return change_records
     return _parse_legacy_item_records(text, rel)
+
+
+# Wave 1zoju (1zodx): a wave in one of these statuses is history; its member
+# status drift is neither reported by docs-lint nor gated by wave close.
+STATUS_DRIFT_EXEMPT_WAVE_STATUSES = frozenset({"closed", "completed"})
+
+
+def status_drift_exempt(wave_text: str) -> bool:
+    """True when the wave record's ``Status`` is closed or completed."""
+    return (_metadata_value(wave_text, "Status") or "").casefold() in STATUS_DRIFT_EXEMPT_WAVE_STATUSES
+
+
+def change_doc_header_status(raw: str) -> str | None:
+    """A change document's status from its leading metadata (wave 1zoju,
+    1zodx): CRLF normalised, the text before the first ``## `` heading, the
+    first member-status match; ``None`` when absent. This is the reading
+    ``wf_close_change`` uses."""
+    text = raw.replace("\r\n", "\n")
+    heading = re.search(r"(?m)^## ", text)
+    header = text if heading is None else text[: heading.start()]
+    match = CHANGE_STATUS_PATTERN.search(header)
+    return match.group(1) if match else None
+
+
+def member_status_drift(wave_text: str, wave_dir: Path, *,
+                        change_id: str | None = None) -> list[tuple[str, str | None, str | None]]:
+    """``(change_id, wave_status, doc_status)`` for each wave-record member
+    whose change document at ``wave_dir / f"{change_id}.md"`` exists and whose
+    header status differs (wave 1zoju, 1zodx). A missing or unreadable change
+    document is not drift; a header with no readable status is drift with
+    ``doc_status`` ``None``. ``change_id`` limits the comparison to one member
+    (one document read)."""
+    drift: list[tuple[str, str | None, str | None]] = []
+    for record in _parse_change_records(wave_text, ""):
+        if change_id is not None and record.record_id != change_id:
+            continue
+        try:
+            raw = (wave_dir / f"{record.record_id}.md").read_bytes().decode("utf-8")
+        except (OSError, UnicodeError):
+            continue
+        doc_status = change_doc_header_status(raw)
+        if doc_status != record.status:
+            drift.append((record.record_id, record.status, doc_status))
+    return drift
+
+
+def _status_drift_warning(root: Path, wave_md: Path, entry: tuple[str, str | None, str | None]) -> str:
+    change_id, wave_status, doc_status = entry
+    doc_rel = relative_to_root(root, wave_md.parent / f"{change_id}.md")
+    wave_value = f"`{wave_status}`" if wave_status else "no readable status"
+    doc_value = f"`{doc_status}`" if doc_status else "no readable status"
+    return (
+        f"{relative_to_root(root, wave_md)}: change `{change_id}` status drift: the wave record says "
+        f"{wave_value} but `{doc_rel}` says {doc_value}; update whichever is wrong"
+    )
 
 
 def _wave_record_docs(root: Path, roots: record_paths.RecordRoots) -> list[Path]:
@@ -1615,6 +1705,18 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
     failures.extend(check_orphan_wave_ledgers(root))
     seen_wave_ids: dict[str, str] = {}
     seen_item_ids: set[str] = set()
+    reported_drift: set[tuple[Path, str]] = set()
+
+    def report_drift(wave_md: Path, wave_text: str, change_id: str | None = None) -> None:
+        # Wave 1zoju (1zodx): member status drift is a WARNING for a wave that
+        # is not closed or completed; reported once per run.
+        if warnings is None or status_drift_exempt(wave_text):
+            return
+        for entry in member_status_drift(wave_text, wave_md.parent, change_id=change_id):
+            if (wave_md, entry[0]) not in reported_drift:
+                reported_drift.add((wave_md, entry[0]))
+                warnings.append(_status_drift_warning(root, wave_md, entry))
+
     for path in _wave_record_docs(root, roots):
         rel = relative_to_root(root, path)
         if path.name == "README.md":
@@ -1625,6 +1727,14 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
             continue
         text = read_text(path)
         is_wave_record = path.name == _vocab.RECORD_FILENAME
+        if is_wave_record:
+            report_drift(path, text)
+        elif only is not None:
+            # The incremental path skips the sibling wave record unless it is
+            # in scope, so an in-scope change document compares its own member.
+            sibling = path.parent / _vocab.RECORD_FILENAME
+            if sibling.is_file():
+                report_drift(sibling, read_text(sibling), change_id=path.stem)
         wave_matches: list[str] = []
         watchpoints = ""
 
@@ -1765,9 +1875,20 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
         for raw_line in [line for line in text.splitlines() if line.startswith("Previous Item Status:")]:
             if not PREVIOUS_ITEM_STATUS_PATTERN.match(raw_line):
                 failures.append(f"{rel}: invalid `Previous Item Status` declaration `{raw_line}`{item_status_suffix}")
-        for raw_line in [line for line in text.splitlines() if line.startswith("Depends On:")]:
+        text_lines = text.splitlines()
+        for raw_line, is_fenced in zip(text_lines, change_doc_checklist.fenced_line_flags(text_lines)):
+            if is_fenced or not raw_line.startswith("Depends On:"):
+                continue  # a fenced example is not a declaration (wave 1zoju, 1zogm)
             if "`" not in raw_line:
                 failures.append(f"{rel}: `Depends On` must reference stable {_vocab.MEMBER_ID_LABEL}s in backticks")
+
+        if is_wave_record and warnings is not None:
+            for number, owner, line in fenced_member_dependency_lines(text):
+                under = f" under `{owner}`" if owner else ""
+                warnings.append(
+                    f"{rel}:{number}: `Depends On:` line{under} is inside a fenced block and is not "
+                    f"read as a dependency: `{line}`"
+                )
 
         work_records_by_id = {record.record_id: record for record in work_records}
         for record in work_records:

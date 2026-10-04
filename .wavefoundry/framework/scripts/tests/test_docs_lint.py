@@ -6609,3 +6609,139 @@ class LineEndingParityTests(unittest.TestCase):
         self.assertEqual(results[b"\n"][0], 1)
         self.assertTrue(any("plain bullet" in line for line in results[b"\n"][1]), results)
         self.assertEqual(results[b"\r\n"], results[b"\n"])
+
+
+class FencedMemberDependencyLineTests(unittest.TestCase):
+    """Wave 1zoju (1zogm): the fenced-dependency warning reads only the member
+    section, and an unterminated fence flags nothing."""
+
+    def test_only_fenced_lines_inside_the_member_section(self):
+        from wave_lint_lib.wave_validators import fenced_member_dependency_lines, _parse_change_records
+
+        vp = vocabulary_profile
+        text = "\n".join([
+            "# Wave", "", vp.MEMBER_HEADING, "",
+            f"{vp.MEMBER_ID_LABEL}: `1200a-bug one`", f"{vp.MEMBER_STATUS_LABEL}: `planned`", "",
+            "```text", "Depends On: `1200b-bug two`", "```", "",
+            f"{vp.MEMBER_ID_LABEL}: `1200b-bug two`", f"{vp.MEMBER_STATUS_LABEL}: `planned`",
+            "Depends On: `1200a-bug one`", "",
+            "## Notes", "", "```text", "Depends On: `1200a-bug one`", "```", "",
+        ])
+        self.assertEqual(fenced_member_dependency_lines(text),
+                         [(9, "1200a-bug one", "Depends On: `1200b-bug two`")])
+        records = {r.record_id: r.depends_on for r in _parse_change_records(text, "")}
+        self.assertEqual(records, {"1200a-bug one": [], "1200b-bug two": ["1200a-bug one"]})
+        unterminated = text.split("## Notes")[0].replace("```\n\n" + vp.MEMBER_ID_LABEL, "\n\n" + vp.MEMBER_ID_LABEL, 1)
+        self.assertEqual(fenced_member_dependency_lines(unterminated), [])
+        self.assertEqual({r.record_id: r.depends_on for r in _parse_change_records(unterminated, "")}["1200a-bug one"],
+                         ["1200b-bug two"])
+
+
+class MemberStatusDriftDetectorTests(unittest.TestCase):
+    """Wave 1zoju (1zodx) AC-1: the one shared definition of status drift."""
+
+    A = "1200a-bug alpha"
+    B = "1200b-bug bravo"
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.wave_dir = Path(tmp.name)
+
+    def wave_text(self, *members: "tuple[str, str]") -> str:
+        vp = vocabulary_profile
+        blocks = "\n\n".join(f"{vp.MEMBER_ID_LABEL}: `{cid}`\n{vp.MEMBER_STATUS_LABEL}: `{status}`"
+                             for cid, status in members)
+        return f"# Wave\n\nStatus: active\n\n{vp.MEMBER_HEADING}\n\n{blocks}\n"
+
+    def doc(self, change_id: str, header: str, body: str = "", *, newline: str = "\n") -> None:
+        text = f"# Change\n\n{header}Owner: Engineering\n\n## Rationale\n\nText.\n{body}"
+        (self.wave_dir / f"{change_id}.md").write_bytes(text.replace("\n", newline).encode("utf-8"))
+
+    def status_line(self, status: str) -> str:
+        return f"{vocabulary_profile.MEMBER_STATUS_LABEL}: `{status}`\n"
+
+    def drift(self, text: str):
+        from wave_lint_lib.wave_validators import member_status_drift
+        return member_status_drift(text, self.wave_dir)
+
+    def test_equal_and_differing_statuses(self):
+        self.doc(self.A, self.status_line("active"))
+        self.doc(self.B, self.status_line("planned"))
+        self.assertEqual(self.drift(self.wave_text((self.A, "active"))), [])
+        self.assertEqual(self.drift(self.wave_text((self.A, "active"), (self.B, "active"))),
+                         [(self.B, "active", "planned")])
+
+    def test_crlf_document_reads_like_lf(self):
+        self.doc(self.A, self.status_line("active"), newline="\r\n")
+        self.assertEqual(self.drift(self.wave_text((self.A, "active"))), [])
+
+    def test_status_lines_after_the_header_are_ignored(self):
+        body = (f"\n```text\n{self.status_line('planned')}```\n\n## Progress Log\n\n"
+                f"| Date | Update |\n| --- | --- |\n| x | {self.status_line('planned').strip()} |\n"
+                f"{self.status_line('planned')}")
+        self.doc(self.A, self.status_line("active"), body)
+        self.assertEqual(self.drift(self.wave_text((self.A, "active"))), [])
+        # With no header status, a matching line further down is not read.
+        self.doc(self.B, "", body.replace("planned", "active"))
+        self.assertEqual(self.drift(self.wave_text((self.B, "active"))), [(self.B, "active", None)])
+
+    def test_missing_document_is_not_drift_and_a_bare_header_is(self):
+        self.assertEqual(self.drift(self.wave_text((self.A, "active"))), [])
+        self.doc(self.A, "", f"\n{self.status_line('active')}")
+        self.assertEqual(self.drift(self.wave_text((self.A, "active"))), [(self.A, "active", None)])
+
+    def test_close_change_reads_the_same_header(self):
+        """Requirement 5: `wf_close_change` reads the header the same way."""
+        from wave_lint_lib.wave_validators import change_doc_header_status
+        from server_tools_support import load_server
+        srv = load_server()
+        samples = [self.status_line("active"), "", f"Status: x\r\n{self.status_line('review')}"]
+        for header in samples:
+            raw = f"# T\r\n\r\n{header}\r\n## R\r\n{self.status_line('planned')}"
+            self.assertEqual(change_doc_header_status(raw), srv._close_change_doc_status(raw), header)
+
+
+from test_close_change import A as _DRIFT_A, B as _DRIFT_B, _CloseChangeCase, _doc_text  # noqa: E402
+
+
+class MemberStatusDriftLintTests(_CloseChangeCase):
+    """Wave 1zoju (1zodx) AC-2 and AC-8: docs-lint warns, never fails, on
+    member status drift in a wave that is not closed or completed."""
+
+    def lint_drift(self, only=None) -> "tuple[list[str], list[str]]":
+        from wave_lint_lib import helpers, wave_validators
+
+        helpers.read_text_cache_clear()
+        warnings: list[str] = []
+        failures = list(wave_validators.check_wave_docs(self.root, only=only, warnings=warnings))
+        return failures, [w for w in warnings if "status drift" in w]
+
+    def drifted_wave(self, status: str = "active") -> None:
+        self.wave([(_DRIFT_A, "active", "planned"), (_DRIFT_B, "planned")], status=status,
+                  docs={_DRIFT_A: _doc_text(_DRIFT_A, "planned")})
+
+    def test_open_wave_drift_is_one_warning_and_no_failure(self):
+        self.drifted_wave()
+        failures, drift = self.lint_drift()
+        self.assertEqual(failures, [])
+        self.assertEqual(len(drift), 1, drift)
+        wave_rel = self.wave_md.relative_to(self.root).as_posix()
+        doc_rel = self.doc(_DRIFT_A).relative_to(self.root).as_posix()
+        for text in (wave_rel, doc_rel, f"`{_DRIFT_A}`", "`active`", "`planned`"):
+            self.assertIn(text, drift[0])
+
+    def test_closed_wave_drift_is_not_reported(self):
+        for status in ("closed", "completed"):
+            with self.subTest(status=status):
+                self.setUp()
+                self.drifted_wave(status=status)
+                self.assertEqual(self.lint_drift()[1], [])
+
+    def test_incremental_lint_on_the_change_document_warns_once(self):
+        self.drifted_wave()
+        _failures, drift = self.lint_drift(only={self.doc(_DRIFT_A)})
+        self.assertEqual(len(drift), 1, drift)
+        self.assertEqual(self.lint_drift(only={self.doc(_DRIFT_B)})[1], [])
+        _failures, both = self.lint_drift(only={self.doc(_DRIFT_A), self.wave_md})
+        self.assertEqual(both, drift)

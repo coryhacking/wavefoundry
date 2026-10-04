@@ -210,6 +210,10 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
             "upgrade_in_progress", "project_publication_busy", "unknown_arguments",
             # Wave 1zls7 (1zlts): a same-thread re-entry of the lifecycle lock.
             "lifecycle_lock_reentry",
+            # Wave 1zoju (1zodw): the final render pass turns an exception no
+            # handler caught into an error envelope; it is a registration
+            # wrapper, so its response carries no configured_gates key.
+            "tool_unhandled_exception",
         }
 
         # Derive the candidate set from the rule's own scope, then compare.  An

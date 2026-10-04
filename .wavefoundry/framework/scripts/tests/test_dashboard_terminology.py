@@ -147,6 +147,84 @@ class DashboardTerminologyTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
+class DashboardDoneStatusTests(unittest.TestCase):
+    """Wave 1zoju (1zody): the dashboard counts a change done by the lint
+    constants' one done set, in Python and in the page."""
+
+    def test_predicate_reproducer(self):
+        """AC-1: `implemented` and `deferred` are done, `closed` is not."""
+        self.assertTrue(dashboard_lib._is_terminal_change_status("implemented"))
+        self.assertTrue(dashboard_lib._is_terminal_change_status("deferred"))
+        self.assertFalse(dashboard_lib._is_terminal_change_status("closed"))
+
+    def test_predicate_reads_the_constant(self):
+        """AC-2: agreement on every change status, and a patch reaches it."""
+        from unittest import mock
+        constants = dashboard_lib._lint_constants()  # the module the predicate reads at call time
+        for status in [*constants.ALLOWED_CHANGE_STATUS_TRANSITIONS, "closed", "approved"]:
+            with self.subTest(status=status):
+                self.assertEqual(dashboard_lib._is_terminal_change_status(f" {status.upper()} "),
+                                 status in constants.DONE_CHANGE_STATUSES)
+        with mock.patch.object(constants, "DONE_CHANGE_STATUSES", frozenset({"planned"})):
+            self.assertTrue(dashboard_lib._is_terminal_change_status("planned"))
+            self.assertFalse(dashboard_lib._is_terminal_change_status("complete"))
+
+    def test_snapshot_carries_the_done_set(self):
+        """AC-3."""
+        from wave_lint_lib import constants
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir()
+            config = dashboard_lib.collect_dashboard_snapshot(root, skip_git=True)["config"]
+        self.assertEqual(config["done_change_statuses"], sorted(constants.DONE_CHANGE_STATUSES))
+
+    def test_no_status_list_remains(self):
+        """AC-5: no literal inside the page's done set, none in the module."""
+        import ast
+        from wave_lint_lib import constants
+        source = DASHBOARD_JS.read_text()
+        start = source.index("const DONE_STATUSES")
+        definition = source[start:source.index("function isDone(", start)]
+        self.assertEqual(re.findall(r'"[^"]*"|\'[^\']*\'', definition), [], definition)
+        statuses = {*constants.ALLOWED_CHANGE_STATUS_TRANSITIONS, *constants.DONE_CHANGE_STATUSES, "closed", "approved"}
+        tree = ast.parse((SCRIPTS_ROOT / "dashboard_lib.py").read_text())
+        for node in tree.body:
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                literals = {n.value for n in ast.walk(node) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+                self.assertFalse(literals & statuses and any(isinstance(n, (ast.Set, ast.Call)) for n in ast.walk(node)),
+                                 ast.unparse(node))
+
+    @unittest.skipUnless(shutil.which("node"), "Node needed for dashboard render slices")
+    def test_page_reads_the_payload(self):
+        """AC-4: the payload decides; App refills the set in its render body."""
+        result = subprocess.run([shutil.which("node"), "-e", DONE_SCRIPT, str(DASHBOARD_JS)], text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        source = DASHBOARD_JS.read_text()
+        app = source[source.index("function App() {"):]
+        self.assertIn("updateTerminology(snapshot?.config?.terminology);\n  updateDoneStatuses(snapshot?.config?.done_change_statuses);", app)
+
+
+DONE_SCRIPT = r'''
+const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const context = {};
+vm.createContext(context);
+vm.runInContext(source.slice(source.indexOf('const DONE_STATUSES'), source.indexOf('function waveStatus(')), context);
+assert.equal(context.isDone('implemented'), false, 'empty before the first snapshot');
+context.updateDoneStatuses({config: {done_change_statuses: ['complete', 'implemented']}}.config.done_change_statuses);
+assert.equal(context.isDone('implemented'), true);
+assert.equal(context.isDone('IMPLEMENTED'), true);
+assert.equal(context.isDone('approved'), false);
+assert.equal(context.isDone('done'), false);
+context.updateDoneStatuses(['Done']);
+assert.equal(context.isDone('done'), true);
+assert.equal(context.isDone('complete'), false, 'the set is refilled, not extended');
+context.updateDoneStatuses(undefined);
+assert.equal(context.isDone('done'), false);
+console.log('done statuses follow the payload');
+'''
+
+
 RENDER_SCRIPT = r'''
 const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
 const source = fs.readFileSync(process.argv[1], 'utf8');

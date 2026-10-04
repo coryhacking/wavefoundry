@@ -62,6 +62,15 @@
               "wf_current_wave"
             ],
             "recovery_usage": "wf_current_wave()"
+          },
+          {
+            "code": "change_status_drift",
+            "message": "The wave record and change documents disagree for: `0exxlz-ref fixture-change` is `planned` in the wave record but no readable status in its change document. Update whichever side is wrong, then close again.",
+            "recovery_tools": [
+              "wf_get_change",
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_get_change(change_id='0exxlz-ref fixture-change')"
           }
         ],
         "isError": true,
@@ -132,6 +141,15 @@
               "wf_current_wave"
             ],
             "recovery_usage": "wf_current_wave()"
+          },
+          {
+            "code": "change_status_drift",
+            "message": "The wave record and change documents disagree for: `0exxlz-ref fixture-change` is `planned` in the wave record but no readable status in its change document. Update whichever side is wrong, then close again.",
+            "recovery_tools": [
+              "wf_get_change",
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_get_change(change_id='0exxlz-ref fixture-change')"
           }
         ],
         "isError": true,
@@ -765,6 +783,15 @@
               "wf_current_wave"
             ],
             "recovery_usage": "wf_current_wave()"
+          },
+          {
+            "code": "change_status_drift",
+            "message": "The wave record and change documents disagree for: `0exxmz-ref fixture-change` is `planned` in the wave record but no readable status in its change document. Update whichever side is wrong, then close again.",
+            "recovery_tools": [
+              "wf_get_change",
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_get_change(change_id='0exxmz-ref fixture-change')"
           }
         ],
         "isError": true,
@@ -844,6 +871,15 @@
               "wf_current_wave"
             ],
             "recovery_usage": "wf_current_wave()"
+          },
+          {
+            "code": "change_status_drift",
+            "message": "The wave record and change documents disagree for: `0exxmz-ref fixture-change` is `planned` in the wave record but no readable status in its change document. Update whichever side is wrong, then close again.",
+            "recovery_tools": [
+              "wf_get_change",
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_get_change(change_id='0exxmz-ref fixture-change')"
           }
         ],
         "isError": true,
@@ -1525,6 +1561,15 @@
               "wf_current_wave"
             ],
             "recovery_usage": "wf_current_wave()"
+          },
+          {
+            "code": "change_status_drift",
+            "message": "The wave record and change documents disagree for: `0exxkz-ref fixture-change` is `planned` in the wave record but no readable status in its change document. Update whichever side is wrong, then close again.",
+            "recovery_tools": [
+              "wf_get_change",
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_get_change(change_id='0exxkz-ref fixture-change')"
           }
         ],
         "isError": true,
@@ -1595,6 +1640,15 @@
               "wf_current_wave"
             ],
             "recovery_usage": "wf_current_wave()"
+          },
+          {
+            "code": "change_status_drift",
+            "message": "The wave record and change documents disagree for: `0exxkz-ref fixture-change` is `planned` in the wave record but no readable status in its change document. Update whichever side is wrong, then close again.",
+            "recovery_tools": [
+              "wf_get_change",
+              "wf_current_wave"
+            ],
+            "recovery_usage": "wf_get_change(change_id='0exxkz-ref fixture-change')"
           }
         ],
         "isError": true,

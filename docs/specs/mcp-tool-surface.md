@@ -191,7 +191,22 @@ succeeds without a restart. Neither an extension module nor a helper module may 
 framework flat script (`mcp_tool_extensions.FRAMEWORK_SCRIPT_MODULE_NAMES`), and both names must be
 ASCII identifiers. A module that imports a helper should itself be declared as a helper (or as an
 extension module): an undeclared importer is never evicted, so after a reload it keeps the stale
-helper it imported. A fork's own flat script in the scripts directory that is neither an extension
+helper it imported. The server reports this (wave `1zoju`): every install keeps the module objects it
+evicted until a scan at the end of the install, then releases them (also when the install fails).
+The scan reads, by `vars()` and identity only, each module-level global of every unmarked module
+whose file lies under the scripts directory (subpackages included), and records a global that is an
+evicted module, or that the evicted module's namespace bound under a name the new module still binds
+to a different object. Dunder names and values of cached immutable types (`None`, `bool`, `int`,
+`float`, `complex`, `str`, `bytes`, `tuple`, `frozenset`, `range`, `Ellipsis`, `NotImplemented`) are
+not compared, because they are shared across modules; a stale binding of one is not reported. `wf_server_info` lists the result under
+`extensions.stale_helper_references` (`{"module", "global", "helper"}` entries, sorted, always
+present, empty after a first install) and adds the advisory `extension_helper_stale_reference`
+naming the modules; declare each importer as a helper or restart the host. The limit: only
+module-level bindings are checked, so a reference held in a container, closure, default argument or
+instance is not seen, and an empty list is not proof of freshness. A rebound alias of a shared
+object can be reported although it is current. A module that cannot be scanned is skipped and named
+by exception class only in the advisory `extension_helper_stale_scan_skipped`; the scan never fails
+an install. A fork's own flat script in the scripts directory that is neither an extension
 nor a helper module fails the framework-script census test, which pins
 `FRAMEWORK_SCRIPT_MODULE_NAMES` to the directory less the declared modules, so declare each such
 file as an extension or helper module.
@@ -1325,6 +1340,7 @@ during `ready`/`create` (readiness mutations); `dry_run` is read-only.
 
 - Opens an `active` wave (legacy prepare-and-open) or a readied `planned` wave (wave 1p45l) for implementation; requires a current typed readiness approval on every declared wave, including when `wave_review.enabled` is false, while retaining the structured prose verdict gate on legacy waves; required lane approvals are enforced when configured. The stable readiness key remains unconditional until the enabled-aware projection migration owned by `1tsbu`.
 - Runs the single-OPEN guard at activation: blocks with `another_wave_active` when another wave is already `active`/`implementing`; otherwise transitions the wave to `implementing`.
+- Each `ordered_changes` entry's `depends_on` comes from the wave record's column-0 `Depends On:` lines under the member's id line inside the member section (falling back to the change document's own `Depends On:` lines when the wave record declares none). A `Depends On:` line inside a closed fenced code block is an example, not a declaration, in both sources, and a `## ` line inside a fence does not end the member section (wave `1zoju`). An unterminated fence is read as ordinary lines.
 
 `wf_reopen_wave(wave_id: str, purpose: str)`
 
@@ -1335,7 +1351,7 @@ during `ready`/`create` (readiness mutations); `dry_run` is read-only.
   - `purpose="implement"` focuses `implement`.
 - A rejected `purpose` mutates nothing in either case: the wave status, the telemetry seal, and the focus stage are all untouched. The two rejection paths differ, and error handling must not assume the first:
   - **Empty or unrecognized** value (for example `""` or `"reviewing"`) — returns the typed `invalid_purpose` error with `recovery_tools` and `recovery_usage`.
-  - **Omitted argument** — rejected by the published MCP schema before the tool body runs, producing a `Field required` validation error (a `TypeError` on the raw callable). There is no `invalid_purpose` diagnostic and no recovery hints on this path, so do not branch on that code to recover from an omitted argument.
+  - **Omitted argument** — rejected by the published MCP schema before the tool body runs, producing a `Field required` validation error (on a direct call of the served callable, the `TypeError` is returned as a `tool_unhandled_exception` error envelope, wave `1zoju`). There is no `invalid_purpose` diagnostic and no recovery hints on this path, so do not branch on that code to recover from an omitted argument.
 - `purpose` is marked required in the published MCP schema.
 - Response shape. Both fields are nested under `data`, per this surface's standard envelope; they are **not** top level:
   - Focus applied: `{"status": "ok", "data": {"focus_stage": "review"}}` (or `"implement"`).
@@ -1408,7 +1424,7 @@ above: typed-exclusive on declared waves, prose only on legacy waves.
 
 - Closes ONE admitted change inside an OPEN wave without closing the wave, and moves the dependents its close unblocks to `ready`. `wave_id` takes a unique prefix; `change_id` must be the full admitted id. Modes: `dry_run` (read-only) and `create` (alias `apply`); any other mode returns `invalid_arguments` with `valid_modes`. Undeclared arguments are refused. It is a lifecycle writer: serialized by the lifecycle mutation lock (a held lock returns the busy response), `create` holds the project publication lock, it is `write` tier, registered as a `lifecycle` publication writer, and an invalid record layout or archive-only wave id is refused like the other lifecycle writers.
 - Gate: every failing gate is reported as its own diagnostic, in both modes, and nothing is written: `wave_not_open` (the wave `Status:` is not `active` or `implementing`), `change_not_admitted` (no member block under the member heading), `change_doc_missing` / `change_doc_unreadable`, `change_status_not_closable` (the closable statuses are derived at call time from the docs-lint constants: progressable or done, not terminal, and allowed to move to `complete`, which today is `ready`, `active`, `review` and `implemented`), `change_status_drift` (the change document and the wave record disagree), `silent_unchecked_items` (the close-wave checkbox collector, filtered to this change; an open item in another change does not block), and `dependencies_not_done` (a wave-record `Depends On:` target that is not done, terminal or `implemented`, or that is not admitted to this wave).
-- Writes (`create`): the change document's `Change Status:` and `Status:` header lines become `complete`; the wave-record block becomes `complete` with `Previous Change Status` set to the prior status (wave record only, so the review-policy digest does not move). Activation candidates are only the other changes whose wave-record `Depends On:` names the closed change; each candidate that is `planned` or `blocked` and whose dependencies are now all done moves to `ready` in both files (never `active`). Dependencies declared only in a change document are reported as the advisory `dependencies_not_in_wave_record` and never activated. Labels follow the vocabulary profile; status values are never translated.
+- Writes (`create`): the change document's `Change Status:` and `Status:` header lines become `complete`; the wave-record block becomes `complete` with `Previous Change Status` set to the prior status (wave record only, so the review-policy digest does not move). Activation candidates are only the other changes whose wave-record `Depends On:` names the closed change; each candidate that is `planned` or `blocked` and whose dependencies are now all done moves to `ready` in both files (never `active`). Dependencies declared only in a change document are reported as the advisory `dependencies_not_in_wave_record` and never activated. A `Depends On:` line inside a closed fenced code block, in the wave record or the change document, is an example and is never read as a dependency, so it neither gates nor activates; docs-lint warns about a fenced one inside a wave record's member section so a dependency fenced by mistake is visible. Fenced status lines are still read, so an example cannot hide an open change from wave close (wave `1zoju`). Labels follow the vocabulary profile; status values are never translated.
 - Lint: the new statuses are checked in memory against the transition table and the dependency rule first (`close_change_transition_invalid`); docs-lint scoped to the written documents runs before and after the write, and a failure the write introduced restores every written file and returns `close_change_lint_failed`. Pre-existing failures never roll back; `dry_run` reports them as the advisory `close_change_lint_preexisting`.
 - Response `data`: `wave_id`, `change_id`, `mode`, `previous_status`, `status`, `planned_writes`, `written` (repo-relative paths, empty in `dry_run`), `activated` and `not_activated` (each with `change_id`, `previous_status` and, for skipped ones, `reason`), and the post-write `lint` attachment on `create`. No review evidence is read or written, no ledger event is appended, and reopening a completed change is not supported.
 
@@ -1438,6 +1454,20 @@ above: typed-exclusive on declared waves, prose only on legacy waves.
   section whose marker is not `-`, and any near-miss heading, even beside an exact one
   (`change_doc_noncanonical_checklist`); docs-lint fails such an item, naming the canonical
   `- [ ] ...` form, and such a heading, for a change in a ready, active or implementing wave.
+- **Status drift blocks close (wave `1zoju`):** a blocking `change_status_drift`
+  diagnostic (in `dry_run` and `create`, before close's own summary, status and
+  handoff writes) lists every admitted change whose wave-record `Change Status`
+  differs from the status in its change document's header (the leading metadata
+  before the first `## ` heading, CRLF read as LF, as `wf_close_change` reads it),
+  with `recovery_tools` `["wf_get_change", "wf_current_wave"]`. Only the document
+  at the exact path `<wave folder>/<change id>.md` is read; a missing or unreadable
+  document is not drift (other gates own it), and a header with no readable status
+  is. The gate applies only while the wave's `Status` is not `closed` or
+  `completed`, so the convergent re-close of a closed wave is unaffected. The same
+  detector backs `wf_current_wave`'s advisory `change_status_drift` for the active
+  wave and a docs-lint WARNING (never a failure) for every wave record that is not
+  closed or completed; on incremental lint an in-scope change document compares its
+  own member in the sibling wave record.
 - **Missing admitted documents block close (wave 1v0lx):** a `change_doc_missing`
   diagnostic per admitted change whose document has no file on disk, naming the
   change id and the recovery (restore the document, or `wf_remove_change`). The
@@ -1899,6 +1929,8 @@ not rely on `status` to signal index absence.
 `index_missing`, `index_degraded`, or `index_absent` is reported.
 
 Python runtime advice is available under `index_health().data.setup_readiness.advisories`, and as top-level `advisories` in `wf setup --check --json`. On Python 3.11/3.12, the entry has code `python_runtime_deprecated`, severity `warning`, the actual executing version, recommended minimum `3.13`, interpreter provenance and guidance. Python 3.13+ has no deprecation entry. Advice is separate from setup reasons/actions and does not alter status, startup blocking or exit codes. Independent failures retain their existing recovery actions; repeated health calls do not print another warning.
+
+**Unhandled tool exceptions (wave `1zoju`).** An `Exception` that no handler catches is returned as the standard error envelope (`status: "error"`, `isError: true`) with `data.tool` (the served name the callable was first registered under) and one `tool_unhandled_exception` diagnostic. A plain alias shares its canonical tool's rendered callable, so `data.tool` names the canonical tool; a mapped alias has its own translator callable, so it names itself. Like every other error envelope, this is a normal tool result: `isError: true` is a field of the returned JSON envelope, while the protocol-level `CallToolResult.isError` reads false (before this change FastMCP turned the raw exception into a protocol-level error result). Its message never carries an absolute path: an `OSError` is its class and errno name plus its filename made repository-relative when the file lies under the project root (`PermissionError EACCES on docs/x.md`), and any other exception is `Class: text` only when the text names neither the root nor another absolute path (POSIX, Windows drive or backslash-led), otherwise the class name alone. When the root cannot be looked up, the message is the class and errno name only. The full traceback, with the original message, goes to stderr. A `render` pass applies this once, as the last step of registration, over the whole served table (core tools, extension tools, overrides, replacements and their `alias_for_core`, plain aliases, and mapped aliases), so an exception raised by any inner wrapper or alias translator is rendered too, and every synchronous served tool's `__wf_middleware__` ends with `render`. Only `Exception` is caught: `KeyboardInterrupt`, `SystemExit` and cancellation propagate. Coroutine tools (the runner's `wf_reload_mcp`) are not wrapped, and argument-validation errors raised by FastMCP before the callable runs are unchanged.
 
 **Setup readiness notices (wave `1z2mc`).** The server holds a setup assessment from launch (the runner's startup assessment, reused without a second probe), from each `wf_reload_mcp`, and from the index monitor's ticks. A `setup` wrapper, the last `MIDDLEWARE` entry, reads that cached result and never computes one. When the result is not `ready` and carries at least one action (`action_required`, or `indeterminate` with an action such as the restart after an upgrade), the next tool response carries one `setup_not_ready` diagnostic naming the reasons and the recommended command, bounded in length, and telling the agent to report it to the operator and ask before running anything. An action-less `indeterminate`, such as an index build in progress, never produces it. The notice appears once per distinct result per handler: a changed result or a reload shows it again. It is skipped for `index_health` (which returns the full result), runner-registered tools and coroutine tools, and it never changes a response's status or blocks a call. Nothing runs setup automatically.
 

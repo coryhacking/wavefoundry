@@ -20,6 +20,7 @@ import shlex
 import sys
 import threading
 import time
+import traceback
 import types
 import hashlib
 import uuid
@@ -5857,33 +5858,18 @@ def _detect_wave_status_drift(root: Path, wave: dict) -> list[dict[str, Any]]:
 
     Returns a list of drift entries: ``{"change_id": ..., "wave_md_status": ..., "file_status": ...}``
     for any change whose status differs between wave.md and its change doc file.
+    Wave 1zoju (1zodx): read through docs-lint's one detector, so the change
+    document is found only at its exact path and its status is read from its
+    header, as ``wf_close_change`` and wave close read it.
     """
-    drifts: list[dict[str, Any]] = []
+    from wave_lint_lib.wave_validators import member_status_drift
+
     wave_md_path = Path(wave["path"])
-    wave_dir = wave_md_path.parent
-    for change in wave.get("changes", []):
-        cid = change["id"]
-        wave_md_status = change["status"]
-        # Search for the change doc in the wave folder
-        for p in sorted(wave_dir.rglob("*.md")):
-            if p.name == _vocab.RECORD_FILENAME:
-                continue
-            if cid.lower() in p.stem.lower():
-                try:
-                    text = p.read_text(encoding="utf-8")
-                except OSError:
-                    continue
-                m = _CHANGE_STATUS_PATTERN.search(text)
-                if m:
-                    file_status = m.group(1)
-                    if file_status.strip().lower() != wave_md_status.strip().lower():
-                        drifts.append({
-                            "change_id": cid,
-                            "wave_md_status": wave_md_status,
-                            "file_status": file_status,
-                        })
-                break
-    return drifts
+    wave_text = wave_md_path.read_bytes().decode("utf-8")
+    return [
+        {"change_id": change_id, "wave_md_status": wave_status, "file_status": doc_status}
+        for change_id, wave_status, doc_status in member_status_drift(wave_text, wave_md_path.parent)
+    ]
 
 
 _WAVE_CURRENT_NEXT_ACTION = {
@@ -5947,11 +5933,19 @@ def wf_current_wave_response(root: Path, cache: Optional[McpRepoCache] = None) -
         try:
             drifts = _detect_wave_status_drift(root, active_entry)
             if drifts:
-                drift_summary = "; ".join(f"{d['change_id']}: {_vocab.RECORD_FILENAME}={d['wave_md_status']!r} vs file={d['file_status']!r}" for d in drifts)
+                # Wave 1zoju (1zodx repair): neutral wording, no `None`.
+                drift_summary = "; ".join(
+                    f"{d['change_id']}: wave record "
+                    f"{('`' + d['wave_md_status'] + '`') if d['wave_md_status'] else 'no readable status'}"
+                    f" vs change document "
+                    f"{('`' + d['file_status'] + '`') if d['file_status'] else 'no header status'}"
+                    for d in drifts
+                )
                 diagnostics.append(
                     _diagnostic(
                         "change_status_drift",
-                        f"Change status drift detected — {_vocab.RECORD_FILENAME} and change doc files disagree for: {drift_summary}. Update {_vocab.RECORD_FILENAME} {_vocab.MEMBER_STATUS_LABEL} fields to match the actual change docs.",
+                        f"Change status drift: the wave record and change documents disagree for: {drift_summary}. "
+                        "Reconcile the wave record and the change document.",
                         recovery_tools=["wf_get_change", "wf_validate_docs"],
                         recovery_usage=f"wf_get_change(change_id={drifts[0]['change_id']!r})",
                     )
@@ -8030,18 +8024,37 @@ def _insert_change_block_into_changes_section(text: str, change_id: str) -> str:
     exist. Admission order is preserved by tail-appending within the section.
     """
     block = f"{_vocab.MEMBER_ID_LABEL}: `{change_id}`\n{_vocab.MEMBER_STATUS_LABEL}: `planned`\n"
-    changes_match = re.search(rf"^{_vocab.MEMBER_HEADING_RE}[ \t]*\n", text, re.MULTILINE)
-    if changes_match is None:
-        next_heading = re.search(r"^## ", text, re.MULTILINE)
+    # Wave 1zoju (1zogm repair F1): headings inside a closed fenced block are
+    # examples, so neither the member heading nor the section end is read there.
+    lines = text.split("\n")
+    fenced = change_doc_checklist.fenced_line_flags([line.rstrip("\r") for line in lines])
+    offsets = [0]
+    for line in lines[:-1]:
+        offsets.append(offsets[-1] + len(line) + 1)
+    heading = re.compile(rf"{_vocab.MEMBER_HEADING_RE}[ \t]*\r?")
+    member_index = next(
+        (index for index in range(len(lines) - 1)
+         if not fenced[index] and heading.fullmatch(lines[index])),
+        None,
+    )
+
+    def next_heading_offset(first: int) -> Optional[int]:
+        for index in range(first, len(lines)):
+            if not fenced[index] and lines[index].startswith("## "):
+                return offsets[index]
+        return None
+
+    if member_index is None:
+        next_heading = next_heading_offset(0)
         section = _vocab.MEMBER_HEADING + "\n\n" + block + "\n"
         if next_heading is None:
             if text and not text.endswith("\n"):
                 text += "\n"
             return text + "\n" + section
-        return text[:next_heading.start()] + section + text[next_heading.start():]
-    section_start = changes_match.end()
-    next_heading = re.search(r"^## ", text[section_start:], re.MULTILINE)
-    section_end = section_start + next_heading.start() if next_heading else len(text)
+        return text[:next_heading] + section + text[next_heading:]
+    section_start = offsets[member_index + 1]
+    next_heading = next_heading_offset(member_index + 1)
+    section_end = next_heading if next_heading is not None else len(text)
     section_body = text[section_start:section_end]
     body_stripped = section_body.rstrip()
     if body_stripped:
@@ -12142,6 +12155,35 @@ def _retrieval_posture_gap(root: Path, wave_md: Path) -> Optional[dict[str, Any]
     }
 
 
+def _wave_member_dependencies(wave_text: str) -> dict[str, list[str]]:
+    """The wave record's own dependency declarations, by member id.
+
+    Column-0 ``Depends On:`` lines after a column-0 member id line inside the
+    member section. Wave 1zoju (1zogm): fence flags are computed over the
+    WHOLE record, the section starts at an unfenced member heading and ends
+    only at an unfenced ``## `` heading (a fenced ``## `` line no longer
+    truncates it), and a fenced ``Depends On:`` line is an example, not a
+    declaration."""
+    lines = wave_text.splitlines()
+    fenced = change_doc_checklist.fenced_line_flags(lines)
+    heading = re.compile(rf"{_vocab.MEMBER_HEADING_RE}[ \t]*")
+    dependencies: dict[str, list[str]] = {}
+    inside = False
+    owner = None
+    for line, is_fenced in zip(lines, fenced):
+        if not inside:
+            inside = not is_fenced and heading.fullmatch(line) is not None
+            continue
+        if not is_fenced and line.startswith("## "):
+            break
+        change_match = re.fullmatch(rf"{_vocab.MEMBER_ID_LABEL_RE}:[ \t]*`([^`]+)`[ \t]*", line)
+        if change_match:
+            owner = change_match.group(1)
+        elif owner and not is_fenced and re.match(r"^Depends On:[ \t]+", line):
+            dependencies.setdefault(owner, []).extend(re.findall(r"`([^`]+)`", line))
+    return dependencies
+
+
 @_fail_closed_on_record_layout("wf_implement_wave")
 def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
     """Gate and context builder for starting wave implementation (12sqb).
@@ -12318,15 +12360,7 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
     # The wave record owns dependency declarations. Legacy change-doc lines
     # remain a secondary source; prose and workstream tables are not a grammar.
     dependency_advisories: list[dict[str, Any]] = []
-    wave_dependencies: dict[str, list[str]] = {}
-    changes_match = re.search(rf"(?ms)^{_vocab.MEMBER_HEADING_RE}[ \t]*\n(.*?)(?=^## |\Z)", wave_text)
-    owner = None
-    for line in (changes_match.group(1) if changes_match else "").splitlines():
-        change_match = re.fullmatch(rf"{_vocab.MEMBER_ID_LABEL_RE}:[ \t]*`([^`]+)`[ \t]*", line)
-        if change_match:
-            owner = change_match.group(1)
-        elif owner and re.match(r"^Depends On:[ \t]+", line):
-            wave_dependencies.setdefault(owner, []).extend(re.findall(r"`([^`]+)`", line))
+    wave_dependencies = _wave_member_dependencies(wave_text)
 
     def resolve_dependencies(cid: str, tokens: list[str], *, legacy: bool) -> list[str]:
         resolved = []
@@ -12371,8 +12405,10 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
         cs = status_m.group(1) if status_m else "unknown"
         tokens = wave_dependencies.get(cid)
         if tokens is None:
-            tokens = [token for line in ct.splitlines()
-                      if re.fullmatch(r"Depends On:[ \t]+`[^`]+`(?:[ \t]*,[ \t]*`[^`]+`)*[ \t]*", line)
+            change_lines = ct.splitlines()
+            tokens = [token for line, fenced in zip(change_lines, change_doc_checklist.fenced_line_flags(change_lines))
+                      if not fenced
+                      and re.fullmatch(r"Depends On:[ \t]+`[^`]+`(?:[ \t]*,[ \t]*`[^`]+`)*[ \t]*", line)
                       for token in re.findall(r"`([^`]+)`", line)]
             deps = resolve_dependencies(cid, tokens, legacy=True)
         else:
@@ -12869,6 +12905,28 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
             for record_id, status in open_records
         )
         diagnostics.append(_diagnostic("open_changes_remaining", f"Wave has unresolved change statuses: {open_list}.", recovery_tools=["wf_current_wave"], recovery_usage="wf_current_wave()"))
+    # Wave 1zoju (1zodx): a member whose wave-record status and change-document
+    # status disagree blocks close before close's own writes, so the drift is
+    # never archived. An already-closed wave re-closes convergently (1seax).
+    from wave_lint_lib import wave_validators as _drift_validators
+    if not _drift_validators.status_drift_exempt(text):
+        drifted = _drift_validators.member_status_drift(text, wave_md.parent)
+        if drifted:
+            def _drift_value(value: Optional[str]) -> str:
+                return f"`{value}`" if value else "no readable status"
+
+            drift_list = "; ".join(
+                f"`{change_id}` is {_drift_value(wave_status)} in the wave record "
+                f"but {_drift_value(doc_status)} in its change document"
+                for change_id, wave_status, doc_status in drifted
+            )
+            diagnostics.append(_diagnostic(
+                "change_status_drift",
+                f"The wave record and change documents disagree for: {drift_list}. "
+                "Update whichever side is wrong, then close again.",
+                recovery_tools=["wf_get_change", "wf_current_wave"],
+                recovery_usage=f"wf_get_change(change_id={drifted[0][0]!r})",
+            ))
     required_lanes = list(shared["required_lanes"])
     empty_roster_advisory = (
         _diagnostic(
@@ -13077,11 +13135,14 @@ def _close_change_member_section(lines: list[str]) -> tuple[int, int]:
     """``(start, end)`` line indexes of the wave record's member list (the
     profile's ``MEMBER_HEADING`` up to the next ``## `` heading); ``(0, 0)``
     when the record has no member heading."""
+    # Wave 1zoju (1zogm repair F1): a heading inside a closed fenced block is
+    # an example; it neither starts nor ends the member list.
+    fenced = change_doc_checklist.fenced_line_flags([line.rstrip("\r\n") for line in lines])
     for index, line in enumerate(lines):
-        if line.rstrip("\r\n").strip() == _vocab.MEMBER_HEADING:
+        if not fenced[index] and line.rstrip("\r\n").strip() == _vocab.MEMBER_HEADING:
             end = len(lines)
             for probe in range(index + 1, len(lines)):
-                if lines[probe].lstrip().startswith("## "):
+                if not fenced[probe] and lines[probe].lstrip().startswith("## "):
                     end = probe
                     break
             return index + 1, end
@@ -13480,10 +13541,13 @@ def wf_close_change_response(
             other_text = other_path.read_bytes().decode("utf-8")
         except (OSError, UnicodeError):
             continue
+        other_lines = other_text.replace("\r\n", "\n").split("\n")
         legacy_targets = [
             value
-            for line in lint_constants.DEPENDS_ON_LINE_PATTERN.findall(other_text.replace("\r\n", "\n"))
-            for value in lint_constants.BACKTICK_VALUE_PATTERN.findall(line)
+            for line, fenced in zip(other_lines, change_doc_checklist.fenced_line_flags(other_lines))
+            if not fenced  # a fenced example is not a declaration (wave 1zoju, 1zogm)
+            for match in (lint_constants.DEPENDS_ON_LINE_PATTERN.match(line),) if match
+            for value in lint_constants.BACKTICK_VALUE_PATTERN.findall(match.group(1))
         ]
         if change_id in legacy_targets:
             not_activated.append({
@@ -18156,6 +18220,8 @@ def _extension_provenance_for_response(root: Path) -> dict[str, Any]:
             for alias, entry in (provenance.get("parameters") or {}).items()
         },
         "served_names": dict(provenance.get("served_names") or {}),
+        # Wave 1zoju (1zojt): module-level stale helper references after a reload.
+        "stale_helper_references": [dict(entry) for entry in provenance.get("stale_helper_references") or []],
     }
 
 
@@ -18210,6 +18276,26 @@ def wf_server_info_response(root: Path, *, server_runner_version: str | None = N
     leftovers = retired_flat_leftovers()
     if leftovers:
         diagnostics.append(_diagnostic("retired_flat_module_leftover", _retired_flat_leftover_warning(leftovers)))
+    # Wave 1zoju (1zojt): an undeclared module still holding an evicted helper.
+    stale = data["extensions"]["stale_helper_references"]
+    if stale:
+        modules = sorted({entry["module"] for entry in stale})
+        diagnostics.append(_diagnostic(
+            "extension_helper_stale_reference",
+            "After the last extension install these modules still hold a replaced helper module, or an "
+            f"object it bound, at module level: {', '.join(modules)}. They are not declared, so they were "
+            "not re-executed and call stale code. Declare each importer in EXTENSION_HELPER_MODULES, or "
+            "restart the host. Only module-level bindings are checked; references held in containers, "
+            "closures, default arguments or instances are not seen.",
+            advisory=True,
+        ))
+    if _EXTENSION_STALE_SCAN_ERRORS:
+        diagnostics.append(_diagnostic(
+            "extension_helper_stale_scan_skipped",
+            "The stale helper reference scan skipped modules it could not read: "
+            + ", ".join(sorted(set(_EXTENSION_STALE_SCAN_ERRORS))) + ".",
+            advisory=True,
+        ))
     return _response(
         "ok",
         data,
@@ -19572,6 +19658,80 @@ def _guard_pass_kwargs() -> dict[str, Any]:
     return {"checkpoint_writers": writers} if writers else {}
 
 
+def _unhandled_tool_exception_response(tool_name: str, exc: Exception, get_handler: Any) -> dict[str, Any]:
+    """The error envelope for an exception no handler caught (wave 1zoju, 1zodw).
+
+    The message is ``path_free_exception_text`` over the handler's root, so the
+    client keeps the class, errno name and repository-relative filename but no
+    absolute path; when the root lookup itself fails, the class and errno name
+    only. The full traceback goes to stderr for the operator.
+    """
+    try:
+        message = _lifecycle_lock_authority.path_free_exception_text(exc, get_handler().root)
+    except Exception:  # noqa: BLE001 - echo no text of either exception
+        message = _lifecycle_lock_authority._cause_label(exc)
+    try:
+        _wf_log(f"[wavefoundry] unhandled exception in tool {tool_name}:\n"
+                + "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)).rstrip())
+    except Exception:  # noqa: BLE001 - logging never replaces the envelope
+        pass
+    return _response(
+        "error",
+        {"tool": tool_name},
+        diagnostics=[_diagnostic("tool_unhandled_exception", message)],
+    )
+
+
+def _wrap_unhandled_tool_exceptions(mcp: Any, get_handler: Any) -> None:
+    """Render an ``Exception`` escaping any served callable as a path-free error
+    envelope (wave 1zoju, 1zodw).
+
+    Applied once, as the last pass of ``register_mcp_surface`` over the whole
+    served table, so it is outermost for core tools, extension tools,
+    overrides, replacements, aliases and mapped-alias translators alike. Each
+    wrapper carries ``_wf_rendered``, so an entry is never wrapped twice.
+    Coroutine functions (the runner-registered tools) are skipped, and a
+    ``BaseException`` that is not an ``Exception`` propagates unchanged.
+    """
+    registry = getattr(getattr(mcp, "_tool_manager", None), "_tools", None)
+    if not isinstance(registry, dict):
+        return
+    # A plain alias serves the canonical entry's callable itself; both entries
+    # then serve one rendered wrapper, so the alias stays that same callable.
+    rendered: dict[int, Any] = {}
+    for name, tool in registry.items():
+        original = getattr(tool, "fn", None)
+        if (
+            original is None
+            or getattr(original, "_wf_rendered", False)
+            or inspect.iscoroutinefunction(original)
+        ):
+            continue
+        if id(original) in rendered:
+            tool.fn = rendered[id(original)]
+            continue
+
+        def _make(tool_name: str, fn: Any) -> Any:
+            @functools.wraps(fn)
+            def rendered_call(*args: Any, **kwargs: Any) -> Any:
+                try:
+                    return fn(*args, **kwargs)
+                except Exception as exc:  # noqa: BLE001 - rendered, never re-raised
+                    return _unhandled_tool_exception_response(tool_name, exc, get_handler)
+
+            rendered_call._wf_rendered = True
+            return rendered_call
+
+        tool.fn = rendered[id(original)] = _make(name, original)
+
+
+# Wave 1zoju (1zodw): the final pass of ``register_mcp_surface``, applied after
+# every other chain and the served-name install.
+_RENDER_PASS: tuple[tuple[str, Any], ...] = (
+    ("render", lambda mcp, get_handler: _wrap_unhandled_tool_exceptions(mcp, get_handler)),
+)
+
+
 # Registration-time call wrappers, applied innermost first: cost, then the
 # lifecycle lock, then the upgrade-publication guard (wave 1y0h1), then the
 # setup-readiness notice (wave 1z2mc). Each entry
@@ -19770,6 +19930,8 @@ def _empty_extension_provenance() -> dict[str, Any]:
         "replacements": [],
         "parameters": {},
         "served_names": {},
+        # Wave 1zoju (1zojt): undeclared importers holding stale helpers.
+        "stale_helper_references": [],
     }
 
 
@@ -19980,16 +20142,121 @@ def _override_compatibility_problem(name: str, core_tool: Any, staged_tool: Any)
     return None
 
 
+# Wave 1zoju (1zojt): ``(sys.modules name, module)`` for each module the last
+# eviction removed. Each eviction REPLACES the contents; the post-install
+# stale-reference scan reads it and clears it in a ``finally``, and a failed
+# install clears it in ``register_mcp_surface``, so no old module outlives the
+# install that evicted it.
+_EXTENSION_RETAINED_MODULES: list[tuple[str, types.ModuleType]] = []
+# Exception class names from the last scan's per-module failures.
+_EXTENSION_STALE_SCAN_ERRORS: list[str] = []
+
+
 def _evict_extension_modules() -> None:
     """Remove every ``sys.modules`` entry the extension loader marked (wave 1zls8, 1zltx).
 
     Iterates a snapshot, and counts an entry as marked only when it is a real
     module whose own namespace holds ``__wf_extension__ = True``, so a lazy
-    proxy or a module with dynamic attribute lookup is never evicted.
+    proxy or a module with dynamic attribute lookup is never evicted. Each
+    evicted module is retained for the stale-reference scan (wave 1zoju, 1zojt).
     """
+    evicted: list[tuple[str, types.ModuleType]] = []
     for name, module in list(sys.modules.items()):
-        if isinstance(module, types.ModuleType) and vars(module).get("__wf_extension__") is True:
+        # Wave 1zoju (1zojt): judged by type, so a proxy's ``__class__`` is never read.
+        if issubclass(type(module), types.ModuleType) and vars(module).get("__wf_extension__") is True:
             sys.modules.pop(name, None)
+            evicted.append((name, module))
+    _EXTENSION_RETAINED_MODULES[:] = evicted
+
+
+def _scan_stale_helper_references() -> tuple[list[dict[str, str]], list[str]]:
+    """Module-level globals that still hold an evicted extension module, or an
+    object its old namespace bound under a name the new module rebinds (wave
+    1zoju, 1zojt). Returns ``(sorted entries, exception class names)``.
+
+    Reads only ``vars()`` of real modules (``ModuleType`` by type, so a lazy
+    proxy is never touched) whose ``__file__`` lies under the scripts
+    directory, skips marked modules, and compares by identity, so no attribute
+    of a compared object is read and no code runs. A failure while scanning
+    one module skips that module only.
+    """
+    retained = list(_EXTENSION_RETAINED_MODULES)
+    if not retained:
+        return [], []
+    # Wave 1zoju (1zojt repair F6): anything the per-module guards do not
+    # cover (resolving the scripts directory, snapshotting sys.modules) is
+    # reported by class and yields no entries; it never fails the install.
+    try:
+        return _scan_retained_modules(retained)
+    except Exception as exc:  # noqa: BLE001 - an advisory never fails an install
+        return [], [type(exc).__name__]
+
+
+# Wave 1zoju (1zojt repair F2): values of these types are cached and shared
+# across modules (None, small ints, interned strings, empty tuples), so an old
+# helper binding one proves nothing about an importer holding the same object.
+_STALE_SCAN_SHARED_TYPES = frozenset({type(None), bool, int, float, complex, str, bytes,
+                                      tuple, frozenset, range, type(Ellipsis), type(NotImplemented)})
+
+
+def _scan_retained_modules(
+    retained: list[tuple[str, types.ModuleType]],
+) -> tuple[list[dict[str, str]], list[str]]:
+    """The body of ``_scan_stale_helper_references`` for a non-empty retained list."""
+    errors: list[str] = []
+    old_modules: dict[int, str] = {}
+    rebound: dict[int, str] = {}
+    for name, old in retained:
+        old_modules[id(old)] = name
+        try:
+            new = sys.modules.get(name)
+            if new is None or new is old or not issubclass(type(new), types.ModuleType):
+                continue  # (b) needs the module the name now serves
+            new_namespace = vars(new)
+            for binding, value in list(vars(old).items()):
+                if type(value) in _STALE_SCAN_SHARED_TYPES or (binding.startswith("__") and binding.endswith("__")):
+                    continue  # cached immutables and import machinery are shared, not exports
+                if binding in new_namespace and new_namespace[binding] is not value:
+                    rebound.setdefault(id(value), name)
+        except Exception as exc:  # noqa: BLE001 - an advisory never fails an install
+            errors.append(type(exc).__name__)
+    scripts_dir = SCRIPTS_DIR.resolve()
+    resolved_prefix = os.path.normcase(str(scripts_dir)) + os.sep
+    # The cheap string filter must also accept the unresolved spellings an
+    # import can record in ``__file__`` (a ``sys.path`` entry through a
+    # symlink, such as a temporary directory on macOS); ``Path.resolve`` then
+    # decides.
+    spellings = {resolved_prefix, os.path.normcase(str(SCRIPTS_DIR)) + os.sep}
+    for entry in list(sys.path):
+        try:
+            if isinstance(entry, str) and entry and Path(entry).resolve() == scripts_dir:
+                spellings.add(os.path.normcase(os.path.abspath(entry)) + os.sep)
+        except (OSError, RuntimeError, ValueError):
+            continue
+    prefixes = tuple(spellings)
+    entries: set[tuple[str, str, str]] = set()
+    for module_name, module in list(sys.modules.items()):
+        if not issubclass(type(module), types.ModuleType):
+            continue
+        try:
+            namespace = vars(module)
+            if namespace.get("__wf_extension__") is True:
+                continue
+            source = namespace.get("__file__")
+            if not isinstance(source, str) or not os.path.normcase(source).startswith(prefixes):
+                continue
+            if not os.path.normcase(str(Path(source).resolve())).startswith(resolved_prefix):
+                continue
+            for binding, value in list(namespace.items()):
+                helper = old_modules.get(id(value)) or rebound.get(id(value))
+                if helper is not None:
+                    entries.add((module_name, binding, helper))
+        except Exception as exc:  # noqa: BLE001 - one module never hides the others
+            errors.append(type(exc).__name__)
+    return (
+        [{"module": module, "global": binding, "helper": helper} for module, binding, helper in sorted(entries)],
+        errors,
+    )
 
 
 def _pop_new_declared_modules(present: Collection[str]) -> None:
@@ -20035,15 +20302,24 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
     _EXTENSION_OMITTED_PARAMETERS.clear()
     _EXTENSION_LIFECYCLE_TOOLS.clear()
     _EXTENSION_ARTIFACT_PATH_FIELDS.clear()
+    _EXTENSION_STALE_SCAN_ERRORS.clear()
     provenance = _empty_extension_provenance()
-    if not mcp_tool_extensions.declared():
-        return provenance
-    present = set(sys.modules)
+    if mcp_tool_extensions.declared():
+        present = set(sys.modules)
+        try:
+            provenance = _install_declared_extension_tools(mcp, get_handler, provenance)
+        except BaseException:
+            _pop_new_declared_modules(present)
+            raise
+    # Wave 1zoju (1zojt): report undeclared importers still holding what the
+    # eviction replaced, then release the evicted modules.
     try:
-        return _install_declared_extension_tools(mcp, get_handler, provenance)
-    except BaseException:
-        _pop_new_declared_modules(present)
-        raise
+        references, errors = _scan_stale_helper_references()
+    finally:
+        _EXTENSION_RETAINED_MODULES.clear()
+    provenance["stale_helper_references"] = references
+    _EXTENSION_STALE_SCAN_ERRORS[:] = errors
+    return provenance
 
 
 def _install_declared_extension_tools(mcp: Any, get_handler: Any, provenance: dict[str, Any]) -> dict[str, Any]:
@@ -25015,8 +25291,13 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         mcp_tool_registry.apply_middleware(mcp, get_handler, chain)
         if mcp_tool_extensions.declared():
             _install_served_names(mcp, get_handler)
+        # Wave 1zoju (1zodw): last, over the whole served table, so an
+        # exception from any inner wrapper or translator is rendered too.
+        mcp_tool_registry.apply_middleware(mcp, get_handler, _RENDER_PASS)
     except BaseException:
         _EXTENSION_PROVENANCE = None
+        _EXTENSION_RETAINED_MODULES.clear()  # wave 1zoju (1zojt): release evicted modules
+        _EXTENSION_STALE_SCAN_ERRORS.clear()
         _EXTENSION_REPLACED_CORE.clear()
         _EXTENSION_OVERRIDE_DELTAS.clear()
         _EXTENSION_OMITTED_PARAMETERS.clear()

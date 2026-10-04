@@ -124,8 +124,14 @@ function dashboardTitle(snapshot) {
 
 // ── Status classification ──────────────────────────────────────────────────────
 
-const DONE_STATUSES = new Set(["complete", "completed", "done", "implemented", "approved", "closed"]);
+// Filled from the snapshot's config.done_change_statuses (the framework's one
+// done set) on every App render; empty until the first snapshot arrives.
+const DONE_STATUSES = new Set();
 function isDone(status) { return DONE_STATUSES.has(String(status || "").toLowerCase()); }
+function updateDoneStatuses(list) {
+  DONE_STATUSES.clear();
+  for (const status of Array.isArray(list) ? list : []) DONE_STATUSES.add(String(status).toLowerCase());
+}
 function waveStatus(w) { return String(w.status || "").toLowerCase(); }
 function activeWaves(waves)  { return waves.filter(w => waveStatus(w) === "active" || waveStatus(w) === "implementing"); }
 function pendingWaves(waves) { return waves.filter(w => waveStatus(w) !== "active" && waveStatus(w) !== "implementing" && waveStatus(w) !== "closed" && waveStatus(w) !== "completed"); }
@@ -4410,6 +4416,7 @@ function App() {
   const [dark, onToggleDark] = useDarkMode();
   const [snapshot, setSnapshot]         = useState(null);
   updateTerminology(snapshot?.config?.terminology);
+  updateDoneStatuses(snapshot?.config?.done_change_statuses);
   const [error, setError]               = useState(null);
   const [sseConnected, setSseConnected] = useState(false);
   const pollIdxRef    = useRef(0);

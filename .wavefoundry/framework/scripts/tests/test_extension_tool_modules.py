@@ -783,7 +783,9 @@ with tempfile.TemporaryDirectory() as tmp:
             ("fork_add_wave", "wf_add_change"), ("fork_review_prepare", "wf_review_wave"))}
         out["markers"] = {n: markers(mcp, n) for n in (
             "wf_add_change", "fork_add_wave", "fork_add_wave_now", "wf_review_wave", "fork_review_prepare", "wf_remove_change")}
-        out["wraps_canonical"] = tools["fork_add_wave"].fn.__wrapped__ is tools["wf_add_change"].fn
+        # Wave 1zoju (1zodw): both entries end in their own render wrapper; the
+        # translator wraps the canonical callable that render wraps.
+        out["wraps_canonical"] = tools["fork_add_wave"].fn.__wrapped__.__wrapped__ is tools["wf_add_change"].fn.__wrapped__
         install_counting_lock_probe(impl)
         add_calls, review_calls, remove_calls = [], [], []
         spy_response(impl, "wf_add_change_response", add_calls, echo=True)
@@ -873,7 +875,7 @@ with tempfile.TemporaryDirectory() as tmp:
         result = runner.perform_mcp_reload()
         out["reload_status"] = result["status"]
         out["reload_schema"] = normalized(table(mcp)["fork_add_wave"].parameters)
-        out["reload_wraps_canonical"] = table(mcp)["fork_add_wave"].fn.__wrapped__ is table(mcp)["wf_add_change"].fn
+        out["reload_wraps_canonical"] = table(mcp)["fork_add_wave"].fn.__wrapped__.__wrapped__ is table(mcp)["wf_add_change"].fn.__wrapped__
         reloaded = {t.name: t.description for t in asyncio.run(mcp.list_tools())}
         out["reload_descriptions"] = {n: reloaded.get(n) for n in ("fork_echo", "fork_say")}
         handler.close()
@@ -1766,6 +1768,231 @@ with tempfile.TemporaryDirectory() as tmp:
         out["empty_provenance"] = runner.server_impl.wf_server_info_response(root)["data"]["extensions"]["helper_modules"]
         runner._get_handler().close()
 
+    elif MODE == "render":
+        # Wave 1zoju (1zodw): an exception escaping any served callable is
+        # rendered as a path-free error envelope by the final render pass.
+        import errno, copy as copy_module
+        from unittest import mock
+        RENDER_DECL = (
+            "\nEXTENSION_MODULES = ('fork_render',)\n"
+            "EXTENSION_TOOL_PREFIXES = ('fork_',)\n"
+            "EXTENSION_TOOL_TIERS = {'fork_boom': 'read'}\n"
+            "EXTENSION_OVERRIDES = {'fork_render': ('wf_current_wave',)}\n"
+            "EXTENSION_REPLACEMENTS = {'fork_render': {'wf_help': {'alias_for_core': 'fork_help_core', 'tier': 'write'}}}\n"
+            "EXTENSION_TOOL_ALIASES = {'fork_plain': 'fork_boom', 'fork_mapped': 'fork_boom'}\n"
+            "EXTENSION_TOOL_PARAMETERS = {'fork_mapped': {'rename': {'words': 'text'}, 'fixed': {'count': 2}}}\n"
+        )
+        RENDER_MODULE = (
+            "import server_impl\n"
+            "RAISE = {'what': None}\n"
+            "def register(mcp, get_handler):\n"
+            "    @mcp.tool()\n"
+            "    def fork_boom(text: str = '', count: int = 1, **kwargs):\n"
+            "        bad = server_impl.ensure_no_extra_args('fork_boom', kwargs)\n"
+            "        if bad is not None:\n"
+            "            return bad\n"
+            "        if RAISE['what'] is not None:\n"
+            "            raise RAISE['what']\n"
+            "        return {'status': 'ok', 'data': {'text': text, 'count': count}}\n"
+            "    @mcp.tool()\n"
+            "    def wf_current_wave(**kwargs):\n"
+            "        bad = server_impl.ensure_no_extra_args('wf_current_wave', kwargs)\n"
+            "        if bad is not None:\n"
+            "            return bad\n"
+            "        if RAISE['what'] is not None:\n"
+            "            raise RAISE['what']\n"
+            "        return {'status': 'ok', 'data': {'overridden': True}}\n"
+            "    @mcp.tool()\n"
+            "    def wf_help(topic: str = '', **kwargs):\n"
+            "        bad = server_impl.ensure_no_extra_args('wf_help', kwargs)\n"
+            "        if bad is not None:\n"
+            "            return bad\n"
+            "        return {'status': 'ok', 'data': {'fork_help': topic}}\n"
+        )
+        DECL.write_text(DECL_ORIG + RENDER_DECL)
+        write_module("fork_render", RENDER_MODULE)
+        load_server(); runner = load_thin_runner()
+        mcp = runner.build_server(root)
+        impl = runner.server_impl
+        fork = sys.modules["fork_render"]
+        # The served root, as the handler holds it (the filename an OSError
+        # names is built from it, as server code builds its paths).
+        hroot = Path(runner._get_handler().root)
+        roots = {str(root), str(root.resolve()), str(hroot)}
+
+        def observe(fn):
+            try:
+                result = fn()
+            except BaseException as exc:
+                return {"escaped": type(exc).__name__}
+            text = json.dumps(result)
+            return {"status": result.get("status"), "isError": result.get("isError"),
+                    "tool": (result.get("data") or {}).get("tool"),
+                    "diagnostics": [[d.get("code"), d.get("message")] for d in result.get("diagnostics") or []],
+                    "leaks_root": any(r in text for r in roots)}
+
+        out["markers"] = {name: markers(mcp, name) for name in table(mcp)}
+        out["coroutines"] = sorted(name for name in table(mcp) if inspect.iscoroutinefunction(table(mcp)[name].fn))
+        out["alias_shares_fn"] = table(mcp)["fork_plain"].fn is table(mcp)["fork_boom"].fn
+        cases = {}
+        fork.RAISE["what"] = OSError(errno.EACCES, "Permission denied", str(hroot / "docs" / "x.md"))
+        cases["extension_client"] = observe(lambda: ccall(mcp, "fork_boom"))
+        cases["extension"] = observe(lambda: call(mcp, "fork_boom"))
+        fork.RAISE["what"] = RuntimeError(f"cannot open {root}/lock")
+        cases["plain_alias"] = observe(lambda: call(mcp, "fork_plain"))
+        cases["override"] = observe(lambda: call(mcp, "wf_current_wave"))
+        fork.RAISE["what"] = None
+        with mock.patch.object(impl, "wf_help_response", side_effect=ValueError("bad goal")):
+            cases["alias_for_core"] = observe(lambda: call(mcp, "fork_help_core"))
+        with mock.patch.object(impl, "_rewrite_served_names", side_effect=KeyError("rewrite")):
+            cases["mapped_rewrite"] = observe(lambda: call(mcp, "fork_mapped", words="hi", extra=1))
+        with mock.patch.object(copy_module, "deepcopy", side_effect=TypeError("deepcopy")):
+            cases["mapped_deepcopy"] = observe(lambda: call(mcp, "fork_mapped", words="hi"))
+        with mock.patch.object(impl, "_rename_response_keys", side_effect=LookupError("rename")):
+            cases["mapped_rename"] = observe(lambda: call(mcp, "fork_mapped", words="hi"))
+        cases["mapped_ok"] = observe(lambda: call(mcp, "fork_mapped", words="hi"))
+        # AC-4: an inner wrapper (the upgrade-publication guard, outside the
+        # body and every other core wrapper) raising is rendered too.
+        with mock.patch.object(impl.publication_control, "publication_block_reason",
+                               side_effect=RuntimeError(f"guard failed at {root}")):
+            cases["inner_guard"] = observe(lambda: call(mcp, "wf_add_change", wave_id="x", change_id="y"))
+        # AC-5: an interrupt propagates unchanged.
+        fork.RAISE["what"] = KeyboardInterrupt()
+        cases["interrupt"] = observe(lambda: call(mcp, "fork_boom"))
+        fork.RAISE["what"] = None
+        out["cases"] = cases
+        runner._get_handler().close()
+
+    elif MODE in ("stale", "stale_declared"):
+        # Wave 1zoju (1zojt): an undeclared importer of a declared helper keeps
+        # the old helper after a reload, and the post-install scan reports it.
+        import gc, types, weakref
+        from unittest import mock
+        STALE_H = (
+            "VERSION = 'h1'\n"
+            "def f():\n    return VERSION\n"
+            "class C:\n    pass\n"
+            "class Outer:\n    class Nested:\n        pass\n"
+            "def factory():\n    def inner():\n        return 1\n    return inner\n"
+            "inst = C()\n"
+            "DROPPED = object()\n"
+            "LIMIT = 1000\n"
+        )
+        STALE_U = (
+            "import acme_h\n"
+            "from acme_h import f, C, inst, DROPPED, LIMIT\n"
+            "import acme_lazy\n"
+            "import acme_pkg.sub\n"
+            "holder = [acme_h]\n"
+            "made = acme_h.factory()\n"
+            "Nested = acme_h.Outer.Nested\n"
+            "mine = acme_h.C()\n"
+            "helper_spec = acme_h.__spec__\n"
+        )
+        STALE_E = (
+            "import server_impl\n"
+            "import acme_u\n"
+            "def register(mcp, get_handler):\n"
+            "    @mcp.tool()\n"
+            "    def acme_stale(**kwargs):\n"
+            "        return server_impl.make_response('ok', {'value': acme_u.f()})\n"
+        )
+        helpers = '("acme_h", "acme_u")' if MODE == "stale_declared" else '("acme_h",)'
+        STALE_DECL = (
+            f"\nEXTENSION_HELPER_MODULES = {helpers}\n"
+            "EXTENSION_MODULES = ('acme_e',)\n"
+            "EXTENSION_TOOL_PREFIXES = ('acme_',)\n"
+            "EXTENSION_TOOL_TIERS = {'acme_stale': 'read'}\n"
+        )
+        DECL.write_text(DECL_ORIG + STALE_DECL)
+        write_module("acme_h", STALE_H)
+        write_module("acme_u", STALE_U)
+        write_module("acme_e", STALE_E)
+        write_module("acme_lazy", "CALLS = []\ndef __getattr__(name):\n    CALLS.append(name)\n    raise AttributeError(name)\n")
+        (SCRATCH / "acme_pkg").mkdir()
+        (SCRATCH / "acme_pkg" / "__init__.py").write_text("")
+        (SCRATCH / "acme_pkg" / "sub.py").write_text("from acme_h import f\n")
+        load_server(); runner = load_thin_runner()
+        mcp = runner.build_server(root)
+        impl = runner.server_impl
+        first = impl.wf_server_info_response(root)
+        out["first_refs"] = first["data"]["extensions"]["stale_helper_references"]
+        out["first_codes"] = [d["code"] for d in first.get("diagnostics") or []]
+        old_h = weakref.ref(sys.modules["acme_h"])
+
+        class Proxy:
+            touched = []
+            def __getattribute__(self, name):
+                Proxy.touched.append(name)
+                raise AttributeError(name)
+
+        class Hostile(str):
+            def startswith(self, *args, **kwargs):
+                raise RuntimeError("hostile path text")
+
+        broken = types.ModuleType("acme_broken")
+        broken.__file__ = Hostile(str(SCRATCH / "acme_broken.py"))
+        sys.modules["acme_proxy"] = Proxy()
+        sys.modules["acme_broken"] = broken
+        # Scanned after the failing module, so one failure must not end the scan.
+        for name in ("acme_pkg.sub", "acme_u"):
+            sys.modules[name] = sys.modules.pop(name)
+        # The new helper drops DROPPED: a name it no longer binds is not stale.
+        # (A declared importer is re-executed, so there it must stay bound.)
+        # Repair F2: the new helper also gains a docstring and bumps an int
+        # constant; cached immutables are shared, so neither is reported.
+        if MODE == "stale":
+            write_module("acme_h", '"""The edited helper."""\n'
+                         + STALE_H.replace("DROPPED = object()\n", "").replace("LIMIT = 1000", "LIMIT = 2000"))
+        result = runner.perform_mcp_reload()
+        out["reload_status"] = result["status"]
+        impl = runner.server_impl
+        info = impl.wf_server_info_response(root)
+        out["refs"] = info["data"]["extensions"]["stale_helper_references"]
+        out["diagnostics"] = [{k: d.get(k) for k in ("code", "message", "advisory")} for d in info.get("diagnostics") or []]
+        out["retained_after_scan"] = len(impl._EXTENSION_RETAINED_MODULES)
+        out["lazy_calls"] = list(sys.modules["acme_lazy"].CALLS)
+        out["proxy_touched"] = list(Proxy.touched)
+        out["served_value"] = ccall(mcp, "acme_stale").get("data")
+        del sys.modules["acme_proxy"], sys.modules["acme_broken"], broken
+        # The importer drops its references; the old helper is then freed,
+        # because the server retained it only until the scan finished.
+        u = sys.modules["acme_u"]
+        for name in ("acme_h", "f", "C", "inst", "DROPPED", "LIMIT", "holder", "made", "Nested", "mine", "helper_spec"):
+            vars(u).pop(name, None)
+        vars(sys.modules["acme_pkg.sub"]).pop("f", None)
+        del u
+        gc.collect()
+        out["old_h_freed"] = old_h() is None
+        # A failed install after eviction releases the evicted modules too:
+        # a forced tool-name prefix violation, and an install that raises.
+        from mcp.server.fastmcp import FastMCP
+        failed = {}
+        for label in ("prefix", "install"):
+            u = sys.modules["acme_u"]
+            vars(u)["acme_h"] = sys.modules["acme_h"]
+            current = weakref.ref(sys.modules["acme_h"])
+            target, patch = (("first_party_tool_names_violating_prefix", lambda names: ["acme_forced"])
+                             if label == "prefix" else
+                             ("_install_declared_extension_tools", mock.Mock(side_effect=RuntimeError("forced"))))
+            with mock.patch.object(impl, target, patch):
+                try:
+                    impl.register_mcp_surface(FastMCP("fail-" + label), runner._get_handler)
+                    raised = None
+                except BaseException as exc:
+                    raised = type(exc).__name__
+            retained = len(impl._EXTENSION_RETAINED_MODULES)
+            vars(u).pop("acme_h", None)
+            del u
+            gc.collect()
+            failed[label] = {"raised": raised, "retained": retained, "freed": current() is None}
+            # Restore a served state for the next case.
+            result = runner.perform_mcp_reload()
+            impl = runner.server_impl
+            failed[label]["recovered"] = result["status"]
+        out["failed"] = failed
+        runner._get_handler().close()
+
     elif MODE == "caseok":
         # Wave 1zls8 (1zltx AC-6, Requirement 10): run with PYTHONCASEOK=1. A
         # declared name whose case differs from its file is refused on every
@@ -1869,6 +2096,8 @@ class StockSurfaceTests(unittest.TestCase):
     def test_empty_declaration_reports_no_served_names(self):
         # Wave 1z8oz: the new provenance fields exist and are empty.
         ext = self.out["extensions"]
+        # Wave 1zoju (1zojt AC-5): the stale-reference list is always present.
+        self.assertEqual(ext["stale_helper_references"], [])
         self.assertEqual(ext["aliases"], {})
         self.assertEqual(ext["hidden"], [])
         self.assertEqual(ext["replacements"], [])
@@ -1893,8 +2122,11 @@ class AliasServingTests(unittest.TestCase):
     def test_alias_is_the_canonical_wrapped_tool(self):
         self.assertTrue(self.out["alias_shares_fn"])
         self.assertEqual(self.out["markers"]["fork_close_container"], self.out["markers"]["wf_close_wave"])
-        # The canonical markers are the stock chain plus the hint rewrite.
-        self.assertEqual(self.out["markers"]["wf_close_wave"], self.stock["markers"]["wf_close_wave"] + ["rewrite"])
+        # The canonical markers are the stock chain plus the hint rewrite,
+        # then the final render pass (wave 1zoju, 1zodw).
+        self.assertEqual(self.stock["markers"]["wf_close_wave"][-1], "render")
+        self.assertEqual(self.out["markers"]["wf_close_wave"],
+                         self.stock["markers"]["wf_close_wave"][:-1] + ["rewrite", "render"])
 
     def test_alias_takes_the_canonical_lock_and_its_hints_name_served_tools(self):
         busy = self.out["busy"]
@@ -1990,7 +2222,8 @@ class ReplacementServingTests(unittest.TestCase):
         for core, alias in (("wf_close_wave", "fork_close_container"), ("wf_review_event", "fork_review_event_core"),
                             ("wf_help", "fork_help_core"), ("memory_validate", "fork_memory_validate_core"),
                             ("wf_current_wave", "fork_current_core")):
-            self.assertEqual(self.out["markers"][alias], self.stock["markers"][core] + ["rewrite"], alias)
+            # Wave 1zoju (1zodw): the stock chain ends in the final render pass.
+            self.assertEqual(self.out["markers"][alias], self.stock["markers"][core][:-1] + ["rewrite", "render"], alias)
 
     def test_core_behaviour_lock_busy_names_alias_for_core(self):
         busy = self.out["core_busy"]
@@ -2204,7 +2437,7 @@ class ParameterMappedAliasTests(unittest.TestCase):
         self.assertEqual(self.out["delegate_lock_acquired"], 1)
         self.assertEqual(self.out["delegate_cost"], ["wf_remove_change"])
         # The override gets the canonical name-keyed wrappers once; the core handler none.
-        self.assertEqual(self.out["markers"]["wf_remove_change"], ["cost", "lock", "guard", "setup", "rewrite"])
+        self.assertEqual(self.out["markers"]["wf_remove_change"], ["cost", "lock", "guard", "setup", "rewrite", "render"])
 
     def test_provenance_lists_parameter_mappings(self):
         params = self.out["extensions"]["parameters"]
@@ -2801,7 +3034,9 @@ class ExtensionServingTests(unittest.TestCase):
         # records only its own response.
         # Wave 1zlu1 (N1): this override omits `parent`, so the outermost
         # omitted-parameter guard is added after the core chain.
-        self.assertEqual(self.out["markers"]["wf_create_wave"], ["cost"] + self.stock["markers"]["wf_create_wave"] + ["omitted"])
+        # Wave 1zoju (1zodw): the final render pass stays outermost.
+        self.assertEqual(self.out["markers"]["wf_create_wave"],
+                         ["cost"] + self.stock["markers"]["wf_create_wave"][:-1] + ["omitted", "render"])
         self.assertIn("lock", self.out["markers"]["wf_create_wave"])
 
     def test_new_tools_are_wrapped_costed_and_upgrade_guarded(self):
@@ -2989,6 +3224,277 @@ class HelperModuleTests(unittest.TestCase):
         self.assertEqual(out["fixed_reload_status"], "ok", out["fixed_reload_text"])
         self.assertEqual(out["fixed_names"], ["acme_touch"])
         self.assertEqual(out["fixed_marked"], {"acme_shared": True, "acme_extra": True, "acme_contract": True})
+
+
+class UnhandledToolExceptionRenderTests(unittest.TestCase):
+    """Wave 1zoju (1zodw): an exception escaping a served callable reaches the
+    client as a path-free `tool_unhandled_exception` error envelope."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.out = _run("render")
+
+    def case(self, name):
+        return self.out["cases"][name]
+
+    def assert_rendered(self, name, message, tool):
+        case = self.case(name)
+        self.assertNotIn("escaped", case, f"{name}: {case}")
+        self.assertEqual(case["status"], "error", name)
+        self.assertIs(case["isError"], True, name)
+        self.assertEqual(case["tool"], tool, name)
+        self.assertEqual(case["diagnostics"], [["tool_unhandled_exception", message]], name)
+        self.assertFalse(case["leaks_root"], name)
+
+    def test_os_error_renders_class_errno_and_relative_filename(self):
+        """AC-1, through FastMCP's client path and the served table."""
+        for name in ("extension_client", "extension"):
+            self.assert_rendered(name, "PermissionError EACCES on docs/x.md", "fork_boom")
+
+    def test_every_served_kind_is_rendered(self):
+        """AC-3: extension, plain alias, override, alias_for_core, and each
+        step of a mapped alias's translator."""
+        self.assert_rendered("plain_alias", "RuntimeError", "fork_boom")
+        self.assert_rendered("override", "RuntimeError", "wf_current_wave")
+        self.assert_rendered("alias_for_core", "ValueError: bad goal", "fork_help_core")
+        self.assert_rendered("mapped_rewrite", "KeyError: 'rewrite'", "fork_mapped")
+        self.assert_rendered("mapped_deepcopy", "TypeError: deepcopy", "fork_mapped")
+        self.assert_rendered("mapped_rename", "LookupError: rename", "fork_mapped")
+        self.assertEqual(self.case("mapped_ok")["status"], "ok")
+
+    def test_the_render_pass_is_last_and_wraps_each_entry_once(self):
+        """AC-3 and AC-8: every synchronous served tool ends in `render`, once;
+        the coroutine runner tool carries no render label."""
+        markers = self.out["markers"]
+        coroutines = set(self.out["coroutines"])
+        self.assertIn("wf_reload_mcp", coroutines)
+        self.assertNotIn("render", markers["wf_reload_mcp"])
+        for name, labels in markers.items():
+            if name in coroutines:
+                continue
+            with self.subTest(tool=name):
+                self.assertEqual(labels[-1:], ["render"], labels)
+                self.assertEqual(labels.count("render"), 1, labels)
+        for name in ("fork_boom", "fork_plain", "fork_mapped", "fork_help_core", "wf_help", "wf_current_wave"):
+            self.assertIn(name, markers)
+        self.assertTrue(self.out["alias_shares_fn"])
+
+    def test_an_inner_wrapper_exception_is_rendered(self):
+        """AC-4: raised by the upgrade-publication guard, outside the body."""
+        self.assert_rendered("inner_guard", "RuntimeError", "wf_add_change")
+
+    def test_an_interrupt_propagates(self):
+        """AC-5."""
+        self.assertEqual(self.case("interrupt"), {"escaped": "KeyboardInterrupt"})
+
+
+class UnhandledToolExceptionUnitTests(unittest.TestCase):
+    """Wave 1zoju (1zodw) AC-2, AC-5 to AC-7 on the pass itself."""
+
+    @classmethod
+    def setUpClass(cls):
+        from server_tools_support import load_server
+        cls.srv = load_server()
+
+    def served(self, exc, get_handler):
+        from types import SimpleNamespace
+
+        def body():
+            raise exc
+
+        table = {"probe_tool": SimpleNamespace(fn=body)}
+        self.srv._wrap_unhandled_tool_exceptions(SimpleNamespace(_tool_manager=SimpleNamespace(_tools=table)), get_handler)
+        self.assertTrue(table["probe_tool"].fn._wf_rendered)
+        return table["probe_tool"].fn
+
+    def message(self, exc, get_handler):
+        from unittest import mock
+        with mock.patch.object(self.srv, "_wf_log"):
+            result = self.served(exc, get_handler)()
+        self.assertEqual(result["status"], "error")
+        self.assertIs(result["isError"], True)
+        self.assertEqual(result["data"], {"tool": "probe_tool"})
+        (diagnostic,) = result["diagnostics"]
+        self.assertEqual(diagnostic["code"], "tool_unhandled_exception")
+        return diagnostic["message"]
+
+    def test_absolute_paths_are_withheld_and_plain_text_kept(self):
+        """AC-2."""
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as tmp:
+            handler = lambda: SimpleNamespace(root=Path(tmp))
+            self.assertEqual(self.message(RuntimeError("cannot open /tmp/elsewhere/lock"), handler), "RuntimeError")
+            self.assertEqual(self.message(RuntimeError("cannot open C:\\elsewhere\\lock"), handler), "RuntimeError")
+            self.assertEqual(self.message(ValueError("bad id"), handler), "ValueError: bad id")
+
+    def test_a_failing_root_lookup_falls_back_to_class_and_errno(self):
+        """AC-6."""
+        import errno
+
+        def broken():
+            raise RuntimeError("handler at /srv/private/root failed")
+
+        self.assertEqual(self.message(OSError(errno.EACCES, "Permission denied", "/srv/private/x"), broken),
+                         "PermissionError EACCES")
+        self.assertEqual(self.message(RuntimeError("cannot open /srv/private/lock"), broken), "RuntimeError")
+
+    def test_interrupts_and_exits_propagate(self):
+        """AC-5 on the pass: only ``Exception`` is caught."""
+        for exc in (KeyboardInterrupt(), SystemExit(3)):
+            with self.subTest(exc=type(exc).__name__), self.assertRaises(type(exc)):
+                self.served(exc, lambda: None)()
+
+    def test_the_full_traceback_goes_to_stderr(self):
+        """AC-7."""
+        import contextlib
+        import io
+        from types import SimpleNamespace
+        stream = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stderr(stream):
+            result = self.served(RuntimeError(f"cannot open {tmp}/secret"), lambda: SimpleNamespace(root=Path(tmp)))()
+        self.assertEqual(result["diagnostics"][0]["message"], "RuntimeError")
+        logged = stream.getvalue()
+        self.assertIn("Traceback (most recent call last)", logged)
+        self.assertIn("probe_tool", logged)
+        self.assertIn(f"RuntimeError: cannot open {tmp}/secret", logged)
+
+    def test_coroutines_and_rendered_callables_are_skipped(self):
+        """AC-8 and the idempotence marker."""
+        from types import SimpleNamespace
+
+        async def runner_tool():
+            return None
+
+        def body():
+            return {"status": "ok"}
+
+        table = {"a": SimpleNamespace(fn=runner_tool), "b": SimpleNamespace(fn=body), "c": SimpleNamespace(fn=body)}
+        mcp = SimpleNamespace(_tool_manager=SimpleNamespace(_tools=table))
+        self.srv._wrap_unhandled_tool_exceptions(mcp, lambda: None)
+        self.assertIs(table["a"].fn, runner_tool)
+        first = table["b"].fn
+        self.assertIs(table["c"].fn, first)
+        self.srv._wrap_unhandled_tool_exceptions(mcp, lambda: None)
+        self.assertIs(table["b"].fn, first)
+        self.assertIs(first.__wrapped__, body)
+
+
+class StaleHelperReferenceTests(unittest.TestCase):
+    """Wave 1zoju (1zojt): an undeclared importer still holding a replaced
+    helper after a reload is reported; the scan never breaks an install."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.out = _run("stale")
+
+    def test_first_install_reports_nothing(self):
+        """AC-1 and AC-5: nothing was evicted, so nothing is reported."""
+        self.assertEqual(self.out["first_refs"], [])
+        self.assertNotIn("extension_helper_stale_reference", self.out["first_codes"])
+
+    def test_reload_reports_the_stale_module_function_class_and_instance(self):
+        """AC-1, AC-3 and the AC-4 positive case."""
+        self.assertEqual(self.out["reload_status"], "ok")
+        self.assertEqual(self.out["refs"], [
+            {"module": "acme_pkg.sub", "global": "f", "helper": "acme_h"},
+            {"module": "acme_u", "global": "C", "helper": "acme_h"},
+            {"module": "acme_u", "global": "acme_h", "helper": "acme_h"},
+            {"module": "acme_u", "global": "f", "helper": "acme_h"},
+            {"module": "acme_u", "global": "inst", "helper": "acme_h"},
+        ])
+        advisory = [d for d in self.out["diagnostics"] if d["code"] == "extension_helper_stale_reference"]
+        self.assertEqual(len(advisory), 1, self.out["diagnostics"])
+        self.assertIs(advisory[0]["advisory"], True)
+        for text in ("acme_pkg.sub", "acme_u", "EXTENSION_HELPER_MODULES", "restart", "module-level"):
+            self.assertIn(text, advisory[0]["message"])
+        # The importer really does call stale code: the helper it serves through is the old one.
+        self.assertEqual(self.out["served_value"], {"value": "h1"})
+
+    def test_false_positive_shapes_are_not_reported_and_run_no_code(self):
+        """AC-4 (1) to (6), and AC-6's dropped name."""
+        reported = {(r["module"], r["global"]) for r in self.out["refs"]}
+        # helper_spec holds the old helper's __spec__: import machinery under a
+        # dunder name, which repair F2 does not compare.
+        for name in ("holder", "made", "Nested", "mine", "DROPPED", "LIMIT", "helper_spec"):
+            self.assertNotIn(("acme_u", name), reported)
+        # Repair F2: a docstring added to the helper and a bumped int constant
+        # report nothing in any framework module (the exact list in the reload
+        # test pins that only the five real positives remain).
+        self.assertEqual({module for module, _ in reported}, {"acme_u", "acme_pkg.sub"})
+        self.assertFalse(any(module in {"acme_lazy", "acme_proxy"} for module, _ in reported))
+        self.assertEqual(self.out["lazy_calls"], [])
+        self.assertEqual(self.out["proxy_touched"], [])
+
+    def test_a_module_that_fails_the_scan_is_skipped_with_a_class_only_advisory(self):
+        """AC-6: the install succeeds, the other module is still reported."""
+        skipped = [d for d in self.out["diagnostics"] if d["code"] == "extension_helper_stale_scan_skipped"]
+        self.assertEqual(len(skipped), 1, self.out["diagnostics"])
+        self.assertIs(skipped[0]["advisory"], True)
+        self.assertIn("RuntimeError", skipped[0]["message"])
+        self.assertNotIn("hostile path text", skipped[0]["message"])
+        self.assertTrue(self.out["refs"])
+
+    def test_retained_modules_are_released(self):
+        """AC-1 and AC-6: released after the scan and after a failed install."""
+        self.assertEqual(self.out["retained_after_scan"], 0)
+        self.assertTrue(self.out["old_h_freed"])
+        for label, case in self.out["failed"].items():
+            with self.subTest(case=label):
+                self.assertIsNotNone(case["raised"])
+                self.assertEqual(case["retained"], 0)
+                self.assertTrue(case["freed"])
+                self.assertEqual(case["recovered"], "ok")
+
+
+class StaleHelperDeclaredImporterTests(unittest.TestCase):
+    """Wave 1zoju (1zojt) AC-2: declaring the importer clears the report."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.out = _run("stale_declared")
+
+    def test_declared_importer_is_re_executed_and_not_reported(self):
+        self.assertEqual(self.out["reload_status"], "ok")
+        self.assertEqual([r for r in self.out["refs"] if r["module"] == "acme_u"], [])
+        self.assertEqual(self.out["served_value"], {"value": "h1"})
+
+
+class StaleHelperScanUnitTests(unittest.TestCase):
+    """Wave 1zoju (1zojt) AC-5: with nothing evicted the scan reads nothing."""
+
+    def test_empty_retained_list_never_reads_sys_modules(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        from server_tools_support import load_server
+        srv = load_server()
+
+        class Exploding(dict):
+            def items(self):
+                raise AssertionError("sys.modules was read")
+            def get(self, *args):
+                raise AssertionError("sys.modules was read")
+
+        self.assertEqual(srv._EXTENSION_RETAINED_MODULES, [])
+        with mock.patch.object(srv, "sys", SimpleNamespace(modules=Exploding(), path=[])):
+            self.assertEqual(srv._scan_stale_helper_references(), ([], []))
+        self.assertEqual(srv._empty_extension_provenance()["stale_helper_references"], [])
+
+    def test_a_scan_wide_failure_is_reported_by_class_and_yields_nothing(self):
+        """Repair F6: a failure outside the per-module guards (here resolving
+        the scripts directory) returns no entries and the class name only."""
+        import types as module_types
+        from types import SimpleNamespace
+        from unittest import mock
+        from server_tools_support import load_server
+        srv = load_server()
+
+        def broken():
+            raise RuntimeError("cannot resolve /private/scripts")
+
+        retained = [("acme_old", module_types.ModuleType("acme_old"))]
+        with mock.patch.object(srv, "_EXTENSION_RETAINED_MODULES", retained), \
+                mock.patch.object(srv, "SCRIPTS_DIR", SimpleNamespace(resolve=broken)):
+            self.assertEqual(srv._scan_stale_helper_references(), ([], ["RuntimeError"]))
 
 
 class MiscasedModuleTests(unittest.TestCase):
@@ -3472,7 +3978,8 @@ class ExtensionRefusalTests(unittest.TestCase):
         self.assertEqual(result["calls_after_refusal"], [], "the handler must not run")
         self.assertNotIn("parent", result["plain"])
         self.assertEqual(len(result["calls_after_plain"]), 1, "a call without parent reaches the handler")
-        self.assertEqual(result["markers"][-1], "omitted", "the guard is outermost")
+        # Wave 1zoju (1zodw): outermost but for the final render pass.
+        self.assertEqual(result["markers"][-2:], ["omitted", "render"], "the guard is outermost")
 
     def test_incompatible_overrides_are_refused(self):
         result = self.out["cases"]["incompatible_override"]

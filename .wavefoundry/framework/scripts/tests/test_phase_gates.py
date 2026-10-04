@@ -28,6 +28,11 @@ class PhaseGateTests(unittest.TestCase):
             'command': [sys.executable, '-c', 'print("release passed")']}]
         _write_config(self.root, self.config)
         self.wave_md, self.wave = _build_one(self.srv, self.root, 'sensor-fixture', status='active')
+        # Wave 1zoju (1zodx): the change document's header carries its status
+        # from the start, so a later status change moves no receipt input.
+        doc = self.change_doc()
+        title, rest = doc.read_text().split('\n', 1)
+        doc.write_text(f'{title}\n\n{vocabulary_profile.MEMBER_STATUS_LABEL}: `planned`\n{rest}')
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         for name, value in [('run_validate', _stub_validate), ('run_garden', _stub_garden),
@@ -65,6 +70,14 @@ class PhaseGateTests(unittest.TestCase):
         text = self.wave_md.read_text()
         label = vocabulary_profile.MEMBER_STATUS_LABEL
         self.wave_md.write_text(text.replace(f'{label}: `planned`', f'{label}: `complete`'))
+        self.match_doc_status('complete')
+
+    def match_doc_status(self, status):
+        """Wave 1zoju (1zodx): close refuses status drift, so the change
+        document's header carries the same status as its wave record."""
+        label = vocabulary_profile.MEMBER_STATUS_LABEL
+        doc = self.change_doc()
+        doc.write_text(doc.read_text().replace(f'{label}: `planned`', f'{label}: `{status}`', 1))
 
     def change_doc(self):
         return next(p for p in self.wave_md.parent.glob('*.md') if p.name != self.wave_md.name)
@@ -230,6 +243,7 @@ class PhaseGateTests(unittest.TestCase):
         text = self.wave_md.read_text()
         label = vocabulary_profile.MEMBER_STATUS_LABEL
         self.wave_md.write_text(text.replace(f'{label}: `planned`', f'{label}: `complete`'))
+        self.match_doc_status('complete')
         with patch.object(self.srv, '_auto_populate_memory_for_wave', return_value={}) as memory, \
              patch.object(self.srv, '_maybe_optimize_index_on_close', return_value={}) as optimize:
             response = self.srv.wf_close_wave_response(self.root, self.wave, mode='create')
