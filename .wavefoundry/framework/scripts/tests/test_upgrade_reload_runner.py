@@ -60,6 +60,54 @@ class LiveRunnerLookupTests(unittest.TestCase):
         self.assertEqual(diag["code"], "mcp_reload_skipped")
         self.assertIn("wf_reload_mcp", diag["message"])
 
+    def _skipped_message(self, exc, root):
+        import contextlib
+        import io
+        runner = types.ModuleType("server")
+
+        def perform_mcp_reload(**_):
+            raise exc
+
+        runner.perform_mcp_reload = perform_mcp_reload
+        resp = {"status": "ok", "data": {}}
+        stream = io.StringIO()
+        with patch.object(upgrade_handlers, "_live_runner", return_value=runner), contextlib.redirect_stderr(stream):
+            upgrade_handlers._reload_live_runner(resp, root)
+        self.assertNotIn("mcp_reload", resp["data"])
+        (diag,) = resp["diagnostics"]
+        self.assertEqual(diag["code"], "mcp_reload_skipped")
+        return diag["message"], stream.getvalue()
+
+    def test_a_raising_reload_is_reported_without_an_absolute_path(self):
+        """Wave 1zqe4 (1zqe3) AC-10: ``mcp_reload_skipped`` names the class, errno
+        and repository-relative filename; the original text goes to stderr."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            inside = str(root / "docs" / "x.md")
+            message, logged = self._skipped_message(OSError(13, "Permission denied", inside), root)
+            self.assertEqual(message, "In-process MCP reload skipped: PermissionError EACCES on docs/x.md")
+            self.assertIn(inside, logged)
+            message, logged = self._skipped_message(OSError(13, "Permission denied", "/elsewhere/x.md"), root)
+            self.assertEqual(message, "In-process MCP reload skipped: PermissionError EACCES")
+            self.assertIn("/elsewhere/x.md", logged)
+
+    def test_a_raising_reload_without_a_root_takes_the_cause_label(self):
+        """AC-10 fallback: existing callers that pass only ``resp`` get the class and errno."""
+        message, logged = self._skipped_message(OSError(13, "Permission denied", "/srv/private/x.md"), None)
+        self.assertEqual(message, "In-process MCP reload skipped: PermissionError EACCES")
+        self.assertIn("/srv/private/x.md", logged)
+
+    def test_the_upgrade_passes_its_root_to_the_reload(self):
+        """AC-10: ``wf_upgrade_response`` hands the root it holds to the reload."""
+        import ast
+        import inspect
+        tree = ast.parse(inspect.getsource(upgrade_handlers.wf_upgrade_response))
+        calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                 and getattr(node.func, "id", None) == "_reload_live_runner"]
+        self.assertEqual(len(calls), 1)
+        self.assertEqual([ast.unparse(arg) for arg in calls[0].args], ["resp", "root"])
+
 
 _PRODUCTION_SHAPE = r'''
 import json, sys, tempfile, types

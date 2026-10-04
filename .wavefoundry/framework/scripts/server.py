@@ -253,6 +253,32 @@ SERVER_RUNNER_VERSION: str = (
 )
 
 
+def _reload_exception_text(exc: BaseException, context: str, root: Any = None) -> str:
+    """``exc`` rendered with no absolute path for a reload diagnostic (wave 1zqe4, 1zqe3).
+
+    Uses ``path_free_exception_text`` over ``root`` (default: the served root
+    ``_root``). A ``None`` root (before ``build_server`` has run) or any failure
+    falls back to the class and errno name, then to the class name, matching
+    the unhandled-exception envelope. The
+    original text goes to stderr for the operator. Never raises.
+    """
+    try:
+        print(f"wavefoundry: {context}: {type(exc).__name__}: {exc}", file=sys.stderr)
+    except Exception:  # noqa: BLE001 - logging never replaces the diagnostic
+        pass
+    try:
+        lock = server_impl._lifecycle_lock_authority
+        served = root if root is not None else _root
+        if served is None:
+            return lock._cause_label(exc)
+        try:
+            return lock.path_free_exception_text(exc, served)
+        except Exception:  # noqa: BLE001 - echo no text of either exception
+            return lock._cause_label(exc)
+    except Exception:  # noqa: BLE001 - an older or torn impl may lack the helpers
+        return type(exc).__name__
+
+
 def _record_runner_identity() -> Optional[str]:
     """Publish the capture-at-launch runner identity into the currently loaded impl module.
 
@@ -273,6 +299,10 @@ def _record_runner_identity() -> Optional[str]:
     from a partially initialised module) has no single-argument retry to offer, so it degrades to
     the returned reason string. Catching only ``TypeError`` here would let those escape and falsify
     the never-raises guarantee at the reload site, leaving the CLOSED pre-reload handler installed.
+
+    A reason built from a caught exception carries its path-free text (wave 1zqe4, 1zqe3), because
+    ``perform_mcp_reload`` forwards it to the client as ``runner_identity_unrecorded``; the full
+    original text goes to stderr, once per caught exception.
     """
     # The runner survives implementation reload; never recapture updated disk
     # rules as though they were the code with which this process started.
@@ -282,7 +312,8 @@ def _record_runner_identity() -> Optional[str]:
         server_impl._SETUP_STARTUP_RESULT = _STARTUP_ASSESSMENT
         server_impl._SETUP_STARTUP_INSTALL_PROVIDER = _startup_install_snapshot
     except Exception as exc:
-        return f"could not record setup assessment identity ({type(exc).__name__}: {exc}); restart the host"
+        cause = _reload_exception_text(exc, "could not record setup assessment identity")
+        return f"could not record setup assessment identity ({cause}); restart the host"
     setter = getattr(server_impl, "set_server_runner_version", None)
     if setter is None:
         return (
@@ -295,8 +326,9 @@ def _record_runner_identity() -> Optional[str]:
     except TypeError:
         pass
     except Exception as exc:  # noqa: BLE001; recording identity must never break build or reload
+        cause = _reload_exception_text(exc, "could not record the runner identity")
         return (
-            f"could not record the runner identity ({type(exc).__name__}: {exc}); runner "
+            f"could not record the runner identity ({cause}); runner "
             "staleness reporting is disabled for this process"
         )
     try:
@@ -307,8 +339,9 @@ def _record_runner_identity() -> Optional[str]:
             "complete tree"
         )
     except Exception as exc:  # noqa: BLE001; recording identity must never break build or reload
+        cause = _reload_exception_text(exc, "could not record the runner identity")
         return (
-            f"could not record the runner identity ({type(exc).__name__}: {exc}); runner "
+            f"could not record the runner identity ({cause}); runner "
             "staleness reporting is disabled for this process"
         )
 
@@ -538,19 +571,21 @@ def _refresh_mcp_tool_surface(
             mcp_instance.remove_tool(name)
             removed += 1
         except Exception as exc:
+            cause = _reload_exception_text(exc, f"removing tool {name!r} during reload raised")
             warnings.append(
                 server_impl._diagnostic(
                     "tool_remove_warning",
-                    f"Removing tool {name!r} during reload raised: {exc}",
+                    f"Removing tool {name!r} during reload raised: {cause}",
                 )
             )
     try:
         server_impl.register_mcp_surface(mcp_instance, _get_handler)
     except Exception as exc:
+        cause = _reload_exception_text(exc, "register_mcp_surface re-registration failed")
         warnings.append(
             server_impl._diagnostic(
                 "register_surface_failed",
-                f"register_mcp_surface re-registration failed: {exc}",
+                f"register_mcp_surface re-registration failed: {cause}",
             )
         )
         return 0, [], [], [], warnings
@@ -602,8 +637,9 @@ def perform_mcp_reload(*, notify: str = "schedule") -> dict[str, Any]:
         try:
             old.close()
         except Exception as exc:
+            cause = _reload_exception_text(exc, "old handler close raised", old.root)
             close_warnings.append(
-                server_impl._diagnostic("handler_close_warning", f"Old handler close raised: {exc}")
+                server_impl._diagnostic("handler_close_warning", f"Old handler close raised: {cause}")
             )
         server_impl._script_cache.clear()
         # Evict wave_lint_lib submodules so lazy imports in server_impl
@@ -631,10 +667,11 @@ def perform_mcp_reload(*, notify: str = "schedule") -> dict[str, Any]:
             new_handler = server_impl.build_handler(old.root)
         except Exception as exc:
             _set_handler(old)
+            cause = _reload_exception_text(exc, "MCP reload failed", old.root)
             return server_impl._response(
                 "error",
                 {},
-                diagnostics=[server_impl._diagnostic("reload_failed", str(exc))] + close_warnings,
+                diagnostics=[server_impl._diagnostic("reload_failed", cause)] + close_warnings,
             )
         _set_handler(new_handler)
         # Wave 131bt (131d8): tear down + re-register FastMCP tool schemas so
@@ -676,7 +713,9 @@ def perform_mcp_reload(*, notify: str = "schedule") -> dict[str, Any]:
                         notification_dispatch = "scheduled"
                     except Exception as exc:
                         notification_dispatch = "failed"
-                        notification_send_error = f"{type(exc).__name__}: {exc}"
+                        notification_send_error = _reload_exception_text(
+                            exc, "scheduling notifications/tools/list_changed failed", old.root
+                        )
         payload = server_impl.version_payload(
             old.root, server_runner_version=SERVER_RUNNER_VERSION
         )
@@ -696,7 +735,10 @@ def perform_mcp_reload(*, notify: str = "schedule") -> dict[str, Any]:
         except Exception as exc:  # noqa: BLE001
             readiness = None
             diagnostics.append(
-                server_impl._diagnostic("setup_readiness_unavailable", str(exc))
+                server_impl._diagnostic(
+                    "setup_readiness_unavailable",
+                    _reload_exception_text(exc, "setup readiness unavailable after reload", old.root),
+                )
             )
         if readiness is not None:
             payload["setup_readiness"] = readiness
@@ -933,7 +975,9 @@ def build_server(root: Path):
                     "The MCP host may not refetch; reconnect the server, then "
                     "restart the host if the list remains stale.".format(
                         changes=change_summary,
-                        err=f"{type(exc).__name__}: {exc}",
+                        err=_reload_exception_text(
+                            exc, "awaited notifications/tools/list_changed send failed"
+                        ),
                     ),
                 )
             )
@@ -958,6 +1002,14 @@ def build_server(root: Path):
     # surface normalization. Normalize once more so the runner-owned survivor
     # publishes the same exact argument contract as every reloaded tool.
     server_impl._normalize_first_party_tool_argument_models(mcp)
+    # Wave 1zqe4 (1zqe3): render an exception escaping ``wf_reload_mcp`` as the
+    # path-free envelope every other tool returns. The pass skips entries it
+    # already rendered, so only the runner tool is wrapped here, and a reload
+    # keeps that one wrapper. An older impl without the helper leaves the tool
+    # unrendered rather than failing the launch.
+    apply_render_pass = getattr(server_impl, "_apply_render_pass", None)
+    if callable(apply_render_pass):
+        apply_render_pass(mcp, _get_handler)
     tool_names = server_impl._registered_mcp_tool_names(mcp)
     violations = server_impl.first_party_tool_names_violating_prefix(tool_names)
     if violations:

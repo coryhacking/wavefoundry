@@ -25,6 +25,7 @@ import hashlib
 import os
 import tempfile
 import re
+import stat
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -772,6 +773,22 @@ def is_canonical_wave_events_path(rel_path: str, root: Path | None = None) -> bo
     return False
 
 
+def _authority_member_lstat(member: Path) -> os.stat_result | None:
+    """``lstat`` one review authority member; ``None`` only when it is absent.
+
+    Python 3.14 ``pathlib`` predicates return ``False`` on any ``OSError``, so
+    they cannot tell an absent member from one the guard could not inspect.
+    Only not-found (``FileNotFoundError``; Windows maps WinError 2 and 3 to it)
+    and ``NotADirectoryError`` read as absent; ``ELOOP``, access denial and
+    every other ``OSError`` propagate to the "not safely resolvable" branch.
+    """
+
+    try:
+        return os.lstat(member)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+
+
 def _review_authority_path_error(wave_path: Path) -> str | None:
     """Reject symlinked/out-of-wave review authority before any read or write."""
 
@@ -781,16 +798,27 @@ def _review_authority_path_error(wave_path: Path) -> str | None:
     wave_dir = wave_md.parent
     ledger = wave_dir / EVENTS_FILENAME
     try:
-        if wave_dir.is_symlink():
+        # ``os.lstat`` rather than ``pathlib`` predicates, which stopped
+        # raising on ``OSError`` in Python 3.14 (wave 1zqe4): any failure,
+        # not-found included, is "not safely resolvable".
+        wave_dir_stat = os.lstat(wave_dir)
+        if stat.S_ISLNK(wave_dir_stat.st_mode):
             return "wave directory may not be a symlink"
+        if not stat.S_ISDIR(wave_dir_stat.st_mode):
+            return (
+                "review authority path is not safely resolvable: "
+                f"{wave_dir.name}: Not a directory"
+            )
         wave_real = wave_dir.resolve(strict=True)
-        if wave_md.is_symlink():
+        wave_md_stat = _authority_member_lstat(wave_md)
+        if wave_md_stat is not None and stat.S_ISLNK(wave_md_stat.st_mode):
             return f"{_vocab.RECORD_FILENAME} may not be a symlink"
-        if wave_md.exists() and not wave_md.resolve(strict=True).is_relative_to(wave_real):
+        if wave_md_stat is not None and not wave_md.resolve(strict=True).is_relative_to(wave_real):
             return f"{_vocab.RECORD_FILENAME} escapes its wave directory"
-        if ledger.is_symlink():
+        ledger_stat = _authority_member_lstat(ledger)
+        if ledger_stat is not None and stat.S_ISLNK(ledger_stat.st_mode):
             return "events.jsonl may not be a symlink"
-        if ledger.exists() and not ledger.resolve(strict=True).is_relative_to(wave_real):
+        if ledger_stat is not None and not ledger.resolve(strict=True).is_relative_to(wave_real):
             return "events.jsonl escapes its wave directory"
     except (OSError, RuntimeError) as exc:
         # Path-free (1v1de census): ``OSError.__str__`` and the symlink-loop

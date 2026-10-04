@@ -1046,6 +1046,10 @@ def _reload_in_place(module) -> None:
     exception class that survives the reload to its original object keeps
     those holders catching what the reloaded code raises. The exception classes
     in the reloaded modules carry the same definition as in v1.27.0.
+
+    The rebinding runs in a ``finally`` (wave 1zqe4, 1zrah): a reload that
+    raises part-way has already re-executed every statement before the failing
+    one, so a class it re-defined would otherwise stay split from the holders.
     """
 
     name = module.__name__
@@ -1056,11 +1060,13 @@ def _reload_in_place(module) -> None:
         and issubclass(value, BaseException)
         and value.__module__ == name
     }
-    importlib.reload(module)
-    for attr, old in kept.items():
-        new = getattr(module, attr, None)
-        if isinstance(new, type) and issubclass(new, BaseException):
-            setattr(module, attr, old)
+    try:
+        importlib.reload(module)
+    finally:
+        for attr, old in kept.items():
+            new = getattr(module, attr, None)
+            if isinstance(new, type) and issubclass(new, BaseException):
+                setattr(module, attr, old)
 
 
 def _installed_memory_backfill(root: Path):
@@ -1130,6 +1136,42 @@ def _refresh_record_layout_modules() -> None:
         cached = sys.modules.get(name)
         if cached is not None:
             _reload_in_place(cached)
+
+
+def _refresh_record_layout_modules_at_extraction(root: Path) -> None:
+    """Refresh a pre-upgrade runner's cached record-layout leaves after extraction.
+
+    Wave 1zqe4 (1zrah): a 1.28.0 runner imports ``vocabulary_profile`` before
+    extraction, then imports the new ``lifecycle_id`` in Phase 2c, whose
+    module-level ``KIND_CHOICES`` reads ``CHANGE_KINDS`` from the cached old
+    copy. ``post_extract`` is the first new-tree code the runner calls after
+    extraction, so the leaves are refreshed here, leaf-first. A failed reload
+    leaves a namespace that mixes old and new names (or, for
+    ``vocabulary_profile``, the full namespace that failed its own import-time
+    validation), so the first failure stops the upgrade and no later module is
+    reloaded.
+    """
+
+    scripts = Path(root) / ".wavefoundry" / "framework" / "scripts"
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
+    for name in _RECORD_LAYOUT_MODULES:
+        cached = sys.modules.get(name)
+        if cached is None:
+            continue
+        try:
+            _reload_in_place(cached)
+        except Exception as exc:
+            reason = type(exc).__name__
+            print(
+                f"upgrade: refreshing the cached {name} module failed ({reason}); "
+                "no later module was refreshed",
+                flush=True,
+            )
+            raise RuntimeError(
+                f"could not refresh the cached {name} module after extraction "
+                f"({reason}); rerun the same upgrade command"
+            ) from exc
 
 
 def _fresh_installed_module(name: str):
@@ -2511,6 +2553,9 @@ def post_extract(ctx):
     # can call an old indexer or cleanup. Load the newly extracted, stdlib-only
     # helper explicitly; never hide this safety failure in migration reports.
     if not getattr(ctx, "dry_run", False):
+        # Wave 1zqe4 (1zrah): before any new-tree module is imported in this
+        # process, so an older runner's cached leaves never feed it.
+        _refresh_record_layout_modules_at_extraction(ctx.root)
         migration_path = Path(ctx.root) / ".wavefoundry/framework/scripts/sqlite_storage_migration.py"
         if migration_path.is_file():
             spec = importlib.util.spec_from_file_location("_installed_storage_migration", migration_path)

@@ -1600,7 +1600,7 @@ def wf_upgrade_response(
                 )
             )
         else:
-            _reload_live_runner(resp)
+            _reload_live_runner(resp, root)
     return _bounded_upgrade_response_envelope(resp)
 
 
@@ -1622,11 +1622,16 @@ def _live_runner():
     return None
 
 
-def _reload_live_runner(resp: dict[str, Any]) -> None:
+def _reload_live_runner(resp: dict[str, Any], root: Optional[Path] = None) -> None:
     """Reload the serving runner after an upgrade, recording the outcome in ``resp``.
 
     Wave 1z1vt: when no serving runner is loaded, the response says the reload
     was skipped and names ``wf_reload_mcp`` instead of reporting a reload.
+
+    Wave 1zqe4 (1zqe3): an exception from the reload is reported with no
+    absolute path, made repository-relative over ``root`` when it is given and
+    otherwise reduced to its class and errno name; the original text goes to
+    stderr.
     """
     from wf_server import server_impl
 
@@ -1647,8 +1652,23 @@ def _reload_live_runner(resp: dict[str, Any]) -> None:
             resp.setdefault("data", {})["mcp_reload"] = reload_resp.get("data", {})
         resp.setdefault("diagnostics", []).extend(reload_resp.get("diagnostics", []))
     except Exception as exc:
+        try:
+            print(f"wavefoundry: in-process MCP reload skipped: {type(exc).__name__}: {exc}", file=sys.stderr)
+        except Exception:  # noqa: BLE001 - logging never replaces the diagnostic
+            pass
+        try:
+            lock = server_impl._lifecycle_lock_authority
+            if root is None:
+                cause = lock._cause_label(exc)
+            else:
+                try:
+                    cause = lock.path_free_exception_text(exc, root)
+                except Exception:  # noqa: BLE001 - echo no text of either exception
+                    cause = lock._cause_label(exc)
+        except Exception:  # noqa: BLE001
+            cause = type(exc).__name__
         resp.setdefault("diagnostics", []).append(
-            _diagnostic("mcp_reload_skipped", f"In-process MCP reload skipped: {exc}")
+            _diagnostic("mcp_reload_skipped", f"In-process MCP reload skipped: {cause}")
         )
 
 

@@ -9,6 +9,7 @@ below judge them.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import os
 from pathlib import Path
@@ -1860,7 +1861,29 @@ with tempfile.TemporaryDirectory() as tmp:
         fork.RAISE["what"] = KeyboardInterrupt()
         cases["interrupt"] = observe(lambda: call(mcp, "fork_boom"))
         fork.RAISE["what"] = None
+        # Wave 1zqe4 (1zqe3) AC-1: the coroutine runner tool, through FastMCP's
+        # client path, renders a reload exception path-free instead of raising.
+        reload_error = OSError(errno.EACCES, "Permission denied", str(hroot / "docs" / "x.md"))
+        with mock.patch.object(runner, "perform_mcp_reload", side_effect=reload_error):
+            cases["reload_client"] = observe(lambda: ccall(mcp, "wf_reload_mcp"))
+            out["reload_escape_text_leaks_root"] = False
+            try:
+                ccall(mcp, "wf_reload_mcp")
+            except BaseException as exc:
+                out["reload_escape_text_leaks_root"] = any(r in str(exc) for r in roots)
         out["cases"] = cases
+        # AC-4: rendered once at build, kept by identity across a real reload,
+        # and a second application of the pass changes no entry.
+        reload_fn = table(mcp)["wf_reload_mcp"].fn
+        reload_result = runner.perform_mcp_reload()
+        out["real_reload_status"] = reload_result["status"]
+        out["reload_same_fn"] = table(mcp)["wf_reload_mcp"].fn is reload_fn
+        out["reload_markers_after_reload"] = markers(mcp, "wf_reload_mcp")
+        before = {name: entry.fn for name, entry in table(mcp).items()}
+        impl = runner.server_impl
+        impl.mcp_tool_registry.apply_middleware(mcp, runner._get_handler, impl._RENDER_PASS)
+        out["second_pass_unchanged"] = set(table(mcp)) == set(before) and all(
+            table(mcp)[name].fn is fn for name, fn in before.items())
         runner._get_handler().close()
 
     elif MODE in ("stale", "stale_declared"):
@@ -3263,21 +3286,31 @@ class UnhandledToolExceptionRenderTests(unittest.TestCase):
         self.assertEqual(self.case("mapped_ok")["status"], "ok")
 
     def test_the_render_pass_is_last_and_wraps_each_entry_once(self):
-        """AC-3 and AC-8: every synchronous served tool ends in `render`, once;
-        the coroutine runner tool carries no render label."""
+        """1zodw AC-3 and AC-8, amended by wave 1zqe4 (1zqe3) AC-4: every served
+        tool ends in `render`, once, including the coroutine runner tool."""
         markers = self.out["markers"]
-        coroutines = set(self.out["coroutines"])
-        self.assertIn("wf_reload_mcp", coroutines)
-        self.assertNotIn("render", markers["wf_reload_mcp"])
+        self.assertEqual(self.out["coroutines"], ["wf_reload_mcp"])
         for name, labels in markers.items():
-            if name in coroutines:
-                continue
             with self.subTest(tool=name):
                 self.assertEqual(labels[-1:], ["render"], labels)
                 self.assertEqual(labels.count("render"), 1, labels)
         for name in ("fork_boom", "fork_plain", "fork_mapped", "fork_help_core", "wf_help", "wf_current_wave"):
             self.assertIn(name, markers)
         self.assertTrue(self.out["alias_shares_fn"])
+
+    def test_the_reload_tool_renders_an_exception_path_free(self):
+        """Wave 1zqe4 (1zqe3) AC-1: through FastMCP's client path."""
+        self.assert_rendered("reload_client", "PermissionError EACCES on docs/x.md", "wf_reload_mcp")
+        self.assertIs(self.out["reload_escape_text_leaks_root"], False)
+
+    def test_the_reload_tool_keeps_its_one_render_across_a_reload(self):
+        """Wave 1zqe4 (1zqe3) AC-4."""
+        self.assertEqual(self.out["markers"]["wf_reload_mcp"][-1:], ["render"])
+        self.assertEqual(self.out["markers"]["wf_reload_mcp"].count("render"), 1)
+        self.assertEqual(self.out["real_reload_status"], "ok")
+        self.assertIs(self.out["reload_same_fn"], True)
+        self.assertEqual(self.out["reload_markers_after_reload"], self.out["markers"]["wf_reload_mcp"])
+        self.assertIs(self.out["second_pass_unchanged"], True)
 
     def test_an_inner_wrapper_exception_is_rendered(self):
         """AC-4: raised by the upgrade-publication guard, outside the body."""
@@ -3358,8 +3391,9 @@ class UnhandledToolExceptionUnitTests(unittest.TestCase):
         self.assertIn("probe_tool", logged)
         self.assertIn(f"RuntimeError: cannot open {tmp}/secret", logged)
 
-    def test_coroutines_and_rendered_callables_are_skipped(self):
-        """AC-8 and the idempotence marker."""
+    def test_coroutines_are_rendered_once_and_rendered_callables_skipped(self):
+        """1zodw AC-8 as amended by wave 1zqe4 (1zqe3): coroutines are rendered
+        too, still once; a plain alias shares the one rendered wrapper."""
         from types import SimpleNamespace
 
         async def runner_tool():
@@ -3368,15 +3402,78 @@ class UnhandledToolExceptionUnitTests(unittest.TestCase):
         def body():
             return {"status": "ok"}
 
-        table = {"a": SimpleNamespace(fn=runner_tool), "b": SimpleNamespace(fn=body), "c": SimpleNamespace(fn=body)}
+        table = {"a": SimpleNamespace(fn=runner_tool), "a_alias": SimpleNamespace(fn=runner_tool),
+                 "b": SimpleNamespace(fn=body), "c": SimpleNamespace(fn=body)}
         mcp = SimpleNamespace(_tool_manager=SimpleNamespace(_tools=table))
         self.srv._wrap_unhandled_tool_exceptions(mcp, lambda: None)
-        self.assertIs(table["a"].fn, runner_tool)
+        rendered_coroutine = table["a"].fn
+        self.assertIsNot(rendered_coroutine, runner_tool)
+        self.assertIs(table["a_alias"].fn, rendered_coroutine)
+        self.assertTrue(inspect.iscoroutinefunction(rendered_coroutine))
         first = table["b"].fn
         self.assertIs(table["c"].fn, first)
         self.srv._wrap_unhandled_tool_exceptions(mcp, lambda: None)
+        self.assertIs(table["a"].fn, rendered_coroutine)
         self.assertIs(table["b"].fn, first)
         self.assertIs(first.__wrapped__, body)
+        self.assertIs(rendered_coroutine.__wrapped__, runner_tool)
+
+    def served_async(self, exc, get_handler):
+        from types import SimpleNamespace
+
+        async def body():
+            raise exc
+
+        table = {"probe_tool": SimpleNamespace(fn=body)}
+        self.srv._wrap_unhandled_tool_exceptions(SimpleNamespace(_tool_manager=SimpleNamespace(_tools=table)), get_handler)
+        fn = table["probe_tool"].fn
+        self.assertIsNot(fn, body)
+        self.assertTrue(fn._wf_rendered)
+        self.assertTrue(inspect.iscoroutinefunction(fn))
+        return fn
+
+    def test_a_coroutine_renders_the_same_envelope_as_a_synchronous_callable(self):
+        """Wave 1zqe4 (1zqe3) AC-2."""
+        import asyncio
+        import contextlib
+        import errno
+        import io
+        from types import SimpleNamespace
+
+        def broken():
+            raise RuntimeError("handler at /srv/private/root failed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            handler = lambda: SimpleNamespace(root=Path(tmp))
+            cases = (
+                (OSError(errno.EACCES, "Permission denied", f"{tmp}/docs/x.md"), handler),
+                (RuntimeError("cannot open /tmp/elsewhere/lock"), handler),
+                (ValueError("bad id"), handler),
+                (OSError(errno.EACCES, "Permission denied", "/srv/private/x"), broken),
+                (RuntimeError("cannot open /srv/private/lock"), broken),
+            )
+            for exc, get_handler in cases:
+                with self.subTest(exc=repr(exc)):
+                    stream = io.StringIO()
+                    with contextlib.redirect_stderr(stream):
+                        expected = self.served(exc, get_handler)()
+                        actual = asyncio.run(self.served_async(exc, get_handler)())
+                    self.assertEqual(actual, expected)
+                    self.assertEqual(actual["diagnostics"][0]["code"], "tool_unhandled_exception")
+                    self.assertEqual(stream.getvalue().count("Traceback (most recent call last)"), 2)
+                    self.assertIn("unhandled exception in tool probe_tool", stream.getvalue())
+            with contextlib.redirect_stderr(io.StringIO()):
+                messages = [asyncio.run(self.served_async(exc, get_handler)())["diagnostics"][0]["message"]
+                            for exc, get_handler in cases]
+        self.assertEqual(messages, ["PermissionError EACCES on docs/x.md", "RuntimeError", "ValueError: bad id",
+                                    "PermissionError EACCES", "RuntimeError"])
+
+    def test_cancellation_interrupts_and_exits_propagate_from_a_coroutine(self):
+        """Wave 1zqe4 (1zqe3) AC-3: only ``Exception`` is caught."""
+        import asyncio
+        for exc in (asyncio.CancelledError(), KeyboardInterrupt(), SystemExit(3)):
+            with self.subTest(exc=type(exc).__name__), self.assertRaises(type(exc)):
+                asyncio.run(self.served_async(exc, lambda: None)())
 
 
 class StaleHelperReferenceTests(unittest.TestCase):

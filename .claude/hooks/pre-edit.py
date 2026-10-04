@@ -7,12 +7,35 @@ from pathlib import Path as _WfPath
 _WF_SCRIPTS = _WfPath(__file__).resolve().parents[2] / ".wavefoundry" / "framework" / "scripts"
 if _WF_SCRIPTS.is_dir() and str(_WF_SCRIPTS) not in _wf_sys.path:
     _wf_sys.path.insert(0, str(_WF_SCRIPTS))
+# Change 1zrag: a tool venv this interpreter cannot use (built for another Python version, or an
+# activation that raised, including the guard's SystemExit) degrades the hook instead of exiting
+# it. Empty means usable or not built yet; otherwise the hook skips self-activating children.
+_WF_VENV_UNAVAILABLE = ""
 try:
     import venv_bootstrap as _wf_venv_bootstrap
-
-    _wf_venv_bootstrap.activate_tool_venv()
 except Exception:
-    pass
+    _wf_venv_bootstrap = None
+if _wf_venv_bootstrap is not None:
+    try:
+        _wf_venv_bootstrap.activate_tool_venv(allow_version_mismatch=True)
+        _wf_deferred = getattr(_wf_venv_bootstrap, "activation_deferred", None)
+        if callable(_wf_deferred) and _wf_deferred() == "version_mismatch":
+            _WF_VENV_UNAVAILABLE = "version_mismatch"
+    except KeyboardInterrupt:
+        raise
+    except BaseException:
+        _WF_VENV_UNAVAILABLE = "activation_failed"
+if _WF_VENV_UNAVAILABLE:
+    try:
+        print(
+            "wavefoundry: hook running without the tool venv ("
+            + ("it was built for another Python version" if _WF_VENV_UNAVAILABLE == "version_mismatch"
+               else "its activation failed")
+            + "); run `wf setup` to rebuild it.",
+            file=_wf_sys.stderr,
+        )
+    except Exception:
+        pass
 try:
     import cli_stdio as _wf_cli_stdio
 
@@ -253,6 +276,10 @@ def run_command(argv: list[str], timeout=None) -> subprocess.CompletedProcess[st
 def maybe_docs_lint(file_path: str) -> tuple[bool, str]:
     if not _rel_matches(repo_relative(file_path), "docs/"):
         return False, ""
+    if _WF_VENV_UNAVAILABLE:
+        # Change 1zrag: the docs_lint.py child self-activates and would exit 2, which reads
+        # as a lint failure. Skip it; the bootstrap already told the operator to run setup.
+        return False, ""
     # Wave 1p7tz/1p802: the `bin/docs-lint` wrapper was retired — invoke docs_lint.py directly
     # via sys.executable. After in-process activation sys.executable stays the SYSTEM
     # interpreter; the spawned docs_lint.py self-activates the venv first-line, so it reaches
@@ -317,7 +344,8 @@ def _spawn_reindex() -> None:
     # Spawn ONE detached incremental reindex. No coalescing decision here — callers gate. Wave
     # 1p9am split this out of maybe_trigger_reindex so the mark/flush paths share it.
     indexer = REPO_ROOT / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
-    if not indexer.exists():
+    if not indexer.exists() or _WF_VENV_UNAVAILABLE:
+        # Change 1zrag: a degraded hook never spawns the self-activating indexer child.
         return
     # sys.executable is the SYSTEM interpreter (after in-process activation, wave 1p802) — an
     # absolute path; the spawned indexer.py self-activates the venv first-line so the child
@@ -367,6 +395,8 @@ def mark_reindex_pending_for(file_path: str) -> None:
     # reindex. The turn-end Stop hook flushes it once per turn. Used by the Claude post-edit hook.
     if not should_reindex(file_path):
         return
+    if _WF_VENV_UNAVAILABLE == "activation_failed":
+        return  # Change 1zrag: loading indexer.py would re-run the activation that raised.
     try:
         hook_helpers = _load_indexer_hook_helpers()
         hook_helpers.mark_reindex_pending(REPO_ROOT / ".wavefoundry" / "index")
@@ -380,9 +410,13 @@ def maybe_trigger_reindex(file_path: str) -> None:
     if not should_reindex(file_path):
         return
     index_dir = REPO_ROOT / ".wavefoundry" / "index"
+    if _WF_VENV_UNAVAILABLE == "activation_failed":
+        return  # Change 1zrag: loading indexer.py would re-run the activation that raised.
     try:
         hook_helpers = _load_indexer_hook_helpers()
         hook_helpers.mark_reindex_pending(index_dir)
+        if _WF_VENV_UNAVAILABLE:
+            return  # Change 1zrag: leave it pending; the first hook run after setup flushes it.
         if hook_helpers.should_coalesce_hook_reindex(index_dir):
             return  # within the debounce window or a live build — leave it pending
         if not hook_helpers.consume_reindex_pending(index_dir):

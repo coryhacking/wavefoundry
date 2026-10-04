@@ -3091,7 +3091,13 @@ class ProviderProbeChildIsolationTests(unittest.TestCase):
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(self.mod._provider_probe_child_main(["X", "m"]), 0)
         activate.assert_called_once_with()
-        fault.assert_called_once()
+        # Wave 1zqe4: 3.14 turns off the C stack dump, which would push the
+        # Python frames out of the stderr tail (pinned by the native-crash
+        # test); before 3.14 the keyword does not exist and must not be passed.
+        if sys.version_info >= (3, 14):
+            fault.assert_called_once_with(c_stack=False)
+        else:
+            fault.assert_called_once_with()
         measure.assert_called_once_with("X", model_name="m")
         last = out.getvalue().splitlines()[-1]
         self.assertEqual(last, self.mod._provider_probe_result_line(measured))

@@ -4678,51 +4678,233 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
             self.assertNotIn(tmp, permission_message)
             self.assertNotIn(str(Path(tmp).resolve()), permission_message)
 
-    def test_unresolvable_authority_path_error_is_path_free(self):
+    def _assert_unresolvable_path_free(self, tmp: str, cases) -> None:
+        resolved_tmp = str(Path(tmp).resolve())
+        for label, message in cases:
+            with self.subTest(label):
+                # Reach guard: the path-error branch actually fired.
+                self.assertIn("not safely resolvable", message)
+                self.assertNotIn(tmp, message, "path errors must stay path-free")
+                self.assertNotIn(resolved_tmp, message)
+
+    def _mode0_wave_messages(self, tmp: str) -> list[tuple[str, str]]:
+        """Ledger and validation messages for a mode-0 (untraversable) wave directory."""
+        wave_dir = self._declared_wave(tmp)
+        wave_md = wave_dir / RECORD
+        os.chmod(wave_dir, 0)
+        try:
+            _records, ledger_errors = subject.read_review_event_ledger(wave_md)
+            validation = subject.validate_external_review_evidence(wave_md)
+        finally:
+            os.chmod(wave_dir, stat.S_IRWXU)
+        return [
+            ("dir ledger", " ".join(ledger_errors)),
+            ("dir validation", " ".join(validation.authority_errors)),
+        ]
+
+    @unittest.skipIf(
+        os.name == "nt",
+        "chmod 0 only sets the read-only attribute on Windows and does not deny "
+        "directory traversal, so the mode-0 fixture cannot reach the guard",
+    )
+    def test_untraversable_wave_directory_path_error_is_path_free(self):
         """1v1de census item (AC-3's spirit, red-first):
         ``_review_authority_path_error`` rendered ``{exc}`` verbatim, leaking
-        the absolute path through BOTH the ledger and validation paths.
-        Two fixtures: a permission-broken wave directory and a symlink-loop
-        parent (the deterministic ``resolve(strict=True)`` failure)."""
+        the absolute path through BOTH the ledger and validation paths. Wave
+        1zqe4: on Python 3.14 the ``pathlib`` predicates returned ``False``
+        here and the guard passed an undetermined path."""
         with tempfile.TemporaryDirectory() as tmp:
-            resolved_tmp = str(Path(tmp).resolve())
+            self._assert_unresolvable_path_free(tmp, self._mode0_wave_messages(tmp))
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "chmod 0 only sets the read-only attribute on Windows and does not deny "
+        "directory traversal, so the mode-0 fixture cannot reach the guard",
+    )
+    def test_untraversable_wave_directory_holds_under_3_14_predicate_semantics(self):
+        """Wave 1zqe4 AC-15: Python 3.14 ``Path.is_symlink`` and ``Path.exists``
+        return ``False`` on any ``OSError``. Imposing that on every interpreter
+        keeps the guard pinned on 3.11 to 3.13, not only on 3.14."""
+
+        def swallowing(original):
+            def predicate(self, *args, **kwargs):
+                try:
+                    return original(self, *args, **kwargs)
+                except OSError:
+                    return False
+            return predicate
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(Path, "is_symlink", swallowing(Path.is_symlink)), \
+                patch.object(Path, "exists", swallowing(Path.exists)):
+            self._assert_unresolvable_path_free(tmp, self._mode0_wave_messages(tmp))
+
+    def test_symlink_loop_wave_parent_path_error_is_path_free(self):
+        """1v1de census item: a symlink-loop parent of the wave directory is
+        "not safely resolvable", path-free. On Windows without symlink
+        privilege (WinError 1314 only) an invalid path component (WinError 123)
+        reaches the same branch; any other ``OSError`` fails the test."""
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp) / "loop"
+            try:
+                os.symlink("loop", parent)
+            except OSError as exc:
+                if os.name != "nt" or getattr(exc, "winerror", None) != 1314:
+                    raise
+                parent = Path(tmp) / "bad|name"
+                try:
+                    os.lstat(parent / "waves")
+                except OSError:
+                    pass
+                else:
+                    self.skipTest(
+                        "no symlink privilege (WinError 1314) and the "
+                        "invalid-name fixture did not raise on this host"
+                    )
+            wave_md = parent / "waves" / RECORD
+            _records, ledger_errors = subject.read_review_event_ledger(wave_md)
+            validation = subject.validate_external_review_evidence(wave_md)
+            self._assert_unresolvable_path_free(tmp, [
+                ("loop ledger", " ".join(ledger_errors)),
+                ("loop validation", " ".join(validation.authority_errors)),
+            ])
+
+    def _symlink_or_skip(self, target, link: Path, **kwargs) -> None:
+        try:
+            os.symlink(target, link, **kwargs)
+        except OSError as exc:
+            if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+                self.skipTest("symlink creation needs Developer Mode or elevation (WinError 1314)")
+            raise
+
+    def test_regular_file_wave_directory_is_not_safely_resolvable(self):
+        """Wave 1zqe4 AC-14: a regular file in the wave-directory position is
+        refused before any member is inspected, path-free."""
+        with tempfile.TemporaryDirectory() as tmp:
+            stand_in = waves_dir(tmp) / "1test sample"
+            stand_in.parent.mkdir(parents=True)
+            stand_in.write_text("not a directory\n", encoding="utf-8")
+            wave_md = stand_in / RECORD
+            with patch.object(
+                subject, "_authority_member_lstat",
+                side_effect=AssertionError("a member was inspected"),
+            ):
+                message = subject._review_authority_path_error(wave_md)
+                _records, ledger_errors = subject.read_review_event_ledger(wave_md)
+                validation = subject.validate_external_review_evidence(wave_md)
+            self.assertIsNotNone(message)
+            self._assert_unresolvable_path_free(tmp, [
+                ("guard", message),
+                ("file ledger", " ".join(ledger_errors)),
+                ("file validation", " ".join(validation.authority_errors)),
+            ])
+
+    def test_member_lstat_errors_other_than_not_found_are_not_safely_resolvable(self):
+        """Wave 1zqe4 AC-13: ``ELOOP`` and ``EACCES`` on ``wave.md`` or
+        ``events.jsonl`` are "not safely resolvable"; ``FileNotFoundError``
+        and ``NotADirectoryError`` read as absent."""
+        import errno as errno_module
+
+        real_lstat = os.lstat
+        with tempfile.TemporaryDirectory() as tmp:
+            wave_dir = self._declared_wave(tmp)
+            (wave_dir / "events.jsonl").write_bytes(b"")
+            wave_md = wave_dir / RECORD
+            for member in (RECORD, "events.jsonl"):
+                for code in (errno_module.ELOOP, errno_module.EACCES):
+                    def injected(path, *args, _member=member, _code=code, **kwargs):
+                        if Path(path).name == _member and Path(path).parent.name == wave_dir.name:
+                            raise OSError(_code, os.strerror(_code), str(path))
+                        return real_lstat(path, *args, **kwargs)
+
+                    with patch("os.lstat", side_effect=injected):
+                        message = subject._review_authority_path_error(wave_md)
+                    with self.subTest(member=member, errno=code):
+                        self.assertIsNotNone(message)
+                        self.assertIn("not safely resolvable", message)
+                        self.assertIn(member, message)
+                        self.assertIn(os.strerror(code), message)
+                        self.assertNotIn(tmp, message)
+                        self.assertNotIn(str(Path(tmp).resolve()), message)
+                for absent in (FileNotFoundError, NotADirectoryError):
+                    def injected(path, *args, _member=member, _absent=absent, **kwargs):
+                        if Path(path).name == _member and Path(path).parent.name == wave_dir.name:
+                            raise _absent(errno_module.ENOENT, "absent", str(path))
+                        return real_lstat(path, *args, **kwargs)
+
+                    with patch("os.lstat", side_effect=injected):
+                        message = subject._review_authority_path_error(wave_md)
+                    with self.subTest(member=member, absent=absent.__name__):
+                        self.assertIsNone(message)
+
+    def test_missing_members_are_absent_to_the_guard(self):
+        """Wave 1zqe4 AC-6: a missing ``wave.md`` or ``events.jsonl`` passes the
+        guard, so the existing missing-file messages are unchanged."""
+        with tempfile.TemporaryDirectory() as tmp:
             wave_dir = self._declared_wave(tmp)
             wave_md = wave_dir / RECORD
-            os.chmod(wave_dir, 0)
-            try:
-                _records, dir_ledger_errors = subject.read_review_event_ledger(
-                    wave_md
-                )
-                dir_validation = subject.validate_external_review_evidence(
-                    wave_md
-                )
-            finally:
-                os.chmod(wave_dir, stat.S_IRWXU)
-            loop = Path(tmp) / "loop"
-            os.symlink("loop", loop)
-            loop_wave_md = loop / "waves" / RECORD
-            _records, loop_ledger_errors = subject.read_review_event_ledger(
-                loop_wave_md
+            self.assertIsNone(subject._review_authority_path_error(wave_md))
+            _records, ledger_errors = subject.read_review_event_ledger(wave_md)
+            self.assertEqual(
+                ledger_errors,
+                ("canonical review event ledger is missing: events.jsonl",),
             )
-            loop_validation = subject.validate_external_review_evidence(
-                loop_wave_md
+            wave_md.unlink()
+            self.assertIsNone(subject._review_authority_path_error(wave_md))
+            self.assertIsNone(subject._review_authority_path_error(wave_dir))
+
+    def test_symlinked_and_escaping_authority_keeps_existing_messages(self):
+        """Wave 1zqe4 AC-5: the rewrite keeps every existing rejection."""
+        with tempfile.TemporaryDirectory() as tmp:
+            wave_dir = self._declared_wave(tmp)
+            wave_md = wave_dir / RECORD
+            ledger = wave_dir / "events.jsonl"
+            ledger.write_bytes(b"")
+
+            linked_dir = wave_dir.parent / "1test linked"
+            self._symlink_or_skip(wave_dir.name, linked_dir, target_is_directory=True)
+            self.assertEqual(
+                subject._review_authority_path_error(linked_dir / RECORD),
+                "wave directory may not be a symlink",
             )
 
-            cases = [
-                ("dir ledger", " ".join(dir_ledger_errors)),
-                ("dir validation", " ".join(dir_validation.authority_errors)),
-                ("loop ledger", " ".join(loop_ledger_errors)),
-                ("loop validation", " ".join(loop_validation.authority_errors)),
-            ]
-            for label, message in cases:
-                with self.subTest(label):
-                    # Reach guard: the path-error branch actually fired.
-                    self.assertIn("not safely resolvable", message)
-                    self.assertNotIn(
-                        tmp, message, "path errors must stay path-free"
-                    )
-                    self.assertNotIn(resolved_tmp, message)
+            outside = Path(tmp) / "outside"
+            outside.mkdir()
+            (outside / RECORD).write_text("# Outside\n", encoding="utf-8")
+            (outside / "events.jsonl").write_bytes(b"")
+
+            wave_md.unlink()
+            self._symlink_or_skip(outside / RECORD, wave_md)
+            self.assertEqual(
+                subject._review_authority_path_error(wave_md),
+                f"{RECORD} may not be a symlink",
+            )
+            wave_md.unlink()
+            wave_md.write_text("# Wave\n", encoding="utf-8")
+
+            ledger.unlink()
+            self._symlink_or_skip(outside / "events.jsonl", ledger)
+            self.assertEqual(
+                subject._review_authority_path_error(wave_md),
+                "events.jsonl may not be a symlink",
+            )
+            ledger.unlink()
+            ledger.write_bytes(b"")
+
+            real_resolve = Path.resolve
+            for member, expected in (
+                (RECORD, f"{RECORD} escapes its wave directory"),
+                ("events.jsonl", "events.jsonl escapes its wave directory"),
+            ):
+                def escaping(path, *args, _member=member, **kwargs):
+                    if path.name == _member:
+                        return real_resolve(outside / _member, *args, **kwargs)
+                    return real_resolve(path, *args, **kwargs)
+
+                with patch.object(Path, "resolve", escaping):
+                    message = subject._review_authority_path_error(wave_md)
+                with self.subTest(member=member):
+                    self.assertEqual(message, expected)
 
 
 class ReviewActionInputSchemaTests(unittest.TestCase):

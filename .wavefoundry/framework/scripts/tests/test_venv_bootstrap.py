@@ -83,6 +83,9 @@ class ActivateTests(unittest.TestCase):
         self.absent = Path(self.tmp.name) / "absent" / "bin" / "python"
         self._orig_path = list(sys.path)
         self.addCleanup(lambda: setattr(sys, "path", self._orig_path))
+        # The allowance records a process-global deferral (change 1zrag); never leak it.
+        vb.reset_activation_deferral()
+        self.addCleanup(vb.reset_activation_deferral)
 
     def _make_site_packages(self, *, pyvenv_version: str | None) -> Path:
         # Build a fake venv whose site-packages matches the RUNNING interpreter's lib layout.
@@ -254,6 +257,90 @@ class ActivateTests(unittest.TestCase):
              patch.object(vb, "_running_inside_venv", return_value=False):
             vb.activate_tool_venv()
         self.assertEqual(buf2.getvalue(), "")
+
+
+class ActivationDeferralTests(unittest.TestCase):
+    """Change 1zrag AC-3/AC-15: the allowance records a sticky, process-local deferral."""
+
+    # Same fixture as ActivateTests (including the deferral reset), without re-running its tests.
+    setUp = ActivateTests.setUp
+    _make_site_packages = ActivateTests._make_site_packages
+
+    def _patched(self):
+        from contextlib import ExitStack
+        stack = ExitStack()
+        stack.enter_context(patch.object(vb, "tool_venv_python", return_value=self.py))
+        stack.enter_context(patch.object(vb, "tool_venv_base", return_value=self.venv))
+        stack.enter_context(patch.object(vb, "_running_inside_venv", return_value=False))
+        return stack
+
+    def test_plain_call_without_prior_allowance_still_exits_with_message_and_no_stdout(self):
+        other = f"{sys.version_info[0]}.{sys.version_info[1] + 1}.0"
+        self._make_site_packages(pyvenv_version=other)
+        out, err = io.StringIO(), io.StringIO()
+        with self._patched(), redirect_stdout(out), redirect_stderr(err):
+            with self.assertRaises(SystemExit) as stopped:
+                vb.activate_tool_venv()
+        self.assertEqual(stopped.exception.code, 2)
+        self.assertIn("built for Python", err.getvalue())
+        self.assertIn("wf setup", err.getvalue())
+        self.assertEqual(out.getvalue(), "")
+        self.assertIsNone(vb.activation_deferred())
+
+    def test_deferred_call_then_plain_call_returns_and_matching_venv_clears(self):
+        other = f"{sys.version_info[0]}.{sys.version_info[1] + 1}.0"
+        sp = self._make_site_packages(pyvenv_version=other)
+        before = list(sys.path)
+        out, err = io.StringIO(), io.StringIO()
+        with self._patched(), redirect_stdout(out), redirect_stderr(err):
+            vb.activate_tool_venv(allow_version_mismatch=True)
+            self.assertEqual(vb.activation_deferred(), "version_mismatch")
+            # An import-time activation site reached later in the same process.
+            vb.activate_tool_venv()
+        self.assertEqual(out.getvalue(), "")
+        self.assertEqual(err.getvalue(), "", "the allowance and the deferred call print nothing")
+        self.assertEqual(sys.path, before)
+        self.assertEqual(vb.activation_deferred(), "version_mismatch")
+        # Setup rebuilt the venv for the running interpreter: the next call activates and clears.
+        running = f"{sys.version_info[0]}.{sys.version_info[1]}.0"
+        (self.venv / "pyvenv.cfg").write_text(f"version = {running}\n", encoding="utf-8")
+        with self._patched():
+            vb.activate_tool_venv()
+        self.assertIn(str(sp), sys.path)
+        self.assertIsNone(vb.activation_deferred())
+
+    def test_absent_venv_with_allowance_records_absent_only(self):
+        with patch.object(vb, "tool_venv_python", return_value=self.absent):
+            vb.activate_tool_venv()
+            self.assertIsNone(vb.activation_deferred())
+            vb.activate_tool_venv(allow_version_mismatch=True)
+        self.assertEqual(vb.activation_deferred(), "absent")
+        # An "absent" deferral never excuses a later version mismatch.
+        other = f"{sys.version_info[0]}.{sys.version_info[1] + 1}.0"
+        self._make_site_packages(pyvenv_version=other)
+        with self._patched(), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            vb.activate_tool_venv()
+
+    def test_reset_accessor_clears_and_fixture_cleanup_observes_it(self):
+        # AC-15: setting the deferral is observable, and the reset accessor (which this
+        # class's setUp/addCleanup call) clears it.
+        other = f"{sys.version_info[0]}.{sys.version_info[1] + 1}.0"
+        self._make_site_packages(pyvenv_version=other)
+        with self._patched():
+            vb.activate_tool_venv(allow_version_mismatch=True)
+        self.assertEqual(vb.activation_deferred(), "version_mismatch")
+        vb.reset_activation_deferral()
+        self.assertIsNone(vb.activation_deferred())
+        with self._patched(), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            vb.activate_tool_venv()
+
+    def test_deferral_is_not_an_environment_variable(self):
+        other = f"{sys.version_info[0]}.{sys.version_info[1] + 1}.0"
+        self._make_site_packages(pyvenv_version=other)
+        env_before = dict(os.environ)
+        with self._patched():
+            vb.activate_tool_venv(allow_version_mismatch=True)
+        self.assertEqual(dict(os.environ), env_before)
 
 
 def _system_base_interpreter() -> "str | None":

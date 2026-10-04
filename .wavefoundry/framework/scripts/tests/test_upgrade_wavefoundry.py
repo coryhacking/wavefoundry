@@ -24,7 +24,7 @@ from unittest.mock import MagicMock, patch
 
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
-from framework_files import shipped_path  # wf_server-aware source locations (wave 1yzd0)
+from framework_files import shipped_path, source_path  # wf_server-aware source locations (wave 1yzd0)
 import index_paths  # noqa: E402 — one definition of the shared database name
 UPGRADE_PATH = SCRIPTS_ROOT / "upgrade_wavefoundry.py"
 REVIEW_PROTOCOL_SEEDS = (
@@ -5484,6 +5484,253 @@ class PostExtractHookOrchestrationTests(unittest.TestCase):
         self.assertIn("ERROR", report)
         self.assertIn("synthetic failure", report)
         self.assertIn("pycache-cleanup.py", report)
+
+
+class PostExtractStaleLeafRefreshTests(unittest.TestCase):
+    """Wave 1zqe4 (1zrah): a 1.28.0 runner's cached record-layout leaves are
+    refreshed in place by the pack-loaded ``post_extract``.
+
+    The runner imports ``vocabulary_profile`` before extraction and the new
+    ``lifecycle_id`` in Phase 2c, whose module-level ``KIND_CHOICES`` reads
+    ``CHANGE_KINDS``. Each test stages the "extracted" current sources in a
+    temporary root's scripts directory placed first on ``sys.path`` (as the
+    runner's own scripts directory is), with no storage-migration source
+    (except the ordering test, which stages an inert one) and no upgrade lock,
+    so the observed effect is the refresh alone.
+    """
+
+    LEAVES = ("vocabulary_profile", "path_containment", "record_paths")
+    TRACKED = LEAVES + ("lifecycle_id",)
+    FIXTURES = Path(__file__).resolve().parent / "fixtures" / "upgrade_old_runner"
+
+    def setUp(self):
+        self.ext = _load_upgrade_extensions()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name).resolve()
+        self.scripts = self.root / ".wavefoundry" / "framework" / "scripts"
+        self.scripts.mkdir(parents=True)
+        for name in self.LEAVES:
+            shutil.copyfile(source_path(f"{name}.py"), self.scripts / f"{name}.py")
+        saved_path = list(sys.path)
+        saved_modules = {name: sys.modules.get(name) for name in self.TRACKED}
+
+        def restore():
+            sys.path[:] = saved_path
+            for name, module in saved_modules.items():
+                if module is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = module
+
+        self.addCleanup(restore)
+        for name in self.TRACKED:
+            sys.modules.pop(name, None)
+        sys.path.insert(0, str(self.scripts))
+
+    def _ctx(self, *, dry_run: bool = False):
+        return types.SimpleNamespace(
+            root=self.root,
+            from_version="1.28.0+ptiz",
+            to_version="1.29.0",
+            zip_path=None,
+            yes=True,
+            dry_run=dry_run,
+        )
+
+    def _cache(self, name: str, source: str) -> types.ModuleType:
+        """Install ``source`` as the runner's pre-extraction copy of ``name``."""
+
+        module = types.ModuleType(name)
+        module.__file__ = str(self.scripts / f"{name}.py")
+        sys.modules[name] = module
+        exec(compile(source, module.__file__, "exec"), module.__dict__)
+        return module
+
+    def _cache_v1_28_vocabulary_profile(self) -> types.ModuleType:
+        source = (self.FIXTURES / "vocabulary_profile_v1_28_0.py.txt").read_text(encoding="utf-8")
+        module = self._cache("vocabulary_profile", source)
+        self.assertFalse(hasattr(module, "CHANGE_KINDS"))
+        return module
+
+    def _cache_all_leaves(self) -> dict[str, types.ModuleType]:
+        cached = {"vocabulary_profile": self._cache_v1_28_vocabulary_profile()}
+        for name in ("path_containment", "record_paths"):
+            cached[name] = self._cache(name, (source_path(f"{name}.py")).read_text(encoding="utf-8"))
+        return cached
+
+    @staticmethod
+    def _exception_classes(module) -> dict[str, type]:
+        return {
+            attr: value
+            for attr, value in vars(module).items()
+            if isinstance(value, type)
+            and issubclass(value, BaseException)
+            and value.__module__ == module.__name__
+        }
+
+    def _record_reloads(self) -> list[str]:
+        reloaded: list[str] = []
+        real = self.ext._reload_in_place
+
+        def recording(module):
+            reloaded.append(module.__name__)
+            return real(module)
+
+        patcher = patch.object(self.ext, "_reload_in_place", recording)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return reloaded
+
+    def test_ac1_lifecycle_id_imports_against_a_refreshed_vocabulary_profile(self):
+        stale = self._cache_v1_28_vocabulary_profile()
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertIsNone(self.ext.post_extract(self._ctx()))
+        import lifecycle_id
+
+        self.assertIs(sys.modules["vocabulary_profile"], stale)
+        self.assertEqual(lifecycle_id.KIND_CHOICES, stale.CHANGE_KINDS + ("wave",))
+
+    def test_ac1_control_without_the_refresh_the_import_names_change_kinds(self):
+        # The pre-fix condition this change removes: Phase 2c's fresh
+        # ``lifecycle_id`` import against the runner's cached 1.28.0 copy.
+        self._cache_v1_28_vocabulary_profile()
+        with self.assertRaises(AttributeError) as caught:
+            import lifecycle_id  # noqa: F401
+        self.assertIn("CHANGE_KINDS", str(caught.exception))
+
+    def test_ac2_refresh_keeps_module_and_exception_identity(self):
+        cached = self._cache_all_leaves()
+        held = {name: self._exception_classes(module) for name, module in cached.items()}
+        self.assertTrue(held["vocabulary_profile"])
+        self.assertTrue(held["record_paths"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.ext.post_extract(self._ctx())
+        for name, module in cached.items():
+            self.assertIs(sys.modules[name], module)
+            for attr, cls in held[name].items():
+                self.assertIs(getattr(module, attr), cls, f"{name}.{attr}")
+        self.assertTrue(hasattr(cached["vocabulary_profile"], "CHANGE_KINDS"))
+        self.assertIs(cached["record_paths"].vocabulary_profile, cached["vocabulary_profile"])
+
+    def test_refresh_runs_before_the_storage_migration_load(self):
+        # DEL-F9: the refresh must precede the extracted storage-migration
+        # load and ``enforce_index_guard_handoff``. The staged migration
+        # source records what it sees at import and in ``prepare_upgrade``;
+        # with no upgrade lock in the root the handoff still returns at its
+        # missing-checkpoint check.
+        stale = self._cache_v1_28_vocabulary_profile()
+        (self.scripts / "sqlite_storage_migration.py").write_text(
+            "import sys\n"
+            "SAW_AT_IMPORT = hasattr(sys.modules['vocabulary_profile'], 'CHANGE_KINDS')\n"
+            "assert SAW_AT_IMPORT, 'storage migration loaded before the leaf refresh'\n"
+            "SAW_AT_PREPARE = None\n"
+            "def prepare_upgrade(ctx):\n"
+            "    global SAW_AT_PREPARE\n"
+            "    SAW_AT_PREPARE = hasattr(sys.modules['vocabulary_profile'], 'CHANGE_KINDS')\n"
+            "    return None\n",
+            encoding="utf-8",
+        )
+        ctx = self._ctx()
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertIsNone(self.ext.post_extract(ctx))
+        migration = ctx._index_guard_migration_module
+        self.assertTrue(migration.SAW_AT_IMPORT)
+        self.assertTrue(migration.SAW_AT_PREPARE)
+        self.assertIs(sys.modules["vocabulary_profile"], stale)
+        self.assertFalse((self.root / ".wavefoundry" / "upgrade-in-progress.json").exists())
+
+    def test_ac3_dry_run_reloads_nothing(self):
+        stale = self._cache_v1_28_vocabulary_profile()
+        reloaded = self._record_reloads()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.ext.post_extract(self._ctx(dry_run=True))
+        self.assertEqual(reloaded, [])
+        self.assertFalse(hasattr(stale, "CHANGE_KINDS"))
+
+    def test_ac4_a_failed_reload_stops_with_a_named_module_and_reloads_nothing_later(self):
+        for index, failing in enumerate(self.LEAVES):
+            with self.subTest(module=failing):
+                for name in self.LEAVES:
+                    shutil.copyfile(source_path(f"{name}.py"), self.scripts / f"{name}.py")
+                    sys.modules.pop(name, None)
+                self._cache_all_leaves()
+                good = source_path(f"{failing}.py").read_text(encoding="utf-8")
+                (self.scripts / f"{failing}.py").write_text(
+                    good + "\nraise RuntimeError('injected reload failure')\n", encoding="utf-8"
+                )
+                reloaded: list[str] = []
+                real = self.ext._reload_in_place
+
+                def recording(module, _real=real, _seen=reloaded):
+                    _seen.append(module.__name__)
+                    return _real(module)
+
+                out = io.StringIO()
+                with patch.object(self.ext, "_reload_in_place", recording):
+                    with contextlib.redirect_stdout(out):
+                        with self.assertRaises(RuntimeError) as caught:
+                            self.ext.post_extract(self._ctx())
+                self.assertEqual(reloaded, list(self.LEAVES[: index + 1]))
+                message = str(caught.exception)
+                self.assertIn(failing, message)
+                self.assertIn("rerun the same upgrade command", message)
+                lines = out.getvalue().splitlines()
+                self.assertEqual(len(lines), 1, lines)
+                self.assertIn(failing, lines[0])
+                self.assertIn("RuntimeError", lines[0])
+                self.assertNotIn(str(self.root), lines[0])
+                self.assertNotIn(str(SCRIPTS_ROOT), lines[0])
+
+    def test_ac8_failed_reload_keeps_exception_identity(self):
+        name = "wf_1zrah_reload_probe"
+        source = self.scripts / f"{name}.py"
+        source.write_text(
+            "class ProbeError(Exception):\n    pass\n\n"
+            "class OtherProbeError(ValueError):\n    pass\n",
+            encoding="utf-8",
+        )
+        self.addCleanup(sys.modules.pop, name, None)
+        module = importlib.import_module(name)
+        held = (module.ProbeError, module.OtherProbeError)
+        source.write_text(
+            "class ProbeError(Exception):\n    pass\n\n"
+            "class OtherProbeError(ValueError):\n    pass\n\n"
+            "raise RuntimeError('injected after the class statements')\n",
+            encoding="utf-8",
+        )
+        with self.assertRaises(RuntimeError):
+            self.ext._reload_in_place(module)
+        self.assertIs(module.ProbeError, held[0])
+        self.assertIs(module.OtherProbeError, held[1])
+
+    def test_ac9_invalid_replacement_profile_stops_before_phase_2c(self):
+        stale = self._cache_v1_28_vocabulary_profile()
+        held = stale.VocabularyProfileInvalid
+        current = source_path("vocabulary_profile.py").read_text(encoding="utf-8")
+        invalid = current.replace('CONTAINER_NAME = "Wave"', 'CONTAINER_NAME = " Wave"', 1)
+        self.assertNotEqual(invalid, current)
+        (self.scripts / "vocabulary_profile.py").write_text(invalid, encoding="utf-8")
+        with contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(RuntimeError) as caught:
+                self.ext.post_extract(self._ctx())
+        self.assertEqual(type(caught.exception.__cause__).__name__, "VocabularyProfileInvalid")
+        self.assertIn("vocabulary_profile", str(caught.exception))
+        self.assertIs(stale.VocabularyProfileInvalid, held)
+
+    def test_ac10_v1_27_record_paths_is_refreshed_against_a_fresh_vocabulary_profile(self):
+        source = (self.FIXTURES / "record_paths_v1_27_0.py.txt").read_text(encoding="utf-8")
+        old = self._cache("record_paths", source)
+        self.assertFalse(hasattr(old, "vocabulary_profile"))
+        self.assertNotIn("vocabulary_profile", sys.modules)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.ext.post_extract(self._ctx())
+        self.assertIs(sys.modules["record_paths"], old)
+        fresh = sys.modules["vocabulary_profile"]
+        self.assertIs(old.vocabulary_profile, fresh)
+        self.assertEqual(Path(fresh.__file__).resolve(), (self.scripts / "vocabulary_profile.py").resolve())
+        self.assertTrue(hasattr(fresh, "CHANGE_KINDS"))
+        self.assertTrue(hasattr(old.load_record_roots(self.root), "archive"))
 
 
 # ---------------------------------------------------------------------------

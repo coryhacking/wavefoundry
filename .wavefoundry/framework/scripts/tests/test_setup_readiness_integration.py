@@ -136,7 +136,31 @@ class PublicBootstrapTests(unittest.TestCase):
         self.assertEqual(list(self.root.rglob("__pycache__")), [])
 
 
+def _reset_activation_deferral():
+    """Change 1zrag AC-15: clear the process-global activation deferral that an
+    in-process ``setup_wavefoundry.main`` can record."""
+    import setup_wavefoundry
+    setup_wavefoundry.venv_bootstrap.reset_activation_deferral()
+    loaded = sys.modules.get("venv_bootstrap")
+    if loaded is not None and hasattr(loaded, "reset_activation_deferral"):
+        loaded.reset_activation_deferral()
+
+
 class SharedAssessmentTests(unittest.TestCase):
+    def setUp(self):
+        _reset_activation_deferral()
+        self.addCleanup(_reset_activation_deferral)
+
+    def test_fixture_cleanup_clears_a_deferral(self):
+        import setup_wavefoundry
+        bootstrap = setup_wavefoundry.venv_bootstrap
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(Path(directory) / "absent")}):
+            bootstrap.activate_tool_venv(allow_version_mismatch=True)
+        self.assertEqual(bootstrap.activation_deferred(), "absent")
+        self.doCleanups()
+        self.assertIsNone(bootstrap.activation_deferred())
+
     def test_real_dispatcher_assessor_missing_environment_preserves_tree(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

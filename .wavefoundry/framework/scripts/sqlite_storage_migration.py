@@ -347,6 +347,34 @@ def _work_prefix(receipt: dict | None) -> str:
     return KIND_WORK_PREFIX if is_kind_receipt(receipt) else LEGACY_WORK_PREFIX
 
 
+def _require_supersedable(superseded: object) -> None:
+    """The ONE ``supersedes`` predicate, shared by ``read_receipt`` and every writer.
+
+    A version-2 record may supersede a version-1 record (any recorded state, as
+    before) or a version-2 kind record in state ``complete`` (change 1zrag: a
+    genuine schema regression under the current name needs a second kind).
+    Embedded records are kept verbatim, so nested ``supersedes`` are validated
+    level by level under the same rule: every level is a dict with a supported
+    version, a version-2 level carries a valid kind and is ``complete``, and a
+    version-1 level carries no kind. Anything else refuses.
+    """
+    level, depth = superseded, 0
+    while level is not None:
+        depth += 1
+        if not isinstance(level, dict) or depth > 64:
+            raise MigrationRequired("storage_receipt_supersedes_invalid")
+        version = level.get("receipt_version")
+        if version == RECEIPT_VERSION_CURRENT:
+            if level.get("kind") not in KINDS or level.get("state") != "complete":
+                raise MigrationRequired("storage_receipt_supersedes_invalid")
+        elif version == RECEIPT_VERSION_LEGACY:
+            if level.get("kind") is not None or level.get("state") not in STATES:
+                raise MigrationRequired("storage_receipt_supersedes_invalid")
+        else:
+            raise MigrationRequired("storage_receipt_supersedes_invalid")
+        level = level.get("supersedes")
+
+
 def read_receipt(index_dir: Path) -> dict | None:
     path = _safe(Path(index_dir) / RECEIPT)
     if not path.exists():
@@ -366,15 +394,21 @@ def read_receipt(index_dir: Path) -> dict | None:
             raise MigrationRequired("storage_receipt_kind_unsupported")
         _source_role(value)
         superseded = value.get("supersedes")
-        if superseded is not None and (not isinstance(superseded, dict)
-                or superseded.get("receipt_version") != RECEIPT_VERSION_LEGACY):
-            raise MigrationRequired("storage_receipt_supersedes_invalid")
+        if superseded is not None:
+            _require_supersedable(superseded)
     elif value.get("kind") is not None:
         # A version-1 record carrying a kind marker is rejected outright: old
         # code tolerates the unknown field and would NOT fence on it, so the
         # marker would advertise a migration the fence cannot enforce.
         raise MigrationRequired("storage_receipt_kind_unsupported")
     return value
+
+
+def _activation_deferred() -> str | None:
+    """The process's tool-venv activation deferral, without importing the bootstrap."""
+    bootstrap = sys.modules.get("venv_bootstrap")
+    accessor = getattr(bootstrap, "activation_deferred", None)
+    return accessor() if callable(accessor) else None
 
 
 def _database_schema(path: Path) -> str:
@@ -390,6 +424,12 @@ def _database_schema(path: Path) -> str:
             raise MigrationRequired("storage_schema_unreadable: orphan SQLite sidecars retained; recover before setup")
         return "absent"
     identity = _identity(path)
+    if _activation_deferred() and "sqlite_runtime" not in sys.modules:
+        # Change 1zrag: setup deferred tool-venv activation. Importing the runtime
+        # now would bind its native module before provisioning and cache that
+        # binding for the post-provisioning reclassification, so report
+        # unavailable and let the first import happen after activation.
+        return "runtime_unavailable"
     from importlib.metadata import PackageNotFoundError
     try:
         import sqlite_runtime as runtime
@@ -944,6 +984,9 @@ def _new_receipt(ctx, root: Path, index_dir: Path, state: dict,
     if kind:
         receipt["kind"] = KIND_SCHEMA8
         if superseded is not None:
+            # Writer and reader share one predicate: never write a chain the
+            # reader refuses (change 1zrag). Embedded verbatim, never flattened.
+            _require_supersedable(superseded)
             receipt["supersedes"] = superseded
         # The kind inherits the completed record's retired artifacts so one
         # cleanup arm owns everything the chained conversion left behind.
@@ -953,6 +996,75 @@ def _new_receipt(ctx, root: Path, index_dir: Path, state: dict,
                                     if (index_dir / name).exists()}
     elif superseded is not None:
         raise MigrationRequired("storage_receipt_supersedes_invalid")
+    return receipt
+
+
+def prestaging_noop_shape(index_dir: Path, receipt: dict | None) -> bool:
+    """The structural clauses of a setup-owned, pre-staging, source-current kind record.
+
+    Change 1zrag: such a record changed nothing on disk (no staging began, the
+    source is the current name, nothing exists under the retired name and the
+    recorded source identity is the live database). Everything here is
+    structural; the qualified schema probe that proves the store is already
+    current is the caller's last clause (``retire_prestaging_noop``).
+    """
+    if not (is_kind_receipt(receipt) and receipt.get("kind") == KIND_SCHEMA8
+            and receipt.get("entry_path") == "setup"
+            and not receipt.get("pack_path") and not receipt.get("pack_sha256")
+            and receipt.get("state") in {"restart_required", "quiesced"}
+            and not receipt.get("work_dir") and not receipt.get("candidate_sha256")
+            and receipt.get("source_database") == SOURCE_ROLE_CURRENT
+            and re.fullmatch(r"[0-9a-f]{32}", str(receipt.get("migration_id", "")))):
+        return False
+    index_dir = _safe(Path(index_dir))
+    if (index_dir / (KIND_WORK_PREFIX + receipt["migration_id"])).exists():
+        return False
+    retired = _safe_sqlite(index_paths.legacy_index_database_path(index_dir))
+    if any(os.path.lexists(path) for path in (retired, *index_paths.sidecar_paths(retired))):
+        return False
+    live = _identity_if_present(_safe_sqlite(index_paths.index_database_path(index_dir)))
+    return storage_identity.compare_identity(receipt.get("source_sqlite_identity"), live)["matches"]
+
+
+def retire_prestaging_noop(root: Path, installed_framework_sha256: str,
+                           before_restore=None) -> dict | None:
+    """Retire a spurious pre-staging setup record whose store is already current.
+
+    Runs after dependency provisioning, before ``prepare_upgrade``, and only when
+    every ``prestaging_noop_shape`` clause holds AND the qualified probe of the
+    live database returns ``SCHEMA_VERSION``. Then one write retires the record:
+
+    - When its ``supersedes`` is a complete version-2 kind record (the field
+      shape), that parent is written back verbatim, with no field changed and no
+      ``updated_at`` stamp. The restored record is the one runners 1.24 to 1.28
+      already read (its own ``supersedes`` is version 1), so no host restart is
+      needed, and ``validate_source_binding`` returns early for a ``complete``
+      record. ``before_restore(parent)`` runs first, so the caller can bind its
+      checkpoint to the parent before the receipt changes.
+    - Otherwise (a version-1 parent, the ``_begin_chained_kind`` fence case, or
+      no parent) the record is closed in place with the disposition
+      ``_migrate_schema8`` writes on its already-current branch and rebound to
+      the installed framework bytes. This is the only rebind.
+
+    Returns the record now on disk, or None when any clause fails (the record
+    is then left byte-identical and today's behavior applies).
+    """
+    index_dir = Path(root).resolve() / ".wavefoundry" / "index"
+    receipt = read_receipt(index_dir)
+    if not prestaging_noop_shape(index_dir, receipt):
+        return None
+    if _database_schema(index_paths.index_database_path(index_dir)) != SCHEMA_VERSION:
+        return None
+    parent = receipt.get("supersedes")
+    if is_kind_receipt(parent) and parent.get("state") == "complete":
+        if before_restore is not None:
+            before_restore(parent)
+        from upgrade_lib import _durable_json_replace
+        _durable_json_replace(_safe(index_dir / RECEIPT), parent)
+        return parent
+    receipt.update(state="complete", disposition="already_current", reclaimed_bytes=0,
+                   installed_framework_sha256=installed_framework_sha256)
+    _write(index_dir, receipt)
     return receipt
 
 
@@ -1459,6 +1571,7 @@ def _begin_chained_kind(root: Path, index_dir: Path, superseded: dict,
     """
     if not (hosts_stopped or superseded.get("hosts_stopped_confirmed")):
         raise MigrationRequired("storage_restart_required")
+    _require_supersedable(superseded)
     receipt = dict(superseded)
     receipt.pop("restart_action", None)
     receipt.pop("upgrade_publication", None)
@@ -1932,6 +2045,7 @@ def _install_kind_fence(root: Path, index_dir: Path, superseded: dict) -> dict:
     record IS the fence, and it also retires any database the conversion left
     behind under the retired name.
     """
+    _require_supersedable(superseded)
     live = _safe_sqlite(index_paths.index_database_path(index_dir))
     published = _identity_if_present(live)
     if published is None or not storage_identity.compare_identity(superseded.get("published_sqlite_identity"), published)["matches"]:

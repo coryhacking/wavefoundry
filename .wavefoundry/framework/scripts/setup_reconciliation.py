@@ -95,17 +95,25 @@ class session:
         self._fingerprint = None
 
     def _inspect(self):
-        receipt = migration.read_receipt(self.root / ".wavefoundry/index")
+        index_dir = self.root / ".wavefoundry/index"
+        receipt = migration.read_receipt(index_dir)
         checkpoint = upgrade_lib.read_upgrade_lock(self.root)
+        # Change 1zrag: a pre-staging, source-current setup record changed
+        # nothing on disk, so new framework bytes may inspect it. Read-only:
+        # validate_source_binding stays strict for prepare_upgrade and
+        # restore_checkpoint, and only the schema-8-proven retirement rebinds.
+        prestaging_noop = bool(receipt and receipt["state"] != "complete"
+                               and migration.prestaging_noop_shape(index_dir, receipt))
         if receipt and receipt["state"] != "complete":
             if receipt.get("entry_path") != "setup" or receipt.get("pack_path") or receipt.get("pack_sha256"):
                 raise MigrationRequired("storage_setup_foreign_upgrade: resume the recorded upgrade; its receipt and archive remain authoritative")
-            validate_source_binding(self.root, receipt)
+            if not prestaging_noop:
+                validate_source_binding(self.root, receipt)
         if checkpoint is not None:
             if (not isinstance(checkpoint, dict) or checkpoint.get("entry_path") != "setup"
                     or checkpoint.get("zip_path")):
                 raise MigrationRequired("storage_setup_foreign_upgrade: finish the recorded upgrade before wf setup; checkpoint retained")
-            if checkpoint.get("installed_framework_sha256") != framework_fingerprint(self.root):
+            if not prestaging_noop and checkpoint.get("installed_framework_sha256") != framework_fingerprint(self.root):
                 raise MigrationRequired("storage_setup_source_changed: restore the recorded framework before wf setup")
             if not storage_identity.compare_identity(checkpoint.get("root_identity"), migration._identity(self.root))["matches"]:
                 raise MigrationRequired("storage_setup_checkpoint_mismatch: repository identity changed")
@@ -193,6 +201,16 @@ class session:
         if not upgrade_lib.update_upgrade_lock(self.root, **fields):
             raise MigrationRequired("storage_checkpoint_write_failed")
 
+    def _bind_restored_parent(self, parent: dict) -> None:
+        """Point the checkpoint at the parent the retirement is about to restore (change 1zrag).
+
+        Written BEFORE the receipt, so either crash point stays resumable: with
+        the stuck record still on disk, ``_inspect`` proves continuity through
+        ``setup_completed_parent``; with the parent restored, the ids match.
+        """
+        self._update(storage_migration_id=parent["migration_id"], setup_completed_parent={
+            "migration_id": parent["migration_id"], "receipt_sha256": _receipt_fingerprint(parent)})
+
     def _validate(self):
         if self.requires_index and framework_fingerprint(self.root) != self._fingerprint:
             raise MigrationRequired("storage_setup_source_changed: installed source changed during setup; restore recorded source and retry")
@@ -204,6 +222,20 @@ class session:
         # A bootstrap interpreter may have been unable to probe an already
         # current database. Reclassify after canonical dependency provisioning.
         state = migration.detect(self.root / ".wavefoundry/index")
+        import venv_bootstrap
+        if venv_bootstrap.activation_deferred() and state["sqlite_schema"] == "runtime_unavailable":
+            # Change 1zrag: provisioning ended without activating the tool venv,
+            # so the probe above never ran the native runtime. Classifying from
+            # that would start a spurious kind; refuse before any receipt write.
+            raise MigrationRequired(
+                "storage_setup_runtime_unavailable: the tool venv was not activated after "
+                "dependency provisioning; rerun wf setup. Index and receipt are unchanged")
+        if (state["receipt"] and state["receipt"]["state"] != "complete"
+                and migration.retire_prestaging_noop(self.root, self._fingerprint,
+                                                     before_restore=self._bind_restored_parent)):
+            # Change 1zrag: a spurious pre-staging record over an already-current
+            # store was retired in one write; reclassify from the retired record.
+            state = migration.detect(self.root / ".wavefoundry/index")
         pending = state["receipt"] and state["receipt"]["state"] != "complete"
         if not state["migration_required"] and not pending and not self._hosts:
             self._inspect()

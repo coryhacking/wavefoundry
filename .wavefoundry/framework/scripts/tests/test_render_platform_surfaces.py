@@ -464,7 +464,8 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
             # re-exec. Wave 1p8pe: inner spawns now resolve the interpreter via hook_python() (the
             # console-free pythonw.exe on Windows, else sys.executable; the re-spawned script
             # self-activates the venv).
-            self.assertIn("activate_tool_venv()", post_edit)
+            # Change 1zrag: with the setup allowance, so a stale venv degrades the hook instead of exiting.
+            self.assertIn("activate_tool_venv(allow_version_mismatch=True)", post_edit)
             self.assertNotIn("reexec_into_tool_venv", post_edit)
             self.assertIn("import venv_bootstrap", post_edit)
             self.assertNotIn("_venv_python_path", post_edit)
@@ -497,7 +498,7 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
                 # Wave 1p7pm/1p802 (1p7pb-adr): EVERY rendered hook body must self-activate the tool
                 # venv in-process first-line — no exceptions, and no leftover re-exec.
                 self.assertIn(
-                    "activate_tool_venv()", body,
+                    "activate_tool_venv(allow_version_mismatch=True)", body,
                     f"{path.name} is missing the first-line venv activation",
                 )
                 self.assertNotIn("reexec_into_tool_venv", body, f"{path.name} still calls the removed re-exec")
@@ -3124,3 +3125,228 @@ class RosterRegistrationParityTests(unittest.TestCase):
         # (warning-only; this test is the hard gate).
         source = source_path("server_impl.py").read_text(encoding="utf-8")
         self.assertIn('_load_script("mcp_tool_roster")', source)
+
+
+# Change 1zrag: the 13 rendered hooks that carry HOOK_BOOTSTRAP (census in the change doc).
+_BOOTSTRAP_HOOKS = {
+    ".claude/hooks/pre-edit.py": ("claude_pre_edit_source", "gate"),
+    ".claude/hooks/post-edit.py": ("claude_post_edit_source", "degrade"),
+    ".claude/hooks/session-capture.py": ("claude_stop_source", "degrade"),
+    ".claude/hooks/context-efficiency-project.py": ("claude_context_efficiency_source", "degrade"),
+    ".claude/hooks/simulate-hooks.py": ("claude_simulate_hooks_source", "spawner"),
+    ".cursor/hooks/seed-warn.py": ("cursor_seed_warn_source", "gate"),
+    ".cursor/hooks/framework-plan-warn.py": ("cursor_framework_warn_source", "gate"),
+    ".cursor/hooks/docs-lint.py": ("cursor_docs_lint_source", "degrade"),
+    ".cursor/hooks/after-file-edit.py": ("cursor_after_file_edit_source", "degrade"),
+    ".github/hooks/pre-tool-use.py": ("copilot_pre_tool_use_source", "gate"),
+    ".github/hooks/post-tool-use.py": ("copilot_post_tool_use_source", "degrade"),
+    ".windsurf/hooks/seed-protect.py": ("windsurf_seed_protect_source", "gate"),
+    ".windsurf/hooks/docs-lint.py": ("windsurf_docs_lint_source", "degrade"),
+}
+_NOTICE = "wavefoundry: hook running without the tool venv"
+_SPAWN_RECORDER = (
+    "import os as _wf_t_os, sys as _wf_t_sys\n"
+    "if __name__ == '__main__' and _wf_t_os.environ.get('WF_TEST_SPAWN_LOG'):\n"
+    "    with open(_wf_t_os.environ['WF_TEST_SPAWN_LOG'], 'a', encoding='utf-8') as _wf_t_log:\n"
+    "        _wf_t_log.write(_wf_t_os.path.basename(__file__) + '\\n')\n"
+    "    raise SystemExit(0)\n"
+)
+
+
+class HookVenvMismatchTests(unittest.TestCase):
+    """Change 1zrag AC-10 to AC-13: rendered hooks degrade on an unusable tool venv."""
+
+    def setUp(self):
+        self.mod = _load_render_module()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.base = Path(tmp.name).resolve()
+        self.root = self.base / "repo"
+        scripts = self.root / ".wavefoundry/framework/scripts"
+        shutil.copytree(SCRIPT_PATH.parent, scripts,
+                        ignore=shutil.ignore_patterns("tests", "__pycache__", "*.pyc", "benchmarks"))
+        # Spawn recorder: a CHILD run of indexer.py or docs_lint.py logs itself and exits before any
+        # activation; in-process loads (``__name__`` is not ``__main__``) are unaffected.
+        for name in ("indexer.py", "docs_lint.py"):
+            path = scripts / name
+            text = path.read_text(encoding="utf-8")
+            marker = "from __future__ import annotations\n"
+            self.assertIn(marker, text)
+            path.write_text(text.replace(marker, marker + _SPAWN_RECORDER, 1), encoding="utf-8")
+        (self.root / "docs").mkdir()
+        (self.root / "src").mkdir()
+        self.index = self.root / ".wavefoundry/index"
+        self.spawn_log = self.base / "spawns.log"
+        for rel, (source, _cls) in _BOOTSTRAP_HOOKS.items():
+            target = self.root / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(getattr(self.mod, source)(), encoding="utf-8")
+        minor = sys.version_info[1]
+        self.mismatched = self._venv("mismatched", f"{sys.version_info[0]}.{minor - 1}.0", site=False)
+        self.usable = self._venv("usable", f"{sys.version_info[0]}.{minor}.0", site=True)
+
+    def _venv(self, name, version, *, site):
+        # The layout comes from the bootstrap itself, so it is the platform's
+        # (``Scripts\python.exe`` and ``Lib\site-packages`` on Windows).
+        import venv_bootstrap
+        venv = self.base / name
+        with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv)}):
+            python = venv_bootstrap.tool_venv_python()
+        python.parent.mkdir(parents=True)
+        python.write_text("")
+        (venv / "pyvenv.cfg").write_text(f"version = {version}\n", encoding="utf-8")
+        if site:
+            venv_bootstrap._venv_site_packages(venv).mkdir(parents=True)
+        return venv
+
+    def _payload(self, path):
+        path = str(path)
+        return json.dumps({"tool_name": "Edit", "tool_input": {"file_path": path},
+                           "toolName": "edit", "toolArgs": json.dumps({"path": path}),
+                           "file_path": path})
+
+    def _run(self, rel, payload, venv, *, args=(), isolated=True):
+        env = {k: v for k, v in os.environ.items() if k not in {"PYTHONPATH", "WAVEFOUNDRY_TOOL_VENV"}}
+        env.update(WAVEFOUNDRY_TOOL_VENV=str(venv), WF_TEST_SPAWN_LOG=str(self.spawn_log))
+        # -S: the hook interpreter has no site-packages, like a system python3 after an upgrade.
+        argv = [sys.executable, "-B", *(["-S"] if isolated else []), str(self.root / rel), *args]
+        return subprocess.run(argv, input=payload, text=True, capture_output=True, cwd=str(self.root),
+                              env=env, timeout=120, check=False)
+
+    def _guards(self, enabled):
+        path = self.root / ".wavefoundry/guard-overrides.json"
+        if enabled:
+            path.write_text(json.dumps({"seed_edit_allowed": {"enabled": True},
+                                        "framework_edit_allowed": {"enabled": True}}), encoding="utf-8")
+        else:
+            path.unlink(missing_ok=True)
+
+    def _spawns(self):
+        return self.spawn_log.read_text(encoding="utf-8").split() if self.spawn_log.exists() else []
+
+    def test_every_census_hook_degrades_with_one_stderr_notice_and_no_exit_two(self):
+        # AC-10: an ungated, non-docs path, so every hook's own verdict is 0.
+        payload = self._payload(self.root / "src/app.py")
+        for rel in _BOOTSTRAP_HOOKS:
+            with self.subTest(rel):
+                args = ("pre-edit", payload) if rel.endswith("simulate-hooks.py") else ()
+                result = self._run(rel, payload, self.mismatched, args=args)
+                notices = [line for line in result.stderr.splitlines() if line.startswith(_NOTICE)]
+                # One notice per bootstrap: simulate-hooks also passes through the stderr of the
+                # hook body it spawns, which carries its own.
+                self.assertEqual(len(notices), 2 if args else 1, result.stderr)
+                self.assertIn("wf setup", notices[0])
+                self.assertNotIn("built for Python", result.stderr)
+                self.assertNotIn(_NOTICE, result.stdout)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_usable_and_absent_venvs_keep_hooks_silent(self):
+        payload = self._payload(self.root / "src/app.py")
+        for venv in (self.usable, self.base / "absent"):
+            for rel in (".claude/hooks/pre-edit.py", ".claude/hooks/post-edit.py"):
+                with self.subTest(venv=venv.name, hook=rel):
+                    result = self._run(rel, payload, venv)
+                    self.assertNotIn(_NOTICE, result.stderr)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_raised_activation_degrades_the_same_way(self):
+        # AC-10: an activation that raises something other than SystemExit (here the
+        # console-encoding failure a guard print can hit) sets the same degraded state.
+        bootstrap = self.root / ".wavefoundry/framework/scripts/venv_bootstrap.py"
+        text = bootstrap.read_text(encoding="utf-8")
+        anchor = "    venv_base = tool_venv_base()\n"
+        self.assertEqual(text.count(anchor), 1)
+        bootstrap.write_text(
+            text.replace(anchor, "    raise UnicodeEncodeError('cp1252', 'x', 0, 1, 'patched')\n" + anchor),
+            encoding="utf-8")
+        self.index.mkdir(parents=True)
+        docs_payload = self._payload(self.root / "docs/page.md")
+        for rel in _BOOTSTRAP_HOOKS:
+            with self.subTest(rel):
+                args = ("pre-edit", docs_payload) if rel.endswith("simulate-hooks.py") else ()
+                result = self._run(rel, docs_payload, self.usable, args=args)
+                notices = [line for line in result.stderr.splitlines() if line.startswith(_NOTICE)]
+                self.assertEqual(len(notices), 2 if args else 1, result.stderr)
+                self.assertIn("activation failed", notices[0])
+                self.assertEqual(result.returncode, 0, result.stderr)
+        # A raised activation records no deferral, so the in-process indexer.py loads are skipped.
+        self.assertFalse((self.index / "reindex-pending").exists())
+        self.assertEqual(self._spawns(), [])
+
+    def test_gate_verdicts_match_a_usable_venv_path_for_path(self):
+        # AC-11: per-host block signals, unchanged by the mismatch.
+        seed = self.root / ".wavefoundry/framework/seeds/100-x.prompt.md"
+        framework = self.root / ".wavefoundry/framework/scripts/x.py"
+        ungated = self.root / "src/app.py"
+        closed = {  # (exit, message stream) with every gate closed
+            ".claude/hooks/pre-edit.py": {seed: (2, "stderr"), framework: (2, "stderr"), ungated: (0, None)},
+            ".github/hooks/pre-tool-use.py": {seed: (2, "stderr"), framework: (2, "stderr"), ungated: (0, None)},
+            ".windsurf/hooks/seed-protect.py": {seed: (2, "stderr"), framework: (0, None), ungated: (0, None)},
+            ".cursor/hooks/seed-warn.py": {seed: (10, "stdout"), framework: (0, None), ungated: (0, None)},
+            ".cursor/hooks/framework-plan-warn.py": {seed: (10, "stdout"), framework: (10, "stdout"),
+                                                     ungated: (0, None)},
+        }
+        def verdict(rel, path, venv, isolated):
+            result = self._run(rel, self._payload(path), venv, isolated=isolated)
+            stderr = "\n".join(line for line in result.stderr.splitlines() if not line.startswith(_NOTICE))
+            stream = "stderr" if stderr.strip() else "stdout" if result.stdout.strip() else None
+            return result.returncode, stream
+        for enabled in (False, True):
+            self._guards(enabled)
+            for rel, expected in closed.items():
+                for path, signal in expected.items():
+                    with self.subTest(gates_open=enabled, hook=rel, path=path.name):
+                        mismatched = verdict(rel, path, self.mismatched, True)
+                        usable = verdict(rel, path, self.usable, False)
+                        self.assertEqual(mismatched, usable)
+                        self.assertEqual(mismatched, (0, None) if enabled else signal)
+
+    def test_degrade_hooks_complete_quietly_and_keep_the_reindex_marker(self):
+        # AC-12, with a control run proving the spawn recorder sees real children.
+        self.index.mkdir(parents=True)
+        marker = self.index / "reindex-pending"
+        docs_payload = self._payload(self.root / "docs/page.md")
+        stop_payload = "{}"
+        for rel in (".claude/hooks/post-edit.py", ".cursor/hooks/docs-lint.py", ".cursor/hooks/after-file-edit.py",
+                    ".github/hooks/post-tool-use.py", ".windsurf/hooks/docs-lint.py",
+                    ".claude/hooks/session-capture.py", ".claude/hooks/context-efficiency-project.py"):
+            with self.subTest(rel):
+                payload = stop_payload if "session-capture" in rel or "context-efficiency" in rel else docs_payload
+                result = self._run(rel, payload, self.mismatched)
+                self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(marker.exists(), "the deferral keeps the in-process indexer.py loads marking")
+        result = self._run(".claude/hooks/simulate-hooks.py", "", self.mismatched,
+                           args=("pre-edit", self._payload(self.root / ".wavefoundry/framework/seeds/1.prompt.md")))
+        self.assertEqual(result.returncode, 2, "simulate-hooks returns its spawned hook's exit code")
+        time.sleep(1.0)
+        self.assertNotIn("docs_lint.py", self._spawns())
+        self.assertNotIn("indexer.py", self._spawns())
+        self.assertTrue(marker.exists(), "a skipped flush never consumes the marker")
+        # Control: with a usable venv the same hooks DO spawn the children the recorder logs.
+        result = self._run(".claude/hooks/post-edit.py", docs_payload, self.usable, isolated=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("docs_lint.py", self._spawns())
+        result = self._run(".claude/hooks/session-capture.py", stop_payload, self.usable, isolated=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        deadline = time.time() + 30
+        while "indexer.py" not in self._spawns() and time.time() < deadline:
+            time.sleep(0.2)
+        self.assertIn("indexer.py", self._spawns())
+        self.assertFalse(marker.exists(), "the usable-venv flush consumed the marker")
+
+    def test_committed_rendered_hooks_match_the_renderer(self):
+        # AC-13: every committed hook is byte-identical to a fresh render of all hosts.
+        repo = PROJECT_ROOT.parent
+        render_root = self.base / "render"
+        for directory in (".claude/hooks", ".cursor/hooks", ".github/hooks", ".windsurf/hooks"):
+            (render_root / directory).mkdir(parents=True)
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--repo-root", str(render_root),
+             "--platform", "claude", "--platform", "cursor", "--platform", "copilot", "--platform", "windsurf"],
+            cwd=str(repo), text=True, capture_output=True, check=False,
+            env={**os.environ, "WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}, timeout=300)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for rel in [*_BOOTSTRAP_HOOKS, ".claude/hooks/wf-session-start.py"]:
+            with self.subTest(rel):
+                self.assertEqual((repo / rel).read_bytes(), (render_root / rel).read_bytes(),
+                                 f"{rel} differs from the renderer; regenerate with wf_sync_surfaces")

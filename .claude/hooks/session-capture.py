@@ -7,12 +7,35 @@ from pathlib import Path as _WfPath
 _WF_SCRIPTS = _WfPath(__file__).resolve().parents[2] / ".wavefoundry" / "framework" / "scripts"
 if _WF_SCRIPTS.is_dir() and str(_WF_SCRIPTS) not in _wf_sys.path:
     _wf_sys.path.insert(0, str(_WF_SCRIPTS))
+# Change 1zrag: a tool venv this interpreter cannot use (built for another Python version, or an
+# activation that raised, including the guard's SystemExit) degrades the hook instead of exiting
+# it. Empty means usable or not built yet; otherwise the hook skips self-activating children.
+_WF_VENV_UNAVAILABLE = ""
 try:
     import venv_bootstrap as _wf_venv_bootstrap
-
-    _wf_venv_bootstrap.activate_tool_venv()
 except Exception:
-    pass
+    _wf_venv_bootstrap = None
+if _wf_venv_bootstrap is not None:
+    try:
+        _wf_venv_bootstrap.activate_tool_venv(allow_version_mismatch=True)
+        _wf_deferred = getattr(_wf_venv_bootstrap, "activation_deferred", None)
+        if callable(_wf_deferred) and _wf_deferred() == "version_mismatch":
+            _WF_VENV_UNAVAILABLE = "version_mismatch"
+    except KeyboardInterrupt:
+        raise
+    except BaseException:
+        _WF_VENV_UNAVAILABLE = "activation_failed"
+if _WF_VENV_UNAVAILABLE:
+    try:
+        print(
+            "wavefoundry: hook running without the tool venv ("
+            + ("it was built for another Python version" if _WF_VENV_UNAVAILABLE == "version_mismatch"
+               else "its activation failed")
+            + "); run `wf setup` to rebuild it.",
+            file=_wf_sys.stderr,
+        )
+    except Exception:
+        pass
 try:
     import cli_stdio as _wf_cli_stdio
 
@@ -157,6 +180,10 @@ def _flush_reindex_if_pending(root: Path) -> None:
     # sentinel per edit instead of spawning a reindex; this Stop hook flushes it ONCE per turn.
     # If an index-worthy edit is pending and no build is live, consume the marker and spawn one
     # detached incremental reindex. Fully fail-safe — never blocks or fails session end.
+    if _WF_VENV_UNAVAILABLE:
+        # Change 1zrag: never spawn the self-activating indexer child from a degraded hook, and
+        # never consume the marker, so the first Stop after `wf setup` flushes it.
+        return
     try:
         import importlib.util
         index_dir = root / ".wavefoundry" / "index"

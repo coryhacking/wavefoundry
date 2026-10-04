@@ -45,6 +45,8 @@ __all__ = [
     "tool_venv_base",
     "tool_venv_python",
     "activate_tool_venv",
+    "activation_deferred",
+    "reset_activation_deferral",
     "ensure_python_resolves",
     "disable_onnxruntime_telemetry",
 ]
@@ -164,6 +166,27 @@ def _venv_python_version(venv_base: Path) -> "tuple[int, int] | None":
     return None
 
 
+# Process-local activation deferral (change 1zrag). Set when a setup/repair caller passed
+# ``allow_version_mismatch=True`` and the venv was not activated: ``"absent"`` (not built
+# yet) or ``"version_mismatch"`` (built for another (major, minor)). While it holds, a later
+# plain ``activate_tool_venv()`` in the SAME process that meets the mismatch returns instead
+# of exiting, so an import-time activation site reached before setup rebuilds the venv does
+# not kill setup. The first successful activation clears it. A module global only: never an
+# environment variable, so child processes never inherit it.
+_ACTIVATION_DEFERRED: "str | None" = None
+
+
+def activation_deferred() -> "str | None":
+    """``None``, ``"absent"`` or ``"version_mismatch"``: why this process deferred activation."""
+    return _ACTIVATION_DEFERRED
+
+
+def reset_activation_deferral() -> None:
+    """Clear the process-local deferral (tests and in-process setup callers)."""
+    global _ACTIVATION_DEFERRED
+    _ACTIVATION_DEFERRED = None
+
+
 def activate_tool_venv(*, allow_version_mismatch: bool = False) -> None:
     """Activate the shared tool venv IN-PROCESS (wave 1p802) — no re-exec, no child process.
 
@@ -183,11 +206,18 @@ def activate_tool_venv(*, allow_version_mismatch: bool = False) -> None:
 
     ``allow_version_mismatch=True`` is reserved for setup/repair entry points. It turns that specific
     mismatch into a no-op (no activation) so setup can rebuild the stale venv it just diagnosed.
+    It also records the process-local deferral (``activation_deferred()``): ``"absent"`` when the
+    venv is not built yet, ``"version_mismatch"`` on that mismatch. While a ``"version_mismatch"``
+    deferral holds, a later call without the allowance that meets the mismatch returns instead of
+    exiting. The first successful activation clears the deferral.
 
     Stderr-only diagnostics (a stdout byte before the JSON-RPC handshake corrupts it)."""
+    global _ACTIVATION_DEFERRED
     venv_base = tool_venv_base()
     venv_python = tool_venv_python()
     if not venv_python.exists():
+        if allow_version_mismatch:
+            _ACTIVATION_DEFERRED = "absent"
         return  # Tier 1: venv not built yet — run on the current (system) interpreter.
     if _running_inside_venv(venv_python):
         return  # Already inside the venv (e.g. a sys.executable-spawned child) — nothing to do.
@@ -205,7 +235,10 @@ def activate_tool_venv(*, allow_version_mismatch: bool = False) -> None:
     built_for = _venv_python_version(venv_base)
     if built_for is not None and built_for != running:
         if allow_version_mismatch:
+            _ACTIVATION_DEFERRED = "version_mismatch"
             return
+        if _ACTIVATION_DEFERRED == "version_mismatch":
+            return  # Setup deferred activation in this process; it rebuilds the venv next.
         print(
             f"wavefoundry: the tool venv was built for Python {built_for[0]}.{built_for[1]} "
             f"but this is {running[0]}.{running[1]} — run `wf setup` to rebuild it.",
@@ -233,6 +266,7 @@ def activate_tool_venv(*, allow_version_mismatch: bool = False) -> None:
         for p in added:
             sys.path.remove(p)
         sys.path[0:0] = added
+    _ACTIVATION_DEFERRED = None
 
 
 # ---------------------------------------------------------------------------

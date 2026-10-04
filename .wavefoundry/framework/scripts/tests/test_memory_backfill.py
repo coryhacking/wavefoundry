@@ -53,8 +53,19 @@ def tearDownModule():
         _TREE_KILL_SHIM.stop()
 
 
+def _reset_activation_deferral():
+    """Change 1zrag AC-15: in-process ``setup_wavefoundry.main`` records a process-global
+    activation deferral; clear it on the bootstrap setup uses and the one in sys.modules."""
+    setup_wavefoundry.venv_bootstrap.reset_activation_deferral()
+    loaded = sys.modules.get("venv_bootstrap")
+    if loaded is not None and hasattr(loaded, "reset_activation_deferral"):
+        loaded.reset_activation_deferral()
+
+
 class HistoricalMemoryBackfillTests(unittest.TestCase):
     def setUp(self):
+        _reset_activation_deferral()
+        self.addCleanup(_reset_activation_deferral)
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         waves_dir(self.root).mkdir(parents=True)
@@ -1381,6 +1392,22 @@ os._exit(23)
         self.assertNotIn("wave_setup_resume_after_memory", server_source)
         self.assertNotIn("wf_resume_setup_after_memory", server_source)
         self.assertNotIn("setup --resume-after-memory", setup_source)
+
+
+class ActivationDeferralFixtureTests(unittest.TestCase):
+    """Change 1zrag AC-15: the in-process setup fixture never leaks a deferral."""
+
+    def test_fixture_cleanup_clears_a_deferral_set_during_the_test(self):
+        case = HistoricalMemoryBackfillTests("test_setup_help_is_observational")
+        case.setUp()
+        bootstrap = setup_wavefoundry.venv_bootstrap
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(Path(directory) / "absent")}):
+            bootstrap.activate_tool_venv(allow_version_mismatch=True)
+        self.assertEqual(bootstrap.activation_deferred(), "absent")
+        case.tearDown()
+        case.doCleanups()
+        self.assertIsNone(bootstrap.activation_deferred())
 
 
 class RootDefaultDiscoveryTests(unittest.TestCase):

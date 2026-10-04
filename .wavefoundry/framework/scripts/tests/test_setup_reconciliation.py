@@ -529,5 +529,384 @@ class NativeSetupTests(unittest.TestCase):
         self.assertEqual(source_before, source.read_bytes())
 
 
+class StuckPrestagingRecordTests(NativeSetupTests):
+    """Change 1zrag AC-6/AC-7: setup retires the field's spurious pre-staging record."""
+
+    # Run only this class's tests, on NativeSetupTests's fixture.
+    test_schema_seven_cutover_verifies_in_child_and_preserves_auxiliary = None
+    test_failed_fresh_verification_retains_source_and_checkpoint = None
+    test_newer_schema_refuses_preserving_database = None
+    test_legacy_receipt_cleanup_advances_its_owned_checkpoint = None
+    test_fence_write_interruption_recovers_only_through_bound_parent = None
+    test_completed_upgrade_parent_can_resume_interrupted_setup_kind = None
+    test_completed_parent_digest_mismatch_refuses_interrupted_handoff = None
+
+    def _stuck(self, setup_owned_parent=False):
+        """Reproduce the field write: a stale native binding probed the current store as
+        ``runtime_unavailable``; setup wrote a kind record over the complete kind parent and
+        the next ``restore_checkpoint`` refused it (the unfixed reader). Then the framework
+        bytes change, as they do when the fixed release is installed.
+
+        ``setup_owned_parent`` binds the completed parent to these (old) framework bytes,
+        as a parent that setup itself completed would be."""
+        current = self.fixture._seed(migration.SCHEMA_VERSION, name=self.fixture.current)
+        grandparent = {"receipt_version": migration.RECEIPT_VERSION_LEGACY,
+                       "migration_id": "b" * 32, "index_dir": str(self.index.resolve()),
+                       "root_identity": migration._identity(self.root), "state": "complete",
+                       "old_hosts": [], "artifacts": {}, "reason": "legacy_storage"}
+        state = dict(migration.detect(self.index), kind_required=True)
+        parent = migration._new_receipt(self.fixture.ctx, self.root, self.index, state, superseded=grandparent)
+        parent.update(state="complete", published_sqlite_identity=migration._identity(current))
+        if setup_owned_parent:
+            parent.update(entry_path="setup", setup_args=[],
+                          installed_framework_sha256=setup.framework_fingerprint(self.root))
+        migration._write(self.index, parent)
+        parent = migration.read_receipt(self.index)
+        real_schema = migration._database_schema
+        stale = lambda path: "runtime_unavailable" if Path(path).exists() else real_schema(path)
+        with patch.object(migration, "_database_schema", side_effect=stale), \
+                patch.object(migration, "restore_checkpoint",
+                             side_effect=migration.MigrationRequired("storage_receipt_supersedes_invalid")), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(setup.MigrationRequired, "supersedes_invalid"):
+                with setup.session(self.root, []) as run:
+                    run.prepare()
+        stuck = migration.read_receipt(self.index)
+        self.assertEqual((stuck["receipt_version"], stuck["kind"], stuck["state"], stuck["source_database"],
+                          stuck["reason"], stuck["entry_path"], stuck["source_version"], stuck["target_version"]),
+                         (2, migration.KIND_SCHEMA8, "restart_required", "current",
+                          "index_database_rename", "setup", "1.24.0", "1.24.0"))
+        self.assertEqual(stuck["supersedes"], parent)
+        self.assertNotIn("work_dir", stuck)
+        checkpoint = upgrade_lib.read_upgrade_lock(self.root)
+        self.assertEqual(checkpoint["storage_migration_id"], parent["migration_id"])
+        (self.root / ".wavefoundry/framework/fixed-release.py").write_text("FIXED = True\n")
+        self.assertNotEqual(setup.framework_fingerprint(self.root), stuck["installed_framework_sha256"])
+        return current, parent, stuck
+
+    def _setup_run(self):
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with setup.session(self.root, []) as run:
+                run.prepare()
+                with run.publication():
+                    pass
+                run.complete()
+        return run
+
+    def _receipt_writes(self):
+        """Record every receipt-file write: ``_write`` and the verbatim restore."""
+        import upgrade_lib as lib
+        writes, inside_write = [], []
+        real_write, real_replace = migration._write, lib._durable_json_replace
+        def recording_write(index, receipt):
+            writes.append(("_write", dict(receipt)))
+            inside_write.append(True)
+            try:
+                return real_write(index, receipt)
+            finally:
+                inside_write.pop()
+        def recording_replace(path, data):
+            if Path(path).name == migration.RECEIPT and not inside_write:
+                writes.append(("restore", json.loads(json.dumps(data))))
+            return real_replace(path, data)
+        stack = contextlib.ExitStack()
+        stack.enter_context(patch.object(migration, "_write", side_effect=recording_write))
+        stack.enter_context(patch.object(lib, "_durable_json_replace", side_effect=recording_replace))
+        return writes, stack
+
+    def _assert_retired_and_ready(self, current, database_before, identity_before):
+        self.assertEqual(current.read_bytes(), database_before)
+        self.assertEqual(migration._identity(current), identity_before)
+        self.assertIsNone(upgrade_lib.read_upgrade_lock(self.root))
+        self.assertFalse(migration.detect(self.index)["migration_required"])
+        migration.require_ready(self.index)
+        # A repeat setup is an ordinary no-op.
+        with setup.session(self.root, []) as repeat:
+            self.assertFalse(repeat.requires_index)
+
+    def test_ordinary_setup_restores_the_complete_version_two_parent_verbatim(self):
+        current, parent, stuck = self._stuck()
+        database_before = current.read_bytes()
+        identity_before = migration._identity(current)
+        writes, recording = self._receipt_writes()
+        with recording:
+            run = self._setup_run()
+        self.assertFalse(run.requires_index)
+        self.assertEqual(writes, [("restore", parent)], "one receipt write: the parent, verbatim")
+        # Byte-identical to the embedded parent as the canonical serializer writes it:
+        # no field changes, not even ``updated_at``.
+        expected = json.dumps(parent, indent=2) + "\n"
+        self.assertEqual((self.index / migration.RECEIPT).read_text("utf-8"), expected)
+        receipt = migration.read_receipt(self.index)
+        self.assertEqual(receipt, parent)
+        self.assertEqual((receipt["receipt_version"], receipt["state"]), (2, "complete"))
+        self.assertEqual(receipt["supersedes"]["receipt_version"], migration.RECEIPT_VERSION_LEGACY,
+                         "the restored parent is the shape runners 1.24 to 1.28 read")
+        self._assert_retired_and_ready(current, database_before, identity_before)
+
+    def test_restored_parent_bound_to_old_framework_bytes_passes_setup_on_new_bytes(self):
+        current, parent, _ = self._stuck(setup_owned_parent=True)
+        self.assertNotEqual(parent["installed_framework_sha256"], setup.framework_fingerprint(self.root))
+        database_before = current.read_bytes()
+        identity_before = migration._identity(current)
+        self._setup_run()
+        self.assertEqual(migration.read_receipt(self.index), parent)
+        setup.validate_source_binding(self.root, parent)  # complete: returns, never refuses
+        self._assert_retired_and_ready(current, database_before, identity_before)
+
+    def test_a_crash_after_binding_the_checkpoint_resumes_and_restores(self):
+        # The retirement binds the checkpoint to the parent BEFORE it rewrites the
+        # receipt. A crash between the two leaves the stuck record with that checkpoint;
+        # the next ordinary setup must pass _inspect and finish the restore.
+        current, parent, stuck = self._stuck()
+        upgrade_lib.update_upgrade_lock(self.root, storage_migration_id=parent["migration_id"],
+                                        setup_completed_parent={
+                                            "migration_id": parent["migration_id"],
+                                            "receipt_sha256": setup._receipt_fingerprint(parent)})
+        self.assertEqual(migration.read_receipt(self.index)["migration_id"], stuck["migration_id"])
+        database_before = current.read_bytes()
+        identity_before = migration._identity(current)
+        self._setup_run()
+        self.assertEqual(migration.read_receipt(self.index), parent)
+        self._assert_retired_and_ready(current, database_before, identity_before)
+
+    def test_a_version_one_parent_is_closed_in_place(self):
+        # The _begin_chained_kind fence case (N6): restoring a version-1 parent would
+        # make detect require the fence again, so the record is closed in place.
+        current, parent, stuck = self._stuck()
+        grandparent = parent["supersedes"]
+        stuck["supersedes"] = grandparent
+        migration._write(self.index, stuck)
+        upgrade_lib.update_upgrade_lock(self.root, storage_migration_id=stuck["migration_id"])
+        database_before = current.read_bytes()
+        identity_before = migration._identity(current)
+        writes, recording = self._receipt_writes()
+        with recording:
+            run = self._setup_run()
+        self.assertFalse(run.requires_index)
+        self.assertEqual([label for label, _ in writes], ["_write"], writes)
+        receipt = migration.read_receipt(self.index)
+        self.assertEqual((receipt["migration_id"], receipt["state"], receipt["disposition"], receipt["reclaimed_bytes"]),
+                         (stuck["migration_id"], "complete", "already_current", 0))
+        self.assertEqual(receipt["installed_framework_sha256"], setup.framework_fingerprint(self.root))
+        self.assertEqual(receipt["supersedes"], grandparent, "the version-1 parent stays verbatim")
+        self._assert_retired_and_ready(current, database_before, identity_before)
+
+    def _refuses_unchanged(self, pattern):
+        receipt_path = self.index / migration.RECEIPT
+        before = receipt_path.read_bytes()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(setup.MigrationRequired, pattern):
+                self._setup_run()
+        self.assertEqual(receipt_path.read_bytes(), before)
+        self.assertNotEqual(migration.read_receipt(self.index)["state"], "complete")
+
+    def _broken_clause_refuses_in_inspect(self, clause):
+        import index_paths
+        _, _, stuck = self._stuck()
+        if clause == "retired_name":
+            index_paths.legacy_index_database_path(self.index).write_bytes(b"retired name occupied")
+        elif clause == "work_dir_on_disk":
+            # Staging began on disk although the record names no work_dir.
+            (self.index / (migration.KIND_WORK_PREFIX + stuck["migration_id"])).mkdir()
+        else:
+            if clause == "work_dir":
+                stuck["work_dir"] = migration.KIND_WORK_PREFIX + stuck["migration_id"]
+            elif clause == "staged_state":
+                stuck["state"] = "staged"
+            elif clause == "source_database":
+                stuck["source_database"] = "legacy"
+            elif clause == "identity":
+                stuck["source_sqlite_identity"] = dict(stuck["source_sqlite_identity"], inode=1)
+            migration._write(self.index, stuck)
+        self.assertFalse(migration.prestaging_noop_shape(self.index, migration.read_receipt(self.index)))
+        checkpoint_path = upgrade_lib.upgrade_lock_path(self.root)
+        checkpoint_before = checkpoint_path.read_bytes()
+        # Refused in session._inspect, before any setup write.
+        self._refuses_unchanged("storage_setup_source_changed")
+        self.assertEqual(checkpoint_path.read_bytes(), checkpoint_before)
+
+    def test_recorded_work_dir_keeps_the_exact_bytes_binding(self):
+        self._broken_clause_refuses_in_inspect("work_dir")
+
+    def test_legacy_source_role_keeps_the_exact_bytes_binding(self):
+        self._broken_clause_refuses_in_inspect("source_database")
+
+    def test_occupied_retired_name_keeps_the_exact_bytes_binding(self):
+        self._broken_clause_refuses_in_inspect("retired_name")
+
+    def test_mismatched_source_identity_keeps_the_exact_bytes_binding(self):
+        self._broken_clause_refuses_in_inspect("identity")
+
+    def test_work_directory_on_disk_keeps_the_exact_bytes_binding(self):
+        self._broken_clause_refuses_in_inspect("work_dir_on_disk")
+
+    def test_staged_state_without_work_dir_keeps_the_exact_bytes_binding(self):
+        self._broken_clause_refuses_in_inspect("staged_state")
+
+    def test_outside_the_predicate_without_a_checkpoint_refuses_in_the_receipt_binding(self):
+        # No checkpoint, so only the receipt's own exact-bytes binding can refuse.
+        _, _, stuck = self._stuck()
+        stuck["source_database"] = "legacy"
+        migration._write(self.index, stuck)
+        upgrade_lib.remove_upgrade_lock(self.root)
+        receipt_before = (self.index / migration.RECEIPT).read_bytes()
+        with self.assertRaisesRegex(setup.MigrationRequired,
+                                    "^storage_setup_source_changed: restore the recorded installed framework "
+                                    "before rerunning wf setup"):
+            setup.session(self.root, []).__enter__()
+        self.assertEqual((self.index / migration.RECEIPT).read_bytes(), receipt_before)
+        self.assertIsNone(upgrade_lib.read_upgrade_lock(self.root))
+
+    def test_a_checkpoint_over_a_completed_receipt_keeps_its_fingerprint_check(self):
+        # The receipt is complete, so only the checkpoint's fingerprint check can refuse.
+        _, parent, _ = self._stuck()
+        import upgrade_lib as lib
+        lib._durable_json_replace(self.index / migration.RECEIPT, parent)
+        checkpoint_path = upgrade_lib.upgrade_lock_path(self.root)
+        checkpoint_before = checkpoint_path.read_bytes()
+        receipt_before = (self.index / migration.RECEIPT).read_bytes()
+        self.assertEqual(upgrade_lib.read_upgrade_lock(self.root)["storage_migration_id"], parent["migration_id"])
+        with self.assertRaisesRegex(setup.MigrationRequired,
+                                    "^storage_setup_source_changed: restore the recorded framework before wf setup$"):
+            setup.session(self.root, []).__enter__()
+        self.assertEqual(checkpoint_path.read_bytes(), checkpoint_before)
+        self.assertEqual((self.index / migration.RECEIPT).read_bytes(), receipt_before)
+
+    def test_a_deferral_left_after_provisioning_refuses_before_any_receipt_write(self):
+        # DEL-F7: provisioning ended without activating the venv, so the probe
+        # reports runtime_unavailable through the deferral guard. prepare refuses
+        # instead of classifying from it.
+        import venv_bootstrap
+        _, parent, _ = self._stuck()
+        import upgrade_lib as lib
+        lib._durable_json_replace(self.index / migration.RECEIPT, parent)
+        upgrade_lib.remove_upgrade_lock(self.root)
+        receipt_before = (self.index / migration.RECEIPT).read_bytes()
+        self.addCleanup(venv_bootstrap.reset_activation_deferral)
+        real_schema = migration._database_schema
+        deferred = lambda path: "runtime_unavailable" if Path(path).exists() else real_schema(path)
+        with patch.object(venv_bootstrap, "_ACTIVATION_DEFERRED", "absent"), \
+                patch.object(migration, "_database_schema", side_effect=deferred), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(setup.MigrationRequired, "^storage_setup_runtime_unavailable: "):
+                self._setup_run()
+        self.assertEqual((self.index / migration.RECEIPT).read_bytes(), receipt_before)
+        self.assertIsNone(venv_bootstrap.activation_deferred(), "the deferral never leaks past the test")
+
+    def test_restored_older_database_under_the_current_name_is_not_retired(self):
+        current, parent, stuck = self._stuck()
+        import sqlite_runtime
+        with contextlib.closing(sqlite_runtime.connect(current)) as conn, conn:
+            conn.execute("UPDATE meta SET value='7' WHERE key='store_schema_version'")
+        # Structurally it is still the pre-staging shape, so _inspect tolerates it
+        # read-only; the qualified probe refuses the retirement and prepare_upgrade
+        # keeps the exact-bytes binding.
+        self.assertTrue(migration.prestaging_noop_shape(self.index, migration.read_receipt(self.index)))
+        self.assertIsNone(migration.retire_prestaging_noop(self.root, setup.framework_fingerprint(self.root)))
+        self._refuses_unchanged("storage_setup_source_changed")
+
+    def test_tolerance_never_relaxes_validate_source_binding(self):
+        _, _, stuck = self._stuck()
+        with self.assertRaisesRegex(setup.MigrationRequired, "storage_setup_source_changed"):
+            setup.validate_source_binding(self.root, stuck)
+
+
+# The fresh child for MismatchedVenvSetupTests. It starts WITHOUT site-packages
+# (-S), so the native runtime is not importable until the simulated rebuild's
+# activation adds it; heavy and home-writing steps are stubbed, reconciliation,
+# detect and the venv bootstrap are real.
+_MISMATCH_CHILD = r"""
+import json, os, sys
+from pathlib import Path
+scripts, root, real_site = sys.argv[1], Path(sys.argv[2]), sys.argv[3]
+sys.path.insert(0, scripts)
+import setup_wavefoundry, venv_bootstrap, setup_index, memory_records
+report = {"ensure_deps": [], "deferral_at_start": None}
+def ensure_deps(target):
+    report["ensure_deps"].append(str(target))
+    report["runtime_imported_before_activation"] = "sqlite_runtime" in sys.modules
+    report["deferral_before_rebuild"] = venv_bootstrap.activation_deferred()
+    # The rebuild: a venv for THIS interpreter whose site-packages reach the real runtime.
+    venv = venv_bootstrap.tool_venv_base()
+    (venv / "pyvenv.cfg").write_text("version = %d.%d.0\n" % sys.version_info[:2], encoding="utf-8")
+    site = venv_bootstrap._venv_site_packages(venv)
+    site.mkdir(parents=True, exist_ok=True)
+    (site / "real-runtime.pth").write_text(real_site + "\n", encoding="utf-8")
+def deps_only_main(argv):
+    ensure_deps(root)
+    setup_index._reexec_with_venv_if_needed()
+    report["deferral_after_activation"] = venv_bootstrap.activation_deferred()
+    return 0
+setup_index.ensure_deps = ensure_deps
+setup_wavefoundry._load_setup_index = lambda: type("S", (), {"main": staticmethod(deps_only_main)})
+venv_bootstrap.ensure_python_resolves = lambda strict=False: "ok"
+setup_wavefoundry._provision_lifecycle_policy_if_absent = lambda root: 0
+setup_wavefoundry._provision_workflow_defaults_if_absent = lambda root: 0
+setup_wavefoundry._run_render_platform_surfaces = lambda root: 0
+memory_records.migrate_legacy_memory_pointers = lambda root: None
+def dry_run(root):
+    report["reached_step_3"] = True
+    return 97
+setup_wavefoundry._run_mcp_server_dry_run = dry_run
+report["rc"] = setup_wavefoundry.main(["--root", str(root)])
+print("REPORT " + json.dumps(report))
+"""
+
+
+class MismatchedVenvSetupTests(NativeSetupTests):
+    """Change 1zrag AC-1/AC-2: a fresh setup process over a stale venv rebuilds it and
+    reclassifies a current store without writing a receipt."""
+
+    test_schema_seven_cutover_verifies_in_child_and_preserves_auxiliary = None
+    test_failed_fresh_verification_retains_source_and_checkpoint = None
+    test_newer_schema_refuses_preserving_database = None
+    test_legacy_receipt_cleanup_advances_its_owned_checkpoint = None
+    test_fence_write_interruption_recovers_only_through_bound_parent = None
+    test_completed_upgrade_parent_can_resume_interrupted_setup_kind = None
+    test_completed_parent_digest_mismatch_refuses_interrupted_handoff = None
+
+    def test_setup_over_a_mismatched_venv_rebuilds_and_writes_no_receipt(self):
+        import sysconfig
+        current = self.fixture._seed(migration.SCHEMA_VERSION, name=self.fixture.current)
+        state = dict(migration.detect(self.index), kind_required=True)
+        parent = migration._new_receipt(self.fixture.ctx, self.root, self.index, state)
+        parent.update(state="complete", published_sqlite_identity=migration._identity(current))
+        migration._write(self.index, parent)
+        receipt_path = self.index / migration.RECEIPT
+        receipt_before = receipt_path.read_bytes()
+        import venv_bootstrap
+        venv = self.root.parent / (self.root.name + "-stale-venv")
+        self.addCleanup(shutil.rmtree, venv, True)
+        # The platform layout from the bootstrap (``Scripts\python.exe`` on Windows).
+        with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv)}):
+            python = venv_bootstrap.tool_venv_python()
+        python.parent.mkdir(parents=True)
+        python.write_text("")
+        (venv / "pyvenv.cfg").write_text(
+            "version = %d.%d.0\n" % (sys.version_info[0], sys.version_info[1] - 1), encoding="utf-8")
+        env = dict(os.environ, WAVEFOUNDRY_TOOL_VENV=str(venv))
+        env.pop("PYTHONPATH", None)
+        child = __import__("subprocess").run(
+            [sys.executable, "-B", "-S", "-c", _MISMATCH_CHILD, str(SCRIPTS), str(self.root),
+             sysconfig.get_paths()["purelib"]],
+            capture_output=True, text=True, env=env, cwd=str(self.root), timeout=300)
+        lines = [line for line in child.stdout.splitlines() if line.startswith("REPORT ")]
+        self.assertTrue(lines, child.stdout + child.stderr)
+        report = json.loads(lines[-1][len("REPORT "):])
+        # AC-1: reconciliation passed and Step 2 rebuilt the venv; no exit-2 guard message.
+        self.assertNotIn("the tool venv was built for Python", child.stderr)
+        self.assertEqual(report["ensure_deps"], [str(self.root)])
+        self.assertEqual(report["deferral_before_rebuild"], "version_mismatch")
+        self.assertTrue(report.get("reached_step_3"), child.stderr)
+        self.assertEqual(report["rc"], 97)
+        # AC-2: the native runtime was not imported before activation; afterwards
+        # session.prepare reclassified the store with the provisioned runtime.
+        self.assertFalse(report["runtime_imported_before_activation"])
+        self.assertIsNone(report["deferral_after_activation"])
+        self.assertEqual(receipt_path.read_bytes(), receipt_before)
+        self.assertIsNone(upgrade_lib.read_upgrade_lock(self.root))
+
+
 if __name__ == "__main__":
     unittest.main()

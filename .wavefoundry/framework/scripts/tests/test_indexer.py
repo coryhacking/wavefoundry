@@ -1776,7 +1776,6 @@ class IncrementalBuildTests(unittest.TestCase):
         with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock]):
             self.bi.build_index(self.root, full=True, content="docs", verbose=False)
 
-        import lancedb
         rows = _read_index_chunks(self.root / ".wavefoundry" / "index", "docs")
         paths = {r.get("path") for r in rows}
         self.assertIn(".wavefoundry/framework/seeds/100-install.prompt.md", paths,

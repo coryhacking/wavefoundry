@@ -3722,6 +3722,299 @@ class WaveMcpReloadTests(unittest.TestCase):
         self.assertIn("projection is stale", rendered)
 
 
+class ReloadDiagnosticsPathFreeTests(unittest.TestCase):
+    """Wave 1zqe4 (1zqe3): exception text in the reload tool's handled
+    diagnostics names no absolute path; the original text goes to stderr."""
+
+    def setUp(self):
+        self.srv = load_server()
+        self.runner = load_thin_runner()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = _make_repo(Path(self.tmp.name))
+        fw = self.root / ".wavefoundry" / "framework"
+        fw.mkdir(parents=True, exist_ok=True)
+        (fw / "VERSION").write_text("test-pack-version", encoding="utf-8")
+        self._saved_identity = (self.srv._runner_version, list(self.srv._runner_files))
+        self._real_setter = self.srv.set_server_runner_version
+        self._saved_state = (self.runner._handler, self.runner._root, self.runner._mcp)
+        try:
+            import mcp  # noqa: F401
+        except ImportError:
+            self.skipTest("mcp package not installed")
+
+    def tearDown(self):
+        live = self.runner._handler
+        self.srv.set_server_runner_version = self._real_setter
+        self.srv.set_server_runner_version(self._saved_identity[0], runner_files=self._saved_identity[1])
+        self.runner._handler, self.runner._root, self.runner._mcp = self._saved_state
+        if live is not None and live is not self._saved_state[0]:
+            with contextlib.suppress(Exception):
+                live.close()
+        self.tmp.cleanup()
+
+    def inside(self, name="x.md"):
+        """An OSError naming a file under the served root, and its path."""
+        path = str(Path(self.root).resolve() / "docs" / name)
+        return OSError(13, "Permission denied", path), path
+
+    def outside(self):
+        path = "/elsewhere/private/x.md"
+        return OSError(13, "Permission denied", path), path
+
+    def assert_path_free(self, message):
+        self.assertIsNotNone(self.srv._lifecycle_lock_authority.path_free_text(message, self.root), message)
+        self.assertNotIn(str(Path(self.root).resolve()), message)
+
+    def messages(self, response, code):
+        return [d["message"] for d in response.get("diagnostics", []) if d.get("code") == code]
+
+    def reload_with(self, mutate):
+        """Run a real ``perform_mcp_reload`` whose freshly reloaded impl ``mutate`` adjusts.
+
+        The reload re-executes ``server_impl`` in place, so a replaced attribute
+        is restored to the reloaded original before returning.
+        """
+        real_reload = self.runner.importlib.reload
+        restore: dict = {}
+
+        def reload_and_mutate(module):
+            reloaded = real_reload(module)
+            mutate(reloaded, restore)
+            return reloaded
+
+        stream = io.StringIO()
+        with patch.object(self.runner.importlib, "reload", reload_and_mutate), contextlib.redirect_stderr(stream):
+            result = self.runner.perform_mcp_reload()
+        for name, value in restore.items():
+            setattr(self.srv, name, value)
+        return result, stream.getvalue()
+
+    def test_handler_close_warning_is_path_free(self):
+        """AC-6: handler_close_warning."""
+        self.runner.build_server(self.root)
+        for exc, path in (self.inside(), self.outside()):
+            with self.subTest(path=path):
+                old = self.runner._get_handler()
+                real_close = old.close
+                stream = io.StringIO()
+                with patch.object(old, "close", side_effect=exc), contextlib.redirect_stderr(stream):
+                    result = self.runner.perform_mcp_reload()
+                real_close()
+                (message,) = self.messages(result, "handler_close_warning")
+                self.assert_path_free(message)
+                self.assertTrue(message.startswith("Old handler close raised: PermissionError EACCES"), message)
+                if path.startswith(str(Path(self.root).resolve())):
+                    self.assertTrue(message.endswith(" on docs/x.md"), message)
+                self.assertIn(path, stream.getvalue())
+
+    def test_reload_failed_is_path_free_and_starts_with_the_class(self):
+        """AC-6: reload_failed now starts with the exception class."""
+        self.runner.build_server(self.root)
+        for exc, path in (self.inside(), self.outside(), (ValueError("bad id"), None)):
+            with self.subTest(exc=repr(exc)):
+
+                def mutate(reloaded, restore, exc=exc):
+                    restore["build_handler"] = reloaded.build_handler
+
+                    def raising(_root):
+                        raise exc
+
+                    reloaded.build_handler = raising
+
+                result, logged = self.reload_with(mutate)
+                self.assertEqual(result["status"], "error")
+                (message,) = self.messages(result, "reload_failed")
+                self.assert_path_free(message)
+                if path is None:
+                    self.assertEqual(message, "ValueError: bad id")
+                    self.assertIn("bad id", logged)
+                else:
+                    self.assertTrue(message.startswith("PermissionError EACCES"), message)
+                    self.assertIn(path, logged)
+                # A failed reload keeps the old (closed) handler; install a fresh one.
+                self.runner._set_handler(self.srv.build_handler(self.root))
+
+    def test_tool_remove_and_register_surface_warnings_are_path_free(self):
+        """AC-6: tool_remove_warning and register_surface_failed."""
+        mcp = self.runner.build_server(self.root)
+        for exc, path in (self.inside(), self.outside()):
+            with self.subTest(path=path):
+                stream = io.StringIO()
+                with patch.object(mcp, "remove_tool", side_effect=exc), patch.object(
+                    self.srv, "register_mcp_surface", side_effect=exc
+                ), contextlib.redirect_stderr(stream):
+                    *_rest, warnings = self.runner._refresh_mcp_tool_surface(mcp)
+                codes = {w["code"] for w in warnings}
+                self.assertEqual(codes, {"tool_remove_warning", "register_surface_failed"})
+                for warning in warnings:
+                    self.assert_path_free(warning["message"])
+                    self.assertIn("PermissionError EACCES", warning["message"])
+                self.assertIn(path, stream.getvalue())
+
+    def test_setup_readiness_unavailable_is_path_free(self):
+        """AC-6: setup_readiness_unavailable."""
+        self.runner.build_server(self.root)
+        for exc, path in (self.inside(), self.outside()):
+            with self.subTest(path=path):
+
+                def mutate(reloaded, restore, exc=exc):
+                    real_build = restore["build_handler"] = reloaded.build_handler
+
+                    def build(root):
+                        handler = real_build(root)
+                        handler.assess_setup = MagicMock(side_effect=exc)
+                        return handler
+
+                    reloaded.build_handler = build
+
+                result, logged = self.reload_with(mutate)
+                self.assertEqual(result["status"], "ok", result)
+                (message,) = self.messages(result, "setup_readiness_unavailable")
+                self.assert_path_free(message)
+                self.assertTrue(message.startswith("PermissionError EACCES"), message)
+                self.assertIn(path, logged)
+
+    def test_scheduled_notification_failure_is_path_free(self):
+        """AC-6: tool_list_changed_notification_failed on the upgrade path."""
+        mcp = self.runner.build_server(self.root)
+        for exc, path in (self.inside(), self.outside()):
+            with self.subTest(path=path):
+
+                async def exercise(exc=exc):
+                    with patch.object(mcp, "get_context", side_effect=exc), patch.object(
+                        self.runner, "_refresh_mcp_tool_surface", return_value=(1, [], ["memory_purge"], [], [])
+                    ):
+                        return self.runner.perform_mcp_reload()
+
+                stream = io.StringIO()
+                with contextlib.redirect_stderr(stream):
+                    result = asyncio.run(exercise())
+                (message,) = self.messages(result, "tool_list_changed_notification_failed")
+                self.assert_path_free(message)
+                self.assertIn("(PermissionError EACCES", message)
+                self.assertIn(path, stream.getvalue())
+
+    def test_awaited_notification_failure_is_path_free(self):
+        """AC-6: tool_list_changed_notification_failed in the wf_reload_mcp body."""
+        mcp = self.runner.build_server(self.root)
+        for exc, path in (self.inside(), self.outside()):
+            with self.subTest(path=path):
+
+                class Session:
+                    async def send_tool_list_changed(self, exc=exc):
+                        raise exc
+
+                context = types.SimpleNamespace(request_context=types.SimpleNamespace(session=Session()))
+
+                async def exercise():
+                    tool = mcp._tool_manager._tools["wf_reload_mcp"]
+                    with patch.object(mcp, "get_context", return_value=context), patch.object(
+                        self.runner, "_refresh_mcp_tool_surface", return_value=(1, [], ["memory_purge"], [], [])
+                    ):
+                        return await tool.run({})
+
+                stream = io.StringIO()
+                with contextlib.redirect_stderr(stream):
+                    result = asyncio.run(exercise())
+                self.assertEqual(result["data"]["tool_list_changed_notification_dispatch"], "failed")
+                (message,) = self.messages(result, "tool_list_changed_notification_failed")
+                self.assert_path_free(message)
+                self.assertIn("(PermissionError EACCES", message)
+                self.assertIn(path, stream.getvalue())
+
+    def _raising_setter(self, exc, *, keyword_only_failure=False):
+        def set_server_runner_version(v, runner_files=None):  # noqa: ANN001
+            if keyword_only_failure and runner_files is not None:
+                raise TypeError("unexpected keyword argument 'runner_files'")
+            raise exc
+
+        return set_server_runner_version
+
+    def test_record_runner_identity_reasons_are_path_free(self):
+        """AC-7: the keyword-setter, single-argument retry and setup-identity branches."""
+        self.runner._root = self.root
+        exc, path = self.inside()
+
+        class RaisingAssignment:
+            def __init__(self, real):
+                object.__setattr__(self, "_real", real)
+
+            def __getattr__(self, name):
+                return getattr(object.__getattribute__(self, "_real"), name)
+
+            def __setattr__(self, name, value):
+                raise exc
+
+        cases = {
+            "keyword": lambda: patch.object(self.srv, "set_server_runner_version", self._raising_setter(exc)),
+            "retry": lambda: patch.object(
+                self.srv, "set_server_runner_version", self._raising_setter(exc, keyword_only_failure=True)
+            ),
+            "setup_identity": lambda: patch.object(self.runner, "server_impl", RaisingAssignment(self.srv)),
+        }
+        for name, patcher in cases.items():
+            with self.subTest(branch=name):
+                stream = io.StringIO()
+                with patcher(), contextlib.redirect_stderr(stream):
+                    reason = self.runner._record_runner_identity()
+                self.assertIsNotNone(reason)
+                self.assert_path_free(reason)
+                self.assertIn("(PermissionError EACCES on docs/x.md)", reason)
+                self.assertIn(path, stream.getvalue())
+
+    def test_runner_identity_unrecorded_is_path_free_through_the_reload(self):
+        """AC-7 through perform_mcp_reload."""
+        self.runner.build_server(self.root)
+        exc, path = self.inside()
+        setter = self._raising_setter(exc)
+
+        def mutate(reloaded, restore):
+            restore["set_server_runner_version"] = reloaded.set_server_runner_version
+            reloaded.set_server_runner_version = setter
+
+        result, logged = self.reload_with(mutate)
+        self.assertEqual(result["status"], "ok", result)
+        (message,) = self.messages(result, "runner_identity_unrecorded")
+        self.assert_path_free(message)
+        self.assertIn("(PermissionError EACCES on docs/x.md)", message)
+        self.assertIn(path, logged)
+
+    def test_a_missing_root_falls_back_to_the_cause_label(self):
+        """AC-12: before build_server the served root is None."""
+        self.runner._root = None
+        exc, path = self.inside()
+        stream = io.StringIO()
+        with contextlib.redirect_stderr(stream):
+            self.assertEqual(self.runner._reload_exception_text(exc, "probe"), "PermissionError EACCES")
+            self.assertEqual(
+                self.runner._reload_exception_text(ValueError(f"bad {path}"), "probe"), "ValueError"
+            )
+            with patch.object(self.srv, "set_server_runner_version", self._raising_setter(exc)):
+                reason = self.runner._record_runner_identity()
+        self.assertIn("(PermissionError EACCES)", reason)
+        self.assertNotIn(path, reason)
+        self.assertIn(path, stream.getvalue())
+
+    def test_a_runner_on_an_impl_without_the_render_pass_still_builds(self):
+        """AC-11: a torn tree whose server_impl lacks ``_apply_render_pass``."""
+        real_register = self.srv.register_mcp_surface
+        saved = self.srv._apply_render_pass
+
+        def register_then_forget(mcp, get_handler):
+            real_register(mcp, get_handler)
+            del self.srv._apply_render_pass
+
+        try:
+            with patch.object(self.srv, "register_mcp_surface", register_then_forget):
+                mcp = self.runner.build_server(self.root)
+        finally:
+            self.srv._apply_render_pass = saved
+        fn = mcp._tool_manager._tools["wf_reload_mcp"].fn
+        self.assertTrue(inspect.iscoroutinefunction(fn))
+        self.assertFalse(getattr(fn, "_wf_rendered", False))
+        self.assertNotIn("render", getattr(fn, "__wf_middleware__", ()) or ())
+
+
 class ServerHandlerLazyInitTests(unittest.TestCase):
     """Wave 1p8kz: a STARTED server (root known) must never return `handler_not_ready`. `_get_handler`
     lazy-builds the handler when `_handler is None` and `_root` is set; it raises only for a genuinely

@@ -2571,3 +2571,164 @@ class SchemaEightKindTests(unittest.TestCase):
                                capture_output=True, text=True, cwd=str(self.root))
         self.assertEqual(child.returncode, 0, child.stderr)
         self.assertEqual(child.stdout.strip(), index_paths.RUNTIME_DATABASE_FILENAME)
+
+
+class SupersedesChainTests(unittest.TestCase):
+    """Change 1zrag AC-4/AC-5: one ``supersedes`` predicate for the reader and all writers.
+
+    The field-shaped chain is produced by the canonical writer ``_new_receipt``:
+    a complete version-1 record, superseded by a version-2 kind record that
+    completed, superseded in turn by a setup-owned kind record that never
+    staged (the shape preserved as ``sqlite-migration.json.stuck-2026-10-03``).
+    """
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name).resolve()
+        self.index = self.root / ".wavefoundry/index"
+        self.index.mkdir(parents=True)
+        self.current = index_paths.index_database_path(self.index)
+        self.current.write_bytes(b"schema-8 store stand-in")
+        self.upgrade_ctx = SimpleNamespace(root=self.root, from_version="1.23.0", to_version="1.24.0",
+                                           zip_path=None)
+        self.setup_ctx = SimpleNamespace(root=self.root, from_version="1.28.0", to_version="1.28.0",
+                                         zip_path=None, entry_path="setup",
+                                         installed_framework_sha256="f" * 64, setup_args=[])
+        # The detect() shape the stale native binding produced: a current-name
+        # authority whose qualified probe was unavailable.
+        self.state = {"kind_required": True, "legacy": [], "authority_role": "current",
+                      "schemas": {"current": "runtime_unavailable", "legacy": "absent"}}
+
+    def _chain(self):
+        grandparent = {"receipt_version": migration.RECEIPT_VERSION_LEGACY,
+                       "migration_id": "a" * 32, "index_dir": str(self.index),
+                       "root_identity": migration._identity(self.root), "state": "complete",
+                       "old_hosts": [], "artifacts": {}, "reason": "legacy_storage"}
+        parent = migration._new_receipt(self.upgrade_ctx, self.root, self.index, self.state,
+                                        superseded=grandparent)
+        parent["state"] = "complete"
+        stuck = migration._new_receipt(self.setup_ctx, self.root, self.index, self.state,
+                                       superseded=parent)
+        return grandparent, parent, stuck
+
+    def test_reader_accepts_the_field_shaped_chain_verbatim(self):
+        grandparent, parent, stuck = self._chain()
+        migration._write(self.index, stuck)
+        read = migration.read_receipt(self.index)
+        self.assertEqual(read, json.loads(json.dumps(stuck)))
+        self.assertEqual((read["receipt_version"], read["kind"], read["state"], read["source_database"],
+                          read["reason"], read["entry_path"]),
+                         (2, migration.KIND_SCHEMA8, "restart_required", "current",
+                          "index_database_rename", "setup"))
+        self.assertEqual((read["supersedes"]["receipt_version"], read["supersedes"]["state"]), (2, "complete"))
+        self.assertEqual(read["supersedes"]["supersedes"]["receipt_version"], 1)
+        # Verbatim: the embedded parent keeps the fingerprint _inspect binds.
+        import setup_reconciliation
+        self.assertEqual(setup_reconciliation._receipt_fingerprint(read["supersedes"]),
+                         setup_reconciliation._receipt_fingerprint(json.loads(json.dumps(parent))))
+
+    def _malformed(self):
+        _, parent, _ = self._chain()
+        not_complete = dict(parent, state="verified")
+        nested_version = json.loads(json.dumps(parent))
+        nested_version["supersedes"]["receipt_version"] = 3
+        nested_kind = json.loads(json.dumps(parent))
+        nested_kind["supersedes"]["kind"] = migration.KIND_SCHEMA8
+        nested_incomplete = dict(parent, supersedes=dict(parent, state="quiesced"))
+        # A version-1 level carries a recorded state (any of STATES), never an unknown one.
+        version_one_unknown_state = dict(parent["supersedes"], state="not-a-state")
+        nested_version_one_unknown_state = dict(parent, supersedes=version_one_unknown_state)
+        return {"non_dict": "a" * 32, "list": [parent], "unsupported_version": dict(parent, receipt_version=3),
+                "not_complete": not_complete, "nested_unsupported_version": nested_version,
+                "version_one_with_kind": nested_kind, "nested_not_complete": nested_incomplete,
+                "version_one_unknown_state": version_one_unknown_state,
+                "nested_version_one_unknown_state": nested_version_one_unknown_state}
+
+    def test_a_version_one_level_keeps_any_recorded_state(self):
+        # Requirement 4: unlike a version-2 level, a version-1 level is not
+        # required to be complete; any state in STATES reads back.
+        _, parent, stuck = self._chain()
+        for state in sorted(migration.STATES):
+            with self.subTest(state):
+                level = dict(parent["supersedes"], state=state)
+                migration._write(self.index, dict(stuck, supersedes=dict(parent, supersedes=level)))
+                self.assertEqual(migration.read_receipt(self.index)["supersedes"]["supersedes"]["state"], state)
+
+    def test_reader_refuses_every_malformed_supersedes(self):
+        _, _, stuck = self._chain()
+        for label, bad in self._malformed().items():
+            with self.subTest(label):
+                migration._write(self.index, dict(stuck, supersedes=bad))
+                with self.assertRaisesRegex(migration.MigrationRequired, "storage_receipt_supersedes_invalid"):
+                    migration.read_receipt(self.index)
+
+    def test_every_writer_refuses_what_the_reader_refuses_before_writing(self):
+        receipt_path = self.index / migration.RECEIPT
+        for label, bad in self._malformed().items():
+            writers = {
+                "_new_receipt": lambda: migration._new_receipt(self.setup_ctx, self.root, self.index,
+                                                               self.state, superseded=bad),
+                "_begin_chained_kind": lambda: migration._begin_chained_kind(self.root, self.index, bad,
+                                                                             self.state, True),
+                "_install_kind_fence": lambda: migration._install_kind_fence(self.root, self.index, bad),
+            }
+            for writer, call in writers.items():
+                with self.subTest(label=label, writer=writer):
+                    receipt_path.unlink(missing_ok=True)
+                    with self.assertRaisesRegex(migration.MigrationRequired, "storage_receipt_supersedes_invalid"):
+                        call()
+                    self.assertFalse(receipt_path.exists(), "refused before any write")
+
+    def test_every_writer_output_reads_back(self):
+        grandparent, parent, stuck = self._chain()
+        migration._write(self.index, stuck)
+        self.assertEqual(migration.read_receipt(self.index)["supersedes"]["migration_id"], parent["migration_id"])
+        # _begin_chained_kind over a finished version-1 record.
+        chained = migration._begin_chained_kind(self.root, self.index, dict(grandparent), self.state, True)
+        self.assertEqual(migration.read_receipt(self.index), json.loads(json.dumps(chained)))
+        # _install_kind_fence over a completed version-1 conversion that published the current name.
+        upgrade_lib.remove_upgrade_lock(self.root)
+        published = dict(grandparent, published_sqlite_identity=migration._identity(self.current))
+        fenced = migration._install_kind_fence(self.root, self.index, published)
+        self.assertEqual(migration.read_receipt(self.index), json.loads(json.dumps(fenced)))
+        self.assertEqual(fenced["supersedes"]["migration_id"], grandparent["migration_id"])
+
+
+class DeferredRuntimeProbeTests(unittest.TestCase):
+    """Change 1zrag Requirement 2: never import the native runtime while activation is deferred."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.index = Path(tmp.name).resolve() / ".wavefoundry/index"
+        self.index.mkdir(parents=True)
+        self.database = index_paths.index_database_path(self.index)
+
+    def _bootstrap(self, deferred):
+        return SimpleNamespace(activation_deferred=lambda: deferred)
+
+    def test_deferred_probe_reports_unavailable_without_importing_the_runtime(self):
+        self.database.write_bytes(b"existing store")
+        modules = {name: module for name, module in sys.modules.items() if name != "sqlite_runtime"}
+        for deferred in ("version_mismatch", "absent"):
+            with self.subTest(deferred), patch.dict(sys.modules, modules, clear=True):
+                sys.modules["venv_bootstrap"] = self._bootstrap(deferred)
+                self.assertEqual(migration._database_schema(self.database), "runtime_unavailable")
+                self.assertNotIn("sqlite_runtime", sys.modules)
+
+    def test_absent_and_orphan_sidecar_handling_is_unchanged_under_deferral(self):
+        with patch.dict(sys.modules, {"venv_bootstrap": self._bootstrap("version_mismatch")}):
+            self.assertEqual(migration._database_schema(self.database), "absent")
+            Path(str(self.database) + "-wal").write_bytes(b"orphan")
+            with self.assertRaisesRegex(migration.MigrationRequired, "orphan SQLite sidecars"):
+                migration._database_schema(self.database)
+
+    def test_already_imported_runtime_is_still_used(self):
+        self.database.write_bytes(b"existing store")
+        fake = SimpleNamespace(RuntimeUnavailable=RuntimeError,
+                               connect=MagicMock(side_effect=RuntimeError("probed")))
+        with patch.dict(sys.modules, {"venv_bootstrap": self._bootstrap("version_mismatch"),
+                                      "sqlite_runtime": fake}):
+            self.assertEqual(migration._database_schema(self.database), "runtime_unavailable")
+        fake.connect.assert_called_once()

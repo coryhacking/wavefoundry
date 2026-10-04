@@ -1625,7 +1625,14 @@ def _provider_probe_child_main(argv: list[str]) -> int:
     """Entry point of the probe child: measure, then write the result as the last stdout line."""
     import faulthandler
 
-    faulthandler.enable()  # a native fault leaves a Python-level trace in the captured stderr
+    # A native fault leaves a Python-level trace in the captured stderr. Python
+    # 3.14 also dumps the C stack by default, about twenty lines of interpreter
+    # frames that push the Python frames out of the five-line stderr tail, so
+    # the C stack is turned off there. The keyword does not exist before 3.14.
+    if sys.version_info >= (3, 14):
+        faulthandler.enable(c_stack=False)
+    else:
+        faulthandler.enable()
     venv_bootstrap.activate_tool_venv()
     provider = argv[0]
     model_name = argv[1] if len(argv) > 1 else None

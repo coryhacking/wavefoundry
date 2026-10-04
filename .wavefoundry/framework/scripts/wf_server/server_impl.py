@@ -19690,8 +19690,11 @@ def _wrap_unhandled_tool_exceptions(mcp: Any, get_handler: Any) -> None:
     served table, so it is outermost for core tools, extension tools,
     overrides, replacements, aliases and mapped-alias translators alike. Each
     wrapper carries ``_wf_rendered``, so an entry is never wrapped twice.
-    Coroutine functions (the runner-registered tools) are skipped, and a
-    ``BaseException`` that is not an ``Exception`` propagates unchanged.
+    A coroutine function (the runner-registered ``wf_reload_mcp``) gets an
+    ``async`` wrapper that awaits it and renders the same envelope (wave
+    1zqe4, 1zqe3), so FastMCP still sees a coroutine function. A
+    ``BaseException`` that is not an ``Exception`` (``CancelledError``
+    included) propagates unchanged.
     """
     registry = getattr(getattr(mcp, "_tool_manager", None), "_tools", None)
     if not isinstance(registry, dict):
@@ -19701,17 +19704,24 @@ def _wrap_unhandled_tool_exceptions(mcp: Any, get_handler: Any) -> None:
     rendered: dict[int, Any] = {}
     for name, tool in registry.items():
         original = getattr(tool, "fn", None)
-        if (
-            original is None
-            or getattr(original, "_wf_rendered", False)
-            or inspect.iscoroutinefunction(original)
-        ):
+        if original is None or getattr(original, "_wf_rendered", False):
             continue
         if id(original) in rendered:
             tool.fn = rendered[id(original)]
             continue
 
         def _make(tool_name: str, fn: Any) -> Any:
+            if inspect.iscoroutinefunction(fn):
+                @functools.wraps(fn)
+                async def rendered_coroutine(*args: Any, **kwargs: Any) -> Any:
+                    try:
+                        return await fn(*args, **kwargs)
+                    except Exception as exc:  # noqa: BLE001 - rendered, never re-raised
+                        return _unhandled_tool_exception_response(tool_name, exc, get_handler)
+
+                rendered_coroutine._wf_rendered = True
+                return rendered_coroutine
+
             @functools.wraps(fn)
             def rendered_call(*args: Any, **kwargs: Any) -> Any:
                 try:
@@ -19726,10 +19736,22 @@ def _wrap_unhandled_tool_exceptions(mcp: Any, get_handler: Any) -> None:
 
 
 # Wave 1zoju (1zodw): the final pass of ``register_mcp_surface``, applied after
-# every other chain and the served-name install.
+# every other chain and the served-name install. The runner applies it once
+# more after registering its coroutine ``wf_reload_mcp`` (wave 1zqe4, 1zqe3);
+# the ``_wf_rendered`` marker makes that a no-op for every other entry.
 _RENDER_PASS: tuple[tuple[str, Any], ...] = (
     ("render", lambda mcp, get_handler: _wrap_unhandled_tool_exceptions(mcp, get_handler)),
 )
+
+
+def _apply_render_pass(mcp: Any, get_handler: Any) -> None:
+    """Apply ``_RENDER_PASS`` over the whole served table (wave 1zqe4, 1zqe3).
+
+    The runner looks this up by name after registering ``wf_reload_mcp``, so it
+    never names the registry module itself; an older impl without this helper
+    leaves the runner tool unrendered rather than failing the launch.
+    """
+    mcp_tool_registry.apply_middleware(mcp, get_handler, _RENDER_PASS)
 
 
 # Registration-time call wrappers, applied innermost first: cost, then the
@@ -25293,7 +25315,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             _install_served_names(mcp, get_handler)
         # Wave 1zoju (1zodw): last, over the whole served table, so an
         # exception from any inner wrapper or translator is rendered too.
-        mcp_tool_registry.apply_middleware(mcp, get_handler, _RENDER_PASS)
+        _apply_render_pass(mcp, get_handler)
     except BaseException:
         _EXTENSION_PROVENANCE = None
         _EXTENSION_RETAINED_MODULES.clear()  # wave 1zoju (1zojt): release evicted modules
