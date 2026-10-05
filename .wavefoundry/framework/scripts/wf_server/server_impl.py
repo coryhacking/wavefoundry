@@ -17,6 +17,7 @@ import tempfile
 from contextlib import contextmanager, nullcontext
 import re
 import shlex
+import stat
 import sys
 import threading
 import time
@@ -2072,6 +2073,8 @@ class WaveIndex:
         head = str(node.get("source_location") or "").split(":", 1)[0]
         line = int(head) if head.isdigit() else 1
         if source_text is None:
+            if _repo_rel_path_refused(self.root, sf):
+                return None
             try:
                 source_text = (self.root / sf).read_text(
                     encoding="utf-8", errors="replace"
@@ -2225,6 +2228,8 @@ class WaveIndex:
             return None
         expected_source_hash = str(snapshot["source_hash"].get(source_file) or "")
         if not expected_source_hash:
+            return None
+        if _repo_rel_path_refused(self.root, source_file):
             return None
         try:
             # One read supplies both the receipt hash and the rendered citation;
@@ -7031,6 +7036,39 @@ def _mark_item_block_end(lines: list[str], index: int) -> int:
     return end
 
 
+_DRIVE_PREFIX_RE = re.compile(r"^[A-Za-z]:")
+
+
+def _change_id_shape_error(change_id: Any) -> Optional[dict[str, Any]]:
+    """An ``invalid_arguments`` diagnostic when ``change_id`` cannot be a change id.
+
+    Wave 1zv87 (1zv85): lifecycle tools build ``<wave dir>/<change_id>.md``
+    from this argument, so an id that is empty, absolute (a drive-letter form
+    included), or carries a path separator (``/`` or ``\\``), a ``..``
+    component, or a NUL is refused here, with no filesystem access, before any
+    path is built.  No admitted id contains any of these."""
+    value = change_id if isinstance(change_id, str) else ""
+    reason = ""
+    if not value.strip():
+        reason = "is empty"
+    elif "\x00" in value:
+        reason = "contains a NUL character"
+    elif value.startswith(("/", "\\")) or _DRIVE_PREFIX_RE.match(value) or os.path.isabs(value):
+        reason = "is an absolute path"
+    elif "/" in value or "\\" in value:
+        reason = "contains a path separator"
+    elif value == "..":
+        reason = "is a `..` path component"
+    if not reason:
+        return None
+    return _diagnostic(
+        "invalid_arguments",
+        f"change_id {reason}; pass the FULL admitted change id as listed by the wave record.",
+        recovery_tools=["wf_current_wave"],
+        recovery_usage="wf_current_wave()",
+    )
+
+
 @_fail_closed_on_record_layout("wf_mark_item")
 def _mark_change_item_response(
     root: Path, wave_id: str, change_id: str, item_label: str, state: str,
@@ -7038,6 +7076,9 @@ def _mark_change_item_response(
 ) -> dict[str, Any]:
     """Mark one exact AC or task without providing a generic document editor."""
 
+    shape_error = _change_id_shape_error(change_id)
+    if shape_error is not None:
+        return _response("error", {"change_id": change_id}, diagnostics=[shape_error])
     state = state.strip().lower()
     if state not in {"x", "~"}:
         return _response(
@@ -7071,8 +7112,18 @@ def _mark_change_item_response(
             data={"wave_id": wave_md.parent.name, "change_id": change_id},
             sibling_diagnostics=sibling_diagnostics,
         )
-    path = _wave_change_doc_path(root, wave_md, change_id)
-    if not path.is_file():
+    # Wave 1zv87 (1zv85): only an id the wave record lists names a document;
+    # the path is built from it after admission is confirmed, never before.
+    admitted_text, admitted_read_error = _read_wave_record_text(wave_md)
+    if admitted_text is None:
+        return _wave_record_unreadable_response(
+            root, wave_md, admitted_read_error,
+            data={"wave_id": wave_md.parent.name, "change_id": change_id},
+            sibling_diagnostics=sibling_diagnostics,
+        )
+    admitted = change_id in _extract_change_ids_from_wave_text(admitted_text)
+    path = _wave_change_doc_path(root, wave_md, change_id) if admitted else None
+    if path is None or not path.is_file():
         return _response(
             "error",
             {},
@@ -13422,6 +13473,14 @@ def wf_close_change_response(
             diagnostics=[_diagnostic("invalid_arguments", f"Unsupported mode '{mode}'. Valid modes: {_CLOSE_CHANGE_VALID_MODES}.")],
             next_tools=["wf_help"], usage="wf_help()",
         )
+    # Wave 1zv87 (1zv85): the id names a file below; refuse a malformed one
+    # before any path work, so the response cannot depend on what exists.
+    shape_error = _change_id_shape_error(change_id)
+    if shape_error is not None:
+        return _response(
+            "error", base, diagnostics=[shape_error],
+            next_tools=["wf_current_wave"], usage="wf_current_wave()",
+        )
     try:
         wave_md, wave_read_error, unreadable_waves = _find_wave_md_detailed(root, wave_id)
     except ValueError as exc:
@@ -13482,17 +13541,19 @@ def wf_close_change_response(
             recovery_usage=f"wf_get_change(change_id={change_id!r})",
         ))
 
-    # Gate: the change document exists and is readable.
-    doc_path = _wave_change_doc_path(root, wave_md, change_id)
+    # Gate: the change document exists and is readable.  Wave 1zv87 (1zv85):
+    # only for an admitted change; no path is built from an unadmitted id.
+    admitted = block is not None and record is not None
+    doc_path = _wave_change_doc_path(root, wave_md, change_id) if admitted else None
     doc_raw: Optional[str] = None
-    if not doc_path.is_file():
+    if doc_path is not None and not doc_path.is_file():
         diagnostics.append(_diagnostic(
             "change_doc_missing",
             f"No change document at {_repo_rel(root, doc_path)}.",
             recovery_tools=["wf_get_change", "wf_current_wave"],
             recovery_usage=f"wf_get_change(change_id={change_id!r})",
         ))
-    else:
+    elif doc_path is not None:
         try:
             doc_raw = doc_path.read_bytes().decode("utf-8")
         except (OSError, UnicodeError) as exc:
@@ -13571,7 +13632,7 @@ def wf_close_change_response(
             "error", {**base, "previous_status": previous_status, "written": [], "activated": [], "not_activated": []},
             diagnostics=diagnostics, next_tools=["wf_current_wave", "wf_get_change"], usage="wf_current_wave()",
         )
-    assert record is not None and doc_raw is not None and previous_status is not None
+    assert record is not None and doc_path is not None and doc_raw is not None and previous_status is not None
 
     # Plan the writes: the closed change, then each dependent it unblocks.
     new_wave = _close_change_rewrite_block(wave_raw, change_id, _CLOSE_CHANGE_TARGET_STATUS, previous_status)
@@ -13854,9 +13915,73 @@ def _resolve_repo_path(root: Path, user_path: str) -> Optional[Path]:
         resolved = (root / user_path).resolve()
         root_resolved = root.resolve()
         resolved.relative_to(root_resolved)  # raises ValueError if outside root
-        return resolved
     except (ValueError, OSError):
         return None
+    # Wave 1zv87 (1zuq7): never hand a framework runtime lock to a reader.
+    if _is_runtime_lock_path(root_resolved, resolved):
+        return None
+    return resolved
+
+
+def _is_runtime_lock_path(root: Path, path: Path) -> bool:
+    """True when ``path`` is a framework runtime lock: under ``<root>/.wavefoundry/``
+    with a name ending in ``.lock``.
+
+    Wave 1zv87 (1zuq7): the lifecycle and index-build locks are POSIX record
+    locks (``lockf``), which the kernel releases when ANY descriptor of the file
+    is closed in the holding process, so a reader in the server process that
+    opens one silently drops the lock.  Callers pass the RESOLVED target (a
+    symlink is judged by what it points at) and the resolved root.  The
+    root-relative parts are compared case-folded on every platform, so a case
+    variant on a case-insensitive filesystem names the same file and is refused
+    too.  A hard link has its own name, so a regular file with more than one
+    link is also refused when its ``(st_dev, st_ino)`` is that of a lock file
+    under ``<root>/.wavefoundry/``; the lock identities are collected only for
+    such a file, so an ordinary file pays one ``stat`` and nothing more.
+    ``indexer._walk_target_is_runtime_lock`` mirrors this rule for the walker,
+    which cannot import this module; a parity test keeps them aligned.
+    """
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        return False
+    if len(parts) >= 2:
+        folded = [os.path.normcase(part).casefold() for part in parts]
+        if folded[0] == ".wavefoundry" and folded[-1].endswith(".lock"):
+            return True
+    try:
+        entry_stat = os.stat(path)
+    except OSError:
+        return False
+    if not stat.S_ISREG(entry_stat.st_mode) or entry_stat.st_nlink < 2:
+        return False
+    return (entry_stat.st_dev, entry_stat.st_ino) in _runtime_lock_identities(root)
+
+
+def _runtime_lock_identities(root: Path) -> set[tuple[int, int]]:
+    """``(st_dev, st_ino)`` of every ``*.lock`` file under ``<root>/.wavefoundry/``
+    (wave 1zv87, 1zuq7): the identities a hard link to a runtime lock shares.
+    Only ``stat`` is used; no lock file is opened."""
+    identities: set[tuple[int, int]] = set()
+    for dirpath, _dirnames, filenames in os.walk(root / ".wavefoundry"):
+        for name in filenames:
+            if not os.path.normcase(name).casefold().endswith(".lock"):
+                continue
+            try:
+                lock_stat = os.stat(os.path.join(dirpath, name))
+            except OSError:
+                continue
+            identities.add((lock_stat.st_dev, lock_stat.st_ino))
+    return identities
+
+
+def _repo_rel_path_refused(root: Path, rel: str) -> bool:
+    """True when an index-derived repository path must not be opened.
+
+    Wave 1zv87 (1zuq7): graph nodes and citations name paths the walker
+    accepted when the index was built; the file may since have become a symlink
+    to a runtime lock, so such a read goes through the same resolver rule."""
+    return _resolve_repo_path(root, rel) is None
 
 
 # Wave 1za2y (1z9u7): the last indexer module that loaded in this process, kept
@@ -16942,7 +17067,7 @@ def _code_ask_response_body(
     next_tools = ["code_read", "docs_search"]
     if citations:
         top_path = citations[0].get("path", "")
-        if top_path:
+        if top_path and not _repo_rel_path_refused(root, top_path):
             try:
                 with (root / top_path).open(encoding="utf-8", errors="replace") as _f:
                     line_count = sum(1 for _ in _f)

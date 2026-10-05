@@ -2418,7 +2418,7 @@ def _graph_constant_reader_refs(root: Path, symbol: str) -> list[dict[str, Any]]
             snippet = ""
             try:
                 fp = root / sf
-                if line > 0 and fp.is_file():
+                if line > 0 and fp.is_file() and not server_impl._repo_rel_path_refused(root, sf):
                     snippet = fp.read_text(encoding="utf-8", errors="replace").splitlines()[line - 1].strip()[:200]
             except Exception:
                 snippet = ""
@@ -2460,7 +2460,10 @@ def code_references_response(
             restrict_files = refreshed
     # When graph gives candidate files, build the Path list once — avoids 4× repo walks
     _ref_files: list | None = (
-        [root / rel for rel in sorted(restrict_files) if (root / rel).is_file()]
+        [
+            root / rel for rel in sorted(restrict_files)
+            if (root / rel).is_file() and not server_impl._repo_rel_path_refused(root, rel)
+        ]
         if restrict_files is not None else None
     )
     try:
@@ -2583,7 +2586,10 @@ def code_references_response(
     if retry_symbol is not None:
         retry_restrict = _graph_references_candidate_files(root, retry_symbol)
         _retry_files: list | None = (
-            [root / rel for rel in sorted(retry_restrict) if (root / rel).is_file()]
+            [
+                root / rel for rel in sorted(retry_restrict)
+                if (root / rel).is_file() and not server_impl._repo_rel_path_refused(root, rel)
+            ]
             if retry_restrict is not None else None
         )
         try:

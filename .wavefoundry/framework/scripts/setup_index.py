@@ -313,18 +313,54 @@ def _exclude_newer_cutoff(days: int = 21) -> str:
     return cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _uv_bin(venv_python: Path) -> Path | None:
+def _path_inside(path: str, folder: str) -> bool:
+    """True when ``path`` is ``folder`` or lies under it, after resolving symlinks and case."""
+    try:
+        path_real = os.path.normcase(os.path.realpath(path))
+        folder_real = os.path.normcase(os.path.realpath(folder))
+        return os.path.commonpath([path_real, folder_real]) == folder_real
+    except ValueError:  # different drives on Windows, or an empty path
+        return False
+
+
+def _trusted_path_uv(root: Path | None) -> Path | None:
+    """Find ``uv`` on PATH without trusting anywhere the repository controls (wave 1zv87, 1zv84).
+
+    ``shutil.which`` is not used: on Windows it adds the current folder even with ``path=``, and an
+    empty or ``.`` entry resolves there on POSIX, so a ``uv`` planted in the repository could run.
+    Empty, ``.`` and other relative entries are skipped, as are entries inside the current folder
+    or the target root, and a candidate that resolves (through a symlink) into either is refused.
+    Windows accepts only ``uv.exe``, never a ``.cmd``/``.bat`` shim.
+    """
+    refused = [os.getcwd()]
+    if root is not None:
+        refused.append(os.path.abspath(str(root)))
+    name = "uv.exe" if os.name == "nt" else "uv"
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        entry = entry.strip().strip('"')
+        if not entry or entry == "." or not os.path.isabs(entry):
+            continue
+        if any(_path_inside(entry, folder) for folder in refused):
+            continue
+        candidate = os.path.join(entry, name)
+        if any(_path_inside(candidate, folder) for folder in refused):
+            continue
+        if os.path.isfile(candidate) and (os.name == "nt" or os.access(candidate, os.X_OK)):
+            return Path(candidate)
+    return None
+
+
+def _uv_bin(venv_python: Path, root: Path | None = None) -> Path | None:
     """Return the path to a uv binary usable from the tool venv, or None if unavailable."""
     # Prefer uv installed inside the venv so it uses the same Python.
     venv_dir = venv_python.parent.parent
     candidates = [
         venv_dir / ("Scripts" if os.name == "nt" else "bin") / ("uv.exe" if os.name == "nt" else "uv"),
     ]
-    # Fall back to uv on PATH.
-    path_uv = shutil.which("uv")
-    if path_uv:
-        # Absolute: installs run from the tool-venv base, so a relative PATH entry would move (wave 1zicq).
-        candidates.append(Path(os.path.abspath(path_uv)))
+    # Fall back to a trusted uv on PATH (never one inside the repository).
+    path_uv = _trusted_path_uv(root)
+    if path_uv is not None:
+        candidates.append(path_uv)
     for candidate in candidates:
         # On Windows, os.X_OK doesn't test execute permission (the concept
         # doesn't exist); is_file() is sufficient since we look for uv.exe.
@@ -457,7 +493,7 @@ def _bootstrap_uv(venv_python: Path, root: Path | None = None, *, lock=None) -> 
         if result.returncode != 0:
             _uv_bootstrap_failed()
             return None
-        return _uv_bin(venv_python)
+        return _uv_bin(venv_python, root)
     finally:
         if requirements is not None:
             with contextlib.suppress(OSError):
@@ -635,7 +671,7 @@ def install_requirement_specs(
     if _STARTUP_UV_COMMAND is not None:
         uv_command = list(_STARTUP_UV_COMMAND)
     else:
-        uv_path = _uv_bin(venv_python)
+        uv_path = _uv_bin(venv_python, root)
         if uv_path is None:
             outcome["status"] = "no_uv"
             outcome["message"] = (
@@ -763,7 +799,7 @@ def _install_deps(missing: list[str], venv_python: Path, root: Path | None = Non
     # absolute so a relative tool-venv override does not misresolve there.
     venv_python = Path(os.path.abspath(venv_python))
 
-    uv = _uv_bin(venv_python) or _bootstrap_uv(venv_python, root, lock=lock)
+    uv = _uv_bin(venv_python, root) or _bootstrap_uv(venv_python, root, lock=lock)
 
     if uv is None:
         # Wave 1zls6: fail closed. A plain-pip install would drop the package-age guard on exactly the

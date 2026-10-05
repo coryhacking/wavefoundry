@@ -5891,7 +5891,9 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
         self.wave_dir = _waves_dir(self.root) / self.wave_id
         self.wave_dir.mkdir(parents=True)
         (self.wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
-            f"# Wave\n\nWave ID: `{self.wave_id}`\nStatus: implementing\n",
+            # Wave 1zv87 (1zv85): marking requires the change to be admitted.
+            f"# Wave\n\nWave ID: `{self.wave_id}`\nStatus: implementing\n\n"
+            f"{vocabulary_profile.MEMBER_ID_LABEL}: `1200c-mark-sample`\n",
             encoding="utf-8",
         )
 

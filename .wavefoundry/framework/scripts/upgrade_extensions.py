@@ -1292,99 +1292,346 @@ def _pristine_journal_template(wave_id: str, title: str, date: str) -> str:
     )
 
 
-def _migrate_journals(root: Path) -> None:
+_JOURNALS_REL = Path("docs", "agents", "journals")
+
+
+def _journal_lstat(path: "Path | None"):
+    """``os.lstat`` of ``path``, or ``None`` when it is absent or uninspectable."""
+    if path is None:
+        return None
+    try:
+        return os.lstat(path)
+    except OSError:
+        return None
+
+
+def _journal_source_ok(st) -> bool:
+    """Wave 1zv87 (1zuq5): a journal is touched only while it is a regular,
+    singly linked file. A FIFO or device named ``*.md`` is never opened, and a
+    hard-linked journal is neither copied (it is shared with another path) nor
+    removed (removal would not remove the content)."""
+    return st is not None and stat.S_ISREG(st.st_mode) and st.st_nlink == 1
+
+
+def _same_journal_file(a, b) -> bool:
+    """Whether two stats name the same file. Compared on POSIX only: Windows
+    fills ``st_dev``/``st_ino`` differently across stat calls and Python
+    versions, so there the regular-file and link-count checks stand alone."""
+    if os.name == "nt":
+        return True
+    return os.path.samestat(a, b)
+
+
+def _read_journal_bytes(path: Path, expected) -> "bytes | None":
+    """The bytes of a vetted journal, or ``None``. The open refuses a final
+    link where the platform can, and the open file must still be the regular,
+    singly linked file ``expected`` described (a swap between the ``lstat`` and
+    the open is refused, not followed)."""
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+        | getattr(os, "O_BINARY", 0)
+    )
+    try:
+        fd = os.open(path, flags)
+    except OSError:
+        return None
+    try:
+        st = os.fstat(fd)
+        if not _journal_source_ok(st) or not _same_journal_file(st, expected):
+            return None
+        chunks = []
+        while True:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return b"".join(chunks)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
+def _write_journal_exclusive(destination: Path, data: bytes) -> bool:
+    """Wave 1zv87 (1zuq5): create ``destination`` and write ``data``, or return
+    ``False``. ``O_CREAT | O_EXCL`` refuses any existing name, a dangling link
+    included, so nothing is followed or replaced; ``O_NOFOLLOW`` is kept as
+    defense in depth where it exists (not on Windows). The path is absolute
+    (``dir_fd`` is unsupported on Windows)."""
+    flags = (
+        os.O_CREAT
+        | os.O_EXCL
+        | os.O_WRONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_BINARY", 0)
+    )
+    try:
+        fd = os.open(destination, flags, 0o666)
+    except OSError:
+        return False
+    ok = False
+    try:
+        view = memoryview(data)
+        while view:
+            view = view[os.write(fd, view):]
+        ok = True
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+    if not ok:
+        # This run created the name exclusively; drop the partial copy.
+        try:
+            os.unlink(destination)
+        except OSError:
+            pass
+    return ok
+
+
+def _remove_journal_source(path_containment, root: Path, rel: Path, original) -> bool:
+    """Wave 1zv87 (1zuq5): remove a journal only when a fresh containment check
+    and ``lstat`` show it is still the regular, singly linked file first seen
+    inside the contained journals folder; otherwise leave it."""
+    current = path_containment.contained_path(root, rel, refuse_symlink_components=True)
+    st = _journal_lstat(current)
+    if current is None or not _journal_source_ok(st) or not _same_journal_file(st, original):
+        return False
+    try:
+        os.unlink(current)
+    except OSError:
+        return False
+    return True
+
+
+def _journal_wave_dirs(root: Path) -> "tuple[dict[str, list[tuple[Path, bool]]] | None, re.Pattern | None, str | None]":
+    """Wave 1zv87 (1zuq6): the wave folders by lower-cased id token over the
+    waves and archive roots, each with whether it is archived, the profile's
+    journal identity reader, and a skip reason. Both roots feed one map so an
+    id found in both (or twice anywhere) is ambiguous; an archived folder is
+    never a relocation target (the archive root is read-only, wave 1z8ts).
+
+    The reader matches the active vocabulary profile's id key line, read at
+    call time from the module the extracted tree provides; the caller falls
+    back to the frozen scaffold's legacy key (journals predate profiles). Any
+    discovery error (``RecordRootUnreadable``, ``RecordLayoutInvalid``, an
+    import failure) returns ``None`` for the map, so relocation is skipped and
+    the journals are listed."""
+    profile_re = None
+    try:
+        import vocabulary_profile  # noqa: PLC0415
+        import record_paths  # noqa: PLC0415
+
+        profile_re = re.compile(rf"(?m)^{vocabulary_profile.ID_KEY_RE}: `(.+)`$")
+        record_roots = record_paths.load_record_roots(root)
+        folders = [(f, False) for f in record_paths.discover_wave_dirs(root, record_roots)]
+        folders += [(f, True) for f in record_paths.discover_archive_dirs(root, record_roots)]
+        by_token: dict[str, list[tuple[Path, bool]]] = {}
+        for folder, archived in folders:
+            by_token.setdefault(record_paths.wave_id_of(folder), []).append((folder, archived))
+        return by_token, profile_re, None
+    except Exception as exc:  # noqa: BLE001 - never fatal to an upgrade
+        return None, profile_re, f"record discovery unavailable: {exc}"
+
+
+def _journal_destination(path_containment, root: Path, name: str, wave_id: str,
+                         by_token: "dict[str, list[tuple[Path, bool]]]") -> "tuple[Path | None, str | None]":
+    """The destination for a wave journal, or ``(None, reason)`` to leave it
+    in place (``reason`` is ``None`` when the plain left-in-place listing
+    suffices).
+
+    Wave 1zv87 (1zuq6): the folder is the one discovered for the id token; a
+    token found in more than one folder is never guessed. The discovered
+    folder is re-checked for link components and containment, and an archived
+    folder is never written (the archive root is read-only)."""
+    # A WAVE journal is identified by its filename equalling its wave id
+    # (the generator's contract); a ROLE journal merely REFERENCES wave ids
+    # in its content and must be left in place (live-caught
+    # on this repository's own migration: guru.md carried a wave-id
+    # reference and was mis-relocated before this filename check).
+    if name != f"{wave_id.replace(' ', '-')}.md":
+        return None, None
+    folders = by_token.get(wave_id.split(" ", 1)[0].lower(), [])
+    if len(folders) != 1:
+        return None, None
+    found, archived = folders[0]
+    if archived:
+        return None, "wave is archived (read-only archive root)"
+    folder = path_containment.contained_path(root, found, refuse_symlink_components=True)
+    folder_st = _journal_lstat(folder)
+    if folder is None or folder_st is None or not stat.S_ISDIR(folder_st.st_mode):
+        return None, None
+    # Wave 1t76w: the relocated artifact carries the lifecycle type suffix
+    # like every other typed artifact in a wave folder (`<prefix>-jrnl
+    # <slug>.md`, space form).
+    prefix, _, slug = wave_id.partition(" ")
+    destination_name = f"{prefix}-jrnl {slug}.md" if slug else f"{prefix}-jrnl.md"
+    if "/" in destination_name or "\\" in destination_name:
+        return None, None
+    return folder / destination_name, None
+
+
+def migrate_journals(root, *, apply: bool = False) -> dict:
     """Mechanically migrate the retired journal directory (wave 1t9w9).
 
     Fail-safe by construction: (a) a journal that provably equals the pristine
     rendered scaffold (its own wave-id/title/date substituted into the frozen
-    template — zero information loss) is deleted; (b) a content-bearing WAVE
-    journal is moved into its wave's directory when that directory exists
-    (self-contained history); (c) everything else — role journals, template
-    drift, unknown shapes — is left in place and listed in the upgrade report
-    for the operator-invoked Migrate journals prompt. Idempotent: deleted and
-    moved files are gone from the source on rerun.
+    template, so zero information loss) is deleted; (b) a content-bearing WAVE
+    journal is moved, byte-exact, into its discovered wave folder; (c)
+    everything else (role journals, template drift, unknown shapes, an
+    ambiguous, missing or archived wave folder, a path the migration will not
+    follow) is
+    left in place and listed for the operator-invoked Migrate journals prompt.
+    Idempotent: deleted and moved files are gone from the source on rerun.
+
+    Wave 1zv87 (1zuq6): public so an operator or distribution can preview the
+    migration. Returns ``{"deleted": [...], "moved": [{"source", "destination"}],
+    "left": [...], "warnings": [...]}`` with repository-relative POSIX paths;
+    with ``apply`` False nothing on disk changes.
+
+    Wave 1zv87 (1zuq5): the repository decides whether this runs, so no file
+    operation follows a link. The journals folder, each journal and each wave
+    folder resolve through ``path_containment.contained_path(...,
+    refuse_symlink_components=True)``; a journal must be a regular, singly
+    linked file; the destination is created only by an exclusive, no-follow
+    open; and the source is re-checked right before it is removed. A refused
+    journals folder ends the migration with nothing touched.
     """
 
-    journals_dir = root / "docs" / "agents" / "journals"
-    if not journals_dir.is_dir():
-        return
-    # Wave 1y0gz: the waves root comes from the record-layout resolver in the
-    # EXTRACTED tree, guarded like the other sibling imports in this module.
-    # Without it a wave journal is left in place and listed for the operator
-    # rather than relocated to a guessed root (never fatal to an upgrade).
+    root = Path(root)
+    report: dict = {"deleted": [], "moved": [], "left": [], "warnings": []}
+    try:
+        os.lstat(root / _JOURNALS_REL)
+    except OSError:
+        return report
+    # Wave 1y0gz: the record layout comes from the resolver in the EXTRACTED
+    # tree, guarded like the other sibling imports in this module.
     scripts = root / ".wavefoundry" / "framework" / "scripts"
     if str(scripts) not in sys.path:
         sys.path.insert(0, str(scripts))
-    record_roots = None
+    journals_rel = _JOURNALS_REL.as_posix()
     try:
-        import record_paths  # noqa: PLC0415
-
-        record_roots = record_paths.load_record_roots(root)
-    except Exception as exc:  # noqa: BLE001 — never fatal to an upgrade
-        print(
-            f"journal migration: wave-journal relocation skipped (record roots unavailable: {exc})",
-            flush=True,
+        import path_containment  # noqa: PLC0415
+    except Exception as exc:  # noqa: BLE001 - never fatal to an upgrade
+        report["left"].append(journals_rel)
+        report["warnings"].append(
+            f"journal migration: skipped (path containment unavailable: {exc})"
         )
-    deleted = 0
-    moved: list[str] = []
-    left: list[str] = []
+        return report
+    journals_dir = path_containment.contained_path(
+        root, _JOURNALS_REL, refuse_symlink_components=True
+    )
+    if journals_dir is None:
+        report["left"].append(journals_rel)
+        report["warnings"].append(
+            f"journal migration: skipped ({journals_rel} is a link or leaves the repository)"
+        )
+        return report
+    journals_st = _journal_lstat(journals_dir)
+    if journals_st is None or not stat.S_ISDIR(journals_st.st_mode):
+        return report
+    resolved_root = root.resolve()
+
+    def _rel(path: Path) -> str:
+        try:
+            return path.relative_to(resolved_root).as_posix()
+        except ValueError:
+            return path.as_posix()
+
+    by_token, profile_re, skipped = _journal_wave_dirs(root)
+    if skipped is not None:
+        report["warnings"].append(
+            f"journal migration: wave-journal relocation skipped ({skipped})"
+        )
     for path in sorted(journals_dir.glob("*.md")):
         if path.name == "README.md":
             continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError:
-            left.append(path.name)
+        source_rel = f"{journals_rel}/{path.name}"
+        rel = _JOURNALS_REL / path.name
+        source = path_containment.contained_path(root, rel, refuse_symlink_components=True)
+        source_st = _journal_lstat(source)
+        if source is None or not _journal_source_ok(source_st):
+            report["left"].append(source_rel)
             continue
+        data = _read_journal_bytes(source, source_st)
+        try:
+            text = data.decode("utf-8") if data is not None else None
+        except UnicodeDecodeError:
+            text = None
+        if text is None:
+            report["left"].append(source_rel)
+            continue
+        # A CRLF checkout of a scaffold is still the scaffold; the move below
+        # writes the original bytes, so newlines are preserved.
+        text = text.replace("\r\n", "\n")
         wave_m = re.search(r"^wave-id: `(.+)`$", text, re.MULTILINE)
         title_m = re.search(r"^# Journal - (.+)$", text, re.MULTILINE)
         date_m = re.search(r"^Last verified: (\d{4}-\d{2}-\d{2})\s*$", text, re.MULTILINE)
-        if wave_m and title_m and date_m:
-            expected = _pristine_journal_template(
-                wave_m.group(1), title_m.group(1), date_m.group(1)
+        if wave_m and title_m and date_m and text == _pristine_journal_template(
+            wave_m.group(1), title_m.group(1), date_m.group(1)
+        ):
+            if not apply or _remove_journal_source(path_containment, root, rel, source_st):
+                report["deleted"].append(source_rel)
+            else:
+                report["left"].append(source_rel)
+            continue
+        # Relocation needs only the wave identity: older journals may lack
+        # template fields and must still move, never delete. The profile's id
+        # key comes first; the scaffold's legacy key (``wave_m``) is the
+        # fallback, since journals predate vocabulary profiles.
+        id_m = (profile_re.search(text) if profile_re is not None else None) or wave_m
+        destination = None
+        if id_m and by_token is not None:
+            destination, reason = _journal_destination(
+                path_containment, root, path.name, id_m.group(1), by_token
             )
-            if text == expected:
-                path.unlink()
-                deleted += 1
-                continue
-        if wave_m and record_roots is not None:
-            # Relocation needs only the wave identity — older journals may
-            # lack template fields and must still move, never delete. A WAVE
-            # journal is identified by its filename equalling its wave id
-            # (the generator's contract); a ROLE journal merely REFERENCES
-            # wave ids in its content and must be left in place (live-caught
-            # on this repository's own migration: guru.md carried a wave-id
-            # reference and was mis-relocated before this filename check).
-            wave_id = wave_m.group(1)
-            is_wave_journal = path.name == f"{wave_id.replace(' ', '-')}.md"
-            wave_dir = record_roots.waves / wave_id
-            # Wave 1t76w: the relocated artifact carries the lifecycle type
-            # suffix like every other typed artifact in a wave folder
-            # (`<prefix>-jrnl <slug>.md`, space form).
-            prefix, _, slug = wave_id.partition(" ")
-            destination_name = f"{prefix}-jrnl {slug}.md" if slug else f"{prefix}-jrnl.md"
-            destination = wave_dir / destination_name
-            if is_wave_journal and wave_dir.is_dir() and not destination.exists():
-                destination.write_text(text, encoding="utf-8")
-                path.unlink()
-                moved.append(
-                    f"{path.name} -> {record_roots.waves_rel}/{wave_id}/{destination_name}"
+            if reason is not None:
+                report["warnings"].append(
+                    f"journal migration: left {path.name} in place: {reason}"
                 )
-                continue
-        left.append(path.name)
+        if destination is None:
+            report["left"].append(source_rel)
+            continue
+        entry = {"source": source_rel, "destination": _rel(destination)}
+        if not apply:
+            if _journal_lstat(destination) is None:
+                report["moved"].append(entry)
+            else:
+                report["left"].append(source_rel)
+            continue
+        if not _write_journal_exclusive(destination, data):
+            report["left"].append(source_rel)
+            continue
+        if _remove_journal_source(path_containment, root, rel, source_st):
+            report["moved"].append(entry)
+        else:
+            report["left"].append(source_rel)
+    return report
+
+
+def _migrate_journals(root: Path) -> None:
+    """The post-extract caller: :func:`migrate_journals` with ``apply=True``
+    plus its printed summary (wave 1zv87, 1zuq6)."""
+
+    report = migrate_journals(root, apply=True)
+    for warning in report["warnings"]:
+        print(warning, flush=True)
+    deleted, moved = report["deleted"], report["moved"]
     if deleted or moved:
         print(
-            f"journal migration: deleted {deleted} pristine scaffold(s); "
+            f"journal migration: deleted {len(deleted)} pristine scaffold(s); "
             f"moved {len(moved)} wave journal(s) into their wave directories.",
             flush=True,
         )
         for entry in moved:
-            print(f"  {entry}", flush=True)
-    for name in left:
+            print(f"  {Path(entry['source']).name} -> {entry['destination']}", flush=True)
+    for rel in report["left"]:
         print(
-            f"journal migration: left {name} in place (role journal, template "
-            "drift, or missing wave directory) — run the Migrate journals "
-            "prompt to finish by hand.",
+            f"journal migration: left {Path(rel).name} in place (role journal, "
+            "template drift, missing or ambiguous wave directory, or a path the "
+            "migration will not follow); run the Migrate journals prompt to "
+            "finish by hand.",
             flush=True,
         )
 

@@ -11215,15 +11215,9 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         self.assertNotIn(self.backfill.INDEX_PUBLICATION_RUN_ENV, os.environ)
 
 
-class JournalMigrationTests(unittest.TestCase):
-    """1t9w9 journal retirement: the mechanical ``_migrate_journals`` hook.
-
-    The pristine-template oracle was validated live against this repository's
-    own 99 historical scaffolds before being frozen; these tests pin the
-    classification gates, including two bugs that live run caught (relocation
-    demanding all template fields; role journals with wave-id REFERENCES being
-    mis-relocated before the filename check).
-    """
+class _JournalMigrationFixture:
+    """A fake repository with a journals folder and an empty waves root,
+    shared by the journal migration test classes."""
 
     def setUp(self):
         self.ext = _load_upgrade_extensions()
@@ -11247,6 +11241,25 @@ class JournalMigrationTests(unittest.TestCase):
         name = f"{wave_id.replace(' ', '-')}.md"
         (self.journals / name).write_text(text, encoding="utf-8")
         return name, text
+
+    def _make_wave(self, base_rel, wave_id):
+        """A discoverable wave folder: wave 1zv87 (1zuq6) relocates only into
+        a folder that record discovery finds, so it holds the record file."""
+        folder = self.root / base_rel / wave_id
+        folder.mkdir(parents=True)
+        (folder / _record_name()).write_text("# Wave Record\n", encoding="utf-8")
+        return folder
+
+
+class JournalMigrationTests(_JournalMigrationFixture, unittest.TestCase):
+    """1t9w9 journal retirement: the mechanical ``_migrate_journals`` hook.
+
+    The pristine-template oracle was validated live against this repository's
+    own 99 historical scaffolds before being frozen; these tests pin the
+    classification gates, including two bugs that live run caught (relocation
+    demanding all template fields; role journals with wave-id REFERENCES being
+    mis-relocated before the filename check).
+    """
 
     def test_pristine_scaffold_is_deleted(self):
         self._write_pristine("1aaaa demo-wave", "demo-wave", "2026-01-05")
@@ -11278,7 +11291,7 @@ class JournalMigrationTests(unittest.TestCase):
         name, text = self._write_pristine(wave_id, "demo-wave", "2026-01-05")
         edited = text + "\n- Real observation captured mid-wave.\n"
         (self.journals / name).write_text(edited, encoding="utf-8")
-        (self.root / _live_waves_rel() / wave_id).mkdir()
+        self._make_wave(_live_waves_rel(), wave_id)
         report = self._run()
         destination = self.root / _live_waves_rel() / wave_id / "1aaac-jrnl demo-wave.md"
         self.assertFalse((self.journals / name).exists())
@@ -11300,7 +11313,7 @@ class JournalMigrationTests(unittest.TestCase):
             f"# Old journal\n\nwave-id: `{wave_id}`\n\n- Historical note.\n",
             encoding="utf-8",
         )
-        (self.root / _live_waves_rel() / wave_id).mkdir()
+        self._make_wave(_live_waves_rel(), wave_id)
         self._run()
         self.assertFalse((self.journals / name).exists())
         self.assertTrue(
@@ -11357,6 +11370,333 @@ class JournalMigrationTests(unittest.TestCase):
             self.ext.pre_docs_gate(MagicMock(root=self.root, from_version="1.15.0"))
         naming.assert_not_called()
         journals.assert_not_called()
+
+
+class JournalMigrationLinkSafetyTests(_JournalMigrationFixture, unittest.TestCase):
+    """Wave 1zv87 (1zuq5): the repository decides whether the journal
+    migration runs, so none of its reads, writes or removals follows a link
+    out of the repository. ``outside`` stands for any path beyond the
+    repository; nothing there may be read into, created or removed."""
+
+    def setUp(self):
+        super().setUp()
+        self._outside_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._outside_tmp.cleanup)
+        self.outside = Path(self._outside_tmp.name)
+
+    def _symlink(self, link, target, *, directory=False):
+        try:
+            os.symlink(target, link, target_is_directory=directory)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+
+    def _content_journal(self, wave_id, directory=None):
+        name = f"{wave_id.replace(' ', '-')}.md"
+        text = f"# Journal - x\n\nwave-id: `{wave_id}`\n\n- Real observation.\n"
+        (directory or self.journals).joinpath(name).write_text(text, encoding="utf-8")
+        return name, text
+
+    def _snapshot(self, base):
+        return sorted(
+            (p.relative_to(base).as_posix(), p.read_bytes() if p.is_file() else None)
+            for p in base.rglob("*")
+        )
+
+    def test_dangling_link_destination_is_not_followed(self):
+        wave_id = "1zaaa link-dest"
+        name, _ = self._content_journal(wave_id)
+        folder = self._make_wave(_live_waves_rel(), wave_id)
+        planted = self.outside / "planted.md"
+        self._symlink(folder / "1zaaa-jrnl link-dest.md", planted)
+        report = self._run()
+        self.assertFalse(planted.exists(), "the link target outside the repository was created")
+        self.assertTrue((self.journals / name).is_file())
+        self.assertIn(f"left {name} in place", report)
+
+    def test_linked_journals_folder_is_refused(self):
+        wave_id = "1zaab linked-folder"
+        self._make_wave(_live_waves_rel(), wave_id)
+        shutil.rmtree(self.journals)
+        name, _ = self._content_journal(wave_id, self.outside)
+        scaffold = self.ext._pristine_journal_template("1zaac s", "s", "2026-01-05")
+        (self.outside / "1zaac-s.md").write_text(scaffold, encoding="utf-8")
+        self._symlink(self.journals, self.outside, directory=True)
+        before = self._snapshot(self.outside)
+        report = self._run()
+        self.assertEqual(self._snapshot(self.outside), before)
+        self.assertFalse((self.root / _live_waves_rel() / wave_id / "1zaab-jrnl linked-folder.md").exists())
+        self.assertIn("is a link or leaves the repository", report)
+
+    def test_linked_journals_ancestor_is_refused(self):
+        """A link above the journals folder (``docs/agents``) is a link
+        component too, though the journals folder itself is a real directory."""
+        wave_id = "1zaal linked-ancestor"
+        self._make_wave(_live_waves_rel(), wave_id)
+        shutil.rmtree(self.root / "docs" / "agents")
+        (self.outside / "journals").mkdir()
+        name, _ = self._content_journal(wave_id, self.outside / "journals")
+        (self.outside / "journals" / "1zaam-s.md").write_text(
+            self.ext._pristine_journal_template("1zaam s", "s", "2026-01-05"), encoding="utf-8"
+        )
+        self._symlink(self.root / "docs" / "agents", self.outside, directory=True)
+        before = self._snapshot(self.outside)
+        report = self._run()
+        self.assertEqual(self._snapshot(self.outside), before)
+        self.assertFalse((self.root / _live_waves_rel() / wave_id / "1zaal-jrnl linked-ancestor.md").exists())
+        self.assertIn("is a link or leaves the repository", report)
+
+    def test_linked_journal_is_refused(self):
+        wave_id = "1zaad linked-journal"
+        folder = self._make_wave(_live_waves_rel(), wave_id)
+        name, _ = self._content_journal(wave_id, self.outside)
+        self._symlink(self.journals / name, self.outside / name)
+        before = self._snapshot(self.outside)
+        report = self._run()
+        self.assertEqual(self._snapshot(self.outside), before)
+        self.assertTrue(os.path.lexists(self.journals / name))
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), [_record_name()])
+        self.assertIn(f"left {name} in place", report)
+
+    def test_hard_linked_journal_is_refused(self):
+        wave_id = "1zaae hard-link"
+        folder = self._make_wave(_live_waves_rel(), wave_id)
+        name, _ = self._content_journal(wave_id, self.outside)
+        scaffold_name = "1zaaf-s.md"
+        (self.outside / scaffold_name).write_text(
+            self.ext._pristine_journal_template("1zaaf s", "s", "2026-01-05"), encoding="utf-8"
+        )
+        try:
+            os.link(self.outside / name, self.journals / name)
+            os.link(self.outside / scaffold_name, self.journals / scaffold_name)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"hard links unavailable: {exc}")
+        before = self._snapshot(self.outside)
+        report = self._run()
+        self.assertEqual(self._snapshot(self.outside), before)
+        self.assertTrue((self.journals / name).is_file())
+        self.assertTrue((self.journals / scaffold_name).is_file())
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), [_record_name()])
+        self.assertIn(f"left {name} in place", report)
+        self.assertIn(f"left {scaffold_name} in place", report)
+
+    def test_linked_wave_folder_is_refused(self):
+        wave_id = "1zaag linked-wave"
+        name, _ = self._content_journal(wave_id)
+        (self.outside / _record_name()).write_text("# Wave Record\n", encoding="utf-8")
+        self._symlink(self.root / _live_waves_rel() / wave_id, self.outside, directory=True)
+        before = self._snapshot(self.outside)
+        report = self._run()
+        self.assertEqual(self._snapshot(self.outside), before)
+        self.assertTrue((self.journals / name).is_file())
+        self.assertIn(f"left {name} in place", report)
+
+    def test_existing_destination_is_left_alone(self):
+        wave_id = "1zaah existing"
+        name, _ = self._content_journal(wave_id)
+        folder = self._make_wave(_live_waves_rel(), wave_id)
+        existing = folder / "1zaah-jrnl existing.md"
+        existing.write_bytes(b"operator copy\n")
+        report = self._run()
+        self.assertEqual(existing.read_bytes(), b"operator copy\n")
+        self.assertTrue((self.journals / name).is_file())
+        self.assertIn(f"left {name} in place", report)
+
+    def test_crlf_scaffold_deleted_and_crlf_content_moves_byte_exact(self):
+        scaffold = self.ext._pristine_journal_template("1zaai s", "s", "2026-01-05")
+        (self.journals / "1zaai-s.md").write_bytes(scaffold.replace("\n", "\r\n").encode("utf-8"))
+        wave_id = "1zaaj crlf"
+        folder = self._make_wave(_live_waves_rel(), wave_id)
+        content = f"# Journal - x\r\n\r\nwave-id: `{wave_id}`\r\n\r\n- Note.\r\n".encode("utf-8")
+        (self.journals / "1zaaj-crlf.md").write_bytes(content)
+        report = self._run()
+        self.assertFalse((self.journals / "1zaai-s.md").exists())
+        self.assertFalse((self.journals / "1zaaj-crlf.md").exists())
+        self.assertEqual((folder / "1zaaj-jrnl crlf.md").read_bytes(), content)
+        self.assertIn("deleted 1 pristine scaffold(s); moved 1 wave journal(s)", report)
+
+    def _run_with_source_swap(self, wave_id, swap):
+        """Move one content journal, calling ``swap(source)`` right after the
+        destination is written and before the source is removed."""
+        name, text = self._content_journal(wave_id)
+        folder = self._make_wave(_live_waves_rel(), wave_id)
+        source = self.journals / name
+        original = self.ext._write_journal_exclusive
+
+        def write_then_swap(destination, data):
+            written = original(destination, data)
+            swap(source)
+            return written
+
+        with patch.object(self.ext, "_write_journal_exclusive", side_effect=write_then_swap):
+            report = self._run()
+        prefix, _, slug = wave_id.partition(" ")
+        self.assertEqual(
+            (folder / f"{prefix}-jrnl {slug}.md").read_text(encoding="utf-8"), text
+        )
+        self.assertTrue(os.path.lexists(source), "the swapped source was removed")
+        self.assertIn(f"left {name} in place", report)
+        self.assertNotIn("moved 1 wave journal(s)", report)
+        return source
+
+    def test_source_swapped_for_a_link_is_not_removed(self):
+        outside_file = self.outside / "victim.md"
+        outside_file.write_bytes(b"outside content\n")
+
+        def swap(source):
+            source.unlink()
+            self._symlink(source, outside_file)
+
+        source = self._run_with_source_swap("1zaan swap-link", swap)
+        self.assertTrue(source.is_symlink())
+        self.assertEqual(outside_file.read_bytes(), b"outside content\n")
+
+    @unittest.skipIf(os.name == "nt", "file identity is compared on POSIX only")
+    def test_source_swapped_for_another_regular_file_is_not_removed(self):
+        def swap(source):
+            # Created before the original goes, so it cannot reuse its inode.
+            replacement = source.with_name("replacement.tmp")
+            replacement.write_bytes(b"a different file\n")
+            os.replace(replacement, source)
+
+        source = self._run_with_source_swap("1zaao swap-file", swap)
+        self.assertEqual(source.read_bytes(), b"a different file\n")
+
+    def test_source_hard_linked_after_the_read_is_not_removed(self):
+        outside_link = self.outside / "shared.md"
+
+        def swap(source):
+            try:
+                os.link(source, outside_link)
+            except (OSError, NotImplementedError) as exc:
+                self.skipTest(f"hard links unavailable: {exc}")
+
+        source = self._run_with_source_swap("1zaap swap-hardlink", swap)
+        self.assertEqual(outside_link.read_bytes(), source.read_bytes())
+        self.assertEqual(os.lstat(source).st_nlink, 2)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs are POSIX-only")
+    def test_fifo_named_md_is_left_unopened(self):
+        os.mkfifo(self.journals / "1zaak-pipe.md")
+        report = self._run()  # an open of the FIFO would block here
+        self.assertTrue(stat.S_ISFIFO(os.lstat(self.journals / "1zaak-pipe.md").st_mode))
+        self.assertIn("left 1zaak-pipe.md in place", report)
+
+
+class JournalMigrationProfileTests(_JournalMigrationFixture, unittest.TestCase):
+    """Wave 1zv87 (1zuq6): journal identity follows the active vocabulary
+    profile's id key (or the legacy ``wave-id``), the wave folder comes from
+    record discovery over the waves and archive roots, and the public
+    ``migrate_journals`` previews without writing."""
+
+    def setUp(self):
+        super().setUp()
+        import record_paths
+        import vocabulary_profile
+
+        for module, name, value in (
+            (vocabulary_profile, "ID_KEY", "set-id"),
+            (vocabulary_profile, "ID_KEY_RE", re.escape("set-id")),
+            (record_paths, "NESTED", True),
+            (record_paths, "ARCHIVE_ROOT", "docs/archive-records"),
+        ):
+            patcher = patch.object(module, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.archive_rel = "docs/archive-records"
+
+    def _set_journal(self, wave_id):
+        name = f"{wave_id.replace(' ', '-')}.md"
+        content = f"# Journal - x\n\nset-id: `{wave_id}`\n\n- Observation for {wave_id}.\n".encode("utf-8")
+        (self.journals / name).write_bytes(content)
+        return name, content
+
+    def _tree(self):
+        return sorted(
+            (p.relative_to(self.root).as_posix(), p.read_bytes() if p.is_file() else None)
+            for p in self.root.rglob("*")
+        )
+
+    def test_profile_key_nested_waves_relocate_and_archived_wave_is_left(self):
+        """Only folders under the waves root are targets: the archive root is
+        read-only (wave 1z8ts), so an archived wave's journal stays listed."""
+        nested = self._make_wave(f"{_live_waves_rel()}/group", "1zbaa nested-wave")
+        self._make_wave(self.archive_rel, "1zbab archived-wave")
+        flat = self._make_wave(_live_waves_rel(), "1zbac flat-wave")
+        moves = [
+            (self._set_journal("1zbaa nested-wave"), nested / "1zbaa-jrnl nested-wave.md"),
+            (self._set_journal("1zbac flat-wave"), flat / "1zbac-jrnl flat-wave.md"),
+        ]
+        archived_name, archived_content = self._set_journal("1zbab archived-wave")
+        self._write_pristine("1zbad scaffold", "scaffold", "2026-01-05")
+        archive = self.root / self.archive_rel
+        archive_before = sorted(
+            (p.relative_to(archive).as_posix(), p.read_bytes() if p.is_file() else None)
+            for p in archive.rglob("*")
+        )
+        report = self._run()
+        for (name, content), destination in moves:
+            self.assertFalse((self.journals / name).exists(), name)
+            self.assertEqual(destination.read_bytes(), content)
+        self.assertEqual(
+            sorted(
+                (p.relative_to(archive).as_posix(), p.read_bytes() if p.is_file() else None)
+                for p in archive.rglob("*")
+            ),
+            archive_before,
+        )
+        self.assertEqual((self.journals / archived_name).read_bytes(), archived_content)
+        self.assertEqual([p.name for p in self.journals.glob("*.md")], [archived_name])
+        self.assertIn("deleted 1 pristine scaffold(s); moved 2 wave journal(s)", report)
+        self.assertIn(f"left {archived_name} in place: wave is archived (read-only archive root)", report)
+        self.assertIn(f"left {archived_name} in place (", report)
+        preview = self.ext.migrate_journals(self.root)
+        self.assertEqual(preview["left"], [f"docs/agents/journals/{archived_name}"])
+        self.assertTrue(any("wave is archived" in w for w in preview["warnings"]))
+
+    def test_id_found_in_two_folders_is_left(self):
+        self._make_wave(_live_waves_rel(), "1zbae twice")
+        self._make_wave(self.archive_rel, "1zbae twice")
+        name, _ = self._set_journal("1zbae twice")
+        report = self._run()
+        self.assertTrue((self.journals / name).is_file())
+        self.assertIn(f"left {name} in place", report)
+
+    def test_preview_changes_nothing_and_apply_performs(self):
+        nested = self._make_wave(f"{_live_waves_rel()}/group", "1zbaf preview")
+        name, content = self._set_journal("1zbaf preview")
+        scaffold_name, _ = self._write_pristine("1zbag scaffold", "scaffold", "2026-01-05")
+        (self.journals / "guru.md").write_text("# Role journal\n", encoding="utf-8")
+        before = self._tree()
+        preview = self.ext.migrate_journals(self.root)
+        self.assertEqual(self._tree(), before)
+        destination_rel = f"{_live_waves_rel()}/group/1zbaf preview/1zbaf-jrnl preview.md"
+        expected = {
+            "deleted": [f"docs/agents/journals/{scaffold_name}"],
+            "moved": [{"source": f"docs/agents/journals/{name}", "destination": destination_rel}],
+            "left": ["docs/agents/journals/guru.md"],
+        }
+        self.assertEqual({k: preview[k] for k in expected}, expected)
+        applied = self.ext.migrate_journals(self.root, apply=True)
+        self.assertEqual({k: applied[k] for k in expected}, expected)
+        self.assertEqual((nested / "1zbaf-jrnl preview.md").read_bytes(), content)
+        self.assertEqual(sorted(p.name for p in self.journals.iterdir()), ["guru.md"])
+
+    def test_linked_nested_wave_folder_is_refused(self):
+        outside_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(outside_tmp.cleanup)
+        outside = Path(outside_tmp.name)
+        (outside / _record_name()).write_text("# Wave Record\n", encoding="utf-8")
+        group = self.root / _live_waves_rel() / "group"
+        group.mkdir(parents=True)
+        try:
+            os.symlink(outside, group / "1zbah linked", target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+        name, _ = self._set_journal("1zbah linked")
+        report = self._run()
+        self.assertEqual(sorted(p.name for p in outside.iterdir()), [_record_name()])
+        self.assertTrue((self.journals / name).is_file())
+        self.assertIn(f"left {name} in place", report)
 
 
 class PermissionsRenderConsentTests(unittest.TestCase):

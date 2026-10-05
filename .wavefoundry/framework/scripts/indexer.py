@@ -933,10 +933,68 @@ def _walk_stat_error_is_absence(exc: OSError) -> bool:
     return getattr(exc, "errno", None) in _WALK_ABSENT_ERRNOS
 
 
-def _walk_entry_is_regular_file(path: Path, root: Path, denied_files: "set[str]") -> bool:
+def _walk_target_is_runtime_lock(
+    path: Path,
+    root: Path,
+    entry_stat: "os.stat_result | None" = None,
+    lock_cache: "dict | None" = None,
+) -> bool:
+    """True when ``path`` is a framework runtime lock under ``<root>/.wavefoundry/``
+    (wave 1zv87, 1zuq7). Mirrors ``server_impl._is_runtime_lock_path``, which
+    this module cannot import: the resolved target's root-relative parts
+    compared case-folded (``normcase`` plus ``casefold``), first part
+    ``.wavefoundry``, last part ending in ``.lock``; or a regular file with more
+    than one link whose ``(st_dev, st_ino)`` is that of a lock file there (a
+    hard link). ``entry_stat`` is the caller's stat following symlinks;
+    ``lock_cache`` holds the lock identities, collected once per walk and only
+    when a multi-link file is met. An unresolvable path is not judged a lock."""
+    try:
+        parts = path.resolve().relative_to(root.resolve()).parts
+    except (OSError, ValueError, RuntimeError):
+        parts = ()
+    if len(parts) >= 2:
+        folded = [os.path.normcase(part).casefold() for part in parts]
+        if folded[0] == ".wavefoundry" and folded[-1].endswith(".lock"):
+            return True
+    if entry_stat is None:
+        try:
+            entry_stat = os.stat(path)
+        except OSError:
+            return False
+    if not stat_module.S_ISREG(entry_stat.st_mode) or entry_stat.st_nlink < 2:
+        return False
+    cache = lock_cache if lock_cache is not None else {}
+    if "identities" not in cache:
+        identities: set = set()
+        for dirpath, _dirnames, filenames in os.walk(root / ".wavefoundry"):
+            for name in filenames:
+                if not os.path.normcase(name).casefold().endswith(".lock"):
+                    continue
+                try:
+                    lock_stat = os.stat(os.path.join(dirpath, name))
+                except OSError:
+                    continue
+                identities.add((lock_stat.st_dev, lock_stat.st_ino))
+        cache["identities"] = identities
+    return (entry_stat.st_dev, entry_stat.st_ino) in cache["identities"]
+
+
+def _walk_entry_is_regular_file(
+    path: Path, root: Path, denied_files: "set[str]", lock_cache: "dict | None" = None,
+) -> bool:
     """Stat one listed entry (following symlinks) for ``walk_repo``: True for a
     regular file. A failure ``pathlib`` reads as absence is silent; any other
-    ``OSError`` records the root-relative path in ``denied_files``."""
+    ``OSError`` records the root-relative path in ``denied_files``.
+
+    Wave 1zv87 (1zuq7): a symlink whose resolved target is a framework runtime
+    lock is not a walkable file. The literal ``*.lock`` names are already
+    excluded by extension; this closes the symlink door (``notes.py`` pointing
+    at a runtime lock under ``.wavefoundry/``), since opening the target in a
+    process holding its record lock releases the lock; a hard link to a lock
+    (a regular file with more than one link sharing a lock's identity) is
+    refused too. The classifying stat is unchanged; a regular file then pays
+    one ``lstat`` (``os.path.islink``, which never raises), and only a symlink
+    or a multi-link file pays the lock check."""
     try:
         entry_stat = os.stat(path)
     except OSError as exc:
@@ -946,7 +1004,11 @@ def _walk_entry_is_regular_file(path: Path, root: Path, denied_files: "set[str]"
             except ValueError:
                 pass
         return False
-    return stat_module.S_ISREG(entry_stat.st_mode)
+    if not stat_module.S_ISREG(entry_stat.st_mode):
+        return False
+    if entry_stat.st_nlink < 2 and not os.path.islink(path):
+        return True
+    return not _walk_target_is_runtime_lock(path, root, entry_stat, lock_cache)
 
 
 def walk_repo(
@@ -988,6 +1050,7 @@ def walk_repo(
     result: list[Path] = []
     unreadable: set[str] = set()
     denied_files: set[str] = set()
+    lock_cache: dict = {}  # wave 1zv87 (1zuq7): lock identities, filled on first need
 
     def _on_walk_error(exc: OSError) -> None:
         raw = getattr(exc, "filename", None)
@@ -1090,7 +1153,7 @@ def walk_repo(
             # Must be checked before the gitignore check and binary sniff since .env has no
             # recognised extension and is typically listed in .gitignore.
             if filename == ".env" or (filename.startswith(".env.") and len(filename) > 5):
-                if _walk_entry_is_regular_file(path, root, denied_files):
+                if _walk_entry_is_regular_file(path, root, denied_files, lock_cache):
                     result.append(path)
                 continue
 
@@ -1114,13 +1177,13 @@ def walk_repo(
 
             # Allow extensionless docs files (README, LICENSE, etc.) before extension check
             if not path.suffix and filename in DOCS_EXTENSIONLESS_NAMES:
-                if _walk_entry_is_regular_file(path, root, denied_files):
+                if _walk_entry_is_regular_file(path, root, denied_files, lock_cache):
                     result.append(path)
                 continue
 
             # Allow extensionless code files (Jenkinsfile, Makefile, etc.) before extension check
             if not path.suffix and filename in CODE_EXTENSIONLESS_NAMES:
-                if _walk_entry_is_regular_file(path, root, denied_files):
+                if _walk_entry_is_regular_file(path, root, denied_files, lock_cache):
                     result.append(path)
                 continue
 
@@ -1129,7 +1192,7 @@ def walk_repo(
             if _matches_ignore(rel_str, ignore_patterns):
                 continue
 
-            if not _walk_entry_is_regular_file(path, root, denied_files):
+            if not _walk_entry_is_regular_file(path, root, denied_files, lock_cache):
                 continue
 
             # Binary sniff for extensionless files and files with unrecognized extensions.

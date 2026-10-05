@@ -880,7 +880,7 @@ def _scan_call_sites_in_file(root: Path, callee_label: str, source_file: str) ->
     """
     from wf_server import server_impl
     p = root / source_file
-    if not p.is_file():
+    if not p.is_file() or server_impl._repo_rel_path_refused(root, source_file):
         return []
     files = [p]
     restrict = frozenset({source_file})
@@ -905,7 +905,7 @@ def _scan_all_call_sites_in_file(
         return {}
     p = root / source_file
     result: dict[str, list[dict[str, Any]]] = {label: [] for label in callee_labels}
-    if not p.is_file():
+    if not p.is_file() or server_impl._repo_rel_path_refused(root, source_file):
         return result
     label_set = set(callee_labels)
     if source_file.endswith(".py"):

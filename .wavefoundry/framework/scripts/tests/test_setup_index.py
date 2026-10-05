@@ -2186,9 +2186,9 @@ class InstallIsolationTests(unittest.TestCase):
         uv.chmod(0o755)
         with patch.dict(os.environ, {"PATH": str(bin_dir)}):
             self.assertEqual(self.mod._uv_bin(FAKE_VENV_PYTHON), uv)
-        # A relative PATH entry comes back absolute, since installs change the working directory.
+        # Wave 1zv87 (1zv84): a relative PATH entry is skipped, not resolved against the working directory.
         with contextlib.chdir(bin_dir.parent), patch.dict(os.environ, {"PATH": bin_dir.name}):
-            self.assertEqual(self.mod._uv_bin(FAKE_VENV_PYTHON), uv)
+            self.assertIsNone(self.mod._uv_bin(FAKE_VENV_PYTHON))
         with patch.object(self.mod, "_uv_bin", return_value=uv), \
                 patch.object(self.mod, "_bootstrap_uv") as bootstrap, \
                 patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0)) as run, \
@@ -2220,6 +2220,80 @@ class GpuDoctorProbeSerialTests(unittest.TestCase):
         self.assertNotIn("parallel=", code,
                          "the in-server probe must not pass parallel= to fastembed (spawn workers "
                          "would re-load ORT against the inherited MCP stdout fd — wave 1p8vc)")
+
+
+class UvLookupTrustTests(unittest.TestCase):
+    """Wave 1zv87 (1zv84): setup never runs a uv planted in the repository."""
+
+    def setUp(self):
+        self.mod = load_setup_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        base = Path(self.tmp.name).resolve()
+        self.root = base / "repo"
+        self.outside = base / "outside-bin"
+        self.root.mkdir()
+        self.outside.mkdir()
+        self.venv_python = base / "venv" / "bin" / "python"  # no uv inside, so only PATH matters
+
+    def _plant(self, folder: Path) -> Path:
+        uv = folder / ("uv.exe" if os.name == "nt" else "uv")
+        uv.write_text("", encoding="utf-8")
+        uv.chmod(0o755)
+        return uv
+
+    def test_planted_uv_via_dot_and_empty_path_entries_is_not_returned(self):
+        self._plant(self.root)
+        sep = os.pathsep
+        with contextlib.chdir(self.root), patch.dict(os.environ, {"PATH": f".{sep}{sep}"}):
+            self.assertIsNone(self.mod._uv_bin(self.venv_python, self.root))
+            self.assertIsNone(self.mod._uv_bin(self.venv_python))
+
+    def test_absolute_path_entry_inside_root_is_skipped(self):
+        self._plant(self.root)
+        with patch.dict(os.environ, {"PATH": str(self.root)}):
+            self.assertIsNone(self.mod._uv_bin(self.venv_python, self.root))
+
+    def test_symlink_into_root_is_refused(self):
+        if os.name == "nt":
+            self.skipTest("symlink creation needs privileges on Windows")
+        real = self._plant(self.root)
+        (self.outside / "uv").symlink_to(real)
+        with patch.dict(os.environ, {"PATH": str(self.outside)}):
+            self.assertIsNone(self.mod._uv_bin(self.venv_python, self.root))
+
+    def test_without_root_the_working_directory_is_refused(self):
+        self._plant(self.root)
+        with contextlib.chdir(self.root), patch.dict(os.environ, {"PATH": str(self.root)}):
+            self.assertIsNone(self.mod._uv_bin(self.venv_python))
+
+    def test_ordinary_absolute_path_uv_is_still_found(self):
+        uv = self._plant(self.outside)
+        self._plant(self.root)
+        path = os.pathsep.join(["", ".", str(self.root), str(self.outside)])
+        with contextlib.chdir(self.root), patch.dict(os.environ, {"PATH": path}):
+            self.assertEqual(self.mod._uv_bin(self.venv_python, self.root), uv)
+
+    def test_windows_accepts_only_uv_exe(self):
+        class _WindowsOs:
+            """os with name 'nt'; pathlib keeps the real os so Path still builds."""
+            name = "nt"
+
+            def __getattr__(self, attr):
+                return getattr(os, attr)
+
+        (self.outside / "uv.cmd").write_text("", encoding="utf-8")
+        (self.outside / "uv.bat").write_text("", encoding="utf-8")
+        with patch.object(self.mod, "os", _WindowsOs()), patch.dict(os.environ, {"PATH": str(self.outside)}):
+            self.assertIsNone(self.mod._trusted_path_uv(self.root))
+            exe = self.outside / "uv.exe"
+            exe.write_text("", encoding="utf-8")
+            self.assertEqual(self.mod._trusted_path_uv(self.root), exe)
+
+    def test_callers_thread_the_root_and_which_is_gone(self):
+        src = Path(self.mod.__file__).read_text(encoding="utf-8")
+        self.assertEqual(src.count("_uv_bin(venv_python, root)"), 3)
+        self.assertNotIn("shutil.which(", src)
 
 
 class SetupPhase1DeadlineTests(unittest.TestCase):
