@@ -109,6 +109,17 @@ class session:
                 raise MigrationRequired("storage_setup_foreign_upgrade: resume the recorded upgrade; its receipt and archive remain authoritative")
             if not prestaging_noop:
                 validate_source_binding(self.root, receipt)
+        if checkpoint == {}:
+            # Wave 1zrak: an uninspectable lock is not evidence of a foreign
+            # upgrade; refuse with its own path-free cause and recovery.
+            # getattr: an older cached upgrade_lib may lack the helper (mixed
+            # versions across an upgrade); it then keeps the older refusal.
+            unreadable_cause = getattr(upgrade_lib, "upgrade_lock_unreadable_cause", None)
+            unreadable = unreadable_cause(self.root) if unreadable_cause else None
+            if unreadable is not None:
+                raise MigrationRequired(
+                    "storage_setup_upgrade_lock_unreadable: "
+                    + upgrade_lib.upgrade_lock_unreadable_message(unreadable))
         if checkpoint is not None:
             if (not isinstance(checkpoint, dict) or checkpoint.get("entry_path") != "setup"
                     or checkpoint.get("zip_path")):

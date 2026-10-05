@@ -177,6 +177,60 @@ class SetupReceiptTests(unittest.TestCase):
         self.assertEqual(restored["installed_framework_sha256"], receipt["installed_framework_sha256"])
         self.assertEqual(restored["root_identity"], receipt["root_identity"])
 
+    # Wave 1zrak (DEL-R1): an uninspectable lock is not a foreign upgrade.
+
+    @contextlib.contextmanager
+    def _denied_lock_stat(self):
+        import errno
+
+        real_stat = os.stat
+        lock = upgrade_lib.upgrade_lock_path(self.root)
+        denied = {os.path.abspath(lock), os.path.realpath(lock)}
+
+        def fake_stat(path, *args, **kwargs):
+            if (kwargs.get("follow_symlinks", True) and not isinstance(path, int)
+                    and os.path.abspath(os.fspath(path)) in denied):
+                raise PermissionError(errno.EACCES, "Permission denied", os.fspath(path))
+            return real_stat(path, *args, **kwargs)
+
+        with patch("os.stat", fake_stat):
+            yield
+
+    @staticmethod
+    def _upgrade_lib_without_helpers():
+        """An older cached ``upgrade_lib`` that predates the 1zrak helpers."""
+        import types
+
+        older = types.ModuleType("upgrade_lib")
+        for name, value in vars(upgrade_lib).items():
+            if name not in {"upgrade_lock_unreadable_cause", "upgrade_lock_unreadable_message"}:
+                setattr(older, name, value)
+        return older
+
+    def test_restore_checkpoint_refuses_an_uninspectable_setup_lock_path_free(self):
+        self.legacy()
+        self.pause()
+        with self._denied_lock_stat(), self.assertRaises(setup.MigrationRequired) as raised:
+            migration.restore_checkpoint(self.root)
+        message = str(raised.exception)
+        self.assertIn("storage_setup_upgrade_lock_unreadable", message)
+        self.assertIn(".wavefoundry/upgrade-in-progress.json cannot be inspected (Permission denied)", message)
+        self.assertNotIn(str(self.root), message)
+
+    def test_older_cached_upgrade_lib_keeps_the_older_refusal(self):
+        """Mixed versions: without the helper, both sites keep the pre-1zrak
+        refusal instead of raising ``AttributeError``."""
+        self.legacy()
+        self.pause()
+        older = self._upgrade_lib_without_helpers()
+        with patch.dict(sys.modules, {"upgrade_lib": older}), \
+             patch.object(setup, "upgrade_lib", older), self._denied_lock_stat():
+            with self.assertRaisesRegex(setup.MigrationRequired, "storage_setup_foreign_upgrade"):
+                migration.restore_checkpoint(self.root)
+            with self.assertRaisesRegex(setup.MigrationRequired, "storage_setup_foreign_upgrade"):
+                with setup.session(self.root, []):
+                    self.fail("an uninspectable lock was accepted")
+
     def test_no_database_old_host_requires_handoff_and_refuses_live_resume(self):
         host = {"kind": "mcp", "pid": 12345}
         with patch.object(migration, "discover_hosts", return_value=([host], [])):

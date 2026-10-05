@@ -1670,7 +1670,13 @@ def _remove_legacy_meta_json(index_dir: Path) -> bool:
     Returns True when a file was removed."""
     meta_path = index_dir / META_JSON
     try:
-        if meta_path.is_file():
+        # ``os.stat`` rather than ``is_file()``, which reads any ``OSError`` as
+        # absent from Python 3.14 (wave 1zrak) and would skip this LOUD report.
+        try:
+            meta_is_file = stat_module.S_ISREG(os.stat(meta_path).st_mode)
+        except (FileNotFoundError, NotADirectoryError):
+            meta_is_file = False
+        if meta_is_file:
             meta_path.unlink()
             return True
     except OSError as exc:
@@ -4080,7 +4086,14 @@ def _validate_prepared_removals(
         current = _filter_by_prefixes(current, root, include_prefixes)
     else:
         current = [path if path.is_absolute() else root / path for path in requested_files]
-        current = [path for path in current if _is_relative_to(path, root) and path.is_file()]
+        # Wave 1zrak (1zu4y): classify each requested file exactly as
+        # ``walk_repo`` does (wave 1zime): a stat failure outside
+        # ``_walk_stat_error_is_absence`` lands in ``unreadable``, so its pending
+        # removal raises ``SourceChanged`` instead of reading as deleted.
+        current = [
+            path for path in current
+            if _is_relative_to(path, root) and _walk_entry_is_regular_file(path, root, unreadable)
+        ]
         for exclude in (_filter_canonical_wave_event_ledgers, _filter_memory_archive_bodies,
                         _filter_legacy_memory_pointers, _filter_secret_scan_findings):
             current = exclude(current, root)

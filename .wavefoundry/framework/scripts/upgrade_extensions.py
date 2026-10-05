@@ -1449,7 +1449,13 @@ def repair_declaring_scaffold(root) -> list[str]:
         # template escaped into the hook dispatcher's `sys.exit(3)`, which
         # reports itself as a pre-flight failure for a phase-3 problem.
         try:
-            if not path.is_file():
+            # ``os.stat`` rather than ``is_file()``, which reads any
+            # ``OSError`` as absent from Python 3.14 (wave 1zrak) and would
+            # skip a template it cannot inspect instead of reporting it.
+            try:
+                if not stat.S_ISREG(os.stat(path).st_mode):
+                    continue
+            except (FileNotFoundError, NotADirectoryError):
                 continue
             # newline="" on BOTH sides. Reading without it translates a CRLF
             # checkout to LF in memory, so writing it back rewrites every line

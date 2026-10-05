@@ -1708,6 +1708,12 @@ def wf_upgrade_status_response(root: Path) -> dict[str, Any]:
             "action_required": lock.get("action_required"),
             **cleanup_projection,
         }
+        # Wave 1zrak: an uninspectable lock reads as in progress (``{}``);
+        # name why, path-free, so the empty fields are not mistaken for data.
+        unreadable_cause = getattr(_ulib, "upgrade_lock_unreadable_cause", None)
+        unreadable = unreadable_cause(root) if unreadable_cause and not lock else None
+        if unreadable is not None:
+            data["lock_unreadable"] = _ulib.upgrade_lock_unreadable_message(unreadable)
         run_id = str(lock.get("memory_backfill_run_id") or "").strip()
         if run_id:
             try:

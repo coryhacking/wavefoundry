@@ -140,7 +140,15 @@ def _canonical_waves_dir(root: Path, *, archive: bool = False) -> Path | None:
         # inventory callers report historical_memory_inventory_failed.
         raise OSError(f"historical-memory {label} directory refused: {exc}") from exc
     waves_dir = roots.archive if archive else roots.waves
-    if waves_dir is None or (not waves_dir.exists() and not waves_dir.is_symlink()):
+    if waves_dir is None:
+        return None
+    # ``os.lstat`` rather than ``exists()``/``is_symlink()``, which read any
+    # ``OSError`` as absent from Python 3.14 (wave 1zrak): only not-found and
+    # ``NotADirectoryError`` mean absent; every other ``OSError`` propagates
+    # under this site's OSError contract.
+    try:
+        os.lstat(waves_dir)
+    except (FileNotFoundError, NotADirectoryError):
         return None
     try:
         root_real = root.resolve(strict=True)
@@ -239,6 +247,20 @@ def _inventory(
     distinct archived wave. Rows stay keyed by folder name."""
 
     import record_paths  # lazy like the other sibling imports (wave 1y043)
+
+    # Wave 1zrak (1zu4y): a waves or archive root, or a wave folder, that the
+    # discovery walk cannot inspect refuses under this site's OSError contract
+    # (callers report historical_memory_inventory_failed), path-free.
+    try:
+        return _inventory_walk(root, record_paths)
+    except record_paths.RecordRootUnreadable as exc:
+        raise OSError(f"historical-memory inventory refused: {exc}") from None
+
+
+def _inventory_walk(
+    root: Path, record_paths: Any
+) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, str], ...]]:
+    """The body of :func:`_inventory`, which converts a discovery refusal."""
 
     waves_dir = _canonical_waves_dir(root)
     archive_dir = _canonical_waves_dir(root, archive=True)

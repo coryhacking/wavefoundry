@@ -18,10 +18,14 @@ waves — closed waves are history.
 from __future__ import annotations
 
 import ast
+import json
+import os
 import re
+import stat
 from pathlib import Path
 
-from .helpers import load_json, resolve_record_roots
+from .helpers import resolve_record_roots
+import record_paths  # errno cause label (wave 1zrak, 1zu4y)
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 
 _SCRIPTS_DIR = Path(__file__).resolve().parents[1]
@@ -115,13 +119,48 @@ def _claims():
     )
 
 
+def docs_lint_input_unreadable(rel: str, exc: OSError) -> str:
+    """Wave 1zrak (1zu4y): the blocking failure for a docs-lint input that
+    cannot be inspected or read. A bare string (``cli._emit`` adds the
+    ``ERROR: `` prefix), path-free: the repository-relative path and the
+    exception class with its errno name, never ``strerror``."""
+    cause = record_paths._cause_label(exc)
+    return (
+        f"docs_lint_input_unreadable: {rel}: cannot be inspected ({cause}); "
+        f"restore read access to {rel}, then re-run docs-lint"
+    )
+
+
+def input_lstat(path: Path, rel: str, failures: list[str]):
+    """``os.lstat`` under the errno rule (wave 1zrak, 1zu4y): the stat result,
+    or ``None`` when absent (``FileNotFoundError``/``NotADirectoryError``). Any
+    other ``OSError`` appends :func:`docs_lint_input_unreadable` to
+    ``failures`` and returns ``None``; Python 3.14 ``pathlib`` predicates
+    would read it as absent and let lint pass."""
+    try:
+        return os.lstat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except OSError as exc:
+        failures.append(docs_lint_input_unreadable(rel, exc))
+        return None
+
+
 def _framework_internal_constants_enabled(root: Path) -> tuple[bool, list[str]]:
     """Read the source repository's explicit docs-lint opt-in."""
     rel = "docs/workflow-config.json"
     path = root / rel
-    if not path.exists() and not path.is_symlink():
-        return False, []
-    data, error = load_json(path)
+    failures: list[str] = []
+    if input_lstat(path, rel, failures) is None:
+        return False, failures
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return False, [docs_lint_input_unreadable(rel, exc)]
+    try:
+        data, error = json.loads(raw), None
+    except Exception as exc:  # the same breadth as ``load_json``
+        data, error = None, str(exc)
     if error:
         return False, [f"ERROR: {rel}: unreadable or invalid JSON ({error})"]
     if not isinstance(data, dict):
@@ -142,11 +181,21 @@ def check_docs_constants(root: Path) -> list[str]:
     enabled, failures = _framework_internal_constants_enabled(root)
     for rel, label, pattern, expected_fn in (_claims() if enabled else ()):
         doc = root / rel
-        if not doc.is_file():
+        # Wave 1zrak (1zu4y): presence under the errno rule (``os.stat``,
+        # following links as ``is_file()`` did); an uninspectable or unreadable
+        # claims doc is a blocking failure, not a silent skip.
+        try:
+            if not stat.S_ISREG(os.stat(doc).st_mode):
+                continue
+        except (FileNotFoundError, NotADirectoryError):
             continue  # target repos without the doc are out of scope
+        except OSError as exc:
+            failures.append(docs_lint_input_unreadable(rel, exc))
+            continue
         try:
             text = doc.read_text(encoding="utf-8")
-        except OSError:
+        except OSError as exc:
+            failures.append(docs_lint_input_unreadable(rel, exc))
             continue
         expected = expected_fn()
         if expected is None:
@@ -279,9 +328,9 @@ def check_wave_scaffolding_integrity(root: Path) -> list[str]:
     roots = resolve_record_roots(root, failures)
     if roots is None:
         return failures  # invalid record layout: fail closed
-    if not roots.waves.is_dir():
+    # Discovery walk (wave 1y043), through the module-level ``record_paths``.
+    if not record_paths.record_root_is_dir(roots.waves, roots.waves_rel):
         return failures
-    import record_paths  # discovery walk (wave 1y043); sibling import as in helpers
 
     for wave_dir in record_paths.discover_wave_dirs(root, roots):
         wave_md = wave_dir / _vocab.RECORD_FILENAME

@@ -5239,6 +5239,34 @@ class WaveUpgradeStatusTests(unittest.TestCase):
         self.assertTrue(result["data"]["in_progress"])
         self.assertEqual(result["data"]["from_version"], "2026-05-10a")
         self.assertEqual(result["data"]["to_version"], "2026-05-19a")
+        self.assertNotIn("lock_unreadable", result["data"])
+
+    def test_uninspectable_lock_is_named_path_free(self):
+        """Wave 1zrak (DEL-R1): an uninspectable lock reads as in progress
+        with empty fields, so ``lock_unreadable`` names why, path-free."""
+        import errno
+
+        self._write_lock()
+        real_stat = os.stat
+        denied = {os.path.abspath(self._lock_path()), os.path.realpath(self._lock_path())}
+
+        def fake_stat(path, *args, **kwargs):
+            if (kwargs.get("follow_symlinks", True) and not isinstance(path, int)
+                    and os.path.abspath(os.fspath(path)) in denied):
+                raise PermissionError(errno.EACCES, "Permission denied", os.fspath(path))
+            return real_stat(path, *args, **kwargs)
+
+        with patch("os.stat", fake_stat):
+            result = self.srv.wf_upgrade_status_response(self.root)
+        data = result["data"]
+        self.assertTrue(data["in_progress"])
+        self.assertIsNone(data["to_version"])
+        self.assertIn(
+            ".wavefoundry/upgrade-in-progress.json cannot be inspected (Permission denied)",
+            data.get("lock_unreadable", ""),
+        )
+        for spelling in {str(self.root), os.path.realpath(self.root)}:
+            self.assertNotIn(spelling, json.dumps(result))
 
     def test_lock_exposes_exact_retired_model_cleanup_projection(self):
         self._write_lock()

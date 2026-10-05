@@ -1909,7 +1909,9 @@ def _model_cache_corruption_reason(model_name: str) -> str | None:
                         return f"cache symlink target is zero-byte file: {path.relative_to(model_dir)}"
                 except OSError:
                     return f"cache symlink target unreadable: {path.relative_to(model_dir)}"
-            elif path.is_file() and path.suffix == ".incomplete":
+            # Suffix first: only an ``.incomplete`` entry needs a stat, so the
+            # snapshot check below is the one that reports an unreadable tree.
+            elif path.suffix == ".incomplete" and path.is_file():
                 try:
                     if path.stat().st_size == 0:
                         return f"incomplete zero-byte blob present: {path.relative_to(model_dir)}"
@@ -1920,7 +1922,13 @@ def _model_cache_corruption_reason(model_name: str) -> str | None:
             try:
                 for snapshot_dir in snapshots_dir.iterdir():
                     onnx_dir = snapshot_dir / "onnx"
-                    if not onnx_dir.is_dir():
+                    # ``os.stat`` rather than ``is_dir()``, which reads any
+                    # ``OSError`` as absent from Python 3.14 (wave 1zrak); an
+                    # unreadable snapshot reports below instead of passing.
+                    try:
+                        if not stat.S_ISDIR(os.stat(onnx_dir).st_mode):
+                            continue
+                    except (FileNotFoundError, NotADirectoryError):
                         continue
                     onnx_files = list(onnx_dir.rglob("*.onnx"))
                     if not onnx_files:

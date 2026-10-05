@@ -1009,15 +1009,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if any(char in requested_wave + doc_id for char in "/\\") or doc_id in (".", ".."):
                 self.send_error(HTTPStatus.FORBIDDEN, "Path traversal denied")
                 return
-            candidates = record_paths.discover_wave_dirs(root, roots)
             token = requested_wave.split(" ", 1)[0].lower()
-            matches = [d for d in candidates if record_paths.wave_id_of(d) == token]
-            record_filename = _vocab.RECORD_FILENAME
-            if not matches:
-                # The live roots first, then the read-only archive (wave 1z8ts).
-                archived = record_paths.discover_archive_dirs(root, roots)
-                matches = [d for d in archived if record_paths.wave_id_of(d) == token]
-                record_filename = _vocab.archive_profile().RECORD_FILENAME
+            try:
+                candidates = record_paths.discover_wave_dirs(root, roots)
+                matches = [d for d in candidates if record_paths.wave_id_of(d) == token]
+                record_filename = _vocab.RECORD_FILENAME
+                if not matches:
+                    # The live roots first, then the read-only archive (wave 1z8ts).
+                    archived = record_paths.discover_archive_dirs(root, roots)
+                    matches = [d for d in archived if record_paths.wave_id_of(d) == token]
+                    record_filename = _vocab.archive_profile().RECORD_FILENAME
+            except record_paths.RecordRootUnreadable as exc:
+                # Wave 1zrak (1zu4y): say why instead of dropping the connection;
+                # the code is the reason, the path-free diagnostic the explanation.
+                self.send_error(HTTPStatus.SERVICE_UNAVAILABLE, exc.code, exc.diagnostic)
+                return
             if len(matches) > 1:
                 self.send_error(HTTPStatus.CONFLICT, "ambiguous_wave_id")
                 return

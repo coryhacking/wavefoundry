@@ -6,6 +6,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
+import record_paths  # the discovery refusal (wave 1zrak, 1zu4y)
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 
 from .context import build_context
@@ -178,6 +179,20 @@ INCREMENTAL_FULL_FALLBACK_FILES = (
 )
 
 
+def _record_discovery_refusal(root: Path, roots) -> list[str]:
+    """Wave 1zrak (1zu4y): run the waves and archive discovery walk once, right
+    after the layout check, so a record root or record folder that cannot be
+    inspected fails closed before any validator runs (never read as "no
+    waves"). Returns the refusal as a bare failure string (``_emit`` adds the
+    ``ERROR: `` prefix), or ``[]``."""
+    try:
+        record_paths.discover_wave_dirs(root, roots)
+        record_paths.discover_archive_dirs(root, roots)
+    except record_paths.RecordRootUnreadable as exc:
+        return list(exc.diagnostics)
+    return []
+
+
 def _run_incremental_checks(root: Path):
     """Post-edit incremental lint (wave 1p9c1).
 
@@ -204,6 +219,10 @@ def _run_incremental_checks(root: Path):
     # may scan a guessed waves/plans root.
     roots = resolve_record_roots(root, failures)
     if roots is None:
+        return (failures, warnings)
+    refusal = _record_discovery_refusal(root, roots)
+    if refusal:
+        failures.extend(refusal)
         return (failures, warnings)
 
     # Wave 1y0gz: a changed doc under a record root relocated outside `docs/` is linted too.
@@ -284,11 +303,18 @@ def _run_full_checks(root: Path, args: argparse.Namespace, timings: dict | None 
     # validated once, fail-closed. `check_workflow_config` reports the `record_layout_invalid:`
     # diagnostics; when the layout is invalid the root-aware validators are skipped here rather
     # than each re-reporting the same lines, and nothing scans a guessed root.
-    layout_ok = resolve_record_roots(root) is not None
+    roots = resolve_record_roots(root)
+    layout_ok = roots is not None
 
     with _timed(timings, "corpus"):
         if not layout_ok:
             failures.extend(check_workflow_config(root))
+            return failures, warnings, infos
+        # Wave 1zrak (1zu4y): an uninspectable record root or folder skips the
+        # root-aware validators, as an invalid layout does.
+        refusal = _record_discovery_refusal(root, roots)
+        if refusal:
+            failures.extend(refusal)
             return failures, warnings, infos
         failures.extend(check_required_files(root))
         failures.extend(check_forbidden_root_wrappers(root))
@@ -417,7 +443,11 @@ def main() -> int:
     # changed docs. A changed config/corpus file returns None here → fall through to the full lint.
     # Wave 1p9c6: --timings is inert here — the incremental hot path stays quiet.
     if args.changed:
-        incremental = _run_incremental_checks(root)
+        try:
+            incremental = _run_incremental_checks(root)
+        except record_paths.RecordRootUnreadable as exc:
+            # Wave 1zrak (1zu4y): the tree changed mid-run; report the refusal, never a traceback.
+            return _emit(list(exc.diagnostics), [], [], root, args, incremental=True)
         if incremental is not None:
             failures, warnings = incremental
             # Review-fix (1p9pe follow-up hardening): distinguish "checked the changed set,
@@ -429,7 +459,12 @@ def main() -> int:
     # Wave 1p9c6: --timings records per-phase wall-clock without altering pass/fail or the exit contract.
     timings: dict | None = {} if args.timings else None
     total_start = time.perf_counter()
-    failures, warnings, infos = _run_full_checks(root, args, timings=timings)
+    try:
+        failures, warnings, infos = _run_full_checks(root, args, timings=timings)
+    except record_paths.RecordRootUnreadable as exc:
+        # Wave 1zrak (1zu4y): a refusal raised by a validator after the discovery
+        # probe (the tree changed mid-run) is reported the same way, never a traceback.
+        return _emit(list(exc.diagnostics), [], [], root, args, incremental=False)
     if timings is not None:
         timings["total"] = (time.perf_counter() - total_start) * 1000.0
         for name in ("secrets", "corpus", "metadata", "links"):

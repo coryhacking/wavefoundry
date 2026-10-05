@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sys
 import tempfile
@@ -830,6 +831,22 @@ def _contained_purge_staging_path(root: Path, memory_id: str) -> Path:
     return path
 
 
+def _purge_body_present(path: Path) -> bool:
+    """Whether a candidate purge body has a directory entry (link or not).
+
+    ``os.lstat`` rather than ``exists() or is_symlink()``, which read any
+    ``OSError`` as absent from Python 3.14 (wave 1zrak) and would hide a body
+    the purge cannot inspect from the "refusing to guess" check. Only
+    not-found and ``NotADirectoryError`` mean absent; every other ``OSError``
+    propagates to the caller's ``memory_purge_failed`` refusal.
+    """
+    try:
+        os.lstat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    return True
+
+
 def resolve_purge_memory_source(
     root: Path,
     memory_id: str,
@@ -843,7 +860,7 @@ def resolve_purge_memory_source(
         _contained_memory_subdir_path(root, memory_id, "archive"),
         _contained_purge_staging_path(root, memory_id),
     )
-    existing = [path for path in paths if path.exists() or path.is_symlink()]
+    existing = [path for path in paths if _purge_body_present(path)]
     if len(existing) > 1:
         raise ValueError(
             f"{memory_id}: multiple active, archived, or purge-staged bodies exist; "

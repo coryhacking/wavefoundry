@@ -359,46 +359,88 @@ def build_prefix(
 _PREFIX_RE = re.compile(r"^([0-9a-z]{5,6})[-\s]")
 
 
+def _md_stems(directory: Path) -> list[str]:
+    """The stems of the ``*.md`` entries of one listed directory, through the
+    ``record_paths._scandir`` seam (raises ``OSError`` as the listing does)."""
+    return [
+        name[:-3]
+        for name in (entry.name for entry in record_paths._scandir(directory))
+        if os.path.normcase(name).endswith(".md")
+    ]
+
+
 def _existing_prefixes(repo_root: Path) -> set[str]:
+    """Every lifecycle prefix already in use under the plans root, the waves
+    and archive roots, and the decision records.
+
+    Fail-closed (wave 1zrak, change 1zu4y): a prefix source that is present but
+    cannot be inspected or listed refuses through
+    ``record_paths.RecordRootUnreadable`` instead of being read as empty, so a
+    mint never hands out an id an unlisted folder may already use. A
+    dot-prefixed or symlinked candidate folder is skipped when it cannot be
+    listed, as discovery skips it."""
     prefixes: set[str] = set()
     roots = record_paths.load_record_roots(repo_root)
-    plans_dir = roots.plans
-    if plans_dir.is_dir():
-        for p in plans_dir.glob("*.md"):
-            m = _PREFIX_RE.match(p.stem)
-            if m:
-                prefixes.add(m.group(1))
-    if roots.waves.is_dir():
+
+    def add(name: str) -> None:
+        m = _PREFIX_RE.match(name)
+        if m:
+            prefixes.add(m.group(1))
+
+    def list_root(path: Path, rel: str) -> list[str]:
+        try:
+            return _md_stems(path)
+        except OSError as exc:
+            raise record_paths.RecordRootUnreadable(
+                record_paths.RECORD_ROOT_UNREADABLE_CODE, rel, record_paths._cause_label(exc)
+            ) from None
+
+    def list_folder(path: Path, top: Path, top_rel: str) -> list[str]:
+        try:
+            return _md_stems(path)
+        except OSError as exc:
+            if record_paths._refusal_exempt(path):
+                return []
+            try:
+                rel = f"{top_rel}/{path.relative_to(top).as_posix()}"
+            except ValueError:
+                rel = path.name
+            raise record_paths.RecordRootUnreadable(
+                record_paths.RECORD_FOLDER_UNREADABLE_CODE, rel, record_paths._cause_label(exc),
+                root_rel=top_rel,
+            ) from None
+
+    if record_paths.record_root_is_dir(roots.plans, roots.plans_rel):
+        for stem in list_root(roots.plans, roots.plans_rel):
+            add(stem)
+    if record_paths.record_root_is_dir(roots.waves, roots.waves_rel):
         # Wave 1y043: every candidate folder (flat or nested) contributes its
         # own prefix and the prefixes of the change docs it holds.
         candidates = record_paths.walk_wave_candidates(repo_root, roots)
         for wave_dir in candidates:
-            m = _PREFIX_RE.match(wave_dir.name)
-            if m:
-                prefixes.add(m.group(1))
-        for p in (md for wave_dir in candidates for md in wave_dir.glob("*.md")):
-            m = _PREFIX_RE.match(p.stem)
-            if m:
-                prefixes.add(m.group(1))
-    if roots.archive is not None and roots.archive.is_dir():
+            add(wave_dir.name)
+        for wave_dir in candidates:
+            for stem in list_folder(wave_dir, roots.waves, roots.waves_rel):
+                add(stem)
+    if roots.archive is not None and record_paths.record_root_is_dir(roots.archive, roots.archive_rel or ""):
         # Wave 1z8ts: archived folders and documents keep their ids, so a new
         # id must not collide with one. Names only; no archived record is read.
         candidates = record_paths.walk_wave_candidates(
             repo_root, roots, base=roots.archive,
             record_filename=record_paths.vocabulary_profile.archive_profile().RECORD_FILENAME,
         )
-        for path in [*candidates, *(md for wave_dir in candidates for md in wave_dir.glob("*.md"))]:
-            m = _PREFIX_RE.match(path.stem if path.suffix == ".md" else path.name)
-            if m:
-                prefixes.add(m.group(1))
+        for wave_dir in candidates:
+            add(wave_dir.name)
+            for stem in list_folder(wave_dir, roots.archive, roots.archive_rel or ""):
+                add(stem)
     # Wave 1p45b — also dedup against ADR stems so a new mint never collides with
-    # an existing architecture-decision record.
+    # an existing architecture-decision record. A prefix-source root like the
+    # plans root: it refuses as ``record_root_unreadable`` (wave 1zrak, 1zu4y).
+    adr_rel = "docs/architecture/decisions"
     adr_dir = repo_root / "docs" / "architecture" / "decisions"
-    if adr_dir.is_dir():
-        for p in adr_dir.glob("*.md"):
-            m = _PREFIX_RE.match(p.stem)
-            if m:
-                prefixes.add(m.group(1))
+    if record_paths.record_root_is_dir(adr_dir, adr_rel):
+        for stem in list_root(adr_dir, adr_rel):
+            add(stem)
     return prefixes
 
 
@@ -675,7 +717,9 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 0
-    except ValueError as error:
+    except (ValueError, record_paths.RecordLayoutInvalid) as error:
+        # Wave 1zrak (1zu4y): an invalid layout or an uninspectable prefix
+        # source refuses with its path-free diagnostic, never a traceback.
         print(f"lifecycle_id: error: {error}", file=sys.stderr)
         return 2
 

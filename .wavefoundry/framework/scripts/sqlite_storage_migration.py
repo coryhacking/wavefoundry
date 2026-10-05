@@ -580,6 +580,14 @@ def restore_checkpoint(root: Path) -> dict | None:
         from setup_reconciliation import validate_source_binding
         validate_source_binding(root, receipt)
         checkpoint = upgrade_lib.read_upgrade_lock(root)
+        # getattr: an older cached upgrade_lib may lack the helper (mixed
+        # versions across an upgrade); it then keeps the older refusal below.
+        unreadable_cause = getattr(upgrade_lib, "upgrade_lock_unreadable_cause", None)
+        unreadable = unreadable_cause(root) if unreadable_cause and checkpoint == {} else None
+        if unreadable is not None:
+            # Wave 1zrak: an uninspectable lock is not a foreign upgrade.
+            raise MigrationRequired("storage_setup_upgrade_lock_unreadable: "
+                                    + upgrade_lib.upgrade_lock_unreadable_message(unreadable))
         if checkpoint is not None and checkpoint.get("entry_path") != "setup":
             raise MigrationRequired("storage_setup_foreign_upgrade: checkpoint retained")
     if upgrade_lib.read_upgrade_lock(root) is None:

@@ -1523,7 +1523,7 @@ def check_wave_roots(root: Path) -> list[str]:
     # Wave 1y043: a wave id at two paths is an error from lint exactly as it is
     # from wf_current_wave, so enabling `nested` on a tree with duplicates is
     # reported before any mutation.
-    if roots.waves.is_dir():
+    if record_paths.record_root_is_dir(roots.waves, roots.waves_rel):
         failures.extend(
             record_paths.ambiguous_wave_id_diagnostics(
                 root, record_paths.discover_wave_dirs(root, roots)
@@ -1566,7 +1566,7 @@ def check_orphan_wave_ledgers(root: Path) -> list[str]:
     if roots is None:
         return failures  # invalid record layout: fail closed
     waves_root = roots.waves
-    if not waves_root.is_dir():
+    if not record_paths.record_root_is_dir(waves_root, roots.waves_rel):
         return failures
     # Wave 1y043: content-driven, so the CANDIDATE walk (every directory under
     # the discovery guards, not only folders holding a wave.md).
@@ -1993,8 +1993,13 @@ def check_memory_docs(root: Path, only: set[Path] | None = None, skip: set[Path]
     archive_reason_line = re.compile(r"^Archive reason:\s*(\S[^\r\n]*)$", re.MULTILINE)
     archive_path_line = re.compile(r"^Archive path:\s*`([^`\r\n]+)`\s*$", re.MULTILINE)
     legacy_pointer_root = memory_root / "pointers"
+    # Wave 1zrak (1zu4y): presence under the errno rule (``os.lstat``, which
+    # covers ``exists() or is_symlink()``); an uninspectable path is a blocking
+    # ``docs_lint_input_unreadable`` failure, not absence.
+    from .docs_constants_validators import input_lstat
+
     legacy_pointer_residue = (
-        legacy_pointer_root.exists() or legacy_pointer_root.is_symlink()
+        input_lstat(legacy_pointer_root, f"{MEMORY_RECORD_DIR}/pointers", failures) is not None
     )
     if legacy_pointer_residue:
         failures.append(

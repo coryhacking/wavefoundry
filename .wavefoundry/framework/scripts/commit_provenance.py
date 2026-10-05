@@ -130,7 +130,8 @@ def resolve_via_evidence(root: Path, sha: str) -> list[str]:
     canonical = canonical_commit(root, sha)
     if canonical is None:
         return []
-    if not record_paths.load_record_roots(root).waves.is_dir():
+    roots = record_paths.load_record_roots(root)
+    if not record_paths.record_root_is_dir(roots.waves, roots.waves_rel):
         return []
     found: list[str] = []
     # Wave 1y043: the shared discovery walk (flat or nested).

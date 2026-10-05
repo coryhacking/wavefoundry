@@ -5,6 +5,7 @@ import contextlib
 import hashlib
 import json
 import math
+import os
 import re
 from pathlib import Path
 from typing import Any, Iterable, Optional
@@ -12,6 +13,22 @@ from typing import Any, Iterable, Optional
 from lifecycle_gate_support import _diagnostic
 from lifecycle_lock import path_free_exception_text
 from review_evidence import read_review_event_ledger
+
+
+def _rollback_member_present(path: Path) -> bool:
+    """Whether a consolidation-rollback member exists (``Path.exists`` reading).
+
+    ``os.stat`` rather than ``Path.exists``, which reads any ``OSError`` as
+    absent from Python 3.14 (wave 1zrak) and let the rollback report itself
+    complete while a member it could not inspect remained. Only not-found and
+    ``NotADirectoryError`` mean absent; every other ``OSError`` propagates to
+    the rollback-incomplete report.
+    """
+    try:
+        os.stat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -2170,17 +2187,17 @@ def memory_consolidate_response(
         except (ValueError, FileNotFoundError, FileExistsError, OSError, RuntimeError) as exc:
             rollback_error = ""
             try:
-                if replacement_path is not None and replacement_path.exists():
+                if replacement_path is not None and _rollback_member_present(replacement_path):
                     replacement_path.unlink()
                 for source_id, content in source_snapshots.items():
                     archive_path = root / mem.MEMORY_ARCHIVE_DIR / f"{source_id}.md"
-                    if archive_path.exists():
+                    if _rollback_member_present(archive_path):
                         archive_path.unlink()
                     active_path = root / mem.MEMORY_DIR / f"{source_id}.md"
                     active_path.parent.mkdir(parents=True, exist_ok=True)
                     active_path.write_bytes(content)
                 if manifest_before is None:
-                    if manifest_path.exists():
+                    if _rollback_member_present(manifest_path):
                         manifest_path.unlink()
                 else:
                     manifest_path.parent.mkdir(parents=True, exist_ok=True)

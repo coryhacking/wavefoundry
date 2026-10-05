@@ -1,7 +1,8 @@
 """One definition of the shared index database's filename and its legacy name.
 
-Deliberately import-light (``pathlib`` only, no project imports): every runtime
-consumer of the shared semantic/graph database resolves its filename here, and
+Deliberately import-light (``os``, ``stat`` and ``pathlib`` only, no project
+imports): every runtime consumer of the shared semantic/graph database
+resolves its filename here, and
 ``upgrade_wavefoundry``'s stdlib-only probes can mirror these constants without
 importing the module at all. Adding a heavy import here would pull it into
 every store consumer and into the bootstrap-safe upgrade path.
@@ -18,6 +19,8 @@ guessed here would authorize a destructive choice between two real databases.
 """
 from __future__ import annotations
 
+import os
+import stat
 from pathlib import Path
 
 # The current shared semantic + graph database (resident schema 8 onward).
@@ -73,13 +76,19 @@ def sidecar_paths(database_path) -> tuple[Path, ...]:
 def _present(path: Path) -> bool:
     """Fail CLOSED: an undecidable probe reads as present, never as absent.
 
-    ``Path.is_file`` raises ``OSError`` (EACCES on an unreadable parent, and
-    on Python 3.13 for the path itself) rather than returning False. Reading
-    that as absence is the destructive direction — ``absent`` is the one state
-    that authorizes creating a fresh database over a file we could not read.
+    Reading an undecidable probe as absence is the destructive direction:
+    ``absent`` is the one state that authorizes creating a fresh database
+    over a file we could not read. ``Path.is_file`` cannot carry this rule:
+    from Python 3.14 it returns False on any ``OSError`` instead of raising,
+    so the probe is ``os.stat`` (``is_file`` follows links) under one errno
+    rule (wave 1zrak): only ``FileNotFoundError`` (Windows WinError 2 and 3)
+    and ``NotADirectoryError`` read as absent, and every other ``OSError``
+    (EACCES, ELOOP, Windows WinError 21, 123 and 1921) reads as present.
     """
     try:
-        return path.is_file()
+        return stat.S_ISREG(os.stat(path).st_mode)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
     except OSError:
         return True
 

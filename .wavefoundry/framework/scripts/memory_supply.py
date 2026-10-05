@@ -121,7 +121,9 @@ def resolve_wave_dir(
         return None, "wave_not_found"
     roots = record_paths.load_record_roots(root)
     live_dirs: list[Path] = []
-    if roots.waves.is_dir():
+    # Wave 1zrak (1zu4y): an uninspectable root refuses (typed, path-free)
+    # rather than reading as "no waves".
+    if record_paths.record_root_is_dir(roots.waves, roots.waves_rel):
         try:
             # Wave 1y043: the shared discovery walk (flat or nested). The flat
             # listing matches the pre-change ``iterdir`` enumeration, so

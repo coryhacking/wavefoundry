@@ -3425,10 +3425,54 @@ def _record_layout_error_response(tool: str, exc: "record_paths.RecordLayoutInva
     )
 
 
+def _record_unreadable_error_response(tool: str, exc: "record_paths.RecordLayoutInvalid") -> dict[str, Any]:
+    """Wave 1zrak (1zu4y): a waves or archive root, or a folder discovery uses
+    below it, cannot be inspected. The refusal's own code
+    (``record_root_unreadable`` / ``record_folder_unreadable``) and its
+    path-free restore-access recovery; no record was read or written. The
+    layout constants are fine, so the layout recovery text is not used."""
+    code = getattr(exc, "code", None) or record_paths.DIAGNOSTIC_CODE
+    return _response(
+        "error",
+        {"tool": tool, "record_layout_valid": True, "record_root_readable": False,
+         "diagnostics_detail": list(exc.diagnostics)},
+        diagnostics=[
+            _diagnostic(
+                code,
+                "; ".join(exc.diagnostics) + ". No record was read or written.",
+                recovery_tools=["wf_validate_docs"],
+                recovery_usage="wf_validate_docs()",
+            )
+        ],
+        next_tools=["wf_validate_docs"],
+        usage="wf_validate_docs()",
+    )
+
+
+def _resource_unavailable_on_unreadable(fn):
+    """Wave 1zrak (1zu4y): a wave or change resource whose discovery refuses an
+    uninspectable record root or folder returns a markdown ``# Unavailable``
+    page carrying the refusal's path-free diagnostic, per the resource contract
+    (a clear markdown message rather than an error). Any other exception,
+    including an invalid layout, propagates unchanged."""
+
+    @functools.wraps(fn)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return fn(*args, **kwargs)
+        except record_paths.RecordLayoutInvalid as exc:
+            if isinstance(exc, getattr(record_paths, "RecordRootUnreadable", ())):
+                return f"# Unavailable\n\n{exc.diagnostic}\n"
+            raise
+
+    return wrapped
+
+
 def _fail_closed_on_record_layout(tool: str):
     """Decorator for lifecycle response functions: convert an invalid record
-    layout, or a wave id that appears at two paths (wave 1y043), into the
-    structured refusal instead of a raised exception."""
+    layout, an uninspectable record root or folder (wave 1zrak), or a wave id
+    that appears at two paths (wave 1y043), into the structured refusal
+    instead of a raised exception."""
 
     def decorate(fn):
         @functools.wraps(fn)
@@ -3436,6 +3480,10 @@ def _fail_closed_on_record_layout(tool: str):
             try:
                 return fn(*args, **kwargs)
             except record_paths.RecordLayoutInvalid as exc:
+                # ``getattr`` with ``()``: a server reloaded over an older
+                # loaded ``record_paths`` (no such class) still refuses.
+                if isinstance(exc, getattr(record_paths, "RecordRootUnreadable", ())):
+                    return _record_unreadable_error_response(tool, exc)
                 return _record_layout_error_response(tool, exc)
             except record_paths.AmbiguousWaveId as exc:
                 return _ambiguous_wave_id_lines_response(tool, exc.diagnostics)
@@ -6751,16 +6799,63 @@ def _wave_resolution_unreadable_response(
     )
 
 
+def _refuse_unlistable_change_sources(
+    root: Path, roots: "record_paths.RecordRoots", *, archive: bool = False
+) -> list[Path]:
+    """Wave 1zrak (1zu4y): before a change lookup's ``rglob`` (which skips what
+    it cannot list), list each source it must see through
+    ``record_paths._scandir`` and refuse rather than read one as empty: the
+    plans root (``record_root_unreadable``) and every candidate folder of the
+    waves walk, as the id mint lists them (``record_folder_unreadable``;
+    discovery itself refuses an uninspectable waves root). With ``archive``, the discovered archive folders instead.
+    A dot-prefixed or symlinked folder is skipped, as discovery skips it.
+    Returns the bases to search, each present as a directory."""
+    bases: list[Path] = []
+    if archive:
+        if roots.archive is None:
+            return bases
+        top, top_rel = roots.archive, roots.archive_rel or ""
+        folders = record_paths.discover_archive_dirs(root, roots)
+    else:
+        if record_paths.record_root_is_dir(roots.plans, roots.plans_rel):
+            try:
+                record_paths._scandir(roots.plans)
+            except OSError as exc:
+                raise record_paths.RecordRootUnreadable(
+                    record_paths.RECORD_ROOT_UNREADABLE_CODE, roots.plans_rel, record_paths._cause_label(exc)
+                ) from None
+            bases.append(roots.plans)
+        top, top_rel = roots.waves, roots.waves_rel
+        # Every candidate folder, not only those holding a record, so the
+        # lookup sees what the id mint sees (a change doc in a non-wave folder).
+        folders = record_paths.walk_wave_candidates(root, roots)
+    for folder in folders:
+        try:
+            record_paths._scandir(folder)
+        except OSError as exc:
+            if record_paths._refusal_exempt(folder):
+                continue
+            try:
+                rel = f"{top_rel}/{folder.relative_to(top).as_posix()}"
+            except ValueError:
+                rel = folder.name
+            raise record_paths.RecordRootUnreadable(
+                record_paths.RECORD_FOLDER_UNREADABLE_CODE, rel, record_paths._cause_label(exc), root_rel=top_rel
+            ) from None
+    if record_paths.record_root_is_dir(top, top_rel):
+        bases.append(top)
+    return bases
+
+
 def _resolve_change_doc_matches(root: Path, change_id_prefix: str) -> list[dict[str, Any]]:
     token = (change_id_prefix or "").strip().lower()
     if not token:
         return []
     matches: list[dict[str, Any]] = []
     roots = record_paths.load_record_roots(root)
-    search_dirs = [roots.plans, roots.waves]
+    # Wave 1zrak (1zu4y): refuse a source the ``rglob`` below cannot list.
+    search_dirs = _refuse_unlistable_change_sources(root, roots)
     for base in search_dirs:
-        if not base.exists():
-            continue
         for p in base.rglob("*.md"):
             if p.name == _vocab.RECORD_FILENAME:
                 continue
@@ -6836,7 +6931,10 @@ def _archived_change_matches(root: Path, change_id_prefix: str) -> list[dict[str
     profile = _vocab.archive_profile()
     id_pattern = re.compile(rf"^{profile.MEMBER_ID_LABEL_RE}:\s+`([^`]+)`", re.MULTILINE)
     matches: list[dict[str, Any]] = []
-    for p in sorted(record_paths.load_record_roots(root).archive.rglob("*.md")):
+    archive_roots = record_paths.load_record_roots(root)
+    # Wave 1zrak (1zu4y): refuse an archived folder the ``rglob`` cannot list.
+    _refuse_unlistable_change_sources(root, archive_roots, archive=True)
+    for p in sorted(archive_roots.archive.rglob("*.md")):
         if p.name == profile.RECORD_FILENAME or not _archive_file_ok(p, archive_real):
             continue
         try:
@@ -9189,7 +9287,8 @@ def _audit_commit_governance(root: Path) -> dict[str, Any]:
 
     # Collect known wave/change ID prefixes from the waves root
     known_ids: set[str] = set()
-    if record_paths.load_record_roots(root).waves.is_dir():
+    _gov_roots = record_paths.load_record_roots(root)
+    if record_paths.record_root_is_dir(_gov_roots.waves, _gov_roots.waves_rel):
         for entry in record_paths.walk_wave_candidates(root):
             if entry.is_dir():
                 # wave-id prefix like "12ecs"
@@ -24827,6 +24926,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         description="Current active wave record. Equivalent to calling wf_current_wave() but returned as markdown text.",
         mime_type="text/markdown",
     )
+    @_resource_unavailable_on_unreadable
     def resource_current_wave() -> str:
         """Return the current active wave.md as markdown text."""
         root = get_handler().root
@@ -24864,6 +24964,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         description="Read a change doc by ID or prefix. Returns the raw markdown content.",
         mime_type="text/markdown",
     )
+    @_resource_unavailable_on_unreadable
     def resource_change(change_id: str) -> str:
         """Return the change doc matching the given ID or prefix."""
         root = get_handler().root
@@ -24897,6 +24998,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         description="Read a wave record (wave.md) by ID or prefix. Returns the raw markdown content.",
         mime_type="text/markdown",
     )
+    @_resource_unavailable_on_unreadable
     def resource_wave(wave_id: str) -> str:
         """Return the wave.md for the given wave ID or prefix."""
         root = get_handler().root
@@ -25244,6 +25346,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         description="Markdown summary of all wave records and their statuses.",
         mime_type="text/markdown",
     )
+    @_resource_unavailable_on_unreadable
     def resource_waves() -> str:
         """Return a markdown summary of all waves — one ## heading per wave with status and change list."""
         _root = get_handler().root

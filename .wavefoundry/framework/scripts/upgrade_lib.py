@@ -53,15 +53,59 @@ def upgrade_lock_path(root: Path) -> Path:
     return root / ".wavefoundry" / UPGRADE_LOCK_FILENAME
 
 
+UPGRADE_LOCK_REL = f".wavefoundry/{UPGRADE_LOCK_FILENAME}"
+
+
+def upgrade_lock_unreadable_cause(root: Path) -> str | None:
+    """The cause, as errno text, when the lock exists but cannot be inspected.
+
+    ``None`` when the lock is absent (not-found or ``NotADirectoryError``) or
+    readable. Lets a caller tell an uninspectable lock, which
+    :func:`read_upgrade_lock` returns as ``{}``, from a corrupt one, and refuse
+    with :func:`upgrade_lock_unreadable_message` instead of assuming an
+    upgrade it cannot see (wave 1zrak).
+    """
+    p = upgrade_lock_path(root)
+    try:
+        os.stat(p)
+        with open(p, "rb"):
+            pass
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except OSError as exc:
+        code = exc.errno
+        return os.strerror(code) if isinstance(code, int) and code > 0 else type(exc).__name__
+    return None
+
+
+def upgrade_lock_unreadable_message(cause: str) -> str:
+    """Path-free refusal for an upgrade lock that cannot be inspected."""
+    return (
+        f"{UPGRADE_LOCK_REL} cannot be inspected ({cause}). Restore access to "
+        f"{UPGRADE_LOCK_REL}, or remove it if no upgrade is running, then re-run "
+        "the command."
+    )
+
+
 def read_upgrade_lock(root: Path) -> dict[str, Any] | None:
     """Return the lock file contents, or None if no lock is present.
 
-    Returns an empty dict (truthy for 'lock present') on read/parse errors so
-    callers treat a corrupt lock conservatively — assume upgrade is in progress.
+    Returns an empty dict on read/parse errors and when the lock cannot be
+    inspected. The empty dict is falsy, so callers test ``is not None`` for
+    "lock present" and treat it conservatively: assume an upgrade is in
+    progress. :func:`upgrade_lock_unreadable_cause` tells an uninspectable
+    lock from a corrupt one.
     """
     p = upgrade_lock_path(root)
-    if not p.exists():
+    # ``os.stat`` rather than ``Path.exists``, which reads any ``OSError`` as
+    # absent from Python 3.14 (wave 1zrak): only not-found and
+    # ``NotADirectoryError`` mean no lock; an undetermined lock is present.
+    try:
+        os.stat(p)
+    except (FileNotFoundError, NotADirectoryError):
         return None
+    except OSError:
+        return {}
     try:
         return json.loads(p.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -178,6 +222,9 @@ def update_upgrade_lock(root: Path, **fields: Any) -> bool:
     lock = read_upgrade_lock(root)
     if lock is None:
         return False
+    if not lock and upgrade_lock_unreadable_cause(root) is not None:
+        # Never replace a lock this process cannot read with ``fields`` alone.
+        return False
     lock.update(fields)
     p = upgrade_lock_path(root)
     try:
@@ -220,6 +267,9 @@ def is_lock_stale(root: Path) -> bool:
     """
     lock = read_upgrade_lock(root)
     if lock is None:
+        return False
+    if not lock and upgrade_lock_unreadable_cause(root) is not None:
+        # The recorded PID cannot be read, so the lock cannot be proven stale.
         return False
     pid = lock.get("pid")
     if not isinstance(pid, int) or pid <= 0:

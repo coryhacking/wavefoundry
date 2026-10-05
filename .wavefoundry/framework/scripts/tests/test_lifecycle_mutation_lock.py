@@ -1585,3 +1585,72 @@ class MemoryToolPublicationRefusalTests(unittest.TestCase):
         self.assertRegex(message, r"^OSError EIO; rollback incomplete: PermissionError EACCES on [^/].*mem-alpha-\w+\.md$")
         self._assert_path_free(result)
         self.assertNotIn("/elsewhere", json.dumps(result))
+
+    # Wave 1zrak (1zraj): Python 3.14 ``Path.exists`` reads an uninspectable
+    # rollback member as absent, so the rollback reported itself complete
+    # while a partial archive body it could not inspect remained.
+
+    def _consolidate_with_partial_archive(self, after_write):
+        import errno
+
+        mem = srv._load_script("memory_records")
+        archive_dir = self.root / mem.MEMORY_ARCHIVE_DIR
+        written = []
+
+        def partial_archive(_root, memory_id, *args, **kwargs):
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            body = archive_dir / f"{memory_id}.md"
+            body.write_text("partial archive body\n", encoding="utf-8")
+            written.append(body)
+            after_write(archive_dir, body)
+            raise OSError(errno.EIO, "I/O error", "/elsewhere/x.md")
+
+        with patch.object(mem, "archive_memory_record", side_effect=partial_archive):
+            result = self._guarded("memory_consolidate")[0]()
+        return result, written
+
+    def _assert_rollback_reported_incomplete(self, result, written):
+        self.assertEqual(len(written), 1, result)
+        self.assertIs(result["data"]["rollback_completed"], False, result)
+        self.assertRegex(
+            result["diagnostics"][0]["message"],
+            r"^OSError EIO; rollback incomplete: PermissionError EACCES",
+        )
+        self._assert_path_free(result)
+
+    def test_an_untraversable_archive_member_is_reported_rollback_incomplete(self):
+        if os.name == "nt":
+            self.skipTest("chmod 0 does not deny directory traversal on Windows; the patched os.stat pin covers it")
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            self.skipTest("root ignores mode 0")
+        locked = []
+
+        def lock_archive(archive_dir, _body):
+            os.chmod(archive_dir, 0)
+            locked.append(archive_dir)
+
+        try:
+            result, written = self._consolidate_with_partial_archive(lock_archive)
+        finally:
+            for archive_dir in locked:
+                os.chmod(archive_dir, 0o755)
+        self._assert_rollback_reported_incomplete(result, written)
+
+    def test_a_denied_archive_member_stat_is_reported_rollback_incomplete(self):
+        import errno
+
+        real_stat = os.stat
+        denied = set()
+
+        def deny_body(_archive_dir, body):
+            denied.update({os.path.abspath(body), os.path.realpath(body)})
+
+        def fake_stat(path, *args, **kwargs):
+            if (kwargs.get("follow_symlinks", True) and not isinstance(path, int)
+                    and os.path.abspath(os.fspath(path)) in denied):
+                raise PermissionError(errno.EACCES, "Permission denied", os.fspath(path))
+            return real_stat(path, *args, **kwargs)
+
+        with patch("os.stat", fake_stat):
+            result, written = self._consolidate_with_partial_archive(deny_body)
+        self._assert_rollback_reported_incomplete(result, written)

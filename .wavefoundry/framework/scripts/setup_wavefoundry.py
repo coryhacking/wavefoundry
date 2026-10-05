@@ -24,6 +24,8 @@ from __future__ import annotations
 import importlib.util
 import argparse
 import json
+import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -217,7 +219,15 @@ def _provision_workflow_defaults_if_absent(root: Path) -> int:
     try:
         defaults_path = _workflow_defaults_path(root)
         defaults = json.loads(defaults_path.read_text(encoding="utf-8"))
-        data = json.loads(cfg.read_text(encoding="utf-8")) if cfg.is_file() else {}
+        # ``os.stat`` rather than ``cfg.is_file()``, which reads any
+        # ``OSError`` as absent from Python 3.14 (wave 1zrak) and would replace
+        # a config setup could not inspect with the defaults alone. Only
+        # not-found and ``NotADirectoryError`` mean absent.
+        try:
+            cfg_is_file = stat.S_ISREG(os.stat(cfg).st_mode)
+        except (FileNotFoundError, NotADirectoryError):
+            cfg_is_file = False
+        data = json.loads(cfg.read_text(encoding="utf-8")) if cfg_is_file else {}
     except (OSError, json.JSONDecodeError, RuntimeError) as exc:
         print(
             f"ERROR: workflow config defaults could not be provisioned ({exc}); "

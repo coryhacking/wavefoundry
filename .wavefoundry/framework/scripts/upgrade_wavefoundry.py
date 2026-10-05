@@ -438,7 +438,13 @@ def _scan_dir_entries(search_dir: Path) -> "list | None":
     on ``~/Downloads``) is logged + recorded via ``_record_skipped_scan_location`` and skipped — it
     never propagates, so one inaccessible location cannot abort pack discovery (1p8xl)."""
     try:
-        if not search_dir.is_dir():
+        # ``os.stat`` rather than ``is_dir()``, which reads any ``OSError`` as
+        # "not a directory" from Python 3.14 (wave 1zrak) and would skip an
+        # inaccessible location silently instead of recording it.
+        try:
+            if not stat.S_ISDIR(os.stat(search_dir).st_mode):
+                return None
+        except (FileNotFoundError, NotADirectoryError):
             return None
         return list(search_dir.iterdir())
     except OSError as exc:
@@ -1313,7 +1319,14 @@ def phase_dry_run(root: Path) -> int:
     # Advisory lock check
     existing_lock = upgrade_lib.read_upgrade_lock(root)
     if existing_lock is not None:
-        if upgrade_lib.is_lock_stale(root):
+        # Wave 1zrak: name an uninspectable lock as such, path-free, the same
+        # way the real run's preflight refuses it. getattr: an older cached
+        # upgrade_lib may lack the helper.
+        unreadable_cause = getattr(upgrade_lib, "upgrade_lock_unreadable_cause", None)
+        unreadable = unreadable_cause(root) if unreadable_cause and not existing_lock else None
+        if unreadable is not None:
+            _log(f"⚠  {upgrade_lib.upgrade_lock_unreadable_message(unreadable)}")
+        elif upgrade_lib.is_lock_stale(root):
             _log("⚠  Stale upgrade lock detected (PID not running) — would be cleared on real run.")
         else:
             _log("⚠  Upgrade already in progress (lock file present and PID is running).")
@@ -1496,6 +1509,14 @@ def phase_preflight(
     # Check for existing lock
     existing_lock = upgrade_lib.read_upgrade_lock(root)
     if existing_lock is not None:
+        # Wave 1zrak: an uninspectable lock is neither a live nor a stale
+        # upgrade; refuse with its own path-free cause and recovery. getattr:
+        # an older cached upgrade_lib may lack the helper.
+        unreadable_cause = getattr(upgrade_lib, "upgrade_lock_unreadable_cause", None)
+        unreadable = unreadable_cause(root) if unreadable_cause and not existing_lock else None
+        if unreadable is not None:
+            _err(upgrade_lib.upgrade_lock_unreadable_message(unreadable))
+            sys.exit(3)
         import sqlite_storage_migration
         receipt = sqlite_storage_migration.read_receipt(root / ".wavefoundry/index")
         restored_owner = bool(receipt and receipt["state"] != "complete"
@@ -2085,11 +2106,61 @@ def _atomic_write_text(path: Path, text: str, label: str) -> None:
         temp.unlink(missing_ok=True)
 
 
+def _path_free_cause(exc: BaseException) -> str:
+    """The cause of ``exc`` without the absolute path its message embeds.
+
+    ``OSError.__str__``, ``RuntimeLockError`` messages and the symlink-loop
+    message all carry the absolute filesystem path, so the cause is the
+    errno text, or the exception type when there is no errno.
+    """
+
+    code = getattr(exc, "errno", None)
+    if isinstance(code, int) and code > 0:
+        return os.strerror(code)
+    return type(exc).__name__
+
+
+def _retired_sidecar_member_lstat(member: Path) -> os.stat_result | None:
+    """``lstat`` one retired-sidecar path member; ``None`` only when absent.
+
+    Python 3.14 ``pathlib`` predicates return ``False`` on any ``OSError``, so
+    they cannot tell an absent member from one the guard could not inspect.
+    The errno rule follows ``review_evidence._authority_member_lstat`` (wave
+    1zqe4): only ``FileNotFoundError`` (Windows WinError 2 and 3) and
+    ``NotADirectoryError`` read as absent; access denial, ``ELOOP`` and every
+    other ``OSError`` propagate to the "not safely resolvable" refusal.
+    Stdlib-only, because this guard runs on both sides of the extraction
+    boundary.
+    """
+
+    try:
+        return os.lstat(member)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+
+
+def _record_layout_refusal(exc: BaseException) -> str:
+    """Path-free retired-sidecar refusal for an invalid record layout.
+
+    The layout diagnostics name the offending ``record_paths`` constant by its
+    configured value, never by an absolute path.
+    """
+
+    return (
+        f"{exc}. Correct the record layout, then re-run the upgrade so the "
+        "retired-sidecar cleanup runs again."
+    )
+
+
 def _retired_sidecar_path_error(root: Path, candidate: Path) -> str | None:
     """Prove a fixed-name retired sidecar resolves inside the repository.
 
     Deletion is confined: a symlinked ``docs/waves`` parent or a symlinked
     candidate refuses cleanup, and an outside-root sentinel is left untouched.
+    Path state comes from ``os.lstat`` under one errno rule (see
+    ``_retired_sidecar_member_lstat``), so an undetermined path refuses on
+    Python 3.11 through 3.14, and the refusal names the member, the cause and
+    the recovery without an absolute path.
     """
 
     import record_paths  # record roots (wave 1y0gz); lazy like the other sibling imports
@@ -2097,26 +2168,35 @@ def _retired_sidecar_path_error(root: Path, candidate: Path) -> str | None:
     try:
         roots = record_paths.load_record_roots(root)
     except record_paths.RecordLayoutInvalid as exc:
-        return str(exc)
+        return _record_layout_refusal(exc)
     waves_rel = roots.waves_rel
+    member = "the repository root"
     try:
         root_real = root.resolve(strict=True)
         waves_dir = roots.waves
-        if waves_dir.is_symlink():
-            return f"{waves_rel} may not be a symlink"
-        if not waves_dir.exists():
+        member = waves_rel
+        waves_stat = _retired_sidecar_member_lstat(waves_dir)
+        if waves_stat is None:
             return None
+        if stat.S_ISLNK(waves_stat.st_mode):
+            return f"{waves_rel} may not be a symlink"
         waves_real = waves_dir.resolve(strict=True)
         if not waves_real.is_relative_to(root_real):
             return f"{waves_rel} escapes the repository root"
-        if candidate.is_symlink():
+        member = f"{waves_rel}/{candidate.name}"
+        candidate_stat = _retired_sidecar_member_lstat(candidate)
+        if candidate_stat is not None and stat.S_ISLNK(candidate_stat.st_mode):
             return f"{candidate.name} may not be a symlink"
-        if candidate.exists() and not candidate.resolve(strict=True).is_relative_to(
-            waves_real
-        ):
+        if candidate_stat is not None and not candidate.resolve(
+            strict=True
+        ).is_relative_to(waves_real):
             return f"{candidate.name} escapes {waves_rel}"
     except (OSError, RuntimeError) as exc:
-        return f"retired sidecar path is not safely resolvable: {exc}"
+        return (
+            f"retired sidecar path is not safely resolvable: {member}: "
+            f"{_path_free_cause(exc)}. Restore access to {waves_rel}, then "
+            "re-run the upgrade so the retired-sidecar cleanup runs again."
+        )
     return None
 
 
@@ -2201,20 +2281,24 @@ def phase_review_evidence_sidecar_cleanup(
     legacy_root_lock = root / _LEGACY_V1_13_ROOT_LOCK_REL
     legacy_preexisting = legacy_root_lock.exists()
 
-    def _acquire_held(label: str, lock: "RuntimeFileLock") -> None:
+    # Every refusal raised from an exception below is path-free (wave 1zrak):
+    # it names the member by its repository-relative spelling, the cause by
+    # its errno text, and the recovery.
+    def _acquire_held(label: str, lock: "RuntimeFileLock", rel: Path) -> None:
         try:
             lock.acquire()
         except RuntimeLockBusy:
             raise SystemExit(
-                f"the {label} project-state publication lock at {lock.path} is "
+                f"the {label} project-state publication lock at {rel.as_posix()} is "
                 "held by a running process. Stop the dashboard and every "
                 "attached MCP/agent host, then re-run the upgrade; "
                 "mixed-version lifecycle mutation during upgrade is unsupported."
             )
         except RuntimeLockError as exc:
             raise SystemExit(
-                f"cannot prove the {label} publication lock at {lock.path} is "
-                f"released: {exc}"
+                f"cannot prove the {label} publication lock at {rel.as_posix()} is "
+                f"released: {_path_free_cause(exc)}. Stop the dashboard and "
+                "every attached MCP/agent host, then re-run the upgrade."
             )
 
     current_lock = RuntimeFileLock(
@@ -2223,16 +2307,19 @@ def phase_review_evidence_sidecar_cleanup(
     legacy_lock = RuntimeFileLock(legacy_root_lock, blocking=False)
 
     if not current_lock_held:
-        _acquire_held("current", current_lock)
+        _acquire_held("current", current_lock, PROJECT_STATE_PUBLICATION_LOCK_REL)
     try:
-        _acquire_held("v1.13 root", legacy_lock)
+        _acquire_held("v1.13 root", legacy_lock, _LEGACY_V1_13_ROOT_LOCK_REL)
         try:
             import record_paths  # record roots (wave 1y0gz); lazy like the other sibling imports
 
             try:
-                waves_dir = record_paths.load_record_roots(root).waves
+                roots = record_paths.load_record_roots(root)
             except record_paths.RecordLayoutInvalid as exc:
-                raise SystemExit(f"refusing retired-sidecar cleanup: {exc}")
+                raise SystemExit(
+                    f"refusing retired-sidecar cleanup: {_record_layout_refusal(exc)}"
+                )
+            waves_dir = roots.waves
             for name in (
                 "review-evidence-adoptions.json",
                 "review-evidence-migration.json",
@@ -2241,21 +2328,32 @@ def phase_review_evidence_sidecar_cleanup(
                 error = _retired_sidecar_path_error(root, candidate)
                 if error:
                     raise SystemExit(f"refusing retired-sidecar cleanup: {error}")
-                if candidate.exists():
-                    try:
+                try:
+                    # ``os.lstat`` under the guard's errno rule, not
+                    # ``Path.exists``, which reads an error as absent on 3.14.
+                    if _retired_sidecar_member_lstat(candidate) is not None:
                         candidate.unlink()
                         counts["removed_sidecars"] += 1
-                    except OSError as exc:
-                        raise SystemExit(
-                            f"cannot remove retired sidecar {name}: {exc}"
-                        )
+                except OSError as exc:
+                    raise SystemExit(
+                        f"cannot remove retired sidecar {name}: "
+                        f"{_path_free_cause(exc)}. Restore write access to "
+                        f"{roots.waves_rel}, then re-run the upgrade so the "
+                        "retired-sidecar cleanup runs again."
+                    )
             # The root-lock carrier is released and then unlinked LAST (see
             # docstring: Windows cannot delete an open locked file).
             try:
                 legacy_lock.release()
                 legacy_root_lock.unlink()
             except (OSError, RuntimeLockError) as exc:
-                raise SystemExit(f"cannot remove the stale v1.13 root lock: {exc}")
+                raise SystemExit(
+                    "cannot remove the stale v1.13 root lock "
+                    f"{_LEGACY_V1_13_ROOT_LOCK_REL.as_posix()}: "
+                    f"{_path_free_cause(exc)}. Restore write access to "
+                    f"{_LEGACY_V1_13_ROOT_LOCK_REL.parent.as_posix()}, then "
+                    "re-run the upgrade."
+                )
             if legacy_preexisting:
                 counts["removed_stale_root_lock"] = 1
         except BaseException:
@@ -4798,17 +4896,51 @@ def materialize_lifecycle_policy(root: Path) -> str:
 
     cfg = root / "docs" / "workflow-config.json"
     data: dict = {}
-    if cfg.is_file():
+    # ``os.stat`` rather than ``cfg.is_file()``, which reads any ``OSError``
+    # as absent from Python 3.14 (wave 1zrak) and would overwrite a config
+    # the upgrade could not inspect. Only not-found and ``NotADirectoryError``
+    # mean absent.
+    try:
+        cfg_is_file = stat.S_ISREG(os.stat(cfg).st_mode)
+    except (FileNotFoundError, NotADirectoryError):
+        cfg_is_file = False
+    except OSError as exc:
+        raise RuntimeError(
+            "lifecycle policy: docs/workflow-config.json could not be inspected "
+            f"({_path_free_cause(exc)}); refusing to overwrite a file the upgrade "
+            "cannot read. Restore access to docs/workflow-config.json, then "
+            "re-run the upgrade."
+        ) from exc
+    if cfg_is_file:
         try:
             data = json.loads(cfg.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+        except json.JSONDecodeError as exc:
+            # Path-free (wave 1zrak): the decoder's position, never ``{cfg}``.
             raise RuntimeError(
-                f"lifecycle policy: {cfg} exists but could not be parsed ({exc}); "
-                "refusing to overwrite a corrupt-but-recoverable file — fix the JSON and re-run"
+                "lifecycle policy: docs/workflow-config.json exists but could not "
+                f"be parsed ({exc.msg} at line {exc.lineno} column {exc.colno}); "
+                "refusing to overwrite a corrupt-but-recoverable file. Fix the "
+                "JSON in docs/workflow-config.json, then re-run the upgrade."
+            ) from exc
+        except UnicodeDecodeError as exc:
+            raise RuntimeError(
+                "lifecycle policy: docs/workflow-config.json exists but is not "
+                f"valid UTF-8 (byte {exc.start}); refusing to overwrite a "
+                "corrupt-but-recoverable file. Save docs/workflow-config.json as "
+                "UTF-8, then re-run the upgrade."
+            ) from exc
+        except OSError as exc:
+            raise RuntimeError(
+                "lifecycle policy: docs/workflow-config.json exists but could not "
+                f"be read ({_path_free_cause(exc)}); refusing to overwrite a file "
+                "the upgrade cannot read. Restore access to "
+                "docs/workflow-config.json, then re-run the upgrade."
             ) from exc
         if not isinstance(data, dict):
             raise RuntimeError(
-                f"lifecycle policy: {cfg} must contain a JSON object at the top level"
+                "lifecycle policy: docs/workflow-config.json must contain a JSON "
+                f"object at the top level, not {type(data).__name__}. Make its top "
+                "level an object, then re-run the upgrade."
             )
 
     policy = data.get("lifecycle_id_policy")

@@ -72,7 +72,11 @@ class ShippedLayoutTests(_TempRoot):
                 names.update(alias.name.split(".")[0] for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module:
                 names.add(node.module.split(".")[0])
-        self.assertEqual(names, {"__future__", "os", "dataclasses", "pathlib", "vocabulary_profile"})
+        # Wave 1zrak (1zu4y): ``errno`` and ``stat`` (stdlib) decide a record
+        # root's state under the errno rule and name the cause path-free.
+        self.assertEqual(
+            names, {"__future__", "errno", "os", "stat", "dataclasses", "pathlib", "vocabulary_profile"}
+        )
 
     def test_vocabulary_profile_is_stdlib_only(self):
         # Wave 1z8mm: record_paths' one sibling import stays stdlib-only too.

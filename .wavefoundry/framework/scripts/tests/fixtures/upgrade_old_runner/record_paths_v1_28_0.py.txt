@@ -26,9 +26,7 @@ rendered path are byte-identical.
 """
 from __future__ import annotations
 
-import errno
 import os
-import stat
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 
@@ -55,18 +53,6 @@ CONSTANT_NAMES = ("WAVES_ROOT", "PLANS_ROOT", "NESTED", "MAX_DEPTH")
 
 AMBIGUOUS_WAVE_ID_CODE = "ambiguous_wave_id"
 DIAGNOSTIC_CODE = "record_layout_invalid"
-RECORD_ROOT_UNREADABLE_CODE = "record_root_unreadable"
-RECORD_FOLDER_UNREADABLE_CODE = "record_folder_unreadable"
-
-# Wave 1zrak (1zu4y): an in-place reload (``upgrade_extensions._reload_in_place``,
-# including the copy a v1.28.0 runner ships) re-executes this module in its own
-# namespace and then rebinds only the exception classes the OLD module had. Read
-# the class the old holders captured BEFORE the statement below re-defines it, so
-# ``RecordRootUnreadable`` subclasses that object and every old-bound
-# ``except RecordLayoutInvalid`` still catches it. ``None`` on a fresh import.
-# Keep this read above the class statement: the AC-6 reload pin in
-# ``tests/test_record_discovery_fail_closed.py`` fails if it moves below it.
-_PRIOR_RECORD_LAYOUT_INVALID = globals().get("RecordLayoutInvalid")
 
 
 class RecordLayoutInvalid(Exception):
@@ -93,89 +79,6 @@ class AmbiguousWaveId(Exception):
     def __init__(self, diagnostics: list[str]) -> None:
         super().__init__("; ".join(diagnostics))
         self.diagnostics = list(diagnostics)
-
-
-_RECORD_LAYOUT_INVALID_BASE = (
-    _PRIOR_RECORD_LAYOUT_INVALID
-    if isinstance(_PRIOR_RECORD_LAYOUT_INVALID, type) and issubclass(_PRIOR_RECORD_LAYOUT_INVALID, Exception)
-    else RecordLayoutInvalid
-)
-
-
-def _cause_label(exc: BaseException) -> str:
-    """The exception class and errno name, without the exception's text (the
-    same form as ``lifecycle_lock._cause_label``; repeated here because this
-    module imports nothing from the project but ``vocabulary_profile``)."""
-    code = errno.errorcode.get(getattr(exc, "errno", None) or 0)
-    return f"{type(exc).__name__} {code}" if code else type(exc).__name__
-
-
-class RecordRootUnreadable(_RECORD_LAYOUT_INVALID_BASE):
-    """A record root, or a folder discovery uses below it, cannot be inspected
-    (wave 1zrak, change 1zu4y). Fail-closed: discovery refuses rather than
-    reading the root or folder as absent, so no tool acts on a partial view.
-
-    ``code`` is ``record_root_unreadable`` (the waves or archive root itself)
-    or ``record_folder_unreadable`` (a folder below it). The text is path-free:
-    the repository-relative path, the exception class and errno name, and the
-    recovery; never ``strerror`` or an absolute path. Subclasses
-    :class:`RecordLayoutInvalid` (reload-safe, see
-    ``_PRIOR_RECORD_LAYOUT_INVALID``) so every fail-closed or observational
-    handler of an invalid layout handles it unchanged."""
-
-    def __init__(self, code: str, rel: str, cause: str, *, root_rel: "str | None" = None) -> None:
-        if code == RECORD_FOLDER_UNREADABLE_CODE:
-            line = (
-                f"{code}: {rel}: cannot be inspected ({cause}); restore read and search access to {rel}, "
-                f"or move it out of {root_rel} if it is not a wave folder, then retry"
-            )
-        else:
-            line = f"{code}: {rel}: cannot be inspected ({cause}); restore read and search access to {rel}, then retry"
-        super().__init__([line])
-        self.code = code
-        self.rel = rel
-        self.cause = cause
-        self.root_rel = root_rel
-        self.diagnostic = line
-
-
-def record_root_is_dir(path: Path, rel: str) -> bool:
-    """Decide a record root's state with ``os.stat`` (following links, as
-    ``Path.is_dir`` did): ``True`` for a directory, ``False`` when it is absent
-    or not a directory. Python 3.14 ``pathlib`` predicates return ``False`` on
-    ANY ``OSError``, so only ``FileNotFoundError`` and ``NotADirectoryError``
-    mean absent here; every other ``OSError`` raises
-    :class:`RecordRootUnreadable` naming ``rel`` (the 1zraj errno rule, as
-    ``review_evidence._authority_member_lstat``)."""
-    try:
-        st = os.stat(path)
-    except (FileNotFoundError, NotADirectoryError):
-        return False
-    except OSError as exc:
-        raise RecordRootUnreadable(RECORD_ROOT_UNREADABLE_CODE, rel, _cause_label(exc)) from None
-    return stat.S_ISDIR(st.st_mode)
-
-
-def _refusal_exempt(path: Path) -> bool:
-    """A dot-prefixed name or a symlink (by ``lstat``): discovery never refuses
-    these (wave 1zrak, change 1zu4y, Requirement 4), so a caller that lists a
-    discovered folder skips one it cannot list instead of refusing."""
-    if Path(path).name.startswith("."):
-        return True
-    try:
-        return stat.S_ISLNK(os.lstat(path).st_mode)
-    except OSError:
-        return False
-
-
-def _scandir(path: Path) -> list:
-    """The one listing seam of the discovery walk and the id mint (wave 1zrak,
-    change 1zu4y): ``os.scandir`` entries, materialized. ``Path.iterdir`` and
-    ``Path.glob`` are not used there because their implementation moved
-    between Python 3.11 and 3.14; tests patch this function to raise for one
-    target path. Raises ``OSError`` as ``os.scandir`` does."""
-    with os.scandir(path) as entries:
-        return list(entries)
 
 
 @dataclass(frozen=True)
@@ -535,89 +438,28 @@ def unvalidated_record_roots(root: Path) -> RecordRoots:
 # Wave record discovery (1y043)
 # ---------------------------------------------------------------------------
 
-class _Walk:
-    """One discovery walk's refusal context (wave 1zrak, change 1zu4y): the
-    walked root, its repository-relative spelling, and the flat-layout entries
-    exempt from refusal (dot-prefixed names and symlinks)."""
-
-    def __init__(self, top: Path, top_rel: str) -> None:
-        self.top = top
-        self.top_rel = top_rel
-        self.exempt: set[Path] = set()
-
-    def rel(self, directory: Path) -> str:
-        if directory == self.top:
-            return self.top_rel
-        try:
-            tail = directory.relative_to(self.top).as_posix()
-        except ValueError:
-            return directory.name
-        return f"{self.top_rel}/{tail}"
-
-    def refusal(self, directory: Path, exc: OSError) -> RecordRootUnreadable:
-        """The refusal naming ``directory``: the root code for the walked root
-        itself, the folder code (with the move-it-out recovery) below it."""
-        if directory == self.top:
-            return RecordRootUnreadable(RECORD_ROOT_UNREADABLE_CODE, self.top_rel, _cause_label(exc))
-        return RecordRootUnreadable(
-            RECORD_FOLDER_UNREADABLE_CODE, self.rel(directory), _cause_label(exc), root_rel=self.top_rel
-        )
-
-
-def _list_subdirs(directory: Path, *, guarded: bool = True, walk: "_Walk | None" = None) -> list[Path]:
+def _list_subdirs(directory: Path, *, guarded: bool = True) -> list[Path]:
     """Sorted child directories. With ``guarded`` (the nested walk) symlinked
     and dot-prefixed entries are skipped; without it (the flat layout) the
     listing matches the pre-change ``iterdir`` enumeration, so a symlinked
     wave folder is still found and refused downstream by the record-writer
     path-escape guards rather than silently vanishing. Files are never
     candidates in either mode. The single walk primitive; tests instrument it
-    to prove depth and call bounds.
-
-    With ``walk`` (every discovery walk), a listing ``OSError`` and an entry's
-    own ``lstat`` failure refuse through :class:`RecordRootUnreadable` naming
-    ``directory`` (wave 1zrak, change 1zu4y): an entry's ``lstat`` fails only
-    when its parent cannot be searched. Dot-prefixed names never refuse (the
-    nested walk skips them before any stat); a symlink never refuses because
-    of its target (the flat walk keeps its pre-change handling: a candidate
-    when the target stats as a directory). Flat-layout dot-prefixed and
-    symlinked candidates are recorded in ``walk.exempt``."""
+    to prove depth and call bounds."""
     try:
-        entries = _scandir(directory)
-    except OSError as exc:
-        if walk is not None:
-            raise walk.refusal(directory, exc) from None
+        entries = list(directory.iterdir())
+    except OSError:
         return []
     out = []
-    for entry in sorted(entries, key=lambda e: e.name):
-        path = directory / entry.name
-        dotted = entry.name.startswith(".")
-        if guarded and dotted:
+    for entry in sorted(entries, key=lambda p: p.name):
+        if guarded and entry.name.startswith("."):
             continue
         try:
-            entry_stat = os.lstat(path)
-        except (FileNotFoundError, NotADirectoryError):
-            continue  # vanished after the listing
-        except OSError as exc:
-            if walk is not None and not dotted:
-                raise walk.refusal(directory, exc) from None
-            continue
-        if stat.S_ISLNK(entry_stat.st_mode):
-            if guarded:
+            if (guarded and entry.is_symlink()) or not entry.is_dir():
                 continue
-            try:
-                if not stat.S_ISDIR(os.stat(path).st_mode):
-                    continue
-            except OSError:
-                continue
-            if walk is not None:
-                walk.exempt.add(path)
-            out.append(path)
+        except OSError:
             continue
-        if not stat.S_ISDIR(entry_stat.st_mode):
-            continue
-        if walk is not None and dotted:
-            walk.exempt.add(path)
-        out.append(path)
+        out.append(entry)
     return out
 
 
@@ -626,32 +468,6 @@ def _has_wave_md(directory: Path, record_filename: "str | None" = None) -> bool:
         return (directory / (record_filename or vocabulary_profile.RECORD_FILENAME)).is_file()
     except OSError:
         return False
-
-
-def _probe_record_file(directory: Path, record_filename: "str | None", walk: _Walk) -> bool:
-    """The refusing record-file probe of a candidate the walk uses (wave
-    1zrak, change 1zu4y): ``True`` for a regular record file (following links,
-    as ``is_file()`` did), ``False`` when it is absent; any other ``OSError``
-    refuses naming the candidate folder."""
-    try:
-        st = os.stat(directory / (record_filename or vocabulary_profile.RECORD_FILENAME))
-    except (FileNotFoundError, NotADirectoryError):
-        return False
-    except OSError as exc:
-        raise walk.refusal(directory, exc) from None
-    return stat.S_ISREG(st.st_mode)
-
-
-def _walk_top_rel(root: Path, roots: RecordRoots, top: Path) -> str:
-    """The repository-relative spelling of a walked root, never absolute."""
-    if top == roots.waves:
-        return roots.waves_rel
-    if roots.archive is not None and top == roots.archive and roots.archive_rel:
-        return roots.archive_rel
-    try:
-        return Path(top).relative_to(Path(root)).as_posix()
-    except ValueError:
-        return Path(top).name
 
 
 def walk_wave_candidates(root: Path, roots: RecordRoots | None = None, *,
@@ -664,34 +480,22 @@ def walk_wave_candidates(root: Path, roots: RecordRoots | None = None, *,
     bounded depth-first walk to ``max_depth`` that never enters a symlink or a
     dot-prefixed directory and never descends into a directory that holds a
     ``wave.md`` (a wave folder's own subdirectories are evidence, not waves).
-
-    Fail-closed (wave 1zrak, change 1zu4y): a root (or ``base``) that cannot
-    be inspected, or whose listing fails, raises
-    :class:`RecordRootUnreadable` (``record_root_unreadable``); below it, a
-    candidate whose record-file probe fails, a nested folder the walk lists,
-    and an entry whose ``lstat`` fails raise ``record_folder_unreadable``. An
-    absent root still returns ``[]``.
     """
     roots = roots or load_record_roots(root)
     top = base if base is not None else roots.waves
-    walk = _Walk(top, _walk_top_rel(root, roots, top))
-    if not record_root_is_dir(top, walk.top_rel):
+    if not top.is_dir():
         return []
     if not roots.nested:
-        candidates = _list_subdirs(top, guarded=False, walk=walk)
-        for child in candidates:
-            if child not in walk.exempt:
-                _probe_record_file(child, record_filename, walk)
-        return candidates
+        return _list_subdirs(top, guarded=False)
     found: list[Path] = []
     stack: list[tuple[Path, int]] = [(top, 0)]
     while stack:
         directory, depth = stack.pop()
         if depth >= roots.max_depth:
             continue
-        for child in reversed(_list_subdirs(directory, walk=walk)):
+        for child in reversed(_list_subdirs(directory)):
             found.append(child)
-            if not _probe_record_file(child, record_filename, walk):
+            if not _has_wave_md(child, record_filename):
                 stack.append((child, depth + 1))
     return sorted(found)
 
@@ -706,10 +510,9 @@ def discover_wave_dirs(root: Path, roots: RecordRoots | None = None) -> list[Pat
 def discover_archive_dirs(root: Path, roots: RecordRoots | None = None) -> list[Path]:
     """Every archived wave folder (wave 1z8ts): the folders under
     ``ARCHIVE_ROOT`` that hold the archive profile's record file, walked with
-    the live ``NESTED``/``MAX_DEPTH``. Empty when the archive is unset or absent;
-    an archive root that cannot be inspected refuses (wave 1zrak, change 1zu4y)."""
+    the live ``NESTED``/``MAX_DEPTH``. Empty when the archive is unset or absent."""
     roots = roots or load_record_roots(root)
-    if roots.archive is None or not record_root_is_dir(roots.archive, roots.archive_rel or ""):
+    if roots.archive is None or not roots.archive.is_dir():
         return []
     record = vocabulary_profile.archive_profile().RECORD_FILENAME
     candidates = walk_wave_candidates(root, roots, base=roots.archive, record_filename=record)
@@ -745,13 +548,11 @@ def record_discovery_mismatch(root: Path, roots: RecordRoots | None = None) -> s
     mixed state (some folders renamed) is not detected, and a grouping or
     helper folder that holds files but no record (a ``README.md``) counts.
     """
-    # Advisory: a refusal (an invalid layout, or a root or candidate the walk
-    # cannot inspect, wave 1zrak) is reported by the fail-closed paths, never here.
     try:
         candidates = walk_wave_candidates(root, roots)
-        if any(_has_wave_md(d) for d in candidates):
-            return None
     except RecordLayoutInvalid:
+        return None
+    if any(_has_wave_md(d) for d in candidates):
         return None
     candidates = [d for d in candidates if _holds_a_file(d)]
     if not candidates:
@@ -809,14 +610,10 @@ __all__ = [
     "CONSTANT_NAMES",
     "DIAGNOSTIC_CODE",
     "AMBIGUOUS_WAVE_ID_CODE",
-    "RECORD_ROOT_UNREADABLE_CODE",
-    "RECORD_FOLDER_UNREADABLE_CODE",
     "RecordLayoutInvalid",
-    "RecordRootUnreadable",
     "AmbiguousWaveId",
     "RecordRoots",
     "layout_constants",
-    "record_root_is_dir",
     "validate_record_layout",
     "load_record_roots",
     "unvalidated_record_roots",

@@ -57,12 +57,28 @@ def _status(text: str) -> str:
     return match.group(1).strip().lower() if match else ""
 
 
+def _read_config_bytes(config_path: Path) -> bytes | None:
+    """The workflow config bytes, or ``None`` only when the file is absent.
+
+    ``os.stat`` rather than ``exists()``, which reads any ``OSError`` as
+    absent from Python 3.14 (wave 1zrak) and would plan over a config the
+    upgrade could not inspect. Only not-found and ``NotADirectoryError`` mean
+    absent; every other ``OSError`` propagates.
+    """
+
+    try:
+        os.stat(config_path)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    return config_path.read_bytes()
+
+
 def plan_review_policy_upgrade(root: Path) -> ReviewPolicyUpgradePlan:
     """Read and validate the complete migration set before the first write."""
 
     config_path = root / "docs" / "workflow-config.json"
     try:
-        config_before = config_path.read_bytes() if config_path.exists() else None
+        config_before = _read_config_bytes(config_path)
         config = (
             json.loads(config_before.decode("utf-8"))
             if config_before is not None
@@ -88,8 +104,14 @@ def plan_review_policy_upgrade(root: Path) -> ReviewPolicyUpgradePlan:
     policy_unchanged = config_after == config_before and not carriers
     waves: list[WaveMigration] = []
     errors: list[str] = []
-    # Wave 1y043: the shared discovery walk (flat or nested).
-    for wave_md in (d / _vocab.RECORD_FILENAME for d in record_paths.discover_wave_dirs(root)):
+    # Wave 1y043: the shared discovery walk (flat or nested). Wave 1zrak
+    # (1zu4y): an uninspectable waves root or wave folder refuses under this
+    # planner's ValueError contract (the upgrade preflight handlers), path-free.
+    try:
+        wave_dirs = record_paths.discover_wave_dirs(root)
+    except record_paths.RecordRootUnreadable as exc:
+        raise ValueError(f"cannot preflight wave records: {exc}") from None
+    for wave_md in (d / _vocab.RECORD_FILENAME for d in wave_dirs):
         try:
             before = wave_md.read_bytes()
             text = before.decode("utf-8")
@@ -146,7 +168,7 @@ def apply_review_policy_upgrade(
     """Apply a preflighted plan in the required config/carrier/wave order."""
 
     report = checkpoint or (lambda _phase, _path: None)
-    live_config = plan.config_path.read_bytes() if plan.config_path.exists() else None
+    live_config = _read_config_bytes(plan.config_path)
     if live_config != plan.config_before:
         raise ValueError("workflow config changed after preflight; retry Upgrade")
     if plan.config_after != plan.config_before:

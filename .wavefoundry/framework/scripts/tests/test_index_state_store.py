@@ -1727,7 +1727,10 @@ class IndexPathResolverTests(unittest.TestCase):
         src = (SCRIPTS_ROOT / "index_paths.py").read_text(encoding="utf-8")
         imports = {ln.strip() for ln in src.splitlines()
                    if ln.startswith("import ") or ln.startswith("from ")}
-        self.assertEqual(imports, {"from __future__ import annotations", "from pathlib import Path"})
+        # ``os`` and ``stat`` (stdlib) carry the presence probe since wave
+        # 1zrak: ``Path.is_file`` stopped raising on ``OSError`` in 3.14.
+        self.assertEqual(imports, {"from __future__ import annotations", "import os",
+                                   "import stat", "from pathlib import Path"})
 
     def test_absent_reports_absent_and_offers_no_path(self):
         result = self.paths.resolve_index_database(self.index_dir)
@@ -1757,8 +1760,10 @@ class IndexPathResolverTests(unittest.TestCase):
 
     def test_unreadable_probe_fails_closed_to_present_never_absent(self):
         # `absent` is the only state that authorizes creating a database over
-        # whatever is there, so an OSError must not read as absence.
-        with mock.patch.object(Path, "is_file", side_effect=PermissionError("denied")):
+        # whatever is there, so an OSError must not read as absence. The probe
+        # is ``os.stat`` (wave 1zrak): patching ``Path.is_file`` to raise
+        # simulated pre-3.14 behaviour and hid the 3.14 fail-open.
+        with mock.patch.object(os, "stat", side_effect=PermissionError("denied")):
             result = self.paths.resolve_index_database(self.index_dir)
         self.assertEqual(result["state"], self.paths.BOTH)
 

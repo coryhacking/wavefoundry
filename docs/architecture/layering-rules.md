@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-02
+Last verified: 2026-10-04
 
 ## Allowed Dependencies
 
@@ -82,7 +82,20 @@ nearest existing ancestor of an absent root), a non-boolean `NESTED`, or a
 `MAX_DEPTH` outside 1 to 8 raises
 `RecordLayoutInvalid`; docs-lint reports it as the `record_layout_invalid` error
 and every lifecycle tool returns the same `record_layout_invalid` diagnostic and
-performs no read or write; nothing falls back silently. `layout_constants()`
+performs no read or write; nothing falls back silently. Discovery is fail-closed
+too (wave 1zrak): a waves or archive root that cannot be inspected or listed
+raises `RecordRootUnreadable` (a `RecordLayoutInvalid` subclass, kept reload-safe
+against an older runner's in-place reload) with the code `record_root_unreadable`,
+and a wave or archive folder the walk uses below it (a candidate's record-file
+probe, a nested folder it lists, an entry's own `lstat`) raises it with the code
+`record_folder_unreadable`; dot-prefixed folders, symlink targets, folders beyond
+`MAX_DEPTH` and a wave folder's own subfolders never refuse. The text is
+path-free (the repository-relative path, the exception class and errno name, and
+a restore-access recovery). Docs-lint reports either code as an error and skips
+the root-aware validators, and every decorated lifecycle tool that reaches
+discovery returns the refusal's own code with that recovery rather than the
+layout recovery; `wf_list_plans` never touches the waves or archive root and is
+unaffected. `layout_constants()`
 returns the four values at call time and every cache keyed on record discovery
 (the lint roots cache, `McpRepoCache`) folds it into its key. For the shipped
 constants it builds paths exactly as the call sites did before it existed, so

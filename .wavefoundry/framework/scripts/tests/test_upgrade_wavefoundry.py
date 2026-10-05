@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import datetime
+import errno
 import hashlib
 import importlib.util
 import io
@@ -8385,6 +8386,12 @@ class SandboxResilientPackDiscoveryTests(unittest.TestCase):
         def is_dir(self) -> bool:
             return True
 
+        def __fspath__(self) -> str:
+            # The stand-in EXISTS: ``_scan_dir_entries`` stats it with
+            # ``os.stat`` rather than ``is_dir()`` (wave 1zrak), so it names a
+            # real directory; only its listing is denied.
+            return tempfile.gettempdir()
+
         def iterdir(self):
             raise PermissionError("Operation not permitted")
 
@@ -8719,6 +8726,78 @@ class ReviewEvidenceSidecarCleanupTests(unittest.TestCase):
             holder.release()
         self.assertIn("v1.13 root", str(raised.exception))
         self.assertTrue(legacy.exists())
+
+    # Wave 1zrak (1zraj AC-9): every refusal this phase raises from an
+    # exception is path-free and names the member, the cause and the
+    # recovery. ``OSError.__str__`` (and ``RuntimeLockError``'s own message)
+    # embed the absolute path, so the cause is the errno text instead.
+
+    def _assert_path_free(self, message: str) -> None:
+        for spelling in {str(self.root), os.path.realpath(self.root)}:
+            self.assertNotIn(spelling, message)
+        self.assertIn("re-run the upgrade", message)
+
+    def test_unremovable_sidecar_refusal_is_path_free(self):
+        self._seed_history()
+        real_unlink = Path.unlink
+
+        def _unlink(path, *args, **kwargs):
+            if path.name == "review-evidence-adoptions.json":
+                raise PermissionError(errno.EACCES, "Permission denied", str(path))
+            return real_unlink(path, *args, **kwargs)
+
+        with patch.object(Path, "unlink", _unlink), \
+             self.assertRaises(SystemExit) as raised:
+            self.mod.phase_review_evidence_sidecar_cleanup(self.root)
+        message = str(raised.exception)
+        self.assertIn(
+            "cannot remove retired sidecar review-evidence-adoptions.json: "
+            "Permission denied",
+            message,
+        )
+        self._assert_path_free(message)
+
+    def test_record_layout_refusal_names_the_recovery(self):
+        import record_paths
+
+        def _invalid(_root):
+            raise record_paths.RecordLayoutInvalid(
+                ["record_layout_invalid: record_paths.WAVES_ROOT must name a directory"]
+            )
+
+        with patch.object(record_paths, "load_record_roots", _invalid), \
+             self.assertRaises(SystemExit) as raised:
+            self.mod.phase_review_evidence_sidecar_cleanup(self.root)
+        message = str(raised.exception)
+        self.assertIn("record_paths.WAVES_ROOT must name a directory", message)
+        self.assertIn("Correct the record layout", message)
+        self._assert_path_free(message)
+
+    def test_unprovable_and_held_lock_refusals_are_path_free(self):
+        import runtime_lock
+
+        def _unprovable(lock):
+            raise runtime_lock.RuntimeLockError(
+                errno.EIO, f"Unable to open runtime lock {lock.path}: boom"
+            )
+
+        def _busy(lock):
+            raise runtime_lock.RuntimeLockBusy(
+                errno.EAGAIN, f"Runtime lock is held: {lock.path}"
+            )
+
+        for label, fault, cause in (
+            ("unprovable", _unprovable, os.strerror(errno.EIO)),
+            ("held", _busy, "held by a running process"),
+        ):
+            with self.subTest(fault=label):
+                with patch.object(runtime_lock.RuntimeFileLock, "acquire", fault), \
+                     self.assertRaises(SystemExit) as raised:
+                    self.mod.phase_review_evidence_sidecar_cleanup(self.root)
+                message = str(raised.exception)
+                self.assertIn(".wavefoundry/locks/", message)
+                self.assertIn(cause, message)
+                self._assert_path_free(message)
 
     def test_symlinked_waves_parent_refuses_and_leaves_outside_sentinel(self):
         with tempfile.TemporaryDirectory() as outside_tmp:
@@ -9725,6 +9804,118 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
         self.assertEqual(
             lock.get("failed_phase"), "review_sidecar_cleanup"
         )
+
+    # Wave 1zrak (1zraj AC-9): Python 3.14 ``pathlib`` predicates read an
+    # uninspectable path as absent, so the retired-sidecar guard must refuse
+    # through ``os.lstat`` instead, and the refusal must stay path-free on
+    # the new-code backstop caller (``--update-index``) that runs the fixed
+    # check on the first upgrade to the fixed version.
+
+    def _sidecar_backstop_target(self, name: str) -> tuple[Path, Path, Path]:
+        target = Path(self.tmp.name) / name
+        (target / ".wavefoundry").mkdir(parents=True)
+        waves = target / _live_waves_rel()
+        waves.mkdir(parents=True)
+        sidecar = waves / "review-evidence-adoptions.json"
+        sidecar.write_bytes(b"retired sidecar")
+        self.upgrade_lib.write_upgrade_lock(target, "1.0.0", "1.1.0")
+        return target, waves, sidecar
+
+    def _run_sidecar_backstop(self, target: Path) -> tuple[int, MagicMock, str]:
+        stderr = io.StringIO()
+        with patch.object(self.mod, "phase_index_update") as phase, \
+             contextlib.redirect_stderr(stderr):
+            result = self.mod.main(["--root", str(target), "--update-index"])
+        return result, phase, stderr.getvalue()
+
+    def _assert_path_free_sidecar_refusal(
+        self, target: Path, result: int, phase: MagicMock, err: str, member: str
+    ) -> None:
+        self.assertEqual(result, 1, err)
+        phase.assert_not_called()
+        refusal = [
+            line for line in err.splitlines()
+            if "sidecar cleanup is refused" in line
+        ]
+        self.assertEqual(len(refusal), 1, err)
+        self.assertIn("not safely resolvable", refusal[0])
+        self.assertIn(f"{member}: Permission denied", refusal[0])
+        self.assertIn("Restore access to", refusal[0])
+        self.assertIn("re-run the upgrade", refusal[0])
+        for spelling in {str(target), os.path.realpath(target)}:
+            self.assertNotIn(spelling, err)
+        lock = self.upgrade_lib.read_upgrade_lock(target) or {}
+        self.assertEqual(lock.get("failed_phase"), "review_sidecar_cleanup")
+
+    def _skip_unless_mode_zero_denies(self) -> None:
+        if os.name == "nt":
+            self.skipTest("chmod 0 does not deny directory traversal on Windows; the patched os.lstat pin covers it")
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            self.skipTest("root ignores mode 0")
+
+    def test_backstop_refuses_untraversable_waves_parent_path_free(self):
+        self._skip_unless_mode_zero_denies()
+        target, waves, sidecar = self._sidecar_backstop_target("sidecar-mode0-parent")
+        if waves.parent == target:
+            self.skipTest("waves root has no in-repository parent to lock")
+        os.chmod(waves.parent, 0)
+        try:
+            result, phase, err = self._run_sidecar_backstop(target)
+        finally:
+            os.chmod(waves.parent, 0o755)
+        self._assert_path_free_sidecar_refusal(
+            target, result, phase, err, _live_waves_rel()
+        )
+        self.assertEqual(sidecar.read_bytes(), b"retired sidecar")
+
+    def test_backstop_refuses_untraversable_waves_root_candidate_path_free(self):
+        self._skip_unless_mode_zero_denies()
+        target, waves, sidecar = self._sidecar_backstop_target("sidecar-mode0-waves")
+        os.chmod(waves, 0)
+        try:
+            result, phase, err = self._run_sidecar_backstop(target)
+        finally:
+            os.chmod(waves, 0o755)
+        self._assert_path_free_sidecar_refusal(
+            target, result, phase, err,
+            f"{_live_waves_rel()}/review-evidence-adoptions.json",
+        )
+        self.assertEqual(sidecar.read_bytes(), b"retired sidecar")
+
+    def test_backstop_refuses_denied_lstat_on_every_platform(self):
+        """Platform-independent: ``os.lstat`` denial on the waves root or a
+        candidate refuses, path-free, on Windows too (no mode-0 fixture)."""
+
+        real_lstat = os.lstat
+        for label in ("waves", "candidate"):
+            with self.subTest(member=label):
+                target, waves, sidecar = self._sidecar_backstop_target(
+                    f"sidecar-denied-{label}"
+                )
+                denied = waves if label == "waves" else sidecar
+                member = (
+                    _live_waves_rel() if label == "waves"
+                    else f"{_live_waves_rel()}/review-evidence-adoptions.json"
+                )
+
+                # ``main`` resolves ``--root`` (``/var`` is ``/private/var``
+                # on macOS), so match either spelling. Both are computed
+                # before the patch: ``realpath`` itself calls ``os.lstat``.
+                spellings = {os.path.abspath(denied), os.path.realpath(denied)}
+
+                def _lstat(path, *args, _denied=frozenset(spellings), **kwargs):
+                    if os.path.abspath(os.fspath(path)) in _denied:
+                        raise PermissionError(
+                            errno.EACCES, "Permission denied", os.fspath(path)
+                        )
+                    return real_lstat(path, *args, **kwargs)
+
+                with patch("os.lstat", _lstat):
+                    result, phase, err = self._run_sidecar_backstop(target)
+                self._assert_path_free_sidecar_refusal(
+                    target, result, phase, err, member
+                )
+                self.assertEqual(sidecar.read_bytes(), b"retired sidecar")
 
     def test_cleanup_cannot_remove_lock_after_memory_indexed_but_docs_failed(self):
         """An indexed memory run does not authorize cleanup around a failed docs gate."""
@@ -12101,6 +12292,47 @@ class ScaffoldRepairIsClassATests(unittest.TestCase):
         before = self.template.read_bytes()
         self.assertEqual(self.ext.repair_declaring_scaffold(self.root), [])
         self.assertEqual(self.template.read_bytes(), before)
+
+    # Wave 1zrak (1zraj): Python 3.14 ``is_file()`` reads an uninspectable
+    # template as absent; the repair must REPORT it, never skip it silently.
+
+    def _repair_output(self) -> tuple[list, str]:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            repaired = self.ext.repair_declaring_scaffold(self.root)
+        return repaired, out.getvalue()
+
+    def test_an_untraversable_template_is_reported(self):
+        if os.name == "nt":
+            self.skipTest("chmod 0 does not deny directory traversal on Windows; the patched os.stat pin covers it")
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            self.skipTest("root ignores mode 0")
+        self.template.write_text(self.CONTAMINATED, encoding="utf-8")
+        plans = self.template.parent
+        os.chmod(plans, 0)
+        try:
+            repaired, out = self._repair_output()
+        finally:
+            os.chmod(plans, 0o755)
+        self.assertEqual(repaired, [])
+        self.assertIn("docs/plans/plan-template.md could not be repaired", out)
+
+    def test_a_denied_template_stat_is_reported_on_every_platform(self):
+        self.template.write_text(self.CONTAMINATED, encoding="utf-8")
+        real_stat = os.stat
+        denied = {os.path.abspath(self.template), os.path.realpath(self.template)}
+
+        def _stat(path, *args, **kwargs):
+            if (kwargs.get("follow_symlinks", True) and not isinstance(path, int)
+                    and os.path.abspath(os.fspath(path)) in denied):
+                raise PermissionError(errno.EACCES, "Permission denied", os.fspath(path))
+            return real_stat(path, *args, **kwargs)
+
+        with patch("os.stat", _stat):
+            repaired, out = self._repair_output()
+        self.assertEqual(repaired, [])
+        self.assertIn("docs/plans/plan-template.md could not be repaired", out)
+        self.assertEqual(self.template.read_text(encoding="utf-8"), self.CONTAMINATED)
 
     def test_pre_docs_gate_runs_the_repair_for_an_old_runner(self):
         """The class-a seam: an OLD orchestrator still gets the NEW repair.

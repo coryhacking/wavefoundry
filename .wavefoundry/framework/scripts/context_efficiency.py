@@ -396,7 +396,8 @@ def resolve_open_wave(root: Path) -> Optional[tuple[str, str]]:
     resolved: Optional[tuple[str, str]] = None
     try:
         open_dirs: list[Path] = []
-        if record_paths.load_record_roots(Path(root)).waves.is_dir():
+        roots = record_paths.load_record_roots(Path(root))
+        if record_paths.record_root_is_dir(roots.waves, roots.waves_rel):
             # Wave 1y043: the shared discovery walk (flat or nested).
             for entry in record_paths.discover_wave_dirs(Path(root)):
                 wave_md = entry / _vocab.RECORD_FILENAME
@@ -3367,7 +3368,8 @@ def attach_evaluation(
 def _non_closed_wave_ids(root: Path) -> list[str]:
     """Wave folder names whose ``Status:`` is not closed; unreadable counts as open."""
 
-    if not record_paths.load_record_roots(Path(root)).waves.is_dir():
+    roots = record_paths.load_record_roots(Path(root))
+    if not record_paths.record_root_is_dir(roots.waves, roots.waves_rel):
         return []
     wave_ids: list[str] = []
     for entry in record_paths.discover_wave_dirs(Path(root)):
