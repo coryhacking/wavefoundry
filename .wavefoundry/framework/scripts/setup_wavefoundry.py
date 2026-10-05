@@ -303,7 +303,12 @@ def main(argv: list[str] | None = None) -> int:
         import setup_readiness
 
         root = Path(options.root).expanduser().resolve() if options.root else Path.cwd().resolve()
-        result = setup_readiness.assess_setup(root)
+        def settling(wait: float) -> None:
+            # Wave 1zuq3: stderr only, so stdout and the JSON stay unchanged.
+            print(f"setup readiness is settling (a transient result); retrying in {wait:g}s",
+                  file=sys.stderr, flush=True)
+
+        result = setup_readiness.assess_setup_settled(root, notify=settling)
         print(json.dumps(result, sort_keys=True) if options.json else setup_readiness.format_text(result))
         return setup_readiness.exit_code(result)
     if "-h" in args or "--help" in args:
@@ -504,16 +509,42 @@ def _run_setup(repo_root: Path, args: list[str], reconciliation) -> int:
         )
         return 0
 
-    print(
+    restart = (
         "\n=== Wavefoundry harness setup complete. ===\n"
         "Next: fully quit and reopen your AI agent in this project, or start a fresh "
         "conversation after your host's MCP restart command, so the MCP server becomes available. "
         "Do not resume an old session that started before setup completed. "
-        "Then mark Phase 1 complete in .wavefoundry/install-log.md and proceed to Phase 2 "
-        "by calling wf_audit_install().",
-        flush=True,
     )
+    if _install_in_progress(repo_root):
+        print(
+            restart + "Then mark Phase 1 complete in .wavefoundry/install-log.md and proceed to Phase 2 "
+            "by calling wf_audit_install().",
+            flush=True,
+        )
+    else:
+        print(restart + "Then confirm with index_health() or `wf setup --check`.", flush=True)
     return 0
+
+
+def _install_in_progress(repo_root: Path) -> bool:
+    """True while a first install is underway (wave 1zuq3).
+
+    That is: the live install log exists and is unreadable, unparseable, or still
+    has a pending Phase 1 row. Without a log there is no install in progress, so a
+    rerun on an installed repository gets the rerun closing text.
+    """
+    import install_log_lib
+
+    try:
+        text = install_log_lib.read_install_log(repo_root)
+    except OSError:
+        return True
+    if text is None:
+        return False
+    rows = install_log_lib.parse_log(text)
+    if install_log_lib.is_unparseable(text, rows):
+        return True
+    return any(row.is_pending for row in install_log_lib.filter_phase(rows, 1))
 
 
 if __name__ == "__main__":

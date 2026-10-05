@@ -560,6 +560,63 @@ class SetupWavefoundryTests(unittest.TestCase):
         self.assertIn("start a fresh conversation", text)
         self.assertIn("Do not resume an old session", text)
 
+    def _closing_text(self, log_text=None):
+        """Wave 1zuq3: run a full setup in the sandboxed cwd with an optional install log."""
+        class FakeSetupIndex:
+            @staticmethod
+            def main(argv=None):
+                return 0
+
+        if log_text is not None:
+            (Path.cwd() / ".wavefoundry").mkdir(exist_ok=True)
+            (Path.cwd() / ".wavefoundry/install-log.md").write_bytes(log_text)
+        out = io.StringIO()
+        with patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
+             patch.object(self.mod, "_run_render_platform_surfaces", return_value=0), \
+             patch.object(self.mod, "_run_mcp_server_dry_run", return_value=0), \
+             redirect_stdout(out):
+            self.assertEqual(self.mod.main([]), 0)
+        return out.getvalue()
+
+    INSTALL_TEXT = ("install-log.md", "Phase 2", "wf_audit_install")
+    PHASE_ONE_PENDING = (
+        b"## Phase 1 \xe2\x80\x94 Harness (no MCP required)\n\n"
+        b"- [x] 1.1 \xe2\x80\x94 Bootstrap harness (setup_wavefoundry.py) \xe2\x80\x94 artifact: `x`\n"
+        b"- [ ] 1.3 \xe2\x80\x94 STOP: instruct operator to restart agent for MCP availability (instruction)\n"
+    )
+
+    def test_rerun_without_an_install_log_gets_rerun_text(self):
+        """Field report: an installed repository with no log got first-install text."""
+        text = self._closing_text()
+        self.assertIn("index_health()", text)
+        self.assertIn("Do not resume an old session", text)
+        for phrase in self.INSTALL_TEXT:
+            self.assertNotIn(phrase, text)
+
+    def test_first_install_with_phase_one_pending_keeps_install_text(self):
+        text = self._closing_text(self.PHASE_ONE_PENDING)
+        self.assertIn("mark Phase 1 complete in .wavefoundry/install-log.md", text)
+        self.assertIn("wf_audit_install()", text)
+
+    def test_finished_phase_one_gets_rerun_text(self):
+        done = self.PHASE_ONE_PENDING.replace(b"- [ ] 1.3", b"- [x] 1.3") + (
+            b"\n## Phase 2 \xe2\x80\x94 Project discovery (MCP required)\n\n"
+            b"- [ ] 2.1 \xe2\x80\x94 Audit Phase 1 outputs (verify) \xe2\x80\x94 expects: ok\n"
+        )
+        text = self._closing_text(done)
+        self.assertIn("index_health()", text)
+        for phrase in self.INSTALL_TEXT:
+            self.assertNotIn(phrase, text)
+
+    def test_unparseable_or_unreadable_log_keeps_install_text(self):
+        # UTF-16 with a BOM: install-log shaped, but no row survives decoding.
+        utf16 = self.PHASE_ONE_PENDING.decode("utf-8").encode("utf-16")
+        self.assertIn("wf_audit_install()", self._closing_text(utf16))
+        import install_log_lib
+
+        with patch.object(install_log_lib, "read_install_log", side_effect=PermissionError("denied")):
+            self.assertIn("wf_audit_install()", self._closing_text())
+
 
 class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
     """Fresh public setup reconciles review carriers in the requested target."""

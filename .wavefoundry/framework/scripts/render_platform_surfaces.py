@@ -96,6 +96,13 @@ def write_text(path: Path, content: str, executable: bool = False) -> None:
     except OSError:
         changed = True
     _manifest_record(path, changed)
+    if not changed:
+        # Wave 1zuq3: a byte-identical rewrite only churns the modification time, which
+        # re-queues zero-chunk files in the index and changes readiness inputs on every
+        # setup. render_agent_surfaces.write_text already skips (wave 1t72b).
+        if executable:
+            path.chmod(path.stat().st_mode | 0o111)
+        return
     # newline="" disables newline translation so the embedded line terminators are written VERBATIM,
     # byte-identical on every rendering host (wave 1p7tz). With the default newline=None, a re-render
     # on native Windows translates every "\n" → os.linesep ("\r\n"): the `wf.cmd` source (which

@@ -2285,6 +2285,44 @@ class RenderGitattributesBlockTests(unittest.TestCase):
     def setUp(self):
         self.mod = _load_render_module()
 
+    @staticmethod
+    def _age(path: Path) -> int:
+        """Set the file's mtime well into the past and return it (ns), so a rewrite is visible."""
+        past = path.stat().st_mtime_ns - 3_600_000_000_000
+        os.utime(path, ns=(past, past))
+        return path.stat().st_mtime_ns
+
+    def test_second_render_leaves_gitattributes_untouched(self):
+        """Wave 1zuq3 field report: every setup rewrote `.gitattributes` with identical bytes,
+        so the index re-queued it (0 chunks) as "drifted" on every run."""
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            self.mod.render_gitattributes_block(root)
+            path = root / ".gitattributes"
+            before = self._age(path)
+            self.mod.render_gitattributes_block(root)
+            self.assertEqual(path.stat().st_mtime_ns, before)
+
+    def test_write_text_skips_identical_bytes_but_writes_changes_and_restores_exec_bit(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d).resolve() / "bin" / "wf"
+            manifest = []
+            with patch.object(self.mod, "_MANIFEST_WRITTEN", manifest):
+                self.mod.write_text(path, "#!/bin/sh\necho one\n", executable=True)
+                before = self._age(path)
+                self.mod.write_text(path, "#!/bin/sh\necho one\n", executable=True)
+                self.assertEqual(path.stat().st_mtime_ns, before, "identical bytes must not be rewritten")
+                self.assertEqual(manifest, [path], "an unchanged write is not a manifest entry")
+                if os.name != "nt":
+                    path.chmod(0o644)
+                    self.mod.write_text(path, "#!/bin/sh\necho one\n", executable=True)
+                    self.assertTrue(path.stat().st_mode & 0o111, "the exec bit is still repaired")
+                    self.assertEqual(path.stat().st_mtime_ns, before)
+                self.mod.write_text(path, "#!/bin/sh\necho two\n", executable=True)
+                self.assertEqual(path.read_text(encoding="utf-8"), "#!/bin/sh\necho two\n")
+                self.assertNotEqual(path.stat().st_mtime_ns, before)
+                self.assertEqual(manifest, [path, path])
+
     def test_creates_gitattributes_with_block_when_missing(self):
         # AC-1: a fresh repo gets .gitattributes with the managed line-ending block and the pins.
         with tempfile.TemporaryDirectory() as d:

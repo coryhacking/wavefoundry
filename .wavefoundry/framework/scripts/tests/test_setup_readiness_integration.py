@@ -61,6 +61,8 @@ class PublicBootstrapTests(unittest.TestCase):
             "def assess_setup(root, **kwargs):\n"
             "    return {'schema_version': 1, 'status': 'action_required', 'root': str(root), "
             "'startup_blocked': os.environ.get('TEST_BLOCKED') == '1', 'actions': [], 'reasons': []}\n"
+            "def assess_setup_settled(root, *, sleep=None, notify=None, **kwargs):\n"
+            "    return assess_setup(root, **kwargs)\n"
             "def format_text(result): return json.dumps(result)\n"
             "def exit_code(result): return {'ready': 0, 'action_required': 1, 'indeterminate': 2}[result['status']]\n"
             "def write_setup_stamp(root): raise AssertionError('STAMP TRIPWIRE')\n"
@@ -272,6 +274,53 @@ class SharedAssessmentTests(unittest.TestCase):
             self.assertEqual(setup_wavefoundry.main(["--check", "--json"]), 2)
         self.assertEqual(json.loads(output.getvalue())["status"], "indeterminate")
         assess.assert_called_once_with(Path.cwd().resolve())
+
+    @staticmethod
+    def _transient(*codes):
+        found = result("indeterminate")
+        found["reasons"] = [{"code": code, "message": code} for code in codes]
+        return found
+
+    def test_settled_assessment_retries_only_while_every_reason_is_transient(self):
+        """Wave 1zuq3: the bounded retry upgrade cleanup already used (wave 1z1vs)."""
+        import setup_readiness
+        root = Path.cwd()
+        cases = [
+            ("transient then ready", [self._transient("inputs_changed"), result("ready")], [2.0], "ready"),
+            ("persistent", [self._transient("probe_timeout")] * 6, [2.0, 5.0, 10.0], "indeterminate"),
+            ("not transient", [self._transient("assessment_unproven")], [], "indeterminate"),
+            ("mixed", [self._transient("inputs_changed", "assessment_unproven")], [], "indeterminate"),
+            ("no reasons", [result("indeterminate")], [], "indeterminate"),
+            ("action required", [result("action_required")], [], "action_required"),
+        ]
+        for label, planned, expected_waits, expected_status in cases:
+            with self.subTest(case=label):
+                waits, notified = [], []
+                with patch.object(setup_readiness, "assess_setup", side_effect=list(planned)) as assess:
+                    settled = setup_readiness.assess_setup_settled(
+                        root, sleep=waits.append, notify=notified.append)
+                self.assertEqual(settled["status"], expected_status)
+                self.assertEqual(waits, expected_waits)
+                self.assertEqual(notified, expected_waits)
+                self.assertEqual(assess.call_count, len(expected_waits) + 1)
+                for call in assess.call_args_list:
+                    self.assertEqual(call.args, (root,))
+                    self.assertEqual(call.kwargs, {})
+
+    def test_setup_check_settles_a_transient_before_reporting(self):
+        """Wave 1zuq3 field report: `wf setup --check` right after setup exited 2 on inputs_changed."""
+        import setup_readiness
+        import setup_wavefoundry
+        planned = [self._transient("inputs_changed"), result("ready")]
+        with patch.object(setup_readiness, "assess_setup", side_effect=planned) as assess, \
+             patch("time.sleep") as sleep, \
+             contextlib.redirect_stdout(io.StringIO()) as output, \
+             contextlib.redirect_stderr(io.StringIO()) as errors:
+            self.assertEqual(setup_wavefoundry.main(["--check", "--json"]), 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "ready")
+        self.assertEqual(assess.call_count, 2)
+        sleep.assert_called_once_with(2.0)
+        self.assertIn("retrying in 2s", errors.getvalue())
 
     def test_monitor_cache_invalidation_coalescing_and_clear(self):
         import server_impl

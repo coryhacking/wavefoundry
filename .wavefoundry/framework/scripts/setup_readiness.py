@@ -659,6 +659,36 @@ def exit_code(result: dict) -> int:
     return {'ready': 0, 'action_required': 1, 'indeterminate': 2}.get(result.get('status'), 2)
 
 
+# Wave 1zuq3: reasons that mean "try again in a moment", typically an index
+# refresh writing while the check runs. Same rule as upgrade cleanup (wave 1z1vs).
+TRANSIENT_REASONS = frozenset({'inputs_changed', 'probe_timeout'})
+TRANSIENT_RETRY_WAITS = (2.0, 5.0, 10.0)
+
+
+def is_transient(result: dict) -> bool:
+    """An indeterminate result whose every reason is transient; no reasons is not."""
+    reasons = result.get('reasons') or []
+    return (result.get('status') == 'indeterminate' and bool(reasons)
+            and all(isinstance(r, dict) and r.get('code') in TRANSIENT_REASONS for r in reasons))
+
+
+def assess_setup_settled(root: Path, *, sleep=None, notify=None, **kwargs) -> dict:
+    """``assess_setup``, retried a bounded number of times while the result is transient.
+
+    Only the given ``kwargs`` are forwarded. ``notify(wait)`` runs before each retry.
+    """
+    sleep = sleep or time.sleep
+    result = assess_setup(root, **kwargs)
+    for wait in TRANSIENT_RETRY_WAITS:
+        if not is_transient(result):
+            break
+        if notify is not None:
+            notify(wait)
+        sleep(wait)
+        result = assess_setup(root, **kwargs)
+    return result
+
+
 def format_command(argv: list) -> str:
     """Render an action argv with the platform's shell quoting; empty means restart."""
     if not argv:
