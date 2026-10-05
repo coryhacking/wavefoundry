@@ -5758,19 +5758,37 @@ class PostExtractStaleLeafRefreshTests(unittest.TestCase):
         self.assertIs(module.ProbeError, held[0])
         self.assertIs(module.OtherProbeError, held[1])
 
-    def test_ac9_invalid_replacement_profile_stops_before_phase_2c(self):
+    # Whichever container name the declaration carries (a distribution may
+    # rename it), a leading space makes it invalid. CONTAINER_NAME_PLURAL
+    # does not match the anchored pattern.
+    _CONTAINER_ASSIGNMENT = re.compile(r'^CONTAINER_NAME = "([^"]*)"', re.M)
+
+    def _assert_invalid_profile_stops_before_phase_2c(self, current):
         stale = self._cache_v1_28_vocabulary_profile()
         held = stale.VocabularyProfileInvalid
-        current = source_path("vocabulary_profile.py").read_text(encoding="utf-8")
-        invalid = current.replace('CONTAINER_NAME = "Wave"', 'CONTAINER_NAME = " Wave"', 1)
-        self.assertNotEqual(invalid, current)
+        invalid, count = self._CONTAINER_ASSIGNMENT.subn(
+            lambda m: f'CONTAINER_NAME = " {m.group(1)}"', current, count=1
+        )
+        self.assertEqual(count, 1)
         (self.scripts / "vocabulary_profile.py").write_text(invalid, encoding="utf-8")
         with contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaises(RuntimeError) as caught:
                 self.ext.post_extract(self._ctx())
         self.assertEqual(type(caught.exception.__cause__).__name__, "VocabularyProfileInvalid")
+        self.assertIn("CONTAINER_NAME must be", str(caught.exception.__cause__))
         self.assertIn("vocabulary_profile", str(caught.exception))
         self.assertIs(stale.VocabularyProfileInvalid, held)
+
+    def test_ac9_invalid_replacement_profile_stops_before_phase_2c(self):
+        current = source_path("vocabulary_profile.py").read_text(encoding="utf-8")
+        self._assert_invalid_profile_stops_before_phase_2c(current)
+
+    def test_ac9_invalid_profile_under_another_container_name_stops_before_phase_2c(self):
+        current = source_path("vocabulary_profile.py").read_text(encoding="utf-8")
+        renamed, count = self._CONTAINER_ASSIGNMENT.subn('CONTAINER_NAME = "Batch"', current, count=1)
+        self.assertEqual(count, 1)
+        self.assertNotIn('CONTAINER_NAME = "Wave"', renamed)
+        self._assert_invalid_profile_stops_before_phase_2c(renamed)
 
     def test_ac10_v1_27_record_paths_is_refreshed_against_a_fresh_vocabulary_profile(self):
         source = (self.FIXTURES / "record_paths_v1_27_0.py.txt").read_text(encoding="utf-8")

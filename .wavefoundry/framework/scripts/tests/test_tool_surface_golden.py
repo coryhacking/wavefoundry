@@ -57,6 +57,14 @@ _WRAPPER_NAMES = (
 # A tool covered by ALL three wrapper passes: in _LIFECYCLE_MUTATION_LOCK_TOOLS,
 # in publication_control's writer registry, first-party prefixed, and NOT in
 # _COST_EXEMPT_TOOLS (which excludes wf_prepare_wave and four siblings).
+# Each wrapper's main-pass keywords come from a provider read by global name
+# at call time (wave 1zimf); a permuted slot must pass the keywords of the
+# wrapper bound there, not of the slot (Waveforge R1, wave 1zv88).
+_KWARGS_PROVIDERS = {
+    "_wrap_first_party_tool_costs": "_cost_pass_kwargs",
+    "_wrap_lifecycle_mutation_lock": "_lock_pass_kwargs",
+    "_wrap_upgrade_publication_guard": "_guard_pass_kwargs",
+}
 _TRIPLE_WRAPPED_TOOL = "wf_add_change"
 _TRIPLE_WRAPPED_RESPONSE = "wf_add_change_response"
 
@@ -483,12 +491,24 @@ class WrapperOrderTests(unittest.TestCase):
         except ImportError:
             self.skipTest("mcp package not installed")
         self.FastMCP = FastMCP
+        apply_base_declaration(self)
         self.originals = {name: getattr(self.impl, name) for name in _WRAPPER_NAMES}
+        self.providers = {name: getattr(self.impl, provider) for name, provider in _KWARGS_PROVIDERS.items()}
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _observe(self, order: tuple[str, ...], *, block: bool) -> list[str]:
+    def _declared_kwargs(self) -> dict[str, dict]:
+        # One extension lifecycle tool and one artifact path field, fed
+        # through the providers: the names need not be registered tools.
+        return {
+            "_wrap_lifecycle_mutation_lock": {"extension_tools": frozenset({"acme_record"})},
+            "_wrap_first_party_tool_costs": {
+                "artifact_extractors": {"acme_record": self.impl._artifact_from_written_paths("written_paths")},
+            },
+        }
+
+    def _observe(self, order: tuple[str, ...], *, block: bool, declared: dict | None = None) -> list[str]:
         events: list[str] = []
 
         @contextlib.contextmanager
@@ -516,10 +536,26 @@ class WrapperOrderTests(unittest.TestCase):
         # The registered closure reads handler.root and passes handler.cache
         # through to the (patched) response function; nothing else is touched.
         handler = types.SimpleNamespace(root=self.root, telemetry=Telemetry(), cache=None)
-        rebinding = {slot: self.originals[actual] for slot, actual in zip(_WRAPPER_NAMES, order)}
+        self.received: dict[str, dict] = {}
+
+        def recording(actual: str):
+            def wrapper(mcp, get_handler, **kwargs):
+                self.received[actual] = kwargs
+                return self.originals[actual](mcp, get_handler, **kwargs)
+            return wrapper
+
+        rebinding = {slot: recording(actual) for slot, actual in zip(_WRAPPER_NAMES, order)}
+
+        def kwargs_of(actual: str):
+            if declared is not None and actual in declared:
+                return lambda: dict(declared[actual])
+            return self.providers[actual]
+
         with contextlib.ExitStack() as stack:
             for slot, fn in rebinding.items():
                 stack.enter_context(patch.object(self.impl, slot, fn))
+            for slot, actual in zip(_WRAPPER_NAMES, order):
+                stack.enter_context(patch.object(self.impl, _KWARGS_PROVIDERS[slot], kwargs_of(actual)))
             stack.enter_context(patch.object(self.impl, "_lifecycle_mutation_lock", fake_lock))
             stack.enter_context(
                 patch.object(self.impl.publication_control, "publication_block_reason", fake_block_reason)
@@ -555,6 +591,31 @@ class WrapperOrderTests(unittest.TestCase):
             with self.subTest(order=order):
                 observed = (self._observe(order, block=False), self._observe(order, block=True))
                 self.assertNotEqual(observed, (self.EXPECTED_PASS, self.EXPECTED_BLOCK))
+
+    def test_permutations_with_declared_extension_kwargs(self):
+        # A distribution that declares a lifecycle tool and an artifact field
+        # gives the lock and cost passes keywords the other wrappers do not
+        # accept; each slot still passes its bound wrapper's own.
+        declared = self._declared_kwargs()
+        received = {
+            "_wrap_first_party_tool_costs": declared["_wrap_first_party_tool_costs"],
+            "_wrap_lifecycle_mutation_lock": declared["_wrap_lifecycle_mutation_lock"],
+            "_wrap_upgrade_publication_guard": {},
+        }
+        self.assertEqual(self._observe(_WRAPPER_NAMES, block=False, declared=declared), self.EXPECTED_PASS)
+        self.assertEqual(self.received, received)
+        self.assertEqual(self._observe(_WRAPPER_NAMES, block=True, declared=declared), self.EXPECTED_BLOCK)
+        for order in itertools.permutations(_WRAPPER_NAMES):
+            if order == _WRAPPER_NAMES:
+                continue
+            with self.subTest(order=order):
+                observed = (
+                    self._observe(order, block=False, declared=declared),
+                    self._observe(order, block=True, declared=declared),
+                )
+                self.assertNotEqual(observed, (self.EXPECTED_PASS, self.EXPECTED_BLOCK))
+                # Each wrapper received its own declared keywords, wherever it sat.
+                self.assertEqual(self.received, received)
 
 
 if __name__ == "__main__":

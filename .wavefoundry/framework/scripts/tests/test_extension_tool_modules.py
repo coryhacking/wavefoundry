@@ -23,6 +23,101 @@ import unittest
 SCRIPTS = Path(__file__).resolve().parents[1]
 from framework_files import framework_source_files  # wf_server-aware source locations (wave 1yzd0)
 
+
+def _disk_declaration(scripts: Path) -> "dict[str, object] | None":
+    """The ``EXTENSION_*`` constants assigned in ``mcp_tool_extensions.py`` on
+    disk (the last assignment wins), or ``None`` when one cannot be read as a
+    literal (a computed value or an augmented assignment). Read from the file,
+    not the module: the census tests run under the base declaration, which
+    hides what a distribution declares."""
+    import ast
+    from record_layout_support import SHIPPED_DECLARATION
+    values: dict[str, object] = {}
+    tree = ast.parse((scripts / "mcp_tool_extensions.py").read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            targets = [node.target]
+        else:
+            continue
+        for target in targets:
+            if not (isinstance(target, ast.Name) and target.id in SHIPPED_DECLARATION):
+                continue
+            if isinstance(node, ast.AugAssign) or node.value is None:
+                return None
+            try:
+                values[target.id] = ast.literal_eval(node.value)
+            except Exception:  # noqa: BLE001 - any unreadable value is "not a literal"
+                return None
+    # A constant not assigned at top level by a plain name (inside an ``if``,
+    # by unpacking) cannot be read either.
+    if set(SHIPPED_DECLARATION) - set(values):
+        return None
+    return values
+
+
+def _normalized_declaration(value: object) -> object:
+    """Tuples and lists compare alike (``()`` and ``[]`` both mean empty)."""
+    if isinstance(value, (tuple, list)):
+        return [_normalized_declaration(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _normalized_declaration(item) for key, item in value.items()}
+    return value
+
+
+def _flat_imports(path: Path, flat: "set[str]") -> "set[str]":
+    """The flat script modules ``path`` imports anywhere in its body (AST)."""
+    import ast
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            found.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            found.add(node.module.split(".")[0])
+    return found & flat
+
+
+def framework_script_census_problems(scripts: Path, listed: "frozenset[str]", stems: "set[str]") -> "list[str]":
+    """Problems with ``FRAMEWORK_SCRIPT_MODULE_NAMES`` (``listed``) against the
+    flat scripts on disk (``stems``). Every listed module must exist. On the
+    stock declaration the unlisted scripts must be none (upstream stays
+    exact). When the declaration on disk is a distribution's, its declared
+    modules are its own and a module it never declared is allowed unless the
+    server (``server.py``, ``wf_server/``) or a listed module imports it: a
+    framework script reached that way must be listed. Many framework scripts
+    are command-line entry points or loaded by name, so no import closure can
+    stand in for the exact stock check."""
+    from record_layout_support import SHIPPED_DECLARATION
+    problems: list[str] = []
+    missing = sorted(listed - stems)
+    if missing:
+        problems.append("listed framework script(s) missing from disk: " + ", ".join(missing))
+    declaration = _disk_declaration(scripts)
+    if declaration is None:
+        # Fail closed: an unreadable declaration must not drop the exact check.
+        problems.append("mcp_tool_extensions.py declares an EXTENSION_* constant that is not a plain literal")
+        return problems
+    if all(
+        _normalized_declaration(declaration.get(name)) == _normalized_declaration(SHIPPED_DECLARATION[name])
+        for name in SHIPPED_DECLARATION
+    ):
+        unlisted = sorted(stems - listed)
+        if unlisted:
+            problems.append("unlisted flat script(s) on a stock declaration: " + ", ".join(unlisted))
+        return problems
+    declared = set(declaration.get("EXTENSION_MODULES", ())) | set(declaration.get("EXTENSION_HELPER_MODULES", ()))
+    sources = [scripts / "server.py", *sorted((scripts / "wf_server").rglob("*.py"))]
+    sources += [scripts / f"{name}.py" for name in sorted(listed & stems)]
+    reached: set[str] = set()
+    for source in sources:
+        if source.is_file():
+            reached |= _flat_imports(source, stems)
+    unlisted = sorted(reached - listed - declared)
+    if unlisted:
+        problems.append("server-reachable flat script(s) not listed: " + ", ".join(unlisted))
+    return problems
+
 _DRIVER = r'''
 import asyncio, contextlib, hashlib, inspect, json, sys, tempfile
 from pathlib import Path
@@ -4600,13 +4695,85 @@ class HelperModuleDeclarationTests(unittest.TestCase):
             self.assertIn("wf_help", mcp_tool_roster.all_tool_tiers())
 
     def test_the_framework_script_census_matches_the_scripts_directory(self):
-        # The flat scripts on disk, less the modules the current declaration
-        # lists (a distribution's own files), are exactly the declared set.
+        # The flat scripts on disk, less the modules the declaration on disk
+        # lists (a distribution's own files), are exactly the framework set.
         import mcp_tool_extensions
-        declared = set(mcp_tool_extensions.EXTENSION_MODULES) | set(mcp_tool_extensions.EXTENSION_HELPER_MODULES)
         flat = framework_source_files(include_aliases=True)
-        stems = {path.stem for path in flat if path.parent == SCRIPTS} - declared
-        self.assertEqual(set(mcp_tool_extensions.FRAMEWORK_SCRIPT_MODULE_NAMES), stems)
+        stems = {path.stem for path in flat if path.parent == SCRIPTS}
+        self.assertEqual(
+            framework_script_census_problems(SCRIPTS, mcp_tool_extensions.FRAMEWORK_SCRIPT_MODULE_NAMES, stems), []
+        )
+
+    def _census_tree(self, declaration: str = "", modules=("server", "listed_a", "listed_b")):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root, True)
+        (root / "wf_server").mkdir()
+        (root / "wf_server" / "handlers.py").write_text("import listed_b\n", encoding="utf-8")
+        for name in modules:
+            (root / f"{name}.py").write_text("import listed_a\n" if name == "server" else "", encoding="utf-8")
+        from declaration_support import base_declaration_source
+        (root / "mcp_tool_extensions.py").write_text(base_declaration_source() + declaration, encoding="utf-8")
+        return root
+
+    def _census(self, root, listed=("server", "listed_a", "listed_b", "mcp_tool_extensions")):
+        stems = {path.stem for path in root.glob("*.py")}
+        return framework_script_census_problems(root, frozenset(listed), stems)
+
+    def test_census_stock_declaration_is_exact(self):
+        root = self._census_tree()
+        self.assertEqual(self._census(root), [])
+        (root / "acme_render.py").write_text("", encoding="utf-8")
+        self.assertEqual(self._census(root), ["unlisted flat script(s) on a stock declaration: acme_render"])
+
+    def test_census_declared_distribution_allows_an_unimported_module_of_its_own(self):
+        root = self._census_tree('EXTENSION_MODULES = ("acme_tools",)\n')
+        (root / "acme_tools.py").write_text("import acme_render\n", encoding="utf-8")
+        (root / "acme_render.py").write_text("", encoding="utf-8")
+        self.assertEqual(self._census(root), [])
+
+    def test_census_declared_distribution_still_requires_server_imported_modules_listed(self):
+        root = self._census_tree('EXTENSION_MODULES = ("acme_tools",)\n')
+        (root / "acme_tools.py").write_text("", encoding="utf-8")
+        (root / "new_core.py").write_text("", encoding="utf-8")
+        (root / "wf_server" / "handlers.py").write_text("import listed_b\nfrom new_core import x\n", encoding="utf-8")
+        self.assertEqual(self._census(root), ["server-reachable flat script(s) not listed: new_core"])
+        # A listed framework module importing it is caught the same way.
+        (root / "wf_server" / "handlers.py").write_text("import listed_b\n", encoding="utf-8")
+        (root / "listed_a.py").write_text("import new_core\n", encoding="utf-8")
+        self.assertEqual(self._census(root), ["server-reachable flat script(s) not listed: new_core"])
+
+    def test_census_fails_closed_on_an_unreadable_declaration(self):
+        # A computed or augmented EXTENSION_* value must not drop the exact
+        # stock check by reading as a distribution.
+        for declaration in ('EXTENSION_MODULES = tuple(["acme_tools"])\n',
+                            'EXTENSION_MODULES = ("acme_tools",)\nEXTENSION_MODULES += ("acme_more",)\n',
+                            None):
+            with self.subTest(declaration=declaration):
+                root = self._census_tree(declaration or "")
+                if declaration is None:
+                    # A constant assigned only by unpacking reads as missing.
+                    decl = root / "mcp_tool_extensions.py"
+                    text = decl.read_text(encoding="utf-8").replace(
+                        "EXTENSION_MODULES = ()", "EXTENSION_MODULES, _unused = (), 1")
+                    self.assertIn("EXTENSION_MODULES, _unused", text)
+                    decl.write_text(text, encoding="utf-8")
+                self.assertEqual(self._census(root), [
+                    "mcp_tool_extensions.py declares an EXTENSION_* constant that is not a plain literal",
+                ])
+
+    def test_census_treats_an_empty_list_as_the_stock_empty_tuple(self):
+        root = self._census_tree("EXTENSION_MODULES = []\n")
+        (root / "acme_render.py").write_text("", encoding="utf-8")
+        self.assertEqual(self._census(root), ["unlisted flat script(s) on a stock declaration: acme_render"])
+
+    def test_census_listed_module_missing_from_disk_fails_either_way(self):
+        for declaration in ("", 'EXTENSION_MODULES = ("acme_tools",)\n'):
+            with self.subTest(declaration=declaration):
+                root = self._census_tree(declaration)
+                if declaration:
+                    (root / "acme_tools.py").write_text("", encoding="utf-8")
+                (root / "listed_b.py").unlink()
+                self.assertIn("listed framework script(s) missing from disk: listed_b", self._census(root))
 
     def test_the_stock_declaration_validates_and_ships_no_helpers(self):
         from declaration_support import SHIPPED_DECLARATION, base_declaration, declaration_profile_mismatch

@@ -270,11 +270,54 @@ def runner_binding_census(scripts_root: Path) -> Counter:
     return found
 
 
+def _is_upstream_file(rel: str) -> bool:
+    """A file the framework ships: anything in a subfolder (``wf_server/``,
+    ``wave_lint_lib/``, ``benchmarks/``, ...) or a flat script named in
+    ``FRAMEWORK_SCRIPT_MODULE_NAMES``. A flat script outside that list is a
+    distribution's own module."""
+    import mcp_tool_extensions
+    parts = Path(rel).parts
+    return len(parts) != 1 or Path(rel).stem in mcp_tool_extensions.FRAMEWORK_SCRIPT_MODULE_NAMES
+
+
+def classified_census(census: Counter) -> dict:
+    """``census`` less the routed calls in a distribution's own modules: a
+    ``run_with_tree_kill`` call outside the upstream files is routed by
+    construction and needs no table row. Upstream files stay exact, and any
+    other timed call in a distribution's module is still counted."""
+    return {
+        key: count for key, count in census.items()
+        if _is_upstream_file(key[0]) or key[2] != "run_with_tree_kill"
+    }
+
+
 class ClassificationTests(unittest.TestCase):
     def test_every_timed_call_is_routed_or_classified(self) -> None:
         expected = dict(ROUTED)
         expected.update({key: count for key, (count, _reason) in EXCLUDED.items()})
-        self.assertEqual(dict(timed_call_census(SCRIPTS_ROOT)), expected)
+        self.assertEqual(classified_census(timed_call_census(SCRIPTS_ROOT)), expected)
+
+    def test_a_distribution_module_needs_no_row_for_a_routed_call_only(self) -> None:
+        # Waveforge R2: an extension module's run_with_tree_kill call is routed;
+        # its raw timed call is not; the same routed call in an upstream file
+        # (a listed flat script or anything in a subfolder) still needs a row.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "wf_server").mkdir()
+            routed = "import subprocess_util\ndef sync():\n    subprocess_util.run_with_tree_kill(['git'], timeout=5)\n"
+            (root / "acme_tools.py").write_text(routed, encoding="utf-8")
+            (root / "upgrade_lib.py").write_text(routed, encoding="utf-8")
+            (root / "wf_server" / "acme_handlers.py").write_text(routed, encoding="utf-8")
+            self.assertEqual(classified_census(timed_call_census(root)), {
+                ("upgrade_lib.py", "sync", "run_with_tree_kill"): 1,
+                ("wf_server/acme_handlers.py", "sync", "run_with_tree_kill"): 1,
+            })
+            (root / "acme_tools.py").write_text(
+                routed + "def build():\n    import subprocess\n    subprocess.run(['make'], timeout=5)\n",
+                encoding="utf-8",
+            )
+            self.assertIn(("acme_tools.py", "build", "run"), classified_census(timed_call_census(root)))
+            self.assertNotIn(("acme_tools.py", "sync", "run_with_tree_kill"), classified_census(timed_call_census(root)))
 
     def test_every_exclusion_has_a_reason(self) -> None:
         for key, (_count, reason) in EXCLUDED.items():
