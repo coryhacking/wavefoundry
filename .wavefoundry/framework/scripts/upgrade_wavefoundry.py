@@ -3316,28 +3316,37 @@ def _record_setup_baseline(root: Path, *, sleep=None, stamp: bool = True) -> dic
 
     Wave 1zfd9: returns the assessment (``None`` when it could not run) for the
     summary's setup fields; ``stamp=False`` assesses without writing the stamp.
+
+    Wave 1zu53: when the live result is ready but no stamp is written, the
+    returned assessment is the stamp-aware one, which is what every later
+    readiness check reports against the stamp left in place.
     """
     try:
         import setup_readiness
         import time
 
         sleep = sleep or time.sleep
+
+        def assess(**kwargs) -> dict:
+            result = setup_readiness.assess_setup(root, **kwargs)
+            # Wave 1z1vs: a transient result (the reindex still writing) is retried a
+            # bounded number of times; anything else is judged on the first attempt.
+            for wait in _SETUP_BASELINE_RETRY_WAITS:
+                if not _setup_result_is_transient(result):
+                    break
+                sleep(wait)
+                result = setup_readiness.assess_setup(root, **kwargs)
+            return result
+
         identity = setup_readiness.capture_loaded_identity()
-        result = setup_readiness.assess_setup(root, use_stamp=False)
-        # Wave 1z1vs: a transient result (the reindex still writing) is retried a
-        # bounded number of times; anything else is judged on the first attempt.
-        for wait in _SETUP_BASELINE_RETRY_WAITS:
-            if not _setup_result_is_transient(result):
-                break
-            sleep(wait)
-            result = setup_readiness.assess_setup(root, use_stamp=False)
+        result = assess(use_stamp=False)
         status = result.get("status")
         if status != "ready":
             command = "wf setup" if status == "action_required" else "wf setup --check"
             _log(f"  Setup baseline not recorded (setup readiness: {status}); run `{command}`.")
             return result
         if not stamp:
-            return result
+            return assess()
         prior = setup_readiness.read_setup_stamp(root)
         if prior is not None and (
             setup_readiness.projected_environment(prior.get("environment"))
@@ -3347,7 +3356,7 @@ def _record_setup_baseline(root: Path, *, sleep=None, stamp: bool = True) -> dic
                 "  Setup baseline not recorded: the environment differs from the one setup "
                 "last recorded; run `wf setup`."
             )
-            return result
+            return assess()
         setup_readiness.write_setup_stamp(root, provenance="upgrade", identity=identity)
         _log("  Setup baseline recorded.")
         return result

@@ -215,6 +215,61 @@ class AccelEmbedderTests(unittest.TestCase):
                 )
             )
         run.assert_called_once()
+        self.assertEqual(
+            run.call_args.args[0],
+            self.ae._coreml_static_probe_command("reranker", "cross-encoder/ms-marco-MiniLM-L-6-v2"),
+        )
+
+    def test_coreml_static_probe_child_activates_the_tool_venv_before_numpy(self):
+        """Wave 1zu53: the probe child is not a framework script, so it must self-activate.
+
+        Field report: on a system ``python3`` without numpy (the parent runs on it
+        with the tool venv activated in-process) the child failed with
+        ``No module named 'numpy'`` on every terminal ``wf setup``. Here ``-S``
+        stands in for that interpreter: no site-packages, so numpy is reachable
+        only through the activation, which finds a fake tool venv whose numpy
+        prints a marker and exits.
+        """
+        import subprocess
+        import tempfile
+
+        import venv_bootstrap
+
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp) / "tool-venv"
+            python = base.joinpath(*venv_bootstrap._venv_python_relpath())
+            python.parent.mkdir(parents=True)
+            python.write_text("")
+            major, minor = sys.version_info[:2]
+            (base / "pyvenv.cfg").write_text(f"version = {major}.{minor}.0\n")
+            with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(base)}):
+                site_packages = venv_bootstrap._venv_site_packages(base)
+            numpy = site_packages / "numpy"
+            numpy.mkdir(parents=True)
+            (numpy / "__init__.py").write_text(
+                "import sys\nprint('FAKE-NUMPY-FROM-TOOL-VENV')\nsys.exit(0)\n"
+            )
+            command = self.ae._coreml_static_probe_command(
+                "embedder", "Snowflake/snowflake-arctic-embed-s"
+            )
+            env = dict(os.environ, WAVEFOUNDRY_TOOL_VENV=str(base))
+            env.pop("PYTHONPATH", None)
+
+            def run(code):
+                return subprocess.run(
+                    [sys.executable, "-B", "-S", "-c", code, *command[3:]],
+                    cwd=str(Path(self.ae.__file__).resolve().parent),
+                    env=env, capture_output=True, text=True, timeout=60,
+                )
+
+            probe = run(command[2])
+            self.assertEqual(probe.returncode, 0, probe.stderr)
+            self.assertIn("FAKE-NUMPY-FROM-TOOL-VENV", probe.stdout)
+            # Control: without the activation the same interpreter cannot see numpy,
+            # so the assertion above is not satisfied by an ambient numpy.
+            body_only = run(self.ae._COREML_STATIC_PROBE_BODY)
+            self.assertNotEqual(body_only.returncode, 0)
+            self.assertIn("No module named 'numpy'", body_only.stderr)
 
     def _probe_stderr(self, completed) -> str:
         """Run one probe against a fake child and return what it wrote to stderr."""

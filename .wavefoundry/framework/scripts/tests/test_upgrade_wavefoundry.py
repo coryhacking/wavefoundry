@@ -1548,7 +1548,8 @@ class PhaseCleanupSetupBaselineTests(unittest.TestCase):
             frame = sys._getframe(1)
             while frame is not None and frame.f_globals.get("__name__") == "unittest.mock":
                 frame = frame.f_back
-            if frame is not None and frame.f_code.co_name == "_record_setup_baseline":
+            # The loop lives in a helper nested in _record_setup_baseline (wave 1zu53).
+            if frame is not None and frame.f_code.co_qualname.startswith("_record_setup_baseline"):
                 waits.append(seconds)
 
         with patch.object(self.readiness, "assess_setup", side_effect=assess), \
@@ -1617,6 +1618,58 @@ class PhaseCleanupSetupBaselineTests(unittest.TestCase):
         out = self._cleanup()
         self.assertEqual(self.stamp.read_bytes(), before)
         self.assertIn("environment differs", out)
+
+    def test_kept_stamp_makes_the_summary_report_what_later_checks_report(self):
+        """Wave 1zu53: no baseline recorded, so the summary is not `ready`.
+
+        The live check is ready, but the kept stamp describes another
+        environment; every later readiness check reports setup_inputs_changed,
+        so the summary must too (field report: 1.29.0+puha said `Setup: ready`).
+        """
+        with patch.dict(os.environ, {self.readiness.REQUESTED_PROVIDER_ENV: "cpu"}):
+            self.readiness.write_setup_stamp(self.root)
+        before = self.stamp.read_bytes()
+        out = self._cleanup()
+        self.assertEqual(self.stamp.read_bytes(), before)
+        self.assertIn('"setup_status": "action_required"', out)
+        self.assertIn("setup_inputs_changed", out)
+        self.assertIn("next: wf setup --root", out)
+        self.assertNotIn('"setup_status": "ready"', out)
+        later = self.readiness.assess_setup(self.root)
+        self.assertEqual(later["status"], "action_required")
+
+    def test_stamp_aware_summary_assessment_is_retried_while_transient(self):
+        """Wave 1zu53: the stamp-aware assessment keeps the 1z1vs retry.
+
+        Live check ready, stamp kept (another environment), then the first
+        stamp-aware attempt is transient: it is retried once and settles on
+        action_required instead of reporting a needless indeterminate.
+        """
+        with patch.dict(os.environ, {self.readiness.REQUESTED_PROVIDER_ENV: "cpu"}):
+            self.readiness.write_setup_stamp(self.root)
+        for label, kwargs in (("environment differs", {}),
+                              ("stamp=False", {"index_update_failed": True})):
+            with self.subTest(path=label):
+                real_cleanup = self._cleanup
+                with patch.object(self, "_cleanup", side_effect=lambda: real_cleanup(**kwargs)):
+                    out, calls, waits = self._cleanup_with_assessments([None, self.TRANSIENT])
+                self.assertEqual(len(calls), 3)
+                self.assertEqual(calls[0], {"use_stamp": False})
+                self.assertEqual(calls[1:], [{}, {}])
+                self.assertEqual(waits, [2.0])
+                self.assertIn('"setup_status": "action_required"', out)
+
+    def test_unstamped_index_failure_reports_an_outdated_stamp(self):
+        """Wave 1zu53: `stamp=False` with an outdated stamp in place is not `ready`."""
+        self.readiness.write_setup_stamp(self.root)
+        older = json.loads(self.stamp.read_text())
+        older["sources"]["server.py"] = "0" * 64
+        self.stamp.write_text(json.dumps(older))
+        before = self.stamp.read_bytes()
+        out = self._cleanup(index_update_failed=True)
+        self.assertEqual(self.stamp.read_bytes(), before)
+        self.assertIn('"setup_status": "action_required"', out)
+        self.assertIn("setup_inputs_changed", out)
 
     def test_baseline_failure_never_fails_the_upgrade(self):
         with patch.object(self.readiness, "assess_setup", side_effect=RuntimeError("boom")):

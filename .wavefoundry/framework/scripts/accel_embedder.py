@@ -132,22 +132,17 @@ def _run_tree_kill(cmd, **kwargs):
     return run(cmd, **kwargs)
 
 
-def _coreml_static_probe_passes(model_name: str, workload: str) -> bool:
-    """Crash-isolate the production static CoreML graph before in-process use.
+# Wave 1zu53: the framework runs on the system interpreter with the tool venv
+# activated in-process (venv_bootstrap, ADR 1p7pb tier 3), so a child started
+# from ``sys.executable`` must activate the venv itself before importing any
+# third-party package. Without this prelude the probe failed on every system
+# Python lacking numpy and setup silently fell back to the CPU.
+_COREML_STATIC_PROBE_PRELUDE = """\
+import venv_bootstrap
+venv_bootstrap.activate_tool_venv()
+"""
 
-    Python exception handling cannot catch an ONNX Runtime/CoreML SIGSEGV. The
-    child executes the exact static embedder or reranker graph, repeats a full
-    batch, and checks CPU parity/shape. An abnormal exit or timeout therefore
-    downgrades the parent safely instead of terminating the MCP/index process.
-    """
-    if os.environ.get(_COREML_STATIC_PROBE_CHILD_ENV) == "1":
-        return True
-    key = (workload, model_name)
-    if key in _coreml_static_probe_cache:
-        return _coreml_static_probe_cache[key]
-    if workload not in {"embedder", "reranker"}:
-        return False
-    probe_code = r"""
+_COREML_STATIC_PROBE_BODY = r"""
 import math
 import sys
 import numpy as np
@@ -186,12 +181,41 @@ else:
     if not gpu.offloads_to_gpu():
         raise RuntimeError("static CoreML reranker did not offload")
 """
+
+
+def _coreml_static_probe_command(workload: str, model_name: str) -> list[str]:
+    """The isolated probe child: activate the tool venv, then run the probe body.
+
+    Runs with the scripts directory as its working directory, so ``-c`` finds
+    ``venv_bootstrap`` and ``accel_embedder`` there.
+    """
+    return [
+        subprocess_util.windowless_pythonw() or sys.executable,
+        "-c", _COREML_STATIC_PROBE_PRELUDE + _COREML_STATIC_PROBE_BODY,
+        workload, model_name,
+    ]
+
+
+def _coreml_static_probe_passes(model_name: str, workload: str) -> bool:
+    """Crash-isolate the production static CoreML graph before in-process use.
+
+    Python exception handling cannot catch an ONNX Runtime/CoreML SIGSEGV. The
+    child executes the exact static embedder or reranker graph, repeats a full
+    batch, and checks CPU parity/shape. An abnormal exit or timeout therefore
+    downgrades the parent safely instead of terminating the MCP/index process.
+    """
+    if os.environ.get(_COREML_STATIC_PROBE_CHILD_ENV) == "1":
+        return True
+    key = (workload, model_name)
+    if key in _coreml_static_probe_cache:
+        return _coreml_static_probe_cache[key]
+    if workload not in {"embedder", "reranker"}:
+        return False
     child_env = os.environ.copy()
     child_env[_COREML_STATIC_PROBE_CHILD_ENV] = "1"
     try:
         completed = _run_tree_kill(
-            [subprocess_util.windowless_pythonw() or sys.executable,
-             "-c", probe_code, workload, model_name],
+            _coreml_static_probe_command(workload, model_name),
             cwd=str(Path(__file__).resolve().parent),
             env=child_env,
             capture_output=True,

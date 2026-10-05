@@ -335,6 +335,7 @@ class SetupIndexTests(unittest.TestCase):
         _gpu = patch.object(self.mod, "_prewarm_gpu_accel")
         _gpu.start()
         self.addCleanup(_gpu.stop)
+        self._real_prewarm_gpu_accel = _gpu.temp_original
 
     def test_fastembed_cache_dir_defaults_under_wavefoundry_cache(self):
         default_cache = Path("/tmp/home/.wavefoundry/cache/fastembed")
@@ -1010,6 +1011,62 @@ class SetupIndexTests(unittest.TestCase):
         self.assertIn(".wavefoundry/framework/scripts/server.py", stdout.getvalue())
         self.assertNotIn("bin/mcp-server", stdout.getvalue())
         self.assertNotIn("python3 ", stdout.getvalue())
+        # Wave 1zu53: the default test double returns a MagicMock, which is not a fallback.
+        self.assertNotIn("GPU acceleration NOT used", stdout.getvalue())
+
+    def _main_output(self, fallbacks):
+        with patch.object(self.mod, "_reexec_with_venv_if_needed"), \
+                patch.object(self.mod, "ensure_deps"), \
+                patch.object(self.mod, "prewarm_models"), \
+                patch.object(self.mod, "build_index"), \
+                patch.object(self.mod, "_prewarm_gpu_accel", return_value=fallbacks), \
+                patch.object(self.mod, "_tool_venv_python", return_value=FAKE_VENV_PYTHON):
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                rc = self.mod.main(["--root", "/tmp/repo", "--include-code"])
+        self.assertEqual(rc, 0)
+        return stdout.getvalue()
+
+    def test_main_names_a_gpu_fallback_before_done(self):
+        """Wave 1zu53: a failed isolated CoreML probe is named at the end of setup."""
+        out = self._main_output([("embedder", "Snowflake/snowflake-arctic-embed-s")])
+        notice = out.index("GPU acceleration NOT used for the embedder (Snowflake/snowflake-arctic-embed-s)")
+        self.assertLess(notice, out.index("Done. Project index update complete."))
+        self.assertIn("wf setup --check-gpu", out)
+
+    def test_main_prints_no_fallback_line_without_a_failed_probe(self):
+        for fallbacks in ([], None):
+            with self.subTest(fallbacks=fallbacks):
+                self.assertNotIn("GPU acceleration NOT used", self._main_output(fallbacks))
+
+    def test_prewarm_reports_only_failed_probes_not_the_cpu_int8_path(self):
+        """Wave 1zu53: the probe cache is the failure signal; a CPU provider alone is not.
+
+        A CPU-only machine runs INT8 on the CPU provider with no probe at all,
+        and that must not read as a fallback.
+        """
+        import types
+
+        cpu = types.SimpleNamespace(provider="CPUExecutionProvider")
+        fake = types.SimpleNamespace(
+            make_reranker=lambda model, providers: cpu,
+            make_embedder=lambda model, providers: cpu,
+            _coreml_static_probe_cache={},
+        )
+        reranker = "reranker-model"
+        with patch.dict(sys.modules, {"accel_embedder": fake}), \
+                patch.object(self.mod, "_indexer_reranker_model", return_value=reranker), \
+                redirect_stdout(io.StringIO()):
+            self.assertEqual(self._real_prewarm_gpu_accel(["docs-model", "code-model"]), [])
+            fake._coreml_static_probe_cache.update({
+                ("embedder", "code-model"): False,
+                ("embedder", "docs-model"): True,
+                ("reranker", reranker): False,
+            })
+            self.assertEqual(
+                self._real_prewarm_gpu_accel(["docs-model", "code-model"]),
+                [("reranker", reranker), ("embedder", "code-model")],
+            )
 
     def test_storage_prewarm_never_opens_or_publishes_legacy_index(self):
         import sqlite_runtime

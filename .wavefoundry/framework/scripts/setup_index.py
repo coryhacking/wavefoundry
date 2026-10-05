@@ -2084,17 +2084,21 @@ def prewarm_models(*, include_code: bool, code_only: bool = False) -> None:
     # (GPU FP16 / CPU INT8); search degrades to vector order only when reranking is explicitly disabled.
 
 
-def _prewarm_gpu_accel(models: list[str]) -> None:
+def _prewarm_gpu_accel(models: list[str]) -> list[tuple[str, str]]:
     """Wave 1p517 (extended 1p935): build each model's static-shape ONNX session once at setup —
     downloads + caches the clean ONNX (offline-ready) and pays the ONNX Runtime compile here (GPU
     CoreML sessions cache via ``ModelCacheDirectory``), so the first index build doesn't. On a GPU
     machine this prewarms the FP16 GPU path; on a CPU-bound machine it prewarms the INT8 CPU path
     (wave 1p935) instead of no-op'ing. No-op only without ``onnx``/``accel_embedder``.
+
+    Wave 1zu53: returns the ``(workload, model)`` pairs whose isolated CoreML probe failed, read
+    from ``accel_embedder._coreml_static_probe_cache`` (the only failure signal: the make_*
+    builders swallow it, and a CPU provider alone is also the normal INT8 path without a GPU).
     """
     try:
         import accel_embedder
     except ImportError:
-        return
+        return []
     providers = list(provider_policy.select_embedding_providers().providers)
 
     # Wave 1p52p: prewarm the cross-encoder reranker REGARDLESS of GPU — it runs FP16 on the GPU
@@ -2129,6 +2133,9 @@ def _prewarm_gpu_accel(models: list[str]) -> None:
         else:
             print(f"Embedder not accelerated for {model_name} (no GPU offload, no INT8 source) — "
                   "fastembed path", flush=True)
+    probes = getattr(accel_embedder, "_coreml_static_probe_cache", {})
+    return [key for key in ((("reranker", reranker_model),) + tuple(("embedder", m) for m in models))
+            if probes.get(key) is False]
 
 
 def _spawn_background_semantic_build(root: Path, args: argparse.Namespace, content: str) -> None:
@@ -2729,7 +2736,7 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     report_embedding_provider_decision()
-    _prewarm_gpu_accel(_indexer_models(include_code=_include_code, code_only=_code_only))
+    gpu_fallbacks = _prewarm_gpu_accel(_indexer_models(include_code=_include_code, code_only=_code_only))
     if model_bundle_path is None and model_bundle.attest_online_cache():
         print("Verified downloaded model cache matches the declared model set.", flush=True)
     try:
@@ -2766,6 +2773,15 @@ def main(argv: list[str] | None = None) -> int:
         _spawn_background_code_build(root, args)
     if background_docs:
         _spawn_background_docs_build(root, args)
+    # Wave 1zu53: name a GPU fallback at the end, not only in a mid-run WARNING. Anything but a
+    # list (a test double, None) counts as no fallbacks.
+    for workload, model_name in gpu_fallbacks if isinstance(gpu_fallbacks, list) else []:
+        print(
+            f"GPU acceleration NOT used for the {workload} ({model_name}): its isolated CoreML probe "
+            "failed (see the WARNING above), so it runs on the CPU. Indexing and search still work; "
+            "diagnose with `wf setup --check-gpu`.",
+            flush=True,
+        )
     print(
         f"\nDone. Project index update complete.\n"
         f"MCP handoff: restart your AI agent so the Wavefoundry MCP server attaches "
