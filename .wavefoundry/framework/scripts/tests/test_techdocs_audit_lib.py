@@ -740,8 +740,6 @@ class TechdocsAuditBoundaryAgreementTests(unittest.TestCase):
         instead: a regex that cannot match a separator can only ever match the
         first ancestor, because every deeper ancestor contains one.
         """
-        import time
-
         # The equivalence must not change any answer. A deep path is scored
         # normally, which is what the count cap got wrong.
         deep = "/".join(["d%d" % n for n in range(32)]) + "/secret.md"
@@ -760,15 +758,36 @@ class TechdocsAuditBoundaryAgreementTests(unittest.TestCase):
         self.assertFalse(audit._translate_pattern(worst)[4],
                          "the probe pattern must be segment-local, or it proves nothing")
         catastrophic = "a" * 250 + "/" + "/".join(["x"] * 1900)
-        started = time.monotonic()
-        self.assertFalse(audit.excluded(catastrophic, [worst]))
-        # 0.15s is 2x the measured worst admitted cost under the two length
-        # caps, found by adversarial search over 4 admitted patterns and 20
-        # subject shapes: 66ms, from `/*a*a*aX` against a 1921-component
-        # subject. The bound is deliberately stated from the search rather than
-        # extrapolated from one point, which is how it was wrong three times.
-        self.assertLess(time.monotonic() - started, 0.15,
-                        "a segment-local pattern must not walk 1900 ancestors")
+
+        # The skip is pinned by COUNTING the probe regex's matches, not by
+        # timing the call: a 0.15s wall-clock cap failed a busy full-suite run
+        # at 0.163s against correct code. One direct match plus the first
+        # ancestor is 2; walking every ancestor is about 1902.
+        calls = []
+
+        class CountingRegex:
+            def __init__(self, regex):
+                self._regex = regex
+
+            def match(self, subject):
+                calls.append(subject)
+                return self._regex.match(subject)
+
+        real_pattern_regex = audit._pattern_regex
+
+        def counting_pattern_regex(raw):
+            entry = real_pattern_regex(raw)
+            if entry is None or raw != worst:
+                return entry
+            negated, dir_only, regex, crosses = entry
+            return negated, dir_only, CountingRegex(regex), crosses
+
+        with unittest.mock.patch.object(audit, "_pattern_regex", counting_pattern_regex):
+            self.assertFalse(audit.excluded(catastrophic, [worst]))
+        self.assertGreaterEqual(len(calls), 1, "the probe regex was never consulted")
+        self.assertLessEqual(len(calls), 2,
+                             "a segment-local pattern must not walk 1900 ancestors; "
+                             "matched %d subjects" % len(calls))
 
         # A separator-crossing pattern still walks every ancestor, or the
         # equivalence would be a silent narrowing rather than an optimization.
