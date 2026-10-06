@@ -10510,6 +10510,9 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 # Optional attribution never gates an otherwise valid review.
                 ("wf_review_event_response", "_diagnostic", "operator_identity_unresolved"),
                 ("wf_review_event_response", "_diagnostic", "artifact_or_test_id_ephemeral"),
+                # 1zyc3 (1zyc1): a replay whose supplied self-attested name
+                # differs from the stored one; the replay itself is unchanged.
+                ("wf_review_event_response", "_diagnostic", "attested_by_replay_mismatch"),
                 # Wave 1zls8 (1zlty): a mapped alias's skipped response-key rename
                 # is a note on an extension alias response; it gates nothing.
                 ("_rename_response_keys", "_diagnostic", "response_key_rename_skipped"),

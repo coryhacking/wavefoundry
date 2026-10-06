@@ -27,6 +27,7 @@ import tempfile
 import re
 import stat
 import threading
+import unicodedata
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -504,7 +505,73 @@ def _review_action_state_args(
 _VERIFICATION_CONTEXT_REQUIRED = frozenset(
     {"actor", "context_id", "fresh_context", "independent"}
 )
-_VERIFICATION_CONTEXT_OPTIONAL = frozenset({"operator"})
+_VERIFICATION_CONTEXT_OPTIONAL = frozenset({"operator", "attested_by"})
+
+#: Wave 1zyc3 (1zyc1): the longest self-attested name, in code points.
+ATTESTED_BY_MAX_LENGTH = 100
+#: Characters that break or inject into the Markdown review projection.
+_ATTESTED_BY_FORBIDDEN = frozenset("<>`|[]\\\u0085\u2028\u2029")
+#: Unicode categories refused: controls, format characters (bidi controls,
+#: zero-width characters) and lone surrogates, which cannot be encoded.
+_ATTESTED_BY_FORBIDDEN_CATEGORIES = frozenset({"Cc", "Cf", "Cs"})
+
+
+def attested_by_problem(value: Any) -> str | None:
+    """Return why a self-attested name is unusable, or None when it is valid.
+
+    Checks the value exactly as given (no normalization), so a ledger read can
+    validate a stored name without rewriting it: a string that is non-empty,
+    carries no surrounding spaces, has at most ``ATTESTED_BY_MAX_LENGTH`` code
+    points, and contains no ``Cc``/``Cf``/``Cs`` character (controls, bidi
+    controls, zero-width characters, lone surrogates), no line or paragraph
+    separator, and none of ``<``, ``>``, a backtick, ``|``, ``[``, ``]`` or
+    a backslash.
+    """
+
+    if not isinstance(value, str):
+        return "must be a string"
+    if not value.strip():
+        return "must be a non-empty name"
+    if value != value.strip():
+        return "must not have surrounding spaces"
+    if len(value) > ATTESTED_BY_MAX_LENGTH:
+        return f"must be at most {ATTESTED_BY_MAX_LENGTH} characters"
+    for char in value:
+        if (
+            char in _ATTESTED_BY_FORBIDDEN
+            or unicodedata.category(char) in _ATTESTED_BY_FORBIDDEN_CATEGORIES
+        ):
+            return f"contains a disallowed character U+{ord(char):04X}"
+    return None
+
+
+def normalize_attested_by(value: Any) -> tuple[str | None, str | None]:
+    """Normalize a caller-stated name (NFC, trimmed) and validate it.
+
+    Returns ``(name, None)`` when valid and ``(None, problem)`` otherwise.
+    The name is self-attested: nothing verifies who stated it.
+    """
+
+    if not isinstance(value, str):
+        return None, "must be a string"
+    name = unicodedata.normalize("NFC", value).strip()
+    problem = attested_by_problem(name)
+    if problem is not None:
+        return None, problem
+    return name, None
+
+
+def _identity_context(
+    operator: Mapping[str, Any] | None, attested_by: str | None
+) -> dict[str, Any]:
+    """Optional attribution keys of a builder-written verification_context."""
+
+    return {
+        **({"operator": dict(operator)} if operator is not None else {}),
+        **({"attested_by": attested_by} if attested_by is not None else {}),
+    }
+
+
 _CENSUS_REQUIRED = frozenset(
     {
         "claim",
@@ -974,6 +1041,7 @@ def build_identified_review_event(
     event: Mapping[str, Any],
     *,
     operator: Mapping[str, Any] | None = None,
+    attested_by: str | None = None,
 ) -> tuple[tuple[dict[str, Any], ...], tuple[str, ...]]:
     """Build a new bundle and put retry metadata on its leading row only.
 
@@ -982,7 +1050,9 @@ def build_identified_review_event(
     metadata required by construction for every newly generated bundle.
     """
 
-    rows, errors = build_compact_review_event(records, event, operator=operator)
+    rows, errors = build_compact_review_event(
+        records, event, operator=operator, attested_by=attested_by
+    )
     if errors:
         return (), errors
     try:
@@ -1681,11 +1751,19 @@ def review_authority_projection(
         elif approval_valid:
             state = "approved"
             operator = context.get("operator")
-            attribution = (
-                f" by {operator['handle']}"
+            handle = (
+                operator["handle"]
                 if isinstance(operator, Mapping) and _nonempty_string(operator.get("handle"))
-                else ""
+                else None
             )
+            attested = context.get("attested_by")
+            attested = attested if _nonempty_string(attested) else None
+            if attested and handle:
+                attribution = f" by {attested} ({handle})"
+            elif attested or handle:
+                attribution = f" by {attested or handle}"
+            else:
+                attribution = ""
             why = (
                 f"current executed approval{attribution} follows every affected repair"
                 if receipt_binding_applies or selected_phase == "readiness"
@@ -2963,6 +3041,7 @@ def build_compact_review_event(
     event: Mapping[str, Any],
     *,
     operator: Mapping[str, Any] | None = None,
+    attested_by: str | None = None,
 ) -> tuple[tuple[dict[str, Any], ...], tuple[str, ...]]:
     """Expand a compact semantic event into canonical append-only protocol rows."""
 
@@ -3012,7 +3091,7 @@ def build_compact_review_event(
                     "context_id": context_id,
                     "fresh_context": bool(event.get("fresh_context")),
                     "independent": bool(event.get("independent")),
-                    **({"operator": dict(operator)} if operator is not None else {}),
+                    **_identity_context(operator, attested_by),
                 },
             },
         ), ()
@@ -3105,7 +3184,7 @@ def build_compact_review_event(
                     "context_id": context_id,
                     "fresh_context": bool(event.get("fresh_context")),
                     "independent": bool(event.get("independent")),
-                    **({"operator": dict(operator)} if operator is not None else {}),
+                    **_identity_context(operator, attested_by),
                 },
             },
         ), ()
@@ -3287,7 +3366,7 @@ def build_compact_review_event(
             "context_id": context_id,
             "fresh_context": bool(event.get("fresh_context")),
             "independent": bool(event.get("independent")),
-            **({"operator": dict(operator)} if operator is not None else {}),
+            **_identity_context(operator, attested_by),
         },
     }
     if event.get("census") is not None:
@@ -3421,7 +3500,7 @@ def build_compact_review_event(
                         "context_id": context_id,
                         "fresh_context": bool(event.get("fresh_context")),
                         "independent": bool(event.get("independent")),
-                        **({"operator": dict(operator)} if operator is not None else {}),
+                        **_identity_context(operator, attested_by),
                     },
                 }
             )
@@ -3596,13 +3675,19 @@ def _validate_event_metadata(
 
 
 def _validate_operator_context(context: Mapping[str, Any], label: str) -> list[str]:
+    errors: list[str] = []
+    if "attested_by" in context:
+        # Validated as stored; never re-normalized on read (wave 1zyc3).
+        problem = attested_by_problem(context["attested_by"])
+        if problem is not None:
+            errors.append(f"{label}.attested_by: {problem}")
     if "operator" not in context:
-        return []
+        return errors
     operator = context["operator"]
     label = f"{label}.operator"
     if not isinstance(operator, dict):
-        return [f"{label}: must be an object"]
-    errors = _require_fields(operator, frozenset({"handle", "source"}), frozenset(), label)
+        return [*errors, f"{label}: must be an object"]
+    errors.extend(_require_fields(operator, frozenset({"handle", "source"}), frozenset(), label))
     if not _nonempty_string(operator.get("handle")):
         errors.append(f"{label}: `handle` must be a non-empty string")
     source_error = _enum_error(operator, "source", ("explicit", "git_email"), label)
@@ -4608,6 +4693,8 @@ __all__ = [
     "REVIEW_EVIDENCE_SOURCE_DECLARATION",
     "ReviewAuthority",
     "ReviewEvidenceValidation",
+    "ATTESTED_BY_MAX_LENGTH",
+    "attested_by_problem",
     "build_compact_review_event",
     "combined_review_evidence",
     "build_identified_review_event",
@@ -4617,6 +4704,7 @@ __all__ = [
     "current_synthesis_heads",
     "derive_review_event_identity",
     "derive_action_required",
+    "normalize_attested_by",
     "derive_blocking",
     "derive_disposition",
     "derive_review_depth",

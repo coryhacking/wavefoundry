@@ -13974,6 +13974,7 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
                 "judgment", "evidence", "source_lanes", "blocking_required_lanes",
                 "approval_recheck_lanes", "review_boundaries_changed", "fresh_context",
                 "independent", "integrity_checks", "record_type", "verbose", "operator_handle",
+                "attested_by",
             },
         )
         self.assertEqual(

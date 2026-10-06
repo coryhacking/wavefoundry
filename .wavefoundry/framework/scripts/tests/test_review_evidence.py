@@ -5058,6 +5058,154 @@ class OperatorReviewEvidenceTests(unittest.TestCase):
         self.assertEqual(readiness["why"], "current executed approval by alice follows every affected repair")
 
 
+class AttestedByReviewEvidenceTests(unittest.TestCase):
+    """Wave 1zyc3 (1zyc1): self-attested names on review records."""
+
+    event = OperatorReviewEvidenceTests.event
+
+    def test_attested_by_reaches_every_builder_record_outside_the_digest(self) -> None:
+        for kind in ("run", "approval", "finding"):
+            event = self.event(kind)
+            plain, errors = subject.build_identified_review_event([], "1zyc1 fixture", event)
+            self.assertEqual(errors, ())
+            with self.subTest(kind=kind):
+                rows, errors = subject.build_identified_review_event(
+                    [], "1zyc1 fixture", event, attested_by="Ada Lovelace"
+                )
+                self.assertEqual(errors, ())
+                self.assertEqual(
+                    rows[0][subject.REQUEST_DIGEST_FIELD], plain[0][subject.REQUEST_DIGEST_FIELD]
+                )
+                self.assertEqual(
+                    rows[0][subject.EVENT_IDENTITY_FIELD], plain[0][subject.EVENT_IDENTITY_FIELD]
+                )
+                contexts = [row["verification_context"] for row in rows if "verification_context" in row]
+                self.assertTrue(contexts)
+                for context in contexts:
+                    self.assertEqual(context["attested_by"], "Ada Lovelace")
+                self.assertFalse(subject.validate_review_evidence_records(rows))
+                for row in plain:
+                    if "verification_context" in row:
+                        self.assertNotIn("attested_by", row["verification_context"])
+
+    def test_generated_convergence_checkpoint_retains_attested_by(self) -> None:
+        records = ()
+        base = self.event("finding")
+        sequence = [dict(base)]
+        for cycle in (1, 2):
+            sequence.extend([
+                dict(base, actor="implementer", run_kind="repair_start", cycle=cycle,
+                     context_id=f"repair-{cycle}"),
+                dict(base, run_kind="reverification", cycle=cycle,
+                     context_id=f"verify-{cycle}", blocking_required_lanes=[]),
+            ])
+        for event in sequence:
+            rows, errors = subject.build_identified_review_event(
+                records, "1zyc1 fixture", event, attested_by="Ada Lovelace"
+            )
+            self.assertEqual(errors, ())
+            records = (*records, *rows)
+            self.assertFalse(subject.validate_review_evidence_records(records))
+        checkpoints = [row for row in records if row.get("run_kind") == "convergence_checkpoint"]
+        self.assertEqual(len(checkpoints), 1)
+        self.assertEqual(checkpoints[0]["verification_context"]["attested_by"], "Ada Lovelace")
+
+    def test_normalize_trims_and_composes(self) -> None:
+        self.assertEqual(subject.normalize_attested_by("  Ada Lovelace "), ("Ada Lovelace", None))
+        decomposed = "Jose\u0301"
+        name, problem = subject.normalize_attested_by(decomposed)
+        self.assertIsNone(problem)
+        self.assertEqual(name, "Jos\u00e9")
+        self.assertEqual(subject.normalize_attested_by("x" * 100), ("x" * 100, None))
+
+    INVALID_NAMES = (
+        ("", "non-empty"),
+        ("   ", "non-empty"),
+        ("x" * 101, "at most 100"),
+        ("Ada\u0000", "U+0000"),
+        ("Ada\nLovelace", "U+000A"),
+        ("Ada\tLovelace", "U+0009"),
+        ("Ada\u202eLovelace", "U+202E"),
+        ("Ada\u202aLovelace", "U+202A"),
+        ("Ada\u2066Lovelace", "U+2066"),
+        ("Ada\u2069Lovelace", "U+2069"),
+        ("Ada\u200bLovelace", "U+200B"),
+        ("Ada\u200dLovelace", "U+200D"),
+        ("Ada\ufeffLovelace", "U+FEFF"),
+        ("Ada\u0085Lovelace", "U+0085"),
+        ("Ada\u2028Lovelace", "U+2028"),
+        ("Ada\u2029Lovelace", "U+2029"),
+        ("Ada <b>", "U+003C"),
+        ("Ada>", "U+003E"),
+        ("Ada `x`", "U+0060"),
+        ("Ada | x", "U+007C"),
+        ("Ada\ud800", "U+D800"),
+        ("[Ada](x)", "U+005B"),
+        ("Ada]", "U+005D"),
+        ("Ada\\x", "U+005C"),
+    )
+
+    def test_invalid_names_are_refused_by_normalize(self) -> None:
+        for value, expected in self.INVALID_NAMES:
+            with self.subTest(value=value):
+                name, problem = subject.normalize_attested_by(value)
+                self.assertIsNone(name)
+                self.assertIn(expected, problem)
+        for value in (None, 7, ["Ada"]):
+            with self.subTest(value=value):
+                self.assertEqual(subject.normalize_attested_by(value), (None, "must be a string"))
+
+    def test_stored_name_is_validated_on_read_without_renormalizing(self) -> None:
+        for kind in ("run", "approval"):
+            rows, errors = subject.build_compact_review_event(
+                [], self.event(kind), attested_by="Ada Lovelace"
+            )
+            self.assertEqual(errors, ())
+            self.assertFalse(subject.validate_review_evidence_records(rows))
+            invalid_stored = [*self.INVALID_NAMES, (" Ada", "surrounding spaces"),
+                              (7, "must be a string"), (None, "must be a string")]
+            for value, expected in invalid_stored:
+                with self.subTest(kind=kind, value=value):
+                    invalid = copy.deepcopy(rows)
+                    invalid[0]["verification_context"]["attested_by"] = value
+                    errors = "\n".join(subject.validate_review_evidence_records(invalid))
+                    self.assertIn("verification_context.attested_by", errors)
+                    self.assertIn(expected, errors)
+            # A stored decomposed name is valid as stored and not rewritten.
+            decomposed = copy.deepcopy(rows)
+            decomposed[0]["verification_context"]["attested_by"] = "Jose\u0301"
+            self.assertFalse(subject.validate_review_evidence_records(decomposed))
+            self.assertEqual(decomposed[0]["verification_context"]["attested_by"], "Jose\u0301")
+
+    def test_ledger_without_attested_by_stays_valid(self) -> None:
+        rows, errors = subject.build_compact_review_event([], self.event("approval"))
+        self.assertEqual(errors, ())
+        self.assertNotIn("attested_by", rows[0]["verification_context"])
+        self.assertFalse(subject.validate_review_evidence_records(rows))
+
+    def test_approval_why_renders_name_and_handle(self) -> None:
+        suffix = ", not receipt-bound, follows every affected repair"
+        rows, errors = subject.build_compact_review_event([], self.event("approval"))
+        self.assertEqual(errors, ())
+        cases = (
+            ({}, "current executed approval" + suffix),
+            ({"operator": {"handle": "alice", "source": "explicit"}},
+             "current executed approval by alice" + suffix),
+            ({"attested_by": "Ada Lovelace"},
+             "current executed approval by Ada Lovelace" + suffix),
+            ({"attested_by": "Ada Lovelace", "operator": {"handle": "alice", "source": "explicit"}},
+             "current executed approval by Ada Lovelace (alice)" + suffix),
+        )
+        for extra, expected in cases:
+            with self.subTest(extra=extra):
+                variant = copy.deepcopy(rows)
+                variant[0]["verification_context"].update(extra)
+                self.assertFalse(subject.validate_review_evidence_records(variant))
+                row = subject.review_status_rows(variant, ["qa-reviewer"])[0]
+                self.assertEqual(row["state"], "approved")
+                self.assertEqual(row["why"], expected)
+
+
 class EphemeralArtifactTokensTests(unittest.TestCase):
     def test_roots_boundaries_and_path_token_grammar(self):
         with patch.object(subject, "EPHEMERAL_ARTIFACT_ROOTS", ("/tmp", "C:\\Users\\Alice\\Temp")):

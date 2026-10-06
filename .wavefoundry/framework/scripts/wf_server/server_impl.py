@@ -516,6 +516,7 @@ from review_evidence import (
     artifact_path_tokens,
     ephemeral_artifact_tokens,
     build_identified_review_event,
+    normalize_attested_by,
     canonical_review_events_bytes,
     canonicalize_finding_synthesis_markers,
     current_synthesis_heads,
@@ -10632,6 +10633,7 @@ def wf_review_event_response(
     record_type: str = "",
     verbose: bool = False,
     operator_handle: str | None = None,
+    attested_by: str | None = None,
 ) -> dict[str, Any]:
     """Preview or append a compact semantic review event to a marked wave.
 
@@ -10654,6 +10656,22 @@ def wf_review_event_response(
             next_tools=["wf_help"],
             usage="wf_help()",
         )
+    # Wave 1zyc3 (1zyc1): the self-attested name is validated at request time,
+    # before any write or replay. It is recorded only when supplied.
+    attested_name: str | None = None
+    if not is_list and attested_by is not None:
+        attested_name, attested_problem = normalize_attested_by(attested_by)
+        if attested_problem is not None:
+            return _response(
+                "error",
+                {"wave_id": wave_id, "mode": mode_s, "event": event},
+                diagnostics=[_diagnostic(
+                    "invalid_attested_by",
+                    f"attested_by {attested_problem}; nothing was written",
+                )],
+                next_tools=["wf_help"],
+                usage="wf_help()",
+            )
     try:
         wave_md, wave_read_error, unreadable_waves = _find_wave_md_detailed(root, wave_id)
     except ValueError as exc:
@@ -10737,7 +10755,12 @@ def wf_review_event_response(
     protected_collisions = sorted(
         (
             set(semantic_event)
-            | {EVENT_IDENTITY_FIELD, REQUEST_DIGEST_FIELD, "policy_receipt_id"}
+            | {
+                EVENT_IDENTITY_FIELD,
+                REQUEST_DIGEST_FIELD,
+                "policy_receipt_id",
+                "attested_by",
+            }
         )
         .intersection(evidence_payload)
     )
@@ -10962,6 +10985,24 @@ def wf_review_event_response(
                 )
             appended = existing_bundle
             proposed_records = tuple(current.records)
+            if attested_name is not None:
+                stored_name = next(
+                    (
+                        record["verification_context"].get("attested_by")
+                        for record in existing_bundle
+                        if isinstance(record.get("verification_context"), Mapping)
+                    ),
+                    None,
+                )
+                if stored_name != attested_name:
+                    stale_warnings.append(_diagnostic(
+                        "attested_by_replay_mismatch",
+                        "This replay returns the original record; the supplied "
+                        "attested_by differs from the stored name ("
+                        + (repr(stored_name) if stored_name is not None else "none recorded")
+                        + ") and was not recorded.",
+                        advisory=True,
+                    ))
         else:
             # Attribution is metadata of the first write, never retry identity.
             # Keep lookup below the replay branch so retries retain the stored
@@ -10975,7 +11016,11 @@ def wf_review_event_response(
                     advisory=True,
                 ))
             appended, build_errors = build_identified_review_event(
-                current.records, wave_md.parent.name, semantic_event, operator=operator
+                current.records,
+                wave_md.parent.name,
+                semantic_event,
+                operator=operator,
+                attested_by=attested_name,
             )
             if build_errors:
                 return _response(
@@ -22730,6 +22775,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         record_type: str = "",
         verbose: bool = False,
         operator_handle: str | None = None,
+        attested_by: str | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Preview, append, or LIST compact executable-review evidence without hand-authoring JSONL.
@@ -22884,6 +22930,15 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 Otherwise resolve the local git email. Best-effort reference only:
                 unavailable identity never blocks a review, and retries retain the
                 original stored attribution. No lookup for list or replay.
+            attested_by: Optional self-attested name of the person recording the
+                event, stored as ``verification_context.attested_by`` only when
+                supplied (no default). It is unverified, appears in the committed
+                ledger and the wave record, and stays outside the request digest:
+                a replay keeps the original name and advises when the supplied
+                one differs. Refused before any write when empty, longer than 100
+                characters, or containing control, format, surrogate,
+                line-separator, ``<``, ``>``, backtick, ``|``, ``[``, ``]`` or
+                backslash characters.
 
         Schema note: after an upgrade that adds ``approval_phase`` or
         ``integrity_checks``, reconnect the client if its cached tool schema
@@ -22917,6 +22972,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             record_type=record_type,
             verbose=verbose,
             operator_handle=operator_handle,
+            attested_by=attested_by,
         )
 
     @mcp.tool(annotations=_MUTATING_TOOL)

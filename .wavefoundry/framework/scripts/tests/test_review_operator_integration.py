@@ -203,5 +203,97 @@ class ReviewOperatorIntegrationTests(unittest.TestCase):
         self.assertEqual(self.contexts(result)[0]['operator']['handle'], 'alice')
 
 
+class AttestedByIntegrationTests(unittest.TestCase):
+    """Wave 1zyc3 (1zyc1): the self-attested name through wf_review_event."""
+
+    # Shared fixture helpers, not a subclass, so the operator tests run once.
+    setUpClass = ReviewOperatorIntegrationTests.__dict__['setUpClass']
+    setUp = ReviewOperatorIntegrationTests.setUp
+    call = ReviewOperatorIntegrationTests.call
+    contexts = ReviewOperatorIntegrationTests.contexts
+
+    def review_row(self):
+        text = self.wave_md.read_text(encoding='utf-8')
+        return next(line for line in text.splitlines() if line.startswith('| qa-reviewer |'))
+
+    def test_attested_name_is_recorded_rendered_and_kept_on_replay(self):
+        first = self.call(context='named', operator_handle='alice', attested_by='  Ada Lovelace ')
+        self.assertEqual(first['status'], 'ok', first)
+        self.assertEqual(self.contexts(first)[0]['attested_by'], 'Ada Lovelace')
+        self.assertIn('by Ada Lovelace (alice)', self.review_row())
+        before = self.ledger.read_bytes()
+        replay = self.call(context='named', operator_handle='bob', attested_by='Grace Hopper')
+        self.assertEqual(replay['status'], 'ok', replay)
+        self.assertTrue(replay['data']['replayed'])
+        self.assertEqual(replay['data']['appended_records'], first['data']['appended_records'])
+        self.assertEqual(self.ledger.read_bytes(), before)
+        codes = [d['code'] for d in replay['diagnostics'] or []]
+        self.assertIn('attested_by_replay_mismatch', codes)
+        advisory = next(d for d in replay['diagnostics'] if d['code'] == 'attested_by_replay_mismatch')
+        self.assertTrue(advisory['advisory'])
+        same = self.call(context='named', attested_by='Ada Lovelace')
+        self.assertEqual(same['status'], 'ok', same)
+        self.assertNotIn('attested_by_replay_mismatch',
+                         [d['code'] for d in same['diagnostics'] or []])
+
+    def test_name_without_handle_renders_name_only(self):
+        self.map.unlink()
+        result = self.call(context='name-only', attested_by='Ada Lovelace')
+        self.assertEqual(result['status'], 'ok', result)
+        self.assertNotIn('operator', self.contexts(result)[0])
+        self.assertIn('current executed approval by Ada Lovelace, not receipt-bound', self.review_row())
+
+    def test_no_name_records_nothing_and_renders_as_before(self):
+        for event in ('approval', 'finding', 'run'):
+            with self.subTest(event=event):
+                result = self.call(event, context='plain-' + event, operator_handle='alice')
+                self.assertEqual(result['status'], 'ok', result)
+                for context in self.contexts(result):
+                    self.assertNotIn('attested_by', context)
+        self.assertIn('current executed approval by alice, not receipt-bound, follows every',
+                      self.review_row())
+
+    def test_invalid_names_refused_before_any_write_or_replay(self):
+        recorded = self.call(context='replay-target')
+        self.assertEqual(recorded['status'], 'ok', recorded)
+        for value in ('', '   ', 'x' * 101, 'Ada\u202eLovelace', 'Ada\u200bL', 'Ada\u2028L',
+                      'Ada\nL', 'Ada <b>', 'Ada `x`', 'Ada | x'):
+            for mode in ('dry_run', 'create'):
+                for context in ('fresh-invalid', 'replay-target'):
+                    with self.subTest(value=value, mode=mode, context=context):
+                        before = self.ledger.read_bytes()
+                        wave_before = self.wave_md.read_bytes()
+                        with patch.object(self.srv, 'resolve_operator',
+                                          side_effect=AssertionError('lookup after refusal')):
+                            result = self.call(mode=mode, context=context, attested_by=value)
+                        self.assertEqual(result['status'], 'error', result)
+                        self.assertEqual([d['code'] for d in result['diagnostics']],
+                                         ['invalid_attested_by'])
+                        self.assertEqual(self.ledger.read_bytes(), before)
+                        self.assertEqual(self.wave_md.read_bytes(), wave_before)
+
+    def test_evidence_may_not_supply_attested_by(self):
+        before = self.ledger.read_bytes()
+        result = self.call(context='evidence-name', evidence={
+            'observed': 'passed', 'artifact_or_test_id': 'test:operator',
+            'attested_by': 'Ada Lovelace'})
+        self.assertEqual(result['status'], 'error', result)
+        self.assertIn('attested_by', result['diagnostics'][0]['message'])
+        self.assertEqual(self.ledger.read_bytes(), before)
+
+    def test_registered_schema_exposes_optional_attested_by(self):
+        runner = load_thin_runner()
+        mcp = runner.build_server(self.root)
+        tool = mcp._tool_manager._tools['wf_review_event']
+        schema = tool.parameters
+        self.assertIn('attested_by', schema['properties'])
+        self.assertNotIn('attested_by', schema.get('required', []))
+        result = tool.fn(wave_id=self.wave_id, event='run', actor='qa-reviewer',
+                         context_id='registered-name', run_kind='initial_delivery',
+                         attested_by='Ada Lovelace')
+        self.assertEqual(result['status'], 'dry_run', result)
+        self.assertEqual(self.contexts(result)[0]['attested_by'], 'Ada Lovelace')
+
+
 if __name__ == '__main__':
     unittest.main()

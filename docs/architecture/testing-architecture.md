@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-01
+Last verified: 2026-10-06
 
 ## Test Tiers
 
@@ -312,7 +312,7 @@ The worked pattern is a fallback parser compared with a grammar-backed parser ov
 
 ### Golden Tool-Surface Guard (wave 1y0do)
 
-The public MCP tool surface is a verification seam that the server refactor waves (`1y0h1` registry, `1y0h2` handler split) and the record-layout wave (`1y0gz`) are judged against. `tests/test_tool_surface_golden.py` boots the real `server.build_server` with `build_handler` stubbed and compares a deterministic serialization of every registered tool (name, roster tier, input schema, annotations; prose descriptions excluded) to the committed fixture `tests/fixtures/tool-surface-golden.json`. Regeneration requires `WF_UPDATE_TOOL_SURFACE_GOLDEN=1` and is a named step in the change doc that alters the surface. The module also pins runtime roster parity in both directions and proves the wrapper composition order by behavior through a triple-wrapped tool, with the five wrong permutations as negative controls. See `docs/contributing/build-and-verification.md` for the regeneration command.
+The public MCP tool surface is a verification seam that the server refactor waves (`1y0h1` registry, `1y0h2` handler split) and the record-layout wave (`1y0gz`) are judged against. `tests/test_tool_surface_golden.py` boots the real `server.build_server` with `build_handler` stubbed and compares a deterministic serialization of every registered tool (name, roster tier, input schema, annotations; prose descriptions excluded) to the committed fixture `tests/fixtures/tool-surface-golden.json`. Regeneration requires `WF_UPDATE_TOOL_SURFACE_GOLDEN=1` and is a named step in the change doc that alters the surface. Each profile asset under `tests/fixtures/profiles/` that declares tools also has a golden of the surface served under that declaration alone, at `tests/fixtures/tool-surface-golden/<profile>.json` (wave `1zyc3`); the same flag regenerates it. The module also pins runtime roster parity in both directions and proves the wrapper composition order by behavior through a triple-wrapped tool, with the five wrong permutations as negative controls. See `docs/contributing/build-and-verification.md` for the regeneration command.
 
 ### TechDocs External Oracle Tier
 
@@ -734,6 +734,7 @@ contract: `docs/contributing/review-and-evals.md`.
 | `.wavefoundry/framework/scripts/tests/fixtures/docs_lint/base/` | Fixture target repo for docs_lint tests |
 | `.wavefoundry/framework/scripts/tests/test_tool_surface_golden.py` | Golden snapshot of the public MCP tool surface, runtime roster parity, wrapper composition order |
 | `.wavefoundry/framework/scripts/tests/fixtures/tool-surface-golden.json` | Committed golden fixture of every registered tool's tier, input schema, and annotations |
+| `.wavefoundry/framework/scripts/tests/fixtures/tool-surface-golden/` | Committed per-profile golden fixtures, one per profile asset that declares tools, of the surface served under that declaration |
 
 ## Doubles Policy
 

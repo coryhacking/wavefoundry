@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-03
+Last verified: 2026-10-06
 
 ## Verification Commands
 
@@ -54,6 +54,8 @@ A golden diff is a public contract change. It must be named in the change doc th
 ```bash
 WF_UPDATE_TOOL_SURFACE_GOLDEN=1 python3 .wavefoundry/framework/scripts/run_tests.py --file test_tool_surface_golden.py
 ```
+
+Per-profile goldens (wave `1zyc3`): each profile asset under `tests/fixtures/profiles/` whose `mcp_tool_extensions` entry declares anything (today `declared`; a distribution's own asset is covered the same way, active or not) has its own golden at `tests/fixtures/tool-surface-golden/<profile>.json`. `ProfileToolSurfaceGoldenTests` boots the server for each such asset, one subtest per asset, on the shipped empty declaration plus that asset's tool declaration alone (JSON lists become the tuples the declaration module requires; the asset's vocabulary and record-layout parts are ignored), takes tiers from `mcp_tool_roster.all_tool_tiers()`, and compares the served surface with the asset's golden, so aliases, mapped parameters, hidden names, extension tools and overrides are pinned as served. The same flag rewrites the shipped golden and every per-profile golden. The flag rewrites a golden only when its content changes, so a regeneration with no surface change leaves the tree untouched; when a golden does change, `run_tests.py` reports the rewritten file through its repository-state guard and the run ends FAILED, which is expected for that run (rerun without the flag to confirm the new golden passes). A declaring asset without a golden fails with a message naming the missing file and the flag, and an asset whose declaration is invalid fails with the declaration problems instead of producing a golden.
 
 Without the flag the test never writes. The fixture lives under the framework test tree, so it is inside the close-time receipt hash and outside the distribution pack. The same module carries the runtime roster parity test (registered set equals `mcp_tool_roster.all_tool_tiers()` in both directions, which for the stock declaration is `TOOL_TIERS`; with declared extensions it adds validated extension tiers, aliases and `alias_for_core` names and omits hidden names, wave `1z8oz`; the AST registration parity test in `test_render_platform_surfaces` stays on `TOOL_TIERS` as the core-source gate) and the behavioral wrapper-order test (cost innermost, lifecycle lock middle, upgrade-publication guard outermost of the three, with the five wrong permutations as negative controls). The setup-readiness notice wrapper added in wave `1z2mc` runs outside all three and only adds a diagnostic; `test_mcp_tool_registry` pins its label as the last `MIDDLEWARE` entry. The `rewrite` wrapper for aliased or replaced names (wave `1z8oz`) is appended at registration only when declared, so the pinned tuple and stock responses are unchanged.
 

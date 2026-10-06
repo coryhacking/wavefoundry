@@ -1521,6 +1521,75 @@
       },
       "tier": "write"
     },
+    "wf_alias_help": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "goal": {
+            "default": "",
+            "title": "Goal",
+            "type": "string"
+          }
+        },
+        "required": [],
+        "title": "wf_helpArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "wf_alias_read_raw": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "end_line": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "End Line"
+          },
+          "file": {
+            "title": "File",
+            "type": "string"
+          },
+          "start_line": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Start Line"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "wf_alias_read_rawArguments",
+        "type": "object"
+      },
+      "tier": "read"
+    },
     "wf_audit": {
       "annotations": {
         "destructiveHint": false,

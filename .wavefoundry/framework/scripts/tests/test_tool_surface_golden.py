@@ -36,11 +36,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from server_tools_support import _make_repo, load_server, load_thin_runner
-from declaration_support import apply_base_declaration
+from declaration_support import apply_base_declaration, base_declaration
+from record_layout_support import PROFILES_DIR, SHIPPED_DECLARATION
 
 TESTS_DIR = Path(__file__).resolve().parent
 SCRIPTS_DIR = TESTS_DIR.parent
 GOLDEN_PATH = TESTS_DIR / "fixtures" / "tool-surface-golden.json"
+# Wave 1zyc3 (1zyc2): one golden per declaring profile asset.
+PROFILE_GOLDEN_DIR = TESTS_DIR / "fixtures" / "tool-surface-golden"
 UPDATE_ENV = "WF_UPDATE_TOOL_SURFACE_GOLDEN"
 FIXTURE_SCHEMA = "1"
 
@@ -171,8 +174,11 @@ def check_golden(surface: dict, fixture_path: Path, environ=None) -> list[str]:
     env = os.environ if environ is None else environ
     rendered = render_surface(surface)
     if env.get(UPDATE_ENV) == "1":
-        fixture_path.parent.mkdir(parents=True, exist_ok=True)
-        fixture_path.write_bytes(rendered)
+        # Write only on a real change, so a no-op regeneration leaves the
+        # tree untouched for the runner's repository-state guard.
+        if not fixture_path.exists() or fixture_path.read_bytes() != rendered:
+            fixture_path.parent.mkdir(parents=True, exist_ok=True)
+            fixture_path.write_bytes(rendered)
         return []
     if not fixture_path.exists():
         return [
@@ -408,6 +414,12 @@ class ToolSurfaceGoldenTests(_BootedSurface):
         with patch.dict(os.environ, {UPDATE_ENV: "1"}, clear=False):
             self.assertEqual(check_golden(base, temp_fixture), [])
         self.assertEqual(temp_fixture.read_bytes(), render_surface(base))
+        # An unchanged regeneration leaves the file untouched (no rewrite),
+        # so the runner's repository-state guard sees no change.
+        os.utime(temp_fixture, ns=(1_000_000_000, 1_000_000_000))
+        with patch.dict(os.environ, {UPDATE_ENV: "1"}, clear=False):
+            self.assertEqual(check_golden(base, temp_fixture), [])
+        self.assertEqual(temp_fixture.stat().st_mtime_ns, 1_000_000_000)
 
         stale = copy.deepcopy(base)
         del stale["tools"]["wf_help"]
@@ -430,6 +442,223 @@ class ToolSurfaceGoldenTests(_BootedSurface):
         self.assertEqual(
             os.environ.get(UPDATE_ENV), flag_before, "update flag must not leak"
         )
+
+
+# ---------------------------------------------------------------------------
+# Per-profile goldens (wave 1zyc3, change 1zyc2)
+# ---------------------------------------------------------------------------
+
+def profile_declaration(asset: dict) -> dict:
+    """The asset's ``mcp_tool_extensions`` entry alone, with JSON lists
+    coerced to the tuples the declaration module requires (as
+    ``record_layout_support.apply_profile`` does). Record-layout and
+    vocabulary parts of the asset are ignored."""
+    entry = (asset.get("modules") or {}).get("mcp_tool_extensions") or {}
+    declaration = {}
+    for name, value in entry.items():
+        if isinstance(SHIPPED_DECLARATION.get(name), tuple) and isinstance(value, list):
+            value = tuple(value)
+        declaration[name] = value
+    return declaration
+
+
+def declaring_profile_assets(profiles_dir: Path = PROFILES_DIR) -> dict[str, dict]:
+    """Every profile asset whose ``mcp_tool_extensions`` entry declares
+    anything, by name; active or not."""
+    assets = {}
+    for path in sorted(Path(profiles_dir).glob("*.json")):
+        asset = json.loads(path.read_text(encoding="utf-8"))
+        if any(profile_declaration(asset).values()):
+            assets[path.stem] = asset
+    return assets
+
+
+def profile_golden_path(name: str, golden_dir: Path = PROFILE_GOLDEN_DIR) -> Path:
+    return Path(golden_dir) / f"{name}.json"
+
+
+class ProfileToolSurfaceGoldenTests(unittest.TestCase):
+    """Requirement 2: each declaring profile asset boots the server exactly
+    as the shipped golden test does, on the shipped-empty declaration plus
+    that asset's tool declaration alone, and compares the served surface
+    (tiers from ``all_tool_tiers()``) with its own golden."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        scripts_dir = str(SCRIPTS_DIR)
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+
+    def _boot(self, declaration: dict, mutate=None) -> "tuple[dict | None, list[str]]":
+        """Serialize the surface served under ``declaration``. Returns
+        ``(surface, [])`` or ``(None, problems)`` when the declaration is
+        invalid or the server refuses to boot with it."""
+        impl = load_server()
+        runner = load_thin_runner()
+        root = _make_repo(Path(tempfile.mkdtemp(dir=self.tmp.name)))
+        fw = root / ".wavefoundry" / "framework"
+        fw.mkdir(parents=True, exist_ok=True)
+        (fw / "VERSION").write_text("test-pack-version", encoding="utf-8")
+        import mcp_tool_extensions
+        import mcp_tool_roster as roster
+
+        with base_declaration(**declaration):
+            try:
+                tiers = roster.all_tool_tiers()
+            except mcp_tool_extensions.ExtensionDeclarationError as exc:
+                return None, [f"invalid declaration: {exc}"]
+            with patch.object(impl, "build_handler", return_value=_stub_handler(root)):
+                try:
+                    mcp = runner.build_server(root)
+                except ImportError:
+                    self.skipTest("mcp package not installed")
+                except Exception as exc:  # noqa: BLE001 - a boot refusal is the failure
+                    return None, [f"server refused the declaration: {exc}"]
+            if mutate is not None:
+                mutate(mcp)
+            return serialize_surface(mcp, tiers), []
+
+    def _check(self, asset: dict, fixture: Path, environ=None, mutate=None) -> list[str]:
+        surface, problems = self._boot(profile_declaration(asset), mutate)
+        if problems:
+            return problems
+        return check_golden(surface, fixture, environ)
+
+    def test_each_declaring_profile_matches_its_golden(self):
+        # AC-1: honours WF_UPDATE_TOOL_SURFACE_GOLDEN=1 like the shipped test.
+        assets = declaring_profile_assets()
+        self.assertIn("declared", assets)
+        for name, asset in assets.items():
+            with self.subTest(profile=name):
+                fixture = profile_golden_path(name)
+                lines = self._check(asset, fixture)
+                self.assertEqual(
+                    lines, [],
+                    f"tool surface served under profile {name!r} drifted from {fixture.name}; "
+                    "if the change is intentional, name it in the change doc and rerun with "
+                    f"{UPDATE_ENV}=1:\n" + "\n".join(lines),
+                )
+
+    def test_declared_golden_carries_aliases_tiers_and_mapped_parameters(self):
+        # AC-1: the committed fixture, read independently of the live boot.
+        golden = json.loads(profile_golden_path("declared").read_bytes().decode("utf-8"))
+        tools = golden["tools"]
+        self.assertEqual(tools["wf_alias_help"]["tier"], tools["wf_help"]["tier"])
+        self.assertEqual(tools["wf_alias_read_raw"]["tier"], tools["code_read"]["tier"])
+        props = tools["wf_alias_read_raw"]["inputSchema"]["properties"]
+        self.assertIn("file", props)
+        self.assertNotIn("path", props)
+        self.assertNotIn("with_line_numbers", props)
+        self.assertIn("with_line_numbers", tools["code_read"]["inputSchema"]["properties"])
+        shipped = json.loads(GOLDEN_PATH.read_bytes().decode("utf-8"))["tools"]
+        self.assertNotIn("wf_alias_help", shipped)
+        self.assertEqual(set(tools) - set(shipped), {"wf_alias_help", "wf_alias_read_raw"})
+
+    def test_profile_goldens_use_lf_and_utf8(self):
+        for name in declaring_profile_assets():
+            with self.subTest(profile=name):
+                raw = profile_golden_path(name).read_bytes()
+                self.assertNotIn(b"\r", raw)
+                raw.decode("utf-8")
+                self.assertEqual(json.loads(raw)["fixture_schema"], FIXTURE_SCHEMA)
+
+    def test_declaration_drift_fails_with_a_per_tool_diff(self):
+        # AC-2: each mutation goes through the declaration or the served
+        # registry, never through shipped code, against the committed golden.
+        asset = declaring_profile_assets()["declared"]
+        fixture = profile_golden_path("declared")
+        base = profile_declaration(asset)
+
+        def with_entry(**changes):
+            entry = copy.deepcopy(asset)
+            entry["modules"]["mcp_tool_extensions"].update(changes)
+            return entry
+
+        def core_schema(mcp):
+            mcp._tool_manager._tools["wf_help"].parameters["properties"]["surprise"] = {"type": "integer"}
+
+        cases = {
+            "mapping": (
+                with_entry(EXTENSION_TOOL_PARAMETERS={"wf_alias_read_raw": {
+                    "rename": {"filename": "path"}, "fixed": {"with_line_numbers": False}}}),
+                None,
+                ["wf_alias_read_raw", "inputSchema/properties/filename"],
+            ),
+            "pinned parameter": (
+                with_entry(EXTENSION_TOOL_PARAMETERS={"wf_alias_read_raw": {
+                    "rename": {"file": "path"}}}),
+                None,
+                ["wf_alias_read_raw", "inputSchema/properties/with_line_numbers"],
+            ),
+            "tier and target": (
+                with_entry(EXTENSION_TOOL_ALIASES={**base["EXTENSION_TOOL_ALIASES"],
+                                                   "wf_alias_help": "wf_review_event"}),
+                None,
+                ["wf_alias_help: changed key tier", "wf_alias_help", "inputSchema/properties/wave_id"],
+            ),
+            "core schema under the profile": (
+                asset, core_schema, ["wf_help", "inputSchema/properties/surprise"],
+            ),
+        }
+        for label, (mutated, mutate, fragments) in cases.items():
+            with self.subTest(case=label):
+                lines = self._check(mutated, fixture, environ={}, mutate=mutate)
+                self.assertTrue(lines, f"{label}: drift was not detected")
+                joined = "\n".join(lines)
+                for fragment in fragments:
+                    self.assertIn(fragment, joined, f"{label}: diff does not name {fragment!r}")
+
+    def test_regeneration_writes_only_goldens_and_is_byte_stable(self):
+        # AC-2: two regenerations into a temporary golden directory.
+        golden_dir = Path(self.tmp.name) / "regen"
+        assets = declaring_profile_assets()
+        committed = {name: profile_golden_path(name).read_bytes() for name in assets}
+        generations = []
+        for _ in range(2):
+            for name, asset in assets.items():
+                self.assertEqual(
+                    self._check(asset, profile_golden_path(name, golden_dir), environ={UPDATE_ENV: "1"}), []
+                )
+            generations.append({p.name: p.read_bytes() for p in sorted(golden_dir.iterdir())})
+        self.assertEqual(generations[0], generations[1])
+        self.assertEqual(sorted(generations[0]), sorted(f"{name}.json" for name in assets))
+        for name in assets:
+            self.assertEqual(generations[0][f"{name}.json"], committed[name])
+            self.assertNotIn(b"\r", generations[0][f"{name}.json"])
+
+    def test_missing_golden_names_the_file_and_the_flag(self):
+        # AC-3.
+        asset = declaring_profile_assets()["declared"]
+        missing = profile_golden_path("declared", Path(self.tmp.name) / "empty")
+        lines = self._check(asset, missing, environ={})
+        self.assertEqual(len(lines), 1)
+        self.assertIn(str(missing), lines[0])
+        self.assertIn(UPDATE_ENV, lines[0])
+        self.assertFalse(missing.exists())
+
+    def test_invalid_declaration_fails_with_its_problems(self):
+        # AC-3: an asset in a temporary profiles directory, never a golden.
+        profiles = Path(self.tmp.name) / "profiles"
+        profiles.mkdir()
+        (profiles / "broken.json").write_text(json.dumps({"modules": {"mcp_tool_extensions": {
+            "EXTENSION_TOOL_ALIASES": {"wf_alias_ghost": "wf_no_such_tool"}}}}), encoding="utf-8")
+        (profiles / "plain.json").write_text(json.dumps({"modules": {"record_paths": {
+            "NESTED": True}}}), encoding="utf-8")
+        assets = declaring_profile_assets(profiles)
+        self.assertEqual(list(assets), ["broken"])
+        fixture = profile_golden_path("broken", Path(self.tmp.name) / "goldens")
+        lines = self._check(assets["broken"], fixture, environ={UPDATE_ENV: "1"})
+        self.assertEqual(len(lines), 1)
+        self.assertIn("invalid declaration", lines[0])
+        self.assertIn("wf_alias_ghost", lines[0])
+        self.assertFalse(fixture.exists(), "an invalid declaration produces no golden")
+
+    def test_list_values_become_tuples(self):
+        declaration = profile_declaration({"modules": {"mcp_tool_extensions": {
+            "EXTENSION_HIDDEN_TOOLS": ["wf_help"], "EXTENSION_TOOL_ALIASES": {"a": "b"}}}})
+        self.assertEqual(declaration["EXTENSION_HIDDEN_TOOLS"], ("wf_help",))
+        self.assertEqual(declaration["EXTENSION_TOOL_ALIASES"], {"a": "b"})
 
 
 # ---------------------------------------------------------------------------
