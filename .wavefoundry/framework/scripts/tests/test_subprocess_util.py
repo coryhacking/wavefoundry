@@ -304,7 +304,7 @@ class PreferredPythonResolverTests(unittest.TestCase):
 
 _GRANDCHILD = (
     "import subprocess, sys, time\n"
-    "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+    "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])\n"
     "print(child.pid, flush=True)\n"
     "time.sleep(60)\n"
 )
@@ -317,12 +317,18 @@ class RunWithTreeKillTests(unittest.TestCase):
     def test_timeout_kills_the_grandchild_and_returns_promptly(self):
         import time
 
+        # 5 s gives the child time to start and print the grandchild pid on a
+        # loaded machine; at 1.5 s it was sometimes killed first (wave 1zyc0).
+        deadline_s = 5.0
         started = time.monotonic()
         with self.assertRaises(subprocess.TimeoutExpired) as caught:
             subprocess_util.run_with_tree_kill(
-                [sys.executable, "-c", _GRANDCHILD], timeout=1.5, capture_output=True, text=True)
-        self.assertLess(time.monotonic() - started, 15)
-        grandchild = int(str(caught.exception.stdout).split()[0])
+                [sys.executable, "-c", _GRANDCHILD], timeout=deadline_s, capture_output=True, text=True)
+        elapsed = time.monotonic() - started
+        printed = str(caught.exception.stdout or "").split()
+        if not printed:
+            self.fail("the child printed no grandchild pid (the deadline may have ended it before it started the grandchild)")
+        grandchild = int(printed[0])
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
             try:
@@ -333,6 +339,8 @@ class RunWithTreeKillTests(unittest.TestCase):
         else:
             os.kill(grandchild, 9)
             self.fail("the grandchild outlived the timeout")
+        # Checked after the grandchild is gone, so a slow return never leaks it.
+        self.assertLess(elapsed, deadline_s + 13.5)
 
     @unittest.skipIf(os.name == "nt", "POSIX process-group fixture")
     def test_only_the_childs_own_group_is_signalled(self):

@@ -30,6 +30,7 @@ import _thread
 import ast
 import importlib.util
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -48,6 +49,12 @@ if str(SCRIPTS_ROOT) not in sys.path:
 import subprocess_util  # noqa: E402
 
 POSIX_ONLY = unittest.skipIf(os.name == "nt", "process-group checks use POSIX pids and signals")
+
+# The deadline the tree-kill tests give a child that must start, spawn a
+# grandchild and record its pid before the deadline ends the tree. On a loaded
+# machine 1.5 s was not enough and the child was killed before it recorded the
+# pid (wave 1zyc0); 5 s matches the pid poll in ``_TreeCase._grandchild_pid``.
+_TREE_DEADLINE_S = 5.0
 
 # ---------------------------------------------------------------------------
 # AC-1: classification of every timed subprocess call outside tests/
@@ -550,10 +557,14 @@ class RoutingSpyTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 def _grandchild_script(pid_file: Path) -> list[str]:
-    """A child that starts a long-lived grandchild, records its pid, and sleeps."""
+    """A child that starts a long-lived grandchild, records its pid, and sleeps.
+
+    The grandchild (300 s) outlives the child (60 s): without the tree kill the
+    helper waits for the child to exit, and a grandchild that ended at the same
+    time would let the test pass without the kill (wave 1zyc0)."""
     code = (
         "import subprocess, sys, time\n"
-        "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])\n"
         f"open({str(pid_file)!r}, 'w').write(str(g.pid))\n"
         "time.sleep(60)\n"
     )
@@ -590,7 +601,7 @@ class _TreeCase(unittest.TestCase):
                 return int(self.pid_file.read_text())
             except (OSError, ValueError):
                 time.sleep(0.05)
-        self.fail("grandchild never recorded its pid")
+        self.fail("grandchild never recorded its pid (the deadline may have ended the child before it started the grandchild)")
 
     def assertGone(self, pid: int) -> None:
         deadline = time.monotonic() + 5
@@ -604,8 +615,8 @@ class GrandchildTests(_TreeCase):
     def test_setup_install_step_timeout_ends_the_tree(self) -> None:
         setup_index = _load_setup_index()
         with self.assertRaises(subprocess.TimeoutExpired) as caught:
-            setup_index._run_install_step(_grandchild_script(self.pid_file), check=False, timeout=1.5)
-        self.assertEqual(caught.exception.timeout, 1.5)
+            setup_index._run_install_step(_grandchild_script(self.pid_file), check=False, timeout=_TREE_DEADLINE_S)
+        self.assertEqual(caught.exception.timeout, _TREE_DEADLINE_S)
         self.assertGone(self._grandchild_pid())
 
     def test_convention_hook_timeout_ends_the_tree_and_aborts(self) -> None:
@@ -617,10 +628,10 @@ class GrandchildTests(_TreeCase):
         hooks = root / ".wavefoundry" / "hooks"
         hooks.mkdir(parents=True)
         hook = hooks / "post-docs-gate"
-        hook.write_text(f"#!/bin/sh\nsleep 60 &\necho $! > '{self.pid_file}'\nsleep 60\n", encoding="utf-8")
+        hook.write_text(f"#!/bin/sh\nsleep 300 &\necho $! > '{self.pid_file}'\nsleep 60\n", encoding="utf-8")
         hook.chmod(0o755)
         ctx = upgrade.UpgradeContext(root=root, from_version="a", to_version="b", zip_path=None, yes=True)
-        with mock.patch.object(upgrade, "_HOOK_TIMEOUT_S", 1.5), self.assertRaises(SystemExit) as caught:
+        with mock.patch.object(upgrade, "_HOOK_TIMEOUT_S", _TREE_DEADLINE_S), self.assertRaises(SystemExit) as caught:
             upgrade._run_hook("post_docs_gate", ctx, None)
         self.assertEqual(caught.exception.code, 3)
         self.assertGone(self._grandchild_pid())
@@ -628,13 +639,35 @@ class GrandchildTests(_TreeCase):
     def test_parent_interrupt_ends_the_tree_through_a_setup_install_step(self) -> None:
         # AC-4: the interrupt is delivered to the main thread during the sliced wait.
         setup_index = _load_setup_index()
-        timer = threading.Timer(1.0, _thread.interrupt_main)
-        timer.start()
+        # Interrupt only once the grandchild exists, so the interrupt (not a
+        # race with the child's startup) is what ends the tree (wave 1zyc0).
+        stop = threading.Event()
+
+        def interrupt_when_recorded() -> None:
+            deadline = time.monotonic() + 20
+            while not stop.is_set() and time.monotonic() < deadline:
+                try:
+                    recorded = self.pid_file.read_text().strip()
+                except OSError:
+                    recorded = ""
+                if recorded:
+                    _thread.interrupt_main()
+                    return
+                time.sleep(0.05)
+
+        # ``interrupt_main`` does nothing while SIGINT is ignored, as it is for
+        # a run started in the background (``&``, nohup, some CI runners), so
+        # the test installs Python's default handler for its duration.
+        previous = signal.signal(signal.SIGINT, signal.default_int_handler)
+        waiter = threading.Thread(target=interrupt_when_recorded, daemon=True)
+        waiter.start()
         try:
             with self.assertRaises(KeyboardInterrupt):
                 setup_index._run_install_step(_grandchild_script(self.pid_file), check=False, timeout=30)
         finally:
-            timer.cancel()
+            stop.set()
+            waiter.join(5)
+            signal.signal(signal.SIGINT, previous)
         self.assertGone(self._grandchild_pid())
 
 
@@ -652,12 +685,12 @@ class RoutedGitSiteTests(_TreeCase):
         bin_dir.mkdir()
         fake_git = bin_dir / "git"
         fake_git.write_text(
-            f"#!/bin/sh\nsleep 60 &\necho $! > '{self.pid_file}'\nsleep 60\n", encoding="utf-8")
+            f"#!/bin/sh\nsleep 300 &\necho $! > '{self.pid_file}'\nsleep 60\n", encoding="utf-8")
         fake_git.chmod(0o755)
         path = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
         started = time.monotonic()
         with mock.patch.dict(os.environ, {"PATH": path}), \
-                mock.patch.object(graph_indexer, "_GITIGNORED_PATHS_TIMEOUT_S", 1.5):
+                mock.patch.object(graph_indexer, "_GITIGNORED_PATHS_TIMEOUT_S", _TREE_DEADLINE_S):
             self.assertEqual(graph_indexer._gitignored_paths(Path(self._tmp.name)), frozenset())
         self.assertLess(time.monotonic() - started, 20)
         self.assertGone(self._grandchild_pid())
@@ -706,12 +739,12 @@ class ExitedUnreapedChildTests(_TreeCase):
     def test_exited_child_with_a_descendant_holding_the_pipe_ends_the_group(self) -> None:
         code = (
             "import subprocess, sys\n"
-            "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+            "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])\n"
             f"open({str(self.pid_file)!r}, 'w').write(str(g.pid))\n"
         )
         with self.assertRaises(subprocess.TimeoutExpired):
             subprocess_util.run_with_tree_kill(
-                [sys.executable, "-c", code], capture_output=True, text=True, timeout=1.5)
+                [sys.executable, "-c", code], capture_output=True, text=True, timeout=_TREE_DEADLINE_S)
         self.assertGone(self._grandchild_pid())
 
 
