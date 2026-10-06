@@ -263,6 +263,19 @@ def _log(msg: str) -> None:
             pass
 
 
+def _strict_transaction_refusal(exc: BaseException) -> str:
+    """The refusal line for a strict upgrade transaction that could not start.
+
+    Wave 1zv8c: a link to the lifecycle lock is not a concurrent upgrade, so it
+    gets its own code and keeps the refusal's remedy instead of reading as busy.
+    """
+    import lifecycle_lock
+
+    if isinstance(exc, lifecycle_lock.LifecycleLockLinkRefused):
+        return f"lifecycle_lock_link_refused: {exc}"
+    return f"upgrade_in_progress: cannot acquire strict upgrade transaction: {exc}"
+
+
 def _err(msg: str) -> None:
     full = f"ERROR: {msg}"
     print(full, file=sys.stderr, flush=True)
@@ -5578,7 +5591,7 @@ def main(argv: list[str] | None = None) -> int:
             lifecycle_lock.LifecycleLockBusy,
             lifecycle_lock.LifecycleLockUnavailable,
         ) as exc:
-            _err(f"upgrade_in_progress: cannot acquire strict upgrade transaction: {exc}")
+            _err(_strict_transaction_refusal(exc))
             return 3
         except BaseException:
             standalone_transaction.__exit__(*sys.exc_info())
@@ -5954,7 +5967,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         upgrade_transaction.__enter__()
     except (lifecycle_lock.LifecycleLockBusy, lifecycle_lock.LifecycleLockUnavailable) as exc:
-        _err(f"upgrade_in_progress: cannot acquire strict upgrade transaction: {exc}")
+        _err(_strict_transaction_refusal(exc))
         return 3
     try:
         from_version, to_version, zip_path = phase_preflight(

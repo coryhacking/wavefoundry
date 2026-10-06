@@ -157,6 +157,9 @@ class session:
             self._transaction.__enter__()
         except (lifecycle_lock.LifecycleLockBusy, lifecycle_lock.LifecycleLockUnavailable) as exc:
             self._transaction = None
+            if isinstance(exc, lifecycle_lock.LifecycleLockLinkRefused):
+                # Wave 1zv8c: a link to the lock is not a busy setup.
+                raise MigrationRequired(f"lifecycle_lock_link_refused: {exc}") from exc
             raise MigrationRequired(f"storage_setup_busy: {exc}") from exc
         publication = None
         try:

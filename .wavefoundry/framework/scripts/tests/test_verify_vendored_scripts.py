@@ -511,5 +511,91 @@ class ShippedReadmeTests(unittest.TestCase):
             importlib.reload(vvs)
 
 
+class OfflineCheckTests(unittest.TestCase):
+    """The offline comparison (wave 1zv8c, change 1zv8a): hashes only, never a request."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="wf-vvs-off-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "demo").mkdir()
+        (self.tmp / "demo" / "demo.js").write_bytes(CONTENT)
+        tarball = _tarball({"package/dist/demo.js": CONTENT})
+        (self.tmp / "README.md").write_text(
+            _readme(URL, _integrity(tarball), hashlib.sha256(CONTENT).hexdigest()), encoding="utf-8")
+
+    def _offline(self, vendor_dir: Path | None = None) -> tuple[int, str]:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = vvs.verify_offline(vendor_dir or self.tmp)
+        return code, out.getvalue()
+
+    def test_real_vendored_files_match_their_pinned_hashes(self):
+        self.assertEqual(vvs.offline_problems(VENDOR_DIR), [])
+
+    def test_every_real_vendored_script_is_listed_in_the_file_table(self):
+        self.assertEqual(vvs.unlisted_scripts(VENDOR_DIR), [])
+
+    def test_matching_files_exit_zero(self):
+        code, out = self._offline()
+        self.assertEqual(code, 0, out)
+
+    def test_changed_byte_exits_one_naming_the_file(self):
+        (self.tmp / "demo" / "demo.js").write_bytes(CONTENT[:-2] + b"X\n")
+        code, out = self._offline()
+        self.assertEqual(code, 1, out)
+        self.assertIn("demo/demo.js", out)
+        self.assertIn("sha256 mismatch", out)
+
+    def test_missing_file_exits_one_naming_the_file(self):
+        (self.tmp / "demo" / "demo.js").unlink()
+        code, out = self._offline()
+        self.assertEqual(code, 1, out)
+        self.assertIn("demo/demo.js", out)
+        self.assertIn("missing", out)
+
+    def test_unparseable_readme_exits_two(self):
+        (self.tmp / "README.md").write_text("# nothing here\n", encoding="utf-8")
+        code, out = self._offline()
+        self.assertEqual(code, 2, out)
+        self.assertIn("cannot parse", out)
+
+    def test_absent_readme_exits_two(self):
+        (self.tmp / "README.md").unlink()
+        code, _out = self._offline()
+        self.assertEqual(code, 2)
+
+    def test_unlisted_js_is_reported_recursively(self):
+        (self.tmp / "extra" / "deep").mkdir(parents=True)
+        (self.tmp / "extra" / "deep" / "stray.js").write_bytes(b"1")
+        self.assertEqual(vvs.unlisted_scripts(self.tmp), ["extra/deep/stray.js"])
+
+    def test_unlisted_mjs_and_cjs_are_reported_in_any_letter_case(self):
+        (self.tmp / "extra").mkdir()
+        for name in ("a.mjs", "b.cjs", "C.MJS", "D.Cjs"):
+            (self.tmp / "extra" / name).write_bytes(b"1")
+        self.assertEqual(
+            vvs.unlisted_scripts(self.tmp),
+            ["extra/C.MJS", "extra/D.Cjs", "extra/a.mjs", "extra/b.cjs"])
+
+    def test_dotfiles_readme_and_licences_are_ignored(self):
+        (self.tmp / ".DS_Store").write_bytes(b"x")
+        (self.tmp / "demo" / ".DS_Store").write_bytes(b"x")
+        (self.tmp / "demo" / "LICENSE").write_text("MIT", encoding="utf-8")
+        (self.tmp / "demo" / "LICENSE.md").write_text("MIT", encoding="utf-8")
+        self.assertEqual(vvs.unlisted_scripts(self.tmp), [])
+
+    def test_offline_mode_makes_no_request(self):
+        def no_network(*args, **kwargs):
+            raise AssertionError("offline mode must not use the network")
+        with mock.patch.object(vvs, "default_fetch", side_effect=no_network), \
+                mock.patch.object(vvs, "_open", side_effect=no_network), \
+                mock.patch.object(socket, "socket", side_effect=no_network), \
+                mock.patch.object(vvs, "DEFAULT_VENDOR_DIR", self.tmp):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = vvs.main(["--offline"])
+        self.assertEqual(code, 0, out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

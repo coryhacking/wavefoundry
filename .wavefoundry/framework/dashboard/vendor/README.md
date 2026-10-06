@@ -47,7 +47,12 @@ redirect target is checked before it is followed, so a host off the registry is 
 contacted. A deliberate refusal (a non-registry URL, a redirect that left the registry, a
 tarball over the size cap) prints `refused:`; a download that could not complete prints
 `download failed:`.
-It uses the network, so it is optional and never part of the default test suite;
+`python3 .wavefoundry/framework/scripts/verify_vendored_scripts.py --offline` makes no network
+request: it hashes each vendored file and compares it with the file table, exiting 0 when every
+file matches, 1 when a file differs or is missing (each is named) and 2 when this README cannot
+be parsed. The default test suite and `build_pack` run the same offline comparison, so a
+changed vendored file stops a build.
+The online check uses the network, so it is optional and never part of the default test suite;
 it is development-only and is not included in the framework distribution, so a target repository
 does not have it and uses the manual procedure below.
 

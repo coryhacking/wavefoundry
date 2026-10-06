@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-04
+Last verified: 2026-10-05
 
 ## Allowed Dependencies
 
@@ -24,6 +24,7 @@ Last verified: 2026-10-04
 | Other consumers outside the package → `wf_server` | Name the ten retired modules only as `wf_server.<name>` (imports, `import_module`, `sys.modules` keys, patch targets, embedded code); never by their flat names, and never with `from wf_server import <evicted module>`. | `test_server_package` census with known-bad controls for each form (wave `1yxyw`) |
 | Handler siblings → `wf_server/server_impl.py` | No module-top import of the composition root or another handler sibling. Shared helpers resolve through function-local public imports; every handler sibling participates in purge-and-reimport reload. Registration remains in the composition root. | `test_handler_modules.py` checks import boundaries, re-export identity, name resolution, packaging and actual scratch reload; import-derived purge coverage is checked by `test_lifecycle_gates_structure.py`. |
 | Declared extension modules → `wf_server/server_impl.py` | Registration stays in the composition root except for modules declared in `mcp_tool_extensions`, which register against a staging surface; `server_impl` imports them by declared name during registration (not at module top) and installs their tools before the prefix contract and `MIDDLEWARE`; aliases, core-behaviour aliases and hidden names (wave `1z8oz`) are applied after the chain, inside the same fail-closed block. `mcp_tool_roster` reads `mcp_tool_extensions` (the first import dependency between flat siblings, recorded in `1ye5y-adr`). | `test_extension_tool_modules.py` drives build, reload and refusal through the real server in a scratch scripts tree. |
+| `render_agent_surfaces.py` → `mcp_tool_extensions.py` | The second import dependency between flat siblings (wave `1zv8c`), beside `mcp_tool_roster` → `mcp_tool_extensions`: the agent-surface renderer imports the stdlib-only declaration module at module top and reads `EXTENSION_SKILLS` through the module attribute at call time (never a `from` import), so a test base declaration and the upgrade old-code window see the current module, and an old module without the constant reads as empty. The edge points one way: `mcp_tool_extensions` imports no framework module. `EXTENSION_SKILLS` is read only by the renderer and is never fatal to the server: it is outside `declared()`, `declaration_problems` and `validate_declaration`, and `_skill_output_destinations`, which `preflight_agent_surface_paths` calls, validates it before the first write of any render. | `test_declared_extension_skills.py` (byte-identical tree on refusal for both render entry points, call-time read, skills-only declaration keeps `declared()` false) |
 | MCP server → target repo | Must never write outside configured allowed roots without mutation tool approval | Inferred from AGENTS.md and seed-050 safety rules |
 | `build_pack.py` → VERSION | Must stamp VERSION before writing zip; VERSION must match zip basename date+letter | Verified from build_pack.py behavior described in seeds |
 | `docs_lint.py` → manifest | Must fail (exit non-zero) when `framework_revision` in manifest does not match `.wavefoundry/framework/VERSION` | Verified from seed-010 lint gate requirement |
@@ -234,6 +235,8 @@ dependency install (wave `1zfd9`) keeps this: `setup_index`, `setup_requirements
 only the standard library at module level, the installer runs
 as a child process targeting the tool environment's interpreter, and the parent never
 activates the tool environment to install.
+
+`lifecycle_lock` imports `record_paths` (and through it `vocabulary_profile`) since wave `1zv8c`: lock acquisition scans the record roots for links to the lock, so the record layout now sits inside the lock primitive. It reads the layout through `unvalidated_record_roots`, never `load_record_roots`, so a layout error is never reported as a lock refusal. `runtime_lock` stays stdlib-only because it is imported before the tool environment is activated; the shared lock-path predicate `runtime_lock.is_runtime_lock_path` lives there for that reason, and the server reaches it through `lifecycle_lock`, so an MCP reload never purges the module that holds the in-process lock registry.
 
 `sqlite_storage_migration` may load the pinned legacy reader only during supported
 setup- or upgrade-owned conversion. Its durable receipt records recovery and cleanup progress;

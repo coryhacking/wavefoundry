@@ -15,11 +15,13 @@ import re
 import stat
 import sys
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from textwrap import dedent
 
 import marker_namespaces
+import mcp_tool_extensions  # declared distribution skills, read at call time (wave 1zv8c)
 import record_paths  # record roots (wave 1y0gz)
 import vocabulary_profile  # record vocabulary (wave 1z8mm)
 from review_policy import (
@@ -529,16 +531,20 @@ WF_UPGRADE_SKILL_BODY = dedent(
     """
 )
 
-def _thin_pointer_body(title: str, prompt_doc: str, lines: "tuple[str, ...]") -> str:
+def _thin_pointer_body(
+    title: str, prompt_doc: str, lines: "tuple[str, ...]", *, label: str = "Wavefoundry skill"
+) -> str:
     """Build a thin-pointer skill body: the workflow stays in the prompt doc.
 
     Wave 1p6lp (1p6lw) design contract: skill bodies never inline workflow
     content, so they cannot drift from the seeds/prompts that own behavior.
+    ``label`` names the heading's owner; a distribution's declared skill
+    (wave 1zv8c) uses the neutral "skill".
     """
 
     bullet_block = "\n".join(f"- {line}" for line in lines)
     return (
-        f"# {title} (Wavefoundry skill)\n\n"
+        f"# {title} ({label})\n\n"
         f"This skill is a thin pointer: the workflow lives in `{prompt_doc}`. "
         "Read that document and follow it; do not improvise the steps from this summary.\n\n"
         f"{bullet_block}\n"
@@ -740,11 +746,77 @@ def skill_document(skill: Skill) -> str:
     )
 
 
+def declared_skill_problems(skills: object = None) -> list[str]:
+    """Every problem with the distribution's skill declaration (wave 1zv8c,
+    change 1zv89): ``mcp_tool_extensions.skill_declaration_problems`` plus a
+    name whose rendered path is one of ``STALE_SKILL_PATHS``, which this
+    renderer owns. ``EXTENSION_SKILLS`` is read now when ``skills`` is None."""
+
+    if skills is None:
+        skills = getattr(mcp_tool_extensions, "EXTENSION_SKILLS", {})
+    if not skills:
+        return []
+    problems = list(mcp_tool_extensions.skill_declaration_problems(skills))
+    if isinstance(skills, Mapping):
+        for name in skills:
+            if not isinstance(name, str):
+                continue
+            for _host_root, skills_dir in SKILL_HOSTS:
+                folder = f"{skills_dir}/{name}"
+                if any(rel == folder or rel.startswith(f"{folder}/") for rel in STALE_SKILL_PATHS):
+                    problems.append(
+                        f"skill {name!r}: the name renders to the retired skill path {folder}, "
+                        "which every render removes"
+                    )
+                    break
+    return problems
+
+
+def declared_skills() -> "tuple[Skill, ...]":
+    """The distribution's declared skills as registry entries, read from
+    ``mcp_tool_extensions.EXTENSION_SKILLS`` at call time (never a
+    from-import, so a test base declaration and the upgrade old-code window
+    see the current module). Raises ``RuntimeError`` naming every problem.
+    Each renders a thin-pointer body labelled "skill", gated on its prompt doc.
+    """
+
+    skills = getattr(mcp_tool_extensions, "EXTENSION_SKILLS", {})
+    if not skills:
+        return ()
+    problems = declared_skill_problems(skills)
+    if problems:
+        raise RuntimeError(
+            "invalid EXTENSION_SKILLS declaration in mcp_tool_extensions; nothing was rendered: "
+            + "; ".join(problems)
+        )
+    return tuple(
+        Skill(
+            name=name,
+            description=spec["description"],
+            body=_thin_pointer_body(
+                spec["title"], spec["prompt_doc"], tuple(spec["summary"]), label="skill"
+            ),
+            requires_doc=spec["prompt_doc"],
+        )
+        for name, spec in skills.items()
+    )
+
+
+def _all_skills() -> "tuple[Skill, ...]":
+    """The framework registry followed by the declared skills."""
+
+    return (*SKILL_REGISTRY, *declared_skills())
+
+
 def _skill_output_destinations(repo_root: Path) -> list[str]:
-    """Every skill path the registry pass may write, honoring both gates."""
+    """Every skill path the registry pass may write, honoring both gates.
+
+    Validates the declared skills first, so ``preflight_agent_surface_paths``
+    refuses an invalid declaration before any render writes (wave 1zv8c).
+    """
 
     destinations: list[str] = []
-    for skill in SKILL_REGISTRY:
+    for skill in _all_skills():
         if skill.requires_doc and not (repo_root / skill.requires_doc).is_file():
             continue
         for host_root, skills_dir in SKILL_HOSTS:
@@ -769,7 +841,7 @@ def _skill_path_has_symlink_component(root: Path, path: Path) -> bool:
 
 
 def render_skills(repo_root: Path) -> list[str]:
-    """Render every registry skill to each active skill host.
+    """Render every registry skill, then every declared skill, to each active skill host.
 
     Returns changed paths only (write_text compares bytes first). Runs on
     every render — per-skill doc-presence gates (requires_doc) decide skill
@@ -783,6 +855,8 @@ def render_skills(repo_root: Path) -> list[str]:
             raise RuntimeError(
                 f"skill name violates the wf- kebab-case policy: {skill.name!r}"
             )
+    # Re-check the declared skills before this pass's own writes (wave 1zv8c).
+    skills = _all_skills()
     root = repo_root.resolve()
     active_skill_roots: dict[str, Path] = {}
     for host_root, skills_dir in SKILL_HOSTS:
@@ -814,7 +888,7 @@ def render_skills(repo_root: Path) -> list[str]:
                 "stale skill path escapes its declared host skill root through a symlink: "
                 f"{rel}"
             )
-    for skill in SKILL_REGISTRY:
+    for skill in skills:
         if skill.requires_doc and not (root / skill.requires_doc).is_file():
             continue
         for skills_dir, declared_root in active_skill_roots.items():
@@ -863,7 +937,7 @@ def render_skills(repo_root: Path) -> list[str]:
                     parent.rmdir()
                 except OSError:
                     pass
-    for skill in SKILL_REGISTRY:
+    for skill in skills:
         if skill.requires_doc and not (root / skill.requires_doc).is_file():
             continue
         for host_root, skills_dir in SKILL_HOSTS:

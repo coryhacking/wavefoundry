@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-04
+Last verified: 2026-10-05
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -132,6 +132,7 @@ merge time; the shipped declarations are empty and change nothing.
 | `EXTENSION_REPLACEMENTS` | Core names a module reuses with an incompatible handler, `{module: {core_name: {"alias_for_core": name, "tier": optional "read" or "write"}}}`. |
 | `EXTENSION_LIFECYCLE_TOOLS` | New write-tier extension tools that run under the lifecycle mutation lock (wave `1zimf`). |
 | `EXTENSION_ARTIFACT_PATH_FIELDS` | `{tool: data_field}`: the response `data` field holding the repository-relative paths a new write-tier extension tool wrote, credited as derived artifacts (wave `1zimf`). |
+| `EXTENSION_SKILLS` | Skills the distribution renders to every active skill host, `{name: {"title": text, "description": text, "prompt_doc": path, "summary": [line, ...]}}` (wave `1zv8c`). Read only by the agent-surface renderer and never fatal to the server (see **Declared skills**). |
 
 **Registration.** `register(mcp, get_handler)` receives a staging FastMCP surface: `@mcp.tool()`
 and `mcp.add_tool` work, and every attempted name is recorded. Handlers must be synchronous
@@ -434,9 +435,22 @@ refusal names `.wavefoundry/lifecycle-mutation.lock` by its repository-relative 
 absolute one: `lifecycle_mutation_locked` (`data.busy` true) when another process holds the lock,
 or another call in this server process holds it from another thread; `lifecycle_lock_unavailable`
 (not busy, retrying does not help) when the server cannot prove ownership, naming only the cause
-class; and `lifecycle_lock_reentry` (no other session involved, not a retry) when the call, or an
+class; `lifecycle_lock_reentry` (no other session involved, not a retry) when the call, or an
 extension it invoked, re-enters the lock on its own thread, whether at a nested served tool's
-acquisition or raised by the handler body. Any other exception from the body propagates unchanged,
+acquisition or raised by the handler body; and, since wave `1zv8c`, `lifecycle_lock_link_refused`
+(`data.busy` false, `data.mutation_applied` false, retrying does not help until the link is
+removed) when the lock was acquired and then released again because a reader in the server could
+release it through a link: the lock file has another hard link; a symlink (or Windows junction)
+resolves to a runtime lock anywhere in the scan, which covers the record roots and the archive,
+`docs/`, all of `.wavefoundry/` except a project-local `venv`, and the repository root's own
+entries; a record-root directory link leads outside the repository; or more entries than the scan
+bound are listed through directory links. A spelling variant of the checkout in a link target (case,
+Unicode normalisation, a firmlink) is judged by file identity, not by string normalisation. The
+bound counts only entries reached through a directory link whose target the walk of the real
+directories did not already list, so an in-repository `node_modules` layout of links into its own
+tree is not counted. `data.link` names the offending
+entry by its repository-relative path (`null` for a hard link), and the message gives the remedy.
+Any other exception from the body propagates unchanged,
 and the lock is released on every path. `project_publication_busy` refusals are path-free too:
 they name the project publication lock and the lifecycle lock by their
 repository-relative paths and the cause class. `EXTENSION_ARTIFACT_PATH_FIELDS` names, per tool, the response `data` field that holds the
@@ -458,6 +472,29 @@ lock and credit, keyed on the canonical name. Only the lock and the artifact cre
 `_LIFECYCLE_MUTATION_LOCK_TOOLS` and `_ARTIFACT_EXTRACTORS` are never changed, a declared tool is
 never cost-exempt, and it gets no focus or state-source extractor. Core lock membership and
 extractors are fixed by core; overrides and replacements keep the core name's lock.
+
+**Declared skills (wave `1zv8c`).** `EXTENSION_SKILLS` gives a distribution's own prompt docs a
+`SKILL.md` on every active skill host (`.codex/skills/`, `.claude/skills/`, `.agents/skills/`)
+without editing the framework renderer. It is read only by `render_agent_surfaces`, at call time,
+and is never part of `declared()`, `declaration_problems` or `validate_declaration`, so a bad skill
+entry never stops the server, the tool roster or the allowlist render. Each entry has exactly
+`title`, `description`, `prompt_doc` and `summary` (a list or tuple of 1 to 8 lines) and renders a
+thin-pointer body headed `# <title> (skill)` that points at `prompt_doc`, beside frontmatter with
+the skill name and `description`; it renders only where `prompt_doc` exists, after the framework
+skills, through the same symlink and host-root checks. `mcp_tool_extensions.skill_declaration_problems()`
+(stdlib-only) reports every problem: a name that is not lower-case kebab-case, is longer than 64
+characters, starts with `wf-` (the framework's own skills keep that prefix) or contains `claude` or
+`anthropic`; a missing or unknown key; a title, description or summary line that is empty, is not
+one line (any C0 or C1 control, U+2028 or U+2029), has surrounding spaces, contains `: ` or ` #`,
+ends with `:` or starts with a YAML indicator character; a title or description that is a YAML
+boolean or null word or a number, or a description longer than 1024 characters; a `prompt_doc`
+that is not a repository-relative POSIX path under `docs/prompts/` ending in `.prompt.md` (a
+backslash, colon, absolute form, or empty, `.` or `..` segment is refused on every platform). The
+renderer also refuses a name whose folder is a retired skill path it removes. The render preflight
+runs this check before the first write of any render, including `render_platform_surfaces`, so an
+invalid declaration refuses the whole render with every problem named and writes nothing. A skill
+the distribution stops declaring keeps its rendered `SKILL.md` until it is removed by hand, and
+declared skill folders are distribution-owned: they are not framework-maintenance surfaces.
 
 **Failure.** Registration refuses, naming the module and cause, when:
 
@@ -523,8 +560,10 @@ core names it replaces), `aliases`, `hidden`, `replacements` (core name, module,
 and served tier), `parameters` (for each mapped alias its canonical name, `rename` and `fixed`
 (wave `1zim3`), its `description` (wave `1zime`) and its `response_keys` sorted by path, empty
 when none (wave `1zls8`)) and `served_names` (the canonical-to-served map the hint rewrite uses for list
-hints and whole names). With no declarations, `helper_modules`, `modules`, `aliases`, `hidden`, `replacements`,
-`parameters` and `served_names` are empty.
+hints and whole names), and, since wave `1zv8c`, `skills` (the declared skill names, sorted, read
+when the tool runs) with `skill_problems` only when `skill_declaration_problems()` reports any
+(reported, never fatal). With no declarations, `helper_modules`, `modules`, `aliases`, `hidden`, `replacements`,
+`parameters`, `served_names` and `skills` are empty.
 
 **Trust boundary.** Extension modules are distribution code and run with the server's authority.
 Nothing is loaded from a target repository. An extension that rebinds existing tool objects, their handlers or wrapper

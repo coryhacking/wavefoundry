@@ -161,10 +161,12 @@ class HeldLifecycleLockTests(_HeldLockCase):
             self.assertEqual(self.other_process_sees(), "held")
 
     def test_symlink_to_the_held_lock_is_not_opened_by_walk_readers(self) -> None:
-        # notes.py takes the known-text path; notes.xyz takes the walker's sniff.
-        for name in ("notes.py", "notes.xyz"):
-            os.symlink(os.path.join(".wavefoundry", "lifecycle-mutation.lock"), self.root / name)
         with lifecycle_lock.lifecycle_mutation_lock(self.root):
+            # notes.py takes the known-text path; notes.xyz takes the walker's sniff.
+            # Created under the hold: since wave 1zv8c the acquisition refuses a
+            # hold while such a link exists, and these readers are the backstop.
+            for name in ("notes.py", "notes.xyz"):
+                os.symlink(os.path.join(".wavefoundry", "lifecycle-mutation.lock"), self.root / name)
             self.assertEqual(self.other_process_sees(), "held")
             walked = {p.name for p in srv._indexer_module().walk_repo(self.root)}
             self.assertNotIn("notes.py", walked)
@@ -219,13 +221,15 @@ class ReferenceCandidateFilterTests(_HeldLockCase):
 
     def setUp(self) -> None:
         super().setUp()
-        os.symlink(os.path.join(".wavefoundry", "lifecycle-mutation.lock"), self.root / "notes.py")
         refresh = patch.object(srv, "_graph_refresh_then_recheck", return_value=None)
         refresh.start()
         self.addCleanup(refresh.stop)
 
     def references(self, symbol: str, candidates) -> dict:
         with lifecycle_lock.lifecycle_mutation_lock(self.root):
+            # Both links are made under the hold (wave 1zv8c refuses a hold
+            # while one exists); the reference readers are the backstop.
+            os.symlink(os.path.join(".wavefoundry", "lifecycle-mutation.lock"), self.root / "notes.py")
             os.link(self.lock_path, self.root / "hard.py")
             self.assertEqual(self.other_process_sees(), "held")
             with patch.object(codenav_handlers, "_graph_references_candidate_files", side_effect=candidates):

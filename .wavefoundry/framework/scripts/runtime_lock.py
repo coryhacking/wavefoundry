@@ -132,6 +132,79 @@ def _boundary_components(path: str) -> tuple[str, list[str]] | None:
         head = parent
 
 
+def relative_parts(
+    root: os.PathLike[str] | str,
+    path: os.PathLike[str] | str,
+    *,
+    root_stat: os.stat_result | None = None,
+) -> tuple[str, ...] | None:
+    """``path``'s parts below ``root``, or ``None`` when it is not under it.
+
+    Waves 1zv87, 1zv8c. The lexical test runs first and costs nothing. When it
+    fails, the root is matched by IDENTITY: each ancestor of ``path`` is
+    stat'ed and compared with the root's ``(st_dev, st_ino)``, because
+    ``realpath`` does not canonicalise case or Unicode normalisation on
+    case-insensitive or normalising volumes, and a firmlink (macOS
+    ``/System/Volumes/Data``) is another spelling of the same directory. That
+    identity test, not any string normalisation, is what places such a
+    spelling under the root. The parts returned are ``path``'s own spelling.
+    Only ``stat`` is used; nothing is opened. ``root_stat`` saves the root's
+    stat for a caller that asks many times.
+    """
+    target = Path(path)
+    try:
+        return target.relative_to(Path(root)).parts
+    except ValueError:
+        pass
+    if root_stat is None:
+        try:
+            root_stat = os.stat(root)
+        except OSError:
+            return None
+    for ancestor in target.parents:
+        try:
+            ancestor_stat = os.stat(ancestor)
+        except OSError:
+            continue
+        if os.path.samestat(ancestor_stat, root_stat):
+            return target.parts[len(ancestor.parts):]
+    return None
+
+
+def _fold(part: str) -> str:
+    """Case-fold one part below the root. No Unicode normalisation: the parts
+    compared (``.wavefoundry`` and the ``.lock`` suffix) are ASCII, which every
+    normalisation form leaves unchanged; a normalisation or case spelling of the
+    checkout itself is settled by identity in :func:`relative_parts`."""
+    return os.path.normcase(part).casefold()
+
+
+def is_runtime_lock_path(
+    root: os.PathLike[str] | str,
+    path: os.PathLike[str] | str,
+    *,
+    root_stat: os.stat_result | None = None,
+) -> bool:
+    """True when ``path`` names a framework runtime lock: a name ending in
+    ``.lock`` anywhere under ``<root>/.wavefoundry/``.
+
+    The one shared lock-path test (waves 1zv87, 1zv8c). Callers pass the
+    RESOLVED path (a link is judged by its target) and the resolved root. What
+    decides a spelling variant is IDENTITY: the root is found by
+    :func:`relative_parts` (lexically, else by comparing each ancestor's
+    ``(st_dev, st_ino)`` with the root's), so a case, Unicode-normalisation or
+    firmlink spelling of the checkout or an ancestor is still under it. The
+    parts below the root are then compared case-folded on every platform (a
+    case-insensitive volume may hand back ``.WAVEFOUNDRY/X.LOCK``). Nothing is
+    opened. A path outside the root is not a lock.
+    """
+    parts = relative_parts(root, path, root_stat=root_stat)
+    if parts is None or len(parts) < 2:
+        return False
+    folded = [_fold(part) for part in parts]
+    return folded[0] == _BOUNDARY_NAME and folded[-1].endswith(".lock")
+
+
 def _link_refusal(component: str) -> OSError:
     return OSError(
         errno.ELOOP,

@@ -754,6 +754,25 @@ def _run_release_orchestration(
     print(release_result.stdout.strip(), file=sys.stderr)
 
 
+def _check_vendored_scripts(framework_dir: Path) -> None:
+    """Refuse to build when a vendored dashboard script differs from its pinned SHA-256.
+
+    Offline: it hashes the files named in ``dashboard/vendor/README.md`` and makes no network
+    request. A framework tree with no vendor folder has nothing to check.
+    """
+    vendor_dir = framework_dir / "dashboard" / "vendor"
+    if not vendor_dir.is_dir():
+        return
+    import verify_vendored_scripts  # lazy: only the packaging path needs it
+
+    try:
+        problems = verify_vendored_scripts.offline_problems(vendor_dir)
+    except verify_vendored_scripts.ReadmeError as exc:
+        raise SystemExit(f"error: vendored scripts cannot be checked: {exc}")
+    if problems:
+        raise SystemExit("error: vendored scripts do not match their pinned hashes:\n  " + "\n  ".join(problems))
+
+
 def build_zip(
     output_dir: Path,
     version: str,
@@ -773,6 +792,8 @@ def build_zip(
     script_dir = Path(__file__).resolve().parent
     fw = framework_dir if framework_dir is not None else script_dir.parent
     repo_root = fw.parent.parent if fw.parent.name == ".wavefoundry" else fw.parent
+
+    _check_vendored_scripts(fw)
 
     if write_version:
         write_pack_version(fw, version, build_prefix)

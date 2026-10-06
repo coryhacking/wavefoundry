@@ -201,6 +201,8 @@ SHIPPED_DECLARATION: "dict[str, Any]" = {
     # Wave 1zimf (1zimo): lock and artifact-credit declarations.
     "EXTENSION_LIFECYCLE_TOOLS": (),
     "EXTENSION_ARTIFACT_PATH_FIELDS": {},
+    # Wave 1zv8c (1zv89): declared skills, read only by the renderer.
+    "EXTENSION_SKILLS": {},
 }
 # Every constant a profile asset may name, per module.
 _EDITABLE = {**SHIPPED_DEFAULTS, "mcp_tool_extensions": SHIPPED_DECLARATION}
@@ -312,6 +314,9 @@ if "mcp_tool_extensions" in spec["names"] and mcp_tool_extensions.declared():
     out["declaration"] = mcp_tool_extensions.declaration_problems(
         core_tools=set(mcp_tool_roster.TOOL_TIERS) - mcp_tool_roster.RUNNER_TOOLS,
         runner_tools=mcp_tool_roster.RUNNER_TOOLS, core_tiers=mcp_tool_roster.TOOL_TIERS)
+if "mcp_tool_extensions" in spec["names"] and hasattr(mcp_tool_extensions, "skill_declaration_problems"):
+    # Wave 1zv8c (1zv89): the skill declaration, as the renderer checks it.
+    out["declaration"] += mcp_tool_extensions.skill_declaration_problems()
 print(json.dumps(out))
 """
 

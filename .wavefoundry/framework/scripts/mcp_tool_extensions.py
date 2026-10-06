@@ -14,6 +14,12 @@ and upgrade read the declared tiers through ``mcp_tool_roster`` without
 starting the server, and both paths apply the same validation helpers as the
 server so an invalid declaration can never reach a rendered allowlist.
 
+Wave 1zv8c (change 1zv89) adds ``EXTENSION_SKILLS``, the distribution's own
+skills. It is read only by the agent-surface renderer, at call time, and is
+never part of ``declared()``, ``declaration_problems`` or
+``validate_declaration``: an invalid skill entry refuses the skill render and
+is never fatal to the server, the tool roster or the allowlist render.
+
 Shipped values are empty, which leaves the stock tool surface unchanged.
 """
 from __future__ import annotations
@@ -100,6 +106,15 @@ EXTENSION_LIFECYCLE_TOOLS: tuple[str, ...] = ()
 # derived artifacts by the core contract. The declaration is the
 # distribution's assertion that the tool wrote those files.
 EXTENSION_ARTIFACT_PATH_FIELDS: Mapping[str, str] = {}
+
+# Skills the distribution renders to every active skill host (wave 1zv8c,
+# change 1zv89): ``{name: {"title": text, "description": text,
+# "prompt_doc": "docs/prompts/<name>.prompt.md", "summary": [line, ...]}}``.
+# Each renders as a thin-pointer SKILL.md only where its prompt doc exists.
+# Renderer-only: the server never validates it, so a bad entry refuses the
+# skill render (see ``skill_declaration_problems``) and never stops the server.
+# Names never start with "wf-", which the framework's own skills keep.
+EXTENSION_SKILLS: Mapping[str, Mapping[str, object]] = {}
 
 # ------------------------------------------------------------------------------
 
@@ -667,3 +682,149 @@ def validate_declaration(
         raise ExtensionDeclarationError(
             "invalid MCP tool extension declaration: " + "; ".join(problems)
         )
+
+
+# ---- Declared skills (wave 1zv8c, change 1zv89) ------------------------------
+# Renderer-only: ``render_agent_surfaces`` calls this before any write and
+# also refuses a name whose rendered path is one of its stale skill paths.
+
+SKILL_KEYS = ("title", "description", "prompt_doc", "summary")
+SKILL_NAME_MAX_CHARS = 64
+SKILL_DESCRIPTION_MAX_CHARS = 1024
+SKILL_SUMMARY_MAX_LINES = 8
+SKILL_PROMPT_DOC_PREFIX = "docs/prompts/"
+SKILL_PROMPT_DOC_SUFFIX = ".prompt.md"
+
+_SKILL_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+# Characters that start a YAML indicator when they lead a plain scalar.
+_YAML_INDICATORS = frozenset("-?:,[]{}#&*!|>'\"%@`")
+# Plain scalars YAML reads as booleans or null rather than as text.
+_YAML_SPECIAL_SCALARS = frozenset({"true", "false", "yes", "no", "on", "off", "null", "~"})
+# YAML numbers that float() and int(text, 0) do not parse: base-60 such as
+# "1:20" (YAML 1.1) and the ".inf" and ".nan" forms.
+_YAML_SEXAGESIMAL = re.compile(r"[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+(?:\.[0-9_]*)?")
+_YAML_SPECIAL_FLOAT = re.compile(r"[-+]?\.(?:inf|nan)", re.IGNORECASE)
+
+
+def _breaks_single_line(text: str) -> bool:
+    """True when ``text`` holds a C0 or C1 control (CR, LF, tab and U+0085
+    among them) or a Unicode line or paragraph separator."""
+    return any(ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F or ch in "\u2028\u2029" for ch in text)
+
+
+def _is_yaml_number(text: str) -> bool:
+    try:
+        float(text)
+        return True
+    except ValueError:
+        pass
+    try:
+        int(text, 0)
+        return True
+    except ValueError:
+        pass
+    return bool(_YAML_SEXAGESIMAL.fullmatch(text) or _YAML_SPECIAL_FLOAT.fullmatch(text))
+
+
+def _skill_text_problems(label: str, value: object, *, scalar_rules: bool) -> list[str]:
+    """The plain-text rules for a title, a description or a summary line:
+    safe as a YAML plain scalar and as one markdown line."""
+    if not isinstance(value, str) or not value:
+        return [f"{label} must be a non-empty string"]
+    problems: list[str] = []
+    if _breaks_single_line(value):
+        problems.append(f"{label} must be a single line without control characters")
+    if value != value.strip():
+        problems.append(f"{label} must not start or end with a space")
+    if ": " in value or " #" in value:
+        problems.append(f"{label} must not contain ': ' or ' #'")
+    if value.endswith(":"):
+        problems.append(f"{label} must not end with ':'")
+    if value[0] in _YAML_INDICATORS:
+        problems.append(f"{label} must not start with the YAML indicator {value[0]!r}")
+    if scalar_rules and value.strip().lower() in _YAML_SPECIAL_SCALARS:
+        problems.append(f"{label} must not be the YAML scalar {value!r}")
+    if scalar_rules and _is_yaml_number(value.strip()):
+        problems.append(f"{label} must not be a number")
+    return problems
+
+
+def _skill_prompt_doc_problems(label: str, value: object) -> list[str]:
+    if not isinstance(value, str) or not value:
+        return [f"{label} must be a non-empty string"]
+    problems: list[str] = []
+    if "\\" in value:
+        problems.append(f"{label} must use '/' separators, not a backslash")
+    if ":" in value:
+        problems.append(f"{label} must not contain ':' (a drive or scheme)")
+    if value.startswith("/"):
+        problems.append(f"{label} must be repository-relative, not absolute")
+    if _breaks_single_line(value) or "`" in value:
+        problems.append(f"{label} must not contain control characters or a backtick")
+    if any(part in ("", ".", "..") for part in value.split("/")):
+        problems.append(f"{label} must not contain empty, '.' or '..' segments")
+    name = value.rsplit("/", 1)[-1]
+    if (not value.startswith(SKILL_PROMPT_DOC_PREFIX) or not name.endswith(SKILL_PROMPT_DOC_SUFFIX)
+            or name == SKILL_PROMPT_DOC_SUFFIX):
+        problems.append(
+            f"{label} must be a path under {SKILL_PROMPT_DOC_PREFIX} ending in {SKILL_PROMPT_DOC_SUFFIX}"
+        )
+    return problems
+
+
+def skill_declaration_problems(skills: object = None) -> list[str]:
+    """Every problem with a skill declaration (``EXTENSION_SKILLS`` read now
+    when ``skills`` is None), one message per problem naming the skill and
+    key; empty means valid. Never consulted by the server."""
+    if skills is None:
+        skills = EXTENSION_SKILLS
+    if not isinstance(skills, Mapping):
+        return [f"EXTENSION_SKILLS must be a mapping of skill name to entry, not {type(skills).__name__}"]
+    problems: list[str] = []
+    for name, spec in skills.items():
+        if not isinstance(name, str):
+            problems.append(f"skill name {name!r} must be a string")
+            continue
+        label = f"skill {name!r}"
+        if not _SKILL_NAME.fullmatch(name):
+            problems.append(f"{label}: the name must be lower-case letters and digits joined by single hyphens")
+        if len(name) > SKILL_NAME_MAX_CHARS:
+            problems.append(f"{label}: the name is longer than {SKILL_NAME_MAX_CHARS} characters")
+        if name.startswith("wf-"):
+            problems.append(f"{label}: the name prefix 'wf-' is reserved for the framework's own skills")
+        lowered = name.lower()
+        for reserved in ("claude", "anthropic"):
+            if reserved in lowered:
+                problems.append(f"{label}: the name must not contain {reserved!r}")
+        if not isinstance(spec, Mapping):
+            problems.append(f"{label}: the entry must be a mapping with keys {', '.join(SKILL_KEYS)}")
+            continue
+        missing = [key for key in SKILL_KEYS if key not in spec]
+        extra = sorted(str(key) for key in spec if key not in SKILL_KEYS)
+        if missing:
+            problems.append(f"{label}: missing key(s) {', '.join(missing)}")
+        if extra:
+            problems.append(f"{label}: unknown key(s) {', '.join(extra)}")
+        if "title" in spec:
+            problems.extend(_skill_text_problems(f"{label} title", spec["title"], scalar_rules=True))
+        if "description" in spec:
+            description = spec["description"]
+            problems.extend(_skill_text_problems(f"{label} description", description, scalar_rules=True))
+            if isinstance(description, str) and len(description) > SKILL_DESCRIPTION_MAX_CHARS:
+                problems.append(
+                    f"{label} description is longer than {SKILL_DESCRIPTION_MAX_CHARS} characters"
+                )
+        if "prompt_doc" in spec:
+            problems.extend(_skill_prompt_doc_problems(f"{label} prompt_doc", spec["prompt_doc"]))
+        if "summary" in spec:
+            summary = spec["summary"]
+            if not isinstance(summary, (list, tuple)) or not 1 <= len(summary) <= SKILL_SUMMARY_MAX_LINES:
+                problems.append(
+                    f"{label} summary must be a list or tuple of 1 to {SKILL_SUMMARY_MAX_LINES} strings"
+                )
+            else:
+                for index, line in enumerate(summary):
+                    problems.extend(
+                        _skill_text_problems(f"{label} summary[{index}]", line, scalar_rules=False)
+                    )
+    return problems

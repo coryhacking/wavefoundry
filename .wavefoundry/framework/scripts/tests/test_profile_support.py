@@ -413,6 +413,8 @@ class DefaultProfileOnlyMarkerTests(unittest.TestCase):
         names = {node.target.id if isinstance(node, ast.AnnAssign) else node.targets[0].id
                  for node in tree.body if isinstance(node, (ast.Assign, ast.AnnAssign))}
         self.assertEqual(set(SHIPPED_DECLARATION), {n for n in names if n.startswith("EXTENSION_")})
+        # Wave 1zv8c (1zv89): the renderer-only skill declaration is frozen too.
+        self.assertEqual(SHIPPED_DECLARATION["EXTENSION_SKILLS"], {})
 
     def test_a_declaration_leaves_the_marker_and_the_match_alone(self) -> None:
         # A declaration changes the tool surface, not the record profile.

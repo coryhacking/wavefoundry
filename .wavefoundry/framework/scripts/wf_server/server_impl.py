@@ -13939,16 +13939,14 @@ def _is_runtime_lock_path(root: Path, path: Path) -> bool:
     under ``<root>/.wavefoundry/``; the lock identities are collected only for
     such a file, so an ordinary file pays one ``stat`` and nothing more.
     ``indexer._walk_target_is_runtime_lock`` mirrors this rule for the walker,
-    which cannot import this module; a parity test keeps them aligned.
+    which cannot import this module; a parity test keeps them aligned. The name
+    test is the shared ``runtime_lock.is_runtime_lock_path`` (wave 1zv8c),
+    reached through ``lifecycle_lock`` so a reload never purges the module
+    that holds the in-process lock registry; it finds the root by identity, so
+    a case, normalisation or firmlink spelling of the checkout is still judged.
     """
-    try:
-        parts = path.relative_to(root).parts
-    except ValueError:
-        return False
-    if len(parts) >= 2:
-        folded = [os.path.normcase(part).casefold() for part in parts]
-        if folded[0] == ".wavefoundry" and folded[-1].endswith(".lock"):
-            return True
+    if _lifecycle_lock_authority.is_runtime_lock_path(root, path):
+        return True
     try:
         entry_stat = os.stat(path)
     except OSError:
@@ -18446,7 +18444,25 @@ def _extension_provenance_for_response(root: Path) -> dict[str, Any]:
         "served_names": dict(provenance.get("served_names") or {}),
         # Wave 1zoju (1zojt): module-level stale helper references after a reload.
         "stale_helper_references": [dict(entry) for entry in provenance.get("stale_helper_references") or []],
+        **_declared_skills_for_response(),
     }
+
+
+def _declared_skills_for_response() -> dict[str, Any]:
+    """Wave 1zv8c (1zv89): the declared skill names, read now, and any
+    ``skill_problems``. The skill declaration is renderer-only, so a problem
+    here is reported and never fatal."""
+    skills = getattr(mcp_tool_extensions, "EXTENSION_SKILLS", {})
+    names = sorted(str(name) for name in skills) if isinstance(skills, Mapping) else []
+    out: dict[str, Any] = {"skills": names}
+    checker = getattr(mcp_tool_extensions, "skill_declaration_problems", None)
+    try:
+        problems = list(checker(skills)) if callable(checker) and skills else []
+    except Exception as exc:  # noqa: BLE001 - reporting must never fail the response
+        problems = [f"the skill declaration could not be checked: {exc}"]
+    if problems:
+        out["skill_problems"] = problems
+    return out
 
 
 def _process_info_status() -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
@@ -18749,7 +18765,9 @@ class LifecycleMutationBusy(RuntimeError):
     lock refusal the tool body raises. ``kind`` is ``busy`` (another process),
     ``in_process`` (another thread of this server holds it), ``reentry`` (the
     calling thread already holds it) or ``unavailable`` (ownership cannot be
-    proven); ``lock_rel`` is the repository-relative lock path and ``cause``
+    proven) or ``link_refused`` (acquired, then refused and released because a
+    link to the lock was found, wave 1zv8c; ``link_rel`` names it);
+    ``lock_rel`` is the repository-relative lock path and ``cause``
     the underlying exception class. Responses are built from these attributes,
     never from ``str()``, which may carry the absolute path.
     """
@@ -18761,16 +18779,20 @@ class LifecycleMutationBusy(RuntimeError):
         kind: str = "busy",
         lock_rel: str | None = None,
         cause: str | None = None,
+        link_rel: str | None = None,
     ) -> None:
         super().__init__(message)
         self.kind = kind
         self.lock_rel = lock_rel or _LIFECYCLE_REFUSAL_LOCK_REL
         self.cause = cause
+        self.link_rel = link_rel
 
     @classmethod
     def from_lock_refusal(cls, exc: BaseException) -> "LifecycleMutationBusy":
         lock_rel = getattr(exc, "lock_rel", None)
-        if isinstance(exc, _lifecycle_lock_authority.LifecycleLockUnavailable):
+        if isinstance(exc, _lifecycle_lock_authority.LifecycleLockLinkRefused):
+            kind = "link_refused"
+        elif isinstance(exc, _lifecycle_lock_authority.LifecycleLockUnavailable):
             kind = "unavailable"
         elif getattr(exc, "reentry", False):
             kind = "reentry" if getattr(exc, "same_thread", False) else "in_process"
@@ -18779,6 +18801,7 @@ class LifecycleMutationBusy(RuntimeError):
         return cls(
             str(exc), kind=kind, lock_rel=lock_rel,
             cause=getattr(exc, "cause", None) or type(exc).__name__,
+            link_rel=getattr(exc, "link_rel", None),
         )
 
 
@@ -18832,6 +18855,52 @@ def _lifecycle_lock_reentry_response(tool_name: str, lock_rel: str | None = None
     )
 
 
+def _lifecycle_lock_link_refused_response(tool_name: str, busy: Any, rel: str) -> dict[str, Any]:
+    """The lock was acquired, then refused and released (wave 1zv8c): a link to
+    it could let an in-process reader release it mid-operation. Built from the
+    refusal's attributes (repository-relative paths only)."""
+    cause = getattr(busy, "cause", None)
+    link = getattr(busy, "link_rel", None) or "a link"
+    if cause == "hard_link":
+        finding = (
+            f"The lifecycle mutation lock {rel} has another hard link. Remove the "
+            f"other link, then delete {rel} while no process holds it so it is recreated."
+        )
+    elif cause == "outside_link":
+        finding = (
+            f"{link} is a directory link inside a record root that leads outside "
+            "the repository. Replace it with a real directory."
+        )
+    elif cause == "link_scan_limit":
+        finding = (
+            "More entries than the link check's bound are reachable through directory "
+            "links; a directory link may lead high up the tree. Replace or remove it."
+        )
+    else:
+        finding = (
+            f"{link} links to a runtime lock under .wavefoundry/. Remove the link; "
+            "the lock file itself needs no change."
+        )
+    return _response(
+        "error",
+        _lifecycle_refusal_data(
+            tool_name, busy=False, mutation_applied=False, link=getattr(busy, "link_rel", None),
+        ),
+        diagnostics=[_diagnostic(
+            "lifecycle_lock_link_refused",
+            (
+                f"{finding} A reader in this server could otherwise release {rel} "
+                "mid-operation, so no lifecycle mutation was attempted, nothing was "
+                "changed and the lock was released. Retrying will not help until the "
+                "link is removed."
+            ),
+            recovery_tools=["wf_server_info"],
+            recovery_usage="wf_server_info()",
+        )],
+        next_tools=["wf_server_info"],
+    )
+
+
 def _lifecycle_mutation_busy_response(tool_name: str, busy: Any = None) -> dict[str, Any]:
     """Structured refusal for a lifecycle lock that could not be acquired.
 
@@ -18843,6 +18912,8 @@ def _lifecycle_mutation_busy_response(tool_name: str, busy: Any = None) -> dict[
     rel = getattr(busy, "lock_rel", None) or _LIFECYCLE_REFUSAL_LOCK_REL
     if kind == "reentry":
         return _lifecycle_lock_reentry_response(tool_name, rel)
+    if kind == "link_refused":
+        return _lifecycle_lock_link_refused_response(tool_name, busy, rel)
     if kind == "unavailable":
         cause = getattr(busy, "cause", None) or "an unknown lock error"
         return _response(

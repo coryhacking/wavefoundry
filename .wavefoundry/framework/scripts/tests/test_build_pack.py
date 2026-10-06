@@ -2020,5 +2020,49 @@ class BuildPackVenvActivationTests(unittest.TestCase):
             activate.assert_not_called()
 
 
+class VendoredScriptCheckTests(unittest.TestCase):
+    """Wave 1zv8c / 1zv8a: build_zip refuses a pack whose vendored scripts differ from their pins."""
+
+    def setUp(self):
+        import hashlib
+        import tempfile
+        import shutil
+        self._tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self._tmp, ignore_errors=True)
+        self.tmp = Path(self._tmp)
+        self.fw = self.tmp / "fw"
+        vendor = self.fw / "dashboard" / "vendor"
+        (vendor / "demo").mkdir(parents=True)
+        self.script = vendor / "demo" / "demo.js"
+        self.script.write_bytes(b"console.log(1);\n")
+        sha = hashlib.sha256(b"console.log(1);\n").hexdigest()
+        (vendor / "README.md").write_text(
+            "| File | Package | Source in the tarball | Licence | SHA-256 |\n"
+            "| --- | --- | --- | --- | --- |\n"
+            f"| `demo/demo.js` | `demo@1.0.0` | `package/demo.js` | MIT (`demo/LICENSE`) | `{sha}` |\n\n"
+            "## Registry integrity\n\n"
+            "| Package | Tarball | `dist.integrity` |\n"
+            "| --- | --- | --- |\n"
+            "| `demo@1.0.0` | `https://registry.npmjs.org/demo/-/demo-1.0.0.tgz` | `sha512-AAAA` |\n",
+            encoding="utf-8",
+        )
+
+    def _build(self):
+        return build_pack.build_zip(
+            self.tmp, "1.0.0", "2tm5", framework_dir=self.fw,
+            write_version=False, update_manifest=False, inject_install_templates=False,
+        )
+
+    def test_build_proceeds_when_every_vendored_file_matches(self):
+        self.assertTrue(self._build().exists())
+
+    def test_build_refuses_a_changed_vendored_file_naming_it(self):
+        self.script.write_bytes(b"console.log(2);\n")
+        with self.assertRaises(SystemExit) as ctx:
+            self._build()
+        self.assertIn("demo/demo.js", str(ctx.exception))
+        self.assertEqual(list(self.tmp.glob("wavefoundry-*.zip")), [])
+
+
 if __name__ == "__main__":
     unittest.main()

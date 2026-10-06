@@ -941,21 +941,19 @@ def _walk_target_is_runtime_lock(
 ) -> bool:
     """True when ``path`` is a framework runtime lock under ``<root>/.wavefoundry/``
     (wave 1zv87, 1zuq7). Mirrors ``server_impl._is_runtime_lock_path``, which
-    this module cannot import: the resolved target's root-relative parts
-    compared case-folded (``normcase`` plus ``casefold``), first part
-    ``.wavefoundry``, last part ending in ``.lock``; or a regular file with more
+    this module cannot import: the resolved target judged by the shared
+    ``runtime_lock.is_runtime_lock_path`` (wave 1zv8c); or a regular file with more
     than one link whose ``(st_dev, st_ino)`` is that of a lock file there (a
     hard link). ``entry_stat`` is the caller's stat following symlinks;
     ``lock_cache`` holds the lock identities, collected once per walk and only
     when a multi-link file is met. An unresolvable path is not judged a lock."""
+    from runtime_lock import is_runtime_lock_path
+
     try:
-        parts = path.resolve().relative_to(root.resolve()).parts
-    except (OSError, ValueError, RuntimeError):
-        parts = ()
-    if len(parts) >= 2:
-        folded = [os.path.normcase(part).casefold() for part in parts]
-        if folded[0] == ".wavefoundry" and folded[-1].endswith(".lock"):
+        if is_runtime_lock_path(root.resolve(), path.resolve()):
             return True
+    except (OSError, RuntimeError):
+        pass
     if entry_stat is None:
         try:
             entry_stat = os.stat(path)

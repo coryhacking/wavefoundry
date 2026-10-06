@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-03
+Last verified: 2026-10-05
 
 ## Trust Boundaries
 
@@ -68,6 +68,7 @@ Any one of these flips the posture and re-scopes the actor classes above; when a
 | Dashboard state drift via persisted snapshots | Operator could see stale fabricated state if the dashboard relied on generated JSON files | Browser state stays in memory; the server reads live repo state; `.wavefoundry/locks/dashboard-server.lock` carries endpoint metadata, not a dashboard snapshot |
 | Sensitive data in journals | Journal entries must not contain secrets, credentials, PII | Memory governance rules in seed-130; `.gitignore` covers guard-overrides only |
 | Indexed ignore files name excluded paths (wave 1seaw, walker 16) | `.aiignore`/`.gitignore` content (path names and patterns, never file contents) is retrievable and can be cited onward by an agent host | Same-user threat model; the index stays local and gitignored; the secrets scan covers the walked file list; the low-information prior keeps unnamed ignore files below implementation evidence |
+| Reading a runtime lock releases it (waves 1zv87, 1zv8c) | On macOS, Linux and WSL2 the lifecycle and index-build locks are POSIX record locks, which the holding process loses when it closes any descriptor of the file; a committed symlink or hard link that leads an in-process reader to a lock file could let a lifecycle operation or index build lose its lock mid-run and run concurrently with another process. Exploiting it needs an actor who can commit to the repository | Code readers and the index walk refuse lock targets by resolved name and by hard-link identity (`server_impl._resolve_repo_path`, `indexer._walk_target_is_runtime_lock`, wave 1zv87). Lifecycle-lock acquisition refuses and releases the hold (`lifecycle_lock_link_refused`) when the lock file has more than one link, a symlink or Windows junction in the scan resolves to a runtime lock, or a record-root directory link leads outside the repository (wave 1zv8c). The scan covers the record roots and the archive, `docs/`, all of `.wavefoundry/` except a project-local `venv` (in-process readers open the guard-skip ledger under the index and the context-efficiency store under `logs/`), and the repository root's own entries; a spelling variant of the checkout in a link target is judged by file identity. The scan is bounded by an entry limit that counts only entries reached through directory links whose target the real-directory walk did not already list; past it the hold is refused (`link_scan_limit`). A link created after acquisition is the same committed-content window as the readers |
 
 ## Security Sensitivity
 

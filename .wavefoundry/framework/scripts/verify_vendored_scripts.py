@@ -20,6 +20,11 @@ redirect that left the registry, a tarball over the size cap), which stops a rel
 ``download failed:`` names a download that could not complete (network, proxy or TLS).
 
     python3 .wavefoundry/framework/scripts/verify_vendored_scripts.py
+
+``--offline`` skips the registry entirely: it hashes each vendored file and compares it with the
+SHA-256 in the file table, with no network request. Exit 0 every file matches; 1 a file differs
+or is missing (each is named); 2 the README cannot be parsed. ``build_pack`` runs the same
+comparison before it writes a pack.
 """
 from __future__ import annotations
 
@@ -45,6 +50,7 @@ DEFAULT_VENDOR_DIR = Path(__file__).resolve().parent.parent / "dashboard" / "ven
 # its separator row, up to the first line that does not start with ``|``, is a data row of
 # that table and must fully match the table's row pattern. An indented row, or a
 # table-shaped line after the table's end and before the next ``## `` heading, is refused.
+_SCRIPT_SUFFIXES = (".js", ".mjs", ".cjs")
 _FILE_TABLE_HEADER = "| File | Package | Source in the tarball | Licence | SHA-256 |"
 _REGISTRY_TABLE_HEADER = "| Package | Tarball | `dist.integrity` |"
 _TABLE_LINE_RE = re.compile(r"\s*\|")
@@ -275,8 +281,64 @@ def verify(
     return 2 if unverifiable else 0
 
 
+def offline_problems(vendor_dir: Path) -> list[str]:
+    """Compare each vendored file's SHA-256 with the file table; return one problem per file.
+
+    Reads only ``vendor_dir/README.md`` and the files it lists, as bytes, so the result is the
+    same on every platform and nothing touches the network. An empty list means every file
+    matches. Raises :class:`ReadmeError` when the README cannot be read or parsed.
+    """
+    try:
+        files, _registry = parse_readme((vendor_dir / "README.md").read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ReadmeError(f"cannot read {vendor_dir / 'README.md'}: {exc}") from exc
+    problems: list[str] = []
+    for f in files:
+        try:
+            actual = hashlib.sha256((vendor_dir / f.path).read_bytes()).hexdigest()
+        except OSError as exc:
+            problems.append(f"{f.path}: missing or unreadable vendored file: {exc}")
+            continue
+        if actual != f.sha256:
+            problems.append(f"{f.path}: sha256 mismatch: recorded {f.sha256}, vendored {actual}")
+    return problems
+
+
+def unlisted_scripts(vendor_dir: Path) -> list[str]:
+    """Every ``*.js``, ``*.mjs`` or ``*.cjs`` file under ``vendor_dir`` (recursively, any letter case
+    in the suffix) that the file table does not list.
+
+    Dotfiles such as ``.DS_Store``, the README and licence files are not scripts and are ignored.
+    """
+    files, _registry = parse_readme((vendor_dir / "README.md").read_text(encoding="utf-8"))
+    listed = {f.path for f in files}
+    found = (
+        p.relative_to(vendor_dir).as_posix()
+        for p in vendor_dir.rglob("*")
+        if p.is_file() and p.suffix.lower() in _SCRIPT_SUFFIXES
+    )
+    return sorted(path for path in found if path not in listed)
+
+
+def verify_offline(vendor_dir: Path) -> int:
+    """Print one line per problem and return the offline exit code (0, 1 or 2)."""
+    try:
+        problems = offline_problems(vendor_dir)
+    except ReadmeError as exc:
+        print(f"error: cannot parse {vendor_dir / 'README.md'}: {exc}")
+        return 2
+    for problem in problems:
+        print(problem)
+    if problems:
+        return 1
+    print("ok: every vendored file matches its recorded SHA-256")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
+    if args == ["--offline"]:
+        return verify_offline(DEFAULT_VENDOR_DIR)
     if args:
         print(__doc__)
         return 0 if args in (["-h"], ["--help"]) else 2
