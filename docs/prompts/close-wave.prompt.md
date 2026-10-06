@@ -2,32 +2,32 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-21
+Last verified: 2026-10-06
 
 Shortcut: **`Close wave`**
 
 ## Host-neutral orchestration
 
-Follow `.wavefoundry/framework/seeds/180-implement-feature.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose models and reasoning effort for reconciliation and unresolved judgments by task fit. Efficient routine checks do not waive review evidence or explicit operator closure authority. Use only available host capabilities; sequential implementation does not satisfy required independent review.
+Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose models and reasoning effort for reconciliation and unresolved judgments by task fit. Efficient routine checks do not waive review evidence or explicit operator closure authority. Use only available host capabilities; sequential implementation does not satisfy required independent review.
 
 ## Purpose
 
-Finalize and archive the wave. Closure requires full reconciliation — not just a status flip.
+Close and archive the wave. Closure requires full reconciliation, not just a status flip. **Close wave** is the only wave close, whatever the change count.
 
 ## Closure Requirements (all must be met)
 
 All closure-time code and docs investigation follows the run contract's Retrieval Rules (`.wavefoundry/framework/seeds/020-run-contract.prompt.md`): MCP retrieval tools first, for every lane and briefed subagent.
 
-1. All changes marked `complete` or `deferred` with explicit rationale
+1. All changes `implemented`, `complete`, or `deferred` with explicit rationale (matching the `wf_close_wave` open-changes gate). **Close change** (`docs/prompts/close-change.prompt.md`, `wf_close_change`) is optional: use it to mark a single change `complete` and activate its dependents inside the open wave
 2. All required review lanes from readiness reconciled in `## Review checkpoints` (or deferred with rationale)
 3. When review is enabled, `wave-council-readiness` is present and `wave-council-delivery` is present only when selected by the current Prepare receipt in `## Review Evidence`
 4. **Docs-contract review:** recorded as performed with findings, or `Docs-contract review: not applicable` with rationale — required whenever any `docs/specs/*.md` changed during the wave
-5. Chronology reconciled: `Status: completed`, `Completed at:` date, all change statuses finalized
+5. Chronology reconciled: `Status: completed`, `Completed at:` date, all change statuses settled
 6. Memory capture: important implementation/review lessons recorded as typed memory candidates and validated at the close checkpoint (absence of new candidates is acceptable if nothing warranted one)
 7. Durable memory promoted to `docs/references/project-context-memory.md` (and other canonical docs when applicable)
 8. **Retrospective step completed:** ask "what was non-obvious in this wave that a future session should know?" — surface memory candidates for architectural decisions (why an approach was chosen), validated approaches that should carry forward (positive confirmations, not only corrections), and workflow discoveries; promote findings to auto-memory or `docs/references/project-context-memory.md`
 9. `docs/agents/session-handoff.md` updated to idle format: last-closed wave ID and one-line summary of what shipped, plus an **Open questions / Deferred decisions** section for any intent not captured in a change doc
-10. **Hard checkbox gate** (wave 1p31b / 1p32k): every AC and every task across the wave's admitted changes is marked either `[x]` (completed) or `[~]` (intentionally deferred). Silent `[ ]` items block close — `wf_close_wave` returns a `silent_unchecked_items_at_close` diagnostic listing each one. ACs at `not-this-scope` priority are exempt (the priority encodes the exclusion). See `170-plan-feature.prompt.md` "AC and task checkbox states — the `[~]` marker" for the canonical convention.
+10. **Hard checkbox gate** (wave 1p31b / 1p32k): every AC and every task across the wave's admitted changes is marked either `[x]` (completed) or `[~]` (intentionally deferred). Silent `[ ]` items block close — `wf_close_wave` returns a `silent_unchecked_items_at_close` diagnostic listing each one. ACs at `not-this-scope` priority are exempt (the priority encodes the exclusion). See `170-plan-change.prompt.md` "AC and task checkbox states — the `[~]` marker" for the canonical convention.
 
 **Closure is blocked until all ten items are explicitly recorded in the wave record.**
 
@@ -54,7 +54,7 @@ Before final docs validation and the close mutation, tidy only artifacts establi
 
 ## Wavefoundry-Specific Closure Checks
 
-- Do not finalize with an unreconciled `tree_moved_under_review` finding: a lane that saw the tree change under it holds evidence for an earlier tree (seed 190).
+- Do not close with an unreconciled `tree_moved_under_review` finding: a lane that saw the tree change under it holds evidence for an earlier tree (seed 190).
 - Advisory docs-lint findings (`WARNING:` lines from sensors registered `advisory` in `wave_lint_lib/constants.py`, surfaced by `wf_close_wave` as `docs_lint_warning` diagnostics with `advisory: true`) are review notes at close, never a closure blocker; a flip to blocking is a recorded change decided at the release checklist (seed 190).
 - If framework scripts changed: confirm `python3 .wavefoundry/framework/scripts/run_tests.py` passes
 - If `docs/prompts/` or manifest changed: confirm docs gate passes (**`wf_validate_docs`** over MCP, or **`wf docs-lint`** if MCP is unavailable)

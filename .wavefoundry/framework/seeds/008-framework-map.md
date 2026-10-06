@@ -12,11 +12,11 @@ This document is the maintainer-facing map of how the shared Wave Framework pack
 
 ```mermaid
 flowchart TD
-    A[Shared package entry docs\nREADME + numbered overview docs] --> B[Public shortcut prompts\nInit / Upgrade / Plan / Ready / Implement / Review / Finalize]
+    A[Shared package entry docs\nREADME + numbered overview docs] --> B[Public shortcut prompts\nInit / Upgrade / Plan / Ready / Implement / Review / Close]
     B --> C[Internal helper prompts\nbootstrap, memory, migration, reconciliation]
     C --> D[Repo evidence + generation decisions]
     D --> E[Repo-local outputs\ndocs, prompts, waves, memory, personas, wrappers]
-    E --> F[Wave delivery lifecycle\nplan -> ready -> implement/review -> finalize]
+    E --> F[Wave delivery lifecycle\nplan -> ready -> implement/review -> close]
     F --> G[Ongoing maintenance\nreindex, memory validation, upgrade, docs gate]
     G --> A
 ```
@@ -39,26 +39,26 @@ These are the durable shortcut entry points that seeded repositories expose to u
 
 - `Init Wavefoundry` (legacy aliases: `Init wave framework` / `Install wave framework` / `Init wave context` / `Install wave context`)
 - `Upgrade Wavefoundry` (legacy aliases: `Upgrade wave framework` / `Upgrade wave context`)
-- `Plan feature`
+- `Plan change`
 - `Create wave`
 - `Add change to wave`
 - `Remove change from wave`
 - `Prepare wave`
 - `Implement wave`
-- `Implement feature`
+- `Implement change`
 - `Pause wave`
 - `Review wave`
 - `Close wave`
-- `Finalize feature`
+- `Close change`
 
 In the shared pack, those map to:
 
 - `010-install-wavefoundry.prompt.md`
 - `160-upgrade-wavefoundry.prompt.md`
-- `170-plan-feature.prompt.md`
-- `180-implement-feature.prompt.md` for `Prepare wave`, `Implement wave`, `Pause wave`, and `Review wave`
-- `180-implement-feature.prompt.md`
-- `190-finalize-feature.prompt.md`
+- `170-plan-change.prompt.md`
+- `180-implement-change.prompt.md` for `Prepare wave`, `Implement wave`, `Pause wave`, and `Review wave`
+- `180-implement-change.prompt.md`
+- `190-close-wave.prompt.md`
 
 ### 3. Internal helper prompt layer
 

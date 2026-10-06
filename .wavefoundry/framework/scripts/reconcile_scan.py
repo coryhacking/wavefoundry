@@ -234,6 +234,109 @@ _RETIRED_PLAN_REVIEW_PATTERNS: tuple[
 )
 
 
+# ── Retired feature-named lifecycle prompts (wave 1zyc5) ─────────────────────
+#
+# Plan feature and Implement feature were renamed to Plan change and Implement
+# change (the renderer moves the two prompt pairs byte-for-byte); Finalize
+# feature was retired in favor of Close change and Close wave. The finalize
+# prompts are project-owned and possibly customized, so they are reported by
+# file identity and never deleted automatically. Phrase entries match only the
+# shortcut-shaped forms (bold or backticked), so ordinary prose such as
+# "Implement feature flags" is never flagged. All entries are case-sensitive.
+_RETIRED_FINALIZE_PROMPTS: tuple[str, ...] = (
+    "docs/prompts/finalize-feature.prompt.md",
+    "docs/prompts/agents/finalize-feature.prompt.md",
+)
+_RETIRED_FINALIZE_PROMPT_SUGGESTION = (
+    "merge unique guidance into docs/prompts/close-wave.prompt.md or "
+    "docs/prompts/close-change.prompt.md, then remove the retired prompt"
+)
+_CLOSE_CHANGE_OR_WAVE_SUGGESTION = "Close change (one change) or Close wave (the wave)"
+
+
+def _shortcut_phrase_pattern(phrase: str) -> re.Pattern[str]:
+    escaped = re.escape(phrase)
+    return re.compile(rf"\*\*{escaped}\*\*|`{escaped}`")
+
+
+_RETIRED_CHANGE_PROMPT_PATTERNS: tuple[
+    tuple[re.Pattern[str], str, str], ...
+] = (
+    (
+        re.compile(r"(?<![\w-])wf\-plan\-feature(?![\w-])"),
+        "wf-plan-feature",
+        "wf-plan-change",
+    ),
+    *(
+        (
+            re.compile(
+                rf"(?<![\w.-])docs/prompts/{agents}{verb}\-feature\.prompt\.md(?![\w.-])"
+            ),
+            f"docs/prompts/{agents}{verb}-feature.prompt.md",
+            f"docs/prompts/{agents}{verb}-change.prompt.md",
+        )
+        for agents in ("", "agents/")
+        for verb in ("plan", "implement")
+    ),
+    (
+        re.compile(
+            r"(?<![\w.-])(?:\.wavefoundry/framework/seeds/)?"
+            r"170\-plan\-feature\.prompt\.md(?![\w.-])"
+        ),
+        "170-plan-feature.prompt.md",
+        ".wavefoundry/framework/seeds/170-plan-change.prompt.md",
+    ),
+    (
+        re.compile(
+            r"(?<![\w.-])(?:\.wavefoundry/framework/seeds/)?"
+            r"180\-implement\-feature\.prompt\.md(?![\w.-])"
+        ),
+        "180-implement-feature.prompt.md",
+        ".wavefoundry/framework/seeds/180-implement-change.prompt.md",
+    ),
+    (
+        re.compile(
+            r"(?<![\w.-])(?:\.wavefoundry/framework/seeds/)?"
+            r"190\-finalize\-feature\.prompt\.md(?![\w.-])"
+        ),
+        "190-finalize-feature.prompt.md",
+        ".wavefoundry/framework/seeds/190-close-wave.prompt.md",
+    ),
+    (_shortcut_phrase_pattern("Plan feature"), "Plan feature", "Plan change"),
+    (
+        _shortcut_phrase_pattern("Implement feature"),
+        "Implement feature",
+        "Implement change",
+    ),
+    (
+        _shortcut_phrase_pattern("Finalize feature"),
+        "Finalize feature",
+        _CLOSE_CHANGE_OR_WAVE_SUGGESTION,
+    ),
+)
+
+# The renderer refreshes only the BODY of the Claude guru agent and keeps its
+# existing frontmatter verbatim, so a target's ``description:`` line keeps the
+# retired bare phrase after upgrade. Matched only on that frontmatter line.
+_CLAUDE_GURU_AGENT_FILE = ".claude/agents/guru.md"
+_GURU_DESCRIPTION_RETIRED_PHRASE = re.compile(r"(?<![\w-])Plan feature(?![\w-])")
+
+
+def _guru_description_hits(rel: str, text: str) -> Iterator[tuple[int, str]]:
+    """Yield ``(offset, matched)`` for the retired phrase on the guru agent's
+    frontmatter ``description:`` line."""
+    if rel != _CLAUDE_GURU_AGENT_FILE or not text.startswith("---"):
+        return
+    end = text.find("\n---", 3)
+    if end < 0:
+        return
+    offset = 0
+    for line in text[:end].split("\n"):
+        if line.lstrip().startswith("description:"):
+            for m in _GURU_DESCRIPTION_RETIRED_PHRASE.finditer(line):
+                yield offset + m.start(), m.group(0)
+        offset += len(line) + 1
+
 def _line_text(text: str, position: int) -> str:
     """Return the full line containing *position* (for line-scoped exemptions)."""
     start = text.rfind("\n", 0, position) + 1
@@ -293,6 +396,7 @@ _STATIC_EXCLUDED_DIRS: tuple[str, ...] = (
     ".wavefoundry/upgrade-assets",  # retained protocol-bridge payload/recovery artifacts
     "docs/reports",            # report history
     "docs/agents/memory",      # memory records quote history; the memory corpus has its own hygiene loop
+    "docs/agents/history",     # dated operating-memory snapshots (wave 1zyc5)
 )
 # Wave 1y0gz: the wave history root comes from the resolved record layout.
 # ``excluded_dirs_for(root)`` resolves it for the scan walk; wave 1z8ty removed
@@ -790,6 +894,17 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
         # existence, even when its body never spells its own path. It cannot be
         # migrated safely because its unique guidance is project-owned, so this
         # remains report-only and directs the operator to merge/remove it.
+        if rel in _RETIRED_FINALIZE_PROMPTS:
+            findings.append(
+                StaleReference(
+                    file=rel,
+                    line=1,
+                    retired_surface=rel,
+                    matched=rel,
+                    suggested=_RETIRED_FINALIZE_PROMPT_SUGGESTION,
+                    host_permission=host_perm,
+                )
+            )
         if rel == _RETIRED_PLAN_REVIEW_AGENT_PROMPT:
             findings.append(
                 StaleReference(
@@ -880,6 +995,34 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
                         host_permission=host_perm,
                     )
                 )
+        # Retired feature-named lifecycle prompts (1zyc5): renamed prompt and
+        # seed paths, the retired skill, shortcut-shaped phrases, and the
+        # preserved guru agent description line.
+        for pat, retired, suggestion in _RETIRED_CHANGE_PROMPT_PATTERNS:
+            for m in pat.finditer(text):
+                if _archived(m):
+                    continue
+                findings.append(
+                    StaleReference(
+                        file=rel,
+                        line=text.count("\n", 0, m.start()) + 1,
+                        retired_surface=retired,
+                        matched=m.group(0),
+                        suggested=suggestion,
+                        host_permission=host_perm,
+                    )
+                )
+        for position, matched in _guru_description_hits(rel, text):
+            findings.append(
+                StaleReference(
+                    file=rel,
+                    line=text.count("\n", 0, position) + 1,
+                    retired_surface="Plan feature (guru agent description)",
+                    matched=matched,
+                    suggested="Plan change",
+                    host_permission=host_perm,
+                )
+            )
         # The `.md` to `.prompt.md` rename, resolved against the tree.
         for m, matched, suggestion in _stale_prompt_extension_hits(root, text):
             if _archived(m):

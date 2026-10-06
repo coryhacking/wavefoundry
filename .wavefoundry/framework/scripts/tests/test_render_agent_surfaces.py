@@ -95,13 +95,13 @@ class BriefingLoopCarrierTests(unittest.TestCase):
 
     CARRIERS = {
         "brief": (
-            ".wavefoundry/framework/seeds/170-plan-feature.prompt.md",
-            "docs/prompts/plan-feature.prompt.md",
+            ".wavefoundry/framework/seeds/170-plan-change.prompt.md",
+            "docs/prompts/plan-change.prompt.md",
         ),
         "readback": (
-            ".wavefoundry/framework/seeds/180-implement-feature.prompt.md",
+            ".wavefoundry/framework/seeds/180-implement-change.prompt.md",
             ".wavefoundry/framework/install/lifecycle-prompts/implement-wave.prompt.md",
-            "docs/prompts/implement-feature.prompt.md",
+            "docs/prompts/implement-change.prompt.md",
             "docs/prompts/implement-wave.prompt.md",
         ),
         "gap": (
@@ -166,9 +166,9 @@ class BriefingLoopCarrierTests(unittest.TestCase):
             "Retain the read-only pre-apply change evidence for the seeds and install baseline",
             "After extraction",
             "during the same installing run",
-            "`170-plan-feature.prompt.md` -> `docs/prompts/plan-feature.prompt.md`",
+            "`170-plan-change.prompt.md` -> `docs/prompts/plan-change.prompt.md`",
             "`175-review-plan.prompt.md` -> `docs/prompts/review-plan.prompt.md`",
-            "`180-implement-feature.prompt.md` -> `docs/prompts/implement-feature.prompt.md`",
+            "`180-implement-change.prompt.md` -> `docs/prompts/implement-change.prompt.md`",
             "`.wavefoundry/framework/install/lifecycle-prompts/implement-wave.prompt.md` -> `docs/prompts/implement-wave.prompt.md`",
             "Merge only changed authored clauses",
             "preserving project additions, metadata, and every renderer-owned marker region",
@@ -263,13 +263,13 @@ class BriefingLoopCarrierTests(unittest.TestCase):
             self.assertIn("175-review-plan.prompt.md", review.read_text())
             self.assertEqual(ras.render_agent_surfaces(root), [])
             snapshots = {}
-            for name in ("plan-feature", "review-plan", "implement-feature", "implement-wave"):
+            for name in ("plan-change", "review-plan", "implement-change", "implement-wave"):
                 relative = f"docs/prompts/{name}.prompt.md"
                 custom = ("# Project prompt\n\nOwner: Local team\nStatus: active\n"
                           "Last verified: 2026-01-01\n\nKeep project-specific output conventions.\n")
                 (root / relative).write_text(custom)
             ras.render_agent_surfaces(root)  # Establish the renderer-owned regions.
-            for name in ("plan-feature", "review-plan", "implement-feature", "implement-wave"):
+            for name in ("plan-change", "review-plan", "implement-change", "implement-wave"):
                 target = root / f"docs/prompts/{name}.prompt.md"
                 self.assertTrue(target.read_text().startswith(custom))
                 snapshots[target] = target.read_bytes()
@@ -282,7 +282,7 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
     """Carrier and authored-merge fixtures, never native-host or agent-adherence proof."""
 
     ROOT = PROJECT_ROOT.parent
-    OWNER = "180-implement-feature.prompt.md"
+    OWNER = "180-implement-change.prompt.md"
     PHASES = ("prepare-wave", "implement-wave", "review-wave", "close-wave")
     POLICY_HEADING = "## Host-neutral orchestration"
     # AC-derived obligations, independently asserted rather than copy equality.
@@ -320,7 +320,7 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
         "merge only the changed authored clauses at a unique location",
         "present the conflict instead of overwriting it",
         "Missing-only rendering preserves existing prose and is not proof that this merge happened",
-        "prepare-wave, implement-feature, implement-wave, review-wave, pause-wave, close-wave and agent-routing-concurrency",
+        "prepare-wave, implement-change, implement-wave, review-wave, pause-wave, close-wave and agent-routing-concurrency",
         "AGENTS.md and docs/agents/wave-coordinator.md",
         "a repeat merge makes no further changes",
         "not an automatic prose migration claim",
@@ -348,7 +348,7 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
         for relative in (".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
                          "docs/prompts/upgrade-wavefoundry.prompt.md"):
             self._assert_block((self.ROOT / relative).read_text(), self.UPGRADE_HEADING, self.UPGRADE_CLAUSES)
-        for phase in (*self.PHASES, "implement-feature", "pause-wave", "agent-routing-concurrency"):
+        for phase in (*self.PHASES, "implement-change", "pause-wave", "agent-routing-concurrency"):
             self._assert_phase_pointer((self.ROOT / f"docs/prompts/{phase}.prompt.md").read_text())
         bootstrap = (self.ROOT / ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md").read_text()
         self.assertIn("Seed 180 owns **Host-neutral orchestration** throughout Prepare-to-Close", bootstrap)
@@ -1520,10 +1520,15 @@ class ReviewPlanPromptMigrationTests(unittest.TestCase):
                     self.assertEqual(new.read_bytes(), new_bytes)
 
     def test_seventh_baseline_is_metadata_stamped_and_missing_only(self) -> None:
-        self.assertEqual(len(ras.LIFECYCLE_PROMPT_BASELINES), 7)
+        # Wave 1zyc5 appended the eighth baseline (Close change) after review-plan.
+        self.assertEqual(len(ras.LIFECYCLE_PROMPT_BASELINES), 8)
+        self.assertEqual(
+            ras.LIFECYCLE_PROMPT_BASELINES[-2],
+            (ras.REVIEW_PLAN_NEW_PROMPT, "review-plan.prompt.md"),
+        )
         self.assertEqual(
             ras.LIFECYCLE_PROMPT_BASELINES[-1],
-            (ras.REVIEW_PLAN_NEW_PROMPT, "review-plan.prompt.md"),
+            (ras.CLOSE_CHANGE_PROMPT, "close-change.prompt.md"),
         )
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1560,6 +1565,370 @@ class ReviewPlanPromptMigrationTests(unittest.TestCase):
         ):
             ras.render_agent_surfaces(Path(temp_dir))
         self.assertEqual(order, ["migration", "skills", "baselines"])
+
+
+class ChangePromptRenameMigrationTests(unittest.TestCase):
+    """1zyc4: feature-named prompts move byte-for-byte; conflicts write nothing."""
+
+    MANIFEST = "docs/prompts/prompt-surface-manifest.json"
+    OLD_PLAN = "docs/prompts/plan-feature.prompt.md"
+    NEW_PLAN = "docs/prompts/plan-change.prompt.md"
+    OLD_IMPL_AGENT = "docs/prompts/agents/implement-feature.prompt.md"
+    NEW_IMPL_AGENT = "docs/prompts/agents/implement-change.prompt.md"
+    OLD_IMPL = "docs/prompts/implement-feature.prompt.md"
+    NEW_IMPL = "docs/prompts/implement-change.prompt.md"
+    PAIR_PATHS = (
+        "docs/prompts/plan-feature.prompt.md",
+        "docs/prompts/plan-change.prompt.md",
+        "docs/prompts/implement-feature.prompt.md",
+        "docs/prompts/implement-change.prompt.md",
+        "docs/prompts/agents/plan-feature.prompt.md",
+        "docs/prompts/agents/plan-change.prompt.md",
+        "docs/prompts/agents/implement-feature.prompt.md",
+        "docs/prompts/agents/implement-change.prompt.md",
+    )
+
+    @staticmethod
+    def _manifest_text(entries) -> str:
+        import json
+
+        data = {
+            "framework_revision": "1.0.0",
+            "public_prompt_surface": [
+                {"doc": doc, "shortcut": shortcut} for doc, shortcut in entries
+            ],
+            "schema_version": 2,
+        }
+        return json.dumps(data, indent=2) + "\n"
+
+    def _pre_rename_repo(self, root: Path) -> dict[str, bytes]:
+        custom = {
+            self.OLD_PLAN: b"# Plan Feature\r\n\r\nProject-only planning paragraph.\r\n",
+            self.OLD_IMPL_AGENT: b"# Agent Body\r\n\r\nProject-only implementation note.\r\n",
+        }
+        for rel, data in custom.items():
+            path = root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        (root / self.MANIFEST).write_text(
+            self._manifest_text(
+                [
+                    (self.OLD_PLAN, "Plan feature"),
+                    ("docs/prompts/close-wave.prompt.md", "Close wave"),
+                    ("docs/prompts/finalize-feature.prompt.md", "Finalize feature"),
+                ]
+            ),
+            encoding="utf-8",
+        )
+        (root / "docs/guide.md").write_text(
+            "# Guide\n\nSee [planning](prompts/plan-feature.prompt.md) first.\n", encoding="utf-8"
+        )
+        return custom
+
+    def _snapshot(self, root: Path) -> dict[str, "bytes | None"]:
+        paths = (*self.PAIR_PATHS, self.MANIFEST)
+        return {rel: ((root / rel).read_bytes() if (root / rel).exists() else None) for rel in paths}
+
+    def test_render_moves_bytes_rewrites_manifest_reports_links_and_is_idempotent(self) -> None:
+        import json
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            custom = self._pre_rename_repo(root)
+            stderr = io.StringIO()
+            with patch("sys.stderr", stderr):
+                written = ras.render_agent_surfaces(root)
+            self.assertFalse((root / self.OLD_PLAN).exists())
+            self.assertFalse((root / self.OLD_IMPL_AGENT).exists())
+            self.assertEqual((root / self.NEW_PLAN).read_bytes(), custom[self.OLD_PLAN])
+            self.assertEqual((root / self.NEW_IMPL_AGENT).read_bytes(), custom[self.OLD_IMPL_AGENT])
+            for rel in (self.OLD_PLAN, self.NEW_PLAN, self.OLD_IMPL_AGENT, self.NEW_IMPL_AGENT, self.MANIFEST):
+                self.assertIn(rel, written)
+            entries = json.loads((root / self.MANIFEST).read_text(encoding="utf-8"))["public_prompt_surface"]
+            self.assertEqual(
+                entries,
+                [
+                    {"doc": self.NEW_PLAN, "shortcut": "Plan change"},
+                    {"doc": "docs/prompts/close-wave.prompt.md", "shortcut": "Close wave"},
+                    {"doc": ras.CLOSE_CHANGE_PROMPT, "shortcut": "Close change"},
+                ],
+            )
+            self.assertTrue((root / ras.CLOSE_CHANGE_PROMPT).is_file())
+            self.assertIn("docs/guide.md:3", stderr.getvalue())
+            self.assertIn("prompts/plan-feature.prompt.md", (root / "docs/guide.md").read_text(encoding="utf-8"))
+            migration = ras.migrate_change_prompt_renames(root)
+            self.assertEqual(migration.written, ())
+            snapshot = self._snapshot(root)
+            self.assertEqual(ras.render_agent_surfaces(root), [])
+            self.assertEqual(self._snapshot(root), snapshot)
+
+    def test_link_report_resolves_relative_and_repo_rooted_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._pre_rename_repo(root)
+            (root / "docs/other.md").write_text(
+                "[a](docs/prompts/implement-feature.prompt.md)\n"
+                "[b](../elsewhere/plan-feature.prompt.md)\n"
+                "[c](prompts/agents/implement-feature.prompt.md#steps)\n",
+                encoding="utf-8",
+            )
+            migration = ras.migrate_change_prompt_renames(root)
+        self.assertEqual(
+            sorted(migration.link_report), ["docs/guide.md:3", "docs/other.md:1", "docs/other.md:3"]
+        )
+
+    def test_link_report_covers_history_records_the_link_validator_checks(self) -> None:
+        import os
+
+        import record_paths
+        import vocabulary_profile
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._pre_rename_repo(root)
+            wave_rel = f"{record_paths.WAVES_ROOT}/1abcd sample/{vocabulary_profile.RECORD_FILENAME}"
+            wave_record = root / wave_rel
+            wave_record.parent.mkdir(parents=True)
+            link = Path(os.path.relpath(root / self.OLD_PLAN, wave_record.parent)).as_posix()
+            wave_record.write_text(f"# Wave\n\nSee [plan]({link}).\n", encoding="utf-8")
+            memory = root / "docs/agents/memory/sample.md"
+            memory.parent.mkdir(parents=True)
+            memory.write_text("[impl](../../prompts/agents/implement-feature.prompt.md)\n", encoding="utf-8")
+            migration = ras.migrate_change_prompt_renames(root)
+        self.assertIn(f"{wave_rel}:3", migration.link_report)
+        self.assertIn("docs/agents/memory/sample.md:1", migration.link_report)
+
+    def test_non_utf8_old_prompt_moves_byte_identically(self) -> None:
+        for encoding in ("latin-1", "utf-16"):
+            with self.subTest(encoding=encoding), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                self._pre_rename_repo(root)
+                data = "# Plan caf\u00e9\r\n\r\nProject prose \u00e9t\u00e9.\r\n".encode(encoding)
+                (root / self.OLD_PLAN).write_bytes(data)
+                ras.migrate_change_prompt_renames(root)
+                self.assertFalse((root / self.OLD_PLAN).exists())
+                self.assertEqual((root / self.NEW_PLAN).read_bytes(), data)
+
+    def test_unlink_failure_keeps_old_prompt_and_removes_new_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            custom = self._pre_rename_repo(root)
+            manifest_before = (root / self.MANIFEST).read_bytes()
+            real_unlink = Path.unlink
+
+            def failing_unlink(path_self, *args, **kwargs):
+                if path_self.name == Path(self.OLD_PLAN).name:
+                    raise PermissionError("denied")
+                return real_unlink(path_self, *args, **kwargs)
+
+            with patch.object(Path, "unlink", failing_unlink), self.assertRaisesRegex(
+                RuntimeError, "change prompt migration blocked while removing"
+            ) as raised:
+                ras.migrate_change_prompt_renames(root)
+            self.assertIn(f"{self.NEW_PLAN} was removed", str(raised.exception))
+            self.assertEqual((root / self.OLD_PLAN).read_bytes(), custom[self.OLD_PLAN])
+            self.assertFalse((root / self.NEW_PLAN).exists())
+            self.assertEqual((root / self.MANIFEST).read_bytes(), manifest_before)
+
+    def test_conflict_in_any_pair_writes_nothing(self) -> None:
+        for kind in ("both-exist", "symlink"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                self._pre_rename_repo(root)
+                if kind == "both-exist":
+                    (root / self.NEW_PLAN).write_bytes(b"# Independent new prompt\n")
+                    conflict = self.OLD_PLAN
+                else:
+                    target = root / "elsewhere.md"
+                    target.write_bytes(b"# linked\n")
+                    (root / self.OLD_IMPL).symlink_to(target)
+                    conflict = self.OLD_IMPL
+                before = self._snapshot(root)
+                with self.assertRaisesRegex(RuntimeError, "change prompt migration blocked") as raised:
+                    ras.render_agent_surfaces(root)
+                self.assertIn(conflict, str(raised.exception))
+                self.assertIn("nothing was written", str(raised.exception))
+                self.assertEqual(self._snapshot(root), before)
+                self.assertFalse((root / ras.CLOSE_CHANGE_PROMPT).exists())
+                self.assertFalse((root / ".claude").exists())
+                self.assertFalse((root / "docs/prompts/create-wave.prompt.md").exists())
+
+    def test_partial_earlier_run_is_repaired_by_manifest_rewrite_only(self) -> None:
+        import json
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "docs/prompts").mkdir(parents=True)
+            moved = b"# Already moved\r\nProject prose.\r\n"
+            (root / self.NEW_PLAN).write_bytes(moved)
+            (root / ras.CLOSE_CHANGE_PROMPT).write_bytes(b"# Close Change\n")
+            (root / self.MANIFEST).write_text(
+                self._manifest_text(
+                    [(self.OLD_PLAN, "Plan feature"), (ras.CLOSE_CHANGE_PROMPT, "Close change")]
+                ),
+                encoding="utf-8",
+            )
+            migration = ras.migrate_change_prompt_renames(root)
+            self.assertEqual(migration.written, (self.MANIFEST,))
+            self.assertEqual(migration.link_report, ())
+            self.assertEqual((root / self.NEW_PLAN).read_bytes(), moved)
+            entries = json.loads((root / self.MANIFEST).read_text(encoding="utf-8"))["public_prompt_surface"]
+            self.assertEqual(
+                entries,
+                [
+                    {"doc": self.NEW_PLAN, "shortcut": "Plan change"},
+                    {"doc": ras.CLOSE_CHANGE_PROMPT, "shortcut": "Close change"},
+                ],
+            )
+            self.assertEqual(ras.migrate_change_prompt_renames(root).written, ())
+
+    def test_manifest_entry_stays_while_its_new_prompt_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "docs/prompts").mkdir(parents=True)
+            text = self._manifest_text(
+                [(self.OLD_IMPL, "Implement feature"), (ras.CLOSE_CHANGE_PROMPT, "Close change")]
+            )
+            (root / self.MANIFEST).write_text(text, encoding="utf-8")
+            self.assertEqual(ras.migrate_change_prompt_renames(root).written, ())
+            self.assertEqual((root / self.MANIFEST).read_text(encoding="utf-8"), text)
+
+    def test_retired_finalize_prompt_is_kept_and_close_change_baseline_added(self) -> None:
+        import json
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._pre_rename_repo(root)
+            finalize = root / "docs/prompts/finalize-feature.prompt.md"
+            customized = b"# Project closure\r\n\r\nUnique project guidance.\r\n"
+            finalize.write_bytes(customized)
+            ras.render_agent_surfaces(root)
+            self.assertEqual(finalize.read_bytes(), customized)
+            docs = [
+                entry["doc"]
+                for entry in json.loads((root / self.MANIFEST).read_text(encoding="utf-8"))["public_prompt_surface"]
+            ]
+            self.assertNotIn("docs/prompts/finalize-feature.prompt.md", docs)
+            self.assertIn(ras.CLOSE_CHANGE_PROMPT, docs)
+            baseline = (root / ras.CLOSE_CHANGE_PROMPT).read_text(encoding="utf-8")
+            self.assertIn("Shortcut: **`Close change`**", baseline)
+            self.assertNotIn("{{generated_at}}", baseline)
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+            import reconcile_scan
+
+            findings = [
+                f for f in reconcile_scan.scan_repo(root) if f.file == "docs/prompts/finalize-feature.prompt.md"
+                and f.line == 1 and f.retired_surface == f.file
+            ]
+            self.assertEqual(len(findings), 1)
+            self.assertIn("then remove the retired prompt", findings[0].suggested)
+
+    def test_full_render_runs_change_migration_before_skills_and_baselines(self) -> None:
+        order: list[str] = []
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
+            ras, "preflight_agent_surface_paths", return_value=None
+        ), patch.object(
+            ras, "migrate_review_plan_prompt", side_effect=lambda _root: order.append("review-plan") or []
+        ), patch.object(
+            ras,
+            "migrate_change_prompt_renames",
+            side_effect=lambda _root: order.append("change") or ras.ChangePromptMigration((), ()),
+        ), patch.object(
+            ras, "render_skills", side_effect=lambda _root: order.append("skills") or []
+        ), patch.object(
+            ras,
+            "reconcile_lifecycle_prompt_baselines",
+            side_effect=lambda _root: order.append("baselines") or [],
+        ), patch.object(ras, "reconcile_scaffold_baselines", return_value=[]), patch.object(
+            ras, "reconcile_upgrade_policy_surface", return_value=[]
+        ), patch.object(ras, "reconcile_review_protocol_surfaces", return_value=[]), patch.object(
+            ras, "reconcile_review_policy_surfaces", return_value=[]
+        ), patch.object(ras, "reconcile_context_efficiency_surface", return_value=[]), patch.object(
+            ras, "guru_available", return_value=False
+        ):
+            ras.render_agent_surfaces(Path(temp_dir))
+        self.assertEqual(order, ["review-plan", "change", "skills", "baselines"])
+
+
+class ChangePromptSkillAndContractTests(unittest.TestCase):
+    """1zyc4: renamed skills render, retired ones are removed; Close change states the real tool."""
+
+    HOSTS = (".codex", ".claude", ".agents")
+    RETIRED = ("Finalize", "plan-feature", "implement-feature", "finalize-feature",
+               "Plan feature", "Implement feature", "wf-plan-feature")
+
+    def test_render_emits_new_skills_and_removes_the_retired_skill_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for host in self.HOSTS:
+                old = root / host / "skills" / "wf-plan-feature" / "SKILL.md"
+                old.parent.mkdir(parents=True)
+                old.write_text("legacy skill\n", encoding="utf-8")
+            ras.render_agent_surfaces(root)
+            for host in self.HOSTS:
+                skills = root / host / "skills"
+                with self.subTest(host=host):
+                    self.assertFalse((skills / "wf-plan-feature").exists())
+                    for name in ("wf-plan-change", "wf-close-change"):
+                        self.assertTrue((skills / name / "SKILL.md").is_file())
+                    for skill_md in skills.glob("*/SKILL.md"):
+                        text = skill_md.read_text(encoding="utf-8")
+                        for token in self.RETIRED:
+                            self.assertNotIn(token, text, f"{skill_md}: {token}")
+        close_change = next(s for s in ras.SKILL_REGISTRY if s.name == "wf-close-change")
+        self.assertIsNone(close_change.requires_doc)
+        self.assertIn("docs/prompts/close-change.prompt.md", close_change.body)
+        self.assertIn("dry_run", close_change.body)
+        self.assertIn("only wave close", close_change.body)
+
+    def _close_change_sources(self) -> dict[str, str]:
+        repo = PROJECT_ROOT.parent
+        seed = (PROJECT_ROOT / "framework/seeds/190-close-wave.prompt.md").read_text(encoding="utf-8")
+        return {
+            "seed": seed[seed.index("## Close change"):],
+            "template": (PROJECT_ROOT / "framework/install/lifecycle-prompts/close-change.prompt.md").read_text(
+                encoding="utf-8"
+            ),
+            "rendered": (repo / "docs/prompts/close-change.prompt.md").read_text(encoding="utf-8"),
+        }
+
+    def test_close_change_states_the_implemented_wf_close_change_contract(self) -> None:
+        clauses = (
+            "wf_close_change",
+            "(`active` or `implementing`)",
+            "admitted to that wave",
+            "change doc exists and is readable",
+            "(`ready`, `active`, `review` or `implemented`)",
+            "agrees between the wave record and the change doc",
+            "silent `[ ]` AC or task",
+            "`Depends On:`",
+            "records no review evidence",
+            "Review wave",
+            "cannot be reopened",
+            "`dry_run`",
+            "only wave close",
+        )
+        for name, text in self._close_change_sources().items():
+            for clause in clauses:
+                with self.subTest(source=name, clause=clause):
+                    self.assertIn(clause, text)
+
+    def test_close_wave_item_one_accepts_implemented_and_names_close_change_optional(self) -> None:
+        repo = PROJECT_ROOT.parent
+        sources = {
+            "prompt": (repo / "docs/prompts/close-wave.prompt.md").read_text(encoding="utf-8"),
+            "template": (PROJECT_ROOT / "framework/install/lifecycle-prompts/close-wave.prompt.md").read_text(
+                encoding="utf-8"
+            ),
+            "seed": (PROJECT_ROOT / "framework/seeds/190-close-wave.prompt.md").read_text(encoding="utf-8"),
+        }
+        for name, text in sources.items():
+            item = next(line for line in text.splitlines() if line.startswith("1. "))
+            with self.subTest(source=name):
+                for status in ("`implemented`", "`complete`", "`deferred`"):
+                    self.assertIn(status, item)
+                self.assertIn("Close change", text[text.index(item):text.index(item) + 600])
+                self.assertIn("optional", text[text.index(item):text.index(item) + 600])
 
 
 class SkillRegistryTests(unittest.TestCase):
@@ -3469,7 +3838,7 @@ class TechdocsExcludeDocsOracleTests(unittest.TestCase):
         "agents/guru.md",
         "agents/session-handoff.md",
         "agents/memory/x.md",
-        "prompts/plan-feature.prompt.md",
+        "prompts/plan-change.prompt.md",
         "prompts/prompt-surface-manifest.json",
         "plans/1abc-x.md",
         "waves/1vj4e x/wave.md",
@@ -3556,7 +3925,7 @@ class TechdocsExcludeDocsOracleTests(unittest.TestCase):
         without_index = [line for line in block if line != "!/prompts/index.md"]
         self.assertTrue(self._excluded(without_index, "prompts/index.md"), "survivor must be rejected by the mutant")
         without_prompt_deny = [line for line in block if line != "/prompts/*"]
-        self.assertFalse(self._excluded(without_prompt_deny, "prompts/plan-feature.prompt.md"), "prompt body admitted by the mutant")
+        self.assertFalse(self._excluded(without_prompt_deny, "prompts/plan-change.prompt.md"), "prompt body admitted by the mutant")
         # Both mutants still agree with the golden on the other side, so the failure is specific.
         self.assertFalse(self._excluded(without_index, "index.md"))
         self.assertTrue(self._excluded(without_prompt_deny, "README.md"))
@@ -3685,8 +4054,8 @@ class TechdocsCarrierLiteralPinTests(unittest.TestCase):
                     "Skip rendering and docs validation after the merge",
             },
             "**Changed Prepare Serialization Points carrier.**": {
-                "`170-plan-feature.prompt.md` changed":
-                    "`170-plan-feature.prompt.md` was unchanged",
+                "`170-plan-change.prompt.md` changed":
+                    "`170-plan-change.prompt.md` was unchanged",
                 "freshly extracted `.wavefoundry/framework/install/lifecycle-prompts/prepare-wave.prompt.md`":
                     "pre-upgrade lifecycle baseline",
                 "merge only that grammar": "replace the entire prompt",

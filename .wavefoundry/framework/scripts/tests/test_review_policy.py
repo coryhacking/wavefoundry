@@ -2294,7 +2294,7 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
             "# Change\n\n## Serialization Points\n\n"
             "- `.wavefoundry/framework/scripts/review_policy.py`; "
             "`.wavefoundry/framework/scripts/tests/test_review_policy.py`; "
-            "`.wavefoundry/framework/seeds/170-plan-feature.prompt.md`\n"
+            "`.wavefoundry/framework/seeds/170-plan-change.prompt.md`\n"
         )
         lanes, reasons = review_policy.select_required_review_lanes(
             requested_lanes=(), project_lanes=(), change_texts=(prose_only, paths)

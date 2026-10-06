@@ -8,7 +8,7 @@ Last verified: 2026-03-21
 
 ## Who
 
-- A developer or engineering lead who runs wave lifecycle commands: Plan feature, Create wave, Prepare wave, Implement wave, Review wave, Close wave.
+- A developer or engineering lead who runs wave lifecycle commands: Plan change, Create wave, Prepare wave, Implement wave, Review wave, Close wave.
 
 ## Goals
 

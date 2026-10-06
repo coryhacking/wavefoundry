@@ -20,7 +20,7 @@ Operators do **not** need to say **Guru** or **Ask codebase** for questions abou
 
 **Pre-flight question — ask this before responding to any user message:** *does answering this require reading code or documentation to understand what's there?* If yes, route to Guru. Surface forms vary infinitely ("how does X work", "tell me about X", "walk me through X", "I want to understand X", "where is X", "describe the Y flow"); intent does not. Apply the intent check on every message, not just messages that obviously match a phrase pattern.
 
-When the answer is yes (or when the message is primarily about **understanding, locating, or explaining** source code or project docs — including architecture, specs, framework scripts, seeds, and `docs/` content) and is **not** a wave lifecycle shortcut from `docs/prompts/index.md` (**Plan feature**, **Implement wave**, **Close wave**, etc.), adopt the **Guru** workflow:
+When the answer is yes (or when the message is primarily about **understanding, locating, or explaining** source code or project docs — including architecture, specs, framework scripts, seeds, and `docs/` content) and is **not** a wave lifecycle shortcut from `docs/prompts/index.md` (**Plan change**, **Implement wave**, **Close wave**, etc.), adopt the **Guru** workflow:
 
 1. Read and follow `docs/agents/guru.md` (question classification, retrieval loop, mechanism completeness, citations).
 2. When MCP is available, use `code_ask(question)` for cross-cutting code questions and `docs_search` for documentation-heavy questions per Guru's classification table.
@@ -67,7 +67,7 @@ Explicit shortcut **Guru** remains available in `docs/prompts/index.md` when the
 | Codex | `.codex/skills/wf-guru/SKILL.md` | `.codex/config.toml` (project-local, committed) |
 | Copilot / Windsurf / Junie / Air / Warp | Tier 1 + tier 2 only | Per `AGENTS.md` MCP table (stdio entry or provider UI) |
 
-**Skills (`wf-` namespace, wave `1p6lp`):** every Wavefoundry skill renders from one registry (`render_agent_surfaces.render_skills`) as standard `SKILL.md` into each active skill host (`.codex/skills/<name>/`, `.claude/skills/<name>/`, `.agents/skills/<name>/`). Names are `wf-` kebab-case, so typing `/wf` filters a host's command list to the family. Bodies are thin pointers to the backing `docs/prompts/*.prompt.md`; the workflow content never lives in the skill. Current entries: the lifecycle set `wf-plan-feature`, `wf-prepare-wave`, `wf-implement-wave`, `wf-review-wave`, `wf-close-wave`, `wf-review-plan`, `wf-evaluate-decision`, `wf-memory-review`, `wf-pause-wave`, the review router `wf-council` (Wave Council / Archetype Council / Red-team review), plus `wf-guru` (requires `docs/agents/guru.md`) and `wf-upgrade` (framework-maintenance checklist). `wf-review-plan` is the only plan-review skill; **Interrogate this plan** and **Stress-test this plan** remain natural-language aliases, while **Review wave** / `wf-review-wave` stays the distinct delivery-review lifecycle path. Doc-gated entries (wave `1ve3a`) emit only where their backing prompt exists: `wf-package` (packaging, normally this framework source repo only), `wf-code-cleanup` (recommend-only whole-codebase maintainability sweep), and `wf-techdocs` (Refresh TechDocs, wave `1vj4e`; renders once `docs/prompts/refresh-techdocs.prompt.md` exists, which is every target after seed-100 reconciliation). The old flat `.claude/skills/upgrade-wave.md` and pre-namespace `.codex/skills/auto-guru/` are stale-cleaned on render.
+**Skills (`wf-` namespace, wave `1p6lp`):** every Wavefoundry skill renders from one registry (`render_agent_surfaces.render_skills`) as standard `SKILL.md` into each active skill host (`.codex/skills/<name>/`, `.claude/skills/<name>/`, `.agents/skills/<name>/`). Names are `wf-` kebab-case, so typing `/wf` filters a host's command list to the family. Bodies are thin pointers to the backing `docs/prompts/*.prompt.md`; the workflow content never lives in the skill. Current entries: the lifecycle set `wf-plan-change`, `wf-prepare-wave`, `wf-implement-wave`, `wf-review-wave`, `wf-close-wave`, `wf-close-change`, `wf-review-plan`, `wf-evaluate-decision`, `wf-memory-review`, `wf-pause-wave`, the review router `wf-council` (Wave Council / Archetype Council / Red-team review), plus `wf-guru` (requires `docs/agents/guru.md`) and `wf-upgrade` (framework-maintenance checklist). `wf-review-plan` is the only plan-review skill; **Interrogate this plan** and **Stress-test this plan** remain natural-language aliases, while **Review wave** / `wf-review-wave` stays the distinct delivery-review lifecycle path. Doc-gated entries (wave `1ve3a`) emit only where their backing prompt exists: `wf-package` (packaging, normally this framework source repo only), `wf-code-cleanup` (recommend-only whole-codebase maintainability sweep), and `wf-techdocs` (Refresh TechDocs, wave `1vj4e`; renders once `docs/prompts/refresh-techdocs.prompt.md` exists, which is every target after seed-100 reconciliation). The old flat `.claude/skills/upgrade-wave.md` and pre-namespace `.codex/skills/auto-guru/` are stale-cleaned on render.
 
 ## Purpose
 
@@ -111,19 +111,19 @@ Public Wave Framework commands for Wavefoundry's self-hosted surface. Full detai
 | **Stop dashboard** | Stop the local repository dashboard | `docs/prompts/stop-dashboard.prompt.md` |
 | **Restart dashboard** | Restart the local repository dashboard | `docs/prompts/restart-dashboard.prompt.md` |
 | **Upgrade Wavefoundry** | Upgrade Wave Framework in a target repo | `docs/prompts/upgrade-wavefoundry.prompt.md` |
-| **Plan feature** | Author a consolidated change doc | `docs/prompts/plan-feature.prompt.md` |
+| **Plan change** | Author a consolidated change doc | `docs/prompts/plan-change.prompt.md` |
 | **Create wave** | Create a wave record | `docs/prompts/create-wave.prompt.md` |
 | **Add change to wave** | Admit a change doc into the active wave | `docs/prompts/add-change-to-wave.prompt.md` |
 | **Remove change from wave** | Remove an admitted change | `docs/prompts/remove-change-from-wave.prompt.md` |
 | **Prepare wave** / **Ready wave** | Confirm readiness before implementation | `docs/prompts/prepare-wave.prompt.md` |
 | **Implement wave** | Coordinator-managed multi-change implementation | `docs/prompts/implement-wave.prompt.md` |
-| **Implement feature** | Single-change docs-first implementation | `docs/prompts/implement-feature.prompt.md` |
+| **Implement change** | Single-change docs-first implementation | `docs/prompts/implement-change.prompt.md` |
 | **Pause wave** | Park session state in handoff artifact | `docs/prompts/pause-wave.prompt.md` |
 | **Review wave** | Run required review lanes | `docs/prompts/review-wave.prompt.md` |
 | **Review memories** / **Memory review** | Review and apply eligible memory consolidation, archival, and purge | `docs/prompts/memory-review.prompt.md` |
 | **Refresh TechDocs** / **Author TechDocs** | Generate the missing-only Backstage catalog and TechDocs baseline (MCP: `wf_techdocs_baseline(mode='run')`; CLI: `wf techdocs-baseline`), then author the published pages with the technical-writer-coordinated collaboration; an explicit read-only request selects the review-only branch, which runs `wf_techdocs_audit` (CLI: `wf techdocs-audit`) and returns findings and proposed edits without writing | `docs/prompts/refresh-techdocs.prompt.md` |
-| **Close wave** | Finalize and archive the wave | `docs/prompts/close-wave.prompt.md` |
-| **Finalize feature** | Single-change closure path | `docs/prompts/finalize-feature.prompt.md` |
+| **Close wave** | Close and archive the wave | `docs/prompts/close-wave.prompt.md` |
+| **Close change** | Close one admitted change inside the open wave (`wf_close_change`); optional, after Review wave | `docs/prompts/close-change.prompt.md` |
 | **Review plan** / **Interrogate this plan** / **Stress-test this plan** | Optionally stress-test a change doc, or current-wave fallback, before or after admission and before implementation; no signoff or gate | `docs/prompts/review-plan.prompt.md` |
 | **Evaluate decision** | Structured decision evaluation for ADR-shaped choices | `docs/prompts/evaluate-decision.prompt.md` |
 | **Migrate journals** | One-time retirement of remaining journal files into the memory system (legacy alias: **Distill journals**) | `.wavefoundry/framework/seeds/210-migrate-journals.prompt.md` |
@@ -154,7 +154,7 @@ Applies to all repository code: framework scripts, seed prompts, test files, bui
 2. The change is admitted into a wave via **Create wave** / **Add change to wave**.
 3. The wave is **readied** — a successful **Prepare wave** / **Ready wave** pass with `wave-council-readiness` recorded. On declared waves, missing typed readiness returns an error until the approval is recorded; the `ready_for_council_review` intermediate status is legacy-wave compatibility only. After recording the review, call `wf_prepare_wave` again (`mode='ready'` to ready-without-opening, or `mode='create'` to prepare-and-open).
 
-If any step is missing, stop and route back to **Plan feature**, **Create wave**, **Add change to wave**, or **Prepare wave**.
+If any step is missing, stop and route back to **Plan change**, **Create wave**, **Add change to wave**, or **Prepare wave**.
 
 **READY vs OPEN (wave 1p45l):** readiness (plan → admit → ready) does **not** take the single-OPEN slot — any number of waves may be readied in parallel. Only **one** wave may be OPEN (`active`/`implementing`) at a time; that guard fires at the **activation** step (`Implement wave` / `wf_reopen_wave` / `wf_prepare_wave(mode='create')`). Readying other waves never displaces the currently OPEN wave.
 
@@ -190,7 +190,7 @@ find .wavefoundry/framework/scripts -type d -name '__pycache__' -prune -exec rm 
 
 Mark task and AC checkboxes `[x]` as each item completes; update `Change Status` in the change doc and `wave.md` immediately — not at wave end.
 
-Three checkbox states are canonical: `[ ]` (unmet, in scope), `[x]` (done, evidence exists), and `[~]` (**intentionally not met** — requirement reconsidered, removed by operator direction, or genuinely narrowed by scope-discovery during implementation). Every `[~]` AC at required priority must carry an inline status note explaining the rationale; silent `[~]` is a docs-lint error. At `wf_close_wave` every AC and task must be `[x]` or `[~]` (the hard close-time gate); silent `[ ]` blocks close. See `.wavefoundry/framework/seeds/170-plan-feature.prompt.md` *"AC and task checkbox states — the `[~]` marker"* for the canonical convention.
+Three checkbox states are canonical: `[ ]` (unmet, in scope), `[x]` (done, evidence exists), and `[~]` (**intentionally not met** — requirement reconsidered, removed by operator direction, or genuinely narrowed by scope-discovery during implementation). Every `[~]` AC at required priority must carry an inline status note explaining the rationale; silent `[~]` is a docs-lint error. At `wf_close_wave` every AC and task must be `[x]` or `[~]` (the hard close-time gate); silent `[ ]` blocks close. See `.wavefoundry/framework/seeds/170-plan-change.prompt.md` *"AC and task checkbox states — the `[~]` marker"* for the canonical convention.
 
 ## Git Commits (Operator-Owned)
 

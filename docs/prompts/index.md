@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-07
+Last verified: 2026-10-06
 
 The public catalog of shortcut phrases you can say to your agent. Each phrase routes to the documented prompt body for that command. See `AGENTS.md` for the agent-side routing table.
 
@@ -28,13 +28,13 @@ The behavioral rules below apply to every command in this catalog. They are summ
 | **Restart dashboard** | Restart the local repository dashboard for the current checkout | `docs/prompts/restart-dashboard.prompt.md` |
 | **Enable Wavefoundry MCP** | Register the local MCP server in Claude Code, Cursor, Junie, Copilot, Codex, or Air | `docs/prompts/install-wavefoundry.prompt.md#mcp--wavefoundry-server` |
 | **Upgrade Wavefoundry** | Upgrade Wave Framework in a target repository | `docs/prompts/upgrade-wavefoundry.prompt.md` |
-| **Plan feature** | Author a consolidated change document | `docs/prompts/plan-feature.prompt.md` |
+| **Plan change** | Author a consolidated change document | `docs/prompts/plan-change.prompt.md` |
 | **Create wave** | Create a wave record | `docs/prompts/create-wave.prompt.md` |
 | **Add change to wave** | Admit a change doc into the active wave | `docs/prompts/add-change-to-wave.prompt.md` |
 | **Remove change from wave** | Remove an admitted change from the wave | `docs/prompts/remove-change-from-wave.prompt.md` |
 | **Prepare wave** / **Ready wave** | Confirm readiness; validate/repair change-doc placement; AC priority | `docs/prompts/prepare-wave.prompt.md` |
 | **Implement wave** | Coordinator-managed multi-change implementation loop | `docs/prompts/implement-wave.prompt.md` |
-| **Implement feature** | Single-change docs-first implementation | `docs/prompts/implement-feature.prompt.md` |
+| **Implement change** | Single-change docs-first implementation | `docs/prompts/implement-change.prompt.md` |
 | **Pause wave** | Park session state in handoff artifact | `docs/prompts/pause-wave.prompt.md` |
 | **Review wave** | Run required review lanes with AC reconciliation | `docs/prompts/review-wave.prompt.md` |
 | **Review memories** / **Memory review** | Review and apply eligible memory consolidation, archival, and purge | `docs/prompts/memory-review.prompt.md` |
@@ -42,8 +42,8 @@ The behavioral rules below apply to every command in this catalog. They are summ
 | **Reopen wave** | Reopen a prematurely closed or paused wave | MCP: `wf_reopen_wave(wave_id, purpose="review"\|"implement")` — `purpose` is required: it selects the context-efficiency stage the following work is attributed to. A missing or unrecognized value is rejected before anything changes. |
 | **Index build status** | Poll background index refresh progress | MCP: `index_build_status(layer?)` — use after `wf setup --background-code`, `wf setup --background-docs`, or any detached refresh |
 | **GPU doctor** | Embedding-provider / GPU capability diagnostic (platform, ONNX providers, selected provider, CUDA ABI-gap) | MCP: `wf_gpu_doctor()`; CLI: `wf gpu-doctor` (same report; also `wf setup --check-gpu`) |
-| **Close wave** | Finalize wave with closure reconciliation | `docs/prompts/close-wave.prompt.md` |
-| **Finalize feature** | Single-change closure path | `docs/prompts/finalize-feature.prompt.md` |
+| **Close wave** | Close and archive the wave with closure reconciliation; the only wave close | `docs/prompts/close-wave.prompt.md` |
+| **Close change** | Close one admitted change inside the open wave with `wf_close_change` (marks it `complete`, activates dependents; optional, after Review wave) | `docs/prompts/close-change.prompt.md` |
 | **Review plan** / **Interrogate this plan** / **Stress-test this plan** | Optionally stress-test a change doc, or the current wave when no change is named, before or after admission and before implementation; records no signoff and satisfies no gate | `docs/prompts/review-plan.prompt.md` |
 | **Council review** / **Run council** | Two-phase adversarial council review on any artifact: red-team primer → fixed seats → synthesis | `docs/prompts/council-review.prompt.md` |
 | **Red-team review** / **Red team this** | Standalone single-stance adversarial pass on one artifact (plan, code, ADR, design, prose, workflow); mode chosen from the red-team specialist's standalone lenses; records no signoffs, satisfies no gate | `docs/prompts/red-team-review.prompt.md` |
@@ -77,10 +77,10 @@ The following phrases are accepted for backwards compatibility but redirect to p
 
 - **Full lifecycle required before code:** Every non-trivial code change needs a change doc, wave admission, and a clean **Prepare wave** before implementation. See `AGENTS.md` **Stage Gate (repository code)**.
 - **Wave Council:** when `docs/workflow-config.json` `wave_review.enabled` is true, every wave requires a council readiness pass during **Prepare wave**. Delivery Council during **Review wave** / before **Close wave** follows `delivery_mode`: `targeted` is the default and escalates full Council for upgrade/release, permission/trust-boundary, cross-platform, and other shared boundary triggers; `universal` applies it to every wave; `disabled` requires review disabled. These meta-review checkpoints do not replace the persisted specialist roster.
-- **Implement wave vs Implement feature:** Use **Implement wave** for multiple admitted changes; use **Implement feature** for a single docs-first change.
+- **Implement wave vs Implement change:** Use **Implement wave** for multiple admitted changes; use **Implement change** for a single docs-first change.
 - **Concurrency and protected surfaces:** See `docs/prompts/agent-routing-concurrency.prompt.md` for read-only vs write-owning lane rules.
-- **Review plan vs Review wave:** After **Plan feature**, use optional **Review plan** to walk unresolved branches before or after admission and before implementation; it records no typed signoff and satisfies no gate. **Review wave** is the later lifecycle command that runs the open wave's required lanes and records typed evidence.
-- **Skills (`/wf-…`):** In Claude Code, Codex, and Antigravity, every core lifecycle command above is also a project-local skill under the `wf-` prefix (`/wf-plan-feature`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-review-wave`, `/wf-close-wave`, `/wf-review-plan`, `/wf-pause-wave`, `/wf-council`, `/wf-evaluate-decision`, `/wf-memory-review`, plus `/wf-guru` and `/wf-upgrade`); typing `/wf` filters the host's command menu to the family. Each skill is a thin pointer to the same prompt doc as its phrase, so either invocation runs the identical workflow. The legacy phrases remain accepted, but no retired skill alias is rendered. Skills render on `wf setup` and **Upgrade Wavefoundry**; the phrase interface works on every host. Rendering and gating detail: `docs/agents/platform-mapping.md` § Skills.
+- **Review plan vs Review wave:** After **Plan change**, use optional **Review plan** to walk unresolved branches before or after admission and before implementation; it records no typed signoff and satisfies no gate. **Review wave** is the later lifecycle command that runs the open wave's required lanes and records typed evidence.
+- **Skills (`/wf-…`):** In Claude Code, Codex, and Antigravity, every core lifecycle command above is also a project-local skill under the `wf-` prefix (`/wf-plan-change`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-review-wave`, `/wf-close-wave`, `/wf-close-change`, `/wf-review-plan`, `/wf-pause-wave`, `/wf-council`, `/wf-evaluate-decision`, `/wf-memory-review`, plus `/wf-guru` and `/wf-upgrade`); typing `/wf` filters the host's command menu to the family. Each skill is a thin pointer to the same prompt doc as its phrase, so either invocation runs the identical workflow. The legacy phrases remain accepted, but no retired skill alias is rendered. Skills render on `wf setup` and **Upgrade Wavefoundry**; the phrase interface works on every host. Rendering and gating detail: `docs/agents/platform-mapping.md` § Skills.
 - **MCP freshness workflow:** Use `wf_audit` for a combined read-only post-change check; `wf_validate_docs` for docs lint; `wf_garden_docs` for metadata-only refresh; `index_health` to decide whether search is ready, stale, missing, or degraded; `index_build_status` only to poll a detached refresh; `index_build` when you need a deterministic update or rebuild.
 - **Codebase map (MCP surface):** Read the generated orientation map via the resource `wavefoundry://codebase-map`. An existing map is served without a freshness check or write; if it is missing, the fail-safe fallback may write the map, its graph fingerprint, and the marker-bounded modules block in `docs/repo-index.md`. Force a map-only render with `index_build(content="map")`; the direct `wf codebase-map` / generator CLI remains change-only. Create-mode prepare-and-open/close and upgrade also refresh it. Ordinary index builds and ready-only/dry-run lifecycle modes do not. **Adoption caveat:** a newly registered MCP resource such as `wavefoundry://codebase-map` is startup-bound and requires reconnect/restart. For a new tool or option such as `content="map"`, start a fresh turn first; if it is still absent, reconnect the MCP client, then restart the host only if reconnect does not refresh it.
 - **Guru output:** `code_ask` citations preserve the reranker `score`, but `final_rank` reflects the post-partition order. When `demoted: true` is present, the citation was intentionally pushed behind stronger implementation evidence. Do not treat score order and output order as the same thing.
@@ -101,5 +101,5 @@ Supporting agent-oriented prompt bodies live under `docs/prompts/agents/`. These
 All files under `docs/prompts/` are indexed with `kind="prompt"` and searched via the MCP server.
 
 - **When the prompt name is unknown** — use `docs_search(query="...", kind="prompt")` to discover relevant commands. Example: `docs_search(query="how do I start a wave", kind="prompt")`.
-- **When the prompt ID is known** — use `seed_get(id="...")` for direct retrieval of a framework seed prompt (e.g. `seed_get(id="170-plan-feature.prompt.md")`). For project prompt docs, use `code_read(path="docs/prompts/prepare-wave.prompt.md")`.
+- **When the prompt ID is known** — use `seed_get(id="...")` for direct retrieval of a framework seed prompt (e.g. `seed_get(id="170-plan-change.prompt.md")`). For project prompt docs, use `code_read(path="docs/prompts/prepare-wave.prompt.md")`.
 - **Omit `kind`** to search across all doc kinds (prompts, architecture, wave records, seeds) in a single query.

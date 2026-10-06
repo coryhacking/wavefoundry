@@ -652,12 +652,12 @@ With no argument, it returns a structured catalogue:
   "status": "ok",
   "data": {
     "core_tools": ["wf_help", "wf_map", "wf_current_wave", "…"],
-    "workflows": ["plan_feature", "inspect_wave"],
+    "workflows": ["plan_change", "inspect_wave"],
     "compatibility_tools": ["wf_new_feature"]
   },
   "diagnostics": [],
   "next_tools": ["wf_current_wave"],
-  "usage": "wf_help(goal='plan_feature')"
+  "usage": "wf_help(goal='plan_change')"
 }
 ```
 

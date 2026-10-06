@@ -22,9 +22,9 @@ VERIFICATION_STAMP_VALID = re.compile(r"^Verified against:\s*[0-9a-fA-F]{7,40}\s
 
 PROMPT_SURFACE_FILES = (
     "docs/prompts/index.md",
-    "docs/prompts/plan-feature.prompt.md",
-    "docs/prompts/implement-feature.prompt.md",
-    "docs/prompts/finalize-feature.prompt.md",
+    "docs/prompts/plan-change.prompt.md",
+    "docs/prompts/implement-change.prompt.md",
+    "docs/prompts/close-change.prompt.md",
     "docs/prompts/agent-routing-concurrency.prompt.md",
 )
 

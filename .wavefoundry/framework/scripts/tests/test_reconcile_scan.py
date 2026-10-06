@@ -244,6 +244,152 @@ class ScanResultShapeTests(unittest.TestCase):
             self.assertEqual(self.scan.scan_repo(root), [])
 
 
+class RetiredFeaturePromptNameTests(unittest.TestCase):
+    """1zyc4: renamed feature lifecycle prompts report with replacements; history stays quiet."""
+
+    LIVE_DOC = (
+        "Use `/wf-plan-feature`.\n"
+        "Read `docs/prompts/plan-feature.prompt.md`.\n"
+        "Read `docs/prompts/implement-feature.prompt.md`.\n"
+        "Read `docs/prompts/agents/plan-feature.prompt.md`.\n"
+        "Read `docs/prompts/agents/implement-feature.prompt.md`.\n"
+        "Seed `170-plan-feature.prompt.md`.\n"
+        "Seed `.wavefoundry/framework/seeds/180-implement-feature.prompt.md`.\n"
+        "Seed `190-finalize-feature.prompt.md`.\n"
+        "Run **Plan feature** first.\n"
+        "Then `Implement feature`.\n"
+        "Then **Finalize feature**.\n"
+    )
+
+    def setUp(self):
+        self.scan = _load("reconcile_scan", RECONCILE_PATH)
+
+    def test_every_retired_name_reports_with_its_replacement(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "guide.md").write_text(self.LIVE_DOC, encoding="utf-8")
+            findings = self.scan.scan_repo(root)
+        self.assertEqual(
+            [(f.line, f.retired_surface, f.suggested) for f in findings],
+            [
+                (1, "wf-plan-feature", "wf-plan-change"),
+                (2, "docs/prompts/plan-feature.prompt.md", "docs/prompts/plan-change.prompt.md"),
+                (3, "docs/prompts/implement-feature.prompt.md", "docs/prompts/implement-change.prompt.md"),
+                (4, "docs/prompts/agents/plan-feature.prompt.md", "docs/prompts/agents/plan-change.prompt.md"),
+                (
+                    5,
+                    "docs/prompts/agents/implement-feature.prompt.md",
+                    "docs/prompts/agents/implement-change.prompt.md",
+                ),
+                (6, "170-plan-feature.prompt.md", ".wavefoundry/framework/seeds/170-plan-change.prompt.md"),
+                (
+                    7,
+                    "180-implement-feature.prompt.md",
+                    ".wavefoundry/framework/seeds/180-implement-change.prompt.md",
+                ),
+                (8, "190-finalize-feature.prompt.md", ".wavefoundry/framework/seeds/190-close-wave.prompt.md"),
+                (9, "Plan feature", "Plan change"),
+                (10, "Implement feature", "Implement change"),
+                (11, "Finalize feature", "Close change (one change) or Close wave (the wave)"),
+            ],
+        )
+
+    def test_history_surfaces_are_never_flagged(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for rel in (
+                f"{waves_rel()}/1aaaa old-wave/notes.md",
+                "docs/reports/old-report.md",
+                "docs/agents/memory/old-record.md",
+                "docs/agents/history/operating-memory-2026-07-22.md",
+                "CHANGELOG.md",
+            ):
+                path = root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(self.LIVE_DOC, encoding="utf-8")
+            manifest = root / "docs/prompts/prompt-surface-manifest.json"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(
+                '{"public_prompt_surface": [{"doc": "docs/prompts/plan-feature.prompt.md", '
+                '"shortcut": "Plan feature"}]}\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(self.scan.scan_repo(root), [])
+
+    def test_phrase_patterns_flag_only_shortcut_shaped_forms(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "positive.md").write_text(
+                "Run **Plan feature** now.\nThen `Implement feature`.\n", encoding="utf-8"
+            )
+            (root / "negative.md").write_text(
+                "Implement feature flags for X.\n"
+                "We plan feature work next quarter.\n"
+                "Plan feature rollouts with care.\n",
+                encoding="utf-8",
+            )
+            findings = self.scan.scan_repo(root)
+        self.assertEqual(
+            [(f.file, f.matched) for f in findings],
+            [("positive.md", "**Plan feature**"), ("positive.md", "`Implement feature`")],
+        )
+
+    def test_finalize_prompts_are_reported_by_file_identity(self):
+        suggestion = (
+            "merge unique guidance into docs/prompts/close-wave.prompt.md or "
+            "docs/prompts/close-change.prompt.md, then remove the retired prompt"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for rel in (
+                "docs/prompts/finalize-feature.prompt.md",
+                "docs/prompts/agents/finalize-feature.prompt.md",
+            ):
+                path = root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("# Project closure\n\nKeep this unique guidance.\n", encoding="utf-8")
+            findings = self.scan.scan_repo(root)
+        self.assertEqual(
+            [(f.file, f.line, f.retired_surface, f.suggested) for f in findings],
+            [
+                (
+                    "docs/prompts/agents/finalize-feature.prompt.md",
+                    1,
+                    "docs/prompts/agents/finalize-feature.prompt.md",
+                    suggestion,
+                ),
+                ("docs/prompts/finalize-feature.prompt.md", 1, "docs/prompts/finalize-feature.prompt.md", suggestion),
+            ],
+        )
+
+    def test_guru_agent_description_line_is_flagged_and_other_bare_phrases_are_not(self):
+        header = (
+            "---\n"
+            "name: guru\n"
+            "description: Do not use for wave lifecycle commands (Plan feature, Implement wave).\n"
+            "---\n\n"
+            "Body mentions Plan feature in passing.\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            guru = root / ".claude/agents/guru.md"
+            guru.parent.mkdir(parents=True)
+            guru.write_text(header, encoding="utf-8")
+            other = root / ".claude/agents/other.md"
+            other.write_text(header, encoding="utf-8")
+            findings = self.scan.scan_repo(root)
+        self.assertEqual(
+            [(f.file, f.line, f.matched, f.suggested) for f in findings],
+            [(".claude/agents/guru.md", 3, "Plan feature", "Plan change")],
+        )
+
+    def test_this_repository_guru_description_says_plan_change(self):
+        guru = (REPO_ROOT / ".claude/agents/guru.md").read_text(encoding="utf-8")
+        description = next(line for line in guru.splitlines() if line.startswith("description:"))
+        self.assertIn("Plan change", description)
+        self.assertNotIn("Plan feature", description)
+
+
 class RetiredPlanReviewIdentityTests(unittest.TestCase):
     """1w047 AC-5: retired skill/path forms report; phrase aliases and history do not."""
 
@@ -495,7 +641,7 @@ class ArchiveSectionExclusionTests(unittest.TestCase):
     ROW = (
         "| 2026-04-06 | docs/agents/journals/ created at init; retired, see docs/agents/memory/ | "
         "ran `.wavefoundry/bin/docs-lint`; used `wave_close` and `mcp__wavefoundry__wave_audit`; "
-        "see docs/prompts/plan-feature.md | Historical record only |"
+        "see docs/prompts/plan-change.md | Historical record only |"
     )
 
     def setUp(self):
@@ -505,7 +651,7 @@ class ArchiveSectionExclusionTests(unittest.TestCase):
         root = Path(td)
         (root / "docs" / "prompts").mkdir(parents=True)
         # makes the stale `.md` prompt reference resolvable, so that producer fires
-        (root / "docs" / "prompts" / "plan-feature.prompt.md").write_text("# p\n", encoding="utf-8")
+        (root / "docs" / "prompts" / "plan-change.prompt.md").write_text("# p\n", encoding="utf-8")
         (root / self.ARCHIVE).write_text(missing_docs, encoding="utf-8")
         return root
 

@@ -10,6 +10,7 @@ It lives here because it reuses this module's private containment/asset/write he
 from __future__ import annotations
 
 import copy
+import json
 import os
 import re
 import stat
@@ -149,6 +150,7 @@ LIFECYCLE_PROMPT_BASELINES: tuple[tuple[str, str], ...] = (
         if carrier.owner == "renderer" and carrier.source.startswith("lifecycle:")
     ),
     ("docs/prompts/review-plan.prompt.md", "review-plan.prompt.md"),
+    ("docs/prompts/close-change.prompt.md", "close-change.prompt.md"),
 )
 
 REVIEW_PLAN_OLD_PROMPT = "docs/prompts/interrogate-plan.prompt.md"
@@ -347,7 +349,7 @@ CURSOR_AUTO_GURU_MDC = dedent(
 
     Canonical rules for **all** agent hosts: `AGENTS.md` § **Codebase and documentation questions (auto-Guru)** and `docs/agents/guru.md`. This file is a Cursor-specific reinforcement of that contract.
 
-    Applies to every chat in this workspace unless the user is invoking a **wave lifecycle** command from `docs/prompts/index.md` (**Plan feature**, **Implement wave**, **Close wave**, etc.).
+    Applies to every chat in this workspace unless the user is invoking a **wave lifecycle** command from `docs/prompts/index.md` (**Plan change**, **Implement wave**, **Close wave**, etc.).
 
     ## When this rule applies
 
@@ -390,7 +392,7 @@ CLAUDE_GURU_AGENT = dedent(
     """\
     ---
     name: guru
-    description: PROACTIVELY use when the user asks how this repository's source code or project documentation works — behavior, architecture, specs, framework scripts, indexing, chunking, retrieval, or where to find implementation. Do not use for wave lifecycle commands (Plan feature, Implement wave, Close wave, Prepare wave, etc.).
+    description: PROACTIVELY use when the user asks how this repository's source code or project documentation works — behavior, architecture, specs, framework scripts, indexing, chunking, retrieval, or where to find implementation. Do not use for wave lifecycle commands (Plan change, Implement wave, Close wave, Prepare wave, etc.).
     tools: Read, Grep, Glob, Bash, ToolSearch, mcp__wavefoundry__code_ask, mcp__wavefoundry__code_search, mcp__wavefoundry__code_keyword, mcp__wavefoundry__code_lexical, mcp__wavefoundry__code_read, mcp__wavefoundry__code_outline, mcp__wavefoundry__code_definition, mcp__wavefoundry__code_references, mcp__wavefoundry__code_callhierarchy, mcp__wavefoundry__code_dependencies, mcp__wavefoundry__code_impact, mcp__wavefoundry__code_list_files, mcp__wavefoundry__code_constants, mcp__wavefoundry__code_pattern, mcp__wavefoundry__code_callgraph, mcp__wavefoundry__code_graph_path, mcp__wavefoundry__code_graph_community, mcp__wavefoundry__docs_search, mcp__wavefoundry__seed_get
     ---
 
@@ -442,13 +444,17 @@ SKILL_HOSTS: "tuple[tuple[str, str], ...]" = (
 
 # Retired by the wave-1p6lp migration onto the registry: the flat,
 # frontmatter-less Claude upgrade skill (invisible to current Claude Code
-# skill discovery) and the pre-namespace Codex guru skill.
+# skill discovery) and the pre-namespace Codex guru skill. Wave 1zyc5 retired
+# the feature-named planning skill (renamed wf-plan-change).
 STALE_SKILL_PATHS: "tuple[str, ...]" = (
     ".claude/skills/upgrade-wave.md",
     ".codex/skills/auto-guru/SKILL.md",
     ".codex/skills/wf-interrogate-plan/SKILL.md",
     ".claude/skills/wf-interrogate-plan/SKILL.md",
     ".agents/skills/wf-interrogate-plan/SKILL.md",
+    ".codex/skills/wf-plan-feature/SKILL.md",
+    ".claude/skills/wf-plan-feature/SKILL.md",
+    ".agents/skills/wf-plan-feature/SKILL.md",
 )
 
 
@@ -567,11 +573,11 @@ WF_COUNCIL_SKILL_BODY = dedent(
 
 SKILL_REGISTRY: "tuple[Skill, ...]" = (
     Skill(
-        name="wf-plan-feature",
-        description="Plan a change of any kind (feature, bug fix, enhancement, refactor, documentation, tech debt, task, maintenance, operations) and produce a consolidated change doc ready for wave admission. The Plan feature workflow.",
+        name="wf-plan-change",
+        description="Plan a change of any kind (feature, bug fix, enhancement, refactor, documentation, tech debt, task, maintenance, operations) and produce a consolidated change doc ready for wave admission. The Plan change workflow.",
         body=_thin_pointer_body(
             "Plan a change",
-            "docs/prompts/plan-feature.prompt.md",
+            "docs/prompts/plan-change.prompt.md",
             (
                 "The workflow selects the scaffold among the `wf_new_<kind>` MCP creation tools (bug, enhancement, refactor, documentation, tech debt, task, maintenance, operations, change) by change kind, then admits the doc with `wf_add_change`.",
                 "Gate reminder: planning writes docs only; no repository code edits until the stage gate (change doc, wave admission, recorded readiness) is satisfied.",
@@ -600,7 +606,7 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
             (
                 "Prefer the `wf_implement_wave` MCP tool to open the readied wave and receive the ordered change list and watchpoints.",
                 "Gate reminder: the stage gate applies before any code edit (change doc, wave admission, recorded readiness); mark ACs and tasks as work completes, not at wave end.",
-                "Single-change variant: Implement feature (`docs/prompts/implement-feature.prompt.md`).",
+                "Single-change variant: Implement change (`docs/prompts/implement-change.prompt.md`).",
             ),
         ),
     ),
@@ -618,14 +624,27 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
     ),
     Skill(
         name="wf-close-wave",
-        description="Finalize and archive a wave after delivery review, reconciling every AC and task checkbox. Closure is operator-owned. The Close wave workflow.",
+        description="Close and archive a wave after delivery review, reconciling every AC and task checkbox. Closure is operator-owned. The Close wave workflow.",
         body=_thin_pointer_body(
             "Close a wave",
             "docs/prompts/close-wave.prompt.md",
             (
                 "Prefer the `wf_close_wave` MCP tool; run `dry_run` freely to validate close readiness.",
                 'Gate reminder: closure is operator-owned. Call `mode="create"` only when the operator explicitly instructs closure in the current request; closure is never inferred from adjacent actions such as "run the review" or "fix the tests".',
-                "Single-change variant: Finalize feature (`docs/prompts/finalize-feature.prompt.md`).",
+                "Single change: Close change (`docs/prompts/close-change.prompt.md`) marks one change `complete` inside the open wave; Close wave is still the only wave close.",
+            ),
+        ),
+    ),
+    Skill(
+        name="wf-close-change",
+        description="Close one admitted change inside the open wave with wf_close_change, marking it complete and activating its dependents; never closes the wave (Close wave is the only wave close). The Close change workflow.",
+        body=_thin_pointer_body(
+            "Close a change",
+            "docs/prompts/close-change.prompt.md",
+            (
+                "Prefer the `wf_close_change` MCP tool; run `dry_run` (the default) first, then `create` once the dry run is clean.",
+                "Run it after Review wave has cleared the change: a completed change cannot be reopened, and the tool records no review evidence.",
+                "Close wave (`wf-close-wave`) remains the only wave close, whatever the change count.",
             ),
         ),
     ),
@@ -685,7 +704,7 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
     ),
     Skill(
         name="wf-guru",
-        description="PROACTIVELY use when the user asks how repository source code or project documentation works — locating behavior, explaining pipelines, architecture, specs, framework scripts, indexing, chunking, retrieval, or MCP tools. Not for wave lifecycle commands (Plan feature, Implement wave, Close wave, etc.).",
+        description="PROACTIVELY use when the user asks how repository source code or project documentation works — locating behavior, explaining pipelines, architecture, specs, framework scripts, indexing, chunking, retrieval, or MCP tools. Not for wave lifecycle commands (Plan change, Implement wave, Close wave, etc.).",
         body=WF_GURU_SKILL_BODY,
         requires_doc=GURU_ROLE_REL,
     ),
@@ -1738,13 +1757,15 @@ def _contained_review_carrier_path(repo_root: Path, destination: str) -> Path:
     return resolved
 
 
-def _write_review_carrier_text(path: Path, content: str, *, exclusive: bool = False) -> None:
+def _write_review_carrier_text(path: Path, content: "str | bytes", *, exclusive: bool = False) -> None:
     """Write a checked carrier without following a raced final symlink.
 
     ``exclusive=True`` (wave 1vj4e, the Backstage/TechDocs trio) opens with
     ``O_EXCL`` instead of ``O_TRUNC``, so a missing-only write can never
     truncate a member that appeared between the presence check and the open;
     the sibling baseline families keep the default check-then-truncate.
+    ``bytes`` content (wave 1zyc5, the change prompt move) is written verbatim
+    in binary mode, so the copy never depends on the file's encoding.
     """
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1755,6 +1776,10 @@ def _write_review_carrier_text(path: Path, content: str, *, exclusive: bool = Fa
         fd = os.open(path, flags, 0o666)
     except OSError as exc:
         raise RuntimeError(f"review carrier write refused for {path}: {exc}") from exc
+    if isinstance(content, bytes):
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(content)
+        return
     with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
         handle.write(content)
 
@@ -1876,6 +1901,234 @@ def migrate_review_plan_prompt(repo_root: Path) -> list[str]:
             f"{REVIEW_PLAN_OLD_PROMPT} was preserved: {exc}"
         ) from exc
     return [REVIEW_PLAN_OLD_PROMPT, REVIEW_PLAN_NEW_PROMPT]
+
+
+# Wave 1zyc5: Plan feature / Implement feature were renamed to Plan change /
+# Implement change. The project-owned prompts move byte-for-byte (content is
+# never rewritten); the retired Finalize feature prompt is report-only (see
+# reconcile_scan) and only its manifest entry is dropped here.
+CHANGE_PROMPT_RENAMES: "tuple[tuple[str, str, str], ...]" = (
+    ("docs/prompts/plan-feature.prompt.md", "docs/prompts/plan-change.prompt.md", "Plan change"),
+    (
+        "docs/prompts/implement-feature.prompt.md",
+        "docs/prompts/implement-change.prompt.md",
+        "Implement change",
+    ),
+    ("docs/prompts/agents/plan-feature.prompt.md", "docs/prompts/agents/plan-change.prompt.md", ""),
+    (
+        "docs/prompts/agents/implement-feature.prompt.md",
+        "docs/prompts/agents/implement-change.prompt.md",
+        "",
+    ),
+)
+RETIRED_FINALIZE_PROMPT = "docs/prompts/finalize-feature.prompt.md"
+CLOSE_CHANGE_PROMPT = "docs/prompts/close-change.prompt.md"
+CLOSE_CHANGE_SHORTCUT = "Close change"
+PROMPT_SURFACE_MANIFEST = "docs/prompts/prompt-surface-manifest.json"
+_MARKDOWN_LINK_TARGET_RE = re.compile(r"\]\(\s*<?([^)\s>]+)>?(?:\s+[^)]*)?\)")
+
+
+@dataclass(frozen=True)
+class ChangePromptMigration:
+    """Result of :func:`migrate_change_prompt_renames`.
+
+    ``written`` lists every repo-relative path written or removed; ``link_report``
+    lists ``file:line`` locations of markdown links that still target a moved
+    prompt (reported, never rewritten).
+    """
+
+    written: "tuple[str, ...]"
+    link_report: "tuple[str, ...]"
+
+
+def _change_prompt_pair_conflict(repo_root: Path, old_rel: str, new_rel: str) -> "str | None":
+    old_lexical = repo_root / old_rel
+    new_lexical = repo_root / new_rel
+    old_present = old_lexical.exists() or old_lexical.is_symlink()
+    new_present = new_lexical.exists() or new_lexical.is_symlink()
+    if not old_present:
+        return None
+    if new_present:
+        return f"{old_rel} -> {new_rel}: both exist"
+    if old_lexical.is_symlink():
+        return f"{old_rel} -> {new_rel}: the old prompt is a symlink"
+    try:
+        old_path = _contained_review_carrier_path(repo_root, old_rel)
+        _contained_review_carrier_path(repo_root, new_rel)
+    except RuntimeError as exc:
+        return f"{old_rel} -> {new_rel}: {exc}"
+    if not old_path.is_file():
+        return f"{old_rel} -> {new_rel}: the old prompt is not a regular file"
+    return None
+
+
+def _moved_prompt_link_report(repo_root: Path) -> "tuple[str, ...]":
+    """Report markdown links whose target resolves to a moved prompt path.
+
+    Walks the same file set the docs-lint link validator checks (history
+    records and memory files included), so every link that would fail the
+    upgrade docs gate is reported.
+    """
+    # Local import: defer the wave_lint_lib edge to call time (see _expected_agent_category use).
+    from wave_lint_lib.helpers import iter_linkable_docs, relative_to_root
+
+    old_paths = {old_rel for old_rel, _new_rel, _shortcut in CHANGE_PROMPT_RENAMES}
+    old_names = {Path(old_rel).name for old_rel in old_paths}
+    root = repo_root.resolve()
+    report: list[str] = []
+    for path in iter_linkable_docs(repo_root):
+        rel = relative_to_root(repo_root, path)
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if not any(name in text for name in old_names):
+            continue
+        for line_no, line in enumerate(text.splitlines(), start=1):
+            for match in _MARKDOWN_LINK_TARGET_RE.finditer(line):
+                target = match.group(1).split("#", 1)[0]
+                if Path(target).name not in old_names:
+                    continue
+                if target.startswith("/"):
+                    candidate = target.lstrip("/")
+                elif target.startswith("docs/"):
+                    candidate = target
+                else:
+                    try:
+                        candidate = (
+                            os.path.normpath(root / Path(rel).parent / target)
+                        )
+                        candidate = Path(candidate).relative_to(root).as_posix()
+                    except ValueError:
+                        continue
+                if candidate in old_paths:
+                    report.append(f"{rel}:{line_no}")
+    return tuple(dict.fromkeys(report))
+
+
+def _repair_change_prompt_manifest(repo_root: Path) -> "list[str]":
+    """Rewrite renamed/retired public prompt entries; write only on change."""
+    lexical = repo_root / PROMPT_SURFACE_MANIFEST
+    if not lexical.is_file():
+        return []
+    path = _contained_review_carrier_path(repo_root, PROMPT_SURFACE_MANIFEST)
+    try:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            original = handle.read()
+        data = json.loads(original)
+    except (OSError, UnicodeDecodeError, ValueError):
+        return []
+    if not isinstance(data, dict) or not isinstance(data.get("public_prompt_surface"), list):
+        return []
+    entries = data["public_prompt_surface"]
+    renames = {
+        old_rel: (new_rel, shortcut)
+        for old_rel, new_rel, shortcut in CHANGE_PROMPT_RENAMES
+        if shortcut
+    }
+    changed = False
+    updated: list[object] = []
+    finalize_index: "int | None" = None
+    for entry in entries:
+        doc = entry.get("doc") if isinstance(entry, dict) else None
+        if doc == RETIRED_FINALIZE_PROMPT:
+            finalize_index = len(updated)
+            changed = True
+            continue
+        if doc in renames:
+            new_rel, shortcut = renames[doc]
+            new_lexical = repo_root / new_rel
+            if new_lexical.is_file() and not new_lexical.is_symlink():
+                entry = {
+                    key: (new_rel if key == "doc" else shortcut if key == "shortcut" else value)
+                    for key, value in entry.items()
+                }
+                changed = True
+        updated.append(entry)
+    if not any(
+        isinstance(entry, dict) and entry.get("doc") == CLOSE_CHANGE_PROMPT for entry in updated
+    ):
+        close_entry = {"doc": CLOSE_CHANGE_PROMPT, "shortcut": CLOSE_CHANGE_SHORTCUT}
+        if finalize_index is None:
+            updated.append(close_entry)
+        else:
+            updated.insert(finalize_index, close_entry)
+        changed = True
+    if not changed:
+        return []
+    data["public_prompt_surface"] = updated
+    newline = "\r\n" if "\r\n" in original else "\n"
+    content = json.dumps(data, indent=2, ensure_ascii=False)
+    if original.endswith(("\n", "\r")):
+        content += "\n"
+    if newline != "\n":
+        content = content.replace("\n", newline)
+    if content == original:
+        return []
+    _write_review_carrier_text(path, content)
+    return [PROMPT_SURFACE_MANIFEST]
+
+
+def migrate_change_prompt_renames(repo_root: Path) -> ChangePromptMigration:
+    """Move the feature-named plan/implement prompts to their change names.
+
+    Every pair is preflighted before any write: when any pair conflicts (both
+    paths exist, or the old path is a symlink, not a regular file, or resolves
+    outside the repository) one error names every conflicting pair and nothing
+    is written. Otherwise each present old prompt is copied byte-for-byte to its
+    new name (exclusive create, no newline translation) and then removed. The
+    manifest repair runs on every render, so a rerun after a partial move still
+    repairs it. Prompt content is never rewritten.
+    """
+
+    conflicts = [
+        conflict
+        for old_rel, new_rel, _shortcut in CHANGE_PROMPT_RENAMES
+        if (conflict := _change_prompt_pair_conflict(repo_root, old_rel, new_rel)) is not None
+    ]
+    if conflicts:
+        raise RuntimeError(
+            "change prompt migration blocked: "
+            + "; ".join(conflicts)
+            + ". All files were preserved and nothing was written. Merge any "
+            "project-authored prose from each old prompt into its new prompt, remove "
+            "the old prompt, and rerun the upgrade."
+        )
+
+    written: list[str] = []
+    for old_rel, new_rel, _shortcut in CHANGE_PROMPT_RENAMES:
+        old_lexical = repo_root / old_rel
+        if not (old_lexical.exists() or old_lexical.is_symlink()):
+            continue
+        old_path = _contained_review_carrier_path(repo_root, old_rel)
+        new_path = _contained_review_carrier_path(repo_root, new_rel)
+        try:
+            original = old_path.read_bytes()
+        except OSError as exc:
+            raise RuntimeError(
+                f"change prompt migration blocked: {old_rel} could not be read; "
+                f"it was preserved: {exc}"
+            ) from exc
+        _write_review_carrier_text(new_path, original, exclusive=True)
+        try:
+            old_path.unlink()
+        except OSError as exc:
+            try:
+                new_path.unlink()
+                new_outcome = f"{new_rel} was removed"
+            except OSError:
+                new_outcome = f"{new_rel} could not be removed and must be deleted by hand"
+            raise RuntimeError(
+                f"change prompt migration blocked while removing {old_rel}; "
+                f"it was preserved and {new_outcome}: {exc}"
+            ) from exc
+        written.extend([old_rel, new_rel])
+
+    written.extend(_repair_change_prompt_manifest(repo_root))
+    link_report = _moved_prompt_link_report(repo_root) if any(
+        rel for rel in written if rel != PROMPT_SURFACE_MANIFEST
+    ) else ()
+    return ChangePromptMigration(written=tuple(written), link_report=link_report)
 
 
 def _agent_surface_output_destinations(repo_root: Path) -> list[str]:
@@ -2567,6 +2820,17 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     # resolve the project-owned old/new prompt state before a renamed skill can
     # point at it and before missing-only baselines can materialize beside it.
     migration_written = migrate_review_plan_prompt(repo_root)
+    # Wave 1zyc5: same fresh-code position. Preflights every feature-to-change
+    # prompt pair and raises before any write on conflict, so no skill or
+    # baseline renders beside an unresolved old prompt.
+    change_migration = migrate_change_prompt_renames(repo_root)
+    migration_written = [*migration_written, *change_migration.written]
+    for location in change_migration.link_report:
+        print(
+            "render_agent_surfaces: NOTICE - markdown link targets a moved prompt "
+            f"(edit it to the -change path, then rerun the docs gate): {location}",
+            file=sys.stderr,
+        )
     # Wave 1p6lp: the skill registry renders BEFORE the reconcile passes so a
     # freshly migrated carrier skill (wf-guru on Codex) is reconciled in the
     # same render, and BEFORE the Guru gate because lifecycle skills are not

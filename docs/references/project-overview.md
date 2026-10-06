@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-10-06
 
 **For readers of the TechDocs site.** This page is Wavefoundry's orientation document: what the project is, where the code and the docs live, how development moves through the wave lifecycle, and which files configure it. It is written first for the AI agents that read it at session start (it is an agent startup-order surface and the `wavefoundry://overview` MCP resource; [Data and control flow](../architecture/data-and-control-flow.md), Path 6b step 2), so the sections below keep their agent-orientation content in place, and the short reader summaries at the top of some sections translate them for people. Backticked paths such as `AGENTS.md`, `docs/agents/`, and `docs/contributing/` name repository files that sit outside the published site. Start from the [site home](../index.md) for the landing narrative, or read the fuller conceptual overview in [wavefoundry-overview.md](wavefoundry-overview.md).
 
@@ -81,14 +81,14 @@ Wavefoundry uses the Wave Framework to develop itself:
 
 Wavefoundry uses the Wave Framework lifecycle for its own development:
 
-1. **Plan feature** — author a consolidated change doc at `docs/plans/`.
+1. **Plan change** — author a consolidated change doc at `docs/plans/`.
 2. **Create wave / Add change to wave** — admit the change and make it wave-owned under `docs/waves/<wave-id>/`. Both roots are the module constants `WAVES_ROOT` and `PLANS_ROOT` in `.wavefoundry/framework/scripts/record_paths.py`, alongside `NESTED` (bounded-depth wave discovery, off as shipped) and `MAX_DEPTH` (the wave folder's own depth below the waves root, 1 to 8, shipped 4); no configuration is read at runtime. A downstream fork edits the constants when it merges the framework, and every lifecycle tool, docs-lint, the gardener, and the indexer then see the same roots through `record_paths.py` (wave 1y0gz). A relocated waves root needs its own `README.md`, because docs-lint requires `<waves_root>/README.md`.
 3. **Prepare wave** — confirm readiness (docs, AC priority, council verdict) and repair any admitted-doc placement drift. This **readies** the wave (it stays `planned`); `wf_prepare_wave(mode='ready')` readies without opening, so any number of waves can be readied in parallel.
-4. **Implement wave / Implement feature** — **open** a readied wave (the single-OPEN activation step) and execute the admitted changes. Only one wave may be OPEN (`active`/`implementing`) at a time; the guard fires here, not at readiness.
+4. **Implement wave / Implement change** — **open** a readied wave (the single-OPEN activation step) and execute the admitted changes. Only one wave may be OPEN (`active`/`implementing`) at a time; the guard fires here, not at readiness.
 5. **Review wave** — code review, QA, architecture review, and Wave Council delivery synthesis as required by policy and change type.
-6. **Close wave / Finalize feature** — record closure, validate and promote memory candidates, clear handoff.
+6. **Close change** (per change, optional) then **Close wave** (the only wave close): record closure, validate and promote memory candidates, clear handoff.
 
-See `AGENTS.md` for the shortcut phrase table and stage gate. See `docs/prompts/index.md` for the full public command catalog. In Claude Code, Codex, and Antigravity each of these steps is also a project-local skill (`/wf-plan-feature`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-review-wave`, `/wf-close-wave`, plus `/wf-review-plan`, `/wf-pause-wave`, `/wf-council`, `/wf-evaluate-decision`, `/wf-memory-review`, `/wf-guru`, `/wf-upgrade`, and the doc-gated `/wf-package`, `/wf-code-cleanup` and `/wf-techdocs`, fifteen in all as of 2026-08-21); typing `/wf` filters the host's command menu to the family, and each skill points at the same prompt doc as its phrase. **Review plan** is optional, accepts **Interrogate this plan** and **Stress-test this plan** as natural-language aliases, and records no signoff; **Review wave** is the distinct required-lane delivery review. Rendering and gating detail: `docs/agents/platform-mapping.md` § Skills.
+See `AGENTS.md` for the shortcut phrase table and stage gate. See `docs/prompts/index.md` for the full public command catalog. In Claude Code, Codex, and Antigravity each of these steps is also a project-local skill (`/wf-plan-change`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-review-wave`, `/wf-close-wave`, `/wf-close-change`, plus `/wf-review-plan`, `/wf-pause-wave`, `/wf-council`, `/wf-evaluate-decision`, `/wf-memory-review`, `/wf-guru`, `/wf-upgrade`, and the doc-gated `/wf-package`, `/wf-code-cleanup` and `/wf-techdocs`, sixteen in all as of 2026-10-06); typing `/wf` filters the host's command menu to the family, and each skill points at the same prompt doc as its phrase. **Review plan** is optional, accepts **Interrogate this plan** and **Stress-test this plan** as natural-language aliases, and records no signoff; **Review wave** is the distinct required-lane delivery review. Rendering and gating detail: `docs/agents/platform-mapping.md` § Skills.
 
 ## Generic Agent Roles
 

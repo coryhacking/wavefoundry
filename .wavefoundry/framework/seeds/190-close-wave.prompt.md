@@ -1,26 +1,21 @@
-# 190 - Finalize Feature (Shortcut)
+# 190 - Close Wave (Shortcut)
 
 Use this when you want a single command-style request such as:
 
-- `Finalize feature`
-- `Finalize enhancement`
-- `Finalize bug`
-- `Finalize refactor`
-- `Finalize reliability change`
-- `Finalize security change`
 - `Close wave`
+- `Close change` (one change inside the open wave; see **Close change** below)
 
 Intent:
 
-- Close a planned change after implementation is complete, all waves are resolved, and durable learnings are ready for promotion or archival.
+- Close a wave after implementation is complete, required reviews are recorded, and durable learnings are ready for promotion or archival. **Close wave** is the only wave close, whatever the change count.
 
 Operator trigger:
 
-- Run this body only when the operator invoked **`Finalize feature`** / **`Close wave`** in the current request **or** explicitly confirmed closure (e.g. yes after you asked). Do not infer it from a prior **`Implement wave`** / **`Implement feature`** request alone.
+- Run this body only when the operator invoked **`Close wave`** in the current request **or** explicitly confirmed closure (e.g. yes after you asked). Do not infer it from a prior **`Implement wave`** / **`Implement change`** request alone.
 
 Required closure tasks:
 
-1. Confirm the active change is truly ready for closure.
+1. Confirm every admitted change is `implemented`, `complete`, or `deferred` with rationale, matching the `wf_close_wave` open-changes gate. **Close change** is optional: use it to mark a single change `complete` and activate its dependents inside the open wave.
 2. Verify that all waves are `completed`, `superseded`, or intentionally archived.
 3. Confirm each wave's chronology metadata is up to date, especially `Completed at`.
 4. Confirm each closed wave has a readable final `Title` and folder-safe summary slug derived from the implemented changes.
@@ -111,8 +106,8 @@ Commonly missed closure work to check explicitly:
 
 Guardrails:
 
-- Do not finalize if open wave obligations or review gaps remain.
-- Do not finalize with an unreconciled `tree_moved_under_review` finding: a lane that saw the tree change under it holds evidence for an earlier tree, not this one (seed-209, wave 1wuju).
+- Do not close if open wave obligations or review gaps remain.
+- Do not close with an unreconciled `tree_moved_under_review` finding: a lane that saw the tree change under it holds evidence for an earlier tree, not this one (seed-209, wave 1wuju).
 - Advisory docs-lint findings (`WARNING:` lines from sensors registered `advisory`, surfaced as `docs_lint_warning` diagnostics with `advisory: true`) are review notes at close, never a closure blocker; flipping a sensor to blocking is a recorded change decided at the release checklist, not at close.
 - Do not leave final behavior or durable lessons only in transient wave artifacts.
 - Before invoking inferential reviewer lanes, run `wf_run_sensors()` if the project has computational sensors configured — fix any sensor failures before proceeding. After all declared lanes have run, record their signoffs (on a declared wave, typed approval events via `wf_review_event`, projected into `## Review Evidence`; only legacy prose waves write the line `- <lane-name>: <verdict> (<severity> — <one-line summary>)` in `## Review Evidence` directly). Check `wf_review_wave()` to confirm `required_lanes` — any lane declared in `required_review_lanes` must have a recorded signoff before `wf_close_wave` will pass.
@@ -125,3 +120,23 @@ Guardrails:
   - Reopening to **review** (a pre-close second look at the plan or implementation): `wf_reopen_wave(wave_id, purpose="review")`, then `wf_review_wave` to confirm required lanes. Passing `purpose="review"` is what keeps the review's retrieval credited to the review stage.
   - Reopening to **keep implementing** (fixing a late defect): `wf_reopen_wave(wave_id, purpose="implement")`.
   - A missing or unrecognized `purpose` is rejected before anything changes: the wave status, the telemetry seal, and the focus stage are all untouched. Retry with an explicit value rather than working around it.
+
+## Close change
+
+Shortcut: **`Close change`**. Backed by `wf_close_change(wave_id, change_id, mode)`. It closes ONE admitted change inside an open wave, the same way whether the wave has one change or many, and never closes the wave: **Close wave** remains the only wave close. Close change is optional; `wf_close_wave` already accepts a change left `implemented`.
+
+Gates, as implemented (every failing gate is reported, in `dry_run` and `create`):
+
+1. The wave is OPEN (`active` or `implementing`).
+2. The change is admitted to that wave (pass the FULL change id).
+3. Its change doc exists and is readable.
+4. Its status is closable (`ready`, `active`, `review` or `implemented`) and agrees between the wave record and the change doc.
+5. It has no silent `[ ]` AC or task.
+6. Every dependency on its wave-record `Depends On:` line is done (terminal or `implemented`).
+
+Behavior:
+
+- `dry_run` is the default and writes nothing; run it first, then `mode='create'`.
+- `create` writes `complete` into the change doc and the wave record, and moves each `planned` or `blocked` dependent whose dependencies are now all done to `ready` (never `active`).
+- It records no review evidence and writes no ledger event; the review-policy receipt does not move.
+- A completed change cannot be reopened, so run Close change only after **Review wave** has cleared that change.

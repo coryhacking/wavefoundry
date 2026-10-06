@@ -226,13 +226,28 @@ class GuidanceTests(unittest.TestCase):
     def setUpClass(cls):
         cls.srv = load_server()
 
-    def test_wf_help_plan_feature_recommends_wf_new_enhancement(self):
-        workflow = self.srv._help_catalog()["workflows"]["plan_feature"]
+    def test_wf_help_plan_change_recommends_wf_new_enhancement(self):
+        workflow = self.srv._help_catalog()["workflows"]["plan_change"]
         self.assertEqual(workflow["recommended_chain"], ["wf_new_enhancement", "wf_get_change", "wf_validate_docs"])
         self.assertEqual(workflow["fallback_tools"], ["wf_new_bug", "wf_new_maintenance", "wf_new_change"])
         self.assertIn("wf_new_enhancement", workflow["next_step"])
         self.assertTrue(workflow["usage"].startswith("wf_new_enhancement("), workflow["usage"])
         self.assertNotIn("wf_new_feature", json.dumps(workflow))
+
+    def test_wf_help_goal_was_renamed_to_plan_change_without_alias(self):
+        # Wave 1zyc5: the planning goal is plan_change; the old goal is unknown.
+        result = self.srv.wf_help_response("plan_change")
+        self.assertEqual(result["data"]["goal"], "plan_change")
+        self.assertEqual(result["data"]["recommended_chain"][0], "wf_new_enhancement")
+        retired = "plan_" + "feature"
+        old = self.srv.wf_help_response(retired)
+        self.assertEqual(old["diagnostics"][0]["code"], "unknown_goal")
+        self.assertNotIn(retired, self.srv._help_catalog()["workflows"])
+        self.assertEqual(self.srv.wf_help_response("")["usage"], "wf_help(goal='plan_change')")
+        from framework_files import source_path
+
+        source = source_path("server_impl.py").read_text(encoding="utf-8")
+        self.assertNotIn(retired, source)
 
     def test_wf_list_plans_next_tools_name_wf_new_enhancement(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -267,11 +282,11 @@ class GuidanceTests(unittest.TestCase):
 
 
 class SkillGuidanceTests(unittest.TestCase):
-    """The shipped wf-plan-feature skill offers no retired kind's scaffold."""
+    """The shipped wf-plan-change skill offers no retired kind's scaffold."""
 
-    def test_the_plan_feature_skill_lists_no_retired_scaffold(self):
+    def test_the_plan_change_skill_lists_no_retired_scaffold(self):
         import render_agent_surfaces
-        skill = next(s for s in render_agent_surfaces.SKILL_REGISTRY if s.name == "wf-plan-feature")
+        skill = next(s for s in render_agent_surfaces.SKILL_REGISTRY if s.name == "wf-plan-change")
         line = next(l for l in skill.body.splitlines() if "`wf_new_<kind>`" in l)
         scaffolds = [w.strip() for w in line.split("(", 1)[1].split(")", 1)[0].split(",")]
         self.assertIn("enhancement", scaffolds)

@@ -59,7 +59,7 @@ Alignment with review and roles:
 Routing guidance for later prompts:
 
 - **Implement / plan prompts** — Point implementers at `docs/ARCHITECTURE.md` and the relevant child doc before cross-cutting edits.
-- **190-finalize-feature** / promotion — Architectural decisions discovered during a change should update `docs/ARCHITECTURE.md` or `docs/architecture/decisions/` and, when boundaries move, **domain-map** / **layering-rules**; when flows or state ownership change, **data-and-control-flow**; when test topology or CI gates change, **testing-architecture**; when integration invariants change, **layering-rules** (boundary invariants) and linked specs.
+- **190-close-wave** / promotion — Architectural decisions discovered during a change should update `docs/ARCHITECTURE.md` or `docs/architecture/decisions/` and, when boundaries move, **domain-map** / **layering-rules**; when flows or state ownership change, **data-and-control-flow**; when test topology or CI gates change, **testing-architecture**; when integration invariants change, **layering-rules** (boundary invariants) and linked specs.
 
 Guardrails:
 

@@ -156,7 +156,7 @@ class DeclaredSkillRenderTests(unittest.TestCase):
                 self.assertEqual({p.name for p in (root / host / "skills").iterdir()}, expected)
 
     def test_framework_thin_pointers_keep_the_wavefoundry_label(self) -> None:
-        plan = next(skill for skill in ras.SKILL_REGISTRY if skill.name == "wf-plan-feature")
+        plan = next(skill for skill in ras.SKILL_REGISTRY if skill.name == "wf-plan-change")
         self.assertTrue(plan.body.startswith("# Plan a change (Wavefoundry skill)\n\n"))
         with base_declaration(EXTENSION_SKILLS=VALID):
             (declared,) = ras.declared_skills()
@@ -261,6 +261,14 @@ class SkillDeclarationProblemTests(unittest.TestCase):
         problems = ras.declared_skill_problems({"auto-guru": VALID_SPEC})
         self.assertTrue(any("'auto-guru'" in p and ".codex/skills/auto-guru" in p for p in problems), problems)
         self.assertEqual(ras.declared_skill_problems(VALID), [])
+
+    def test_the_retired_planning_skill_name_is_refused(self) -> None:
+        # Wave 1zyc5 retired the feature-named planning skill; its rendered
+        # paths are in STALE_SKILL_PATHS, so a distribution cannot revive it.
+        problems = ras.declared_skill_problems({"wf-plan-feature": VALID_SPEC})
+        self.assertTrue(
+            any("'wf-plan-feature'" in p and "skills/wf-plan-feature" in p for p in problems), problems
+        )
 
 
 INVALID = {"wf-acme": VALID_SPEC, "auto-guru": VALID_SPEC, "bad-title": _spec(title="null")}

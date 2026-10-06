@@ -230,7 +230,7 @@ _AC_PRIORITY_VALUES = {"required", "important", "nice-to-have", "not-this-scope"
 # Wave 1p31b (1p32k): include `~` as a valid checkbox mark for intentionally-deferred ACs and tasks.
 # A `[~]` AC is one that was reconsidered, removed by operator direction during implementation,
 # or genuinely narrowed by scope-discovery — it is neither satisfied nor still in-scope-but-unmet.
-# See seed `170-plan-feature.prompt.md` for the canonical definition.
+# See seed `170-plan-change.prompt.md` for the canonical definition.
 _AC_LINE_RE = re.compile(r"^\s*-\s+(?:(?:\[(?P<mark>[ xX~])\])\s+)?(?P<text>.+?)\s*$", re.MULTILINE)
 _AC_ID_RE = re.compile(r"(AC-[\w\-]+)")
 
@@ -663,7 +663,7 @@ def _check_ac_asserts_repository_state(text: str, rel: str) -> list[str]:
             "from this change's own evidence. Whole-suite/tree health is a gate concern, not an acceptance criterion. "
             "Write instead: \"the change's own suites and every test it adds pass; the documents "
             "this change authors or edits validate; and no failure elsewhere is attributable to "
-            "this change\". See `.wavefoundry/framework/seeds/170-plan-feature.prompt.md` "
+            "this change\". See `.wavefoundry/framework/seeds/170-plan-change.prompt.md` "
             "\"Acceptance criteria assert what the change controls\""
         )
     return failures
@@ -741,7 +741,7 @@ def _check_tilde_required_ac_has_inline_note(text: str, rel: str) -> list[str]:
             "Wrap the rationale in italics (e.g. *Operator-directed removal during implementation, "
             "see Decision Log entry on <date>*) or include at least "
             f"{_INLINE_NOTE_MIN_CHARS} characters of prose explaining the deferral. "
-            "See seed `170-plan-feature.prompt.md` for the convention."
+            "See seed `170-plan-change.prompt.md` for the convention."
         )
     return failures
 

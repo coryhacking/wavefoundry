@@ -1,8 +1,8 @@
-# 170 - Plan Feature (Shortcut)
+# 170 - Plan Change (Shortcut)
 
 Use this when you want a single command-style request such as:
 
-- `Plan feature`
+- `Plan change`
 - `Plan enhancement`
 - `Plan bug`
 - `Plan refactor`
@@ -11,7 +11,6 @@ Use this when you want a single command-style request such as:
 - `Create wave`
 - `Add change to wave`
 - `Add bug to wave`
-- `Add feature to wave`
 - `Add enhancement to wave`
 - `Add task to wave`
 - `Add refactor to wave`
@@ -19,7 +18,6 @@ Use this when you want a single command-style request such as:
 - `Add security change to wave`
 - `Remove change from wave`
 - `Remove bug from wave`
-- `Remove feature from wave`
 - `Remove enhancement from wave`
 - `Remove task from wave`
 - `Remove refactor from wave`

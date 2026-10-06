@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-24
+Last verified: 2026-10-06
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
 ## Host-neutral orchestration
 
-Follow `.wavefoundry/framework/seeds/180-implement-feature.prompt.md` **Host-neutral orchestration** for task-fit model allocation, bounded delegation and independent handoff throughout Prepare-to-Close. Host choice is per task or wave; native wrappers remain pointers to shared project guidance. Choose model and effort per assignment using exposed host controls; inheritance is a fallback, not a decision. Keep the rationale in existing work notes and distinguish requested settings from observed runtime identity (unknown when unavailable). Check actual worker capabilities rather than assuming inherited tools.
+Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neutral orchestration** for task-fit model allocation, bounded delegation and independent handoff throughout Prepare-to-Close. Host choice is per task or wave; native wrappers remain pointers to shared project guidance. Choose model and effort per assignment using exposed host controls; inheritance is a fallback, not a decision. Keep the rationale in existing work notes and distinguish requested settings from observed runtime identity (unknown when unavailable). Check actual worker capabilities rather than assuming inherited tools.
 
 ## Auto-Guru routing (code and documentation Q&A)
 
@@ -48,11 +48,12 @@ One registry (`render_agent_surfaces.render_skills`, wave `1p6lp`) renders every
 
 | Skill | Backing prompt(s) | Gate |
 |-------|-------------------|------|
-| `wf-plan-feature` | `docs/prompts/plan-feature.prompt.md` | none |
+| `wf-plan-change` | `docs/prompts/plan-change.prompt.md` | none |
 | `wf-prepare-wave` | `docs/prompts/prepare-wave.prompt.md` | none |
 | `wf-implement-wave` | `docs/prompts/implement-wave.prompt.md` | none |
 | `wf-review-wave` | `docs/prompts/review-wave.prompt.md` | none |
 | `wf-close-wave` | `docs/prompts/close-wave.prompt.md` | none |
+| `wf-close-change` | `docs/prompts/close-change.prompt.md` | none (the backing prompt is a renderer lifecycle baseline, present wherever skills render) |
 | `wf-review-plan` | `docs/prompts/review-plan.prompt.md` | none; phrase aliases **Interrogate this plan** and **Stress-test this plan** do not render a second skill |
 | `wf-evaluate-decision` | `docs/prompts/evaluate-decision.prompt.md` | none |
 | `wf-memory-review` | `docs/prompts/memory-review.prompt.md` | none |
@@ -64,7 +65,7 @@ One registry (`render_agent_surfaces.render_skills`, wave `1p6lp`) renders every
 | `wf-code-cleanup` | `docs/prompts/codebase-cleanup-review.prompt.md` | backing prompt present (repo-local surface; no seed provisions it to targets) |
 | `wf-techdocs` | `docs/prompts/refresh-techdocs.prompt.md` | backing prompt present (seed 178 renders it into every target through seed 100, so the skill renders wherever that reconciliation has run; on the upgrade that first ships seed 178, re-run `wf render-surfaces` after the prompt backfill) |
 
-Every skill emits to each active host dir among `.codex/skills/`, `.claude/skills/`, `.agents/skills/` (all three active here; 15 skill directories in each as of 2026-08-18). Skills render on `wf setup` and **Upgrade Wavefoundry**; rendering is independent of `enabled_agent_roles`, which gates agent-role wrappers, not skills. A skill with a `requires_doc` gate (wave `1ve3a`) emits only where that repo-relative doc exists, so the skill follows the capability rather than a repo identity. Bodies are thin pointers; workflow content stays in the backing prompt docs. Stale-cleaned legacy paths: `.claude/skills/upgrade-wave.md` (flat, frontmatter-less), `.codex/skills/auto-guru/` (pre-namespace).
+Every skill emits to each active host dir among `.codex/skills/`, `.claude/skills/`, `.agents/skills/` (all three active here; 16 skill directories in each as of 2026-10-06). Skills render on `wf setup` and **Upgrade Wavefoundry**; rendering is independent of `enabled_agent_roles`, which gates agent-role wrappers, not skills. A skill with a `requires_doc` gate (wave `1ve3a`) emits only where that repo-relative doc exists, so the skill follows the capability rather than a repo identity. Bodies are thin pointers; workflow content stays in the backing prompt docs. Stale-cleaned legacy paths: `.claude/skills/upgrade-wave.md` (flat, frontmatter-less), `.codex/skills/auto-guru/` (pre-namespace), the retired interrogate-plan skill (renamed `wf-review-plan`) and the feature-named planning skill (renamed `wf-plan-change`, wave 1zyc5).
 
 ## Host launcher contracts
 

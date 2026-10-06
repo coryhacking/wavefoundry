@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-08
+Last verified: 2026-10-06
 
 Supporting agent-oriented prompt bodies for Wavefoundry. These are checked-in context helpers for agents executing Wave Framework commands. They are **not public commands** and are not listed in `docs/prompts/index.md`.
 
@@ -12,13 +12,12 @@ Supporting agent-oriented prompt bodies for Wavefoundry. These are checked-in co
 |------|---------|
 | `init-wave-context.prompt.md` | Agent body for Init Wavefoundry |
 | `upgrade-wave-context.prompt.md` | Agent body for Upgrade Wavefoundry |
-| `plan-feature.prompt.md` | Agent body for Plan feature |
+| `plan-change.prompt.md` | Agent body for Plan change |
 | `prepare-wave.prompt.md` | Agent body for Prepare wave |
 | `implement-wave.prompt.md` | Agent body for Implement wave |
-| `implement-feature.prompt.md` | Agent body for Implement feature |
+| `implement-change.prompt.md` | Agent body for Implement change |
 | `review-wave.prompt.md` | Agent body for Review wave |
 | `close-wave.prompt.md` | Agent body for Close wave |
-| `finalize-feature.prompt.md` | Agent body for Finalize feature |
 
 ## Usage
 

@@ -4,7 +4,7 @@ Change ID: `1us4q-bug decision-log-exclusion-gated-on-coverage-census`
 Change Status: `planned`
 Owner: Engineering
 Status: planned
-Last verified: 2026-08-10
+Last verified: 2026-10-06
 Wave: TBD (withdrawn from `1uwpf`; not admitted)
 
 > **Withdrawn from wave `1uwpf` on 2026-08-10 after six independent review lanes returned WITHHELD, and the implementation was reverted.** The census gate this document was originally deferred behind has now been run three times and reproduces. What failed is the INSTRUMENT, for the third time. Everything below the Rationale describes a design that six lanes falsified; it is retained because the falsifications are the most valuable thing this document owns. **Read `## Progress Log` before redesigning.** The next attempt must start from the findings, not from these Requirements.
@@ -13,7 +13,7 @@ Wave: TBD (withdrawn from `1uwpf`; not admitted)
 
 ## Rationale
 
-Appending a `## Decision Log` row to a change document moves `policy_input_digest` and lapses every recorded review approval, without any load-bearing claim changing. The framework **instructs** the edit: seed `180-implement-feature.prompt.md` tells participants to "leave enough state in wave artifacts (Progress Logs, Decision Logs, the session handoff) for another agent to continue safely". The Progress Log half of that sentence is excluded from the digest; the Decision Log half lapses the approvals the same wave just collected.
+Appending a `## Decision Log` row to a change document moves `policy_input_digest` and lapses every recorded review approval, without any load-bearing claim changing. The framework **instructs** the edit: seed `180-implement-change.prompt.md` tells participants to "leave enough state in wave artifacts (Progress Logs, Decision Logs, the session handoff) for another agent to continue safely". The Progress Log half of that sentence is excluded from the digest; the Decision Log half lapses the approvals the same wave just collected.
 
 **The cost is per append event, not per row, and each event is expensive.** Carrying a Decision Log does not cause churn; appending to one after approval does. Measured over the corpus: 699 documents have a dated Decision Log, **634 of them (90.7%) have every row on a single date** — written at plan time, never appended to. Only **65 documents (9.3%)** ever gained a later-dated row, totalling **214 rows**. Each of those 214 appends supersedes the receipt and forces a re-Prepare plus a re-record of the entire readiness roster. The rate is rising:
 
@@ -56,7 +56,7 @@ So this change does two things: it routes narration by phase with a boundary car
 
 4. **The rule reaches existing repositories through a mechanism that cannot silently no-op.** Seed 180 itself ships to installed repos because `.wavefoundry/framework/` is replaced wholesale at upgrade, so an agent reading the seed gets the rule. For the rendered surface, an exact-string reconciler pair is **not** acceptable on its own: `docs/prompts/review-wave.prompt.md` contains no Decision Log prose to key on, two byte-different baselines exist (the fresh-install template is hard-wrapped, the reconciler constant is not), and `plan_reconciliation` computes matches against the **original** text so a pair keyed on another pair's output silently misses on a single upgrade hop. Deliver through the renderer-owned `wavefoundry:review-policy` marker region, which `reconcile_review_policy_surfaces` rewrites wholesale on every upgrade with no keying and no drift sensitivity. If a reconciler pair is used anywhere in this change, it must satisfy the unwritten invariant every one of the 13 existing pairs satisfies — the replacement must not contain its own legacy anchor as a substring — or it compounds on each upgrade.
 
-5. **The rendered implement surface is addressed or explicitly excluded.** This is an implementation-phase rule, and `docs/prompts/implement-feature.prompt.md` is reached by no update mechanism at all — it is absent from `LIFECYCLE_PROMPT_BASELINES`, `REVIEW_POLICY_CARRIER_REGISTRY`, and `LIFECYCLE_RECONCILER_CARRIERS`. `docs/prompts/implement-wave.prompt.md` is a carrier with registered pairs and a renderer block. State which rendered surface carries the implementer-facing half and why, rather than leaving the reader to infer that the review surface was chosen deliberately.
+5. **The rendered implement surface is addressed or explicitly excluded.** This is an implementation-phase rule, and `docs/prompts/implement-change.prompt.md` is reached by no update mechanism at all — it is absent from `LIFECYCLE_PROMPT_BASELINES`, `REVIEW_POLICY_CARRIER_REGISTRY`, and `LIFECYCLE_RECONCILER_CARRIERS`. `docs/prompts/implement-wave.prompt.md` is a carrier with registered pairs and a renderer block. State which rendered surface carries the implementer-facing half and why, rather than leaving the reader to infer that the review surface was chosen deliberately.
 
 6. **No canonicalizer change, no evaluator bump, no digest change.** `canonical_review_policy_body` composes exactly the five section normalizations it composes today. `REVIEW_POLICY_EVALUATOR_VERSION` stays 7. No wave goes stale, no approval lapses, and there is no one-time re-Prepare. This is what distinguishes the shipped instrument from both rejected ones.
 
@@ -70,7 +70,7 @@ So this change does two things: it routes narration by phase with a boundary car
 
 **In scope:**
 
-- `.wavefoundry/framework/seeds/180-implement-feature.prompt.md`: the phase-routing rule with its carve-out (Requirements 1-2) and the corrected state-leaving bullet.
+- `.wavefoundry/framework/seeds/180-implement-change.prompt.md`: the phase-routing rule with its carve-out (Requirements 1-2) and the corrected state-leaving bullet.
 - `.wavefoundry/framework/scripts/docs_lint.py`: the excluded-region trigger guard (Requirement 3).
 - The renderer-owned `wavefoundry:review-policy` region source for `docs/prompts/review-wave.prompt.md` (Requirement 4), and this repository's rendered copy.
 - A census script with a declared path, plus its `EXCLUDED_REL_PATHS` entry (Requirement 7).
@@ -121,7 +121,7 @@ So this change does two things: it routes narration by phase with a boundary car
 
 **Review targets (repo-relative paths):**
 
-- `.wavefoundry/framework/seeds/180-implement-feature.prompt.md`
+- `.wavefoundry/framework/seeds/180-implement-change.prompt.md`
 - `.wavefoundry/framework/scripts/docs_lint.py`
 - `.wavefoundry/framework/scripts/review_policy_reconcile.py`
 - `.wavefoundry/framework/scripts/build_pack.py`
@@ -165,7 +165,7 @@ The same document's sentence "Adding or changing an exclusion therefore moves la
 | 2026-08-10 | Contract defects to fix before any re-attempt: `## Serialization Points` named `docs_lint.py` and `review_policy_reconcile.py` (both UNMODIFIED) while omitting the five files actually edited; Requirement 8 was an orphan; the census script's path and one scope determination were declared ONLY in `## Progress Log`, which is this change's own definition of a section that narrates but must not amend; and the corpus figure is 825/732/93 as of 2026-08-10, not 824/732/92 | readiness docs-contract and delivery docs-contract |
 | 2026-08-10 | Implemented. The guard landed RED-FIRST: five tests written against `check_excluded_region_triggers` before it existed, all five erroring on ImportError, then green. Registered on both the incremental and full lint paths, and proven non-vacuous end-to-end by planting a violation in a live document and confirming `wf docs-lint` fails with the document, region, and trigger named | planted violation reproduced the failure; file restored byte-identical from a byte-copy |
 | 2026-08-10 | Census shipped as `census_exclusion_coverage.py` with a mandatory positive control and reproduces 4 lane / 23 trigger losses, matching all three prior runs including field breakdown. The control is not decoration: re-applying the exact historical defect (positional call plus bare `except`) makes it report DID NOT FIRE on the lane channel and the script refuses to print numbers | mutation applied to a byte-copy and restored; refusal message observed |
-| 2026-08-10 | AC-10 answered: the implementer-facing half lands in the `docs/prompts/implement-wave.prompt.md` renderer-owned region and the reviewer-facing half in `docs/prompts/review-wave.prompt.md`. Both are entries in `REVIEW_POLICY_SURFACE_BLOCKS`, rewritten wholesale by `reconcile_review_policy_surfaces` on every upgrade, so neither can silently no-op the way a keyed replacement pair can. `docs/prompts/implement-feature.prompt.md` was NOT used: it is reached by no update mechanism at all | both regions rendered; second pass wrote nothing |
+| 2026-08-10 | AC-10 answered: the implementer-facing half lands in the `docs/prompts/implement-wave.prompt.md` renderer-owned region and the reviewer-facing half in `docs/prompts/review-wave.prompt.md`. Both are entries in `REVIEW_POLICY_SURFACE_BLOCKS`, rewritten wholesale by `reconcile_review_policy_surfaces` on every upgrade, so neither can silently no-op the way a keyed replacement pair can. `docs/prompts/implement-change.prompt.md` was NOT used: it is reached by no update mechanism at all | both regions rendered; second pass wrote nothing |
 | 2026-08-10 | A gap found while verifying AC-6 and recorded rather than fixed here: `docs-lint` passed with the `REVIEW_POLICY_SURFACE_BLOCKS` source edited and the rendered files still stale, so carrier parity is NOT enforced between block source and rendered region. The regions were reconciled explicitly. Worth its own change; out of scope here | rendered files lacked the new text while `docs-lint: ok` |
 | 2026-08-10 | AC-7's pin verified non-vacuous by mutation: composing a sixth section normalization into `canonical_review_policy_body` is KILLED by the boundary test, so neither rejected exclusion can re-enter under this change's identity | mutant applied and restored byte-identical |
 | 2026-08-10 | READINESS COUNCIL, both seats WITHHELD, converging independently on the same P1: the redirect instrument reproduces the measured coverage loss PROSPECTIVELY, and this plan claimed "costs zero review coverage". The coordinator reproduced it before relaying: the identical row yields `('release_or_upgrade_changed',)` and recruits `release-reviewer` in `## Decision Log`, and `()` with no lane in `## Progress Log`. The Progress Log is already excluded, so instructing authors to write there IS an exclusion applied at authoring time | both seats plus coordinator, executed against the shipped producers |

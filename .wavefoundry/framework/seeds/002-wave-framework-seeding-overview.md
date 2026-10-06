@@ -86,17 +86,17 @@ The intended public surface is:
 
 - `Init Wavefoundry` (legacy aliases: `Init wave framework`, `Install wave framework`, `Init wave context`, `Install wave context`)
 - `Upgrade Wavefoundry` (legacy aliases: `Upgrade wave framework`, `Upgrade wave context`, `Install wave framework` when init hands off to upgrade)
-- `Plan feature`
+- `Plan change`
 - `Create wave`
 - `Add change to wave`
 - `Remove change from wave`
 - `Prepare wave`
 - `Implement wave`
-- `Implement feature`
+- `Implement change`
 - `Pause wave`
 - `Review wave`
 - `Close wave`
-- `Finalize feature`
+- `Close change`
 
 Alias behavior:
 
@@ -156,10 +156,10 @@ Use the full contract in `.wavefoundry/framework/seeds/009-framework-maintenance
 
 Use these examples to sanity-check whether the framework is still understandable as an end-to-end system:
 
-1. A project with no prior install runs **`Init Wavefoundry`** (legacy: **`Init wave framework`** / **`Init wave context`**), receives the local docs/prompt/memory layer, then uses `Plan feature` plus `wf lifecycle-id --kind wave --slug <slug>` to start the first normal wave after `wave-0` scaffolding is in place.
+1. A project with no prior install runs **`Init Wavefoundry`** (legacy: **`Init wave framework`** / **`Init wave context`**), receives the local docs/prompt/memory layer, then uses `Plan change` plus `wf lifecycle-id --kind wave --slug <slug>` to start the first normal wave after `wave-0` scaffolding is in place.
 2. A project in mid-delivery completes part of a wave, carries unfinished work into the next wave under the same `change-id`, and refreshes wave memory, memory records, and handoff state instead of pretending the feature is fully closed.
 3. A project that has completed planning runs `Prepare wave`, records the required implementer, reviewer, and persona lanes (including **`product-owner`** when product semantics move, and again after **`Add change to wave`** changes the admit set), and only then begins implementation. `Ready wave` remains an accepted alias.
-4. A project that has completed the planned work runs **`Review wave`** to **execute and record** the **Prepare wave** reviewer matrix (verdicts in **Review checkpoints**), reruns the **readiness evaluation** as part of that closure review, then runs `Finalize feature` or `Close wave`, records **docs-contract review** in the wave when `docs/specs/*.md` or other behavior contracts changed, promotes durable lessons into canonical docs and long-lived memory, archives temporary execution artifacts, and closes the feature or wave cleanly.
+4. A project that has completed the planned work runs **`Review wave`** to **execute and record** the **Prepare wave** reviewer matrix (verdicts in **Review checkpoints**), reruns the **readiness evaluation** as part of that closure review, then runs `Close change` per change when needed and `Close wave`, records **docs-contract review** in the wave when `docs/specs/*.md` or other behavior contracts changed, promotes durable lessons into canonical docs and long-lived memory, archives temporary execution artifacts, and closes the feature or wave cleanly.
 
 ## Upgrade And Migration
 
@@ -204,7 +204,7 @@ The shared seed pack should require a repo-local overview at `docs/references/pr
 That document should help a newly arriving person or agent understand, at minimum:
 
 - which canonical docs matter first and what each one is for
-- how work normally flows through planning, implementation, review, finalization, and handoff
+- how work normally flows through planning, implementation, review, closure, and handoff
 - which generic agent roles or review lanes the project expects to use
 - which synthesized project personas exist, what they are responsible for, and when they should engage
 - how generic roles, project personas, coordinators, and reviewers collaborate without duplicating each other
@@ -235,7 +235,7 @@ Files like `AGENTS.md`, `CLAUDE.md`, and platform-native wrappers should keep lo
 
 ### Implementation guard for product code (seeded by init when applicable)
 
-`050-agent-entry-surface-bootstrap.prompt.md` instructs init to add **Implementation guard (product code)** to `AGENTS.md` when `docs/repo-profile.json`, inventory, or `docs/repo-index.md` indicates shipped product code (see that prompt for decision signals). The guard requires a consolidated change document plus recorded readiness before the first product-source edit, with an explicit operator waiver escape hatch; thin pointers reference the guard when the section exists. Documentation-only repos omit it or get a one-line placeholder for later. `160-upgrade-wavefoundry.prompt.md` backfills the section when a repo gains product code or when an older install predates the guard. The shared coordinator shortcut `180-implement-feature.prompt.md` always points at `AGENTS.md` so the guard is enforceable once present. Domain specifics (vendor SDK quirks, dual grace maps, etc.) belong in `docs/specs/` and role docs, not in the generic `AGENTS.md` template.
+`050-agent-entry-surface-bootstrap.prompt.md` instructs init to add **Implementation guard (product code)** to `AGENTS.md` when `docs/repo-profile.json`, inventory, or `docs/repo-index.md` indicates shipped product code (see that prompt for decision signals). The guard requires a consolidated change document plus recorded readiness before the first product-source edit, with an explicit operator waiver escape hatch; thin pointers reference the guard when the section exists. Documentation-only repos omit it or get a one-line placeholder for later. `160-upgrade-wavefoundry.prompt.md` backfills the section when a repo gains product code or when an older install predates the guard. The shared coordinator shortcut `180-implement-change.prompt.md` always points at `AGENTS.md` so the guard is enforceable once present. Domain specifics (vendor SDK quirks, dual grace maps, etc.) belong in `docs/specs/` and role docs, not in the generic `AGENTS.md` template.
 
 ### Give newcomers one collaboration-oriented starting point
 

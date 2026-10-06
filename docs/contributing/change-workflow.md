@@ -2,19 +2,19 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-10-06
 
 ## Default Change Path
 
 All non-trivial work follows this sequence. Do not edit repository code before step 4 (Prepare wave).
 
-1. **Plan feature** — write a consolidated change doc at `docs/plans/<change-id>.md` using `docs/plans/plan-template.md`. Generate a change ID with the MCP `wave_new_<kind>` tool (it dedupes against on-disk IDs); CLI fallback when MCP is unavailable: `wf lifecycle-id --kind <kind> --slug <slug>`.
+1. **Plan change** — write a consolidated change doc at `docs/plans/<change-id>.md` using `docs/plans/plan-template.md`. Generate a change ID with the MCP `wave_new_<kind>` tool (it dedupes against on-disk IDs); CLI fallback when MCP is unavailable: `wf lifecycle-id --kind <kind> --slug <slug>`.
 2. **Create wave** — create `docs/waves/<wave-id>/wave.md`. Generate a wave ID with the MCP `wf_create_wave` tool; CLI fallback when MCP is unavailable: `wf lifecycle-id --kind wave --slug <slug>`.
 3. **Add change to wave** — admit the change into the wave and relocate the active change doc from `docs/plans/` into `docs/waves/<wave-id>/`.
 4. **Prepare wave** — confirm readiness: validate admitted-doc placement, repair any staged-only doc, confirm all admitted changes are documented, select review lanes, record AC priority. The wave must have a clean Prepare wave pass before implementation begins.
-5. **Implement wave / Implement feature** — execute admitted changes and focused computational verification; use an exceptional named checkpoint only at a high-risk boundary.
+5. **Implement wave / Implement change** — execute admitted changes and focused computational verification; use an exceptional named checkpoint only at a high-risk boundary.
 6. **Review wave** — after implementation evidence is complete, all required inferential lanes (code, QA, architecture, etc.) must produce findings or be explicitly deferred with rationale; blocking findings return to implementation.
-7. **Close wave / Finalize feature** — mark all changes complete or deferred; validate memory candidates; promote memory to canonical docs; clear session handoff.
+7. **Close change** (per change, optional) then **Close wave** (the only wave close): all changes implemented, complete, or deferred; validate memory candidates; promote memory to canonical docs; clear session handoff.
 
 ## Writing Acceptance Criteria
 
@@ -79,7 +79,7 @@ receipt stale, but the receipt is written only on a whole-suite pass, so a
 docs-triggered failure prevents a new one. A green receipt attests the framework
 code, not the tree.
 
-Canonical source: `.wavefoundry/framework/seeds/170-plan-feature.prompt.md`,
+Canonical source: `.wavefoundry/framework/seeds/170-plan-change.prompt.md`,
 *"Acceptance criteria assert what the change controls"*.
 
 ## Documentation-Only Changes

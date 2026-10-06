@@ -65,7 +65,7 @@ When one or more items above are false, treat the framework as still hardening r
 
 ### Example A: feature planning into wave start
 
-1. A non-trivial change is identified and routed into `Plan feature`.
+1. A non-trivial change is identified and routed into `Plan change`.
 2. Planning creates or updates one `change-id`, acceptance criteria, and the next delivery slice.
 3. The wave is defined only after the change scope and shared assumptions are stable enough to execute together.
 4. The seeded project runs the readiness gate, records the required implementer, reviewer, and persona lanes, and blocks start until that evaluation is clean.
@@ -78,10 +78,10 @@ When one or more items above are false, treat the framework as still hardening r
 3. The unfinished work is moved into the next planned wave under the same `change-id`.
 4. Wave memory, handoff state, memory records, and next-wave notes are refreshed so the feature thread continues cleanly.
 
-### Example C: feature finalization
+### Example C: change and wave closure
 
 1. All planned wave work is complete, archived, or intentionally deferred.
-2. `Finalize feature` reruns the readiness evaluation during final review, then reconciles the final wave state and checks behind-the-scenes maintenance work.
+2. `Review wave` reruns the readiness evaluation during final review; `Close change` (optional) marks a reviewed change `complete`; `Close wave` then reconciles the final wave state and checks behind-the-scenes maintenance work.
 3. Durable lessons are promoted into canonical docs, workflow memory, personas, and typed memory records where appropriate.
 4. Temporary execution artifacts are archived or frozen, and the feature closes with a clear final review outcome.
 
@@ -103,7 +103,7 @@ Use this checklist when reviewing whether the remaining hardening work is comple
 - Framework map exists and is linked from the package README.
 - Completeness contract exists and is linked from the package README.
 - Repo-generation contract is explicit about create/refresh/preserve behavior.
-- Golden-path examples cover planning, carry-forward, and finalization.
+- Golden-path examples cover planning, carry-forward, and closure.
 - Prompt-to-doc maintenance rules are explicit and discoverable.
 - Repo-local pointer docs can route maintainers from project docs in the repository into the shared package docs.
 - Docs verification passes.

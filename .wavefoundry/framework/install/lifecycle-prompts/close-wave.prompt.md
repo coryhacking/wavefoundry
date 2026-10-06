@@ -8,12 +8,13 @@ Shortcut: **`Close wave`**
 
 ## Host-neutral orchestration
 
-Follow `.wavefoundry/framework/seeds/180-implement-feature.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose models and reasoning effort for reconciliation and unresolved judgments by task fit. Efficient routine checks do not waive review evidence or explicit operator closure authority. Use only available host capabilities; sequential implementation does not satisfy required independent review.
+Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose models and reasoning effort for reconciliation and unresolved judgments by task fit. Efficient routine checks do not waive review evidence or explicit operator closure authority. Use only available host capabilities; sequential implementation does not satisfy required independent review.
 
 ## Purpose
 
-Finalize a delivered wave after implementation, review, documentation, and
-handoff state are fully reconciled.
+Close a delivered wave after implementation, review, documentation, and
+handoff state are fully reconciled. Close wave is the only wave close, whatever
+the change count.
 
 ## Closure checks
 
@@ -21,7 +22,10 @@ All closure-time code and docs investigation follows the run contract's
 Retrieval Rules (`seed-020`): MCP retrieval tools first, for every lane and
 briefed subagent.
 
-1. Every AC and task is completed or intentionally deferred with rationale.
+1. Every change is `implemented`, `complete`, or `deferred` with rationale, and
+   every AC and task is completed or intentionally deferred with rationale.
+   **Close change** (`wf_close_change`) is optional; use it to mark a single
+   change `complete` and activate its dependents inside the open wave.
 2. Required review lanes and configured council signoffs are current.
 3. Change status, wave status, completion date, and chronology agree.
 4. Architecture, specifications, public prompts, and release notes reflect the

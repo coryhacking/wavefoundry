@@ -117,6 +117,66 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("docs-lint: ok", result.stdout)
 
+    def test_change_prompt_migration_keeps_lint_green_once_reported_link_is_fixed(self) -> None:
+        # 1zyc4 AC-8: a pre-rename target (customized CRLF prompts, a link to the
+        # old path) renders, the moved prompts keep their bytes, the link is
+        # reported and left alone, and docs-lint passes after the link is edited.
+        import render_agent_surfaces as ras
+
+        root = self.copy_fixture()
+        try:
+            prompts = root / "docs" / "prompts"
+            plan_bytes = (
+                b"# Plan Feature\r\n\r\nOwner: Engineering\r\nStatus: active\r\n"
+                b"Last verified: 2026-03-21\r\n\r\nProject-only planning paragraph.\r\n"
+            )
+            agent_bytes = (
+                b"# Agent Body\r\n\r\nOwner: Engineering\r\nStatus: active\r\n"
+                b"Last verified: 2026-03-21\r\n\r\nProject-only implementation note.\r\n"
+            )
+            (prompts / "plan-change.prompt.md").unlink()
+            (prompts / "plan-feature.prompt.md").write_bytes(plan_bytes)
+            (prompts / "agents").mkdir()
+            (prompts / "agents" / "implement-feature.prompt.md").write_bytes(agent_bytes)
+            manifest = prompts / "prompt-surface-manifest.json"
+            manifest.write_text(
+                manifest.read_text(encoding="utf-8")
+                .replace("docs/prompts/plan-change.prompt.md", "docs/prompts/plan-feature.prompt.md")
+                .replace('"Plan change"', '"Plan feature"'),
+                encoding="utf-8",
+            )
+            index = prompts / "index.md"
+            index.write_text(
+                index.read_text(encoding="utf-8") + "\n- See [planning](plan-feature.prompt.md).\n",
+                encoding="utf-8",
+            )
+            link_line = index.read_text(encoding="utf-8").splitlines().index(
+                "- See [planning](plan-feature.prompt.md)."
+            ) + 1
+
+            migration = ras.migrate_change_prompt_renames(root)
+
+            self.assertEqual((prompts / "plan-change.prompt.md").read_bytes(), plan_bytes)
+            self.assertEqual((prompts / "agents" / "implement-change.prompt.md").read_bytes(), agent_bytes)
+            self.assertFalse((prompts / "plan-feature.prompt.md").exists())
+            self.assertFalse((prompts / "agents" / "implement-feature.prompt.md").exists())
+            self.assertIn(f"docs/prompts/index.md:{link_line}", migration.link_report)
+            self.assertIn("[planning](plan-feature.prompt.md)", index.read_text(encoding="utf-8"))
+            entries = json.loads(manifest.read_text(encoding="utf-8"))["public_prompt_surface"]
+            self.assertIn({"doc": "docs/prompts/plan-change.prompt.md", "shortcut": "Plan change"}, entries)
+
+            index.write_text(
+                index.read_text(encoding="utf-8").replace(
+                    "[planning](plan-feature.prompt.md)", "[planning](plan-change.prompt.md)"
+                ),
+                encoding="utf-8",
+            )
+            result = self.run_docs_lint(root)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(ras.migrate_change_prompt_renames(root).written, ())
+        finally:
+            shutil.rmtree(root)
+
     def test_context_efficiency_checkpoint_shape_is_linted(self) -> None:
         root = self.copy_fixture()
         try:
@@ -3596,12 +3656,12 @@ class ReviewCycleChurnControlPinTests(unittest.TestCase):
         self.assertIn("| `time_budget` | Wall-clock budget for the seat or lane; report at the budget with what is in hand and list what was not run (wave 1wuju) |", seed)
 
     def test_seeds_180_and_190_carry_the_implementer_and_close_hooks(self) -> None:
-        seed180 = self._seed("180-implement-feature.prompt.md")
+        seed180 = self._seed("180-implement-change.prompt.md")
         self.assertIn("Landing rule for guards (seed-209, wave 1wuju): a guard, validator member, carve-out, or tuning constant is landed only when a named test fails with it deleted or loosened", seed180)
         self.assertIn("record the mutant and the failing test in the change document's Progress Log before requesting review. A pin that passes for an unrelated reason is not a pin.", seed180)
         self.assertIn("presents the exact fix and a yes/no decision to the operator in the same message that reports the block (seed-209, wave 1wuju)", seed180)
-        seed190 = self._seed("190-finalize-feature.prompt.md")
-        self.assertIn("Do not finalize with an unreconciled `tree_moved_under_review` finding", seed190)
+        seed190 = self._seed("190-close-wave.prompt.md")
+        self.assertIn("Do not close with an unreconciled `tree_moved_under_review` finding", seed190)
 
     def test_lane_seeds_require_the_mutation_table(self) -> None:
         for name in ("214-architecture-reviewer.prompt.md", "221-code-reviewer.prompt.md", "239-qa-reviewer.prompt.md"):
@@ -3621,7 +3681,7 @@ class ReviewCycleChurnControlPinTests(unittest.TestCase):
         # Delivery review DOCS-DEL-2: the clauses the round-1 repair added.
         self.assertIn("Neither `frozen_boundary` nor `policy_input_digest` freezes code; a repair landed while a lane is still running invalidates that lane's evidence for the paths it touched. Each lane reports at its `time_budget` with what is in hand and lists what was not run.", review)
         close = self._doc("prompts", "close-wave.prompt.md")
-        self.assertIn("Do not finalize with an unreconciled `tree_moved_under_review` finding", close)
+        self.assertIn("Do not close with an unreconciled `tree_moved_under_review` finding", close)
         for role in ("architecture-reviewer.md", "qa-reviewer.md"):
             with self.subTest(role=role):
                 self.assertIn("Follow seed 209's **Landing rule for guards** for mutation evidence", self._doc("agents", role))
@@ -3656,7 +3716,7 @@ class AdvisoryFirstRulePinTests(unittest.TestCase):
     DOCS_DIR = SCRIPTS_ROOT.parent.parent.parent / "docs"
 
     def test_seed_170_states_the_advisory_first_rule_and_the_registered_polarity(self) -> None:
-        seed = (self.SEEDS_DIR / "170-plan-feature.prompt.md").read_text(encoding="utf-8")
+        seed = (self.SEEDS_DIR / "170-plan-change.prompt.md").read_text(encoding="utf-8")
         self.assertIn("**New docs-lint sensors ship advisory.**", seed)
         self.assertIn("The sensor is registered `advisory` in the docs-lint\nsensor polarity registry", seed)
         # Wave 1yzj9: the recorded decision replaces the pending flip.
@@ -3669,11 +3729,11 @@ class AdvisoryFirstRulePinTests(unittest.TestCase):
         self.assertNotIn("enforces this as a blocking\nerror", seed)
 
     def test_seed_190_treats_advisory_findings_as_review_notes(self) -> None:
-        seed = (self.SEEDS_DIR / "190-finalize-feature.prompt.md").read_text(encoding="utf-8")
+        seed = (self.SEEDS_DIR / "190-close-wave.prompt.md").read_text(encoding="utf-8")
         self.assertIn("are review notes at close, never a closure blocker", seed)
 
     def test_prompt_surfaces_and_contributing_docs_are_reconciled(self) -> None:
-        plan = (self.DOCS_DIR / "prompts" / "plan-feature.prompt.md").read_text(encoding="utf-8")
+        plan = (self.DOCS_DIR / "prompts" / "plan-change.prompt.md").read_text(encoding="utf-8")
         self.assertIn("runs an advisory sensor on change documents", plan)
         self.assertIn("new docs-lint sensors ship advisory the same way", plan)
         # Delivery review DOCS-DEL-2: the two seed-170 clauses the round-1 repair added.
@@ -3860,7 +3920,7 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
         the reconciled sentence in the project-owned prompt doc, because no
         renderer owns either file and nothing else would notice the drift.
         """
-        seed = (self.SEEDS_DIR / "170-plan-feature.prompt.md").read_text(encoding="utf-8")
+        seed = (self.SEEDS_DIR / "170-plan-change.prompt.md").read_text(encoding="utf-8")
         self.assertIn(
             "### Acceptance criteria assert what the change controls", seed,
             "seed 170 AC-locality section header")
@@ -3888,10 +3948,10 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
             "seed 170 must not promise a close gate that a pack-vendored repo lacks "
             "(ARCH-DEL-4)")
         prompt = (SCRIPTS_ROOT.parent.parent.parent / "docs" / "prompts"
-                  / "plan-feature.prompt.md").read_text(encoding="utf-8")
+                  / "plan-change.prompt.md").read_text(encoding="utf-8")
         self.assertIn(
             "An acceptance criterion asserts an outcome **this change controls**", prompt,
-            "docs/prompts/plan-feature.prompt.md reconciled AC-locality rule")
+            "docs/prompts/plan-change.prompt.md reconciled AC-locality rule")
         self.assertIn(
             "the state of files this change never touches", prompt,
             "the prompt keeps the seed's fourth example (DOCS-DEL-12)")
@@ -4032,7 +4092,7 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
         """1v1dh: the author-phase citation variant, head sentence exact plus
         load-bearing clauses (the resolvability reason and the carve-out
         table), unconditional per the family's failure-not-skip rule."""
-        text = (self.SEEDS_DIR / "170-plan-feature.prompt.md").read_text(
+        text = (self.SEEDS_DIR / "170-plan-change.prompt.md").read_text(
             encoding="utf-8"
         )
         head = (
@@ -4058,7 +4118,7 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
         """1v1dh: the implement-phase citation bullet, head exact plus the
         anchor vocabulary (as seed 180 words it), the name-the-case-inline
         obligation, and the history-falsification clause."""
-        text = (self.SEEDS_DIR / "180-implement-feature.prompt.md").read_text(
+        text = (self.SEEDS_DIR / "180-implement-change.prompt.md").read_text(
             encoding="utf-8"
         )
         self.assertIn(
@@ -4125,8 +4185,8 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
         seed_209 = (self.SEEDS_DIR / "209-agent-harness-core.prompt.md").read_text(encoding="utf-8")
         self.assertEqual(seed_209.count(canonical), 1, "canonical statement missing or duplicated in 209")
         for name in (
-            "170-plan-feature.prompt.md",
-            "180-implement-feature.prompt.md",
+            "170-plan-change.prompt.md",
+            "180-implement-change.prompt.md",
             "211-guru.prompt.md",
             "237-council-review.prompt.md",
             "215-wave-council.prompt.md",
@@ -4137,7 +4197,7 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
     def test_authoring_seed_carries_code_grounded_obligation(self) -> None:
         """1tmb4 AC-2/AC-3: seed 170 states the authoring obligation, names the
         three high-risk claim shapes, and carries the fix-absent AC rule."""
-        text = (self.SEEDS_DIR / "170-plan-feature.prompt.md").read_text(encoding="utf-8")
+        text = (self.SEEDS_DIR / "170-plan-change.prompt.md").read_text(encoding="utf-8")
         self.assertIn("Code-grounded authoring", text)
         self.assertIn("X already does Y", text)
         self.assertIn("no other caller/site", text)
@@ -4170,7 +4230,7 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
     def test_implement_seed_carries_premise_exercise_obligation(self) -> None:
         """1tmb4 AC-4: seed 180 requires exercising a plan premise before
         building on it, with the stop-and-report path."""
-        text = (self.SEEDS_DIR / "180-implement-feature.prompt.md").read_text(encoding="utf-8")
+        text = (self.SEEDS_DIR / "180-implement-change.prompt.md").read_text(encoding="utf-8")
         self.assertIn("A plan is evidence, not proof.", text)
         self.assertIn("stop and report", text)
 
@@ -4217,7 +4277,7 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
                 )
         # Non-vacuity guard: the known carriers must trip the signature, so
         # a signature regression cannot silently empty the scan domain.
-        for known in ("180-implement-feature.prompt.md", "211-guru.prompt.md"):
+        for known in ("180-implement-change.prompt.md", "211-guru.prompt.md"):
             self.assertIn(known, carriers)
 
     def test_seed_237_carries_roster_honesty_contract(self) -> None:
@@ -5704,7 +5764,7 @@ class SerializationPointsTokenGrammarPinTests(unittest.TestCase):
         "declare the directory that holds globbed files",
     )
     FRAMEWORK_CARRIERS = (
-        ("seeds/170-plan-feature.prompt.md", "Prose declares NOTHING in either form"),
+        ("seeds/170-plan-change.prompt.md", "Prose declares NOTHING in either form"),
         ("seeds/040-docs-structure-bootstrap.prompt.md", "one stray English word makes the whole bullet prose, in either form"),
         ("seeds/160-upgrade-wavefoundry.prompt.md", "State both declaration forms, because prose declares nothing"),
         ("seeds/160-upgrade-wavefoundry.prompt.md", "names both declaration forms"),

@@ -965,7 +965,7 @@ Wave: `12x test-wave`
         `total` now INCLUDES deferred (they read as outstanding while open), while
         `completed` stays `[x]`-only."""
         tasks_section = (
-            "- [x] Implement feature.\n"
+            "- [x] Implement change.\n"
             "- [ ] Write docs.\n"
             "- [~] Bench against synthetic fixture\n"
         )

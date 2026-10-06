@@ -32,7 +32,7 @@ The Wave Framework addresses this by giving agents a persistent operating surfac
           │
           ▼
   ┌────────────────────┐
-  │   Plan feature(s)  │  For each change: author a change doc with
+  │   Plan change(s)   │  For each change: author a change doc with
   │                    │  WHY, WHAT, ACs, RISKS. Lives in docs/plans/.
   └─────────┬──────────┘
             │  Plan one change or bundle compatible changes together
@@ -129,7 +129,7 @@ installs and protocol-2 upgrades extract that package through `Upgrade Wavefound
 A *wave* is the delivery unit. Work is never planned directly into production — it is first authored as a change document, admitted into a wave, and then implemented through the wave lifecycle. This keeps scope explicit, makes handoffs durable, and gives every closed wave a permanent record.
 
 ```
-Plan feature(s) → Create wave → Add changes → Prepare wave → Implement → Review → Close wave
+Plan change(s) → Create wave → Add changes → Prepare wave → Implement → Review → Close wave
 ```
 
 **A wave can contain one change or many.** A single bug fix is a wave. A coordinated feature spanning data model, API, and UI is also a wave — the three changes are admitted together, their dependencies are declared, and the coordinator sequences their execution. What makes them a wave is that they share compatible assumptions and can be reviewed and closed as a unit.
@@ -142,7 +142,7 @@ Wave state and all review evidence live in ordinary Markdown files under `docs/w
 
 ### Seeds
 
-Seeds are numbered prompt documents (001–214+) that define how agents should behave at each lifecycle step. They live in `framework/seeds/`. When you type a shortcut like `Plan feature` or `Prepare wave`, the agent retrieves the relevant seed and follows it.
+Seeds are numbered prompt documents (001–214+) that define how agents should behave at each lifecycle step. They live in `framework/seeds/`. When you type a shortcut like `Plan change` or `Prepare wave`, the agent retrieves the relevant seed and follows it.
 
 Seeds are the framework's long-term memory — they encode operational lessons in a form agents can retrieve and apply across sessions.
 
@@ -290,7 +290,7 @@ wf_help()           ← Full shortcut phrase table
 ### Opening a wave
 
 ```
-Plan feature          ← Author a change doc and plan the work
+Plan change           ← Author a change doc and plan the work
 Create wave           ← Open a delivery unit and admit the change
 Prepare wave          ← Run readiness gate before touching code
 Implement wave        ← Execute admitted changes

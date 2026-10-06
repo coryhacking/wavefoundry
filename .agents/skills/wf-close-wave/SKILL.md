@@ -1,6 +1,6 @@
 ---
 name: wf-close-wave
-description: Finalize and archive a wave after delivery review, reconciling every AC and task checkbox. Closure is operator-owned. The Close wave workflow.
+description: Close and archive a wave after delivery review, reconciling every AC and task checkbox. Closure is operator-owned. The Close wave workflow.
 ---
 
 # Close a wave (Wavefoundry skill)
@@ -9,4 +9,4 @@ This skill is a thin pointer: the workflow lives in `docs/prompts/close-wave.pro
 
 - Prefer the `wf_close_wave` MCP tool; run `dry_run` freely to validate close readiness.
 - Gate reminder: closure is operator-owned. Call `mode="create"` only when the operator explicitly instructs closure in the current request; closure is never inferred from adjacent actions such as "run the review" or "fix the tests".
-- Single-change variant: Finalize feature (`docs/prompts/finalize-feature.prompt.md`).
+- Single change: Close change (`docs/prompts/close-change.prompt.md`) marks one change `complete` inside the open wave; Close wave is still the only wave close.

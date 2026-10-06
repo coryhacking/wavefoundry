@@ -2558,6 +2558,78 @@ class PreferredPythonTests(unittest.TestCase):
         self.assertIn("--full", graph_calls[0].args[0], "rebuild path runs a full graph rebuild")
 
 
+class ChangePromptRenameInstallingUpgradeTests(unittest.TestCase):
+    """1zyc4 AC-15: the installing upgrade runs the fresh change-prompt migration."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        framework = self.root / ".wavefoundry" / "framework"
+        shutil.copytree(
+            SCRIPTS_ROOT,
+            framework / "scripts",
+            ignore=shutil.ignore_patterns("tests", "benchmarks", "__pycache__"),
+        )
+        shutil.copytree(SCRIPTS_ROOT.parent / "install", framework / "install")
+        shutil.copytree(SCRIPTS_ROOT.parent / "seeds", framework / "seeds")
+        self.scripts = framework / "scripts"
+        prompts = self.root / "docs" / "prompts"
+        prompts.mkdir(parents=True)
+        self.plan_bytes = b"# Plan Feature\r\n\r\nProject planning prose.\r\n"
+        self.impl_bytes = b"# Implement Feature\n\nProject implementation prose.\n"
+        (prompts / "plan-feature.prompt.md").write_bytes(self.plan_bytes)
+        (prompts / "implement-feature.prompt.md").write_bytes(self.impl_bytes)
+        (prompts / "prompt-surface-manifest.json").write_text(
+            json.dumps(
+                {
+                    "public_prompt_surface": [
+                        {"doc": "docs/prompts/plan-feature.prompt.md", "shortcut": "Plan feature"},
+                        {"doc": "docs/prompts/implement-feature.prompt.md", "shortcut": "Implement feature"},
+                        {"doc": "docs/prompts/finalize-feature.prompt.md", "shortcut": "Finalize feature"},
+                    ]
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.old_skill = self.root / ".codex" / "skills" / "wf-plan-feature" / "SKILL.md"
+        self.old_skill.parent.mkdir(parents=True)
+        self.old_skill.write_text("legacy generated skill\n", encoding="utf-8")
+
+    def test_installing_upgrade_moves_prompts_rewrites_manifest_and_replaces_skills(self):
+        import venv_bootstrap
+
+        with patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                patch.object(self.mod, "SCRIPTS_DIR", self.scripts), \
+                patch.object(self.mod, "_preferred_python", return_value=sys.executable), \
+                contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            self.mod.phase_surface_rendering(self.root)
+
+        prompts = self.root / "docs" / "prompts"
+        self.assertFalse((prompts / "plan-feature.prompt.md").exists())
+        self.assertFalse((prompts / "implement-feature.prompt.md").exists())
+        self.assertEqual((prompts / "plan-change.prompt.md").read_bytes(), self.plan_bytes)
+        self.assertEqual((prompts / "implement-change.prompt.md").read_bytes(), self.impl_bytes)
+        manifest = json.loads((prompts / "prompt-surface-manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            manifest["public_prompt_surface"],
+            [
+                {"doc": "docs/prompts/plan-change.prompt.md", "shortcut": "Plan change"},
+                {"doc": "docs/prompts/implement-change.prompt.md", "shortcut": "Implement change"},
+                {"doc": "docs/prompts/close-change.prompt.md", "shortcut": "Close change"},
+            ],
+        )
+        self.assertFalse(self.old_skill.parent.exists())
+        skills = self.root / ".codex" / "skills"
+        self.assertTrue((skills / "wf-plan-change" / "SKILL.md").is_file())
+        self.assertTrue((skills / "wf-close-change" / "SKILL.md").is_file())
+        self.assertTrue((prompts / "close-change.prompt.md").is_file())
+
+
 class ReviewPlanInstallingUpgradeTests(unittest.TestCase):
     """1w047 AC-4: Phase 1 runs the freshly extracted five-state migration."""
 

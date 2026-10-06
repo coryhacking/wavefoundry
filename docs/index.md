@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-01
+Last verified: 2026-10-06
 
 Wavefoundry is an agent harness: the Wave Framework seed pack, the framework scripts that do the mechanical lifecycle work, a local MCP server that AI coding agents talk to over stdio, and an optional loopback-only dashboard. Installed into a target repository, it wraps AI coding agents with feedforward guidance (seed prompts), feedback sensors (computational checks and reviewer lanes), and structural lifecycle enforcement, and it keeps that state in plain files that survive context loss ([Project overview](references/project-overview.md), What Wavefoundry Is). Wavefoundry is a framework and tooling repository, not a product application; it ships no networked service ([Architecture](ARCHITECTURE.md), Scope). The MCP server is one Python process, `server.py`, that builds a FastMCP app and runs it over stdio (`server.build_server`, `server.py` lines 486-563; `server.main`, lines 582-624).
 
@@ -25,7 +25,7 @@ Setup may install Python packages and download embedding models on a cold cache,
 
 Every code change moves through the same lifecycle. The bold phrases are shortcut commands agents understand; in Claude Code, Codex, and Antigravity each is also a `/wf-` skill that points at the same prompt ([Project overview](references/project-overview.md), Workflow Overview; full catalog: [Workflow and agent commands](prompts/index.md)).
 
-1. **Plan feature**: author a consolidated change doc under `docs/plans/`.
+1. **Plan change**: author a consolidated change doc under `docs/plans/`.
 2. **Create wave / Add change to wave**: admit the change into a wave under `docs/waves/<wave-id>/`.
 3. **Prepare wave**: confirm readiness. Readying does not open the wave; any number of waves can be readied in parallel.
 4. **Implement wave**: open a readied wave and execute the admitted changes. Only one wave may be OPEN at a time, and that guard fires here, at activation, not at readiness (`wf_prepare_wave` docstring and `wf_implement_wave`, `wf_server/server_impl.py`).

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-02
+Last verified: 2026-10-06
 
 Adapted from `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md` for Wavefoundry's specific reviewer roles, personas, and artifact paths.
 
@@ -13,7 +13,7 @@ The Wave Framework lifecycle is the delivery model for non-trivial work in Wavef
 ## Typical Delivery Sequence
 
 ```
-Plan feature
+Plan change
   → author change doc at docs/plans/<change-id>.md
 
 Create wave
@@ -28,7 +28,7 @@ Prepare wave (stage gate — required before implementation)
   → when enabled, run Wave Council readiness pass and record `wave-council-readiness`
   → required reviewers confirmed; product-owner acknowledgment if product-impacting
 
-Implement wave / Implement feature
+Implement wave / Implement change
   → implementer executes and verifies computationally
   → Review wave runs required inferential lanes
   → blocking findings return wave to implementation through the delivery repair loop
@@ -39,8 +39,11 @@ Review wave
   → when enabled, run Wave Council delivery pass and record `wave-council-delivery`
   → AC scope gap check; AC priority reconciliation against shipped behavior
 
-Close wave / Finalize feature
-  → mark all changes complete or deferred with rationale
+Close change (per change, optional)
+  → wf_close_change marks one reviewed change complete and activates its dependents
+
+Close wave (the only wave close)
+  → all changes implemented, complete, or deferred with rationale
   → validate memory candidates; promote durable lessons to project-context-memory.md
   → clear or refresh docs/agents/session-handoff.md
   → docs-contract review if docs/specs/*.md changed (or record N/A with rationale)

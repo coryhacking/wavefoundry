@@ -1,4 +1,4 @@
-# Agent Body — Implement Feature
+# Agent Body — Implement Change
 
 Owner: Engineering
 Status: active
@@ -6,7 +6,7 @@ Last verified: 2026-09-22
 
 ## Context
 
-You are running **Implement feature** on Wavefoundry (single-change path).
+You are running **Implement change** on Wavefoundry (single-change path).
 
 ## Guru Orientation
 
@@ -28,7 +28,7 @@ Stage gate satisfied: change doc admitted, **Prepare wave** passed cleanly.
 
 1. `python3 .wavefoundry/framework/scripts/run_tests.py` (if scripts changed)
 2. **Docs gate:** Routine documentation edits already receive automatic incremental changed-set lint. Before declaring implementation complete, prefer full MCP **`wf_validate_docs`** (and **`wf_garden_docs`** if metadata needs refresh). **CLI fallback:** `wf docs-lint` when MCP is unavailable.
-3. Complete required review lanes before calling **Finalize feature**
+3. Complete required review lanes (**Review wave**); then optionally **Close change** for this change, then **Close wave**. Path: Plan change -> Create wave -> Add change to wave -> Prepare wave -> Implement change -> Review wave -> Close change (per change, optional) -> Close wave.
 
 ## Rules
 

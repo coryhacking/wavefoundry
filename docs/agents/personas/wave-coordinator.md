@@ -4,11 +4,11 @@ Owner: Engineering
 Status: active
 Role: wave-coordinator
 Category: persona
-Last verified: 2026-09-22
+Last verified: 2026-10-06
 
 ## Who
 
-- A developer or engineering lead in a target repository who runs wave lifecycle commands: **Plan feature**, **Create wave**, **Add change to wave**, **Prepare wave**, **Implement wave**, **Review wave**, **Close wave**
+- A developer or engineering lead in a target repository who runs wave lifecycle commands: **Plan change**, **Create wave**, **Add change to wave**, **Prepare wave**, **Implement wave**, **Review wave**, **Close wave**
 - May also act as implementer for small teams
 - Not a Wavefoundry maintainer — operates the framework as a user of their own project's delivery system
 
@@ -22,7 +22,7 @@ Last verified: 2026-09-22
 ## Workflows
 
 **Starting a delivery wave:**
-1. **Plan feature** → change doc at `docs/plans/`
+1. **Plan change** → change doc at `docs/plans/`
 2. **Create wave** → wave record at `docs/waves/<wave-id>/`
 3. **Add change to wave** → admission; product-owner noted if needed
 4. **Prepare wave** → readiness confirmation; change doc relocated; AC priority recorded

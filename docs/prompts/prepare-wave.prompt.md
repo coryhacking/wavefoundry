@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-22
+Last verified: 2026-10-06
 
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 
 ## Host-neutral orchestration
 
-Follow `.wavefoundry/framework/seeds/180-implement-feature.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose models and reasoning effort for readiness analysis by task fit, and record the bounded work allocation in the existing wave record. Use only available host capabilities; sequential implementation does not satisfy required independent review.
+Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose models and reasoning effort for readiness analysis by task fit, and record the bounded work allocation in the existing wave record. Use only available host capabilities; sequential implementation does not satisfy required independent review.
 
 ## Purpose
 
@@ -21,7 +21,7 @@ Prepare wave has passed cleanly; declared review-enabled waves require the typed
 3. Select required review lanes for each admitted change (see `docs/contributing/agent-team-workflow.md`).
 4. Confirm `qa-reviewer` is included for any bug fix (`review_policies.require_qa_reviewer_for_bug_fixes: true`).
 5. When `wave_review.enabled` is true, run the Wave Council readiness pass in two phases: first, the `wave-council` declares a **primer depth tier** (`lightweight` / `standard` / `full`) based on trust boundaries touched, files in scope, and change type — this sets how many stances and `primer_questions` Phase 1 produces; (1) `red-team` runs the adversarial primer (`council-adversarial-primer` mode) first in isolation at the declared depth — strongest challenge, best alternative, and `primer_questions`; (2) fixed seats each receive the standard briefing plus the primer output and must address `strongest_challenge` and `primer_questions` before producing their own findings; a rotating fifth seat finds the strongest alternative path the wave did not take; `wave-council` synthesizes all outputs. On declared waves, record `wave-council-readiness` as a typed approval event via `wf_review_event`; this typed record is the sole machine authority, and any structured `prepare-council` checkpoint is narrative only. Legacy prose waves retain the structured checkpoint compatibility gate. Call `wf_prepare_wave` again after the current typed approval is recorded (`ready` to ready without opening, or `create` to prepare and open).
-6. **AC priority check:** categorize each admitted change's ACs as required / important / nice-to-have / not-this-scope; record in `## AC priority` on the change doc; interrogate required and important ACs until each classification is explicitly justified. ACs admitted with the `[~]` marker (intentionally not met from the outset) are unusual but accepted — they must already carry an inline status note explaining the deferral, and the `## AC priority` row must still record their priority. See `.wavefoundry/framework/seeds/170-plan-feature.prompt.md` *"AC and task checkbox states — the `[~]` marker"* for the canonical convention. Note the close-time hard gate: silent `[ ]` items block `wf_close_wave`, so prepare-time AC tracking habits matter.
+6. **AC priority check:** categorize each admitted change's ACs as required / important / nice-to-have / not-this-scope; record in `## AC priority` on the change doc; interrogate required and important ACs until each classification is explicitly justified. ACs admitted with the `[~]` marker (intentionally not met from the outset) are unusual but accepted — they must already carry an inline status note explaining the deferral, and the `## AC priority` row must still record their priority. See `.wavefoundry/framework/seeds/170-plan-change.prompt.md` *"AC and task checkbox states — the `[~]` marker"* for the canonical convention. Note the close-time hard gate: silent `[ ]` items block `wf_close_wave`, so prepare-time AC tracking habits matter.
 7. Record product-owner acknowledgment for product-impacting waves (feature changes shifting product behavior/UX/acceptance).
 8. Record the readiness verdict; the wave stays **readied** (`Status: planned`). Readiness no longer flips the wave to `active` (wave 1p45l) — opening it is a separate, single-OPEN-gated step. Complete readiness with `wf_prepare_wave(mode='ready')` (readies without opening — works while another wave is OPEN) or `wf_prepare_wave(mode='create')` (prepare-and-open in one step, the common single-wave flow). Use `mode='evaluate'` as the documented read-only alias for `dry_run`.
 

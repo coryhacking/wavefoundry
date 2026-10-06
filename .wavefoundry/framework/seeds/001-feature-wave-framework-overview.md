@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Explain the Wave Framework delivery lifecycle at a high level: how work is grouped into waves, how each wave is readied, implemented, reviewed, and finalized.
+Explain the Wave Framework delivery lifecycle at a high level: how work is grouped into waves, how each wave is readied, implemented, reviewed, and closed.
 
 **WAVE** stands for **Workflow, Agents, Verification, Engineering**.
 
@@ -38,7 +38,7 @@ The **wave** is the primary delivery unit. A wave is a bounded, reviewable conta
 - **change-id**: identifies one tracked change within a wave, using the format `<prefix>-<kind> <slug>` where `<kind>` is one of: `bug`, `feat`, `enh`, `change`, `doc`, `debt`, `ref`, `task`, `maint`, `ops`; for example `1mgvf-enh routine-status-contract-centralization`. The `feat` kind is retired for new change docs and stays valid for existing ids: a change doc is one scoped change, so a large feature is planned as several changes (usually `enh`), possibly across waves
 - **active wave**: the wave currently being implemented and reviewed
 - **carry-forward**: a change not completed when a wave closed, admitted into the next wave with its unfinished work made explicit
-- **finalize**: the wave closure step that promotes durable outcomes into canonical docs, archives completed artifacts, and marks the wave permanently closed
+- **close**: the wave closure step that promotes durable outcomes into canonical docs, archives completed artifacts, and marks the wave permanently closed
 
 ## Lifecycle At A Glance
 
@@ -47,7 +47,7 @@ The **wave** is the primary delivery unit. A wave is a bounded, reviewable conta
 3. Implement the wave — consume the current readiness approval, then implement and run focused computational checks for all admitted changes.
 4. Review the wave — run required review lanes as a unified set, run the Wave Council delivery pass when the project enables it, and rerun readiness at final review.
 5. Close and commit the wave — record completion, reconcile wave-owned change docs and reports, commit the result.
-6. Either plan the next wave (carry incomplete changes forward) or finalize.
+6. Either plan the next wave (carry incomplete changes forward) or close out the work.
 
 - **Execution ordering:** Steps 3–4 are distinct: implementation produces complete evidence first, then **`Review wave`** runs the required inferential lanes. A high-risk boundary may request the named focused checkpoint below, but routine reviewer passes belong to Review. **Close** verifies that the delivery review is current.
 
@@ -154,7 +154,7 @@ The implement loop has three distinct levels. The finding type — not severity 
 |---|---|---|---|
 | **1** | Micro | Implementer observes test/build failure within a single task | Fix in place; stays internal to the implementer sub-agent; no Progress Log entry required |
 | **2** | Focused independent checkpoint | Implementation exposes a logic, behavior, or coverage risk that is not safely implementer-internal but does not invalidate scope or an acceptance criterion | Request one named reviewer for the affected boundary, fix and re-check that boundary, then continue; this is exceptional, not the routine delivery review |
-| **3** | Wave lifecycle | Finding invalidates an acceptance criterion, contradicts the approved plan, crosses an architecture boundary, or reveals a scope or requirement ambiguity | Stop, surface to operator, route to `Plan feature` or re-`Prepare wave` before continuing |
+| **3** | Wave lifecycle | Finding invalidates an acceptance criterion, contradicts the approved plan, crosses an architecture boundary, or reveals a scope or requirement ambiguity | Stop, surface to operator, route to `Plan change` or re-`Prepare wave` before continuing |
 
 **Finding escalation reference:**
 
@@ -164,7 +164,7 @@ The implement loop has three distinct levels. The finding type — not severity 
 | Missing test coverage | 2 | Request a named QA checkpoint for the affected boundary, add tests, and re-check it |
 | Logic error, missing behavior | 2 | Request a named code-review checkpoint for the affected boundary, fix, and re-check it |
 | Scope creep discovered during implementation | 3 | Stop, update change doc, operator resolution, re-Prepare |
-| Finding invalidates an acceptance criterion | 3 | Stop, surface to operator, route to Plan feature or re-Prepare |
+| Finding invalidates an acceptance criterion | 3 | Stop, surface to operator, route to Plan change or re-Prepare |
 | Architecture boundary violation | 3 | Stop, route to architecture-reviewer + operator, re-Prepare |
 | Requirement ambiguity blocking implementation | 3 | Stop, operator resolution, update change doc, re-Prepare |
 | Accepted tradeoff with recorded rationale | Exit loop | Record in change doc, continue |
@@ -186,7 +186,7 @@ flowchart TD
     G --> H{More work remains under these or related changes?}
     H -->|Yes| I[Carry incomplete changes forward in the next wave]
     I --> J[Plan the next wave]
-    H -->|No| K[Finalize: promote outcomes to canonical docs and close]
+    H -->|No| K[Close: promote outcomes to canonical docs and close the wave]
 ```
 
 - Closing a wave means reconciling every scoped change — not just marking the wave done.
@@ -196,7 +196,7 @@ flowchart TD
 - Rerun the readiness evaluation during final review before closure so new reviewer or persona triggers introduced during implementation do not get skipped.
 - The wave folder (`docs/waves/<wave-id>/`) becomes the self-contained permanent archive.
 - If changes remain, carry them forward in the next wave — do not let incomplete work drift without a new wave home.
-- If no work remains, finalize: promote durable behavior into canonical docs, persona guidance, workflow memory, and typed memory records.
+- If no work remains, close out: promote durable behavior into canonical docs, persona guidance, workflow memory, and typed memory records.
 
 ## Canonical References
 
@@ -209,6 +209,6 @@ flowchart TD
 - `docs/contributing/discovery-delivery-workflow.md`
 - `docs/contributing/review-and-evals.md`
 - `docs/waves/README.md`
-- `docs/prompts/plan-feature.prompt.md`
-- `docs/prompts/implement-feature.prompt.md`
-- `docs/prompts/finalize-feature.prompt.md`
+- `docs/prompts/plan-change.prompt.md`
+- `docs/prompts/implement-change.prompt.md`
+- `docs/prompts/close-change.prompt.md`

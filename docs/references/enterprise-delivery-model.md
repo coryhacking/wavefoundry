@@ -3,7 +3,7 @@
 
 Owner: Engineering
 Status: draft
-Last verified: 2026-10-02
+Last verified: 2026-10-06
 
 ---
 
@@ -254,7 +254,7 @@ Cycle Open
     → Assign designated coordinator
 
     Wave lifecycle (for each Wave in the Swell)
-      → Plan feature → Create wave → Add change → Prepare wave
+      → Plan change → Create wave → Add change → Prepare wave
       → Implement → Review → Close
       (full Wave Framework lifecycle per docs/contributing/change-workflow.md)
 

@@ -1,14 +1,14 @@
-# Implement Feature
+# Implement Change
 
 Owner: Engineering
 Status: active
 Last verified: 2026-09-22
 
-Shortcut: **`Implement feature`**
+Shortcut: **`Implement change`**
 
 ## Host-neutral orchestration
 
-Follow `.wavefoundry/framework/seeds/180-implement-feature.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose models and reasoning effort per implementation or verification task; accept changes only after coordinator integration checks. Use only available host capabilities; sequential implementation does not satisfy required independent review.
+Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose models and reasoning effort per implementation or verification task; accept changes only after coordinator integration checks. Use only available host capabilities; sequential implementation does not satisfy required independent review.
 
 ## Purpose
 
@@ -20,7 +20,7 @@ Repository code stage gate must pass:
 1. Consolidated change doc exists and is admitted into a wave
 2. Prepare wave has passed cleanly; declared review-enabled waves require the typed `wave-council-readiness` approval on the current receipt. Legacy prose-verdict and review-disabled behavior are preserved.
 
-If any step is missing, stop and route back to **Plan feature**, **Create wave**, **Add change to wave**, or **Prepare wave**.
+If any step is missing, stop and route back to **Plan change**, **Create wave**, **Add change to wave**, or **Prepare wave**.
 
 **Readback before editing:**
 
@@ -35,7 +35,7 @@ Correct an agent-only misreading directly from the established requirement. Rout
 3. Follow `docs/repo-profile.json` `code_patterns` when populated.
 4. Routine documentation edits already receive automatic incremental changed-set lint. After implementation: run framework tests, then prefer the full MCP **`wf_validate_docs`** (and **`wf_garden_docs`** if metadata needs refresh). **CLI fallback:** `wf docs-gardener && wf docs-lint` when MCP is unavailable.
 5. Complete required review lanes before closing.
-6. Use **Finalize feature** to close the wave.
+6. Continue the lifecycle: **Review wave**, then optionally **Close change** (`docs/prompts/close-change.prompt.md`) to mark this change `complete` once review has cleared it, then **Close wave**, the only wave close. The full path is Plan change -> Create wave -> Add change to wave -> Prepare wave -> Implement change -> Review wave -> Close change (per change, optional) -> Close wave.
 7. If the operator requests a follow-up that still belongs to the current wave and the scope fits an admitted change, update that existing change's Acceptance Criteria and Tasks instead of opening a new change; create a new change only when the new work is materially different or needs separate tracking.
 
 ## Guardrails

@@ -46,8 +46,8 @@
       "shortcut": "Package Wavefoundry"
     },
     {
-      "doc": "docs/prompts/plan-feature.prompt.md",
-      "shortcut": "Plan feature"
+      "doc": "docs/prompts/plan-change.prompt.md",
+      "shortcut": "Plan change"
     },
     {
       "doc": "docs/prompts/create-wave.prompt.md",
@@ -70,8 +70,8 @@
       "shortcut": "Implement wave"
     },
     {
-      "doc": "docs/prompts/implement-feature.prompt.md",
-      "shortcut": "Implement feature"
+      "doc": "docs/prompts/implement-change.prompt.md",
+      "shortcut": "Implement change"
     },
     {
       "doc": "docs/prompts/pause-wave.prompt.md",
@@ -90,8 +90,8 @@
       "shortcut": "Close wave"
     },
     {
-      "doc": "docs/prompts/finalize-feature.prompt.md",
-      "shortcut": "Finalize feature"
+      "doc": "docs/prompts/close-change.prompt.md",
+      "shortcut": "Close change"
     },
     {
       "doc": "docs/prompts/review-plan.prompt.md",

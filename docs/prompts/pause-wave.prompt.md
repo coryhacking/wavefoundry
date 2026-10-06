@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-22
+Last verified: 2026-10-06
 
 Shortcut: **`Pause wave`**
 
 ## Host-neutral orchestration
 
-Follow `.wavefoundry/framework/seeds/180-implement-feature.prompt.md` **Host-neutral orchestration** across the lifecycle. Record scope and ACs, revision or tree fingerprint, changed paths, commands/results, unresolved findings and next action in the existing handoff and wave records. The receiving context checks the current tree before resuming. Use only available host capabilities; sequential implementation does not satisfy required independent review.
+Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neutral orchestration** across the lifecycle. Record scope and ACs, revision or tree fingerprint, changed paths, commands/results, unresolved findings and next action in the existing handoff and wave records. The receiving context checks the current tree before resuming. Use only available host capabilities; sequential implementation does not satisfy required independent review.
 
 ## Purpose
 

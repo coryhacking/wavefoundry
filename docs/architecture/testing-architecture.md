@@ -474,7 +474,7 @@ runner is absent — every repository that consumes the packaged framework, sinc
 is a documented no-op.
 
 This is the machine-visible half of moving whole-suite assertions out of per-change
-acceptance criteria; the feedforward half is seed `170-plan-feature.prompt.md`
+acceptance criteria; the feedforward half is seed `170-plan-change.prompt.md`
 *"Acceptance criteria assert what the change controls"* and the sensor half is the
 `docs-lint` AC-shape validator.
 

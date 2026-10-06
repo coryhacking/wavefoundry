@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-03
+Last verified: 2026-10-06
 
 ---
 
@@ -48,7 +48,7 @@ Issues and pull requests are excellent for tracking *what changed*. They are wea
 Waves address this by making the lifecycle explicit:
 
 ```
-Plan feature       → Author a change document with rationale, requirements, ACs, and scope
+Plan change       → Author a change document with rationale, requirements, ACs, and scope
 Create wave        → Open a delivery unit and admit the change
 Prepare wave       → Run a readiness check; the gate must pass before any code is touched
 Implement wave     → Execute the admitted changes under coordinator oversight

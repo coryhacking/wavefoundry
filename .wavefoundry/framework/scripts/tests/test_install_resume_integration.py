@@ -93,7 +93,7 @@ class PartialPromptInstallIntegrationTests(unittest.TestCase):
         manifest = self.root / "docs/prompts/prompt-surface-manifest.json"
         manifest_bytes = manifest.read_bytes()
         data = json.loads(manifest_bytes)
-        prompt_rel = "docs/prompts/plan-feature.prompt.md"
+        prompt_rel = "docs/prompts/plan-change.prompt.md"
         self.assertIn(prompt_rel, {entry["doc"] for entry in data["public_prompt_surface"]})
         # This is a mandatory seed-100 catalog member, not an arbitrary fixture file.
         seed = (FRAMEWORK / "seeds/100-project-prompt-surface-bootstrap.prompt.md").read_text(

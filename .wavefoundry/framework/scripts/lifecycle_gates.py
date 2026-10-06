@@ -621,7 +621,7 @@ def close_checkbox_gate(ctx: GateContext) -> GateResult:
                     f"Wave close blocked: {len(silent_unchecked)} unchecked AC or task item(s) "
                     "across admitted changes must be marked `[x]` (completed) or `[~]` (intentionally deferred) before close. "
                     "Silent `[ ]` items are blocking findings per the close-time hard gate. "
-                    f"See seed `170-plan-feature.prompt.md` for the `[~]` convention.\n{chr(10).join(sample_lines)}{more}"
+                    f"See seed `170-plan-change.prompt.md` for the `[~]` convention.\n{chr(10).join(sample_lines)}{more}"
                 ),
                 recovery_tools=["wf_current_wave", "wf_validate_docs"],
                 recovery_usage="wf_current_wave()",

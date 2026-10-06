@@ -8,7 +8,7 @@ alwaysApply: true
 
 Canonical rules for **all** agent hosts: `AGENTS.md` § **Codebase and documentation questions (auto-Guru)** and `docs/agents/guru.md`. This file is a Cursor-specific reinforcement of that contract.
 
-Applies to every chat in this workspace unless the user is invoking a **wave lifecycle** command from `docs/prompts/index.md` (**Plan feature**, **Implement wave**, **Close wave**, etc.).
+Applies to every chat in this workspace unless the user is invoking a **wave lifecycle** command from `docs/prompts/index.md` (**Plan change**, **Implement wave**, **Close wave**, etc.).
 
 ## When this rule applies
 

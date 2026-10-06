@@ -458,7 +458,7 @@ class TechdocsAuditBoundaryAgreementTests(unittest.TestCase):
 
     def test_the_two_recorded_mutants_still_flip(self):
         without_prompts_star = [p for p in GOLDEN_EXCLUDE if p != "/prompts/*"]
-        self.assertFalse(audit.excluded("prompts/plan-feature.prompt.md", without_prompts_star))
+        self.assertFalse(audit.excluded("prompts/plan-change.prompt.md", without_prompts_star))
         without_index_reinclude = [p for p in GOLDEN_EXCLUDE if p != "!/index.md"]
         self.assertTrue(audit.excluded("index.md", without_index_reinclude))
 
@@ -929,7 +929,7 @@ class TechdocsAuditBoundaryAgreementTests(unittest.TestCase):
         divergence rather than a pinned behaviour; see `_pattern_regex`.
         """
         without_prompts_star = [p for p in GOLDEN_EXCLUDE if p != "/prompts/*"]
-        self.assertFalse(audit.excluded("prompts/plan-feature.prompt.md", without_prompts_star))
+        self.assertFalse(audit.excluded("prompts/plan-change.prompt.md", without_prompts_star))
         self.assertFalse(audit.excluded("prompts/index.md", GOLDEN_EXCLUDE))
         self.assertTrue(audit.excluded("prompts/plan.md", GOLDEN_EXCLUDE))
         # An exact negation still re-includes its own file.

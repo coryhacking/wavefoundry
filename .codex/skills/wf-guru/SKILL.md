@@ -1,6 +1,6 @@
 ---
 name: wf-guru
-description: PROACTIVELY use when the user asks how repository source code or project documentation works — locating behavior, explaining pipelines, architecture, specs, framework scripts, indexing, chunking, retrieval, or MCP tools. Not for wave lifecycle commands (Plan feature, Implement wave, Close wave, etc.).
+description: PROACTIVELY use when the user asks how repository source code or project documentation works — locating behavior, explaining pipelines, architecture, specs, framework scripts, indexing, chunking, retrieval, or MCP tools. Not for wave lifecycle commands (Plan change, Implement wave, Close wave, etc.).
 ---
 
 # Wavefoundry Guru (skill — optional native surface)

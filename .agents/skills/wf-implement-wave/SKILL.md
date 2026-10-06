@@ -9,4 +9,4 @@ This skill is a thin pointer: the workflow lives in `docs/prompts/implement-wave
 
 - Prefer the `wf_implement_wave` MCP tool to open the readied wave and receive the ordered change list and watchpoints.
 - Gate reminder: the stage gate applies before any code edit (change doc, wave admission, recorded readiness); mark ACs and tasks as work completes, not at wave end.
-- Single-change variant: Implement feature (`docs/prompts/implement-feature.prompt.md`).
+- Single-change variant: Implement change (`docs/prompts/implement-change.prompt.md`).

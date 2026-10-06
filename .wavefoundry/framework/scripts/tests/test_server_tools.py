@@ -4586,7 +4586,7 @@ class McpResourceReadTests(unittest.TestCase):
         # Create a prompt index file
         prompts_dir = self.root / "docs" / "prompts"
         prompts_dir.mkdir(parents=True, exist_ok=True)
-        (prompts_dir / "index.md").write_text("# Prompt Index\n\n- plan-feature\n", encoding="utf-8")
+        (prompts_dir / "index.md").write_text("# Prompt Index\n\n- plan-change\n", encoding="utf-8")
         text = self._read_resource("wavefoundry://prompts")
         self.assertIn("Prompt Index", text)
 

@@ -175,7 +175,7 @@ Wavefoundry writes only to the paths above. The framework itself is committed so
 
 What each `docs/` subdirectory carries — the agent reads these to ground its work:
 
-- **`docs/prompts/`** — the catalog the agent looks up to route shortcut phrases (`Plan feature`, `Create wave`, and the rest).
+- **`docs/prompts/`** — the catalog the agent looks up to route shortcut phrases (`Plan change`, `Create wave`, and the rest).
 - **`docs/waves/`** — your delivery history. Each closed wave is a committed record of who decided what, who reviewed, and what shipped.
 - **`docs/plans/`** — staging area for change docs being authored before admission into a wave.
 - **`docs/architecture/`** — domain map, layering rules, current-state snapshots, data/control flow, ADRs. The agent reads this before drafting plans so it doesn't violate boundaries.
@@ -202,12 +202,12 @@ If a required model cannot download, first retry `wf setup` when network access 
 
 Three turns of conversation, end to end. Step 3 includes a structural refusal you can't talk past — that's the point of the framework.
 
-Every `>` line below is a shortcut phrase; in Claude Code, Codex, and Antigravity you can equally type the matching skill (`/wf-plan-feature`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-close-wave` — see [Skills](#skills-the-lifecycle-as-slash-commands)). Same workflow, either way.
+Every `>` line below is a shortcut phrase; in Claude Code, Codex, and Antigravity you can equally type the matching skill (`/wf-plan-change`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-close-wave` — see [Skills](#skills-the-lifecycle-as-slash-commands)). Same workflow, either way.
 
 ### 1. Plan a change
 
 ```
-> Plan feature: add /healthz endpoint to the API server
+> Plan change: add /healthz endpoint to the API server
 
 [agent reads docs/architecture/, drafts the change doc]
 
@@ -363,7 +363,7 @@ Hosts marked **skills** also receive the `/wf-…` lifecycle skills as project-l
 
 You'll use about six phrases day-to-day; the rest of the surface is there when you need it.
 
-- `Plan feature` — author a change doc
+- `Plan change` — author a change doc
 - `Create wave` — open a delivery unit
 - `Add change to wave` — admit a change to the active wave
 - `Prepare wave` — readiness gate before implementation
@@ -378,12 +378,13 @@ You don't have to memorize the phrases. In hosts that support skills — **Claud
 
 | Skill | Same as saying |
 |---|---|
-| `/wf-plan-feature` | `Plan feature` (any kind: feature, bug fix, refactor, docs, …) |
+| `/wf-plan-change` | `Plan change` (any kind: feature, bug fix, refactor, docs, …) |
 | `/wf-review-plan` | `Review plan` — optionally stress-test a change doc, or the current wave when none is named, before or after admission and before implementation; `Interrogate this plan` and `Stress-test this plan` remain phrase aliases |
 | `/wf-prepare-wave` | `Prepare wave` |
 | `/wf-implement-wave` | `Implement wave` |
 | `/wf-review-wave` | `Review wave` |
 | `/wf-close-wave` | `Close wave` |
+| `/wf-close-change` | `Close change`: close one reviewed change inside the open wave with `wf_close_change`; never closes the wave |
 | `/wf-pause-wave` | `Pause wave` — park session state in the handoff |
 | `/wf-council` | Convene an on-demand review: Wave Council, Archetype Council, or a standalone Red-team review |
 | `/wf-evaluate-decision` | `Evaluate decision` — ADR-shaped comparison of two options |

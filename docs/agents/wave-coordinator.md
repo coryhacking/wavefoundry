@@ -4,11 +4,11 @@ Owner: Engineering
 Status: active
 Role: wave-coordinator
 Category: coordinate
-Last verified: 2026-09-22
+Last verified: 2026-10-06
 
 ## Host-neutral orchestration
 
-Follow `.wavefoundry/framework/seeds/180-implement-feature.prompt.md` **Host-neutral orchestration** for task-fit model allocation, bounded delegation and independent handoff throughout Prepare-to-Close. Host choice is per task or wave; native wrappers remain pointers to shared project guidance. Check actual worker capabilities rather than assuming inherited tools.
+Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neutral orchestration** for task-fit model allocation, bounded delegation and independent handoff throughout Prepare-to-Close. Host choice is per task or wave; native wrappers remain pointers to shared project guidance. Check actual worker capabilities rather than assuming inherited tools.
 
 ## Operating Identity
 

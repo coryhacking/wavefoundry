@@ -469,9 +469,9 @@ class GetPromptTests(unittest.TestCase):
 
     def test_finds_prompt_by_slug(self):
         _make_repo(self.root, {
-            "docs/prompts/plan-feature.prompt.md": "# Plan Feature\n\nDo the thing.\n",
+            "docs/prompts/plan-change.prompt.md": "# Plan Change\n\nDo the thing.\n",
         })
-        text = self.srv.get_prompt(self.root, "plan-feature")
+        text = self.srv.get_prompt(self.root, "plan-change")
         self.assertIsNotNone(text)
         self.assertIn("Do the thing", text)
 
@@ -485,6 +485,50 @@ class GetPromptTests(unittest.TestCase):
         })
         text = self.srv.get_prompt(self.root, "Prepare wave")
         self.assertIsNotNone(text)
+
+
+class ChangePromptLookupTests(unittest.TestCase):
+    """1zyc4 AC-3: the real prompt surface resolves the change names and no retired alias."""
+
+    REPO = Path(__file__).resolve().parents[4]
+    RETIRED_TOKENS = re.compile(
+        r"plan-feature|implement-feature|finalize-feature|plan_feature|wf-plan-feature"
+        r"|plan feature|implement feature|finalize feature",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def test_new_names_resolve_and_retired_names_do_not(self):
+        prompts = self.REPO / "docs" / "prompts"
+        for shortcut, filename in (
+            ("Plan change", "plan-change.prompt.md"),
+            ("Implement change", "implement-change.prompt.md"),
+            ("Close change", "close-change.prompt.md"),
+            ("Init wave framework", "install-wavefoundry.prompt.md"),
+        ):
+            with self.subTest(shortcut=shortcut):
+                expected = (prompts / filename).read_text(encoding="utf-8")
+                self.assertEqual(self.srv.get_prompt(self.REPO, shortcut), expected)
+                response = self.srv.wf_get_prompt_response(self.REPO, shortcut)
+                self.assertEqual(response["data"]["prompt"]["content"], expected)
+        for retired in ("plan-" "feature", "implement-" "feature", "finalize-" "feature",
+                        "Plan " "feature", "Implement " "feature", "Finalize " "feature"):
+            with self.subTest(retired=retired):
+                self.assertIsNone(self.srv.get_prompt(self.REPO, retired))
+                response = self.srv.wf_get_prompt_response(self.REPO, retired)
+                self.assertIsNone(response["data"]["prompt"])
+                self.assertEqual(response["diagnostics"][0]["code"], "prompt_not_found")
+
+    def test_no_prompt_doc_carries_a_retired_token(self):
+        offenders = [
+            f"{path.relative_to(self.REPO).as_posix()}: {match.group(0)}"
+            for path in sorted((self.REPO / "docs" / "prompts").rglob("*.md"))
+            for match in self.RETIRED_TOKENS.finditer(path.read_text(encoding="utf-8"))
+        ]
+        self.assertEqual(offenders, [])
 
 
 # ---------------------------------------------------------------------------

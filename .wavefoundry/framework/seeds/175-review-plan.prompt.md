@@ -10,7 +10,7 @@ Intent:
 
 - Given a change doc as context, or the current wave record when no change is specified, walk every unresolved decision branch one question at a time, provide a recommended answer derived from project resources when possible, and surface only questions that genuinely require operator judgment. It may run before or after plan admission, but only before implementation. Stop when all branches in Requirements, Acceptance Criteria, and Scope are resolved.
 
-- During plan review, ACs marked `[~]` (intentionally not met) are treated as resolved and skipped — the convention's contract is that a `[~]` AC carries its rationale inline. See `170-plan-feature.prompt.md` "AC and task checkbox states — the `[~]` marker" for the canonical definition.
+- During plan review, ACs marked `[~]` (intentionally not met) are treated as resolved and skipped — the convention's contract is that a `[~]` AC carries its rationale inline. See `170-plan-change.prompt.md` "AC and task checkbox states — the `[~]` marker" for the canonical definition.
 
 Before reviewing, consult all available project resources to self-answer questions without operator input:
 

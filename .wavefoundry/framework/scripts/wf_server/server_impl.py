@@ -4305,11 +4305,11 @@ def change_doc_response(root, kind, slug, *, cache=None) -> dict:
                     f"Unsupported change kind {kind!r}; kinds that can be created: "
                     f"{', '.join(_vocab.MINTABLE_CHANGE_KINDS)}.",
                     recovery_tools=["wf_help"],
-                    recovery_usage="wf_help(goal='plan_feature')",
+                    recovery_usage="wf_help(goal='plan_change')",
                 )
             ],
             next_tools=["wf_help"],
-            usage="wf_help(goal='plan_feature')",
+            usage="wf_help(goal='plan_change')",
         )
     return _change_create_response(Path(root), kind, slug, mode="create", cache=cache)
 
@@ -4534,7 +4534,7 @@ def _help_catalog() -> dict[str, Any]:
                 "next_step": "Call wf_server_info immediately after connect.",
                 "usage": "wf_server_info()",
             },
-            "plan_feature": {
+            "plan_change": {
                 "recommended_chain": ["wf_new_enhancement", "wf_get_change", "wf_validate_docs"],
                 "rationale": (
                     "Create the change doc with the kind-specific tool, inspect it, then validate docs state. "
@@ -4645,7 +4645,7 @@ def wf_help_response(goal: str = "") -> dict[str, Any]:
             "ok",
             catalog,
             next_tools=["wf_current_wave"],
-            usage="wf_help(goal='plan_feature')",
+            usage="wf_help(goal='plan_change')",
         )
     workflow = catalog["workflows"].get(normalized)
     if workflow is None:
@@ -6152,7 +6152,7 @@ def wf_list_plans_response(root: Path, limit: int = 50, cache: Optional[McpRepoC
         {"plans": plans, "total": len(all_plans), "has_more": has_more},
         diagnostics=diagnostics,
         next_tools=["wf_new_enhancement", "wf_current_wave"] if plans else ["wf_help"],
-        usage="wf_help(goal='plan_feature')",
+        usage="wf_help(goal='plan_change')",
     )
 
 
@@ -8644,11 +8644,11 @@ def _change_create_response(
                     "invalid_arguments",
                     "Change slug must be a non-empty string.",
                     recovery_tools=["wf_help"],
-                    recovery_usage="wf_help(goal='plan_feature')",
+                    recovery_usage="wf_help(goal='plan_change')",
                 )
             ],
             next_tools=["wf_help"],
-            usage="wf_help(goal='plan_feature')",
+            usage="wf_help(goal='plan_change')",
         )
     try:
         result = change_create(root, kind_s, slug_s, mode=mode_s)
@@ -8661,11 +8661,11 @@ def _change_create_response(
                     "invalid_arguments",
                     str(exc),
                     recovery_tools=["wf_help"],
-                    recovery_usage="wf_help(goal='plan_feature')",
+                    recovery_usage="wf_help(goal='plan_change')",
                 )
             ],
             next_tools=["wf_help"],
-            usage="wf_help(goal='plan_feature')",
+            usage="wf_help(goal='plan_change')",
         )
 
     diagnostics: list[dict[str, Any]] = []
@@ -21316,7 +21316,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         """Return a structured MCP workflow catalogue or a goal-specific recommended chain.
 
         Args:
-            goal: Optional workflow goal, e.g. "plan_feature" or "inspect_wave".
+            goal: Optional workflow goal, e.g. "plan_change" or "inspect_wave".
         """
         bad = _ensure_no_extra_args("wf_help", kwargs)
         if bad is not None:
@@ -21552,7 +21552,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Prefer when: you know the seed name or number. Use docs_search instead when searching for seed content by concept.
 
         Args:
-            name: Seed name or partial slug, e.g. "plan-feature" or "020-run-contract".
+            name: Seed name or partial slug, e.g. "plan-change" or "020-run-contract".
         """
         bad = _ensure_no_extra_args("seed_get", kwargs)
         if bad is not None:
@@ -22270,7 +22270,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         """Return the full rendered prompt for a Wave Framework shortcut phrase.
 
         Args:
-            shortcut: Shortcut phrase, e.g. "Prepare wave" or "Plan feature".
+            shortcut: Shortcut phrase, e.g. "Prepare wave" or "Plan change".
         """
         bad = _ensure_no_extra_args("wf_get_prompt", kwargs)
         if bad is not None:

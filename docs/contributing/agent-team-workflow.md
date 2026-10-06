@@ -2,11 +2,11 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-21
+Last verified: 2026-10-06
 
 ## Host-neutral orchestration
 
-Follow `.wavefoundry/framework/seeds/180-implement-feature.prompt.md` **Host-neutral orchestration** for task-fit model allocation, bounded delegation and independent handoff throughout Prepare-to-Close. Host choice is per task or wave; native wrappers remain pointers to shared project guidance. Choose model and effort per assignment using exposed host controls; inheritance is a fallback, not a decision. Keep the rationale in existing work notes and distinguish requested settings from observed runtime identity (unknown when unavailable). Check actual worker capabilities rather than assuming inherited tools.
+Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neutral orchestration** for task-fit model allocation, bounded delegation and independent handoff throughout Prepare-to-Close. Host choice is per task or wave; native wrappers remain pointers to shared project guidance. Choose model and effort per assignment using exposed host controls; inheritance is a fallback, not a decision. Keep the rationale in existing work notes and distinguish requested settings from observed runtime identity (unknown when unavailable). Check actual worker capabilities rather than assuming inherited tools.
 
 ## Role Routing
 
@@ -107,7 +107,7 @@ Carries the **Retrieval Rules** from the framework run contract (seed-020) for e
 - **Claim-backing rule:** any "how many callers / how many implementations / what's the blast radius" claim must be backed by `code_references`/`code_callhierarchy`, not a sampled grep. Only enumeration is evidence for a completeness claim.
 - Static orientation surfaces complement the tools: `docs/repo-index.md`, the codebase map, and per-area `AGENTS.md` are one targeted read with no setup — the fallback spearhead when MCP is absent, cold-start orientation only when it's attached.
 - Reserve `grep`/raw reads for literal-byte checks, git inspection, and the MCP-absent/insufficient fallback; record a `Gapfill:` note when falling back.
-- The canonical exploration order lives in seed `180-implement-feature.prompt.md` (MCP-first code exploration) and `docs/agents/guru.md` (retrieval loop) — point to them; do not restate. (The previously named `docs/prompts/implement-feature.prompt.md` is a thin shortcut file and carries no exploration order.)
+- The canonical exploration order lives in seed `180-implement-change.prompt.md` (MCP-first code exploration) and `docs/agents/guru.md` (retrieval loop) — point to them; do not restate. (The previously named `docs/prompts/implement-change.prompt.md` is a thin shortcut file and carries no exploration order.)
 
 ## Concurrency
 

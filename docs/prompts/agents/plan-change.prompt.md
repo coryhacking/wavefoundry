@@ -1,4 +1,4 @@
-# Agent Body — Plan Feature
+# Agent Body — Plan Change
 
 Owner: Engineering
 Status: active
@@ -6,7 +6,7 @@ Last verified: 2026-10-02
 
 ## Context
 
-You are running **Plan feature** on Wavefoundry. Author a consolidated change document following `docs/plans/plan-template.md`.
+You are running **Plan change** on Wavefoundry. Author a consolidated change document following `docs/plans/plan-template.md`.
 
 ## Change ID Generation
 

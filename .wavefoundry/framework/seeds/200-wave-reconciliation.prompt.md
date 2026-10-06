@@ -49,7 +49,7 @@ Example in-scope file list entry:
 
 ```
 - In-scope files (gated — do not edit before Prepare wave):
-  - `.wavefoundry/framework/seeds/180-implement-feature.prompt.md`
+  - `.wavefoundry/framework/seeds/180-implement-change.prompt.md`
   - `AGENTS.md`
   - `docs/prompts/implement-wave.prompt.md`
   - (full list from change doc ## Scope)

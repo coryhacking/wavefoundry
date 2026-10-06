@@ -19,8 +19,8 @@
       "shortcut": "Upgrade Wavefoundry"
     },
     {
-      "doc": "docs/prompts/plan-feature.prompt.md",
-      "shortcut": "Plan feature"
+      "doc": "docs/prompts/plan-change.prompt.md",
+      "shortcut": "Plan change"
     }
   ]
 }

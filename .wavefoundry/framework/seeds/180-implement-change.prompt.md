@@ -1,11 +1,11 @@
-# 180 - Implement Feature (Shortcut)
+# 180 - Implement Change (Shortcut)
 
 Use this when you want a single command-style request such as:
 
 - `Prepare wave`
 - `Implement wave`
 - `Execute wave`
-- `Implement feature`
+- `Implement change`
 - `Implement enhancement`
 - `Implement bug`
 - `Implement refactor`
@@ -16,7 +16,7 @@ Use this when you want a single command-style request such as:
 
 Intent:
 
-- Ready and execute the active wave — evaluate its admitted changes, coordinate implementation and computational verification, then hand complete evidence to `Review wave` until the wave is **closure-ready**. **Do not** perform **terminal closure** (completed `Status`, `Completed at`, closure-only plan/handoff reconciliation) unless the operator **explicitly confirms** closure in the current request (e.g. **`Close wave`**, **`Finalize feature`**, or a clear yes after you ask). See `docs/prompts/implement-wave.prompt.md` and `docs/prompts/close-wave.prompt.md`.
+- Ready and execute the active wave — evaluate its admitted changes, coordinate implementation and computational verification, then hand complete evidence to `Review wave` until the wave is **closure-ready**. **Do not** perform **terminal closure** (completed `Status`, `Completed at`, closure-only plan/handoff reconciliation) unless the operator **explicitly confirms** closure in the current request (e.g. **`Close wave`** or a clear yes after you ask). See `docs/prompts/implement-wave.prompt.md` and `docs/prompts/close-wave.prompt.md`.
 
 Core execution model:
 
@@ -28,7 +28,7 @@ Core execution model:
 - the coordinator decides which agents work on which admitted changes or tasks and in what order
 - blocking delivery-review findings send the wave back into implementation until the required lanes are clean
 - **`Review wave`** is the operator shortcut for delivery inferential review, including reviewer fan-out and finding deduplication. In a multi-change wave, a per-change delivery checkpoint after that change's implementation evidence is complete is ordinary sequencing: a required lane's approval at that checkpoint is its wave-level delivery approval, subject to later `approval_recheck_lanes`. Approval comes from a fresh context started for delivery review; retained inventory, readiness, non-delivery checkpoint or repair contexts return findings and evidence but record no approval.
-- scoped **work** is done when all admitted changes are implemented and required reviews are clean, or changes are explicitly deferred, moved, or superseded — **formal wave closure** (terminal metadata and closure artifacts) still requires **operator-confirmed** `Close wave` / `Finalize feature` per project prompt docs (for example `docs/prompts/` and `AGENTS.md`)
+- scoped **work** is done when all admitted changes are implemented and required reviews are clean, or changes are explicitly deferred, moved, or superseded — **formal wave closure** (terminal metadata and closure artifacts) still requires **operator-confirmed** `Close wave` per project prompt docs (for example `docs/prompts/` and `AGENTS.md`)
 - the committed result is the wave as a whole — individual changes do not ship outside a wave
 - incomplete changes carry forward into the next wave under the same `Change ID`; create a new change only when the remaining work is materially different and that split is made explicit
 - if the operator requests a follow-up that still belongs to the current wave and the scope fits an admitted change, update that existing change's ACs and tasks instead of opening a new change; create a new change only when the new work is materially different or needs separate tracking
@@ -47,7 +47,7 @@ Loop levels — the finding type, not severity alone, determines which level act
 
 - **Level 1 (Micro):** edit → test → observe → fix, entirely internal to the implementer sub-agent. No Progress Log entry required. Does not involve the coordinator.
 - **Level 2 (Focused independent checkpoint):** when implementation exposes a logic, behavior, or coverage risk that is not safely implementer-internal but does not invalidate scope or an acceptance criterion, request one named reviewer for that affected boundary, fix, and re-check the boundary. This stays in phase; planned per-change delivery review is ordinary sequencing and retains the delivery approval rules above.
-- **Level 3 (Wave lifecycle):** a finding invalidates an acceptance criterion, contradicts the approved plan, crosses an architecture boundary, or reveals scope or requirement ambiguity the coordinator cannot resolve. Coordinator stops, surfaces to operator, routes to `Plan feature` or re-`Prepare wave` before continuing.
+- **Level 3 (Wave lifecycle):** a finding invalidates an acceptance criterion, contradicts the approved plan, crosses an architecture boundary, or reveals scope or requirement ambiguity the coordinator cannot resolve. Coordinator stops, surfaces to operator, routes to `Plan change` or re-`Prepare wave` before continuing.
 
 Finding escalation — apply this table before deciding which loop level to activate:
 
@@ -57,7 +57,7 @@ Finding escalation — apply this table before deciding which loop level to acti
 | Missing test coverage | 2 | Request a named QA checkpoint for the affected boundary, add tests, and re-check it |
 | Logic error, missing behavior | 2 | Request a named code-review checkpoint for the affected boundary, fix, and re-check it |
 | Scope creep discovered during implementation | 3 | Stop, update change doc, operator resolution, re-Prepare |
-| Finding invalidates an acceptance criterion | 3 | Stop, surface to operator, route to Plan feature or re-Prepare |
+| Finding invalidates an acceptance criterion | 3 | Stop, surface to operator, route to Plan change or re-Prepare |
 | Architecture boundary violation | 3 | Stop, route to architecture-reviewer + operator, re-Prepare |
 | Requirement ambiguity blocking implementation | 3 | Stop, operator resolution, update change doc, re-Prepare |
 | Accepted tradeoff with recorded rationale | Exit loop | Record in change doc, continue |
@@ -85,7 +85,7 @@ Parallel action merge — when implementation or computational-verification acti
 Wave plan — extends the operator-approval checkpoint (see Machine-usable execution expectations below):
 - Before the first edit, the coordinator assembles a briefing packet per `209-agent-harness-core.prompt.md` required fields (`wave_id`, `phase`, `change_ids`, `trust_boundaries_touched`, `files_in_scope`) as part of the wave plan.
 - The coordinator then produces an ordered lane sequence: which lanes run in which order, with what scoped inputs, for each serialization unit.
-- This plan is what the operator reviews before implementation begins — not just a list of files, but an ordered execution sequence. An explicit implementation instruction in the current request such as `Implement wave` or `Implement feature` counts as approval to proceed once the plan is surfaced, unless repo-local docs, the active handoff, or a material review-driven packet change creates an explicit hold.
+- This plan is what the operator reviews before implementation begins — not just a list of files, but an ordered execution sequence. An explicit implementation instruction in the current request such as `Implement wave` or `Implement change` counts as approval to proceed once the plan is surfaced, unless repo-local docs, the active handoff, or a material review-driven packet change creates an explicit hold.
 - Deviations from the plan are named `Deviation:` events recorded in Progress Log, not silent reorderings.
 
 Readiness handoff:
@@ -170,7 +170,7 @@ Wave orchestration contract:
 - **Allocation:** the coordinator assigns ownership, start order, dependency constraints, and parallel lanes for the admitted changes or tasks. Implementation lanes are allocated from repository evidence and admitted scope — not by habit. When the admitted change primarily involves backend/API/service code, allocate `software-engineer`; for UI/interaction/accessibility surfaces, allocate `frontend-developer`; for SQL/schema/migration/ETL/data-contract work, allocate `data-engineer`. Use the generic `implementer` when the change is cross-cutting, narrow in scope, or when domain depth is not required. Record the selected lanes in the wave record or Review checkpoints so readiness and review passes have explicit inputs.
 - **Synchronization:** participants report outputs, blockers, invalidated assumptions, and review findings often enough for the coordinator to keep the wave coherent
 - **Escalation:** the coordinator pauses, replans, adds reviewers, reassigns changes or tasks, splits work, or supersedes the wave when assumptions fail or dependencies shift materially; when a gate is blocked by an artifact the wave does not own, the coordinator presents the exact fix and a yes/no decision to the operator in the same message that reports the block (seed-209, wave 1wuju)
-- **Closure readiness:** the coordinator decides when scoped work and required reviews are satisfied; **terminal closure** (e.g. `Completed at`, `Status: completed`, closure reconciliation) runs only after **explicit operator confirmation** (`Close wave` / `Finalize feature` or confirmed yes), not automatically at the end of `Implement wave`
+- **Closure readiness:** the coordinator decides when scoped work and required reviews are satisfied; **terminal closure** (e.g. `Completed at`, `Status: completed`, closure reconciliation) runs only after **explicit operator confirmation** (`Close wave` or confirmed yes), not automatically at the end of `Implement wave`
 - **Finishing one change mid-wave:** When one change finishes before the others, `wf_close_change(wave_id, change_id, mode)` closes it to `complete` (dry-run first) and moves the dependents whose `Depends On:` names it to `ready`; the wave stays open and `Close wave` remains the only wave close.
 
 Coordinator decision rights:
@@ -196,7 +196,7 @@ Machine-usable execution expectations:
 - before setting `Activated at`, review the admitted changes and rename placeholder wave slugs/titles to a descriptive summary while preserving the shared lifecycle prefix and updating references
 - treat admitted change docs as already wave-owned before implementation: `Add change to wave` is the canonical relocation step that moves admitted change docs from `docs/plans/<change-id>.md` into `docs/waves/<wave-id>/<change-id>.md`; `Prepare wave` validates placement, repairs drift, and removes duplicate staging copies when needed; `Implement wave` assumes that relocation is complete and only performs defensive repair if drift is detected
 - set `Activated at` after the activation-time naming review is complete; do not use activation as the primary relocation stage
-- set `Completed at` only when the operator has confirmed **`Close wave`** / **`Finalize feature`** (or equivalent explicit confirmation) and the coordinator has reconciled all scoped changes — not at the end of **`Implement wave`** alone
+- set `Completed at` only when the operator has confirmed **`Close wave`** (or equivalent explicit confirmation) and the coordinator has reconciled all scoped changes — not at the end of **`Implement wave`** alone
 - generate or confirm the final wave summary title/slug at closure so the archived wave folder remains human-readable from directory listings
 - update change status explicitly rather than implying progress only in narrative prose
 - record dependency satisfaction or dependency blockage when it materially changes allocation
@@ -245,7 +245,7 @@ Guardrails:
 - Do not activate the next wave without a valid handoff or readiness check.
 - Do not begin implementation when the readiness evaluation is missing, stale, or failed.
 - Do not modify product implementation directories before the consolidated change document and implementation-readiness requirements in the target project’s `AGENTS.md` are met (single-repo guardrail; waive only with explicit operator scope in the active request).
-- **Do not write the first line of product code before the implementation plan has been surfaced and the current request authorizes implementation.** `Implement wave` / `Implement feature` in the current request is sufficient approval once the plan is presented, unless repo-local docs, the active handoff, or a material review-driven packet change explicitly requires a second stop.
+- **Do not write the first line of product code before the implementation plan has been surfaced and the current request authorizes implementation.** `Implement wave` / `Implement change` in the current request is sufficient approval once the plan is presented, unless repo-local docs, the active handoff, or a material review-driven packet change explicitly requires a second stop.
 - Do not activate a wave under a placeholder slug when the admitted changes already make a better descriptive name obvious.
 - Do not silently widen scope; return to planning when wave findings invalidate major assumptions.
 - Do not let participants invent their own coordination model for the wave when the plan already defines coordinator-owned orchestration.

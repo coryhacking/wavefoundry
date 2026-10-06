@@ -367,10 +367,10 @@ class SeedChunkerTests(unittest.TestCase):
         self.chunker = load_chunker()
 
     def test_seed_kind(self):
-        source = "# Plan Feature\n\nDo this and that.\n"
+        source = "# Plan Change\n\nDo this and that.\n"
         chunks = self.chunker.chunk_markdown(
             source,
-            ".wavefoundry/framework/seeds/020-plan-feature.prompt.md",
+            ".wavefoundry/framework/seeds/020-plan-change.prompt.md",
             kind_override="seed",
         )
         self.assertTrue(all(c.kind == "seed" for c in chunks))
@@ -2490,7 +2490,7 @@ class PromptChunkerTests(unittest.TestCase):
     def test_seed_kind_takes_priority_over_prompt_suffix(self):
         # .prompt.md files under seeds/ stay kind="seed"
         source = "# Seed Prompt\n\n## Context\n\nFramework seed.\n"
-        chunks = self._chunks(source, ".wavefoundry/framework/seeds/170-plan-feature.prompt.md")
+        chunks = self._chunks(source, ".wavefoundry/framework/seeds/170-plan-change.prompt.md")
         non_summary = [c for c in chunks if c.kind != "doc-summary"]
         self.assertTrue(all(c.kind == "seed" for c in non_summary))
 

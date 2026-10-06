@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-29
+Last verified: 2026-10-06
 
 ## Review Lane Summary
 
@@ -90,7 +90,7 @@ Before implementation begins, the wave-coordinator confirms:
 5. Journal distillation complete: any important implementation/review lessons added to relevant role or persona journals
 6. Durable memory promoted to `docs/references/project-context-memory.md` (and other canonical docs when applicable)
 7. `docs/agents/session-handoff.md` cleared or refreshed to reflect post-closure state
-8. Chronology reconciled: `Status: completed`, `Completed at:` date, all change statuses finalized
+8. Chronology reconciled: `Status: completed`, `Completed at:` date, all change statuses settled
 
 **Closure is blocked until all eight items above are explicitly recorded in the wave record.**
 
