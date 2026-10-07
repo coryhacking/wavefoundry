@@ -13,7 +13,7 @@
           "lint_passed": true,
           "mode": "create",
           "required_council_signoffs": [
-            "wave-council-readiness"
+            "council-readiness"
           ],
           "wave_id": "0exxl fixture-active"
         },
@@ -82,7 +82,7 @@
           "lint_passed": true,
           "mode": "dry_run",
           "required_council_signoffs": [
-            "wave-council-readiness"
+            "council-readiness"
           ],
           "wave_id": "0exxl fixture-active"
         },
@@ -167,7 +167,7 @@
           "repaired": 0,
           "repairs_needed": 0,
           "required_council_signoffs": [
-            "wave-council-readiness"
+            "council-readiness"
           ],
           "review_policy": {
             "delivery_council_required": false,
@@ -235,7 +235,7 @@
           "repaired": 0,
           "repairs_needed": 0,
           "required_council_signoffs": [
-            "wave-council-readiness"
+            "council-readiness"
           ],
           "review_policy": {
             "delivery_council_required": false,
@@ -306,7 +306,7 @@
           "repaired": 0,
           "repairs_needed": 0,
           "required_council_signoffs": [
-            "wave-council-readiness"
+            "council-readiness"
           ],
           "review_policy": {
             "delivery_council_required": false,
@@ -662,7 +662,7 @@
           "lint_passed": true,
           "mode": "create",
           "required_council_signoffs": [
-            "wave-council-readiness"
+            "council-readiness"
           ],
           "wave_id": "0exxm fixture-missing-lane"
         },
@@ -678,7 +678,7 @@
           },
           {
             "code": "missing_executable_approval_evidence",
-            "message": "Marked wave approval signoffs require executed delivery Evidence Records with claim_kind `approval`, claim_id `approval:<signoff-key>`, and a matching actor (`operator` for operator-signoff, `wave-council` for council signoffs, or the exact specialist lane); specialist/council evidence must be fresh and independent, and its chronology must follow every affected repair; operator-signoff=pending (no current executed approval); code-reviewer=pending (no current executed approval); wave-council-readiness=pending (no current executed approval).",
+            "message": "Marked wave approval signoffs require executed delivery Evidence Records with claim_kind `approval`, claim_id `approval:<signoff-key>`, and a matching actor (`operator` for operator-signoff, `wave-council` for council signoffs, or the exact specialist lane); specialist/council evidence must be fresh and independent, and its chronology must follow every affected repair; operator-signoff=pending (no current executed approval); code-reviewer=pending (no current executed approval); council-readiness=pending (no current executed approval).",
             "recovery_tools": [
               "wf_review_wave",
               "wf_current_wave"
@@ -705,7 +705,7 @@
           },
           {
             "code": "missing_wave_council_signoff",
-            "message": "Required delivery Council approval missing: wave-council-readiness",
+            "message": "Required delivery Council approval missing: council-readiness",
             "recovery_tools": [
               "wf_review_event",
               "wf_review_wave"
@@ -740,7 +740,7 @@
           "lint_passed": true,
           "mode": "dry_run",
           "required_council_signoffs": [
-            "wave-council-readiness"
+            "council-readiness"
           ],
           "wave_id": "0exxm fixture-missing-lane"
         },
@@ -756,7 +756,7 @@
           },
           {
             "code": "missing_executable_approval_evidence",
-            "message": "Marked wave approval signoffs require executed delivery Evidence Records with claim_kind `approval`, claim_id `approval:<signoff-key>`, and a matching actor (`operator` for operator-signoff, `wave-council` for council signoffs, or the exact specialist lane); specialist/council evidence must be fresh and independent, and its chronology must follow every affected repair; operator-signoff=pending (no current executed approval); code-reviewer=pending (no current executed approval); wave-council-readiness=pending (no current executed approval).",
+            "message": "Marked wave approval signoffs require executed delivery Evidence Records with claim_kind `approval`, claim_id `approval:<signoff-key>`, and a matching actor (`operator` for operator-signoff, `wave-council` for council signoffs, or the exact specialist lane); specialist/council evidence must be fresh and independent, and its chronology must follow every affected repair; operator-signoff=pending (no current executed approval); code-reviewer=pending (no current executed approval); council-readiness=pending (no current executed approval).",
             "recovery_tools": [
               "wf_review_wave",
               "wf_current_wave"
@@ -783,7 +783,7 @@
           },
           {
             "code": "missing_wave_council_signoff",
-            "message": "Required delivery Council approval missing: wave-council-readiness",
+            "message": "Required delivery Council approval missing: council-readiness",
             "recovery_tools": [
               "wf_review_event",
               "wf_review_wave"
@@ -828,7 +828,7 @@
           "repaired": 0,
           "repairs_needed": 0,
           "required_council_signoffs": [
-            "wave-council-readiness"
+            "council-readiness"
           ],
           "review_policy": {
             "delivery_council_required": false,
@@ -866,7 +866,7 @@
         "diagnostics": [
           {
             "code": "missing_wave_council_signoff",
-            "message": "Required Wave Council signoff missing for prepare: wave-council-readiness. Record a typed approval event per missing key via wf_review_event(event='approval', signoff_key=<missing key above>, mode='create'); the approval projects into `## Review Evidence`. Do this before the wave can become active.",
+            "message": "Required Wave Council signoff missing for prepare: council-readiness. Record a typed approval event per missing key via wf_review_event(event='approval', signoff_key=<missing key above>, mode='create'); the approval projects into `## Review Evidence`. Do this before the wave can become active.",
             "recovery_tools": [
               "wf_current_wave"
             ],
@@ -902,7 +902,7 @@
           "repaired": 0,
           "repairs_needed": 0,
           "required_council_signoffs": [
-            "wave-council-readiness"
+            "council-readiness"
           ],
           "review_policy": {
             "delivery_council_required": false,
@@ -940,7 +940,7 @@
         "diagnostics": [
           {
             "code": "missing_wave_council_signoff",
-            "message": "Required Wave Council signoff missing for prepare: wave-council-readiness. Record a typed approval event per missing key via wf_review_event(event='approval', signoff_key=<missing key above>, mode='create'); the approval projects into `## Review Evidence`. Do this before the wave can become active.",
+            "message": "Required Wave Council signoff missing for prepare: council-readiness. Record a typed approval event per missing key via wf_review_event(event='approval', signoff_key=<missing key above>, mode='create'); the approval projects into `## Review Evidence`. Do this before the wave can become active.",
             "recovery_tools": [
               "wf_current_wave"
             ],
@@ -976,7 +976,7 @@
           "repaired": 0,
           "repairs_needed": 0,
           "required_council_signoffs": [
-            "wave-council-readiness"
+            "council-readiness"
           ],
           "review_policy": {
             "delivery_council_required": false,
@@ -1014,7 +1014,7 @@
         "diagnostics": [
           {
             "code": "missing_wave_council_signoff",
-            "message": "Required Wave Council signoff missing for prepare: wave-council-readiness. Record a typed approval event per missing key via wf_review_event(event='approval', signoff_key=<missing key above>, mode='create'); the approval projects into `## Review Evidence`. Do this before the wave can become active.",
+            "message": "Required Wave Council signoff missing for prepare: council-readiness. Record a typed approval event per missing key via wf_review_event(event='approval', signoff_key=<missing key above>, mode='create'); the approval projects into `## Review Evidence`. Do this before the wave can become active.",
             "recovery_tools": [
               "wf_current_wave"
             ],
@@ -1341,7 +1341,7 @@
           "lint_passed": true,
           "mode": "create",
           "required_council_signoffs": [
-            "wave-council-readiness"
+            "council-readiness"
           ],
           "wave_id": "0exxk fixture-planned"
         },
@@ -1410,7 +1410,7 @@
           "lint_passed": true,
           "mode": "dry_run",
           "required_council_signoffs": [
-            "wave-council-readiness"
+            "council-readiness"
           ],
           "wave_id": "0exxk fixture-planned"
         },
@@ -1495,7 +1495,7 @@
           "repaired": 0,
           "repairs_needed": 0,
           "required_council_signoffs": [
-            "wave-council-readiness"
+            "council-readiness"
           ],
           "retrieval_posture": "MCP-first retrieval during implementation AND review: search, read, and navigate code through the code_* and docs_search tools first, while implementing changes and equally while verifying review claims against the tree; harness shell and file search are fallback. This scope includes repair and reverification work inside review cycles (censuses, region reads, claim checks); executed probes (test runs, mutation probes, git operations) remain shell work. Carry this same posture into the prompt of any subagent briefed for investigation or verification. When fallback is genuinely the right instrument (bulk-mechanical edits, docs-only work), record a 'Gapfill:' entry in a Progress Log explaining why. That same recorded entry clears the retrieval_posture_gap advisory raised at implementation review and close when implement-stage retrieval telemetry is near zero against a non-trivial code diff.",
           "review_policy": {
@@ -1564,7 +1564,7 @@
           "repaired": 0,
           "repairs_needed": 0,
           "required_council_signoffs": [
-            "wave-council-readiness"
+            "council-readiness"
           ],
           "review_policy": {
             "delivery_council_required": false,
@@ -1635,7 +1635,7 @@
           "repaired": 0,
           "repairs_needed": 0,
           "required_council_signoffs": [
-            "wave-council-readiness"
+            "council-readiness"
           ],
           "review_policy": {
             "delivery_council_required": false,

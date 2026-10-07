@@ -752,9 +752,10 @@ class DocsLintFixtureTests(unittest.TestCase):
         finally:
             shutil.rmtree(root)
         self.assertEqual(result.returncode, 1)
-        self.assertIn(
-            f"wave artifact has unstable {vocabulary_profile.MEMBER_ID_LABEL} `bad fixture id`", result.stderr
+        self.assertRegex(
+            result.stderr, rf"wave artifact has unstable {vocabulary_profile.MEMBER_ID_LABEL} on line \d+ \(shape\)"
         )
+        self.assertNotIn("bad fixture id", result.stderr)
 
     def test_ac_priority_row_count_mismatch_fails(self) -> None:
         root = self.copy_fixture()
@@ -2950,7 +2951,8 @@ class PrepareCouncilVerdictLintTests(DocsLintFixtureTests):
             self.assertFalse(ledger_errors, ledger_errors)
             self.assertEqual(
                 [record["claim_id"] for record in records if record.get("record_type") == "executable_evidence"],
-                ["approval:wave-council-readiness"],
+                # Wave 1zyb4: an earlier-spelling input is written as the current key.
+                ["approval:council-readiness"],
             )
             errors, warnings = check_prepare_council_verdict(root)
         finally:
@@ -3696,7 +3698,7 @@ class ReviewCycleChurnControlPinTests(unittest.TestCase):
         review = self._doc("prompts", "review-wave.prompt.md")
         authored = review.split("<!-- wave:executable-review-evidence", 1)[0]
         self.assertIn("Review wave is the delivery phase, started with `wf_review_wave(wave_id, phase='implementation')`", authored)
-        self.assertEqual(authored.count("When the current receipt-derived `required_council_signoffs` lists `wave-council-delivery`"), 2)
+        self.assertEqual(authored.count("When the current receipt-derived `required_council_signoffs` lists `council-delivery`"), 2)
         self.assertNotIn("When `wave_review.enabled` is true", authored)
         self.assertNotIn("When Wave Council is enabled", authored)
         self.assertEqual(authored.count("when the change doc carries an `## AC Priority` table"), 2)
@@ -4288,7 +4290,7 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
 
     def test_seed_215_cross_references_recording_contract(self) -> None:
         text = (self.SEEDS_DIR / "215-wave-council.prompt.md").read_text(encoding="utf-8")
-        self.assertIn("typed `wave-council-readiness` approval", text)
+        self.assertIn("typed `council-readiness` approval", text)
         self.assertIn("legacy waves retain the structured verdict contract", text)
 
     def test_seed_007_points_at_roster_evidence_consistency(self) -> None:

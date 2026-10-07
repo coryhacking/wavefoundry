@@ -20,6 +20,12 @@ never part of ``declared()``, ``declaration_problems`` or
 ``validate_declaration``: an invalid skill entry refuses the skill render and
 is never fatal to the server, the tool roster or the allowlist render.
 
+Wave 1zyb3 (change 1zxnv) adds ``EXTENSION_JOURNAL_TEMPLATES`` and
+``EXTENSION_JOURNAL_PRE_MIGRATION_HOOK`` for the upgrade's journal migration.
+They are read only by the upgrade and, like the skills, are never part of
+``declared()`` or the server's validation (see
+``journal_declaration_problems``).
+
 Shipped values are empty, which leaves the stock tool surface unchanged.
 """
 from __future__ import annotations
@@ -111,10 +117,36 @@ EXTENSION_ARTIFACT_PATH_FIELDS: Mapping[str, str] = {}
 # change 1zv89): ``{name: {"title": text, "description": text,
 # "prompt_doc": "docs/prompts/<name>.prompt.md", "summary": [line, ...]}}``.
 # Each renders as a thin-pointer SKILL.md only where its prompt doc exists.
+# Wave 1zyb3 (change 1zxnu): the optional "prompt_doc_template" names a
+# template relative to the framework install/ directory, ending in .prompt.md;
+# when the prompt doc is absent the renderer creates it from that template
+# (never overwriting it). A rendered declared skill carries a marker line, so
+# the renderer refuses to overwrite a hand-written SKILL.md and removes the
+# marked folder of a skill the distribution stops declaring.
 # Renderer-only: the server never validates it, so a bad entry refuses the
 # skill render (see ``skill_declaration_problems``) and never stops the server.
 # Names never start with "wf-", which the framework's own skills keep.
 EXTENSION_SKILLS: Mapping[str, Mapping[str, object]] = {}
+
+# Extra pristine journal scaffolds for the upgrade's one-time journal migration
+# (wave 1zyb3, change 1zxnv). A journal whose text (CRLF read as LF) fully
+# matches one of these, with each placeholder standing for one line fragment,
+# is deleted like the built-in scaffold. Placeholders: {{wave_id}}, {{title}}
+# and {{date}} (YYYY-MM-DD); every occurrence of one placeholder must match the
+# same text. A template is the distribution's assertion that a journal equal
+# to it carries zero operator content, so keep it exact. Read only by the
+# upgrade, inside its pre-1.15.0 migration gate; an invalid entry refuses that
+# upgrade (see ``journal_declaration_problems``) and never stops the server.
+EXTENSION_JOURNAL_TEMPLATES: tuple[str, ...] = ()
+
+# ``"module:function"`` called once as ``function(root)``, with the repository
+# root ``pathlib.Path``, right before the journal migration applies (wave
+# 1zyb3, change 1zxnv). ``module`` must be declared in EXTENSION_HELPER_MODULES,
+# so the server also loads and hashes it: it must import cleanly there, and its
+# ``register``, if any, is never called. What the function does on each
+# platform is the distribution's responsibility. If it raises, the migration is
+# skipped for that upgrade and journals stay in place.
+EXTENSION_JOURNAL_PRE_MIGRATION_HOOK: str = ""
 
 # ------------------------------------------------------------------------------
 
@@ -179,8 +211,8 @@ FRAMEWORK_SCRIPT_MODULE_NAMES = frozenset({
     'dashboard_server', 'design_token_build', 'docs_gardener', 'docs_lint', 'eval_chunker',
     'exploration_avoided', 'gardener_metadata', 'gen_codebase_map', 'gpu_doctor',
     'graph_call_census', 'graph_cluster', 'graph_di_signals', 'graph_indexer',
-    'graph_quality_eval', 'graph_query', 'graph_snapshot', 'graph_store', 'index_compatibility',
-    'index_paths', 'index_source_guard', 'index_state_store', 'indexer', 'install_log_lib',
+    'graph_quality_eval', 'graph_query', 'graph_snapshot', 'graph_store', 'history_paths',
+    'index_compatibility', 'index_paths', 'index_source_guard', 'index_state_store', 'indexer', 'install_log_lib',
     'lexical_ranking_eval', 'lifecycle_gate_support', 'lifecycle_gates', 'lifecycle_id',
     'lifecycle_lock', 'machine_authority', 'marker_namespaces', 'mcp_tool_extensions',
     'mcp_tool_roster', 'memory_backfill', 'memory_cli', 'memory_eval', 'memory_records',
@@ -196,7 +228,8 @@ FRAMEWORK_SCRIPT_MODULE_NAMES = frozenset({
     'storage_identity', 'subprocess_util', 'techdocs_audit', 'techdocs_audit_lib',
     'techdocs_baseline', 'tree_sitter_cache', 'upgrade_bridge_bootstrap', 'upgrade_bundle',
     'upgrade_extensions', 'upgrade_lib', 'upgrade_protocol', 'upgrade_wavefoundry',
-    'venv_bootstrap', 'verify_vendored_scripts', 'vocabulary_profile', 'wave_gate', 'wf_cli',
+    'vendored_integrity', 'venv_bootstrap', 'verify_vendored_scripts', 'vocabulary_profile',
+    'wave_gate', 'wf_cli',
 })
 
 
@@ -689,6 +722,8 @@ def validate_declaration(
 # also refuses a name whose rendered path is one of its stale skill paths.
 
 SKILL_KEYS = ("title", "description", "prompt_doc", "summary")
+# Optional keys (wave 1zyb3, change 1zxnu); every other key is unknown.
+SKILL_OPTIONAL_KEYS = ("prompt_doc_template",)
 SKILL_NAME_MAX_CHARS = 64
 SKILL_DESCRIPTION_MAX_CHARS = 1024
 SKILL_SUMMARY_MAX_LINES = 8
@@ -772,6 +807,28 @@ def _skill_prompt_doc_problems(label: str, value: object) -> list[str]:
     return problems
 
 
+def _skill_template_problems(label: str, value: object) -> list[str]:
+    """The ``prompt_doc_template`` rules: a POSIX path relative to the
+    framework install directory, ending in the prompt-doc suffix."""
+    if not isinstance(value, str) or not value:
+        return [f"{label} must be a non-empty string"]
+    problems: list[str] = []
+    if "\\" in value:
+        problems.append(f"{label} must use '/' separators, not a backslash")
+    if ":" in value:
+        problems.append(f"{label} must not contain ':' (a drive or scheme)")
+    if value.startswith("/"):
+        problems.append(f"{label} must be relative to the framework install directory, not absolute")
+    if _breaks_single_line(value) or "`" in value:
+        problems.append(f"{label} must not contain control characters or a backtick")
+    if any(part in ("", ".", "..") for part in value.split("/")):
+        problems.append(f"{label} must not contain empty, '.' or '..' segments")
+    name = value.rsplit("/", 1)[-1]
+    if not name.endswith(SKILL_PROMPT_DOC_SUFFIX) or name == SKILL_PROMPT_DOC_SUFFIX:
+        problems.append(f"{label} must end in {SKILL_PROMPT_DOC_SUFFIX}")
+    return problems
+
+
 def skill_declaration_problems(skills: object = None) -> list[str]:
     """Every problem with a skill declaration (``EXTENSION_SKILLS`` read now
     when ``skills`` is None), one message per problem naming the skill and
@@ -800,7 +857,9 @@ def skill_declaration_problems(skills: object = None) -> list[str]:
             problems.append(f"{label}: the entry must be a mapping with keys {', '.join(SKILL_KEYS)}")
             continue
         missing = [key for key in SKILL_KEYS if key not in spec]
-        extra = sorted(str(key) for key in spec if key not in SKILL_KEYS)
+        extra = sorted(
+            str(key) for key in spec if key not in SKILL_KEYS and key not in SKILL_OPTIONAL_KEYS
+        )
         if missing:
             problems.append(f"{label}: missing key(s) {', '.join(missing)}")
         if extra:
@@ -816,6 +875,10 @@ def skill_declaration_problems(skills: object = None) -> list[str]:
                 )
         if "prompt_doc" in spec:
             problems.extend(_skill_prompt_doc_problems(f"{label} prompt_doc", spec["prompt_doc"]))
+        if "prompt_doc_template" in spec:
+            problems.extend(
+                _skill_template_problems(f"{label} prompt_doc_template", spec["prompt_doc_template"])
+            )
         if "summary" in spec:
             summary = spec["summary"]
             if not isinstance(summary, (list, tuple)) or not 1 <= len(summary) <= SKILL_SUMMARY_MAX_LINES:
@@ -827,4 +890,78 @@ def skill_declaration_problems(skills: object = None) -> list[str]:
                     problems.extend(
                         _skill_text_problems(f"{label} summary[{index}]", line, scalar_rules=False)
                     )
+    return problems
+
+
+# ---- Declared journal migration (wave 1zyb3, change 1zxnv) -------------------
+# Upgrade-only: ``upgrade_extensions.pre_docs_gate`` calls this inside its
+# pre-1.15.0 journal migration gate and refuses that upgrade on any problem.
+
+JOURNAL_PLACEHOLDERS = ("wave_id", "title", "date")
+JOURNAL_TEMPLATE_MAX_CHARS = 65_536
+
+_JOURNAL_TOKEN = re.compile(r"\{\{([^\n]*?)\}\}")
+_JOURNAL_PLACEHOLDER = re.compile(r"\{\{(?:wave_id|title|date)\}\}")
+_JOURNAL_ADJACENT = re.compile(r"\{\{(?:wave_id|title|date)\}\}\{\{(?:wave_id|title|date)\}\}")
+
+
+def _journal_template_problems(label: str, template: object) -> list[str]:
+    if not isinstance(template, str) or not template:
+        return [f"{label} must be a non-empty string"]
+    problems: list[str] = []
+    if len(template) > JOURNAL_TEMPLATE_MAX_CHARS:
+        problems.append(f"{label} is longer than {JOURNAL_TEMPLATE_MAX_CHARS} characters")
+    if "\r" in template:
+        problems.append(f"{label} must not contain a carriage return; write LF line endings")
+    unknown = sorted({token for token in _JOURNAL_TOKEN.findall(template) if token not in JOURNAL_PLACEHOLDERS})
+    if unknown:
+        problems.append(
+            f"{label} has unknown placeholder(s) {', '.join('{{' + t + '}}' for t in unknown)}; "
+            "only {{wave_id}}, {{title}} and {{date}} are allowed"
+        )
+    if not any(line.strip() and not _JOURNAL_PLACEHOLDER.search(line) for line in template.split("\n")):
+        problems.append(f"{label} needs at least one non-blank line without a placeholder")
+    if _JOURNAL_ADJACENT.search(template):
+        problems.append(f"{label} has two placeholders with no literal text between them")
+    return problems
+
+
+def journal_declaration_problems(templates: object = None, hook: object = None,
+                                 helper_modules: object = None) -> list[str]:
+    """Every problem with the journal migration declaration
+    (``EXTENSION_JOURNAL_TEMPLATES``, ``EXTENSION_JOURNAL_PRE_MIGRATION_HOOK``
+    and, for the hook's module, ``EXTENSION_HELPER_MODULES``, each read now
+    when its argument is None), one message per problem; empty means valid.
+    Imports nothing: whether the hook function exists and takes one
+    positional argument is checked when the upgrade loads it."""
+    if templates is None:
+        templates = EXTENSION_JOURNAL_TEMPLATES
+    if hook is None:
+        hook = EXTENSION_JOURNAL_PRE_MIGRATION_HOOK
+    if helper_modules is None:
+        helper_modules = EXTENSION_HELPER_MODULES
+    problems: list[str] = []
+    if not isinstance(templates, (tuple, list)):
+        problems.append(
+            f"EXTENSION_JOURNAL_TEMPLATES must be a tuple of template strings, not {type(templates).__name__}"
+        )
+    else:
+        for index, template in enumerate(templates):
+            problems.extend(_journal_template_problems(f"journal template [{index}]", template))
+    if not isinstance(hook, str):
+        problems.append(
+            f"EXTENSION_JOURNAL_PRE_MIGRATION_HOOK must be a 'module:function' string, not {type(hook).__name__}"
+        )
+    elif hook:
+        label = f"journal pre-migration hook {hook!r}"
+        if hook.count(":") != 1:
+            problems.append(f"{label} must be exactly one 'module:function'")
+        else:
+            module_name, function_name = hook.split(":")
+            problems.extend(_module_name_problems(f"{label} module", (module_name,), set()))
+            helpers = helper_modules if isinstance(helper_modules, (tuple, list)) else ()
+            if module_name not in helpers:
+                problems.append(f"{label} module {module_name!r} is not declared in EXTENSION_HELPER_MODULES")
+            if not function_name.isidentifier() or keyword.iskeyword(function_name):
+                problems.append(f"{label} function {function_name!r} is not an identifier")
     return problems

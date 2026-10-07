@@ -149,11 +149,91 @@ class InProcessHoldTests(unittest.TestCase):
                 self.assertEqual(seen["meta"]["pid"], os.getpid())
         self.assertEqual(self.other_process_sees(), "free")
 
+    def test_ofd_build_lock_survives_an_unrelated_close(self):
+        # Wave 1zxnz (1zx02) AC-1: the build lock is an OFD lock, so the
+        # holder opening and closing the file directly, bypassing the
+        # registry, does not release it.
+        import fcntl
+
+        import runtime_lock
+
+        if runtime_lock.flock_layout() is None or not all(
+            hasattr(fcntl, name) for name in runtime_lock._OFD_COMMAND_NAMES
+        ):
+            self.skipTest("platform excluded by Requirement 1 (no known layout or no F_OFD_* constants)")
+        acquired = []
+        real_acquire = runtime_lock.RuntimeFileLock.acquire
+
+        def spy(lock_self, *args, **kwargs):
+            out = real_acquire(lock_self, *args, **kwargs)
+            acquired.append(lock_self)
+            return out
+
+        with patch.object(runtime_lock.RuntimeFileLock, "acquire", spy):
+            with self.idx._index_build_lock(self.index_dir):
+                self.assertEqual([lock.mechanism for lock in acquired], ["ofd"])
+                fd = os.open(self.lock_path, os.O_RDONLY)
+                os.close(fd)
+                self.lock_path.read_bytes()
+                self.assertEqual(self.other_process_sees(), "held")
+        self.assertEqual(self.other_process_sees(), "free")
+
+    def test_status_reports_an_ofd_holder_pid_from_metadata(self):
+        # Wave 1zxnz (1zx02) AC-6: a holder in another process. F_GETLK reports
+        # an OFD holder with pid -1, so the owner pid comes from metadata.
+        holder = subprocess.Popen(
+            [sys.executable, "-B", "-c", textwrap.dedent(
+                """
+                import sys
+                sys.path.insert(0, sys.argv[1])
+                from pathlib import Path
+                import indexer
+                with indexer._index_build_lock(Path(sys.argv[2])):
+                    print("locked", flush=True)
+                    sys.stdin.readline()
+                """
+            ), str(SCRIPTS), str(self.index_dir)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+        )
+
+        def stop():
+            try:
+                holder.stdin.write("\n")
+                holder.stdin.flush()
+            except (BrokenPipeError, OSError):
+                pass
+            holder.wait(timeout=30)
+            holder.stdin.close()
+            holder.stdout.close()
+
+        self.addCleanup(stop)
+        self.assertEqual(holder.stdout.readline().strip(), "locked")
+        held, pid = self.idx._index_build_lock_held(self.index_dir)
+        self.assertTrue(held)
+        self.assertTrue(pid is None or pid == holder.pid, pid)
+        lock = self.handlers.index_build_status_response(self.root, layer="project")["data"]["lock"]
+        self.assertTrue(lock["held"], lock)
+        self.assertEqual(lock["owner_pid"], holder.pid)
+
     def test_reload_during_a_hold_keeps_it(self):
+        import runtime_lock
+
+        rl_before = sys.modules["runtime_lock"]
+        holds, guard = runtime_lock._PROCESS_RECORD_HOLDS, runtime_lock._PROCESS_HOLD_GUARD
+        error, busy = runtime_lock.RuntimeLockError, runtime_lock.RuntimeLockBusy
+        file_lock = runtime_lock.RuntimeFileLock
         with self.idx._index_build_lock(self.index_dir):
             # What wf_reload_mcp does: drop the script cache, reload server_impl.
             self.server_impl._script_cache.clear()
             reloaded = importlib.reload(self.server_impl)
+            # Wave 1zxnz (1zx02) AC-9: runtime_lock was reloaded in place
+            # (new class objects), with its state and exception classes kept.
+            self.assertIs(sys.modules["runtime_lock"], rl_before)
+            self.assertIsNot(runtime_lock.RuntimeFileLock, file_lock)
+            self.assertIs(runtime_lock._PROCESS_RECORD_HOLDS, holds)
+            self.assertIs(runtime_lock._PROCESS_HOLD_GUARD, guard)
+            self.assertIs(runtime_lock.RuntimeLockError, error)
+            self.assertIs(runtime_lock.RuntimeLockBusy, busy)
             import wf_server.index_handlers as index_handlers
             fresh_idx = reloaded._load_script("indexer")
             real_open = os.open
@@ -168,10 +248,15 @@ class InProcessHoldTests(unittest.TestCase):
                 self.assertTrue(fresh_idx._index_build_lock_held(self.index_dir)[0])
             self.assertTrue(lock["held"], lock)
             self.assertEqual(lock["owner_pid"], os.getpid())
+            with self.assertRaises(fresh_idx.IndexBuildAlreadyRunning):
+                with fresh_idx._index_build_lock(self.index_dir):
+                    self.fail("re-entry after reload entered")
             self.assertEqual(self.other_process_sees(), "held")
         self.assertEqual(self.other_process_sees(), "free")
 
     def test_a_refused_acquire_never_replaces_a_held_carrier(self):
+        # Wave 1zxnz (1zx02) AC-2: the holder here is a classic lockf in a
+        # child process; the OFD acquire is refused (cross-type conflict).
         # Delivery repair DEL-F3: a contender that read stale-looking metadata
         # used to unlink the carrier before its own acquire was refused; a
         # third process then locked a fresh file while the first build still

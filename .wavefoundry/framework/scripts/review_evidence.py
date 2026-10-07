@@ -248,7 +248,77 @@ RUN_KINDS = frozenset(
 )
 EVIDENCE_PHASES = frozenset({"readiness", "delivery"})
 APPROVAL_PHASES = EVIDENCE_PHASES
-EVIDENCE_STATUSES = frozenset({"executed", "inferred", "unverified", "not_applicable"})
+
+# Wave 1zyb4 (1zxnx): the council signoff keys are tier-neutral. New approvals
+# carry ``council-readiness`` / ``council-delivery``; the earlier spellings stay
+# readable forever because ledgers and wave records are never rewritten, so
+# every comparison of a signoff key goes through ``canonical_signoff_key``.
+# Recorded history is rendered as recorded, never canonicalized. The approving
+# actor and role keep the name ``wave-council``.
+COUNCIL_READINESS_SIGNOFF_KEY = "council-readiness"
+COUNCIL_DELIVERY_SIGNOFF_KEY = "council-delivery"
+COUNCIL_SIGNOFF_KEYS = (COUNCIL_READINESS_SIGNOFF_KEY, COUNCIL_DELIVERY_SIGNOFF_KEY)
+LEGACY_COUNCIL_SIGNOFF_KEYS = {
+    "wave-council-readiness": COUNCIL_READINESS_SIGNOFF_KEY,
+    "wave-council-delivery": COUNCIL_DELIVERY_SIGNOFF_KEY,
+}
+COUNCIL_ACTOR = "wave-council"
+_LEGACY_COUNCIL_KEY_PREFIX = COUNCIL_ACTOR + "-"
+
+
+def canonical_signoff_key(key: Any) -> str:
+    """Map an earlier council key spelling to its current key; identity otherwise."""
+
+    text = str(key) if key is not None else ""
+    return LEGACY_COUNCIL_SIGNOFF_KEYS.get(text, text)
+
+
+def legacy_signoff_key_spellings(key: Any) -> tuple[str, ...]:
+    """Earlier spellings that canonicalize to ``key``; empty for other keys.
+
+    Used only to recognize a replay of an approval first recorded under the
+    earlier spelling (its stored event identity and request digest hashed that
+    spelling). Recorded history is never rewritten.
+    """
+
+    canonical = canonical_signoff_key(key)
+    return tuple(
+        legacy for legacy, current in LEGACY_COUNCIL_SIGNOFF_KEYS.items()
+        if current == canonical
+    )
+
+
+def is_council_signoff_key(key: Any) -> bool:
+    """True for a council key in either spelling, or a custom ``wave-council-*`` key.
+
+    The prefix rule is kept for distributions that configured their own
+    ``wave-council-<x>`` key, so its expected actor stays ``wave-council``.
+    """
+
+    text = str(key) if key is not None else ""
+    return text in COUNCIL_SIGNOFF_KEYS or text.startswith(_LEGACY_COUNCIL_KEY_PREFIX)
+
+
+def canonical_approval_claim_id(claim_id: Any) -> str:
+    """``approval:<key>`` with the key canonicalized; other claims unchanged."""
+
+    text = str(claim_id) if claim_id is not None else ""
+    if not text.startswith("approval:"):
+        return text
+    return "approval:" + canonical_signoff_key(text.removeprefix("approval:"))
+
+
+def _council_approval_phase(key: Any) -> str:
+    """Phase a council-or-other signoff key defaults to when none is given."""
+
+    return (
+        "readiness"
+        if canonical_signoff_key(key) == COUNCIL_READINESS_SIGNOFF_KEY
+        else "delivery"
+    )
+
+
+EVIDENCE_STATUSES =frozenset({"executed", "inferred", "unverified", "not_applicable"})
 EVIDENCE_CLAIM_KINDS = frozenset(
     {"finding", "approval", "dedup", "lane_reassessment", "census"}
 )
@@ -1384,7 +1454,8 @@ def approval_record_phase(record: Mapping[str, Any]) -> str:
         return str(explicit)
     return (
         "readiness"
-        if record.get("claim_id") == "approval:wave-council-readiness"
+        if canonical_approval_claim_id(record.get("claim_id"))
+        == f"approval:{COUNCIL_READINESS_SIGNOFF_KEY}"
         else "delivery"
     )
 
@@ -1394,8 +1465,10 @@ def _approval_rows(
     *,
     approval_phase: str | None = None,
 ) -> dict[str, tuple[int, Mapping[str, Any]]]:
+    # Keyed by the CANONICAL claim (wave 1zyb4): an approval recorded under
+    # either council spelling is one claim, so the latest record decides.
     return {
-        str(record.get("claim_id")): (position, record)
+        canonical_approval_claim_id(record.get("claim_id")): (position, record)
         for position, record in enumerate(records)
         if record.get("record_type") == "executable_evidence"
         and record.get("claim_kind") == "approval"
@@ -1433,27 +1506,29 @@ def _finding_affects_signoff(
 ) -> bool:
     explicit = head.get("approval_recheck_lanes")
     affected = (
-        {str(lane) for lane in explicit}
+        {canonical_signoff_key(str(lane)) for lane in explicit}
         if isinstance(explicit, list)
         else {
-            str(lane)
+            canonical_signoff_key(str(lane))
             for lane in [
                 *head.get("source_lanes", []),
                 *head.get("blocking_required_lanes", []),
             ]
         }
     )
+    council_key = is_council_signoff_key(signoff_key)
+    signoff_key = canonical_signoff_key(signoff_key)
     if signoff_key == "operator-signoff":
         return True
     # Delivery-born findings cannot reopen the crossed readiness gate. An
     # unknown phase retains the explicit lane relation for old/synthetic rows;
     # canonical ledgers always provide the executable finding phase.
-    if signoff_key == "wave-council-readiness" and origin_phase == "delivery":
+    if signoff_key == COUNCIL_READINESS_SIGNOFF_KEY and origin_phase == "delivery":
         return False
-    if signoff_key.startswith("wave-council-"):
+    if council_key:
         return (
             signoff_key in affected
-            or "wave-council" in affected
+            or COUNCIL_ACTOR in affected
             or head.get("review_depth") == "full"
         )
     return signoff_key in affected
@@ -1570,9 +1645,14 @@ def review_authority_projection(
             for record in rows
         )
     )
-    signoff_keys = tuple(
-        dict.fromkeys(str(item) for item in required_signoff_keys if str(item))
-    )
+    # One row per canonical key (wave 1zyb4); the first spelling a caller
+    # passes is the one the row is rendered with, so a status block that
+    # already labels a council key with its earlier spelling keeps it.
+    _by_canonical: dict[str, str] = {}
+    for item in required_signoff_keys:
+        if str(item):
+            _by_canonical.setdefault(canonical_signoff_key(str(item)), str(item))
+    signoff_keys = tuple(_by_canonical.values())
 
     finding_facts: list[dict[str, Any]] = []
     for order, (finding_id, head) in enumerate(heads.items()):
@@ -1657,11 +1737,9 @@ def review_authority_projection(
     approval_facts: list[dict[str, Any]] = []
     status_rows: list[dict[str, Any]] = []
     for key in signoff_keys:
-        selected_phase = approval_phase or (
-            "readiness" if key == "wave-council-readiness" else "delivery"
-        )
+        selected_phase = approval_phase or _council_approval_phase(key)
         approvals = _approval_rows(rows, approval_phase=selected_phase)
-        approval = approvals.get(f"approval:{key}")
+        approval = approvals.get(f"approval:{canonical_signoff_key(key)}")
         approval_position = approval[0] if approval is not None else -1
         approval_record = approval[1] if approval is not None else None
         context = (
@@ -1672,7 +1750,7 @@ def review_authority_projection(
         expected_actor = (
             "operator"
             if key == "operator-signoff"
-            else ("wave-council" if key.startswith("wave-council-") else key)
+            else (COUNCIL_ACTOR if is_council_signoff_key(key) else key)
         )
         # Per-conjunct booleans feed BOTH the validity predicate and the
         # invalid-approval reason (1v0lz): one derivation, no drift between
@@ -1888,7 +1966,7 @@ def review_authority_projection(
                     if key not in {
                         fact["head_actor"], "implementer", "operator-signoff"
                     }
-                    and not key.startswith("wave-council-")
+                    and not is_council_signoff_key(key)
                 )
             if not actors:
                 # Compatibility route for previously accepted malformed
@@ -2056,7 +2134,9 @@ def review_status_signoff_keys(
         lanes = head.get("approval_recheck_lanes")
         if isinstance(lanes, list):
             keys.extend(str(lane) for lane in lanes if str(lane))
-    return tuple(dict.fromkeys(keys))
+    # One row per canonical key (wave 1zyb4): a council key named in either
+    # spelling by config, ledger or recheck lanes is one row.
+    return tuple(dict.fromkeys(canonical_signoff_key(key) for key in keys))
 
 
 def required_review_status_keys(
@@ -2130,13 +2210,11 @@ def required_review_status_keys(
     if policy_errors:
         # A malformed policy cannot weaken the rendered gate.  Lint reports
         # the configuration error separately; projection retains both keys.
-        council_keys.extend(
-            ["wave-council-readiness", "wave-council-delivery"]
-        )
+        council_keys.extend(COUNCIL_SIGNOFF_KEYS)
     elif normalized_policy is not None and normalized_policy["enabled"]:
         phases = council.get("phases", {})
-        prepare_key = "wave-council-readiness"
-        review_key = "wave-council-delivery"
+        prepare_key = COUNCIL_READINESS_SIGNOFF_KEY
+        review_key = COUNCIL_DELIVERY_SIGNOFF_KEY
         if isinstance(phases, dict):
             for phase, default_key in (
                 ("prepare", prepare_key),
@@ -2242,7 +2320,10 @@ def _signoff_key_matches_lane(key: str, lane_l: str) -> bool:
     """Exact-key matching (release-review round 4 P0): the normalized key must
     BE the lane, or the lane's ``-signoff`` form. Never a prefix match —
     ``qa`` must not match ``qa-reviewer``; ``operator-signoff`` must not
-    match ``operator-signoff-notes``."""
+    match ``operator-signoff-notes``. Council keys compare in canonical form
+    (wave 1zyb4), so either spelling of a council key matches the other."""
+    key = canonical_signoff_key(key)
+    lane_l = canonical_signoff_key(lane_l)
     return key == lane_l or key == f"{lane_l}-signoff" or f"{key}-signoff" == lane_l
 
 
@@ -2277,7 +2358,8 @@ def lane_has_signoff_in_evidence(evidence_text: str, lane: str, *, authorization
     if authorization is None:
         authorization = (
             lane_l in ("operator", "operator-signoff")
-            or lane_l.startswith("wave-council")
+            or lane_l.startswith(COUNCIL_ACTOR)
+            or is_council_signoff_key(lane_l)
         )
     # The bounded current-state projection is authoritative for keys it
     # contains.  It deliberately appears before prose/history parsing so an
@@ -2287,7 +2369,7 @@ def lane_has_signoff_in_evidence(evidence_text: str, lane: str, *, authorization
         if not (stripped.startswith("|") and stripped.endswith("|")):
             continue
         cells = [cell.strip().lower() for cell in stripped.strip("|").split("|")]
-        if len(cells) >= 2 and cells[0] == lane_l:
+        if len(cells) >= 2 and canonical_signoff_key(cells[0]) == canonical_signoff_key(lane_l):
             return cells[1] == "approved"
     state_values: list[str] = []
     any_prose_signoff = False
@@ -2476,7 +2558,7 @@ class ReviewAuthority:
             selected_phase = approval_phase or (
                 "readiness" if section == "prepare" else "delivery"
             )
-            return f"approval:{key}" in _approval_rows(
+            return f"approval:{canonical_signoff_key(key)}" in _approval_rows(
                 self.records, approval_phase=selected_phase
             )
         return self.signoff_current(
@@ -2600,6 +2682,61 @@ _GENERATED_SIGNOFF_LINE_RE = re.compile(
 )
 
 
+def _status_block_row_keys(text: str) -> tuple[str, ...]:
+    """Signoff cells of the existing bounded status block, as written."""
+
+    matches = list(_REVIEW_EVIDENCE_SECTION_RE.finditer(text))
+    if len(matches) != 1:
+        return ()
+    body = matches[0].group("body")
+    begin = body.find(REVIEW_STATUS_MARKER_BEGIN)
+    if begin < 0:
+        return ()
+    end = body.find(REVIEW_STATUS_MARKER_END, begin)
+    if end < 0:
+        return ()
+    cells: list[str] = []
+    for raw in body[begin + len(REVIEW_STATUS_MARKER_BEGIN):end].splitlines():
+        stripped = raw.strip()
+        if not (stripped.startswith("|") and stripped.endswith("|")):
+            continue
+        first = stripped.strip("|").split("|")[0].strip()
+        if first and first not in {"Signoff", "---", "\u2014"}:
+            cells.append(first)
+    return tuple(cells)
+
+
+def review_status_display_keys(
+    text: str, required_signoff_keys: Iterable[str]
+) -> tuple[str, ...]:
+    """Row labels for the bounded status block (wave 1zyb4 sticky labels).
+
+    A council key is rendered with the spelling the existing block already
+    uses for it, so a wave whose block reads ``wave-council-readiness`` keeps
+    that label (and the Next action text built from it) after the new key
+    spelling became the default. A block with no row for the key gets the
+    current spelling. Other keys are returned as given. Comparison stays
+    canonical everywhere; this only chooses the printed spelling.
+    """
+
+    existing: dict[str, str] = {}
+    for cell in _status_block_row_keys(text):
+        canonical = canonical_signoff_key(cell)
+        if canonical in COUNCIL_SIGNOFF_KEYS:
+            existing.setdefault(canonical, cell)
+    display: list[str] = []
+    for key in required_signoff_keys:
+        key = str(key)
+        if not key:
+            continue
+        canonical = canonical_signoff_key(key)
+        if canonical in COUNCIL_SIGNOFF_KEYS:
+            display.append(existing.get(canonical, canonical))
+        else:
+            display.append(key)
+    return tuple(display)
+
+
 def render_review_status_projection(
     text: str,
     records: Iterable[Mapping[str, Any]],
@@ -2613,7 +2750,9 @@ def render_review_status_projection(
     """
 
     rows = tuple(dict(record) for record in records)
-    keys = tuple(dict.fromkeys(str(key) for key in required_signoff_keys if str(key)))
+    keys = tuple(dict.fromkeys(
+        review_status_display_keys(text, required_signoff_keys)
+    ))
     matches = list(_REVIEW_EVIDENCE_SECTION_RE.finditer(text))
     if len(matches) != 1:
         raise ValueError("external wave must contain exactly one Review Evidence section")
@@ -2633,17 +2772,23 @@ def render_review_status_projection(
             + body[end + len(REVIEW_STATUS_MARKER_END):].lstrip("\n")
         )
     typed_keys = {
-        str(record.get("claim_id", "")).removeprefix("approval:")
+        canonical_signoff_key(
+            str(record.get("claim_id", "")).removeprefix("approval:")
+        )
         for record in rows
         if str(record.get("claim_id", "")).startswith("approval:")
     }
     for head in current_synthesis_heads(rows).values():
         affected = head.get("approval_recheck_lanes")
         if isinstance(affected, list):
-            typed_keys.update(str(lane) for lane in affected)
+            typed_keys.update(canonical_signoff_key(str(lane)) for lane in affected)
 
     def preserve_generated(match: re.Match[str]) -> str:
-        return "" if match.group("key") in typed_keys else match.group(0)
+        return (
+            ""
+            if canonical_signoff_key(match.group("key")) in typed_keys
+            else match.group(0)
+        )
 
     body = _GENERATED_SIGNOFF_LINE_RE.sub(preserve_generated, body).strip("\r\n")
     owned = (
@@ -3105,8 +3250,8 @@ def build_compact_review_event(
             expected_actor = (
                 "operator"
                 if signoff_key == "operator-signoff"
-                else "wave-council"
-                if str(signoff_key).startswith("wave-council-")
+                else COUNCIL_ACTOR
+                if is_council_signoff_key(signoff_key)
                 else signoff_key
             )
             if actor != expected_actor:
@@ -3122,9 +3267,16 @@ def build_compact_review_event(
                 )
         if approval_phase not in APPROVAL_PHASES:
             errors.append("approval event requires approval_phase readiness or delivery")
-        elif signoff_key == "wave-council-readiness" and approval_phase != "readiness":
-            errors.append("wave-council-readiness approval requires approval_phase=readiness")
-        elif signoff_key in {"wave-council-delivery", "operator-signoff"} and approval_phase != "delivery":
+        elif (
+            canonical_signoff_key(signoff_key) == COUNCIL_READINESS_SIGNOFF_KEY
+            and approval_phase != "readiness"
+        ):
+            errors.append(f"{signoff_key} approval requires approval_phase=readiness")
+        elif (
+            canonical_signoff_key(signoff_key)
+            in {COUNCIL_DELIVERY_SIGNOFF_KEY, "operator-signoff"}
+            and approval_phase != "delivery"
+        ):
             errors.append(f"{signoff_key} approval requires approval_phase=delivery")
         if approval_phase == "readiness" and not _nonempty_string(
             event.get("policy_receipt_id")

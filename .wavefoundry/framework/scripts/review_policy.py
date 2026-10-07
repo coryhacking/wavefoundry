@@ -16,6 +16,7 @@ from typing import Any, Iterable, Mapping
 
 from gardener_metadata import _fenced_line_flags, canonical_review_policy_body
 import record_paths  # record roots (wave 1y0gz)
+import vocabulary_profile  # lifecycle prompt names (wave 1zyb4)
 
 
 DELIVERY_MODES = ("disabled", "targeted", "universal")
@@ -167,10 +168,20 @@ operator still does not copy or type a terminal command.
 
 REVIEW_POLICY_SURFACE_MARKER_BEGIN = "<!-- wavefoundry:review-policy:begin -->"
 REVIEW_POLICY_SURFACE_MARKER_END = "<!-- wavefoundry:review-policy:end -->"
-REVIEW_POLICY_SURFACE_BLOCKS = {
-    "docs/prompts/prepare-wave.prompt.md": """## Review-policy readiness
+# Wave 1zyb4 (1zxnw): the lifecycle prompt paths and the title-case names in
+# these blocks follow the vocabulary profile; the defaults are unchanged.
+_prepare_doc = vocabulary_profile.prompt_doc("prepare-wave")
+_review_doc = vocabulary_profile.prompt_doc("review-wave")
+_close_doc = vocabulary_profile.prompt_doc("close-wave")
+_implement_doc = vocabulary_profile.prompt_doc("implement-wave")
+_create_doc = vocabulary_profile.prompt_doc("create-wave")
+_agent_review_doc = vocabulary_profile.agent_prompt_doc("review-wave")
+_PREPARE_TITLE = vocabulary_profile.shortcut_title("prepare-wave")
 
-Prepare Wave is the single readiness authority. It evaluates the configured
+REVIEW_POLICY_SURFACE_BLOCKS = {
+    _prepare_doc: f"""## Review-policy readiness
+
+{_PREPARE_TITLE} is the single readiness authority. It evaluates the configured
 `wave_review.delivery_mode`, records the review-policy receipt, and requires a
 re-Prepare whenever policy inputs change before implementation.
 
@@ -181,23 +192,23 @@ repository and lapses every readiness approval in every open wave without a
 single document being edited. Expect one re-Prepare per open wave, disclose it
 in the change document, and avoid making the edit while waves are readied but
 unclosed without saying so.""",
-    "docs/prompts/review-wave.prompt.md": """## Review-policy delivery
+    _review_doc: f"""## Review-policy delivery
 
-Review Wave consumes the shared delivery evaluator selected by the current
+{vocabulary_profile.shortcut_title("review-wave")} consumes the shared delivery evaluator selected by the current
 review-policy receipt. After a repair, search the same root cause and adjacent
 repair class before focused reverification; broaden review only when a
 load-bearing boundary changed.""",
-    "docs/prompts/close-wave.prompt.md": """## Review-policy closure
+    _close_doc: f"""## Review-policy closure
 
-Close Wave consumes the same shared delivery evaluator and current
+{vocabulary_profile.shortcut_title("close-wave")} consumes the same shared delivery evaluator and current
 `wave_review.delivery_mode`; it performs closure-only delta checks and does not
 recompute a parallel review policy.""",
-    "docs/prompts/implement-wave.prompt.md": """## Review-policy implementation
+    _implement_doc: f"""## Review-policy implementation
 
-Prepare Wave is the single readiness authority. Implementation consumes the
+{_PREPARE_TITLE} is the single readiness authority. Implementation consumes the
 current shared delivery evaluator and never recreates a separate readiness
 review gate.""",
-    "docs/prompts/agents/review-wave.prompt.md": """## Review-policy repair guidance
+    _agent_review_doc: """## Review-policy repair guidance
 
 Use the shared delivery evaluator. After a repair, check the same root cause
 and adjacent repair class before focused reverification; broaden review only
@@ -243,7 +254,8 @@ REVIEW_POLICY_OBLIGATION_ANCHORS: dict[str, tuple[str, ...]] = {
     "repair_census": ("same root cause", "repair class", "focused repair"),
     "closure_only": ("closure-only", "closure only"),
     "policy_migration": ("delivery_mode", "review-policy"),
-    "single_prepare": ("prepare wave", "prepare is the single"),
+    # Wave 1zyb4 (1zxnw): tier-neutral, so no profile is needed to check it.
+    "single_prepare": ("is the single readiness authority", "prepare is the single"),
     "phase_currency": ("approval_phase", "readiness council", "delivery council"),
     "bridge": ("bridge",),
     "integrity": ("integrity",),
@@ -263,20 +275,20 @@ class ReviewPolicyCarrier:
 
 
 REVIEW_POLICY_CARRIER_REGISTRY = (
-    ReviewPolicyCarrier("lifecycle:prepare-wave.prompt.md", "docs/prompts/prepare-wave.prompt.md", "renderer", ("policy", "receipt", "reprepare")),
-    ReviewPolicyCarrier("lifecycle:review-wave.prompt.md", "docs/prompts/review-wave.prompt.md", "renderer", ("policy", "shared_evaluator", "repair_census")),
-    ReviewPolicyCarrier("lifecycle:close-wave.prompt.md", "docs/prompts/close-wave.prompt.md", "renderer", ("policy", "shared_evaluator", "closure_only")),
+    ReviewPolicyCarrier("lifecycle:prepare-wave.prompt.md", _prepare_doc, "renderer", ("policy", "receipt", "reprepare")),
+    ReviewPolicyCarrier("lifecycle:review-wave.prompt.md", _review_doc, "renderer", ("policy", "shared_evaluator", "repair_census")),
+    ReviewPolicyCarrier("lifecycle:close-wave.prompt.md", _close_doc, "renderer", ("policy", "shared_evaluator", "closure_only")),
     ReviewPolicyCarrier("seed:160", "docs/prompts/upgrade-wavefoundry.prompt.md", "lifecycle_reconciler", ("policy_migration", "reprepare", "bridge")),
-    ReviewPolicyCarrier("baseline:implement", "docs/prompts/implement-wave.prompt.md", "lifecycle_reconciler", ("single_prepare", "shared_evaluator")),
-    ReviewPolicyCarrier("baseline:review", "docs/prompts/review-wave.prompt.md", "lifecycle_reconciler", ("shared_evaluator", "repair_census")),
-    ReviewPolicyCarrier("baseline:agent-review", "docs/prompts/agents/review-wave.prompt.md", "lifecycle_reconciler", ("shared_evaluator", "repair_census")),
+    ReviewPolicyCarrier("baseline:implement", _implement_doc, "lifecycle_reconciler", ("single_prepare", "shared_evaluator")),
+    ReviewPolicyCarrier("baseline:review", _review_doc, "lifecycle_reconciler", ("shared_evaluator", "repair_census")),
+    ReviewPolicyCarrier("baseline:agent-review", _agent_review_doc, "lifecycle_reconciler", ("shared_evaluator", "repair_census")),
     ReviewPolicyCarrier("baseline:council", "docs/prompts/council-review.prompt.md", "lifecycle_reconciler", ("phase_currency",)),
-    ReviewPolicyCarrier("baseline:prepare", "docs/prompts/prepare-wave.prompt.md", "lifecycle_reconciler", ("single_prepare", "receipt")),
+    ReviewPolicyCarrier("baseline:prepare", _prepare_doc, "lifecycle_reconciler", ("single_prepare", "receipt")),
     # Portable policy prose is framework-owned only inside marker-bounded
     # regions. The companion direct_docs rows below remain the file-wide
     # validation authority for project-authored content.
-    ReviewPolicyCarrier("policy-baseline:implement", "docs/prompts/implement-wave.prompt.md", "renderer", ()),
-    ReviewPolicyCarrier("policy-baseline:agent-review", "docs/prompts/agents/review-wave.prompt.md", "renderer", ()),
+    ReviewPolicyCarrier("policy-baseline:implement", _implement_doc, "renderer", ()),
+    ReviewPolicyCarrier("policy-baseline:agent-review", _agent_review_doc, "renderer", ()),
     ReviewPolicyCarrier("policy-baseline:council", "docs/prompts/council-review.prompt.md", "renderer", ()),
     ReviewPolicyCarrier("docs/references/project-overview.md", "docs/references/project-overview.md", "direct_docs", ("policy",), True, False),
     ReviewPolicyCarrier("policy-baseline:project-overview", "docs/references/project-overview.md", "renderer", (), True, False),
@@ -306,9 +318,9 @@ REVIEW_POLICY_CARRIER_REGISTRY = (
     ReviewPolicyCarrier("217-senior-engineering-challenger.prompt.md", "docs/agents/specialists/senior-engineering-challenger.md", "renderer", ("executable_review",)),
     ReviewPolicyCarrier("236-archetype-council.prompt.md", "docs/prompts/archetype-council.prompt.md", "renderer", ("executable_review",)),
     ReviewPolicyCarrier("237-council-review.prompt.md", "docs/prompts/council-review.prompt.md", "renderer", ("executable_review",)),
-    ReviewPolicyCarrier("100-project-prompt-surface-bootstrap.prompt.md", "docs/prompts/review-wave.prompt.md", "renderer", ("executable_review",)),
-    ReviewPolicyCarrier("100-project-prompt-surface-bootstrap.prompt.md", "docs/prompts/agents/review-wave.prompt.md", "renderer", ("executable_review",)),
-    ReviewPolicyCarrier("100-project-prompt-surface-bootstrap.prompt.md", "docs/prompts/create-wave.prompt.md", "renderer", ("executable_review",)),
+    ReviewPolicyCarrier("100-project-prompt-surface-bootstrap.prompt.md", _review_doc, "renderer", ("executable_review",)),
+    ReviewPolicyCarrier("100-project-prompt-surface-bootstrap.prompt.md", _agent_review_doc, "renderer", ("executable_review",)),
+    ReviewPolicyCarrier("100-project-prompt-surface-bootstrap.prompt.md", _create_doc, "renderer", ("executable_review",)),
     ReviewPolicyCarrier("209-agent-harness-core.prompt.md", "docs/contributing/review-and-evals.md", "renderer", ("executable_review",)),
 )
 
@@ -990,6 +1002,40 @@ def select_required_review_lanes(
     return ordered, {lane: tuple(reasons[lane]) for lane in ordered}
 
 
+# Wave 1zyb4 (1zxnx): the digest input names council signoff keys in their
+# earlier spelling, so a config naming the current keys hashes exactly like one
+# naming the earlier keys and every existing receipt digest is unchanged. This
+# is the reverse of ``review_evidence.LEGACY_COUNCIL_SIGNOFF_KEYS`` (a test pins
+# the two together); ``review_evidence`` imports this module, not the reverse.
+_DIGEST_COUNCIL_SIGNOFF_SPELLING = {
+    "council-readiness": "wave-council-readiness",
+    "council-delivery": "wave-council-delivery",
+}
+
+
+def _digest_wave_review(wave_review: Mapping[str, Any]) -> dict[str, Any]:
+    """Copy of ``wave_review`` whose council keys use the digest spelling.
+
+    The nested ``phases`` mapping and each phase mapping are copied before a
+    key is rewritten, so the caller's policy object is never mutated.
+    """
+
+    copied = dict(wave_review)
+    phases = copied.get("phases")
+    if not isinstance(phases, Mapping):
+        return copied
+    digest_phases: dict[Any, Any] = {}
+    for phase, block in phases.items():
+        if isinstance(block, Mapping):
+            block = dict(block)
+            key = block.get("signoff_key")
+            if isinstance(key, str) and key in _DIGEST_COUNCIL_SIGNOFF_SPELLING:
+                block["signoff_key"] = _DIGEST_COUNCIL_SIGNOFF_SPELLING[key]
+        digest_phases[phase] = block
+    copied["phases"] = digest_phases
+    return copied
+
+
 def policy_input_snapshot(
     *,
     wave_review: Mapping[str, Any],
@@ -1004,7 +1050,7 @@ def policy_input_snapshot(
     payload = {
         "schema_version": REVIEW_POLICY_SCHEMA_VERSION,
         "evaluator_version": REVIEW_POLICY_EVALUATOR_VERSION,
-        "wave_review": dict(wave_review),
+        "wave_review": _digest_wave_review(wave_review),
         "project_required_review_lanes": list(project_lanes),
         "review_policies": review_policies,
         # Sorted by change_id. The caller collects change ids from `wave.md` in

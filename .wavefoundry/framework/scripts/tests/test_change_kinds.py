@@ -512,10 +512,13 @@ class UndeclaredKindTests(unittest.TestCase):
         self.assertTrue([line for line in out.splitlines()
                          if "plans/not-an-id.md" in line and "plan is missing a `Change ID:`" in line], out)
         malformed = self.malformed["lint_out"]
-        self.assertIn("unstable Change ID `00059-Enh Fixture`", malformed)
+        # Wave 1zxo0 (1zxns): the line number and reason class, never the value.
+        self.assertRegex(malformed, r"unstable Change ID on line \d+ \(shape\)")
+        self.assertNotIn("unstable Change ID `00059-Enh Fixture`", malformed)
         self.assertNotIn("undeclared change kind", malformed)
         upper = self.upper["lint_out"]
-        self.assertIn("unstable Change ID `00059-Feat fixture`", upper)
+        self.assertRegex(upper, r"unstable Change ID on line \d+ \(shape\)")
+        self.assertNotIn("00059-Feat fixture`", upper.split("unstable", 1)[-1].split("\n", 1)[0])
         self.assertNotIn("undeclared change kind", upper)
 
     def test_change_doc_response_refuses_the_undeclared_kind(self):

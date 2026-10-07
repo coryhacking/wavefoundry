@@ -76,6 +76,7 @@ for _wll_key in list(sys.modules):
             "public_contract",
             "gardener_metadata",
             "change_doc_checklist",  # wave 1zime: shared checklist parser
+            "history_paths",  # wave 1zyb2: shared history components
             "operator_identity",
             "record_paths",
             "marker_namespaces",
@@ -94,6 +95,45 @@ for _wll_key in list(sys.modules):
         or _wll_key in _PACKAGE_PURGE_KEYS
     ):
         del sys.modules[_wll_key]
+
+# Wave 1zxnz (1zx02): modules reloaded IN PLACE, state preserved, before any
+# evicted module is re-imported, so the re-imported modules see their new
+# names. ``runtime_lock`` holds the process hold registry, which must survive
+# a reload; its module-level state keeps the existing objects. A bare
+# ``importlib.reload`` would re-create its exception classes while unevicted
+# modules that bound them at import keep the old ones, so every exception
+# class the module defines is rebound to its original object afterwards (the
+# ``upgrade_extensions._reload_in_place`` idiom). The whole reload runs under
+# the module's ``process_hold_guard()``, so no in-process acquire or reader
+# check interleaves with it.
+_IN_PLACE_RELOAD_MODULES = ("runtime_lock",)
+
+
+def _reload_module_in_place(name: str) -> None:
+    module = sys.modules.get(name)
+    if module is None:
+        return
+    guard_factory = getattr(module, "process_hold_guard", None)
+    guard = guard_factory() if callable(guard_factory) else contextlib.nullcontext()
+    with guard:
+        kept = {
+            attr: value
+            for attr, value in vars(module).items()
+            if isinstance(value, type)
+            and issubclass(value, BaseException)
+            and value.__module__ == name
+        }
+        try:
+            importlib.reload(module)
+        finally:
+            for attr, old in kept.items():
+                new = getattr(module, attr, None)
+                if isinstance(new, type) and issubclass(new, BaseException):
+                    setattr(module, attr, old)
+
+
+for _in_place_name in _IN_PLACE_RELOAD_MODULES:
+    _reload_module_in_place(_in_place_name)
 
 FASTEMBED_CACHE_DEFAULT = Path.home() / ".wavefoundry" / "cache" / "fastembed"
 if not os.environ.get("FASTEMBED_CACHE_PATH"):
@@ -115,6 +155,7 @@ import index_source_guard
 import path_containment
 import marker_namespaces
 import record_paths  # configured wave/plan roots, stdlib-only (wave 1y0gz)
+from history_paths import is_history_path  # shared history components (wave 1zyb2, 1zxnt)
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 
 import lifecycle_gate_support
@@ -398,6 +439,17 @@ from lifecycle_gate_support import (
     POLICY_INPUT_DEGRADABLE_CAUSES,
     PolicyInputError,
     _CHANGE_ID_PATTERN,
+    ChangeIdRejected,
+    MemberDocRefused,
+    _change_id_invalid_diagnostics,
+    _change_id_invalid_message,
+    _change_id_reason_class,
+    _change_id_shape_error,
+    _member_doc_lstat,
+    _partition_member_ids,
+    _read_member_doc_bytes,
+    _read_member_doc_text,
+    is_change_id,
     _CLOSE_GATE_AC_ID_RE,
     _CLOSE_GATE_CHECKBOX_LINE_RE,
     _FRAMEWORK_TEST_RECEIPT_REL,
@@ -499,6 +551,10 @@ from review_policy import (
     set_reprepare_marker,
 )
 from review_evidence import (
+    COUNCIL_DELIVERY_SIGNOFF_KEY,
+    COUNCIL_READINESS_SIGNOFF_KEY,
+    canonical_signoff_key,
+    legacy_signoff_key_spellings,
     EVENT_IDENTITY_FIELD,
     INDEPENDENCE_DIAGNOSTIC_CODES,
     PROTOCOL_VERSION,
@@ -3727,17 +3783,45 @@ def _read_wave_record(root: Path, wave_md: Path) -> dict:
         }
     wave_id_m = _WAVE_ID_PATTERN.search(text)
     status_m = _STATUS_PATTERN.search(text)
-    change_ids = _CHANGE_ID_PATTERN.findall(text)
-    change_statuses = _CHANGE_STATUS_PATTERN.findall(text)
     return {
         "wave_id": wave_id_m.group(1) if wave_id_m else wave_md.parent.name,
         "status": status_m.group(1) if status_m else "unknown",
-        "changes": [
-            {"id": cid, "status": cst}
-            for cid, cst in zip(change_ids, change_statuses)
-        ],
+        "changes": _member_id_status_pairs(text),
         "path": str(wave_md),
     }
+
+
+def _member_id_status_pairs(text: str) -> list[dict[str, str]]:
+    """``{"id", "status"}`` per allow-listed member, in record order (wave 1zxo0).
+
+    Each member is paired with the first status line of its OWN block: after
+    its member-id line and before the next member-id line (valid or rejected)
+    or heading. A member with no status line gets ``unknown``; a rejected
+    member line is omitted. Nothing is paired by position, so a malformed or
+    missing status line never shifts a later member's status.
+    """
+    lines = text.splitlines()
+    id_line_re = re.compile(rf"^{_vocab.MEMBER_ID_LABEL_RE}:")
+    status_line_re = re.compile(rf"^(?:{_vocab.MEMBER_STATUS_LABEL_RE}|Item Status):\s+`([^`]+)`")
+    valid, _rejected = _partition_member_ids(text)
+    pending = list(valid)
+    pairs: list[dict[str, str]] = []
+    for match in _CHANGE_ID_PATTERN.finditer(text):
+        if not pending or match.group(1) != pending[0]:
+            continue
+        cid = pending.pop(0)
+        # The block starts on the line after the member-id match ends.
+        start = text.count("\n", 0, match.end()) + 1
+        status = "unknown"
+        for line in lines[start:]:
+            if id_line_re.match(line) or line.startswith("#"):
+                break
+            status_match = status_line_re.match(line)
+            if status_match:
+                status = status_match.group(1)
+                break
+        pairs.append({"id": cid, "status": status})
+    return pairs
 
 
 # Listing order must be TIME order, which means decoded lifecycle-prefix value
@@ -3829,8 +3913,11 @@ def _parse_plan_record(root: Path, plan_md: Path) -> dict:
     # must be REPORTED here, not raised -- the original crash sent the operator
     # from the diagnostic into a second stack trace. This site was missed by the
     # AC-6 census (the twelfth function, found by the delivery code lane).
+    # Wave 1zxo0 (1zxns): the read follows the member-doc rule, so a staged
+    # entry that is a link or a non-regular file (a FIFO would block a plain
+    # read) is reported unreadable without being opened or followed.
     try:
-        text = plan_md.read_text(encoding="utf-8")
+        text = _read_member_doc_text(plan_md.parent, plan_md, root=root)
     except (OSError, UnicodeError) as exc:
         return {
             "id": plan_md.stem,
@@ -3963,8 +4050,13 @@ class McpRepoCache:
     def _prompts_fingerprint(self) -> tuple[int, int]:
         return _dir_fingerprint(self.root / "docs" / "prompts", "*.md")
 
-    def get_prompt_text_cached(self, shortcut: str) -> Optional[str]:
-        """Return prompt body like ``get_prompt``, using an mtime-keyed per-process cache."""
+    def get_prompt_text_cached(self, shortcut: str, refused: Optional[list[str]] = None) -> Optional[str]:
+        """Return prompt body like ``get_prompt``, using an mtime-keyed per-process cache.
+
+        Wave 1zxnz (1zx02): a lookup that skipped a candidate resolving to a
+        runtime lock is not cached, so the next call runs the lookup again and
+        reports the refusal again through ``refused``.
+        """
         key = self._prompts_fingerprint()
         if self._prompt_key != key:
             self._prompt_cache = {}
@@ -3973,8 +4065,12 @@ class McpRepoCache:
         if norm in self._prompt_cache:
             hit = self._prompt_cache[norm]
             return None if hit is _PROMPT_MISS else str(hit)
-        text = get_prompt(self.root, shortcut)
-        self._prompt_cache[norm] = _PROMPT_MISS if text is None else text
+        skipped: list[str] = []
+        text = get_prompt(self.root, shortcut, refused=skipped)
+        if refused is not None:
+            refused.extend(path for path in skipped if path not in refused)
+        if not skipped:
+            self._prompt_cache[norm] = _PROMPT_MISS if text is None else text
         return text
 
     def list_waves_cached(self) -> list[dict]:
@@ -4119,20 +4215,38 @@ def get_change(root: Path, change_id_prefix: str) -> Optional[str]:
     return str(matches[0].get("content") or "")
 
 
-def get_prompt(root: Path, shortcut: str) -> Optional[str]:
+def get_prompt(root: Path, shortcut: str, refused: Optional[list[str]] = None) -> Optional[str]:
+    """The first prompt matching ``shortcut``, or ``None``.
+
+    Wave 1zxnz (1zx02): a candidate that resolves to a runtime lock is skipped,
+    never opened, and the search continues, so a lock target cannot hide a
+    legitimate prompt. Each skipped candidate's repository-relative path is
+    appended to ``refused`` when a list is passed.
+    """
     shortcut_lower = shortcut.lower().strip()
     prompts_dir = root / "docs" / "prompts"
     if not prompts_dir.exists():
         return None
+
+    def read(p: Path) -> Optional[str]:
+        try:
+            return _read_repo_text_checked(root, p)
+        except RuntimeLockTargetRefused as exc:
+            if refused is not None and exc.rel_path not in refused:
+                refused.append(exc.rel_path)
+            return None
+
     # Slug-match the shortcut against prompt filenames and content
     slug = re.sub(r"[^\w]+", "-", shortcut_lower).strip("-")
     for p in prompts_dir.glob("*.md"):
         if slug in p.stem.lower():
-            return p.read_text(encoding="utf-8")
+            text = read(p)
+            if text is not None:
+                return text
     # Fallback: search file content for shortcut phrase
     for p in prompts_dir.glob("*.md"):
-        text = p.read_text(encoding="utf-8")
-        if shortcut_lower in text.lower():
+        text = read(p)
+        if text is not None and shortcut_lower in text.lower():
             return text
     return None
 
@@ -5922,7 +6036,7 @@ def _detect_wave_status_drift(root: Path, wave: dict) -> list[dict[str, Any]]:
     wave_text = wave_md_path.read_bytes().decode("utf-8")
     return [
         {"change_id": change_id, "wave_md_status": wave_status, "file_status": doc_status}
-        for change_id, wave_status, doc_status in member_status_drift(wave_text, wave_md_path.parent)
+        for change_id, wave_status, doc_status in member_status_drift(wave_text, wave_md_path.parent, root=root)
     ]
 
 
@@ -6225,24 +6339,36 @@ def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -
                 data={"wave_id": wave_id_s, "changes": []},
                 sibling_diagnostics=sibling_diagnostics,
             )
-        admitted_ids = _extract_change_ids_from_wave_text(wave_text)
+        # Wave 1zxo0 (1zxns): only allow-listed member ids are read; a rejected
+        # member line is an advisory `change_id_invalid` (line number only).
+        admitted_ids, rejected_ids = _partition_member_ids(wave_text)
+        invalid_id_diagnostics = [
+            _diagnostic(
+                "change_id_invalid",
+                _change_id_invalid_message(_repo_rel(root, wave_md), entry),
+                recovery_tools=["wf_validate_docs"],
+                recovery_usage="wf_validate_docs()",
+                advisory=True,
+            )
+            for entry in rejected_ids
+        ]
         changes: list[dict[str, Any]] = []
-        wave_dir = wave_md.parent
         _MAX_CONTENT_LINES = 300
         for cid in admitted_ids:
-            # Prefer wave folder; fall back to docs/plans
-            doc_path: Optional[Path] = None
-            for p in sorted(wave_dir.rglob("*.md")):
-                if p.name != _vocab.RECORD_FILENAME and cid.lower() in p.stem.lower():
-                    doc_path = p
-                    break
-            if doc_path is None:
-                doc_path_candidate = record_paths.load_record_roots(root).plans / f"{cid}.md"
-                if doc_path_candidate.exists():
-                    doc_path = doc_path_candidate
-            if doc_path is not None and doc_path.exists():
+            # Exact name in the wave folder, then the plans root (wave 1zxo0:
+            # no recursive walk and no substring match). A link, a directory
+            # or a missing file at the wave location falls through to the
+            # plans root; a link there reads as refused, never followed.
+            doc_path: Optional[Path] = _wave_change_doc_path(root, wave_md, cid)
+            if not os.path.lexists(doc_path):
+                doc_path = _plan_change_doc_path(root, cid)
+                if not os.path.lexists(doc_path):
+                    doc_path = None
+            if doc_path is not None:
                 try:
-                    content_lines = doc_path.read_text(encoding="utf-8").splitlines()
+                    content_lines = _read_member_doc_text(
+                        doc_path.parent, doc_path, root=root
+                    ).splitlines()
                 except (OSError, UnicodeError) as exc:
                     content_lines = []
                     changes.append({
@@ -6283,7 +6409,7 @@ def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -
         return _response(
             "ok",
             {"wave_id": wave_id_s, "count": len(changes), "changes": changes},
-            diagnostics=(diagnostics + sibling_diagnostics) or None,
+            diagnostics=(invalid_id_diagnostics + diagnostics + sibling_diagnostics) or None,
             next_tools=["wf_validate_docs", "wf_current_wave"],
             usage="wf_validate_docs()",
         )
@@ -6379,16 +6505,15 @@ def _archived_wave_response(root: Path, wave_id_s: str, archived_waves: list[dic
     profile = _vocab.archive_profile()
     status_pattern = re.compile(rf"^{profile.MEMBER_STATUS_LABEL_RE}:\s+`([^`]+)`", re.MULTILINE)
     archive_real = _archive_root_real(root)
-    wave_dir = (root / wave["path"]).parent
     max_lines = 300
     changes: list[dict[str, Any]] = []
     for cid in wave["changes"]:
+        # Wave 1zxo0 (1zxns): the exact name `<archived folder>/<id>.md`, no
+        # recursive walk or substring match, behind the archive guard.
         doc_path = None
-        for candidate in sorted(wave_dir.rglob("*.md")):
-            if (candidate.name != profile.RECORD_FILENAME and cid.lower() in candidate.stem.lower()
-                    and archive_real is not None and _archive_file_ok(candidate, archive_real)):
-                doc_path = candidate
-                break
+        candidate = _wave_change_doc_path(root, root / wave["path"], cid)
+        if archive_real is not None and _archive_file_ok(candidate, archive_real):
+            doc_path = candidate
         if doc_path is None:
             changes.append({"id": cid, "status": "unknown", "path": None, "content": None, "archived": True})
             continue
@@ -6421,7 +6546,14 @@ def _archived_wave_response(root: Path, wave_id_s: str, archived_waves: list[dic
 
 
 def wf_get_prompt_response(root: Path, shortcut: str, cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
-    text = cache.get_prompt_text_cached(shortcut) if cache else get_prompt(root, shortcut)
+    # Wave 1zxnz (1zx02): candidates that resolve to a runtime lock are skipped
+    # and reported, on a miss beside ``prompt_not_found`` and on a hit as a warning.
+    refused: list[str] = []
+    text = (
+        cache.get_prompt_text_cached(shortcut, refused=refused)
+        if cache
+        else get_prompt(root, shortcut, refused=refused)
+    )
     if text is None:
         return _response(
             "ok",
@@ -6432,7 +6564,8 @@ def wf_get_prompt_response(root: Path, shortcut: str, cache: Optional[McpRepoCac
                     f"No prompt found matching '{shortcut}'.",
                     recovery_tools=["docs_search"],
                     recovery_usage=f"docs_search(query={shortcut!r}, kind='prompt')",
-                )
+                ),
+                *(_runtime_lock_target_refused_diagnostic(rel) for rel in refused),
             ],
             next_tools=["docs_search"],
             usage=f"docs_search(query={shortcut!r}, kind='prompt')",
@@ -6446,6 +6579,9 @@ def wf_get_prompt_response(root: Path, shortcut: str, cache: Optional[McpRepoCac
                 "trust_label": UNTRUSTED_PROJECT_CONTENT,
             },
         },
+        diagnostics=[
+            _runtime_lock_target_refused_diagnostic(rel, warning=True) for rel in refused
+        ] or None,
         next_tools=["wf_validate_docs"],
         usage="wf_validate_docs()",
     )
@@ -6866,7 +7002,22 @@ def _resolve_change_doc_matches(root: Path, change_id_prefix: str) -> list[dict[
             if p.name == _vocab.RECORD_FILENAME:
                 continue
             try:
-                text = p.read_text(encoding="utf-8")
+                text = _read_repo_text_checked(root, p)
+            except RuntimeLockTargetRefused as exc:
+                # Wave 1zxnz (1zx02): never opened; matched by name only and
+                # reported as unreadable, with ``refused`` for the resource.
+                canonical_change_id = p.stem
+                if _change_doc_matches_token(p, canonical_change_id, token):
+                    matches.append(
+                        {
+                            "path": str(p.relative_to(root)).replace("\\", "/"),
+                            "change_id": canonical_change_id,
+                            "content": "",
+                            "read_error": str(exc),
+                            "refused": True,
+                        }
+                    )
+                continue
             except (OSError, UnicodeError) as exc:
                 canonical_change_id = p.stem
                 if _change_doc_matches_token(p, canonical_change_id, token):
@@ -7037,37 +7188,8 @@ def _mark_item_block_end(lines: list[str], index: int) -> int:
     return end
 
 
-_DRIVE_PREFIX_RE = re.compile(r"^[A-Za-z]:")
-
-
-def _change_id_shape_error(change_id: Any) -> Optional[dict[str, Any]]:
-    """An ``invalid_arguments`` diagnostic when ``change_id`` cannot be a change id.
-
-    Wave 1zv87 (1zv85): lifecycle tools build ``<wave dir>/<change_id>.md``
-    from this argument, so an id that is empty, absolute (a drive-letter form
-    included), or carries a path separator (``/`` or ``\\``), a ``..``
-    component, or a NUL is refused here, with no filesystem access, before any
-    path is built.  No admitted id contains any of these."""
-    value = change_id if isinstance(change_id, str) else ""
-    reason = ""
-    if not value.strip():
-        reason = "is empty"
-    elif "\x00" in value:
-        reason = "contains a NUL character"
-    elif value.startswith(("/", "\\")) or _DRIVE_PREFIX_RE.match(value) or os.path.isabs(value):
-        reason = "is an absolute path"
-    elif "/" in value or "\\" in value:
-        reason = "contains a path separator"
-    elif value == "..":
-        reason = "is a `..` path component"
-    if not reason:
-        return None
-    return _diagnostic(
-        "invalid_arguments",
-        f"change_id {reason}; pass the FULL admitted change id as listed by the wave record.",
-        recovery_tools=["wf_current_wave"],
-        recovery_usage="wf_current_wave()",
-    )
+# Wave 1zxo0 (1zxns): ``_change_id_shape_error`` lives in lifecycle_gate_support
+# (imported above) beside the change-id allow-list.
 
 
 @_fail_closed_on_record_layout("wf_mark_item")
@@ -7124,7 +7246,10 @@ def _mark_change_item_response(
         )
     admitted = change_id in _extract_change_ids_from_wave_text(admitted_text)
     path = _wave_change_doc_path(root, wave_md, change_id) if admitted else None
-    if path is None or not path.is_file():
+    # Wave 1zxo0 (1zxns): a link or other non-regular entry is not "absent";
+    # it is read below under the member-doc rule, which refuses it, so no mark
+    # is ever written through a link.
+    if path is None or not os.path.lexists(path):
         return _response(
             "error",
             {},
@@ -7139,7 +7264,7 @@ def _mark_change_item_response(
         # Delivery review (wave 1zls7): read the document's own line endings
         # so marking rewrites only the mark; ``text`` stays in the
         # universal-newline form every other reader sees.
-        raw = path.read_bytes().decode("utf-8")
+        raw = _read_member_doc_bytes(path.parent, path, root=root).decode("utf-8")
     except (OSError, UnicodeError) as exc:
         return _response(
             "error",
@@ -7588,6 +7713,14 @@ def _read_monitor_config(root: Path) -> dict[str, Any]:
 
 
 
+def _member_doc_expected_folder(root: Path, wave_md: Path, path: Path) -> Path:
+    """The folder a member doc must sit in for the member-doc read rule (wave
+    1zxo0): the wave folder for an admitted doc, otherwise the plans root."""
+    if path.parent == wave_md.parent:
+        return wave_md.parent
+    return record_paths.load_record_roots(root).plans
+
+
 def _move_change_doc(source: Path, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     source.rename(target)
@@ -8013,7 +8146,7 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run", parent: Optional[s
             f"{_vocab.MEMBER_HEADING}\n\n"
             "## Participants\n\n"
             "- Coordinator: <wave coordinator>\n"
-            "- Write-owning roles: <roles selected during Prepare wave>\n"
+            f"- Write-owning roles: <roles selected during {_vocab.shortcut('prepare-wave')}>\n"
             "- Requested review lanes: none\n"
             "- Required review lanes: none\n\n"
             f"{_vocab.SUMMARY_HEADING}\n\n"
@@ -8260,6 +8393,25 @@ def wf_add_change_response(
         )
     canonical_change_id = str(change_matches[0]["change_id"])
     source_path = root / str(change_matches[0]["path"])
+    if not is_change_id(canonical_change_id):
+        # Wave 1zxo0 (1zxns): the canonical id comes from the plan's own
+        # header, which no other check covers; refuse it before any path is
+        # built from it. The value is never echoed.
+        reason = _change_id_reason_class(canonical_change_id)
+        return _response(
+            "error",
+            {"wave_id": wave_id, "change_id": change_id, "mode": mode_s},
+            diagnostics=[_diagnostic(
+                "change_id_invalid",
+                f"The member-id header of {_repo_rel(root, source_path)} is not a change id "
+                f"({reason}). Edit that header by hand, then run wf_validate_docs. "
+                "Nothing was moved or admitted.",
+                recovery_tools=["wf_validate_docs"],
+                recovery_usage="wf_validate_docs()",
+            )],
+            next_tools=["wf_validate_docs"],
+            usage="wf_validate_docs()",
+        )
     target_path = _wave_change_doc_path(root, wave_md, canonical_change_id)
     text, wave_read_error = _read_wave_record_text(wave_md)
     if text is None:
@@ -8320,10 +8472,18 @@ def wf_add_change_response(
     # relocate the file out of `docs/plans/`, fail at the metadata repair, and
     # return an error that never mentions the move -- turning a
     # crash-before-mutation into a mutation-then-misleading-error.
-    _readability_probe = source_path if source_path.exists() else target_path
-    if _readability_probe.exists():
+    # Wave 1zxo0 (1zxns): the probe reads under the member-doc rule (its
+    # expected folder is the wave folder or the plans root), so a link, a
+    # non-regular file or a doc outside the repository is refused here, before
+    # any move or write.
+    _readability_probe = source_path if os.path.lexists(source_path) else target_path
+    if os.path.lexists(_readability_probe):
         try:
-            _readability_probe.read_text(encoding="utf-8")
+            _read_member_doc_text(
+                _member_doc_expected_folder(root, wave_md, _readability_probe),
+                _readability_probe,
+                root=root,
+            )
         except (OSError, UnicodeError) as exc:
             return _response(
                 "error",
@@ -8341,7 +8501,7 @@ def wf_add_change_response(
                 usage=f"wf_get_change(change_id={canonical_change_id!r})",
             )
     if mode_s == "create":
-        if target_path.exists() and source_path != target_path:
+        if os.path.lexists(target_path) and source_path != target_path:
             return _response(
                 "error",
                 {"wave_id": wave_id, "change_id": canonical_change_id, "mode": mode_s},
@@ -8376,7 +8536,7 @@ def wf_add_change_response(
                 )
             relocated = True
         try:
-            admitted_text = target_path.read_text(encoding="utf-8")
+            admitted_text = _read_member_doc_text(wave_md.parent, target_path, root=root)
             repaired_admitted_text = re.sub(
                 # Bracketed placeholders and the bare TBD scaffold only. An
                 # angle-bracket form cannot be a real wave id, so recognizing it
@@ -8400,11 +8560,15 @@ def wf_add_change_response(
             cache.invalidate()
         _trigger_background_index_refresh_for_paths(root, [wave_md, target_path])
     # Detect broken relative links regardless of mode (dry-run reads source, create reads target).
-    _doc_check_path = target_path if (mode_s == "create" and target_path.exists()) else source_path
+    _doc_check_path = target_path if (mode_s == "create" and os.path.lexists(target_path)) else source_path
     broken_links: list[str] = []
-    if _doc_check_path.exists():
+    if os.path.lexists(_doc_check_path):
         try:
-            _doc_text = _doc_check_path.read_text(encoding="utf-8")
+            _doc_text = _read_member_doc_text(
+                _member_doc_expected_folder(root, wave_md, _doc_check_path),
+                _doc_check_path,
+                root=root,
+            )
         except (OSError, UnicodeError):
             # Unreachable for the decode case now that the readability probe
             # above refuses first; kept because this read can still fail for
@@ -8440,6 +8604,11 @@ def wf_remove_change_response(
     mode_s = "create" if (mode or "").strip().lower() == "apply" else (mode or "").strip().lower()
     if mode_s not in {"dry_run", "create"}:
         return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported mode '{mode}'.")], next_tools=["wf_help"], usage="wf_help()")
+    # Wave 1zxo0 (1zxns): the location below is built from this argument, so
+    # it must be a change id; the value is not echoed back.
+    shape_error = _change_id_shape_error(change_id)
+    if shape_error is not None:
+        return _response("error", {"wave_id": wave_id, "mode": mode_s}, diagnostics=[shape_error])
     wave_md, wave_read_error, unreadable_waves = _find_wave_md_detailed(root, wave_id)
     if wave_md is None:
         if unreadable_waves:
@@ -8553,7 +8722,8 @@ def new_change(root: Path, kind: str, slug: str, change_id: str | None = None) -
     content = re.sub(rf"(?m)^{_vocab.MEMBER_ID_LABEL_RE}:.*", lambda _m: f"{_vocab.MEMBER_ID_LABEL}: `{change_id}`", content)
     content = re.sub(r"Last verified:.*", f"Last verified: {today}", content)
 
-    out_path = plans_dir / f"{change_id}.md"
+    # Wave 1zxo0 (1zxns): through the asserting path helper.
+    out_path = _plan_change_doc_path(root, change_id)
     out_path.write_text(content, encoding="utf-8")
     return {"id": change_id, "path": str(out_path.relative_to(root)).replace("\\", "/")}
 
@@ -8763,6 +8933,45 @@ def _path_size_bytes(p: Path) -> int:
 
 
 
+
+
+_VENDORED_SCRIPTS_MISMATCH_MESSAGE = (
+    "vendored dashboard scripts differ from their pinned hashes; reinstall or upgrade the framework (advisory; does not affect readiness)"
+)
+_VENDORED_SCRIPTS_UNREADABLE_MESSAGE = (
+    "the vendored dashboard scripts' pinned hash table cannot be read; reinstall or upgrade the framework (advisory; does not affect readiness)"
+)
+
+
+def _audit_vendored_scripts(root: Path) -> dict[str, Any]:
+    """Wave 1zyb2 (1zxnt): report-only offline check of the AUDITED root's vendored
+    dashboard scripts against their pinned SHA-256 table.
+
+    Statuses: ``ok`` (no problems), ``mismatch`` (``problems`` holds one line per
+    file, as the shipped check returns it), ``unavailable`` (the vendor folder is
+    absent, or the shipped check cannot be imported or run) and ``unreadable``
+    (the README table cannot be read or parsed). Reads files only, uncached, and
+    never raises. ``ReadmeError`` is caught as the attribute of the loaded module
+    object, the class the check actually raises.
+    """
+    vendor_dir = root / ".wavefoundry" / "framework" / "dashboard" / "vendor"
+    if not vendor_dir.is_dir():
+        return {"status": "unavailable", "reason": "vendor folder absent", "problems": []}
+    try:
+        integrity = _load_script("vendored_integrity")
+    except Exception:
+        return {"status": "unavailable", "reason": "integrity check not importable", "problems": []}
+    try:
+        problems = list(integrity.offline_problems(vendor_dir))
+    except integrity.ReadmeError as exc:
+        # The shipped messages name a line or row number and a cause class only,
+        # never README row text, so the reason carries no raw README content.
+        return {"status": "unreadable", "reason": str(exc), "problems": []}
+    except Exception as exc:  # advisory: never block or fail the audit
+        return {"status": "unavailable", "reason": f"integrity check failed: {type(exc).__name__}", "problems": []}
+    if problems:
+        return {"status": "mismatch", "problems": problems}
+    return {"status": "ok", "problems": []}
 
 
 @_fail_closed_on_record_layout("wf_audit")
@@ -9089,6 +9298,19 @@ def wf_audit_response(
             recovery_usage="index_build(content='docs')",
         ))
 
+    # Wave 1zyb2 (1zxnt): vendored dashboard scripts against their pinned hashes,
+    # offline and report-only; never changes ``ready``. Like the other audit
+    # findings, its diagnostic is advisory by meaning and carries no gate flag.
+    vendored_scripts = _audit_vendored_scripts(root)
+    if vendored_scripts["status"] == "mismatch":
+        diagnostics.append(_diagnostic(
+            "vendored_scripts_mismatch", _VENDORED_SCRIPTS_MISMATCH_MESSAGE,
+        ))
+    elif vendored_scripts["status"] == "unreadable":
+        diagnostics.append(_diagnostic(
+            "vendored_scripts_unreadable", _VENDORED_SCRIPTS_UNREADABLE_MESSAGE,
+        ))
+
     # 1p8gy AC-6: memory advisories relevant to the audited wave.
     _mem_advisories = _memory_advisories_for_wave(root, wave_data) if wave_data else []
 
@@ -9125,6 +9347,7 @@ def wf_audit_response(
             "harnessability": harnessability,
             "harness_coverage": harness_coverage,
             "harness_coherence": harness_coherence,
+            "vendored_scripts": vendored_scripts,
         },
         diagnostics=diagnostics,
         next_tools=next_tools,
@@ -10113,10 +10336,11 @@ def _prepare_council_verdict_locations(
                 _wave_change_doc_path(root, wave_md, change_id),
                 _plan_change_doc_path(root, change_id),
             )
-            change_path = next((path for path in candidates if path.is_file()), None)
+            # Wave 1zxo0 (1zxns): presence and the read follow the member-doc rule.
+            change_path = next((path for path in candidates if _member_doc_lstat(path) is not None), None)
             if change_path is None:
                 continue
-            change_text = change_path.read_text(encoding="utf-8")
+            change_text = _read_member_doc_text(change_path.parent, change_path, root=root)
         except (OSError, UnicodeError, ValueError):
             continue
         for heading, _in_section in _verdict_line_headings(change_text):
@@ -10154,7 +10378,7 @@ def _prepare_council_location_advisory(
     if typed:
         message = (
             f"A prose prepare-council verdict line was found at {named}. A prose verdict is not "
-            "readiness authority on this wave: readiness is recorded as `wave-council-readiness` "
+            "readiness authority on this wave: readiness is recorded as `council-readiness` "
             "through `wf_review_event` (event='approval', approval_phase='readiness')."
         )
     else:
@@ -10579,9 +10803,10 @@ def _review_event_recovery_phase(
     """Derive recovery phase from authority identity, never invalid input phase."""
 
     if event == "approval":
-        if signoff_key == "wave-council-readiness":
+        canonical_key = canonical_signoff_key(signoff_key)
+        if canonical_key == COUNCIL_READINESS_SIGNOFF_KEY:
             return "prepare"
-        if signoff_key in {"wave-council-delivery", "operator-signoff"}:
+        if canonical_key in {COUNCIL_DELIVERY_SIGNOFF_KEY, "operator-signoff"}:
             return "implementation"
         if approval_phase in {"readiness", "delivery"}:
             return "prepare" if approval_phase == "readiness" else "implementation"
@@ -10607,7 +10832,44 @@ def _review_event_recovery_phase(
     )
 
 
+def _canonical_council_signoff_input(fn):
+    """Write the current council key for an approval given an earlier spelling.
+
+    Wave 1zyb4 (1zxnx): ``wave-council-readiness`` / ``wave-council-delivery``
+    stay accepted as tool input during the alias period. The key is
+    canonicalized before validation and event identity, so the recorded
+    approval carries ``council-*`` (in dry run and create alike), and the
+    response names the current key in an informational diagnostic.
+    """
+
+    @functools.wraps(fn)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        event = kwargs.get("event", args[2] if len(args) > 2 else None)
+        given = kwargs.get("signoff_key")
+        alias: tuple[str, str] | None = None
+        if (
+            isinstance(given, str)
+            and str(event or "").strip().lower() == "approval"
+            and canonical_signoff_key(given) != given
+        ):
+            alias = (given, canonical_signoff_key(given))
+            kwargs["signoff_key"] = alias[1]
+        result = fn(*args, **kwargs)
+        if alias is not None and isinstance(result, dict):
+            notice = _diagnostic(
+                "signoff_key_alias",
+                f"signoff_key `{alias[0]}` is the earlier spelling of `{alias[1]}`; "
+                f"the approval is recorded as `{alias[1]}`. Use `{alias[1]}` in new calls.",
+            )
+            notice["severity"] = "info"
+            result.setdefault("diagnostics", []).append(notice)
+        return result
+
+    return wrapped
+
+
 @_fail_closed_on_record_layout("wf_review_event")
+@_canonical_council_signoff_input
 def wf_review_event_response(
     root: Path,
     wave_id: str,
@@ -10784,7 +11046,8 @@ def wf_review_event_response(
     readiness_approval = bool(
         event == "approval"
         and approval_phase == "readiness"
-        and signoff_key not in {"wave-council-delivery", "operator-signoff"}
+        and canonical_signoff_key(signoff_key)
+        not in {COUNCIL_DELIVERY_SIGNOFF_KEY, "operator-signoff"}
     )
     if readiness_approval:
         receipt_validation = validate_external_review_evidence(wave_md)
@@ -10873,6 +11136,21 @@ def wf_review_event_response(
                     ],
                 )
         existing_bundle = _identified_review_event_bundle(current.records, identity)
+        replay_digests = {request_digest}
+        if existing_bundle is None and event == "approval":
+            # Wave 1zyb4: an approval first recorded under the earlier council
+            # key spelling stored an identity and digest that hashed that
+            # spelling. A retry (now canonicalized) replays it instead of
+            # appending a second record; new records keep canonical identities.
+            for legacy_key in legacy_signoff_key_spellings(identity.get("signoff_key")):
+                existing_bundle = _identified_review_event_bundle(
+                    current.records, {**identity, "signoff_key": legacy_key}
+                )
+                if existing_bundle is not None:
+                    replay_digests.add(review_event_request_digest(
+                        {**semantic_event, "signoff_key": legacy_key}
+                    ))
+                    break
         replayed = existing_bundle is not None
         if readiness_approval and existing_bundle is None:
             # Only a genuinely NEW append is checked.  An idempotent replay of an
@@ -10974,7 +11252,7 @@ def wf_review_event_response(
                     ],
                 )
         if existing_bundle is not None:
-            if existing_bundle[0].get(REQUEST_DIGEST_FIELD) != request_digest:
+            if existing_bundle[0].get(REQUEST_DIGEST_FIELD) not in replay_digests:
                 return _response(
                     "error",
                     {"wave_id": wave_id, "mode": mode_s, "event": event},
@@ -11439,7 +11717,11 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
             _wave_record_unreadable_diagnostic(root, wave_md, wave_read_error)
         )
         return _prepare_envelope("error", {"wave_id": wave_id, "mode": mode_s}, next_tools=["wf_list_waves", "wf_validate_docs"], usage="wf_list_waves()")
-    change_ids = _extract_change_ids_from_wave_text(text)
+    change_ids, rejected_ids = _partition_member_ids(text)
+    # Wave 1zxo0 (1zxns): a member line whose id fails the allow-list blocks
+    # readiness (the "unstable" lint rule fails `lint_gate` too); no path is
+    # built from it.
+    diagnostics.extend(_change_id_invalid_diagnostics(_repo_rel(root, wave_md), rejected_ids))
     gate_ctx = lifecycle_gates.GateContext(root, wave_md, text, mode_s, {}, "prepare")
     for gate in lifecycle_gates.PREPARE_PREFLIGHT_GATES[:2]:
         diagnostics.extend(gate(gate_ctx).diagnostics)
@@ -11459,6 +11741,24 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         if location_result.data["skip"]:
             continue
         if location_result.data["needs_relocation"]:
+            # Wave 1zxo0 (1zxns): the staged source is read under the
+            # member-doc rule BEFORE the move, so a link or non-regular entry
+            # is refused with the readability diagnostic and never moved.
+            try:
+                _read_member_doc_bytes(
+                    location["staged_path"].parent, location["staged_path"], root=root
+                )
+            except OSError as exc:
+                diagnostics.append(
+                    _diagnostic(
+                        "change_doc_unreadable",
+                        f"Could not read admitted change '{admitted_change}' at "
+                        f"{_repo_rel(root, location['staged_path'])}: {_read_error_detail(exc)}",
+                        recovery_tools=["wf_get_change"],
+                        recovery_usage=f"wf_get_change(change_id={admitted_change!r})",
+                    )
+                )
+                continue
             try:
                 _move_change_doc(location["staged_path"], location["wave_path"])
             except OSError as exc:
@@ -11475,7 +11775,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
             updated = True
             gate_ctx.wave_text = text
         try:
-            change_text = change_path.read_text(encoding="utf-8")
+            change_text = _read_member_doc_text(change_path.parent, change_path, root=root)
         except (OSError, UnicodeError) as exc:
             diagnostics.append(
                 _diagnostic(
@@ -11837,14 +12137,22 @@ def wf_pause_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
             )
         )
     diagnostics.extend(_force_gates_closed(root, mode_s))
+    handoff_written = False
     if mode_s == "create":
         # Transition wave status first, then write the handoff entry.
         if status_transition["from"] in ("active", "implementing") and status_transition["to"] == "paused":
             new_text = wave_text[:status_match.start(1)] + "paused" + wave_text[status_match.end(1):]
             wave_md.write_text(new_text, encoding="utf-8")
-        handoff.parent.mkdir(parents=True, exist_ok=True)
-        prior = handoff.read_text(encoding="utf-8") if handoff.exists() else ""
-        handoff.write_text(_update_handoff_wave_ref(prior, wave_id), encoding="utf-8")
+        # Wave 1zxnz (1zx02): a handoff that resolves to a runtime lock is
+        # never opened; the write is skipped and the transition above stands.
+        try:
+            _refuse_runtime_lock_target(root, handoff)
+            handoff.parent.mkdir(parents=True, exist_ok=True)
+            prior = _read_repo_text_checked(root, handoff) if handoff.exists() else ""
+            handoff.write_text(_update_handoff_wave_ref(prior, wave_id), encoding="utf-8")
+            handoff_written = True
+        except RuntimeLockTargetRefused as exc:
+            diagnostics.append(_runtime_lock_target_refused_diagnostic(exc.rel_path))
         if cache:
             cache.invalidate()
         _trigger_background_index_refresh_for_paths(root, [handoff, wave_md])
@@ -11854,7 +12162,7 @@ def wf_pause_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
             "wave_id": wave_id,
             "mode": mode_s,
             "path": rel,
-            "written": mode_s == "create",
+            "written": handoff_written,
             "status_transition": status_transition,
         },
         diagnostics=diagnostics if diagnostics else None,
@@ -11926,7 +12234,12 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
         gate_ctx, review_phase=phase_s, requested_wave_id=wave_id
     )
     authority = prelude.data["authority"]
-    review_evidence_diagnostics = prelude.diagnostics
+    # Wave 1zxo0 (1zxns): a member line whose id fails the allow-list blocks
+    # both review phases (record path and line number only).
+    invalid_id_diagnostics = _change_id_invalid_diagnostics(
+        _repo_rel(root, wave_md), _partition_member_ids(wave_text)[1]
+    )
+    review_evidence_diagnostics = [*invalid_id_diagnostics, *prelude.diagnostics]
 
     def _empty_roster_advisory(lanes: list[str], delivery_lanes: Sequence[str] = ()) -> Optional[dict[str, Any]]:
         if not authority.typed or lanes:
@@ -12109,7 +12422,9 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
                     "review_context_retained", violation, advisory=True,
                     recovery_tools=["wf_review_event"],
                 ))
-    status = "ok" if not shared["blocking_diagnostics"] else "error"
+    review_blocking = [*invalid_id_diagnostics, *shared["blocking_diagnostics"]]
+    diagnostics = [*invalid_id_diagnostics, *diagnostics]
+    status = "ok" if not review_blocking else "error"
     # 1p8gy AC-6: prior review findings and lessons relevant to this wave.
     _review_data = {"wave_id": wave_id, "phase": phase_s, "required_lanes": required_lanes, "lane_results": lane_results, "required_council_signoffs": required_council_signoffs, "council_results": council_results, "lint_passed": lint_result["passed"], "max_severity": max_severity}
     # Wave 1t3ek (1t230): the delivery council reads the implement-stage numbers
@@ -12166,7 +12481,7 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
         # Wave 1zime (1ziml): the first blocker that set the status names the remedy.
         review_next_tools, review_usage = _blocked_envelope_hint(
             diagnostics, review_next_tools, review_usage,
-            blocking=shared["blocking_diagnostics"],
+            blocking=review_blocking,
         )
     return _response(
         status,
@@ -12223,7 +12538,9 @@ def _wave_code_footprint(root: Path, wave_md: Path) -> Optional[int]:
     try:
         for change_id in _extract_change_ids_from_wave_text(wave_text):
             change = _wave_change_doc_path(root, wave_md, change_id)
-            targets.extend(serialization_point_paths(change.read_text(encoding="utf-8")))
+            targets.extend(serialization_point_paths(
+                _read_member_doc_text(change.parent, change, root=root)
+            ))
     except (OSError, UnicodeError):
         return None
     if not targets:
@@ -12457,7 +12774,7 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
             not _readiness_keys
             and _read_workflow_config(root).get("wave_review") is None
         ):
-            _readiness_keys = ["wave-council-readiness"]
+            _readiness_keys = [COUNCIL_READINESS_SIGNOFF_KEY]
         _missing_readiness = [
             key for key in _readiness_keys
             if not _activation_authority.signoff_current(
@@ -12532,6 +12849,12 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
             recovery_usage=f"wf_review_wave(wave_id={wave_id!r}, phase='prepare')",
         ))
 
+    # Wave 1zxo0 (1zxns): a member line whose id fails the allow-list blocks
+    # opening the wave; no path is built from it.
+    diagnostics.extend(_change_id_invalid_diagnostics(
+        _repo_rel(root, wave_md), _partition_member_ids(wave_text)[1]
+    ))
+
     # Gate 3 (wave 1p45l): single-OPEN guard — at most one wave may be OPEN (active/implementing).
     # This is the relocated single-OPEN enforcement point; readiness paths (prepare ready/dry_run)
     # no longer guard. `_find_other_active_wave` excludes the target wave, so opening a wave that
@@ -12577,12 +12900,12 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
     # Preserve admission order; dependencies describe serialization, not a sort.
     ordered_changes: list[dict[str, Any]] = []
     for cid in change_ids:
-        change_path = wave_md.parent / f"{cid}.md"
-        if not change_path.exists():
+        change_path = _wave_change_doc_path(root, wave_md, cid)
+        if not os.path.lexists(change_path):
             ordered_changes.append({"change_id": cid, "status": "unknown", "depends_on": []})
             continue
         try:
-            ct = change_path.read_text(encoding="utf-8")
+            ct = _read_member_doc_text(change_path.parent, change_path, root=root)
         except (OSError, UnicodeError) as exc:
             return _response(
                 "error",
@@ -12753,7 +13076,9 @@ def _confirmed_secret_notice(root: Path) -> dict[str, Any] | None:
     return {"confirmed_secrets": items, "secrets_reminder": reminder}
 
 
-def _generate_wf_close_wave_summary(wave_id: str, wave_text: str, wave_md: Path) -> str:
+def _generate_wf_close_wave_summary(
+    wave_id: str, wave_text: str, wave_md: Path, root: Optional[Path] = None,
+) -> str:
     """Synthesize a wave close summary from structured fields in the wave record and change docs.
 
     Format: one or more prose paragraphs followed by optional per-change bullet points.
@@ -12778,9 +13103,13 @@ def _generate_wf_close_wave_summary(wave_id: str, wave_text: str, wave_md: Path)
         return (tail[: m.start()] if m else tail).strip()
 
     change_summaries: list[dict] = []
+    # Wave 1zxo0 (1zxns): member docs are read under the member-doc rule
+    # inside ``root`` (the close handler passes it; without it the wave folder
+    # bounds the read).
+    read_root = root if root is not None else wave_md.parent
     for cid in change_ids:
-        change_path = wave_md.parent / f"{cid}.md"
-        if not change_path.exists():
+        change_path = _wave_change_doc_path(read_root, wave_md, cid)
+        if not os.path.lexists(change_path):
             # 1v0lx: the close hard gate blocks a missing admitted document
             # before summary generation; if the file vanishes in the window
             # between the gate and this read, fail closed like the unreadable
@@ -12792,7 +13121,7 @@ def _generate_wf_close_wave_summary(wave_id: str, wave_text: str, wave_md: Path)
                 "document or remove the change via wf_remove_change"
             )
         try:
-            ct = change_path.read_text(encoding="utf-8")
+            ct = _read_member_doc_text(change_path.parent, change_path, root=read_root)
         except (OSError, UnicodeError) as exc:
             # Wave-relative, not absolute: this string reaches the operator in a
             # close diagnostic, and the function has no repo root to hand to
@@ -13094,9 +13423,18 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
         gate_ctx, garden_passed=garden_passed
     ).diagnostics)
     if open_records:
+        # Wave 1zxo0 (1zxns): a record id that is neither a change id nor a
+        # legacy item id is never echoed (it is reported as
+        # `change_id_invalid` by its line number).
+        def _open_label(record_id: str) -> str:
+            if is_change_id(record_id) or re.fullmatch(r"[a-z0-9][a-z0-9-]*", record_id):
+                return f"`{record_id}`"
+            return "a member line that is not a change id"
+
         open_list = "; ".join(
             "a status line outside any record" if record_id is None
-            else f"`{record_id}` is `{status}`" if status else f"`{record_id}` has no readable status"
+            else f"{_open_label(record_id)} is `{status}`" if status
+            else f"{_open_label(record_id)} has no readable status"
             for record_id, status in open_records
         )
         diagnostics.append(_diagnostic("open_changes_remaining", f"Wave has unresolved change statuses: {open_list}.", recovery_tools=["wf_current_wave"], recovery_usage="wf_current_wave()"))
@@ -13105,7 +13443,7 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     # never archived. An already-closed wave re-closes convergently (1seax).
     from wave_lint_lib import wave_validators as _drift_validators
     if not _drift_validators.status_drift_exempt(text):
-        drifted = _drift_validators.member_status_drift(text, wave_md.parent)
+        drifted = _drift_validators.member_status_drift(text, wave_md.parent, root=root)
         if drifted:
             def _drift_value(value: Optional[str]) -> str:
                 return f"`{value}`" if value else "no readable status"
@@ -13208,7 +13546,7 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
         return _close_envelope("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed, "required_council_signoffs": required_council_signoffs, "framework_test_receipt": framework_test_receipt, **secrets_notice, **scanner_skip_notice(root)}, diagnostics=diagnostics + ([empty_roster_advisory] if empty_roster_advisory else []) + gate_diagnostics, next_tools=_close_next_tools, usage=_close_usage)
     # Generate the wave summary from structured change doc fields (12sq4).
     try:
-        wave_summary = _generate_wf_close_wave_summary(wave_id, text, wave_md)
+        wave_summary = _generate_wf_close_wave_summary(wave_id, text, wave_md, root)
     except (OSError, UnicodeError, ValueError) as exc:
         return _close_envelope(
             "error",
@@ -13272,11 +13610,17 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
         # retry after an interruption between the wave.md write and this point
         # completes the operation instead of skipping it.
         handoff = root / "docs" / "agents" / "session-handoff.md"
-        handoff.parent.mkdir(parents=True, exist_ok=True)
-        prior = handoff.read_text(encoding="utf-8") if handoff.exists() else ""
-        converged = _update_handoff_wave_ref(prior, None)
-        if converged != prior:
-            handoff.write_text(converged, encoding="utf-8")
+        # Wave 1zxnz (1zx02): a handoff that resolves to a runtime lock is
+        # never opened; the write is skipped and the close above stands.
+        try:
+            _refuse_runtime_lock_target(root, handoff)
+            handoff.parent.mkdir(parents=True, exist_ok=True)
+            prior = _read_repo_text_checked(root, handoff) if handoff.exists() else ""
+            converged = _update_handoff_wave_ref(prior, None)
+            if converged != prior:
+                handoff.write_text(converged, encoding="utf-8")
+        except RuntimeLockTargetRefused as exc:
+            gate_diagnostics = [*gate_diagnostics, _runtime_lock_target_refused_diagnostic(exc.rel_path)]
         handoff_rel = str(handoff.relative_to(root)).replace("\\", "/")
         _trigger_background_index_refresh_for_paths(root, [wave_md, handoff])
     # Wave 1p601: only create-mode close refreshes the codebase map; dry-run does
@@ -13591,7 +13935,7 @@ def wf_close_change_response(
     admitted = block is not None and record is not None
     doc_path = _wave_change_doc_path(root, wave_md, change_id) if admitted else None
     doc_raw: Optional[str] = None
-    if doc_path is not None and not doc_path.is_file():
+    if doc_path is not None and not os.path.lexists(doc_path):
         diagnostics.append(_diagnostic(
             "change_doc_missing",
             f"No change document at {_repo_rel(root, doc_path)}.",
@@ -13600,7 +13944,7 @@ def wf_close_change_response(
         ))
     elif doc_path is not None:
         try:
-            doc_raw = doc_path.read_bytes().decode("utf-8")
+            doc_raw = _read_member_doc_bytes(doc_path.parent, doc_path, root=root).decode("utf-8")
         except (OSError, UnicodeError) as exc:
             diagnostics.append(_diagnostic(
                 "change_doc_unreadable",
@@ -13633,7 +13977,7 @@ def wf_close_change_response(
     # Gate: the per-change checkbox gate (close's own collector, this change only).
     if block is not None:
         findings = [
-            item for item in lifecycle_gate_support._collect_silent_unchecked_items_for_close(wave_md, text)
+            item for item in lifecycle_gate_support._collect_silent_unchecked_items_for_close(wave_md, text, root)
             if item["change_id"] == change_id
         ]
         doc_codes = {"missing": None, "unreadable": None}
@@ -13717,10 +14061,12 @@ def wf_close_change_response(
         if _CLOSE_CHANGE_ACTIVATED_STATUS not in lint_constants.ALLOWED_CHANGE_STATUS_TRANSITIONS.get(candidate.status, set()):
             not_activated.append({**entry, "reason": "transition_not_allowed"})
             continue
-        candidate_path = _wave_change_doc_path(root, wave_md, candidate.record_id)
         try:
-            candidate_raw = candidate_path.read_bytes().decode("utf-8")
-        except (OSError, UnicodeError):
+            candidate_path = _wave_change_doc_path(root, wave_md, candidate.record_id)
+            candidate_raw = _read_member_doc_bytes(
+                candidate_path.parent, candidate_path, root=root
+            ).decode("utf-8")
+        except (OSError, UnicodeError, ChangeIdRejected):
             not_activated.append({**entry, "reason": "change_doc_unreadable"})
             continue
         if _close_change_doc_status(candidate_raw) != candidate.status:
@@ -13741,10 +14087,12 @@ def wf_close_change_response(
     for other in records:
         if other.record_id == change_id or change_id in other.depends_on:
             continue
-        other_path = _wave_change_doc_path(root, wave_md, other.record_id)
         try:
-            other_text = other_path.read_bytes().decode("utf-8")
-        except (OSError, UnicodeError):
+            other_path = _wave_change_doc_path(root, wave_md, other.record_id)
+            other_text = _read_member_doc_bytes(
+                other_path.parent, other_path, root=root
+            ).decode("utf-8")
+        except (OSError, UnicodeError, ChangeIdRejected):
             continue
         other_lines = other_text.replace("\r\n", "\n").split("\n")
         legacy_targets = [
@@ -13972,10 +14320,12 @@ def _is_runtime_lock_path(root: Path, path: Path) -> bool:
     """True when ``path`` is a framework runtime lock: under ``<root>/.wavefoundry/``
     with a name ending in ``.lock``.
 
-    Wave 1zv87 (1zuq7): the lifecycle and index-build locks are POSIX record
-    locks (``lockf``), which the kernel releases when ANY descriptor of the file
-    is closed in the holding process, so a reader in the server process that
-    opens one silently drops the lock.  Callers pass the RESOLVED target (a
+    Wave 1zv87 (1zuq7): the lifecycle and index-build locks are byte-range
+    record locks. Since wave 1zxnz (1zx02) they are OFD locks on Linux and
+    macOS, which an unrelated close cannot release, but on the ``lockf``
+    fallback the kernel releases them when ANY descriptor of the file is closed
+    in the holding process, so a reader in the server process that opens one
+    there silently drops the lock.  Callers pass the RESOLVED target (a
     symlink is judged by what it points at) and the resolved root.  The
     root-relative parts are compared case-folded on every platform, so a case
     variant on a case-insensitive filesystem names the same file and is refused
@@ -13986,8 +14336,9 @@ def _is_runtime_lock_path(root: Path, path: Path) -> bool:
     ``indexer._walk_target_is_runtime_lock`` mirrors this rule for the walker,
     which cannot import this module; a parity test keeps them aligned. The name
     test is the shared ``runtime_lock.is_runtime_lock_path`` (wave 1zv8c),
-    reached through ``lifecycle_lock`` so a reload never purges the module
-    that holds the in-process lock registry; it finds the root by identity, so
+    reached through ``lifecycle_lock``; ``wf_reload_mcp`` reloads
+    ``runtime_lock`` in place, state preserved, so the in-process lock
+    registry survives a reload. It finds the root by identity, so
     a case, normalisation or firmlink spelling of the checkout is still judged.
     """
     if _lifecycle_lock_authority.is_runtime_lock_path(root, path):
@@ -14004,18 +14355,80 @@ def _is_runtime_lock_path(root: Path, path: Path) -> bool:
 def _runtime_lock_identities(root: Path) -> set[tuple[int, int]]:
     """``(st_dev, st_ino)`` of every ``*.lock`` file under ``<root>/.wavefoundry/``
     (wave 1zv87, 1zuq7): the identities a hard link to a runtime lock shares.
-    Only ``stat`` is used; no lock file is opened."""
-    identities: set[tuple[int, int]] = set()
-    for dirpath, _dirnames, filenames in os.walk(root / ".wavefoundry"):
-        for name in filenames:
-            if not os.path.normcase(name).casefold().endswith(".lock"):
-                continue
-            try:
-                lock_stat = os.stat(os.path.join(dirpath, name))
-            except OSError:
-                continue
-            identities.add((lock_stat.st_dev, lock_stat.st_ino))
-    return identities
+    Only ``stat`` is used; no lock file is opened. Since wave 1zxo0 the rule
+    lives in ``lifecycle_gate_support.runtime_lock_identities``, shared with
+    the member-doc read rule."""
+    return lifecycle_gate_support.runtime_lock_identities(root)
+
+
+class RuntimeLockTargetRefused(Exception):
+    """A handoff, prompt or resource target resolves to a framework runtime lock.
+
+    Wave 1zxnz (1zx02): defense in depth for the ``lockf`` fallback, where
+    opening and closing a lock file in the holding process releases the lock.
+    Carries only the repository-relative path, never an absolute one.
+    """
+
+    def __init__(self, rel_path: str) -> None:
+        super().__init__(f"refused: {rel_path} resolves to a framework runtime lock")
+        self.rel_path = rel_path
+
+
+def _runtime_lock_target_rel(root: Path, path: Path) -> str:
+    """``path`` relative to ``root`` as given (never resolved), else its name."""
+    try:
+        return Path(path).relative_to(root).as_posix()
+    except ValueError:
+        return Path(path).name
+
+
+def _refuse_runtime_lock_target(root: Path, path: Path) -> None:
+    """Raise ``RuntimeLockTargetRefused`` when ``path`` resolves to a runtime lock.
+
+    Judged by ``_is_runtime_lock_path`` over the resolved root and the resolved
+    target, so a symlink is judged by what it names. Nothing is opened. A
+    target that cannot be resolved is left to the caller's own read or write,
+    which reports its own error.
+    """
+    try:
+        resolved_root = Path(root).resolve()
+        resolved = Path(path).resolve()
+    except (OSError, RuntimeError):
+        return
+    if _is_runtime_lock_path(resolved_root, resolved):
+        raise RuntimeLockTargetRefused(_runtime_lock_target_rel(root, path))
+
+
+def _read_repo_text_checked(root: Path, path: Path) -> str:
+    """Read ``path`` as UTF-8 text unless it resolves to a runtime lock.
+
+    Wave 1zxnz (1zx02): the one checked reader for the handoff, prompt and
+    resource readers. A lock target raises ``RuntimeLockTargetRefused``
+    without being opened; anything else reads exactly as ``read_text`` does.
+    """
+    _refuse_runtime_lock_target(root, path)
+    return Path(path).read_text(encoding="utf-8")
+
+
+def _runtime_lock_target_refused_diagnostic(rel_path: str, *, warning: bool = False) -> dict[str, Any]:
+    """The ``runtime_lock_target_refused`` diagnostic; ``warning`` marks it
+    ``severity: warning`` on an otherwise successful response."""
+    payload = _diagnostic(
+        "runtime_lock_target_refused",
+        f"Refused to open {rel_path}: it resolves to a framework runtime lock. "
+        "Replace the link with an ordinary file.",
+    )
+    if warning:
+        payload["severity"] = "warning"
+    return payload
+
+
+def _runtime_lock_refused_markdown(rel_path: str) -> str:
+    return (
+        "# Refused\n\n"
+        f"`{rel_path}` resolves to a framework runtime lock and was not opened. "
+        "Replace the link with an ordinary file.\n"
+    )
 
 
 def _repo_rel_path_refused(root: Path, rel: str) -> bool:
@@ -16042,7 +16455,17 @@ def _doc_demotion_weight(path: str, kind: str, prefixes: tuple[str, str] | None 
         return _DEMOTION_SEEDS
     parts = Path(normalized).parts
     name = Path(normalized).name.lower()
-    if any(seg in parts for seg in ("journals", "reports")) or "feedback" in name or "journal" in name:
+    # Wave 1zyb2 (1zxnt): the shared history components (a repo-relative path;
+    # an absolute one is never tested) plus this ranking heuristic's own extras.
+    # The history test applies to document results only: target source code
+    # under a directory named like a history component is not demoted.
+    history = False
+    if kind != "code":
+        try:
+            history = is_history_path(normalized)
+        except ValueError:
+            history = False
+    if history or "reports" in parts or "feedback" in name or "journal" in name:
         return _DEMOTION_JRNLS
     # Wave 1p66s: reference prose — architecture docs, specs, and ADRs. ADRs live under
     # docs/architecture/decisions/ (covered by the architecture prefix); docs/specs/ added
@@ -18452,14 +18875,38 @@ def build_handler(root: Path) -> ImplHandler:
 
 
 def _extension_provenance_for_response(root: Path) -> dict[str, Any]:
-    """Loaded extension provenance with repository-relative paths (wave 1yv9l)."""
+    """Loaded extension provenance with repository-relative paths (wave 1yv9l).
+
+    Wave 1zxo0 (1zxns): a path is never absolute. Under the root it is
+    repository-relative; otherwise ``framework:<path relative to the loaded
+    framework directory>``; otherwise ``external:<file name>``. Paths are
+    compared after ``resolve()``, and output is POSIX-separated.
+    """
     provenance = _EXTENSION_PROVENANCE or _empty_extension_provenance()
+    # `server_impl.py` sits in `<framework>/scripts/wf_server/`, so the loaded
+    # framework directory is the parent of the scripts directory.
+    framework_dir = SCRIPTS_DIR.parent
 
     def _rel(path: str) -> str:
-        try:
-            return Path(path).resolve().relative_to(root.resolve()).as_posix()
-        except (ValueError, OSError):
+        if not path:
             return path
+        # The file name alone, split on both separators so a Windows spelling
+        # read on POSIX never leaks its directories.
+        external = f"external:{str(path).replace(chr(92), '/').rsplit('/', 1)[-1]}"
+        if not Path(path).is_absolute():
+            # Provenance paths are absolute; anything else (such as a Windows
+            # spelling read on POSIX) is never resolved against the cwd.
+            return external
+        try:
+            resolved = Path(path).resolve()
+        except (OSError, RuntimeError, ValueError):
+            return external
+        for base, prefix in ((root, ""), (framework_dir, "framework:")):
+            try:
+                return prefix + resolved.relative_to(Path(base).resolve()).as_posix()
+            except (ValueError, OSError, RuntimeError):
+                continue
+        return external
 
     declaration = dict(provenance["declaration"])
     declaration["path"] = _rel(declaration["path"])
@@ -22894,7 +23341,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             actor: Exact reviewer/operator lane recording the event.
             context_id: Stable identifier for this verification context.
             mode: ``dry_run`` (default) or ``create``.
-            signoff_key: Required for approval, e.g. ``qa-reviewer`` or ``wave-council-delivery``.
+            signoff_key: Required for approval, e.g. ``qa-reviewer`` or ``council-delivery``.
             approval_phase: Required for approval; ``readiness`` or ``delivery``.
             finding_id: Required for finding.
             run_kind: Required for finding/run; one of the canonical review run kinds.
@@ -25073,14 +25520,22 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def _read_doc_or_not_found(path: Path, label: str) -> str:
         """Read a markdown doc and return its text, or a clear not-found message."""
         if path.exists():
-            return path.read_text(encoding="utf-8")
+            try:
+                return _read_repo_text_checked(get_handler().root, path)
+            except RuntimeLockTargetRefused as exc:
+                return _runtime_lock_refused_markdown(exc.rel_path)
         return f"# Not Found\n\n`{label}` does not exist at `{_repo_rel(get_handler().root, path)}`.\n"
 
     def _validated_wave_markdown(path: Path) -> str:
         """Serve canonical-event-derived projection or fail closed on authority damage."""
 
+        # Wave 1zxnz (1zx02): refuse a lock target before anything reads it.
+        try:
+            _refuse_runtime_lock_target(get_handler().root, path)
+        except RuntimeLockTargetRefused as exc:
+            return _runtime_lock_refused_markdown(exc.rel_path)
         if not _wave_uses_external_review_evidence(get_handler().root, path):
-            return path.read_text(encoding="utf-8")
+            return _read_repo_text_checked(get_handler().root, path)
         validation = validate_external_review_evidence(path)
         if validation.authority_errors:
             details = [*validation.authority_errors]
@@ -25091,7 +25546,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 + "\n".join(f"- {detail}" for detail in details)
                 + "\n"
             )
-        raw = path.read_text(encoding="utf-8")
+        raw = _read_repo_text_checked(get_handler().root, path)
         projection_status = "current"
         try:
             rendered = _project_current_review_status(
@@ -25149,7 +25604,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         ]
         for c in candidates:
             if c.exists():
-                return c.read_text(encoding="utf-8")
+                try:
+                    return _read_repo_text_checked(_root, c)
+                except RuntimeLockTargetRefused as exc:
+                    return _runtime_lock_refused_markdown(exc.rel_path)
         return "# Not Found\n\nNo project overview document found in docs/references/project-overview.md or docs/README.md.\n"
 
     @mcp.resource(
@@ -25233,6 +25691,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             for match in matches:
                 lines.append(f"- `{match['change_id']}` — `{match['path']}`")
             return "\n".join(lines) + "\n"
+        if matches[0].get("refused"):
+            return _runtime_lock_refused_markdown(str(matches[0]["path"]))
         if matches[0].get("read_error"):
             # Never hand back an empty body for a document that could not be
             # read; the spec promises `# Not Found` for absent resources and an
@@ -25303,9 +25763,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     )
     def resource_prompt(slug: str) -> str:
         """Return the prompt document matching the given slug."""
-        text = get_prompt(get_handler().root, slug)
+        refused: list[str] = []
+        text = get_prompt(get_handler().root, slug, refused=refused)
         if text is None:
-            return f"# Not Found\n\nNo prompt found matching `{slug}`. Use `wf_get_prompt(shortcut=...)` for structured lookup.\n"
+            refused_note = "".join(
+                f"\n`{rel}` resolves to a framework runtime lock and was not opened.\n"
+                for rel in refused
+            )
+            return f"# Not Found\n\nNo prompt found matching `{slug}`. Use `wf_get_prompt(shortcut=...)` for structured lookup.\n" + refused_note
         return text
 
     @mcp.resource(
@@ -25329,10 +25794,16 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             candidates = sorted(seeds_dir.glob("*.md"))
             for p in candidates:
                 if p.stem.lower() == slug_lower:
-                    return p.read_text(encoding="utf-8")
+                    try:
+                        return _read_repo_text_checked(get_handler().root, p)
+                    except RuntimeLockTargetRefused as exc:
+                        return _runtime_lock_refused_markdown(exc.rel_path)
             for p in candidates:
                 if slug_lower in p.stem.lower():
-                    return p.read_text(encoding="utf-8")
+                    try:
+                        return _read_repo_text_checked(get_handler().root, p)
+                    except RuntimeLockTargetRefused as exc:
+                        return _runtime_lock_refused_markdown(exc.rel_path)
         return f"# Not Found\n\nNo seed found matching `{slug}`. Use `seed_get(name=...)` for structured lookup.\n"
 
     @mcp.resource(
@@ -25348,7 +25819,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             slug_lower = slug.lower().strip()
             for p in sorted(arch_dir.glob("*.md")):
                 if slug_lower in p.stem.lower():
-                    return p.read_text(encoding="utf-8")
+                    try:
+                        return _read_repo_text_checked(get_handler().root, p)
+                    except RuntimeLockTargetRefused as exc:
+                        return _runtime_lock_refused_markdown(exc.rel_path)
         return f"# Not Found\n\nNo architecture doc found matching `{slug}` in docs/architecture/.\n"
 
     @mcp.resource(
@@ -25528,7 +26002,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 pass
         if out.is_file():
             try:
-                return out.read_text(encoding="utf-8")
+                return _read_repo_text_checked(_root, out)
+            except RuntimeLockTargetRefused as exc:
+                return _runtime_lock_refused_markdown(exc.rel_path)
             except Exception as exc:
                 return f"# Codebase Map\n\nFailed to read map: {exc}\n"
         return (
@@ -25588,7 +26064,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             )
         path = _root / rel
         try:
-            return path.read_text(encoding="utf-8")
+            return _read_repo_text_checked(_root, path)
+        except RuntimeLockTargetRefused as exc:
+            return _runtime_lock_refused_markdown(exc.rel_path)
         except OSError as exc:
             return f"# Not Found\n\nCould not read `{rel}`: {exc}\n"
 

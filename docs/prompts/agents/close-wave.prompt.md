@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-10-07
 
 ## Context
 
@@ -16,7 +16,7 @@ Before marking `Status: completed`:
 2. Docs gate passes: **`wf_validate_docs`** over MCP (or **`wf docs-lint`** if MCP is unavailable)
 3. Guard-overrides reset: `.wavefoundry/guard-overrides.json` has `seed_edit_allowed: false` and `framework_edit_allowed: false` (or file doesn't exist)
 4. All required review lanes reconciled in `## Review checkpoints`
-5. When review is enabled, `wave-council-readiness` is present and `wave-council-delivery` is present only when selected by the current Prepare receipt in `## Review Evidence`
+5. When review is enabled, `council-readiness` is present and `council-delivery` is present only when selected by the current Prepare receipt in `## Review Evidence`
 6. Docs-contract review disposition recorded
 7. Journals distilled (no entry if work was routine)
 8. Durable memory promoted to `docs/references/project-context-memory.md` if applicable

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-06
+Last verified: 2026-10-07
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -132,7 +132,9 @@ merge time; the shipped declarations are empty and change nothing.
 | `EXTENSION_REPLACEMENTS` | Core names a module reuses with an incompatible handler, `{module: {core_name: {"alias_for_core": name, "tier": optional "read" or "write"}}}`. |
 | `EXTENSION_LIFECYCLE_TOOLS` | New write-tier extension tools that run under the lifecycle mutation lock (wave `1zimf`). |
 | `EXTENSION_ARTIFACT_PATH_FIELDS` | `{tool: data_field}`: the response `data` field holding the repository-relative paths a new write-tier extension tool wrote, credited as derived artifacts (wave `1zimf`). |
-| `EXTENSION_SKILLS` | Skills the distribution renders to every active skill host, `{name: {"title": text, "description": text, "prompt_doc": path, "summary": [line, ...]}}` (wave `1zv8c`). Read only by the agent-surface renderer and never fatal to the server (see **Declared skills**). |
+| `EXTENSION_SKILLS` | Skills the distribution renders to every active skill host, `{name: {"title": text, "description": text, "prompt_doc": path, "summary": [line, ...]}}` (wave `1zv8c`), plus the optional `"prompt_doc_template"` (wave `1zyb3`). Read only by the agent-surface renderer and never fatal to the server (see **Declared skills**). |
+| `EXTENSION_JOURNAL_TEMPLATES` | Extra pristine journal scaffolds for the upgrade's journal migration, each using the placeholders `{{wave_id}}`, `{{title}}` and `{{date}}` (wave `1zyb3`). Read only by the upgrade, never fatal to the server (see **Declared journal migration**). |
+| `EXTENSION_JOURNAL_PRE_MIGRATION_HOOK` | `"module:function"` in a declared helper module, called once with the repository root right before the journal migration applies (wave `1zyb3`). Read only by the upgrade (see **Declared journal migration**). |
 
 **Registration.** `register(mcp, get_handler)` receives a staging FastMCP surface: `@mcp.tool()`
 and `mcp.add_tool` work, and every attempted name is recorded. Handlers must be synchronous
@@ -426,7 +428,11 @@ owns project state.
 lifecycle records is declared in `EXTENSION_LIFECYCLE_TOOLS`. The main `MIDDLEWARE` lock pass
 receives the declared names as an extra name set, so each gets exactly the core wrapper: strict
 root resolution, the single non-blocking OS lock attempt, the `lifecycle_mutation_locked` busy
-response naming the tool, and the hold registered in `runtime_lock`'s process-hold registry. A
+response naming the tool, and the hold registered in `runtime_lock`'s process-hold registry, which
+survives `wf_reload_mcp` because `runtime_lock` is reloaded in place, state preserved and its
+exception classes kept (wave `1zxnz`). The lifecycle lock is an open file description (OFD) lock on
+Linux and macOS (64-bit, x86_64 or arm64), which an unrelated close in the server cannot release, and
+falls back to classic `lockf` elsewhere or when OFD is rejected as unsupported. A
 handler that re-enters the lifecycle lock, or calls another lifecycle-locked tool through the served
 surface, gets `LifecycleLockBusy` without the lock file being opened, and the outer hold stays
 until the outer call returns; a declared tool calls core functions directly, never a served locked
@@ -492,9 +498,64 @@ that is not a repository-relative POSIX path under `docs/prompts/` ending in `.p
 backslash, colon, absolute form, or empty, `.` or `..` segment is refused on every platform). The
 renderer also refuses a name whose folder is a retired skill path it removes. The render preflight
 runs this check before the first write of any render, including `render_platform_surfaces`, so an
-invalid declaration refuses the whole render with every problem named and writes nothing. A skill
-the distribution stops declaring keeps its rendered `SKILL.md` until it is removed by hand, and
-declared skill folders are distribution-owned: they are not framework-maintenance surfaces.
+invalid declaration refuses the whole render with every problem named and writes nothing.
+Declared skill folders are distribution-owned: they are not framework-maintenance surfaces.
+
+**Declared-skill ownership (wave `1zyb3`).** Every `SKILL.md` rendered for a declared skill carries
+the line `<!-- wavefoundry:declared-skill -->` as its first body line, right after the frontmatter
+and its blank line; the frontmatter still holds only `name` and `description`, and framework
+(`wf-`) skills stay unmarked. A file counts as marked only when that exact line (a trailing `\r`
+ignored) is the first non-blank line after the frontmatter. Before any write the render checks each
+declared skill's target on each active host:
+
+- A marked file is rewritten as usual. An unmarked file whose bytes, ignoring CRLF versus LF, equal
+  the pre-marker rendering of the same skill (wave `1zv8c`) is adopted and rewritten with the marker.
+- Any other existing `SKILL.md` is left byte-identical and that skill is skipped on that host; the
+  rest of the render proceeds, and stderr carries one `NOTICE` naming the repository-relative path
+  and the remedy (rename the declared skill, or remove or rename the hand-written folder).
+- On each active host whose skills root is not a link, a child folder whose name does not start
+  with `wf-`, matches no declared name (compared casefolded, so a gated-off skill and a folder that
+  differs only in case are kept) and holds a marked regular `SKILL.md` is an orphan. A linked child
+  (symlink, Windows junction or other reparse point, or one whose resolved path differs from its
+  lexical path) and a linked `SKILL.md` are skipped without being read. An orphan folder holding
+  any entry besides `SKILL.md`, including OS metadata such as `.DS_Store`, is left untouched and
+  reported in a `NOTICE`; otherwise its `SKILL.md` is unlinked and the folder removed with `rmdir`,
+  never a recursive delete, and the removed `SKILL.md` path is returned among the changed paths. If
+  an entry appears after that decision so the `rmdir` fails, the folder and the entry are kept and a
+  `NOTICE` names the folder; the render does not fail.
+
+The optional `prompt_doc_template` names a POSIX path relative to the framework `install/`
+directory ending in `.prompt.md` (no empty, `.` or `..` segment, backslash, `:`, leading `/`,
+control character or backtick). When the skill's `prompt_doc` is absent, the render creates it from
+that template, resolved from the target's `.wavefoundry/framework/install/` first and then the
+packaged copy, with `{{generated_at}}` stamped to the current date; it never overwrites an existing
+doc (a link at the doc's path, even a dangling one, counts as existing, and the create is exclusive), runs before the skill gate so the skill renders in the same pass, and is contained by the
+render preflight. A template that cannot be found while the doc is absent refuses the render,
+naming the template, before any write.
+
+**Declared journal migration (wave `1zyb3`).** The upgrade's one-time journal migration (from a
+release before 1.15.0) deletes a journal only when it provably carries no operator content.
+`EXTENSION_JOURNAL_TEMPLATES` adds a distribution's own scaffolds to that oracle: a journal whose
+text, with CRLF read as LF, fully matches a template is deleted, where `{{date}}` matches
+`YYYY-MM-DD`, `{{wave_id}}` and `{{title}}` match one line fragment of 1 to 512 characters each, and
+every occurrence of one placeholder must match the same text; a journal longer than the longest
+text a template can match is never matched against it. `EXTENSION_JOURNAL_PRE_MIGRATION_HOOK`, `"module:function"`
+with `module` declared in `EXTENSION_HELPER_MODULES`, is called once as `function(root)` right
+before the migration applies. Both are read only by the upgrade, inside its pre-1.15.0 gate, from
+the extracted `mcp_tool_extensions.py` loaded by file path; they are outside `declared()` and the
+server's validation, and the helper module is loaded only from a `.py` file named exactly
+`<module>.py` directly in the scripts directory. `mcp_tool_extensions.journal_declaration_problems()`
+reports a template that is not a non-empty string of at most 65,536 characters, contains `\r`, has
+any other `{{...}}` token, has no non-blank line without a placeholder, or has two placeholders with
+no text between them, and a hook that is not one `module:function` with a valid, declared helper
+module and an identifier function. An invalid declaration, a declaration module that fails to
+import, or a hook that cannot be loaded (the helper's resolved file must be `<module>.py` itself,
+so a link to a sibling script is refused) or bound to one positional argument refuses the upgrade at
+`pre_docs_gate` before any pre-1.15.0 migration, the memory-naming one included, changes anything;
+the declaration module is executed once per upgrade. A hook that raises skips the migration for that
+upgrade, leaving journals in place, with a warning naming the hook and the exception class only.
+The preview `migrate_journals(root, apply=False)` uses the same templates and never calls the hook.
+A missing declaration module, or one without the constants, reads as empty.
 
 **Failure.** Registration refuses, naming the module and cause, when:
 
@@ -549,7 +610,11 @@ Since wave `1zls8` declared helper modules are evicted and re-executed too, and 
 from the declaration is no longer in `sys.modules`; undeclared modules an extension imports are
 not purged.
 
-**Provenance.** `wf_server_info` reports an `extensions` object: `declaration` (repository-relative
+**Provenance.** `wf_server_info` reports an `extensions` object. Every path in it
+(`declaration.path`, `modules[].path`, `helper_modules[].path`) is never absolute (wave `1zxo0`):
+repository-relative POSIX when the file lies under the target root, `framework:<path relative to
+the loaded framework directory>` when the framework is loaded from outside the root, and
+`external:<file name>` otherwise. The object holds `declaration` (repository-relative
 path, SHA-256, declared prefixes and tiers, and, since wave `1zimf`, `lifecycle_tools` as a sorted
 list and `artifact_path_fields` as a mapping sorted by tool, both empty for the stock
 declaration, and, since wave `1zls8`, `helper_modules`, the declared helper names in load order),
@@ -1237,11 +1302,36 @@ action when known.
   unreadable entry. `status` stays `ok` so the readable plans are still returned.
   Entries beyond `limit` are not scanned, so an unreadable plan past the cut yields
   no diagnostic — consistent with the per-entry semantics.
+- Plan documents are read under the member-doc read rule (wave `1zxo0`): an entry in the
+  plans root that is a link, a directory or another non-regular file (a FIFO, say) is
+  reported the same way, with a `read_error`, and is never followed or opened, so its
+  target's content never appears and a FIFO cannot block the listing. The dashboard's plan
+  rows apply the same rule.
 
 `wf_get_change(change_id: str = "", wave_id: str = "")`
 
 - Returns a change document by ID or prefix.
 - With `wave_id` and no `change_id`, returns all admitted change docs for the matching wave.
+  Each member is found by its exact name, `<wave folder>/<id>.md`, falling back to
+  `<plans root>/<id>.md` for a staged member (wave `1zxo0`); there is no recursive or
+  substring search, so a member whose id is part of another member's id gets its own
+  document, and documents in subfolders of the wave folder are not member documents. An
+  archived wave's members are found the same way, by exact name in the archived folder.
+  Member documents are read only as regular files inside their folder and inside the
+  repository: a link, directory or other non-regular entry is reported as unreadable,
+  never followed.
+- A member-id line in the wave record whose value is not a change id of the form
+  `<prefix>-<kind> <slug>` is never read and never echoed (wave `1zxo0`). Bulk
+  `wf_get_change` lists only the valid members and adds an advisory `change_id_invalid`
+  diagnostic naming the record path and line number and the reason class (`control
+  character`, `path character` or `shape`). `wf_prepare_wave`, `wf_implement_wave`,
+  `wf_review_wave` and `wf_close_wave` report the same `change_id_invalid` as a blocking
+  diagnostic. Every other reader (`wf_current_wave`, `wf_list_waves`, `wf_audit`, the
+  dashboard) omits the line. Recovery is a hand edit of that line followed by
+  `wf_validate_docs`: no tool repairs it, and `wf_remove_change` refuses an invalid id.
+  Single-change tools (`wf_mark_ac`, `wf_mark_task`, `wf_close_change`, `wf_add_change`)
+  are not blocked by an unrelated bad line. `wf_add_change` refuses a plan whose own
+  member-id header is not a change id with `change_id_invalid`, before any move.
 - Ambiguous `change_id` matches return `data.change: null`, all candidates in
   `data.changes[]` (`change_id`, `path`, `content`), and an
   `ambiguous_change_id` diagnostic.
@@ -1357,9 +1447,9 @@ change remains active outside the wave.
 - Only Prepare emits `readiness_receipt_publications_high` with `advisory: true` when `readiness_receipts` exceeds the named threshold of 5. It describes unusually frequent Prepare publications and invites inspection of review churn. Five is the historical 90th percentile, not a review-round budget: multiple review passes may share one receipt, so the count neither measures rounds nor proves convergence. The ledger-derived count is not reset by settlement prose or a fresh council, and the advisory never changes the Prepare outcome.
 - Only Prepare emits `readiness_lane_approvals_missing` with `advisory: true`, naming required lanes without a current readiness approval. Derive the lane set and approval currency exactly as `wf_implement_wave` does (the same configured wave/project lane union and readiness signoff-current predicate), after any receipt publication by the call. An unresolved wave or unavailable authority produces no invented lane result and does not replace existing errors. This advisory does not change Prepare's outcome or waive activation's existing lane-approval requirement. Its message distinguishes a first pass from a lapse (wave `1zime`): a lane with no readiness approval recorded at all reads "Readiness approvals still needed from: ..." and points at the readiness review; a lane whose approval lapsed with a superseded receipt keeps the re-review wording.
 - Every Prepare response's `data` carries `pending_readiness_lanes` (wave `1zime`): the same lane list, empty when none is pending, or `null` when it cannot be computed (an unresolved wave, an unreadable record or ledger errors, the cases where the advisory is skipped).
-- `prepare_council_verdict_misplaced` (wave `1zls7`, `advisory: true`) is appended beside `prepare_council_verdict_missing` in every Prepare mode, and in `wf_implement_wave`'s legacy branch, when a verdict-shaped list item (one carrying the bracketed `[prepare-council]` token outside inline code and fenced code) sits somewhere other than `wave.md` under `## Review Checkpoints`: under another `wave.md` heading (a `###` inside Review Checkpoints counts, since the verdict parser ends the section at any heading) or in an admitted change document. It names each location as repository-relative path and nearest heading (at most five, then a count) and says the verdict belongs in `wave.md` under `## Review Checkpoints`. On a declared wave the same code is appended beside `missing_wave_council_signoff` when any prose verdict line exists, saying a prose verdict is not readiness authority and that readiness is recorded as `wave-council-readiness` through `wf_review_event`. It never changes the status, a blocking diagnostic, `next_tools` or `usage`, and the server moves nothing.
+- `prepare_council_verdict_misplaced` (wave `1zls7`, `advisory: true`) is appended beside `prepare_council_verdict_missing` in every Prepare mode, and in `wf_implement_wave`'s legacy branch, when a verdict-shaped list item (one carrying the bracketed `[prepare-council]` token outside inline code and fenced code) sits somewhere other than `wave.md` under `## Review Checkpoints`: under another `wave.md` heading (a `###` inside Review Checkpoints counts, since the verdict parser ends the section at any heading) or in an admitted change document. It names each location as repository-relative path and nearest heading (at most five, then a count) and says the verdict belongs in `wave.md` under `## Review Checkpoints`. On a declared wave the same code is appended beside `missing_wave_council_signoff` when any prose verdict line exists, saying a prose verdict is not readiness authority and that readiness is recorded as `council-readiness` through `wf_review_event`. It never changes the status, a blocking diagnostic, `next_tools` or `usage`, and the server moves nothing.
 - Every Prepare mode emits `wave_objective_unpopulated` with `advisory: true` (wave `1zime`) when the wave record's `## Objective` body, stripped, is empty or is only one angle-bracket placeholder, as the `wf_create_wave` scaffold leaves it. It is computed by the observational wrapper, so error envelopes carry it too, and never changes the status.
-- The council brief (`data.council_brief.instructions` and `verdict_format`) is keyed on the rotating seat and the resolved review authority (wave `1zime`); the receipt-bound and unbound briefs render the same text for the same pair. On a declared wave it says to record the readiness run, each required lane's readiness approval and then the council verdict as the typed approval `wf_review_event(event='approval', signoff_key='wave-council-readiness', ...)`; a `## Review Checkpoints` narrative is optional and not authority; it ends with `wf_prepare_wave(mode='ready')`, or `mode='create'` to also open the wave. Legacy waves keep the structured `prepare-council` prose line.
+- The council brief (`data.council_brief.instructions` and `verdict_format`) is keyed on the rotating seat and the resolved review authority (wave `1zime`); the receipt-bound and unbound briefs render the same text for the same pair. On a declared wave it says to record the readiness run, each required lane's readiness approval and then the council verdict as the typed approval `wf_review_event(event='approval', signoff_key='council-readiness', ...)`; a `## Review Checkpoints` narrative is optional and not authority; it ends with `wf_prepare_wave(mode='ready')`, or `mode='create'` to also open the wave. Legacy waves keep the structured `prepare-council` prose line.
 - **Blocked-envelope hints (wave `1zime`):** an error envelope from `wf_prepare_wave`, `wf_review_wave` or `wf_close_wave` takes `usage` from the FIRST blocking diagnostic in emitted order that set the status; when it carries `recovery_usage` that is the usage, and its `recovery_tools` followed by the branch defaults (without duplicates) are `next_tools`, and when it carries none the branch defaults stand. A later diagnostic never overrides an earlier blocker, so a docs-lint error still recommends `wf_validate_docs()`. The `another_wave_active` branch keeps its explicit hint. On a declared wave `missing_wave_council_signoff` and the prepare-phase `missing_required_lane` recover to `wf_review_wave(wave_id=..., phase='prepare')` with `wf_review_event`; legacy wording and recovery are unchanged. A readiness-gate block recommends a retry in the caller's mode, never `mode='create'` for a `ready` call.
 - A newly published superseding receipt in `ready`/`create` emits `review_policy_receipt_superseded`, including when readiness approvals are missing. Genesis and unchanged publications do not. Optional non-semantic `policy_inputs` metadata identifies changed admitted documents or project policy when the predecessor provides it; older receipts retain the unattributable fallback. This metadata does not alter the digest, receipt identity, evaluator version, or nested Prepare receipt envelope. Readiness review repeats the advisory while any lane's latest readiness approval names an older receipt; partial reapproval does not clear it, delivery reapproval does not substitute, and all-lane readiness reapproval clears it without deleting history. Unaffected review scope may be reapproved by reference; affected scope must be reviewed first.
 
@@ -1369,7 +1459,7 @@ change remains active outside the wave.
 - Repairs staged-only admitted docs by moving them into `docs/waves/<wave-id>/`
 during `ready`/`create` (readiness mutations); `dry_run` is read-only.
 - Must reject duplicate staged + wave copies and report whether repairs were needed.
-- Requires admitted changes, passing docs validation, and current readiness authority before reporting a clean readiness verdict: typed `wave-council-readiness` on declared waves, or the structured prose verdict on legacy waves.
+- Requires admitted changes, passing docs validation, and current readiness authority before reporting a clean readiness verdict: typed `council-readiness` on declared waves, or the structured prose verdict on legacy waves.
 - **Readiness vs activation (wave 1p45l):** `ready` records full readiness WITHOUT activating — the wave stays `planned` ("readied"), with no single-OPEN guard, so any number of waves can be readied while one is OPEN. `create` additionally runs the single-OPEN guard and flips `planned`→`active` (prepare-and-open). `dry_run` never takes the slot.
 - The single-OPEN invariant (at most one wave `active`/`implementing`) is enforced only at activation transitions — `wf_implement_wave`, `wf_reopen_wave`, and `wf_prepare_wave(create)` — not at readiness.
 - On `ready`/`create`, requests a background docs-index refresh for the wave record and admitted change docs after repair/status updates complete.
@@ -1412,7 +1502,7 @@ during `ready`/`create` (readiness mutations); `dry_run` is read-only.
 - On apply/create writes, requests a background docs-index refresh for the handoff doc.
 - **Focus clear (wave 1tmb3):** a mutating pause's desired end state is no focus, so a successful pause runs `clear_focus` through the shared focus primitive. A clear failure keeps the pause successful and prior focus intact, reporting `focus_error` plus a `focus_stage_not_applied` diagnostic with retry guidance. A dry-run pause has `focus_action=none`: no focus write is attempted and no not-applied diagnostic is emitted.
 
-**Review-evidence authority derivation (declared vs legacy waves; waves 1to78/1tsyx):** on a wave declaring `review-evidence-source: events.jsonl`, every gate read of review-evidence content (operator-signoff presence, per-lane and council signoff currency, max severity) derives exclusively from typed `events.jsonl` records and their chronology through the single authority facade `resolve_review_authority` in `review_evidence.py`. This governs activation, prepare, review, and close. On declared waves, prose is inert as review evidence in both directions: removing every prose signoff or prepare-council line changes nothing, and prose without a typed approval satisfies nothing. Legacy waves keep their prose mechanism unchanged because prose is their only signoff record. The required-lane roster (from `## Participants` plus workflow config) is configuration, not evidence, and is parsed identically on both branches; an empty declared roster is reported as a non-blocking advisory, while a populated roster is enforced. That established convention does not add `advisory` to its diagnostic payload; the field is omitted at that site. Lane-approval currency on the typed branch is per signoff key and approval phase. Readiness approvals bind the policy receipt; delivery approvals are not receipt-bound and follow affected finding/repair chronology. A stale policy still blocks delivery inspection until re-Prepare without itself lapsing delivery approvals. Council keys additionally distinguish `wave-council-readiness` and `wave-council-delivery`; close requires an `initial_delivery` run record.
+**Review-evidence authority derivation (declared vs legacy waves; waves 1to78/1tsyx):** on a wave declaring `review-evidence-source: events.jsonl`, every gate read of review-evidence content (operator-signoff presence, per-lane and council signoff currency, max severity) derives exclusively from typed `events.jsonl` records and their chronology through the single authority facade `resolve_review_authority` in `review_evidence.py`. This governs activation, prepare, review, and close. On declared waves, prose is inert as review evidence in both directions: removing every prose signoff or prepare-council line changes nothing, and prose without a typed approval satisfies nothing. Legacy waves keep their prose mechanism unchanged because prose is their only signoff record. The required-lane roster (from `## Participants` plus workflow config) is configuration, not evidence, and is parsed identically on both branches; an empty declared roster is reported as a non-blocking advisory, while a populated roster is enforced. That established convention does not add `advisory` to its diagnostic payload; the field is omitted at that site. Lane-approval currency on the typed branch is per signoff key and approval phase. Readiness approvals bind the policy receipt; delivery approvals are not receipt-bound and follow affected finding/repair chronology. A stale policy still blocks delivery inspection until re-Prepare without itself lapsing delivery approvals. Council keys additionally distinguish `council-readiness` and `council-delivery`; close requires an `initial_delivery` run record.
 
 `wf_review_wave(wave_id: str, phase: str = "implementation")`
 
@@ -2132,6 +2222,7 @@ component.
     - Drift never blocks `ready` — it is a proposal for deliberate review, not a gate. This holds for the `evaluation` state too: a stale or never-evaluated drift state never changes `ready` (test-pinned).
     - **Verification stamp semantics** (the disposal side of the contract): a doc line `Verified against: <7-40 hex chars of a commit SHA>` records the commit the doc was deliberately reviewed against. Written only by an agentic verification pass or the operator — `docs_gardener` cannot touch it (its `Last verified` date stamps are mechanical and carry NO verification meaning). The drift clock resets only on a doc content change or a new stamp; a stamped doc re-enters the worklist once post-stamp churn crosses the threshold. docs-lint accepts the field and flags malformed SHAs. Write real hex (e.g. `Verified against: abc1234`), never a placeholder.
   - `harness_coherence`: the stale-seed-text scan over the seed pack and rendered prompts: `{scanned_files, findings, findings_count, pack_internal_count, project_findings_count}`. Each finding carries `file`, `type` (today `stale_tool_reference`), `detail`, and `classification`: `"pack_internal"` for findings inside the vendored pack (`.wavefoundry/framework/seeds/`), `"project"` otherwise. Pack-internal findings are **non-blocking for target repositories** (only the framework source repository can change pack-owned text; downstream consumers should treat them as informational), while the framework source repository still audits its own seeds through the same scan. Known non-tool identifiers (module names such as `wf_cli`) and the retired gate names that seed migration instructions must keep citing (`wave_open_gate`, `wf_close_wave_gate`) never flag; a genuinely stale tool name still does.
+  - `vendored_scripts` (wave 1zyb2, additive): the offline integrity check of the audited root's vendored dashboard scripts (`.wavefoundry/framework/dashboard/vendor/`) against the SHA-256 table in that folder's `README.md`, run on every audit with no cache and no network request, through the shipped `vendored_integrity` module. `{status, problems}` plus `reason` for the non-`ok`, non-`mismatch` states. `status` is `"ok"` (every listed file matches), `"mismatch"` (`problems` holds one line per differing, missing or refused file, naming the file by its table path or row number), `"unavailable"` (the vendor folder is absent, or the shipped check cannot be imported) or `"unreadable"` (the README table cannot be read or parsed). Report-only: it never changes `ready` and never raises. `mismatch` adds the advisory `vendored_scripts_mismatch` diagnostic and `unreadable` the advisory `vendored_scripts_unreadable` diagnostic; their text names no script and no command. `ok` and `unavailable` add none.
 - `next_tools` lists specific **recovery** tools for each failing sub-check:
 `wf_validate_docs` (lint failure), `index_build` (index not ready), `wf_current_wave` (no wave / wave not found when using `wave_id`).
 - When **every** sub-check passes (`data.ready` is `true`), there is no recovery action; `**next_tools` defaults to `["wf_current_wave"]`** as a harmless read-only **navigation** hint (same default as an empty recovery list in the server). Clients may treat it as optional.

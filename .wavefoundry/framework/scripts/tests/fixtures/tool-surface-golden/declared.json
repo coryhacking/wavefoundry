@@ -854,6 +854,65 @@
       },
       "tier": "read"
     },
+    "dist_inventory": {
+      "annotations": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "area": {
+            "title": "Area",
+            "type": "string"
+          },
+          "include_archived": {
+            "default": false,
+            "title": "Include Archived",
+            "type": "boolean"
+          },
+          "kinds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Kinds"
+          },
+          "limit": {
+            "default": 10,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "area"
+        ],
+        "title": "dist_inventoryArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "dist_open_dashboard_core": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "title": "wf_open_dashboardArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
     "docs_search": {
       "annotations": {
         "destructiveHint": false,
@@ -1521,6 +1580,22 @@
       },
       "tier": "write"
     },
+    "wf_alias_gpu_doctor": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "title": "wf_gpu_doctorArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
     "wf_alias_help": {
       "annotations": {
         "destructiveHint": false,
@@ -1932,22 +2007,6 @@
           "shortcut"
         ],
         "title": "wf_get_promptArgumentsExact",
-        "type": "object"
-      },
-      "tier": "read"
-    },
-    "wf_gpu_doctor": {
-      "annotations": {
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false,
-        "readOnlyHint": true
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "title": "wf_gpu_doctorArgumentsExact",
         "type": "object"
       },
       "tier": "read"
@@ -2474,15 +2533,16 @@
       "tier": "write"
     },
     "wf_open_dashboard": {
-      "annotations": {
-        "destructiveHint": false,
-        "idempotentHint": false,
-        "openWorldHint": false,
-        "readOnlyHint": false
-      },
+      "annotations": null,
       "inputSchema": {
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "view": {
+            "default": "overview",
+            "title": "View",
+            "type": "string"
+          }
+        },
         "required": [],
         "title": "wf_open_dashboardArgumentsExact",
         "type": "object"

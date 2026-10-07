@@ -3040,7 +3040,7 @@ class MemoryProposeTests(_MemoryCase):
         from server_tools_support import make_declared_wave, declared_wave_doc_gates
         from test_declared_wave_fixtures import fixture_doc_stubs
         stubs = fixture_doc_stubs()
-        change_id = f"{wave_id}k-feat {slug}"
+        change_id = f"{wave_id[:5]}k-feat {slug}"
         with declared_wave_doc_gates(self.srv, stubs):
             made = self.srv.new_change(self.root, "feat", slug, change_id=change_id)
         rows = "\n".join(f"| 2026-01-0{i + 1} | {dec} | {reason} | alt |"
@@ -4553,7 +4553,7 @@ class MemoryAutoPopulateTests(_MemoryCase):
     def _wave(self, wave_id, slug, decision_rows):
         d = waves_dir(self.root) / f"{wave_id} {slug}"
         d.mkdir(parents=True)
-        change_id = f"{wave_id}k-feat {slug}"
+        change_id = f"{wave_id[:5]}k-feat {slug}"
         rows = "\n".join(f"| 2026-01-0{i + 1} | {dec} | {reason} | alt |"
                          for i, (dec, reason) in enumerate(decision_rows))
         change = (

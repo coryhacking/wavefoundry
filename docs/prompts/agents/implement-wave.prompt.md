@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-22
+Last verified: 2026-10-07
 
 ## Context
 
@@ -22,9 +22,9 @@ Use `code_ask` for open-ended questions ("how does X currently work?") when the 
 
 ## Pre-conditions
 
-- Prepare wave has passed cleanly; declared review-enabled waves require the typed `wave-council-readiness` approval on the current receipt. Legacy prose-verdict and review-disabled behavior are preserved.
+- Prepare wave has passed cleanly; declared review-enabled waves require the typed `council-readiness` approval on the current receipt. Legacy prose-verdict and review-disabled behavior are preserved.
 - Stage gate satisfied: change docs admitted and wave-owned; fix placement drift before editing code if any staged copy remains.
-- When `wave_review.enabled` is true, `wave-council-readiness` must already be recorded before the first edit.
+- When `wave_review.enabled` is true, `council-readiness` must already be recorded before the first edit.
 
 ## Execution
 

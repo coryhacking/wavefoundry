@@ -65,7 +65,7 @@ Brief each lane using seed 209's **Briefing Packet**, including
   and re-entrant checks for affected per-key mutable state. QA verifies state
   across repeated calls or routine steps, or records deferral and residual risk.
 - Run delivery Council when the current receipt-derived `required_council_signoffs`
-  lists `wave-council-delivery`. The council declares primer depth, runs
+  lists `council-delivery`. The council declares primer depth, runs
   the isolated red-team primer first, briefs fixed seats with it, and synthesizes
   their findings. Record the seat roster, rotating fifth seat when present,
   disagreements and their disposition in the narrative review checkpoint.

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-22
+Last verified: 2026-10-07
 
 Shortcut: **`Implement change`**
 
@@ -18,7 +18,7 @@ Single-change docs-first implementation path. Use when one admitted change needs
 
 Repository code stage gate must pass:
 1. Consolidated change doc exists and is admitted into a wave
-2. Prepare wave has passed cleanly; declared review-enabled waves require the typed `wave-council-readiness` approval on the current receipt. Legacy prose-verdict and review-disabled behavior are preserved.
+2. Prepare wave has passed cleanly; declared review-enabled waves require the typed `council-readiness` approval on the current receipt. Legacy prose-verdict and review-disabled behavior are preserved.
 
 If any step is missing, stop and route back to **Plan change**, **Create wave**, **Add change to wave**, or **Prepare wave**.
 

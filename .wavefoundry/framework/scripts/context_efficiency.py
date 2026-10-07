@@ -39,12 +39,13 @@ GENERAL_ASSOCIATION_NOTE = (
     "preparation; may include exploration not exclusive to this wave."
 )
 
+# Wave 1zyb4 (1zxnw): the prompt paths follow the vocabulary profile.
 LIFECYCLE_PROMPT_MAP: Mapping[str, Path] = {
-    "wf_create_wave": Path("docs/prompts/create-wave.prompt.md"),
-    "wf_prepare_wave": Path("docs/prompts/prepare-wave.prompt.md"),
-    "wf_implement_wave": Path("docs/prompts/implement-wave.prompt.md"),
-    "wf_review_wave": Path("docs/prompts/review-wave.prompt.md"),
-    "wf_close_wave": Path("docs/prompts/close-wave.prompt.md"),
+    "wf_create_wave": Path(_vocab.prompt_doc("create-wave")),
+    "wf_prepare_wave": Path(_vocab.prompt_doc("prepare-wave")),
+    "wf_implement_wave": Path(_vocab.prompt_doc("implement-wave")),
+    "wf_review_wave": Path(_vocab.prompt_doc("review-wave")),
+    "wf_close_wave": Path(_vocab.prompt_doc("close-wave")),
     # Exact-item tracking tools (wf_mark_ac / wf_mark_task) deliberately have NO
     # entry here. Their saving is not a one-time procedure lookup: it recurs on
     # every call and is measured per write via

@@ -183,12 +183,12 @@ def _make_wave(root: Path) -> None:
     config["required_review_lanes"] = ["code-reviewer"]
     config_path.write_text(json.dumps(config))
     with declared_wave_doc_gates(srv, stubs):
-        made = srv.new_change(root, "enh", "sample-dashboard", change_id="12x1-enh sample-dashboard")
+        made = srv.new_change(root, "enh", "sample-dashboard", change_id="12x1a-enh sample-dashboard")
     change_path = root / made["path"]
     # Dashboard counts and activity are the subject of this custom change body.
     change_path.write_text(_localize_record("""# Sample Dashboard Change
 
-Change ID: `12x1-enh sample-dashboard`
+Change ID: `12x1a-enh sample-dashboard`
 Change Status: `ready`
 Owner: Engineering
 Wave: `12x test-wave`
@@ -219,15 +219,15 @@ Wave: `12x test-wave`
     # Deterministic ID seam preserves historical dashboard subjects; no record rewrite.
     with patch.object(srv._lifecycle_module(), "build_id", return_value="12x test-wave"):
         wave_id, wave_md = make_declared_wave(srv, root, "test-wave", status="active",
-            change_ids=("12x1-enh sample-dashboard",), doc_gate_stubs=stubs)
+            change_ids=("12x1a-enh sample-dashboard",), doc_gate_stubs=stubs)
     assert wave_id == "12x test-wave" and wave_md == _waves_dir(root) / wave_id / _RECORD
     # component-fixture: misleading prose is input to the dashboard authority reader.
     wave_md.write_text(wave_md.read_text() + "\n- wave-council-readiness: approved\n- code-reviewer: approved\n")
     _write(
-        root / "docs" / "plans" / "12x2-enh staged-plan.md",
+        root / "docs" / "plans" / "12x2a-enh staged-plan.md",
         _localize_record("""# Staged Plan
 
-Change ID: `12x2-enh staged-plan`
+Change ID: `12x2a-enh staged-plan`
 Change Status: `planned`
 Owner: Engineering
 
@@ -320,15 +320,15 @@ Verify pending-scope dashboard rendering.
 
 ## Changes
 
-Change ID: `12y1-enh planned-dashboard`
+Change ID: `12y1a-enh planned-dashboard`
 Change Status: `ready`
 """),
     )
     _write(
-        wave_dir / "12y1-enh planned-dashboard.md",
+        wave_dir / "12y1a-enh planned-dashboard.md",
         _localize_record("""# Planned Dashboard Change
 
-Change ID: `12y1-enh planned-dashboard`
+Change ID: `12y1a-enh planned-dashboard`
 Change Status: `ready`
 Owner: Engineering
 Wave: `12y planned-wave`
@@ -352,10 +352,10 @@ Wave: `12y planned-wave`
 """),
     )
     _write(
-        root / "docs" / "plans" / "12y2-enh staged-plan.md",
+        root / "docs" / "plans" / "12y2a-enh staged-plan.md",
         _localize_record("""# Staged Plan
 
-Change ID: `12y2-enh staged-plan`
+Change ID: `12y2a-enh staged-plan`
 Change Status: `planned`
 Owner: Engineering
 
@@ -403,7 +403,7 @@ class DashboardSnapshotTests(unittest.TestCase):
         self.assertEqual(change["ac_completed_counts"]["important"], 0)
         self.assertEqual(change["ac_priority_counts"]["required"], 1)
         self.assertEqual(change["ac_priority_counts"]["important"], 1)
-        self.assertEqual(snapshot["activity"]["recent_progress"][0]["change_id"], "12x1-enh sample-dashboard")
+        self.assertEqual(snapshot["activity"]["recent_progress"][0]["change_id"], "12x1a-enh sample-dashboard")
         self.assertEqual(snapshot["metrics"]["scope"], "active_wave")
 
     def test_review_evidence_projection_is_derived_from_external_ledger(self):
@@ -425,8 +425,8 @@ class DashboardSnapshotTests(unittest.TestCase):
         wave_md = _waves_dir(self.root) / "12x test-wave" / _RECORD
         text = wave_md.read_text(encoding="utf-8")
         text = text.replace("Status: active", "Status: closed", 1).replace(
-            "| wave-council-readiness | pending |",
-            "| wave-council-readiness | historical |",
+            "| council-readiness | pending |",
+            "| council-readiness | historical |",
             1,
         )
         wave_md.write_text(text, encoding="utf-8")
@@ -447,7 +447,7 @@ class DashboardSnapshotTests(unittest.TestCase):
                 "event": "approval",
                 "actor": "wave-council",
                 "context_id": "dashboard-approval",
-                "signoff_key": "wave-council-delivery",
+                "signoff_key": "council-delivery",
                 "approval_phase": "delivery",
                 "fresh_context": True,
                 "independent": True,
@@ -473,13 +473,13 @@ class DashboardSnapshotTests(unittest.TestCase):
             wave["review_evidence"],
             [
                 {
-                    "key": "wave-council-readiness",
+                    "key": "council-readiness",
                     "value": "pending",
                     "why": "no current executed approval",
-                    "next_action": "record approval evidence for wave-council-readiness",
+                    "next_action": "record approval evidence for council-readiness",
                 },
                 {
-                    "key": "wave-council-delivery",
+                    "key": "council-delivery",
                     "value": "approved",
                     "why": "current executed approval, not receipt-bound, follows every affected repair",
                     "next_action": "none",
@@ -631,15 +631,15 @@ Verify visible AC counting.
 
 ## Changes
 
-Change ID: `12x1-enh visible-acs`
+Change ID: `12x1a-enh visible-acs`
 Change Status: `ready`
 """),
         )
         _write(
-            wave_dir / "12x1-enh visible-acs.md",
+            wave_dir / "12x1a-enh visible-acs.md",
             _localize_record("""# Visible ACs
 
-Change ID: `12x1-enh visible-acs`
+Change ID: `12x1a-enh visible-acs`
 Change Status: `ready`
 Owner: Engineering
 Wave: `12x test-wave`
@@ -704,10 +704,10 @@ Wave: `12x test-wave`
     def test_collect_dashboard_snapshot_parses_plain_bullet_items_for_complete_change(self):
         wave_dir = _waves_dir(self.root) / "12x test-wave"
         _write(
-            wave_dir / "12x1-enh sample-dashboard.md",
+            wave_dir / "12x1a-enh sample-dashboard.md",
             _localize_record("""# Sample Dashboard Change
 
-Change ID: `12x1-enh sample-dashboard`
+Change ID: `12x1a-enh sample-dashboard`
 Change Status: `complete`
 Owner: Engineering
 Wave: `12x test-wave`
@@ -750,10 +750,10 @@ Wave: `12x test-wave`
     def test_collect_dashboard_snapshot_marks_plain_bullet_items_open_for_non_terminal_change(self):
         wave_dir = _waves_dir(self.root) / "12x test-wave"
         _write(
-            wave_dir / "12x1-enh sample-dashboard.md",
+            wave_dir / "12x1a-enh sample-dashboard.md",
             _localize_record("""# Sample Dashboard Change
 
-Change ID: `12x1-enh sample-dashboard`
+Change ID: `12x1a-enh sample-dashboard`
 Change Status: `active`
 Owner: Engineering
 Wave: `12x test-wave`
@@ -795,10 +795,10 @@ Wave: `12x test-wave`
     def test_collect_dashboard_snapshot_uses_priority_table_order_when_ac_ids_are_missing(self):
         wave_dir = _waves_dir(self.root) / "12x test-wave"
         _write(
-            wave_dir / "12x1-enh sample-dashboard.md",
+            wave_dir / "12x1a-enh sample-dashboard.md",
             _localize_record("""# Sample Dashboard Change
 
-Change ID: `12x1-enh sample-dashboard`
+Change ID: `12x1a-enh sample-dashboard`
 Change Status: `complete`
 Owner: Engineering
 Wave: `12x test-wave`
@@ -835,10 +835,10 @@ Wave: `12x test-wave`
         """_AC_LINE_RE must match ordered-list prefixes like '1.' and '2.'."""
         wave_dir = _waves_dir(self.root) / "12x test-wave"
         _write(
-            wave_dir / "12x1-enh sample-dashboard.md",
+            wave_dir / "12x1a-enh sample-dashboard.md",
             _localize_record("""# Sample Dashboard Change
 
-Change ID: `12x1-enh sample-dashboard`
+Change ID: `12x1a-enh sample-dashboard`
 Change Status: `active`
 Owner: Engineering
 Wave: `12x test-wave`
@@ -874,10 +874,10 @@ Wave: `12x test-wave`
         """Numbered list items without checkboxes derive done-state from change status."""
         wave_dir = _waves_dir(self.root) / "12x test-wave"
         _write(
-            wave_dir / "12x1-enh sample-dashboard.md",
+            wave_dir / "12x1a-enh sample-dashboard.md",
             _localize_record("""# Sample Dashboard Change
 
-Change ID: `12x1-enh sample-dashboard`
+Change ID: `12x1a-enh sample-dashboard`
 Change Status: `complete`
 Owner: Engineering
 Wave: `12x test-wave`
@@ -1029,10 +1029,10 @@ Wave: `12x test-wave`
     def test_dashboard_snapshot_preserves_full_multiline_ac_and_task_text(self):
         wave_dir = _waves_dir(self.root) / "12x test-wave"
         _write(
-            wave_dir / "12x1-enh sample-dashboard.md",
+            wave_dir / "12x1a-enh sample-dashboard.md",
             _localize_record("""# Sample Dashboard Change
 
-Change ID: `12x1-enh sample-dashboard`
+Change ID: `12x1a-enh sample-dashboard`
 Change Status: `active`
 Owner: Engineering
 Wave: `12x test-wave`
@@ -1241,10 +1241,10 @@ Wave: `12x test-wave`
         items — including a `[~]` not-this-scope AC — stay fully excluded."""
         wave_dir = _waves_dir(self.root) / "12x test-wave"
         _write(
-            wave_dir / "12x1-enh sample-dashboard.md",
+            wave_dir / "12x1a-enh sample-dashboard.md",
             _localize_record("""# Sample Dashboard Change
 
-Change ID: `12x1-enh sample-dashboard`
+Change ID: `12x1a-enh sample-dashboard`
 Change Status: `active`
 Owner: Engineering
 Wave: `12x test-wave`
@@ -1496,11 +1496,11 @@ class UnreadableWaveRecordTests(unittest.TestCase):
         `collect_changes`; post-fix the change renders with `read_error`
         bound to the record."""
         change_path = (_waves_dir(self.root) / "12x test-wave"
-                       / "12x1-enh sample-dashboard.md")
+                       / "12x1a-enh sample-dashboard.md")
         change_path.write_bytes(b"\xff\xfe not valid utf-8 \xff")
         changes = self.lib.collect_changes(self.root)
         records = [c for c in changes["wave"]
-                   if c["change_id"] == "12x1-enh sample-dashboard"]
+                   if c["change_id"] == "12x1a-enh sample-dashboard"]
         self.assertTrue(
             records, "reach guard: the admitted change must still be listed")
         record = records[0]
@@ -1523,13 +1523,13 @@ class UnreadableWaveRecordTests(unittest.TestCase):
         wrap while keeping the substitution stays red here, because the
         assertion is bound to `read_error`, not to the misparse shape."""
         change_path = (_waves_dir(self.root) / "12x test-wave"
-                       / "12x1-enh sample-dashboard.md")
+                       / "12x1a-enh sample-dashboard.md")
         os.chmod(change_path, 0)
         self.addCleanup(
             lambda: change_path.exists() and os.chmod(change_path, 0o600))
         changes = self.lib.collect_changes(self.root)
         records = [c for c in changes["wave"]
-                   if c["change_id"] == "12x1-enh sample-dashboard"]
+                   if c["change_id"] == "12x1a-enh sample-dashboard"]
         self.assertTrue(
             records, "reach guard: the change record must still be listed")
         record = records[0]
@@ -3207,10 +3207,10 @@ class DashboardActivityTests(unittest.TestCase):
     def _make_multi_entry_change(self):
         wave_dir = _waves_dir(self.root) / "12x test-wave"
         _write(
-            wave_dir / "12x3-enh multi-log.md",
+            wave_dir / "12x3a-enh multi-log.md",
             _localize_record("""# Multi Log Change
 
-Change ID: `12x3-enh multi-log`
+Change ID: `12x3a-enh multi-log`
 Change Status: `ready`
 Owner: Engineering
 Wave: `12x test-wave`
@@ -3236,14 +3236,14 @@ Wave: `12x test-wave`
         )
         wave_md = wave_dir / _RECORD
         text = wave_md.read_text(encoding="utf-8")
-        text += _localize_record("\nChange ID: `12x3-enh multi-log`\nChange Status: `ready`\n")
+        text += _localize_record("\nChange ID: `12x3a-enh multi-log`\nChange Status: `ready`\n")
         wave_md.write_text(text, encoding="utf-8")
 
     def test_all_progress_entries_collected_not_just_latest(self):
         self._make_multi_entry_change()
         snapshot = self.lib.collect_dashboard_snapshot(self.root)
         ids = [e["change_id"] for e in snapshot["activity"]["recent_progress"]]
-        multi_entries = [e for e in snapshot["activity"]["recent_progress"] if e["change_id"] == "12x3-enh multi-log"]
+        multi_entries = [e for e in snapshot["activity"]["recent_progress"] if e["change_id"] == "12x3a-enh multi-log"]
         self.assertEqual(len(multi_entries), 3, "All 3 progress entries must appear, not just the last")
 
     def test_recent_progress_sorted_descending(self):

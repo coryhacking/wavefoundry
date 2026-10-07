@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-06
+Last verified: 2026-10-07
 
 ## Test Tiers
 
@@ -286,6 +286,24 @@ restores both afterwards. Apply it after anything that re-imports the module
 is exactly the expected profile's (the empty one, overlaid with the active
 asset's and the run mode's declarations).
 
+Since wave `1zyb3` an asset may also name `module_files`,
+`{module_name: path relative to tests/fixtures/profiles/}`. Each named module
+must be in that asset's `EXTENSION_MODULES` or `EXTENSION_HELPER_MODULES` and
+each source must exist; `apply_profile` copies it into the copied scripts
+directory as `<module_name>.py` when it edits the declaration module, never
+into the canonical tree. `declared.json` now also declares the extension
+module `dist_tools` (its source `dist_tools.py` serves `dist_inventory` with
+its own schema and replaces `wf_open_dashboard`, whose core behaviour stays
+reachable as `dist_open_dashboard_core`), hides `wf_gpu_doctor` behind the
+plain alias `wf_alias_gpu_doctor`, and declares the skill `dist-review`, whose
+prompt doc comes from the shipped `lifecycle-prompts/review-plan.prompt.md`
+template; so under `--profile declared` every render also creates that prompt
+doc and marked skill. The run-mode asset still layers over a distribution's
+own declaration constant by constant, so under `--profile declared` the
+framework asset's `EXTENSION_MODULES` replaces the distribution's tuple: the
+distribution's module files stay in the copy, undeclared, and `dist_tools.py`
+is copied beside them.
+
 The run does lint this repository's own documents where a test does, and
 they do not lint clean under the second profile: the copy keeps them
 unchanged, so the live plans root holds plans in the default vocabulary
@@ -312,7 +330,7 @@ The worked pattern is a fallback parser compared with a grammar-backed parser ov
 
 ### Golden Tool-Surface Guard (wave 1y0do)
 
-The public MCP tool surface is a verification seam that the server refactor waves (`1y0h1` registry, `1y0h2` handler split) and the record-layout wave (`1y0gz`) are judged against. `tests/test_tool_surface_golden.py` boots the real `server.build_server` with `build_handler` stubbed and compares a deterministic serialization of every registered tool (name, roster tier, input schema, annotations; prose descriptions excluded) to the committed fixture `tests/fixtures/tool-surface-golden.json`. Regeneration requires `WF_UPDATE_TOOL_SURFACE_GOLDEN=1` and is a named step in the change doc that alters the surface. Each profile asset under `tests/fixtures/profiles/` that declares tools also has a golden of the surface served under that declaration alone, at `tests/fixtures/tool-surface-golden/<profile>.json` (wave `1zyc3`); the same flag regenerates it. The module also pins runtime roster parity in both directions and proves the wrapper composition order by behavior through a triple-wrapped tool, with the five wrong permutations as negative controls. See `docs/contributing/build-and-verification.md` for the regeneration command.
+The public MCP tool surface is a verification seam that the server refactor waves (`1y0h1` registry, `1y0h2` handler split) and the record-layout wave (`1y0gz`) are judged against. `tests/test_tool_surface_golden.py` boots the real `server.build_server` with `build_handler` stubbed and compares a deterministic serialization of every registered tool (name, roster tier, input schema, annotations; prose descriptions excluded) to the committed fixture `tests/fixtures/tool-surface-golden.json`. Regeneration requires `WF_UPDATE_TOOL_SURFACE_GOLDEN=1` and is a named step in the change doc that alters the surface. Each profile asset under `tests/fixtures/profiles/` that declares tools also has a golden of the surface served under that declaration alone, at `tests/fixtures/tool-surface-golden/<profile>.json` (wave `1zyc3`); the same flag regenerates it. Because `_load_extension_module` loads a declared module only from the real scripts directory, an asset that declares `EXTENSION_MODULES` or `EXTENSION_HELPER_MODULES` boots in a scratch copy made by `copy_scripts_tree` and `apply_profile`, in a subprocess with a timeout of at least 300 seconds; module-free assets boot in process. Both boots share one serializer in the stdlib-only `tests/tool_surface_support.py`, which `copy_scripts_tree` copies with the other support modules (wave `1zyb3`). Skills are not part of a golden, since the server never serves them; `DeclaredProfileSkillTests` pins the `declared` asset's skill by rendering a temporary repository. The module also pins runtime roster parity in both directions and proves the wrapper composition order by behavior through a triple-wrapped tool, with the five wrong permutations as negative controls. See `docs/contributing/build-and-verification.md` for the regeneration command.
 
 ### TechDocs External Oracle Tier
 

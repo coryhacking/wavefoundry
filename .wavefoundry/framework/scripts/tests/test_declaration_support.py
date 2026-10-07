@@ -119,6 +119,9 @@ class BaseDeclarationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             for name in ("second", "declared"):
                 shutil.copy2(PROFILES_DIR / f"{name}.json", Path(tmp) / f"{name}.json")
+            # The assets' module_files sources (wave 1zyb3, change 1zxnu).
+            for source in PROFILES_DIR.glob("*.py"):
+                shutil.copy2(source, Path(tmp) / source.name)
             shipped = expected_profile({}, tmp)
             run_declared = expected_profile({TEST_PROFILE_ENV: "declared"}, tmp)
         with base_declaration():
@@ -152,14 +155,26 @@ class RecordingFastMCPTests(unittest.TestCase):
 
     def test_a_declared_surface_is_served_from_the_double(self):
         # The double is what the declaration machinery needs: Tool objects.
-        declared = load_profile("declared")["modules"]["mcp_tool_extensions"]
+        # Wave 1zyb3 (change 1zxnu): the asset's module parts need its module
+        # file beside the server, which only a copied tree has, so this
+        # in-process check keeps the aliases and the hidden name.
+        module_parts = ("EXTENSION_MODULES", "EXTENSION_HELPER_MODULES", "EXTENSION_TOOL_PREFIXES",
+                        "EXTENSION_TOOL_TIERS", "EXTENSION_REPLACEMENTS")
+        declared = {name: tuple(value) if isinstance(SHIPPED_DECLARATION[name], tuple) else value
+                    for name, value in load_profile("declared")["modules"]["mcp_tool_extensions"].items()
+                    if name not in module_parts}
         apply_base_declaration(self, **declared)
         mcp = RecordingFastMCP()
         self.impl.register_mcp_surface(mcp, lambda: types.SimpleNamespace(root=self.root))
         table = mcp._tool_manager._tools
+        hidden = set(declared.get("EXTENSION_HIDDEN_TOOLS", ()))
+        self.assertTrue(hidden)
         for alias, canonical in declared["EXTENSION_TOOL_ALIASES"].items():
             self.assertIsInstance(table[alias], self.Tool)
-            self.assertIn(canonical, table)
+            if canonical in hidden:
+                self.assertNotIn(canonical, table)
+            else:
+                self.assertIn(canonical, table)
         mapped = next(iter(declared["EXTENSION_TOOL_PARAMETERS"]))
         spec = declared["EXTENSION_TOOL_PARAMETERS"][mapped]
         properties = table[mapped].parameters["properties"]

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-06
+Last verified: 2026-10-07
 
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 
@@ -12,7 +12,7 @@ Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neut
 
 ## Purpose
 
-Prepare wave has passed cleanly; declared review-enabled waves require the typed `wave-council-readiness` approval on the current receipt. Legacy prose-verdict and review-disabled behavior are preserved.
+Prepare wave has passed cleanly; declared review-enabled waves require the typed `council-readiness` approval on the current receipt. Legacy prose-verdict and review-disabled behavior are preserved.
 
 ## Steps
 
@@ -37,7 +37,7 @@ Record a readiness verdict in the wave record `## Review checkpoints` (e.g., `Pr
 - All admitted change docs are complete and wave-owned
 - Any admitted-doc placement drift was repaired or explicitly resolved
 - Every required lane has a current readiness approval bound to the current receipt
-- `wave-council-readiness` is recorded when `wave_review.enabled`
+- `council-readiness` is recorded when `wave_review.enabled`
 - AC priority is recorded on each change doc
 - Product-owner acknowledgment is recorded (when applicable)
 

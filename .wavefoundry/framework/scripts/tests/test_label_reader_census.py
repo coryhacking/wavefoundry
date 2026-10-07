@@ -89,7 +89,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("wave_lint_lib/wave_validators.py", "duplicate `{_vocab.ID_KEY}` `{wave_id}`"): "message",
     ("wave_lint_lib/wave_validators.py", "must use `{_vocab.MEMBER_ID_LABEL}` / `{_vocab.MEMBER_STATUS_LABEL}`"): "message",
     ("wave_lint_lib/wave_validators.py", "missing stable `{_vocab.MEMBER_ID_LABEL}` declaration"): "message",
-    ("wave_lint_lib/wave_validators.py", "unstable {_vocab.MEMBER_ID_LABEL} `{change_value}`"): "message",
+    ("wave_lint_lib/wave_validators.py", "unstable {_vocab.MEMBER_ID_LABEL} on line {line_number}"): "message",
     ("wave_lint_lib/wave_validators.py", "invalid `{_vocab.MEMBER_STATUS_LABEL}` declaration"): "message",
     ("wave_lint_lib/wave_validators.py", "invalid `{_vocab.PREVIOUS_STATUS_LABEL}` declaration"): "message",
     ("wave_lint_lib/wave_validators.py", "stable {_vocab.MEMBER_ID_LABEL}s in backticks"): "message",

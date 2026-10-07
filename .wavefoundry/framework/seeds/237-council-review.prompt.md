@@ -11,7 +11,7 @@ Last verified: 2026-05-24
 
 Run a full Wave Council review on any artifact — a plan, implementation, decision, change doc, design, or approach. Use this whenever you want the structured two-phase adversarial review outside the normal wave lifecycle.
 
-> **Note:** Standalone council reviews are advisory. They do not record `wave-council-readiness` or `wave-council-delivery` lifecycle signoffs in `## Review Evidence`. Those signoffs require the prepare-wave and review-wave lifecycle paths respectively.
+> **Note:** Standalone council reviews are advisory. They do not record `council-readiness` or `council-delivery` lifecycle signoffs in `## Review Evidence`. Those signoffs require the prepare-wave and review-wave lifecycle paths respectively.
 
 > **Related:** for a single adversarial pass on one artifact without convening a council, use **Red-team review** (`docs/prompts/red-team-review.prompt.md`, seed `177`) — it likewise records no signoffs and satisfies no gate.
 
@@ -84,7 +84,7 @@ Synthesis must include:
 
 Material approval claims and blocking findings follow seed 209's Executable Evidence Record, safe-execution, finite-risk-budget, public/registered-path, and named stateful-transition/interleaving contracts. After deduplication, the moderator seals the candidate universe, records semantic facts, and applies the ordered four-way actionability gate; severity, repair size, and seat preference are inputs at most, never substitute dispositions.
 
-When this review is used to satisfy `Prepare wave`, a declared wave records the machine authority as a typed `wave-council-readiness` approval event. Its `## Review Checkpoints` verdict may retain the structured `prepare-council` fields as narrative, but that prose never changes a declared wave's lifecycle outcome. A legacy wave still uses the structured verdict line as its compatibility gate.
+When this review is used to satisfy `Prepare wave`, a declared wave records the machine authority as a typed `council-readiness` approval event. Its `## Review Checkpoints` verdict may retain the structured `prepare-council` fields as narrative, but that prose never changes a declared wave's lifecycle outcome. A legacy wave still uses the structured verdict line as its compatibility gate.
 
 **Roster honesty:** the `seats:` field lists the seats *actually run*, each at most once — never paste the template's example roster verbatim. A rotating pick that is also a fixed seat appears once in `seats:` and is identified by the `rotating-seat:` field. Every listed seat (other than the `red-team` primer and the `wave-council` moderator) must have recorded evidence in the wave record — a finding or an explicit no-findings note in `## Prepare Review Evidence`, `## Review Evidence`, or a `## Review Checkpoints` entry other than the verdict line itself. docs-lint flags rostered seats with no recorded evidence: a seat named only inside its own verdict line does not self-certify.
 
@@ -107,9 +107,9 @@ The council reviews what you give it. If the artifact is ambiguous, the red-team
 | Command | When to use |
 |---|---|
 | **Council review** | Any artifact, any time — standalone adversarial + council pass |
-| **Archetype review** | Optional stance-based supplement when the artifact's load-bearing surface is AC text precision, prose, decision narrative, or naming. Wave Council remains required; Archetype Council runs *in addition*, not in place of. Does not record `wave-council-readiness`. Seed: `236-archetype-council.prompt.md` |
-| **Prepare wave** | Lifecycle gate — council readiness pass is embedded; records `wave-council-readiness` signoff |
-| **Review wave** | Lifecycle gate — council delivery pass is embedded; records `wave-council-delivery` signoff |
+| **Archetype review** | Optional stance-based supplement when the artifact's load-bearing surface is AC text precision, prose, decision narrative, or naming. Wave Council remains required; Archetype Council runs *in addition*, not in place of. Does not record `council-readiness`. Seed: `236-archetype-council.prompt.md` |
+| **Prepare wave** | Lifecycle gate — council readiness pass is embedded; records `council-readiness` signoff |
+| **Review wave** | Lifecycle gate — council delivery pass is embedded; records `council-delivery` signoff |
 | **Evaluate decision** | Architecture/technology decision specifically — produces an ADR |
 | **Review plan** | Optional no-signoff stress test of a change doc, or current-wave fallback, before or after admission and before implementation (natural-language aliases: **Interrogate this plan**, **Stress-test this plan**); distinct from **Review wave** |
 | **Framework config review** | Removal-biased audit of the agent operating surface (config/seeds/prompts/constraints/docs) — not an artifact review. Seed: `238-framework-config-review.prompt.md` |

@@ -58,7 +58,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 # The shipped vocabulary as an archive profile: equal in value to the live
 # names, but still a difference from the shipped ``ARCHIVE_PROFILE = None``.
 SHIPPED_VOCABULARY = {k: v for k, v in SHIPPED_DEFAULTS["vocabulary_profile"].items()
-                      if k not in ("ARCHIVE_PROFILE", "EXTRA_CHANGE_KINDS")}
+                      if k not in ("ARCHIVE_PROFILE", "EXTRA_CHANGE_KINDS", "PROMPT_NAME_OVERRIDES")}
 
 _spec = importlib.util.spec_from_file_location("run_tests", SCRIPTS_DIR / "run_tests.py")
 run_tests = importlib.util.module_from_spec(_spec)
@@ -67,7 +67,7 @@ _spec.loader.exec_module(run_tests)
 # The framework's own profile assets (change 1zima): copied into a temporary
 # directory, so a test that resolves the expected profile from them holds
 # whatever asset a distribution marks active beside them.
-FRAMEWORK_ASSETS = ("second", "declared")
+FRAMEWORK_ASSETS = ("second", "declared", "prompt-names")
 # The second profile's live vocabulary, read from its asset.
 SECOND_VOCABULARY = load_profile("second")["modules"]["vocabulary_profile"]
 
@@ -80,6 +80,9 @@ def framework_profiles(**extra: dict):
         directory = Path(tmp)
         for name in FRAMEWORK_ASSETS:
             shutil.copy2(PROFILES_DIR / f"{name}.json", directory / f"{name}.json")
+        # The assets' module_files sources (wave 1zyb3, change 1zxnu).
+        for source in PROFILES_DIR.glob("*.py"):
+            shutil.copy2(source, directory / source.name)
         for name, asset in extra.items():
             (directory / f"{name}.json").write_text(json.dumps(asset), encoding="utf-8")
         yield directory
@@ -429,7 +432,8 @@ class DefaultProfileOnlyMarkerTests(unittest.TestCase):
     def test_snapshot_covers_every_editable_constant(self) -> None:
         # Names are not edited by a fork, so this pin holds under any profile.
         self.assertEqual(set(SHIPPED_DEFAULTS["vocabulary_profile"]),
-                         set(vocabulary_profile.FIELD_NAMES) | {"ARCHIVE_PROFILE", "EXTRA_CHANGE_KINDS"})
+                         set(vocabulary_profile.FIELD_NAMES)
+                         | {"ARCHIVE_PROFILE", "EXTRA_CHANGE_KINDS", "PROMPT_NAME_OVERRIDES"})
         self.assertEqual(set(SHIPPED_DEFAULTS["record_paths"]),
                          set(record_paths.CONSTANT_NAMES) | {"ARCHIVE_ROOT"})
 
@@ -586,7 +590,7 @@ class ApplyProfileTests(unittest.TestCase):
         # The running tree may itself carry a declaration: start from the empty one.
         apply_profile(self.scripts, {"modules": {"mcp_tool_extensions": json.loads(json.dumps(SHIPPED_DECLARATION))}})
 
-    def test_the_declared_asset_applies_a_plain_and_a_parameter_mapped_alias(self) -> None:
+    def test_the_declared_asset_applies_its_aliases_module_hidden_replacement_and_skill(self) -> None:
         self._shipped_declaration()
         profile = load_profile("declared")
         loaded = apply_profile(self.scripts, profile)
@@ -596,13 +600,73 @@ class ApplyProfileTests(unittest.TestCase):
         self.assertEqual(aliases, profile["modules"]["mcp_tool_extensions"]["EXTENSION_TOOL_ALIASES"])
         plain = [alias for alias in aliases if alias not in parameters]
         mapped = [alias for alias, spec in parameters.items() if spec.get("rename") and spec.get("fixed")]
-        self.assertEqual(len(plain), 1)
+        # Wave 1zyb3 (change 1zxnu): a second plain alias serves the hidden name.
+        self.assertEqual(sorted(plain), ["wf_alias_gpu_doctor", "wf_alias_help"])
         self.assertEqual(len(mapped), 1)
+        self.assertEqual(declared["EXTENSION_MODULES"], ["dist_tools"])
+        self.assertEqual(declared["EXTENSION_HIDDEN_TOOLS"], ["wf_gpu_doctor"])
+        self.assertEqual(aliases["wf_alias_gpu_doctor"], "wf_gpu_doctor")
+        self.assertEqual(declared["EXTENSION_REPLACEMENTS"],
+                         {"dist_tools": {"wf_open_dashboard": {"alias_for_core": "dist_open_dashboard_core"}}})
+        self.assertEqual(declared["EXTENSION_SKILLS"]["dist-review"]["prompt_doc_template"],
+                         "lifecycle-prompts/review-plan.prompt.md")
+        # AC-12: the module file is placed in the copied scripts directory.
+        self.assertEqual((self.scripts / "dist_tools.py").read_bytes(),
+                         (PROFILES_DIR / profile["module_files"]["dist_tools"]).read_bytes())
         # The record profile is untouched, so the default-profile-only marker still runs.
         # The loaded constants come back in JSON form (tuples as lists).
         self.assertEqual(loaded["vocabulary_profile"], json.loads(json.dumps(SHIPPED_DEFAULTS["vocabulary_profile"])))
         self.assertEqual(loaded["record_paths"], SHIPPED_DEFAULTS["record_paths"])
         self.assertNotIn("mcp_tool_extensions", SHIPPED_DEFAULTS)
+
+    def test_module_files_are_refused_unless_declared_and_present(self) -> None:
+        # Wave 1zyb3 (change 1zxnu) AC-12.
+        self._shipped_declaration()
+        # A tree copied under --profile declared already holds the module file.
+        (self.scripts / "dist_tools.py").unlink(missing_ok=True)
+        declared = load_profile("declared")
+
+        def variant(**module_files: object) -> dict:
+            profile = json.loads(json.dumps(declared))
+            profile["module_files"] = module_files
+            return profile
+
+        cases = {
+            "undeclared module": (variant(dist_tools="dist_tools.py", other_tools="dist_tools.py"),
+                                  "'other_tools', which the asset's EXTENSION_MODULES"),
+            "missing source": (variant(dist_tools="no_such_module.py"), "no source file no_such_module.py"),
+            "escaping path": (variant(dist_tools="../declared.json"), "inside the profiles directory"),
+            "absolute path": (variant(dist_tools="/dist_tools.py"), "inside the profiles directory"),
+            "not a module name": (variant(**{"dist/tools": "dist_tools.py"}), "flat module name"),
+            "empty": (variant(), "non-empty object"),
+        }
+        for label, (profile, message) in cases.items():
+            with self.subTest(case=label):
+                with self.assertRaisesRegex(ProfileInvalid, re.escape(message)):
+                    apply_profile(self.scripts, profile)
+                self.assertFalse((self.scripts / "other_tools.py").exists())
+                self.assertTrue(any(message in error for error in record_layout_support._profile_errors(profile)))
+        self.assertFalse((self.scripts / "dist_tools.py").exists())
+        # A module named only in EXTENSION_HELPER_MODULES may also be placed.
+        profile = variant(dist_tools="dist_tools.py")
+        entry = profile["modules"]["mcp_tool_extensions"]
+        self.assertEqual(record_layout_support._profile_errors(
+            {**profile, "modules": {"mcp_tool_extensions": {**entry, "EXTENSION_MODULES": [],
+                                                            "EXTENSION_HELPER_MODULES": ["dist_tools"]}}}), [])
+
+    def test_module_files_follow_the_profiles_directory(self) -> None:
+        self._shipped_declaration()
+        profiles = Path(self._tmp.name) / "profiles"
+        profiles.mkdir()
+        source = (PROFILES_DIR / "dist_tools.py").read_text(encoding="utf-8")
+        (profiles / "dist_tools.py").write_text(source + "\n# copied from the other directory\n", encoding="utf-8")
+        apply_profile(self.scripts, load_profile("declared"), profiles_dir=profiles)
+        self.assertTrue((self.scripts / "dist_tools.py").read_text(encoding="utf-8").endswith(
+            "# copied from the other directory\n"))
+        # A record-only edit never places a module file.
+        (self.scripts / "dist_tools.py").unlink()
+        apply_profile(self.scripts, load_profile("declared"), modules=("record_paths",))
+        self.assertFalse((self.scripts / "dist_tools.py").exists())
 
     def test_tuple_declarations_stay_tuples(self) -> None:
         self._shipped_declaration()
@@ -617,6 +681,25 @@ class ApplyProfileTests(unittest.TestCase):
         with self.assertRaisesRegex(ProfileInvalid, "invalid tool declaration: alias 'wf_alias_x' targets 'wf_nope'"):
             apply_profile(self.scripts, {"modules": {"mcp_tool_extensions": {
                 "EXTENSION_TOOL_ALIASES": {"wf_alias_x": "wf_nope"}}}})
+
+    def test_an_invalid_journal_declaration_is_refused(self) -> None:
+        # Wave 1zyb3 (1zxnv) AC-2: the profile validator reports the upgrade's problems.
+        self._shipped_declaration()
+        cases = {
+            "unknown placeholder": ({"EXTENSION_JOURNAL_TEMPLATES": ["x\n{{author}}\n"]},
+                                    "unknown placeholder(s) {{author}}"),
+            "undeclared hook module": ({"EXTENSION_JOURNAL_PRE_MIGRATION_HOOK": "acme_hooks:prepare"},
+                                       "not declared in EXTENSION_HELPER_MODULES"),
+        }
+        for label, (constants, message) in cases.items():
+            self._shipped_declaration()
+            with self.subTest(label), self.assertRaisesRegex(ProfileInvalid, re.escape(message)):
+                apply_profile(self.scripts, {"modules": {"mcp_tool_extensions": constants}})
+        self._shipped_declaration()
+        apply_profile(self.scripts, {"modules": {"mcp_tool_extensions": {
+            "EXTENSION_JOURNAL_TEMPLATES": ["fixed\n{{wave_id}}\n"]}}})
+        text = (self.scripts / "mcp_tool_extensions.py").read_text(encoding="utf-8")
+        self.assertIn("EXTENSION_JOURNAL_TEMPLATES: tuple[str, ...] = ('fixed\\n{{wave_id}}\\n',)\n", text)
 
     def test_a_declaration_assignment_must_match_exactly_once(self) -> None:
         path = self.scripts / "mcp_tool_extensions.py"
@@ -1162,6 +1245,8 @@ class ExpectedProfileScratchTreeTests(unittest.TestCase):
             directory.mkdir(parents=True)
             for asset in FRAMEWORK_ASSETS:
                 shutil.copy2(PROFILES_DIR / f"{asset}.json", directory / f"{asset}.json")
+            for source in PROFILES_DIR.glob("*.py"):
+                shutil.copy2(source, directory / source.name)
             for asset, data in extra.items():
                 (directory / f"{asset}.json").write_text(json.dumps(data), encoding="utf-8")
             cls.dirs[name] = str(directory)

@@ -8,12 +8,15 @@ SKILL.md; the server only lists it and never fails on it.
 
 from __future__ import annotations
 
+import contextlib
 import copy
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -38,10 +41,23 @@ VALID_SPEC = {
     "summary": ["Read the prompt doc before the first step.", "Never deploy without operator approval."],
 }
 VALID = {"acme-deploy": VALID_SPEC}
+MARKER = "<!-- wavefoundry:declared-skill -->"
+# The wave 1zv8c rendering, before the ownership marker (wave 1zyb3, change 1zxnu).
+LEGACY_DOCUMENT = (
+    "---\nname: acme-deploy\n"
+    "description: Deploy the Acme service with the distribution's checklist. The Acme deploy workflow.\n"
+    "---\n\n"
+    "# Deploy Acme (skill)\n\n"
+    "This skill is a thin pointer: the workflow lives in `docs/prompts/acme-deploy.prompt.md`. "
+    "Read that document and follow it; do not improvise the steps from this summary.\n\n"
+    "- Read the prompt doc before the first step.\n"
+    "- Never deploy without operator approval.\n"
+)
 EXPECTED_DOCUMENT = (
     "---\nname: acme-deploy\n"
     "description: Deploy the Acme service with the distribution's checklist. The Acme deploy workflow.\n"
     "---\n\n"
+    "<!-- wavefoundry:declared-skill -->\n\n"
     "# Deploy Acme (skill)\n\n"
     "This skill is a thin pointer: the workflow lives in `docs/prompts/acme-deploy.prompt.md`. "
     "Read that document and follow it; do not improvise the steps from this summary.\n\n"
@@ -394,6 +410,429 @@ class ServerToleratesSkillDeclarationTests(unittest.TestCase):
             self.assertEqual(extensions["skills"], ["acme-deploy", "wf-acme"])
             self.assertEqual(extensions["skill_problems"], ext.skill_declaration_problems(declaration))
             self.assertTrue(any("'wf-acme' title" in p for p in extensions["skill_problems"]))
+
+
+# ---- Wave 1zyb3 (change 1zxnu): ownership marker, orphans, templates ----------
+
+TEMPLATE = "lifecycle-prompts/review-plan.prompt.md"
+PACKAGED_TEMPLATE = SCRIPTS_ROOT.parent / "install" / TEMPLATE
+KEEP_SPEC = _spec(title="Keep Me", prompt_doc="docs/prompts/keep-me.prompt.md")
+
+
+def _head_document(skill: "ras.Skill") -> str:
+    """The SKILL.md bytes HEAD renders for a framework skill: frontmatter, blank line, body."""
+    return f"---\nname: {skill.name}\ndescription: {skill.description}\n---\n\n{skill.body}"
+
+
+def _render_capturing(func, root: Path) -> "tuple[list[str], str]":
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        written = func(root)
+    return written, err.getvalue()
+
+
+def _dir_link(link: Path, target: Path) -> str:
+    """A directory symlink, or a junction on Windows when symlinks need a privilege."""
+    try:
+        link.symlink_to(target, target_is_directory=True)
+        return "symlink"
+    except (OSError, NotImplementedError):
+        if os.name == "nt":
+            import _winapi  # noqa: PLC0415
+
+            _winapi.CreateJunction(str(target), str(link))
+            return "junction"
+        raise unittest.SkipTest("directory links are unavailable here")
+
+
+def _write(path: Path, content: "str | bytes") -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if isinstance(content, bytes):
+        path.write_bytes(content)
+    else:
+        path.write_bytes(content.encode("utf-8"))
+
+
+class DeclaredSkillMarkerTests(unittest.TestCase):
+    """AC-1: declared skills carry the marker as the first body line; wf- skills do not move."""
+
+    def test_rendered_declared_skill_has_two_frontmatter_keys_and_the_marker_first(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, base_declaration(EXTENSION_SKILLS=VALID):
+            root = Path(temp_dir)
+            _repo(root)
+            ras.render_skills(root)
+            for host in HOSTS:
+                lines = (root / host / "skills/acme-deploy/SKILL.md").read_text(encoding="utf-8").split("\n")
+                self.assertEqual(lines[0], "---")
+                close = lines.index("---", 1)
+                self.assertEqual([line.split(":", 1)[0] for line in lines[1:close]], ["name", "description"])
+                self.assertEqual(lines[close + 1], "")
+                self.assertEqual(lines[close + 2], MARKER)
+
+    def test_marker_detection_needs_the_first_body_line(self) -> None:
+        self.assertTrue(ras.has_declared_skill_marker(EXPECTED_DOCUMENT))
+        self.assertTrue(ras.has_declared_skill_marker(EXPECTED_DOCUMENT.replace("\n", "\r\n")))
+        self.assertFalse(ras.has_declared_skill_marker(LEGACY_DOCUMENT))
+        elsewhere = LEGACY_DOCUMENT.replace("# Deploy Acme (skill)\n", f"# Deploy Acme (skill)\n\n{MARKER}\n")
+        self.assertIn(MARKER, elsewhere)
+        self.assertFalse(ras.has_declared_skill_marker(elsewhere))
+        self.assertFalse(ras.has_declared_skill_marker(f"{MARKER}\n# no frontmatter\n"))
+        self.assertFalse(ras.has_declared_skill_marker(f"---\nname: x\n{MARKER}\n"))
+        self.assertFalse(ras.has_declared_skill_marker(EXPECTED_DOCUMENT.replace(MARKER, MARKER + " ")))
+
+    def test_framework_skills_keep_their_head_bytes(self) -> None:
+        for skill in ras.SKILL_REGISTRY:
+            with self.subTest(skill=skill.name):
+                self.assertFalse(skill.declared)
+                self.assertEqual(ras.skill_document(skill), _head_document(skill))
+                self.assertNotIn(MARKER, ras.skill_document(skill))
+        with tempfile.TemporaryDirectory() as temp_dir, base_declaration(EXTENSION_SKILLS=VALID):
+            root = Path(temp_dir)
+            _repo(root)
+            ras.render_skills(root)
+            for skill in ras.SKILL_REGISTRY:
+                if skill.requires_doc and not (root / skill.requires_doc).is_file():
+                    continue
+                for host in HOSTS:
+                    self.assertEqual((root / host / "skills" / skill.name / "SKILL.md").read_bytes(),
+                                     _head_document(skill).encode("utf-8"))
+
+
+class DeclaredSkillOwnershipTests(unittest.TestCase):
+    """AC-2 and AC-3: an unmarked SKILL.md is never overwritten unless it is the pre-marker rendering."""
+
+    HAND = "---\nname: acme-deploy\ndescription: Mine.\n---\n\n# My own skill\n"
+
+    def test_hand_written_skill_is_refused_and_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, base_declaration(EXTENSION_SKILLS=VALID):
+            root = Path(temp_dir)
+            _repo(root)
+            hand = root / ".claude/skills/acme-deploy/SKILL.md"
+            _write(hand, self.HAND)
+            written, err = _render_capturing(ras.render_agent_surfaces, root)
+            self.assertEqual(hand.read_bytes(), self.HAND.encode("utf-8"))
+            self.assertNotIn(".claude/skills/acme-deploy/SKILL.md", written)
+            notices = [line for line in err.splitlines() if "NOTICE" in line]
+            self.assertEqual(len(notices), 1, err)
+            self.assertIn(".claude/skills/acme-deploy/SKILL.md", notices[0])
+            self.assertIn("rename the declared skill", notices[0])
+            self.assertIn("remove or rename the hand-written folder", notices[0])
+            # Every other skill and surface still renders.
+            for host in (".codex", ".agents"):
+                self.assertIn(f"{host}/skills/acme-deploy/SKILL.md", written)
+            self.assertIn(".claude/skills/wf-plan-change/SKILL.md", written)
+            self.assertIn(".claude/agents/guru.md", written)
+
+    def test_pre_marker_rendering_is_adopted_lf_and_crlf(self) -> None:
+        for label, legacy in (("lf", LEGACY_DOCUMENT), ("crlf", LEGACY_DOCUMENT.replace("\n", "\r\n"))):
+            with self.subTest(label), tempfile.TemporaryDirectory() as temp_dir, \
+                    base_declaration(EXTENSION_SKILLS=VALID):
+                root = Path(temp_dir)
+                _repo(root)
+                for host in HOSTS:
+                    _write(root / host / "skills/acme-deploy/SKILL.md", legacy)
+                written, err = _render_capturing(ras.render_skills, root)
+                self.assertNotIn("NOTICE", err)
+                for host in HOSTS:
+                    rel = f"{host}/skills/acme-deploy/SKILL.md"
+                    self.assertIn(rel, written)
+                    self.assertEqual((root / rel).read_bytes(), EXPECTED_DOCUMENT.encode("utf-8"))
+
+    def test_one_byte_off_the_pre_marker_rendering_is_refused(self) -> None:
+        near = LEGACY_DOCUMENT.replace("Never deploy", "Never Deploy")
+        self.assertEqual(len(near), len(LEGACY_DOCUMENT))
+        for label, content in (("changed", near), ("appended", LEGACY_DOCUMENT + "x")):
+            with self.subTest(label), tempfile.TemporaryDirectory() as temp_dir, \
+                    base_declaration(EXTENSION_SKILLS=VALID):
+                root = Path(temp_dir)
+                _repo(root)
+                target = root / ".codex/skills/acme-deploy/SKILL.md"
+                _write(target, content)
+                written, err = _render_capturing(ras.render_skills, root)
+                self.assertEqual(target.read_bytes(), content.encode("utf-8"))
+                self.assertNotIn(".codex/skills/acme-deploy/SKILL.md", written)
+                self.assertIn(".codex/skills/acme-deploy/SKILL.md", err)
+
+    def test_a_marked_file_is_overwritten(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, base_declaration(EXTENSION_SKILLS=VALID):
+            root = Path(temp_dir)
+            _repo(root)
+            target = root / ".claude/skills/acme-deploy/SKILL.md"
+            _write(target, EXPECTED_DOCUMENT.replace("Never deploy", "Old text"))
+            written, err = _render_capturing(ras.render_skills, root)
+            self.assertNotIn("NOTICE", err)
+            self.assertIn(".claude/skills/acme-deploy/SKILL.md", written)
+            self.assertEqual(target.read_bytes(), EXPECTED_DOCUMENT.encode("utf-8"))
+
+
+class DeclaredSkillOrphanTests(unittest.TestCase):
+    """AC-4 and AC-5: undeclared marked folders are removed; everything else is left alone."""
+
+    def test_removed_declaration_removes_only_the_owned_folder(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as outside_dir:
+            root = Path(temp_dir)
+            outside = Path(outside_dir)
+            _repo(root)
+            with base_declaration(EXTENSION_SKILLS={**VALID, "keep-me": KEEP_SPEC}):
+                ras.render_skills(root)  # keep-me is gated off: no prompt doc
+            skills = root / ".claude/skills"
+            kept = {
+                # Marked, and its name casefolds to the still-declared keep-me.
+                "Keep-Me/SKILL.md": EXPECTED_DOCUMENT,
+                # Unmarked, hand-written.
+                "hand-made/SKILL.md": LEGACY_DOCUMENT,
+                # The framework's namespace, even when marked.
+                "wf-custom/SKILL.md": EXPECTED_DOCUMENT,
+                # Marked, with an extra entry.
+                "extra-entry/SKILL.md": EXPECTED_DOCUMENT,
+                "extra-entry/notes.txt": "operator notes\n",
+            }
+            for rel, content in kept.items():
+                _write(skills / rel, content)
+            _write(outside / "target/SKILL.md", EXPECTED_DOCUMENT)
+            kind = _dir_link(skills / "linked", outside / "target")
+            # A real folder whose SKILL.md is a link to a marked file elsewhere.
+            (skills / "file-link").mkdir()
+            try:
+                (skills / "file-link" / "SKILL.md").symlink_to(outside / "target" / "SKILL.md")
+                file_link = True
+            except (OSError, NotImplementedError):
+                file_link = False
+            before_kept = {rel: (skills / rel).read_bytes() for rel in kept}
+            before_outside = _snapshot(outside)
+            with base_declaration(EXTENSION_SKILLS={"keep-me": KEEP_SPEC}):
+                written, err = _render_capturing(ras.render_skills, root)
+            for host in HOSTS:
+                rel = f"{host}/skills/acme-deploy/SKILL.md"
+                self.assertIn(rel, written)
+                self.assertFalse((root / host / "skills" / "acme-deploy").exists(), host)
+            self.assertEqual({rel: (skills / rel).read_bytes() for rel in kept}, before_kept)
+            self.assertEqual(sorted(p.name for p in (skills / "extra-entry").iterdir()), ["SKILL.md", "notes.txt"])
+            self.assertEqual(_snapshot(outside), before_outside, kind)
+            self.assertTrue(os.path.lexists(skills / "linked"))
+            if file_link:
+                self.assertTrue((skills / "file-link" / "SKILL.md").is_symlink())
+            notices = [line for line in err.splitlines() if "NOTICE" in line]
+            self.assertEqual(len(notices), 1, err)
+            self.assertIn(".claude/skills/extra-entry", notices[0])
+            self.assertFalse(any("linked" in rel or "Keep-Me" in rel or "hand-made" in rel
+                                 or "wf-custom" in rel or "extra-entry" in rel for rel in written), written)
+
+    def test_gated_off_declared_skill_keeps_its_marked_folder(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, base_declaration(EXTENSION_SKILLS=VALID):
+            root = Path(temp_dir)
+            _repo(root)
+            ras.render_skills(root)
+            (root / PROMPT_DOC).unlink()
+            before = _snapshot(root)
+            self.assertEqual(ras.render_skills(root), [])
+            self.assertEqual(_snapshot(root), before)
+            self.assertTrue((root / ".claude/skills/acme-deploy/SKILL.md").is_file())
+
+    def test_linked_host_skills_root_still_raises_before_any_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as outside_dir:
+            root = Path(temp_dir)
+            outside = Path(outside_dir)
+            _repo(root)
+            _write(outside / "orphan/SKILL.md", EXPECTED_DOCUMENT)
+            _dir_link(root / ".claude/skills", outside)
+            before = _snapshot(root)
+            before_outside = _snapshot(outside)
+            with base_declaration(), self.assertRaises(RuntimeError):
+                ras.render_skills(root)
+            self.assertEqual(_snapshot(root), before)
+            self.assertEqual(_snapshot(outside), before_outside)
+
+    def test_orphan_folder_gaining_an_entry_after_the_decision_survives(self) -> None:
+        """Wave 1zyb3 delivery repair (DEL-4b): removal is unlink + rmdir,
+        never rmtree; an entry that appears between the orphan decision and
+        the removal survives with its folder, reported in a NOTICE."""
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            _repo(root)
+            with base_declaration(EXTENSION_SKILLS=VALID):
+                ras.render_skills(root)
+            real = ras._declared_skill_orphans
+
+            def _decide_then_add(active_skill_roots):
+                orphans = real(active_skill_roots)
+                for _rel, _skill_file, folder in orphans:
+                    (folder / ".DS_Store").write_bytes(b"late")
+                return orphans
+
+            with base_declaration(), mock.patch.object(ras, "_declared_skill_orphans", _decide_then_add):
+                written, err = _render_capturing(ras.render_skills, root)
+            for host in HOSTS:
+                folder = root / host / "skills" / "acme-deploy"
+                self.assertIn(f"{host}/skills/acme-deploy/SKILL.md", written)
+                self.assertFalse((folder / "SKILL.md").exists(), host)
+                self.assertEqual((folder / ".DS_Store").read_bytes(), b"late", host)
+                self.assertIn(f"{host}/skills/acme-deploy could not be removed", err)
+            notices = [line for line in err.splitlines() if "NOTICE" in line]
+            self.assertEqual(len(notices), len(HOSTS), err)
+            self.assertNotIn(str(root), err)
+
+
+class PromptDocTemplateTests(unittest.TestCase):
+    """AC-6 and AC-7: the optional prompt_doc_template key."""
+
+    def assert_refused(self, value: object, rule: str) -> None:
+        problems = ext.skill_declaration_problems({"acme": _spec(prompt_doc_template=value)})
+        named = [p for p in problems if "prompt_doc_template" in p and rule in p]
+        self.assertEqual(len(named), 1, problems)
+
+    def test_valid_template_is_accepted(self) -> None:
+        self.assertEqual(ext.SKILL_OPTIONAL_KEYS, ("prompt_doc_template",))
+        for value in (TEMPLATE, "acme.prompt.md", "acme/sub/deploy.prompt.md"):
+            with self.subTest(value=value):
+                self.assertEqual(ext.skill_declaration_problems({"acme": _spec(prompt_doc_template=value)}), [])
+
+    def test_each_rule_is_named(self) -> None:
+        for value, rule in (("/install/a.prompt.md", "absolute"), ("a/../b.prompt.md", "'..'"),
+                            ("a\\b.prompt.md", "backslash"), ("c:a.prompt.md", "':'"),
+                            ("a/b.md", "must end in .prompt.md"), (7, "non-empty string"),
+                            ("a/./b.prompt.md", "'..'"), ("a//b.prompt.md", "'..'"),
+                            ("a`b.prompt.md", "backtick"), ("a\nb.prompt.md", "control")):
+            with self.subTest(value=value):
+                self.assert_refused(value, rule)
+        problems = ext.skill_declaration_problems({"acme": _spec(prompt_doc_template=TEMPLATE, extra=1)})
+        self.assertEqual([p for p in problems if "unknown key" in p], ["skill 'acme': unknown key(s) extra"])
+        problems = ext.skill_declaration_problems({"acme": _spec(prompt_doc=_DROP, prompt_doc_template=TEMPLATE)})
+        self.assertTrue(any("missing key(s) prompt_doc" in p for p in problems), problems)
+
+    def test_absent_doc_is_created_from_the_template_and_the_skill_renders(self) -> None:
+        declaration = {"acme-deploy": _spec(prompt_doc_template=TEMPLATE)}
+        with tempfile.TemporaryDirectory() as temp_dir, base_declaration(EXTENSION_SKILLS=declaration):
+            root = Path(temp_dir)
+            _repo(root, prompt=False)
+            written = ras.render_skills(root)
+            self.assertIn(PROMPT_DOC, written)
+            expected = PACKAGED_TEMPLATE.read_text(encoding="utf-8").replace(
+                "{{generated_at}}", time.strftime("%Y-%m-%d"))
+            self.assertIn("{{generated_at}}", PACKAGED_TEMPLATE.read_text(encoding="utf-8"))
+            self.assertEqual((root / PROMPT_DOC).read_text(encoding="utf-8"), expected)
+            for host in HOSTS:
+                self.assertIn(f"{host}/skills/acme-deploy/SKILL.md", written)
+            # The doc now exists, so a second render creates nothing and is quiet.
+            self.assertEqual(ras._declared_prompt_doc_creations(root), {})
+            self.assertEqual(ras.render_skills(root), [])
+
+    def test_target_template_wins_and_an_existing_doc_is_kept(self) -> None:
+        declaration = {"acme-deploy": _spec(prompt_doc_template="acme/deploy.prompt.md")}
+        with tempfile.TemporaryDirectory() as temp_dir, base_declaration(EXTENSION_SKILLS=declaration):
+            root = Path(temp_dir)
+            _repo(root, prompt=False)
+            _write(root / ".wavefoundry/framework/install/acme/deploy.prompt.md", "# Acme\n\nLast verified: {{generated_at}}\n")
+            ras.render_skills(root)
+            self.assertTrue((root / PROMPT_DOC).read_text(encoding="utf-8").startswith("# Acme\n\nLast verified: 2"))
+            _write(root / PROMPT_DOC, "# operator copy\n")
+            written = ras.render_agent_surfaces(root)
+            self.assertNotIn(PROMPT_DOC, written)
+            self.assertEqual((root / PROMPT_DOC).read_bytes(), b"# operator copy\n")
+
+    def test_missing_template_raises_naming_it_before_any_write(self) -> None:
+        declaration = {"acme-deploy": _spec(prompt_doc_template="acme/none.prompt.md")}
+        for render in (ras.render_agent_surfaces, ras.render_skills, ras.preflight_agent_surface_paths):
+            with self.subTest(render=render.__name__), tempfile.TemporaryDirectory() as temp_dir, \
+                    base_declaration(EXTENSION_SKILLS=declaration):
+                root = Path(temp_dir)
+                _repo(root, prompt=False)
+                (root / ras.REVIEW_PLAN_OLD_PROMPT).write_text("# legacy\n", encoding="utf-8")
+                before = _snapshot(root)
+                with self.assertRaises(RuntimeError) as caught:
+                    render(root)
+                self.assertIn("acme/none.prompt.md", str(caught.exception))
+                self.assertEqual(_snapshot(root), before)
+        # With the doc present the template is never needed.
+        with tempfile.TemporaryDirectory() as temp_dir, base_declaration(EXTENSION_SKILLS=declaration):
+            root = Path(temp_dir)
+            _repo(root)
+            ras.render_skills(root)
+            self.assertEqual((root / PROMPT_DOC).read_text(encoding="utf-8"), "# Acme deploy\n")
+
+    def test_preflight_contains_the_template_destination(self) -> None:
+        # The prompt doc sits in its own folder, linked outside the repository,
+        # so only the template destination itself can trip the containment.
+        nested = "docs/prompts/acme/deploy.prompt.md"
+        declaration = {"acme-deploy": _spec(prompt_doc=nested, prompt_doc_template=TEMPLATE)}
+        with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as outside_dir, \
+                base_declaration(EXTENSION_SKILLS=declaration):
+            root = Path(temp_dir)
+            _repo(root, prompt=False)
+            _dir_link(root / "docs/prompts/acme", Path(outside_dir))
+            for check in (ras.preflight_agent_surface_paths, ras.render_skills):
+                with self.subTest(check=check.__name__), self.assertRaises(RuntimeError) as caught:
+                    check(root)
+                self.assertIn(nested, str(caught.exception))
+            self.assertEqual(list(Path(outside_dir).iterdir()), [])
+
+    def test_dangling_link_at_the_prompt_doc_is_present_and_never_written_through(self) -> None:
+        """Wave 1zyb3 delivery repair (DEL-4a): ``lexists``, so a dangling
+        link at the prompt doc is never followed by the template creation."""
+        declaration = {"acme-deploy": _spec(prompt_doc_template=TEMPLATE)}
+        with tempfile.TemporaryDirectory() as temp_dir, base_declaration(EXTENSION_SKILLS=declaration):
+            root = Path(temp_dir)
+            _repo(root, prompt=False)
+            try:
+                (root / PROMPT_DOC).symlink_to("acme-elsewhere.prompt.md")
+            except (OSError, NotImplementedError) as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+            self.assertEqual(ras._declared_prompt_doc_creations(root), {})
+            written = ras.render_skills(root)
+            self.assertNotIn(PROMPT_DOC, written)
+            self.assertFalse((root / "docs/prompts/acme-elsewhere.prompt.md").exists())
+            self.assertTrue((root / PROMPT_DOC).is_symlink())
+
+    def test_template_creation_never_overwrites_a_doc_that_appears_after_the_check(self) -> None:
+        """Wave 1zyb3 delivery repair (DEL-4c): the create is ``O_EXCL``, so
+        a prompt doc written between the presence check and the create is
+        neither truncated nor overwritten."""
+        from unittest import mock
+
+        declaration = {"acme-deploy": _spec(prompt_doc_template=TEMPLATE)}
+        with tempfile.TemporaryDirectory() as temp_dir, base_declaration(EXTENSION_SKILLS=declaration):
+            root = Path(temp_dir)
+            _repo(root, prompt=False)
+            real = ras._declared_prompt_doc_creations
+
+            def _check_then_appear(repo_root):
+                creations = real(repo_root)
+                (root / PROMPT_DOC).write_bytes(b"# operator copy\n")
+                return creations
+
+            with mock.patch.object(ras, "_declared_prompt_doc_creations", _check_then_appear), \
+                    self.assertRaises(RuntimeError):
+                ras.render_skills(root)
+            self.assertEqual((root / PROMPT_DOC).read_bytes(), b"# operator copy\n")
+
+
+class StockDeclarationSkillBytesTests(unittest.TestCase):
+    """AC-8: under the shipped empty declaration every skill path keeps its HEAD bytes."""
+
+    def test_stock_render_matches_head_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, base_declaration():
+            root = Path(temp_dir)
+            _repo(root)
+            (root / "docs/prompts/package-wavefoundry.prompt.md").write_text("# p\n", encoding="utf-8")
+            written = ras.render_agent_surfaces(root)
+            skill_paths = sorted(rel for rel in written if "/skills/" in rel)
+            expected = sorted(
+                f"{host}/skills/{skill.name}/SKILL.md"
+                for skill in ras.SKILL_REGISTRY for host in HOSTS
+                if not skill.requires_doc or (root / skill.requires_doc).is_file()
+            )
+            self.assertEqual(skill_paths, expected)
+            by_name = {skill.name: skill for skill in ras.SKILL_REGISTRY}
+            for rel in skill_paths:
+                text = (root / rel).read_text(encoding="utf-8")
+                if rel.startswith(".codex/skills/wf-guru/"):
+                    # The Codex guru skill is also a review carrier with reconciled regions.
+                    self.assertTrue(text.startswith(_head_document(by_name["wf-guru"])[:200]))
+                    continue
+                self.assertEqual(text, _head_document(by_name[rel.split("/")[2]]), rel)
+            self.assertFalse(any(MARKER in (root / rel).read_text(encoding="utf-8") for rel in skill_paths))
 
 
 if __name__ == "__main__":

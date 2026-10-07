@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-06
+Last verified: 2026-10-07
 
 The public catalog of shortcut phrases you can say to your agent. Each phrase routes to the documented prompt body for that command. See `AGENTS.md` for the agent-side routing table.
 
@@ -47,7 +47,7 @@ The behavioral rules below apply to every command in this catalog. They are summ
 | **Review plan** / **Interrogate this plan** / **Stress-test this plan** | Optionally stress-test a change doc, or the current wave when no change is named, before or after admission and before implementation; records no signoff and satisfies no gate | `docs/prompts/review-plan.prompt.md` |
 | **Council review** / **Run council** | Two-phase adversarial council review on any artifact: red-team primer → fixed seats → synthesis | `docs/prompts/council-review.prompt.md` |
 | **Red-team review** / **Red team this** | Standalone single-stance adversarial pass on one artifact (plan, code, ADR, design, prose, workflow); mode chosen from the red-team specialist's standalone lenses; records no signoffs, satisfies no gate | `docs/prompts/red-team-review.prompt.md` |
-| **Archetype review** / **Archetype council** | Optional stance-based council review on text-precision / prose / naming / AC artifacts (Sun Tzu / Yoda / Spock / Marcus Aurelius / Feynman; swap Hemingway or Munger for the fifth seat). Complementary to Wave Council; does not record `wave-council-readiness` | `docs/prompts/archetype-council.prompt.md` |
+| **Archetype review** / **Archetype council** | Optional stance-based council review on text-precision / prose / naming / AC artifacts (Sun Tzu / Yoda / Spock / Marcus Aurelius / Feynman; swap Hemingway or Munger for the fifth seat). Complementary to Wave Council; does not record `council-readiness` | `docs/prompts/archetype-council.prompt.md` |
 | **Evaluate decision** | Red-team + council evaluation of an architectural decision or technology comparison; produces an ADR | `docs/prompts/evaluate-decision.prompt.md` |
 | **Framework config review** / **Config review** | Removal-biased audit of the agent operating surface (AGENTS.md/CLAUDE.md root + per-folder, seeds, prompts, constraints, memory, doc-sync) → keep/revise/retire; recommended each major/minor upgrade | `docs/prompts/framework-config-review.prompt.md` |
 | **Codebase cleanup review** / **Dead code review** | Code-reviewer's whole-codebase maintainability sweep — dead code, duplication, complexity, abandoned files, debt → keep/simplify/remove (graph-based, recommend-only, safe) | `docs/prompts/codebase-cleanup-review.prompt.md` |

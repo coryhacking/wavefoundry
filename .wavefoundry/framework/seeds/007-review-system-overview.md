@@ -22,8 +22,8 @@ Seed `215-wave-council.prompt.md` owns the bounded protocol and briefing templat
 
 Projects may enable **Wave Council** as a phase-specific meta-review. Wave Council does **not** replace specialist review lanes. Readiness Council is required whenever review is enabled; delivery Council follows `wave_review.delivery_mode` (`universal`, risk-selected `targeted`, or the valid review-disabled `disabled` pairing). `targeted` is the default: it escalates to full Council for upgrade/release, permission or trust boundaries, cross-platform behavior, and the other shared boundary triggers; ordinary work keeps its required specialist lanes:
 
-- **`wave-council-readiness`** — before implementation begins; declared waves record this authority as a typed approval event in `events.jsonl`, while legacy waves retain the structured prose verdict gate. A declared wave may keep a structured checkpoint as narrative, but it is not machine authority.
-- **`wave-council-delivery`** — after implementation and before closure only when selected by the current Prepare receipt
+- **`council-readiness`** — before implementation begins; declared waves record this authority as a typed approval event in `events.jsonl`, while legacy waves retain the structured prose verdict gate. A declared wave may keep a structured checkpoint as narrative, but it is not machine authority.
+- **`council-delivery`** — after implementation and before closure only when selected by the current Prepare receipt
 
 Wave Council uses a two-phase structured protocol:
 
@@ -158,11 +158,11 @@ Projects that enable Wave Council should also declare an explicit council policy
     "transition_policy": "applies-from-next-prepare",
     "phases": {
       "prepare": {
-        "signoff_key": "wave-council-readiness",
+        "signoff_key": "council-readiness",
         "moderator_role": "wave-council"
       },
       "review": {
-        "signoff_key": "wave-council-delivery",
+        "signoff_key": "council-delivery",
         "moderator_role": "wave-council"
       }
     }
@@ -172,7 +172,7 @@ Projects that enable Wave Council should also declare an explicit council policy
 
 `transition_policy` controls rollout for waves already in flight. The framework default, `applies-from-next-prepare`, means:
 
-- the next `Prepare wave` pass must record `wave-council-readiness`
+- the next `Prepare wave` pass must record `council-readiness`
 - waves already past readiness still require the delivery-phase council pass before closure
 - closure does not retroactively require a readiness signoff for a wave that has never recorded one, carries no published review-policy receipt, and whose event ledger is readable. A wave becomes governed by publishing a receipt — normally at `Prepare wave`, but also through `wf_mark_ac(state='~')` on a wave that uses external review evidence with `wave_review` configured, which can publish a receipt from an empty ledger.
 
@@ -191,8 +191,8 @@ The format is: `- <lane-name>: <verdict> [(<severity> — <one-line summary>)]`.
 When Wave Council is enabled, record the machine-readable council signoffs the same way (on a declared wave, typed approval events via `wf_review_event`, projected into `## Review Evidence`; only legacy prose waves write the lines into the **same** `## Review Evidence` section directly):
 
 ```
-- wave-council-readiness: approved (moderator: wave-council — seats aligned on scope, lane selection, and protected surfaces; prepare-council verdict recorded with structured fields)
-- wave-council-delivery: approved-with-notes (moderator: wave-council — ship path accepted; follow-up docs-contract work noted)
+- council-readiness: approved (moderator: wave-council — seats aligned on scope, lane selection, and protected surfaces; prepare-council verdict recorded with structured fields)
+- council-delivery: approved-with-notes (moderator: wave-council — ship path accepted; follow-up docs-contract work noted)
 ```
 
 Keep the detailed narrative synthesis in `## Review checkpoints`. At minimum, record:

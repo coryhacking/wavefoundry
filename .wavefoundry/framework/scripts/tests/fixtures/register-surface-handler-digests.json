@@ -1,6 +1,6 @@
 {
   "captured_at": "f4063a85",
-  "description": "SHA-256 of each @mcp.tool handler's exact source (decorators through last line, dedented) inside register_mcp_surface, captured before wave 1y0h1 edited server_impl.py. Wave 1ypxw updates only wf_review_wave and wf_review_event for approved receipt-currency docstrings; all other captured hashes are retained. Wave 1z8tz updates only docs_search and code_search for the restored tag vocabulary (memory) and the rechunk remedy in their docstrings. Wave 1zlu1 adds wf_close_change and updates only wf_create_wave for its new optional parent parameter. Wave 1zyc3 updates only wf_review_event for its new optional attested_by parameter. Wave 1zyc5 updates only seed_get, wf_get_prompt and wf_help for the renamed planning help goal and prompt examples in their docstrings.",
+  "description": "SHA-256 of each @mcp.tool handler's exact source (decorators through last line, dedented) inside register_mcp_surface, captured before wave 1y0h1 edited server_impl.py. Wave 1ypxw updates only wf_review_wave and wf_review_event for approved receipt-currency docstrings; all other captured hashes are retained. Wave 1z8tz updates only docs_search and code_search for the restored tag vocabulary (memory) and the rechunk remedy in their docstrings. Wave 1zlu1 adds wf_close_change and updates only wf_create_wave for its new optional parent parameter. Wave 1zyc3 updates only wf_review_event for its new optional attested_by parameter. Wave 1zyc5 updates only seed_get, wf_get_prompt and wf_help for the renamed planning help goal and prompt examples in their docstrings. Wave 1zyb4 (change 1zxnx) updates only wf_review_event for the council-delivery signoff key example in its docstring.",
   "handlers": {
     "code_ask": "d893cd2791ad0ade83b0a5d07997aa5afe049b7d5fd19a5b74cc890a31ae0ad9",
     "code_callgraph": "5fc05322e7ac0234ee2d14eb298175dd112fab1c21f66f032cba1db9928fa958",
@@ -78,7 +78,7 @@
     "wf_remove_change": "b2eedbae43b78b71bbe5282960b53f62b27e38f5c7f63a56d8f47b9796d4bb4e",
     "wf_reopen_wave": "e1c9a9b8cb3c55a24607b7d4787dcdd9f4c7471e4fdf72fa10ad7c4229643afa",
     "wf_restart_dashboard": "938a02a64ced973044b0a0f9621da55591d80bafac7a3868fd7e51a3a2d16dd6",
-    "wf_review_event": "c474019447d9acd24e285e895c23c6164cde2919b782b32eae473d3b1f5c4841",
+    "wf_review_event": "1ed6890002ce38c936ded6a3f483675f85a93e7ffe1b9caeef9a53479f980099",
     "wf_review_wave": "5967b107fe0d341985f83b50382f34fb858352a3f8f7abc089143f9af5575d25",
     "wf_run_sensors": "1db8b06dff4c20980c924feafc2fcf11333f33892657254e6dffd3a2dedec0d3",
     "wf_scan_secrets": "adf950396d5544bc9158a1b08298b279c50130ba4719dc2bc16c29a9213de98f",

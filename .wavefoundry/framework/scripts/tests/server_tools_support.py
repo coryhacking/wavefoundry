@@ -224,7 +224,7 @@ def make_declared_wave(srv, root, slug, *, status="planned", change_ids=(),
                 root, wave_id, event="run", actor="wave-council", context_id="fixture-readiness",
                 mode="create", run_kind="readiness", cycle=0))
         for key in approvals:
-            actor = "wave-council" if key.startswith("wave-council") else key
+            actor = "wave-council" if key.startswith(("wave-council", "council-")) else key
             successful("readiness approval", srv.wf_review_event_response(
                 root, wave_id, event="approval", actor=actor, context_id="fixture-approval-" + key,
                 mode="create", signoff_key=key, approval_phase="readiness",

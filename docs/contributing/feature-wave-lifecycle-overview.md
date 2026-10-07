@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-06
+Last verified: 2026-10-07
 
 Adapted from `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md` for Wavefoundry's specific reviewer roles, personas, and artifact paths.
 
@@ -25,7 +25,7 @@ Add change to wave
 
 Prepare wave (stage gate — required before implementation)
   → confirm readiness: admitted docs are wave-owned, doc complete, review lanes selected, AC priority recorded
-  → when enabled, run Wave Council readiness pass and record `wave-council-readiness`
+  → when enabled, run Wave Council readiness pass and record `council-readiness`
   → required reviewers confirmed; product-owner acknowledgment if product-impacting
 
 Implement wave / Implement change
@@ -36,7 +36,7 @@ Implement wave / Implement change
 
 Review wave
   → code-reviewer, qa-reviewer, architecture-reviewer (as required by change type)
-  → when enabled, run Wave Council delivery pass and record `wave-council-delivery`
+  → when enabled, run Wave Council delivery pass and record `council-delivery`
   → AC scope gap check; AC priority reconciliation against shipped behavior
 
 Close change (per change, optional)
@@ -68,8 +68,8 @@ Close wave (the only wave close)
 
 The framework ships `wave_review.enabled: true` and `delivery_mode: targeted` by default. Enabled review requires readiness Council; targeted delivery escalates to full Council only for upgrade/release, permission/trust-boundary, cross-platform, and other shared boundary triggers. The explicit `universal | targeted | disabled` mode remains available:
 
-- `wave-council-readiness` before implementation
-- `wave-council-delivery` before closure
+- `council-readiness` before implementation
+- `council-delivery` before closure
 
 The `wave-council` owns council synthesis. The `wave-coordinator` still owns lifecycle state and gates.
 

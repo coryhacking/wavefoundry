@@ -163,7 +163,7 @@ def seed_state(srv, root: Path, wave_id: str, approvals: tuple[str, ...]) -> Non
                 integrity_checks=dict(_APPROVAL_INTEGRITY),
             )
         for signoff_key in approvals:
-            actor = "wave-council" if signoff_key.startswith("wave-council") else signoff_key
+            actor = "wave-council" if signoff_key.startswith(("wave-council", "council-")) else signoff_key
             srv.wf_review_event_response(
                 root,
                 wave_id,

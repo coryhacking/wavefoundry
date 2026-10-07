@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-06
+Last verified: 2026-10-07
 
 ## Host-neutral orchestration
 
@@ -36,8 +36,8 @@ Wavefoundry uses the standard Wave Framework generic roles. The wave-coordinator
 
 When `docs/workflow-config.json` `wave_review.enabled` is true:
 
-- `wave-council-readiness` is required at **Prepare wave**
-- `wave-council-delivery` is required at **Review wave** / before **Close wave**
+- `council-readiness` is required at **Prepare wave**
+- `council-delivery` is required at **Review wave** / before **Close wave**
 - `wave-council` owns the synthesis output for both phases
 - `wave-coordinator` gathers evidence, routes lanes, and enforces the gate, but does not author the council verdict
 

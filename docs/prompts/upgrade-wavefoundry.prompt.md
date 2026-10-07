@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-06
+Last verified: 2026-10-07
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -497,6 +497,7 @@ Inventory/drift-detection subagents run read-only. Broad edits to `docs/prompts/
    - The render reports each markdown link that still targets a moved prompt as `file:line`, and the reconcile scan reports the same links. Edit each reported link to the new path, then rerun the docs gate. The render report also covers wave records, memory files, and other history records, which the reconcile scan skips; repair each such link, including in history records, by updating only the link path and leaving the surrounding text unchanged.
    - `.claude/agents/guru.md`: the renderer refreshes only the body and keeps the existing frontmatter, so the scan flags its `description:` line; edit that line to say **Plan change**.
    - Repair every other reconcile finding for the renamed names in live docs.
+- **Distribution prompt names.** The lifecycle prompt names in the seeds (file names, headings, `Shortcut:` lines and skills) are framework defaults. A distribution may rename the tier-named lifecycle prompts through its vocabulary profile. The renderer moves default-named prompts and their agent bodies byte-for-byte to the profile's names and records the applied names under `prompt_names` in `docs/prompts/prompt-surface-manifest.json`. When that key is present, author or reconcile each listed prompt at its listed name: the file, its heading, its `Shortcut:` line (the shortcut its `public_prompt_surface` entry records), its `docs/prompts/index.md` row and its `AGENTS.md` shortcut row; otherwise use the defaults. Repair each reconcile finding that names a default prompt path, skill or shortcut.
 
 ## Git Commits
 
@@ -618,6 +619,8 @@ rejects or truncates that one legacy response, the agent uses its ordinary shell
 detect and execute the single installed package after Wavefoundry services stop. The
 operator still does not copy or type a terminal command.
 <!-- wavefoundry:review-policy-upgrade:end -->
+
+Council signoff keys: from this release new approvals are written as `council-readiness` and `council-delivery`. The earlier `wave-council-*` spellings stay valid in workflow configs, as `wf_review_event` input and in recorded history, and every reader accepts both, so no config, wave record or `events.jsonl` ledger needs rewriting.
 
 ## Host-neutral orchestration reconciliation
 

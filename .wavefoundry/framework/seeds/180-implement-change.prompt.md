@@ -226,7 +226,7 @@ Required tasks:
 2. Determine whether the next `planned` wave is ready to become `active`.
 3. If the selected wave still has a provisional holding name, review the admitted changes and rename the wave slug/title to a descriptive summary before activation.
 4. Confirm admitted change docs already live under `docs/waves/<wave-id>/` after `Add change to wave`; if any remain under `docs/plans/`, repair placement before continuing.
-5. Require a current typed `wave-council-readiness` approval on the current review-policy receipt; legacy waves retain their prose council-verdict authority, and repositories with wave review disabled require a clean Prepare pass. Run `Prepare wave` when readiness is missing or stale; `Ready wave` remains an accepted alias.
+5. Require a current typed `council-readiness` approval on the current review-policy receipt; legacy waves retain their prose council-verdict authority, and repositories with wave review disabled require a clean Prepare pass. Run `Prepare wave` when readiness is missing or stale; `Ready wave` remains an accepted alias.
 6. Evaluate the admitted change set and decide which implementer lanes, reviewer lanes, and persona lanes must participate. When any admitted change is a **bug** (`change-id` kind `bug`) or other **product defect fix**, include **`qa-reviewer` at minimum** in the reviewer roster (`docs/contributing/agent-team-workflow.md`, `docs/workflow-config.json` `review_policies.require_qa_reviewer_for_bug_fixes`) unless the operator records an explicit scoped waiver in the wave or change doc.
 7. Assign admitted changes, tasks, and review lanes to agents and personas.
 8. Confirm the wave roster, allocation rules, dependency rules, readiness checkpoints, and review checkpoints.

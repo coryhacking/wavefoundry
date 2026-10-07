@@ -20,11 +20,12 @@ METADATA_PATTERNS = {
 VERIFICATION_STAMP_LINE = re.compile(r"^Verified against:.*$", re.MULTILINE)
 VERIFICATION_STAMP_VALID = re.compile(r"^Verified against:\s*[0-9a-fA-F]{7,40}\s*$")
 
+# Wave 1zyb4 (1zxnw): the lifecycle prompts at the vocabulary profile's names.
 PROMPT_SURFACE_FILES = (
     "docs/prompts/index.md",
-    "docs/prompts/plan-change.prompt.md",
-    "docs/prompts/implement-change.prompt.md",
-    "docs/prompts/close-change.prompt.md",
+    _vocab.prompt_doc("plan-change"),
+    _vocab.prompt_doc("implement-change"),
+    _vocab.prompt_doc("close-change"),
     "docs/prompts/agent-routing-concurrency.prompt.md",
 )
 

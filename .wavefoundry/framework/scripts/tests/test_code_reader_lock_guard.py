@@ -264,5 +264,367 @@ class ReferenceCandidateFilterTests(_HeldLockCase):
         self.assertEqual(response["status"], "ok", response)
 
 
+
+# --- Wave 1zxnz (1zx02): handoff, prompt and resource readers ---------------
+
+_LOCK_BODY = "lock-carrier-bytes\n"
+
+
+class _OpenRecorder:
+    """Record every path opened by name; the lock file must never be one."""
+
+    def __init__(self, forbidden: Path) -> None:
+        import builtins
+        import io
+
+        self.forbidden = os.path.realpath(forbidden)
+        self.opened: list[str] = []
+        self._builtins_open = builtins.open
+        self._io_open = io.open
+        self._os_open = os.open
+
+    def _note(self, path) -> None:
+        if isinstance(path, (str, bytes, os.PathLike)):
+            self.opened.append(os.path.realpath(os.fsdecode(path)))
+
+    def patches(self):
+        from contextlib import ExitStack
+
+        recorder = self
+
+        def builtins_open(file, *args, **kwargs):
+            recorder._note(file)
+            return recorder._builtins_open(file, *args, **kwargs)
+
+        def io_open(file, *args, **kwargs):
+            recorder._note(file)
+            return recorder._io_open(file, *args, **kwargs)
+
+        def os_open(path, *args, **kwargs):
+            if kwargs.get("dir_fd") is None:
+                recorder._note(path)
+            return recorder._os_open(path, *args, **kwargs)
+
+        stack = ExitStack()
+        stack.enter_context(patch("builtins.open", builtins_open))
+        stack.enter_context(patch("io.open", io_open))
+        stack.enter_context(patch("os.open", os_open))
+        return stack
+
+    def assert_never_opened(self, case: unittest.TestCase) -> None:
+        case.assertTrue(self.opened, "the recorder saw no opens at all")
+        case.assertNotIn(self.forbidden, self.opened)
+
+
+@unittest.skipIf(os.name == "nt", "symlink fixtures")
+class _LockTargetCase(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = _make_repo(Path(self.tmp.name).resolve())
+        self.lock_path = self.root / LOCK_REL
+        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+        self.lock_path.write_text(_LOCK_BODY, encoding="utf-8")
+        self.recorder = _OpenRecorder(self.lock_path)
+
+    def link_to_lock(self, rel: str) -> Path:
+        link = self.root / rel
+        link.parent.mkdir(parents=True, exist_ok=True)
+        os.symlink(os.path.relpath(self.lock_path, link.parent), link)
+        return link
+
+    def assert_path_free(self, payload) -> None:
+        import json
+
+        text = payload if isinstance(payload, str) else json.dumps(payload, default=str)
+        self.assertNotIn(str(self.root), text)
+        self.assertNotIn(os.path.realpath(self.root), text)
+        self.assertNotIn(_LOCK_BODY.strip(), text)
+
+    def assert_refused_markdown(self, text: str, rel: str) -> None:
+        self.assertTrue(text.startswith("# Refused\n"), text)
+        self.assertIn(rel, text)
+        self.assert_path_free(text)
+
+    @staticmethod
+    def codes(response) -> list:
+        return [d.get("code") for d in response.get("diagnostics") or []]
+
+
+class HandoffLockTargetTests(_LockTargetCase):
+    """AC-11: handoff readers and writers refuse a lock target."""
+
+    HANDOFF = "docs/agents/session-handoff.md"
+
+    def test_get_and_set_handoff_refuse_without_opening(self) -> None:
+        import wf_server.edit_gate_handlers as edit_gate_handlers
+
+        self.link_to_lock(self.HANDOFF)
+        with self.recorder.patches():
+            got = edit_gate_handlers.wf_get_handoff_response(self.root)
+            put = edit_gate_handlers.wf_set_handoff_response(self.root, "# New\n")
+        for response in (got, put):
+            self.assertEqual(response["status"], "error", response)
+            self.assertIn("runtime_lock_target_refused", self.codes(response))
+            self.assert_path_free(response)
+        self.assertNotIn(self.recorder.forbidden, self.recorder.opened)
+        self.assertEqual(self.lock_path.read_text(encoding="utf-8"), _LOCK_BODY)
+
+    def _wave(self, status: str) -> Path:
+        import vocabulary_profile
+        from record_layout_support import RecordTreeBuilder
+
+        folder = RecordTreeBuilder(self.root).waves_dir / "1aaaa demo"
+        folder.mkdir(parents=True, exist_ok=True)
+        record = vocabulary_profile.record_file(folder)
+        record.write_text(
+            f"{vocabulary_profile.RECORD_TITLE}\n\nOwner: Engineering\nStatus: {status}\n"
+            f"Last verified: 2026-07-20\n\n{vocabulary_profile.id_line('1aaaa demo')}\n\n"
+            f"{vocabulary_profile.MEMBER_HEADING}\n\n{vocabulary_profile.SUMMARY_HEADING}\n\nsummary\n",
+            encoding="utf-8",
+        )
+        return record
+
+    def test_pause_skips_the_handoff_and_keeps_the_transition(self) -> None:
+        record = self._wave("active")
+        self.link_to_lock(self.HANDOFF)
+        with self.recorder.patches():
+            response = srv.wf_pause_wave_response(self.root, "1aaaa", mode="create")
+        self.assertEqual(response["status"], "ok", response)
+        self.assertIn("runtime_lock_target_refused", self.codes(response))
+        self.assertFalse(response["data"]["written"])
+        self.assertIn("Status: paused", record.read_text(encoding="utf-8"))
+        self.assert_path_free(response)
+        self.recorder.assert_never_opened(self)
+        self.assertEqual(self.lock_path.read_text(encoding="utf-8"), _LOCK_BODY)
+
+    def test_close_skips_the_handoff_and_keeps_the_close(self) -> None:
+        record = self._wave("active")
+        record.write_text(
+            record.read_text(encoding="utf-8")
+            + "\n## Review Signoff Evidence\n\n- operator-signoff: approved\n"
+            "- 2026-05-01: approved and signoff complete.\n",
+            encoding="utf-8",
+        )
+        self.link_to_lock(self.HANDOFF)
+        passed = {"passed": True, "errors": [], "warnings": [], "output": ""}
+        with patch.object(srv, "run_validate", return_value=passed), \
+                patch.object(srv, "run_garden", return_value={"passed": True}), \
+                self.recorder.patches():
+            response = srv.wf_close_wave_response(self.root, "1aaaa", mode="create")
+        self.assertEqual(response["status"], "ok", response)
+        self.assertTrue(response["data"]["transitioned_to_closed"], response)
+        self.assertIn("Status: closed", record.read_text(encoding="utf-8"))
+        self.assertIn("runtime_lock_target_refused", self.codes(response))
+        self.assert_path_free(response["diagnostics"])
+        self.recorder.assert_never_opened(self)
+        self.assertEqual(self.lock_path.read_text(encoding="utf-8"), _LOCK_BODY)
+
+
+class ResourceLockTargetTests(_LockTargetCase):
+    """AC-11: every census resource refuses a lock target with ``# Refused``."""
+
+    def resources(self):
+        import types as _types
+
+        from declaration_support import RecordingFastMCP
+
+        recorder = RecordingFastMCP()
+        handler = _types.SimpleNamespace(root=self.root, cache=None)
+        srv.register_mcp_surface(recorder, lambda: handler)
+        return recorder.resource_functions
+
+    def call(self, fn, *args) -> str:
+        with self.recorder.patches():
+            text = fn(*args)
+        self.assertNotIn(self.recorder.forbidden, self.recorder.opened)
+        return text
+
+    def test_fixed_document_resources(self) -> None:
+        resources = self.resources()
+        for name, rel in (
+            ("resource_prompt_index", "docs/prompts/index.md"),
+            ("resource_architecture_current_state", "docs/architecture/current-state.md"),
+            ("resource_session_handoff", "docs/agents/session-handoff.md"),
+            ("resource_agents", "AGENTS.md"),
+            ("resource_project_overview", "docs/references/project-overview.md"),
+        ):
+            with self.subTest(resource=name):
+                self.link_to_lock(rel)
+                self.assert_refused_markdown(self.call(resources[name]), rel)
+
+    def test_slug_resources(self) -> None:
+        resources = self.resources()
+        seed = ".wavefoundry/framework/seeds/999-held.prompt.md"
+        self.link_to_lock(seed)
+        self.assert_refused_markdown(self.call(resources["resource_seed"], "999-held.prompt"), seed)
+        arch = "docs/architecture/held-map.md"
+        self.link_to_lock(arch)
+        self.assert_refused_markdown(self.call(resources["resource_architecture"], "held-map"), arch)
+        from record_layout_support import RecordTreeBuilder
+
+        plans_rel = RecordTreeBuilder(self.root).plans_dir.relative_to(self.root).as_posix()
+        change = f"{plans_rel}/1bbbb-bug held.md"
+        self.link_to_lock(change)
+        self.assert_refused_markdown(self.call(resources["resource_change"], "1bbbb"), change)
+
+    def test_wave_resources(self) -> None:
+        resources = self.resources()
+        rel = "docs/held-record.md"
+        self.link_to_lock(rel)
+        match = [{"wave_id": "1aaaa demo", "path": rel, "changes": []}]
+        with patch.object(srv, "_resolve_wave_md_matches", return_value=(match, [])):
+            self.assert_refused_markdown(self.call(resources["resource_wave"], "1aaaa"), rel)
+        with patch.object(srv, "_waves_and_dirs", return_value=([], [])), \
+                patch.object(srv, "current_wave", return_value={"path": rel}):
+            self.assert_refused_markdown(self.call(resources["resource_current_wave"]), rel)
+
+    def test_codebase_map_and_area_resources(self) -> None:
+        resources = self.resources()
+        map_rel = "docs/references/codebase-map.md"
+        self.link_to_lock(map_rel)
+        area_rel = "src/AGENTS.md"
+        self.link_to_lock(area_rel)
+        area = SimpleNamespace(area_id="src", representative_path="src", name="src")
+        gen = SimpleNamespace(
+            OUTPUT_REL_PATH=map_rel,
+            generate_safe=lambda root: self.fail("an existing map must not be regenerated"),
+            compute_areas=lambda root: SimpleNamespace(areas=[area]),
+            _resolve_area_context_rel_path=lambda root, match: area_rel,
+            _area_context_rel_path=lambda match: area_rel,
+        )
+        with patch.object(srv, "_load_script", return_value=gen):
+            self.assert_refused_markdown(self.call(resources["resource_codebase_map"]), map_rel)
+            self.assert_refused_markdown(self.call(resources["resource_area_context"], "src"), area_rel)
+
+    def test_ordinary_targets_still_read(self) -> None:
+        resources = self.resources()
+        agents = self.root / "AGENTS.md"
+        agents.write_text("# Agents\n", encoding="utf-8")
+        self.assertEqual(resources["resource_agents"](), "# Agents\n")
+        self.assertEqual(srv._read_repo_text_checked(self.root, agents), "# Agents\n")
+        with self.assertRaises(srv.RuntimeLockTargetRefused) as raised:
+            srv._read_repo_text_checked(self.root, self.link_to_lock("docs/x.md"))
+        self.assertEqual(raised.exception.rel_path, "docs/x.md")
+        self.assertNotIn(str(self.root), str(raised.exception))
+
+
+class PromptLockTargetTests(_LockTargetCase):
+    """AC-16: a refused prompt candidate is skipped, reported, never cached."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.prompts = self.root / "docs" / "prompts"
+        self.prompts.mkdir(parents=True, exist_ok=True)
+        self.held = "docs/prompts/held-prompt.md"
+        self.link_to_lock(self.held)
+
+    def test_a_refused_candidate_is_skipped_for_a_later_match(self) -> None:
+        # The slug pass reaches only the lock target; the content fallback
+        # skips it again and finds this prompt.
+        (self.prompts / "other.md").write_text("# Real\n\nheld-prompt\n", encoding="utf-8")
+        refused: list = []
+        with self.recorder.patches():
+            text = srv.get_prompt(self.root, "held-prompt", refused=refused)
+        self.assertEqual(text, "# Real\n\nheld-prompt\n")
+        self.assertEqual(refused, [self.held])
+        self.assertNotIn(self.recorder.forbidden, self.recorder.opened)
+        response = srv.wf_get_prompt_response(self.root, "held-prompt")
+        self.assertEqual(response["data"]["prompt"]["content"], "# Real\n\nheld-prompt\n")
+        warning = [d for d in response["diagnostics"] if d["code"] == "runtime_lock_target_refused"]
+        self.assertEqual(len(warning), 1, response)
+        self.assertEqual(warning[0].get("severity"), "warning")
+        self.assert_path_free(response["diagnostics"])
+
+    def test_a_miss_reports_the_refusal_and_is_not_cached(self) -> None:
+        cache = srv.McpRepoCache(self.root)
+        for _ in range(2):
+            with self.recorder.patches():
+                response = srv.wf_get_prompt_response(self.root, "held-prompt", cache=cache)
+            self.assertNotIn(self.recorder.forbidden, self.recorder.opened)
+            self.assertIsNone(response["data"]["prompt"])
+            self.assertEqual(self.codes(response), ["prompt_not_found", "runtime_lock_target_refused"])
+            self.assert_path_free(response)
+        resources = ResourceLockTargetTests.resources(self)
+        with self.recorder.patches():
+            text = resources["resource_prompt"]("held-prompt")
+        self.assertTrue(text.startswith("# Not Found\n"), text)
+        self.assertIn(self.held, text)
+        self.assert_path_free(text)
+
+    def test_an_ordinary_miss_is_still_cached(self) -> None:
+        cache = srv.McpRepoCache(self.root)
+        with patch.object(srv, "get_prompt", wraps=srv.get_prompt) as lookup:
+            srv.wf_get_prompt_response(self.root, "no-such-prompt-anywhere", cache=cache)
+            srv.wf_get_prompt_response(self.root, "no-such-prompt-anywhere", cache=cache)
+        # The content fallback skips the refused candidate, so even an
+        # ordinary miss here involved a refusal and is re-run.
+        self.assertEqual(lookup.call_count, 2)
+        os.unlink(self.root / self.held)
+        with patch.object(srv, "get_prompt", wraps=srv.get_prompt) as lookup:
+            srv.wf_get_prompt_response(self.root, "no-such-prompt-anywhere", cache=cache)
+            srv.wf_get_prompt_response(self.root, "no-such-prompt-anywhere", cache=cache)
+        self.assertEqual(lookup.call_count, 1)
+
+
+class CheckedReaderCensusTests(unittest.TestCase):
+    """AC-11: the census sites read only through ``_read_repo_text_checked``."""
+
+    def test_no_direct_read_text_at_census_sites(self) -> None:
+        import ast
+
+        from framework_files import source_path
+
+        server = ast.parse(source_path("server_impl").read_text(encoding="utf-8"))
+        handoff = ast.parse(source_path("wf_server.edit_gate_handlers").read_text(encoding="utf-8"))
+        wanted = {
+            "get_prompt", "_resolve_change_doc_matches", "_read_doc_or_not_found",
+            "_validated_wave_markdown", "resource_project_overview", "resource_seed",
+            "resource_architecture", "resource_area_context", "resource_codebase_map",
+            "resource_prompt", "resource_current_wave", "resource_wave", "resource_change",
+            "resource_session_handoff", "resource_agents", "resource_prompt_index",
+            "resource_architecture_current_state",
+        }
+        found = {}
+        for tree in (server,):
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef) and node.name in wanted:
+                    found[node.name] = node
+        for node in ast.walk(handoff):
+            if isinstance(node, ast.FunctionDef) and node.name in {
+                "wf_get_handoff_response", "wf_set_handoff_response",
+            }:
+                found[node.name] = node
+        self.assertEqual(set(found), wanted | {"wf_get_handoff_response", "wf_set_handoff_response"})
+        for name, node in sorted(found.items()):
+            calls = {
+                call.func.attr
+                for call in ast.walk(node)
+                if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+            }
+            with self.subTest(function=name):
+                self.assertNotIn("read_text", calls)
+        checked = {
+            name for name, node in found.items()
+            if any(isinstance(n, (ast.Name, ast.Attribute))
+                   and (getattr(n, "id", None) or getattr(n, "attr", None)) in {
+                       "_read_repo_text_checked", "_refuse_runtime_lock_target"}
+                   for n in ast.walk(node))
+        }
+        self.assertTrue({
+            "get_prompt", "_resolve_change_doc_matches", "_read_doc_or_not_found",
+            "_validated_wave_markdown", "resource_project_overview", "resource_seed",
+            "resource_architecture", "resource_area_context", "resource_codebase_map",
+            "wf_get_handoff_response", "wf_set_handoff_response",
+        } <= checked, checked)
+        # The pause and close handoff writes check the target first.
+        for name in ("wf_pause_wave_response", "wf_close_wave_response"):
+            node = next(n for n in ast.walk(server) if isinstance(n, ast.FunctionDef) and n.name == name)
+            text = ast.unparse(node)
+            with self.subTest(function=name):
+                self.assertIn("_refuse_runtime_lock_target(root, handoff)", text)
+                self.assertNotIn("handoff.read_text", text)
+
+
 if __name__ == "__main__":
     unittest.main()

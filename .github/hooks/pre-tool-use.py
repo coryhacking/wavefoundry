@@ -447,12 +447,17 @@ def block_uninspectable(reason: str, keys: str) -> int:
     return 2
 
 
-COPILOT_EDIT_TOOL_NAMES = ('create', 'edit', 'write', 'str_replace_editor', 'str_replace_based_edit_tool', 'create_file', 'createFile', 'writeFile', 'insert_edit_into_file', 'replace_string_in_file', 'multi_replace_string_in_file', 'editFiles', 'edit_notebook_file')
+COPILOT_EDIT_TOOL_NAMES = ('create', 'edit', 'write', 'str_replace_editor', 'str_replace_based_edit_tool', 'create_file', 'createFile', 'writeFile', 'insert_edit_into_file', 'replace_string_in_file', 'multi_replace_string_in_file', 'editFiles', 'edit_notebook_file', 'apply_patch')
 COPILOT_TEXT_EDITOR_TOOL_NAMES = ('str_replace_editor', 'str_replace_based_edit_tool')
 COPILOT_TEXT_EDITOR_READ_COMMANDS = ('view',)
+COPILOT_PATCH_TOOL_NAMES = ('apply_patch',)
+COPILOT_PATCH_HEADERS = ('*** Add File: ', '*** Update File: ', '*** Delete File: ', '*** Move to: ')
 COPILOT_PATH_KEYS = (
     "toolArgs or tool_input: path, file_path, filePath, notebook_path, files[], "
     "replacements[].filePath; then " + ", ".join(".".join(key) for key in FILE_PATH_KEYS)
+    + "; for apply_patch only, the patch headers ("
+    + ", ".join(header.strip() for header in COPILOT_PATCH_HEADERS)
+    + ") in toolArgs or tool_input: input, patch, or the raw arguments string"
 )
 
 
@@ -477,7 +482,47 @@ def copilot_tool_args(payload: dict[str, object]) -> dict[str, object]:
     return {}
 
 
+def copilot_patch_text(payload: dict[str, object]) -> str:
+    # The arguments' `input`, then `patch`; an arguments string that is not a JSON object is the patch.
+    for key in ("toolArgs", "tool_input"):
+        value = payload.get(key)
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except (ValueError, RecursionError):
+                parsed = None
+            if not isinstance(parsed, dict):
+                return value
+            value = parsed
+        if isinstance(value, dict):
+            for name in ("input", "patch"):
+                text = value.get(name)
+                if isinstance(text, str) and text:
+                    return text
+            return ""
+    return ""
+
+
+def copilot_patch_paths(text: str) -> list[str]:
+    # Header lines only: an added or removed hunk line starts with `+` or `-`, so it never counts.
+    paths: list[str] = []
+    for line in text.split("\n"):
+        if line.endswith("\r"):
+            line = line[:-1]
+        line = line.lstrip()
+        for header in COPILOT_PATCH_HEADERS:
+            if line.startswith(header):
+                path = line[len(header):].strip()
+                if path and path not in paths:
+                    paths.append(path)
+                break
+    return paths
+
+
 def copilot_edit_paths(payload: dict[str, object]) -> list[str]:
+    if copilot_tool_name(payload) in COPILOT_PATCH_TOOL_NAMES:
+        # The header paths alone: no generic fallback stands in for the patch's real targets.
+        return copilot_patch_paths(copilot_patch_text(payload))
     args = copilot_tool_args(payload)
     paths: list[str] = []
     for key in ("path", "file_path", "filePath", "notebook_path"):
@@ -522,6 +567,8 @@ def main() -> int:
         return 0
     paths = copilot_edit_paths(payload)
     if not paths:
+        if copilot_tool_name(payload) in COPILOT_PATCH_TOOL_NAMES:
+            return block_uninspectable("no patch file header was found", COPILOT_PATH_KEYS)
         return block_uninspectable("no file path was found", COPILOT_PATH_KEYS)
     for file_path in paths:
         verdict = gate_file_path(file_path)

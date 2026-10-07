@@ -43,7 +43,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Iterator
 
 # ── The one shared retired→new map ────────────────────────────────────────────
@@ -51,6 +51,8 @@ from typing import Iterator
 # ``_RETIRED_BIN_WRAPPERS`` in render_platform_surfaces.py; ``retired_surface_suggestion`` resolves
 # the human-facing replacement form (``wf <subcommand>`` or the no-replacement guidance).
 import record_paths  # noqa: E402  record roots (wave 1y0gz)
+import vocabulary_profile  # noqa: E402  lifecycle prompt names (wave 1zyb4)
+from history_paths import is_history_path  # noqa: E402  shared history components (wave 1zyb2)
 from render_platform_surfaces import (  # noqa: E402 — SCRIPTS_DIR is on sys.path
     PERMISSIONS_PROVENANCE_KEY,
     _RENAMED_MCP_TOOLS,
@@ -247,11 +249,16 @@ _RETIRED_FINALIZE_PROMPTS: tuple[str, ...] = (
     "docs/prompts/finalize-feature.prompt.md",
     "docs/prompts/agents/finalize-feature.prompt.md",
 )
+# Wave 1zyb4 (1zxnw): the replacement side (suggestions) follows the
+# vocabulary profile; the retired names matched below stay literal.
 _RETIRED_FINALIZE_PROMPT_SUGGESTION = (
-    "merge unique guidance into docs/prompts/close-wave.prompt.md or "
-    "docs/prompts/close-change.prompt.md, then remove the retired prompt"
+    f"merge unique guidance into {vocabulary_profile.prompt_doc('close-wave')} or "
+    f"{vocabulary_profile.prompt_doc('close-change')}, then remove the retired prompt"
 )
-_CLOSE_CHANGE_OR_WAVE_SUGGESTION = "Close change (one change) or Close wave (the wave)"
+_CLOSE_CHANGE_OR_WAVE_SUGGESTION = (
+    f"{vocabulary_profile.shortcut('close-change')} (one change) or "
+    f"{vocabulary_profile.shortcut('close-wave')} (the wave)"
+)
 
 
 def _shortcut_phrase_pattern(phrase: str) -> re.Pattern[str]:
@@ -265,7 +272,7 @@ _RETIRED_CHANGE_PROMPT_PATTERNS: tuple[
     (
         re.compile(r"(?<![\w-])wf\-plan\-feature(?![\w-])"),
         "wf-plan-feature",
-        "wf-plan-change",
+        vocabulary_profile.skill_name("plan-change"),
     ),
     *(
         (
@@ -273,7 +280,7 @@ _RETIRED_CHANGE_PROMPT_PATTERNS: tuple[
                 rf"(?<![\w.-])docs/prompts/{agents}{verb}\-feature\.prompt\.md(?![\w.-])"
             ),
             f"docs/prompts/{agents}{verb}-feature.prompt.md",
-            f"docs/prompts/{agents}{verb}-change.prompt.md",
+            f"docs/prompts/{agents}{vocabulary_profile.prompt_slug(verb + '-change')}.prompt.md",
         )
         for agents in ("", "agents/")
         for verb in ("plan", "implement")
@@ -302,11 +309,11 @@ _RETIRED_CHANGE_PROMPT_PATTERNS: tuple[
         "190-finalize-feature.prompt.md",
         ".wavefoundry/framework/seeds/190-close-wave.prompt.md",
     ),
-    (_shortcut_phrase_pattern("Plan feature"), "Plan feature", "Plan change"),
+    (_shortcut_phrase_pattern("Plan feature"), "Plan feature", vocabulary_profile.shortcut("plan-change")),
     (
         _shortcut_phrase_pattern("Implement feature"),
         "Implement feature",
-        "Implement change",
+        vocabulary_profile.shortcut("implement-change"),
     ),
     (
         _shortcut_phrase_pattern("Finalize feature"),
@@ -336,6 +343,71 @@ def _guru_description_hits(rel: str, text: str) -> Iterator[tuple[int, str]]:
             for m in _GURU_DESCRIPTION_RETIRED_PHRASE.finditer(line):
                 yield offset + m.start(), m.group(0)
         offset += len(line) + 1
+
+# ── Profile-renamed lifecycle prompts (wave 1zyb4, change 1zxnw) ─────────────
+#
+# Under a vocabulary profile that renames a tier-named lifecycle prompt, each
+# renamed key's default public path, agent path, skill name and shortcut-shaped
+# phrase (bold or backticked) is reported with the profile's name, and the bare
+# phrase on the guru agent's ``description:`` line too. A default token that
+# equals any current derived token (a chain reuses it) is never reported.
+# Under the default profile the table is empty.
+def _profile_prompt_name_tables() -> "tuple[tuple[tuple[re.Pattern[str], str, str], ...], tuple[tuple[re.Pattern[str], str, str], ...]]":
+    names = vocabulary_profile.PROMPT_NAMES
+    defaults = vocabulary_profile.DEFAULT_PROMPT_NAMES
+    current = set()
+    for key in names:
+        current.update({
+            vocabulary_profile.prompt_doc(key), vocabulary_profile.agent_prompt_doc(key),
+            vocabulary_profile.skill_name(key), vocabulary_profile.shortcut(key),
+        })
+        # A live alias (e.g. a profile keeping a default phrase as an alias)
+        # is current, never retired.
+        current.update(vocabulary_profile.shortcut_aliases(key))
+    patterns: list[tuple[re.Pattern[str], str, str]] = []
+    guru: list[tuple[re.Pattern[str], str, str]] = []
+    for key, default in defaults.items():
+        if names[key] == default:
+            continue
+        slug = default["slug"]
+        candidates = (
+            (f"docs/prompts/{slug}.prompt.md", vocabulary_profile.prompt_doc(key), "path"),
+            (f"docs/prompts/agents/{slug}.prompt.md", vocabulary_profile.agent_prompt_doc(key), "path"),
+            (f"wf-{slug}", vocabulary_profile.skill_name(key), "skill"),
+            (default["shortcut"], vocabulary_profile.shortcut(key), "phrase"),
+        )
+        for token, suggestion, kind in candidates:
+            if token in current or token == suggestion:
+                continue
+            escaped = re.escape(token)
+            if kind == "path":
+                # A sentence-ending period is not part of the path.
+                pattern = re.compile(rf"(?<![\w.-]){escaped}(?![\w-]|\.\w)")
+            elif kind == "skill":
+                pattern = re.compile(rf"(?<![\w-]){escaped}(?![\w-])")
+            else:
+                pattern = _shortcut_phrase_pattern(token)
+                guru.append((re.compile(rf"(?<![\w-]){escaped}(?![\w-])"), token, suggestion))
+            patterns.append((pattern, token, suggestion))
+    return tuple(patterns), tuple(guru)
+
+
+_PROFILE_PROMPT_NAME_PATTERNS, _PROFILE_GURU_DESCRIPTION_PHRASES = _profile_prompt_name_tables()
+
+
+def _guru_description_lines(rel: str, text: str) -> Iterator[tuple[int, str]]:
+    """Yield ``(offset, line)`` for the guru agent's frontmatter ``description:`` line."""
+    if rel != _CLAUDE_GURU_AGENT_FILE or not text.startswith("---"):
+        return
+    end = text.find("\n---", 3)
+    if end < 0:
+        return
+    offset = 0
+    for line in text[:end].split("\n"):
+        if line.lstrip().startswith("description:"):
+            yield offset, line
+        offset += len(line) + 1
+
 
 def _line_text(text: str, position: int) -> str:
     """Return the full line containing *position* (for line-scoped exemptions)."""
@@ -429,10 +501,10 @@ EXCLUDED_BASENAMES: tuple[str, ...] = (
     "reconcile-dispositions.json",
 )
 
-# History directories matched on a path COMPONENT (not substring): a file *under* `journals/` or
-# `snapshots/` is history. This no longer drops `src/snapshotter.py` (substring `snapshot`) or a doc
-# whose name merely contains `journal`.
-_EXCLUDED_PATH_COMPONENTS: tuple[str, ...] = ("journals", "snapshots")
+# History directories are matched on a path COMPONENT (not substring) through the shared
+# ``history_paths`` predicate (wave 1zyb2, 1zxnt): a file *under* a history directory is history.
+# This does not drop `src/snapshotter.py` (substring `snapshot`) or a doc whose name merely
+# contains `journal`.
 
 # ── Framework-mandated archive sections (wave 1vk4c / 1vk4b) ────────────────
 # seed-230 §6 tells the agent to MOVE a resolved `docs/missing-docs.md` row into
@@ -843,8 +915,11 @@ def is_excluded(
     # renderer-managed manifest whose historical upgrade_merge_notes are not operator-authored refs.
     if name in EXCLUDED_BASENAMES:
         return True
-    # Journals / snapshots are history — matched on a path component, not a substring.
-    if any(c in parts for c in _EXCLUDED_PATH_COMPONENTS):
+    # History directories, matched on a component of the repo-relative path, not a substring.
+    # ``rel`` is POSIX-spelled and root-relative, so it is passed as a PurePosixPath: a POSIX
+    # path is anchored only by ``/``, and a repository file named like ``c:notes.md`` is a
+    # plain name here, not a Windows drive that would make the helper refuse the scan.
+    if is_history_path(PurePosixPath(rel)):
         return True
     # Test files name the retired surfaces to assert they are gone (a `tests/` component + `test_`
     # filename), anywhere in the tree — not just the framework tests dir.
@@ -1019,10 +1094,39 @@ def scan_repo(root: Path | str) -> list[StaleReference]:
                     line=text.count("\n", 0, position) + 1,
                     retired_surface="Plan feature (guru agent description)",
                     matched=matched,
-                    suggested="Plan change",
+                    suggested=vocabulary_profile.shortcut("plan-change"),
                     host_permission=host_perm,
                 )
             )
+        # Profile-renamed lifecycle prompts (1zxnw): empty under the defaults.
+        for pat, retired, suggestion in _PROFILE_PROMPT_NAME_PATTERNS:
+            for m in pat.finditer(text):
+                if _archived(m):
+                    continue
+                findings.append(
+                    StaleReference(
+                        file=rel,
+                        line=text.count("\n", 0, m.start()) + 1,
+                        retired_surface=retired,
+                        matched=m.group(0),
+                        suggested=suggestion,
+                        host_permission=host_perm,
+                    )
+                )
+        if _PROFILE_GURU_DESCRIPTION_PHRASES:
+            for offset, line in _guru_description_lines(rel, text):
+                for pat, retired, suggestion in _PROFILE_GURU_DESCRIPTION_PHRASES:
+                    for m in pat.finditer(line):
+                        findings.append(
+                            StaleReference(
+                                file=rel,
+                                line=text.count("\n", 0, offset + m.start()) + 1,
+                                retired_surface=f"{retired} (guru agent description)",
+                                matched=m.group(0),
+                                suggested=suggestion,
+                                host_permission=host_perm,
+                            )
+                        )
         # The `.md` to `.prompt.md` rename, resolved against the tree.
         for m, matched, suggestion in _stale_prompt_extension_hits(root, text):
             if _archived(m):

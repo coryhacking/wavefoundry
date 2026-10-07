@@ -3779,7 +3779,10 @@ class ReloadDiagnosticsPathFreeTests(unittest.TestCase):
 
         def reload_and_mutate(module):
             reloaded = real_reload(module)
-            mutate(reloaded, restore)
+            # Wave 1zxnz (1zx02): the server_impl reload also reloads
+            # runtime_lock in place; only the server_impl reload is mutated.
+            if reloaded.__name__.rsplit(".", 1)[-1] == "server_impl":
+                mutate(reloaded, restore)
             return reloaded
 
         stream = io.StringIO()

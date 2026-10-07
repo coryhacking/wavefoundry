@@ -7564,6 +7564,7 @@ _DELEGATE_CHILD_MODULES = (
     "subprocess_util.py",
     "cli_stdio.py",
     "reconcile_scan.py",
+    "history_paths.py",  # wave 1zyb2: reconcile_scan tests history through it
     "record_paths.py",  # wave 1y0gz: reconcile_scan resolves the record roots through it
     "vocabulary_profile.py",  # wave 1z8mm: record_paths imports it
     "render_platform_surfaces.py",
@@ -11334,10 +11335,24 @@ class _JournalMigrationFixture:
 
     def _make_wave(self, base_rel, wave_id):
         """A discoverable wave folder: wave 1zv87 (1zuq6) relocates only into
-        a folder that record discovery finds, so it holds the record file."""
+        a folder that record discovery finds, so it holds the record file.
+
+        Wave 1zyb2 (1zxnt): a folder under the archive root gets the record
+        filename and title of ``vocabulary_profile.archive_profile()``, any
+        other folder those of the live profile, so a test can show an
+        archived folder recognised under an archive vocabulary that differs
+        from the live one."""
+        import record_paths
+        import vocabulary_profile
+
+        archive_rel = record_paths.ARCHIVE_ROOT
+        archived = archive_rel is not None and (
+            base_rel == archive_rel or base_rel.startswith(archive_rel.rstrip("/") + "/")
+        )
+        profile = vocabulary_profile.archive_profile() if archived else vocabulary_profile
         folder = self.root / base_rel / wave_id
         folder.mkdir(parents=True)
-        (folder / _record_name()).write_text("# Wave Record\n", encoding="utf-8")
+        (folder / profile.RECORD_FILENAME).write_text(profile.RECORD_TITLE + "\n", encoding="utf-8")
         return folder
 
 
@@ -11453,7 +11468,9 @@ class JournalMigrationTests(_JournalMigrationFixture, unittest.TestCase):
             self.ext, "_migrate_journals"
         ) as journals:
             self.ext.pre_docs_gate(MagicMock(root=self.root, from_version="1.14.0"))
-        journals.assert_called_once_with(self.root)
+        # The gate always passes the declaration it loaded (empty here), so
+        # the declaration module is executed once (wave 1zyb3 delivery repair).
+        journals.assert_called_once_with(self.root, ())
         with patch.object(self.ext, "_migrate_memory_naming") as naming, patch.object(
             self.ext, "_migrate_journals"
         ) as journals:
@@ -11612,8 +11629,9 @@ class JournalMigrationLinkSafetyTests(_JournalMigrationFixture, unittest.TestCas
         source = self.journals / name
         original = self.ext._write_journal_exclusive
 
-        def write_then_swap(destination, data):
-            written = original(destination, data)
+        def write_then_swap(destination, data, **kwargs):
+            # ``dir_fd`` arrives on the descriptor branch (wave 1zxo0, 1zxns).
+            written = original(destination, data, **kwargs)
             swap(source)
             return written
 
@@ -11743,6 +11761,39 @@ class JournalMigrationProfileTests(_JournalMigrationFixture, unittest.TestCase):
         self.assertEqual(preview["left"], [f"docs/agents/journals/{archived_name}"])
         self.assertTrue(any("wave is archived" in w for w in preview["warnings"]))
 
+    def test_archived_wave_is_recognised_under_a_divergent_archive_vocabulary(self):
+        """Wave 1zyb2 (1zxnt) AC-7: the archive vocabulary names the record file
+        differently from the live one; an archived folder holding only the
+        archive-named record is still the archived wave, so its journal is left
+        with the archived report line and the archive tree is untouched."""
+        import vocabulary_profile
+
+        archive_fields = {name: getattr(vocabulary_profile, name) for name in vocabulary_profile.FIELD_NAMES}
+        archive_fields["RECORD_FILENAME"] = "set.md"
+        self.assertNotEqual(archive_fields["RECORD_FILENAME"], vocabulary_profile.RECORD_FILENAME)
+        self.assertEqual(vocabulary_profile.validation_errors(archive_fields), [])
+        patcher = patch.object(vocabulary_profile, "ARCHIVE_PROFILE", archive_fields)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        folder = self._make_wave(self.archive_rel, "1zbah archived-divergent")
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), ["set.md"])
+        archived_name, archived_content = self._set_journal("1zbah archived-divergent")
+        archive = self.root / self.archive_rel
+        archive_before = sorted(
+            (p.relative_to(archive).as_posix(), p.read_bytes() if p.is_file() else None)
+            for p in archive.rglob("*")
+        )
+        report = self._run()
+        self.assertEqual((self.journals / archived_name).read_bytes(), archived_content)
+        self.assertIn(f"left {archived_name} in place: wave is archived (read-only archive root)", report)
+        self.assertEqual(
+            sorted(
+                (p.relative_to(archive).as_posix(), p.read_bytes() if p.is_file() else None)
+                for p in archive.rglob("*")
+            ),
+            archive_before,
+        )
+
     def test_id_found_in_two_folders_is_left(self):
         self._make_wave(_live_waves_rel(), "1zbae twice")
         self._make_wave(self.archive_rel, "1zbae twice")
@@ -11787,6 +11838,646 @@ class JournalMigrationProfileTests(_JournalMigrationFixture, unittest.TestCase):
         self.assertEqual(sorted(p.name for p in outside.iterdir()), [_record_name()])
         self.assertTrue((self.journals / name).is_file())
         self.assertIn(f"left {name} in place", report)
+
+
+_DIST_TEMPLATE = (
+    "# Dist journal {{title}}\n\n"
+    "wave-id: `{{wave_id}}`\n"
+    "Opened: {{date}}\n\n"
+    "Status: open\n\n"
+    "Nothing recorded yet for {{wave_id}}.\n"
+)
+
+
+def _render_dist_template(wave_id, title, date):
+    return (
+        _DIST_TEMPLATE.replace("{{wave_id}}", wave_id)
+        .replace("{{title}}", title)
+        .replace("{{date}}", date)
+    )
+
+
+class _JournalDeclarationFixture(_JournalMigrationFixture):
+    """Wave 1zyb3 (1zxnv): a fake repository whose EXTRACTED scripts
+    directory holds a declaration module (a variant of the canonical one,
+    never the canonical file itself) and, optionally, a helper module."""
+
+    def setUp(self):
+        super().setUp()
+        self.scripts = self.root / ".wavefoundry" / "framework" / "scripts"
+        self.scripts.mkdir(parents=True)
+        (self.root / ".wavefoundry" / "upgrade-in-progress.json").write_text(
+            '{"review_sidecar_cleanup": {}}\n', encoding="utf-8"
+        )
+
+    def _declare(self, *, templates=(), hook="", helpers=(), helper_source=None,
+                 helper_name="acme_journal_hooks", extra=""):
+        text = (SCRIPTS_ROOT / "mcp_tool_extensions.py").read_text(encoding="utf-8")
+        for name, value in (
+            ("EXTENSION_HELPER_MODULES", tuple(helpers)),
+            ("EXTENSION_JOURNAL_TEMPLATES", templates),
+            ("EXTENSION_JOURNAL_PRE_MIGRATION_HOOK", hook),
+        ):
+            text, count = re.subn(
+                rf"(?m)^({name}(?:[ \t]*:[^=\n]*)?[ \t]*=[ \t]*)[^\n]*$",
+                lambda m, v=value: m.group(1) + repr(v),
+                text,
+            )
+            self.assertEqual(count, 1, name)
+        (self.scripts / "mcp_tool_extensions.py").write_text(text + extra, encoding="utf-8")
+        if helper_source is not None:
+            (self.scripts / f"{helper_name}.py").write_text(helper_source, encoding="utf-8")
+
+    def _hook_source(self, body="pass", signature="root"):
+        return (
+            "from pathlib import Path\n\n\n"
+            f"def prepare({signature}):\n"
+            "    with open(Path(root) / 'hook-calls.txt', 'a', encoding='utf-8') as fh:\n"
+            "        fh.write(f'{isinstance(root, Path)} {root}\\n')\n"
+            f"    {body}\n"
+        )
+
+    def _hook_calls(self):
+        path = self.root / "hook-calls.txt"
+        return path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+
+    def _gate(self, from_version="1.14.0"):
+        out = io.StringIO()
+        with patch.object(self.ext, "_migrate_memory_naming"), contextlib.redirect_stdout(out):
+            self.ext.pre_docs_gate(MagicMock(root=self.root, from_version=from_version))
+        return out.getvalue()
+
+    def _journal_tree(self):
+        return sorted((p.name, p.read_bytes()) for p in self.journals.iterdir())
+
+    def _write_journal(self, name, text, *, crlf=False):
+        data = text.replace("\n", "\r\n") if crlf else text
+        (self.journals / name).write_bytes(data.encode("utf-8"))
+        return f"docs/agents/journals/{name}"
+
+
+class JournalDeclarationProblemTests(unittest.TestCase):
+    """Wave 1zyb3 (1zxnv) AC-2 and AC-6: every rule of
+    ``journal_declaration_problems`` has a case that triggers it."""
+
+    def setUp(self):
+        import mcp_tool_extensions
+
+        self.ext = mcp_tool_extensions
+
+    def _problems(self, templates=(), hook="", helpers=("acme_journal_hooks",)):
+        return self.ext.journal_declaration_problems(templates, hook, helpers)
+
+    def test_shipped_declaration_is_valid_and_not_declared(self):
+        # Scoped to the base declaration: under ``--profile declared`` the
+        # module on disk declares extensions, so ``declared()`` is True there
+        # by design (wave 1zyb3 delivery repair).
+        from declaration_support import base_declaration
+
+        with base_declaration():
+            self.assertEqual(self.ext.EXTENSION_JOURNAL_TEMPLATES, ())
+            self.assertEqual(self.ext.EXTENSION_JOURNAL_PRE_MIGRATION_HOOK, "")
+            self.assertEqual(self.ext.journal_declaration_problems(), [])
+            self.assertFalse(self.ext.declared())
+
+    def test_valid_declarations_pass(self):
+        self.assertEqual(self._problems((_DIST_TEMPLATE,), "acme_journal_hooks:prepare"), [])
+        self.assertEqual(self._problems([_DIST_TEMPLATE]), [])
+        self.assertEqual(self._problems(("fixed line only\n",)), [])
+        self.assertEqual(self._problems(("x" * 65_536,)), [])
+
+    def test_each_rule_is_reported(self):
+        cases = {
+            "not a sequence": ({"templates": "text"}, "must be a tuple of template strings"),
+            "not a string": ({"templates": (7,)}, "journal template [0] must be a non-empty string"),
+            "empty": ({"templates": ("",)}, "journal template [0] must be a non-empty string"),
+            "too long": ({"templates": ("x" * 65_537,)}, "longer than 65536 characters"),
+            "carriage return": ({"templates": ("a\r\nb\n",)}, "must not contain a carriage return"),
+            "unknown placeholder": ({"templates": ("x\n{{author}}\n",)}, "unknown placeholder(s) {{author}}"),
+            "no fixed line": ({"templates": ("{{title}}\n\n  {{wave_id}}: {{date}}\n",)},
+                              "at least one non-blank line without a placeholder"),
+            "adjacent": ({"templates": ("fixed\n{{wave_id}}{{title}}\n",)}, "no literal text between them"),
+            "hook not a string": ({"hook": 5}, "must be a 'module:function' string"),
+            "hook no colon": ({"hook": "acme_journal_hooks"}, "must be exactly one 'module:function'"),
+            "hook two colons": ({"hook": "a:b:c"}, "must be exactly one 'module:function'"),
+            "module not flat": ({"hook": "acme.hooks:prepare"}, "not a flat single-file module name"),
+            "module stdlib": ({"hook": "json:prepare", "helpers": ("json",)}, "collides with a framework or standard-library"),
+            "module undeclared": ({"hook": "other_hooks:prepare"}, "not declared in EXTENSION_HELPER_MODULES"),
+            "function not identifier": ({"hook": "acme_journal_hooks:1st"}, "is not an identifier"),
+            "function keyword": ({"hook": "acme_journal_hooks:class"}, "is not an identifier"),
+            "function empty": ({"hook": "acme_journal_hooks:"}, "is not an identifier"),
+        }
+        for label, (kwargs, message) in cases.items():
+            with self.subTest(label):
+                problems = self._problems(**kwargs)
+                self.assertTrue(any(message in p for p in problems), problems)
+
+
+class JournalDeclarationMigrationTests(_JournalDeclarationFixture, unittest.TestCase):
+    """Wave 1zyb3 (1zxnv): declared pristine templates and the pre-migration
+    hook, loaded by path from the extracted tree inside the 1.15.0 gate."""
+
+    def test_declared_template_journal_is_deleted_and_previewed(self):
+        """AC-1."""
+        self._declare(templates=(_DIST_TEMPLATE,))
+        exact = self._write_journal("1zda0-exact.md", _render_dist_template("1zda0 exact", "Exact: [x]+", "2026-02-03"))
+        crlf = self._write_journal("1zda1-crlf.md", _render_dist_template("1zda1 crlf", "crlf", "2026-02-04"), crlf=True)
+        drift = self._write_journal(
+            "1zda2-drift.md", _render_dist_template("1zda2 drift", "drift", "2026-02-05").replace("Nothing", "Nothinq")
+        )
+        mixed = self._write_journal(
+            "1zda3-mixed.md",
+            _render_dist_template("1zda3 mixed", "mixed", "2026-02-06").replace(
+                "for 1zda3 mixed.", "for 1zda9 other."
+            ),
+        )
+        content = self._write_journal(
+            "1zda4-content.md", _render_dist_template("1zda4 content", "c", "2026-02-07") + "Real note\n"
+        )
+        before = self._journal_tree()
+        preview = self.ext.migrate_journals(self.root, apply=False)
+        self.assertEqual(self._journal_tree(), before)
+        self.assertEqual(sorted(preview["deleted"]), sorted([exact, crlf]))
+        self.assertEqual(sorted(preview["left"]), sorted([drift, mixed, content]))
+        printed = self._gate()
+        self.assertIn("deleted 2 pristine scaffold(s)", printed)
+        self.assertEqual(
+            sorted(p.name for p in self.journals.iterdir()),
+            ["1zda2-drift.md", "1zda3-mixed.md", "1zda4-content.md"],
+        )
+
+    def test_built_in_scaffold_is_still_deleted_beside_declared_templates(self):
+        self._declare(templates=(_DIST_TEMPLATE,))
+        self._write_pristine("1zda5 builtin", "builtin", "2026-01-05")
+        self._gate()
+        self.assertEqual(list(self.journals.iterdir()), [])
+
+    def test_date_placeholder_needs_a_date(self):
+        self._declare(templates=(_DIST_TEMPLATE,))
+        left = self._write_journal("1zda6-date.md", _render_dist_template("1zda6 date", "d", "soon"))
+        self.assertEqual(self.ext.migrate_journals(self.root)["left"], [left])
+
+    def test_invalid_declaration_refuses_before_any_journal_is_touched(self):
+        """AC-2: refused on a pre-1.15.0 upgrade, ignored on a later one."""
+        failing_hook = self._hook_source()
+        cases = {
+            "unknown placeholder": dict(templates=("x\n{{author}}\n",)),
+            "undeclared hook module": dict(hook="acme_journal_hooks:prepare"),
+            "missing helper file": dict(hook="acme_journal_hooks:prepare", helpers=("acme_journal_hooks",)),
+            "missing attribute": dict(hook="acme_journal_hooks:absent", helpers=("acme_journal_hooks",),
+                                      helper_source=failing_hook),
+            "not callable": dict(hook="acme_journal_hooks:VALUE", helpers=("acme_journal_hooks",),
+                                 helper_source=failing_hook + "\nVALUE = 3\n"),
+            "no positional argument": dict(hook="acme_journal_hooks:prepare", helpers=("acme_journal_hooks",),
+                                           helper_source="def prepare():\n    pass\n"),
+            "two required arguments": dict(hook="acme_journal_hooks:prepare", helpers=("acme_journal_hooks",),
+                                           helper_source="def prepare(root, other):\n    pass\n"),
+            "helper import fails": dict(hook="acme_journal_hooks:prepare", helpers=("acme_journal_hooks",),
+                                        helper_source=f"raise RuntimeError({str(self.root / 'secret')!r})\n"),
+            "declaration import fails": dict(extra=f"\nraise ValueError({str(self.root / 'secret')!r})\n"),
+            "mis-cased helper": dict(hook="Acme_journal_hooks:prepare", helpers=("Acme_journal_hooks",),
+                                     helper_source=failing_hook),
+        }
+        expected = {
+            "unknown placeholder": "unknown placeholder(s) {{author}}",
+            "undeclared hook module": "not declared in EXTENSION_HELPER_MODULES",
+            "missing helper file": "has no acme_journal_hooks.py file directly in the framework scripts directory",
+            "missing attribute": "defines no 'absent'",
+            "not callable": "'VALUE' is not callable",
+            "no positional argument": "cannot be called with one positional argument",
+            "two required arguments": "cannot be called with one positional argument",
+            "helper import fails": "could not be imported (RuntimeError)",
+            "declaration import fails": "mcp_tool_extensions could not be imported (ValueError)",
+            "mis-cased helper": "has no Acme_journal_hooks.py file directly",
+        }
+        for label, kwargs in cases.items():
+            with self.subTest(label):
+                for leftover in self.scripts.iterdir():
+                    leftover.unlink()
+                for leftover in self.journals.iterdir():
+                    leftover.unlink()
+                self._declare(**kwargs)
+                self._write_pristine("1zdb0 kept", "kept", "2026-01-05")
+                before = self._journal_tree()
+                with self.assertRaises(self.ext.JournalDeclarationError) as raised:
+                    self._gate("1.14.0")
+                message = str(raised.exception)
+                self.assertIn(expected[label], message)
+                self.assertNotIn(str(self.root), message)
+                self.assertNotIn("secret", message)
+                self.assertEqual(self._journal_tree(), before)
+                self.assertEqual(self._hook_calls(), [])
+                # At or after 1.15.0 the declaration is never loaded or validated.
+                self._gate("1.15.0")
+                self.assertEqual(self._journal_tree(), before)
+
+    def test_helper_symlink_outside_the_scripts_directory_is_refused(self):
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        target = Path(outside.name) / "acme_journal_hooks.py"
+        target.write_text(self._hook_source(), encoding="utf-8")
+        self._declare(hook="acme_journal_hooks:prepare", helpers=("acme_journal_hooks",))
+        try:
+            os.symlink(target, self.scripts / "acme_journal_hooks.py")
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+        with self.assertRaisesRegex(self.ext.JournalDeclarationError, "directly in the framework scripts directory"):
+            self._gate()
+        self.assertEqual(self._hook_calls(), [])
+
+    @unittest.skipUnless(os.name == "nt", "directory junctions exist only on native Windows")
+    def test_helper_junction_is_refused_on_windows(self):
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        self._declare(hook="acme_journal_hooks:prepare", helpers=("acme_journal_hooks",))
+        junction = self.scripts / "acme_journal_hooks.py"
+        result = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(junction), outside.name],
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode != 0:
+            self.skipTest("mklink /J unavailable")
+        with self.assertRaisesRegex(self.ext.JournalDeclarationError, "directly in the framework scripts directory"):
+            self._gate()
+
+    def test_hook_runs_once_before_the_migration(self):
+        """AC-3: the hook's own pristine scaffold is deleted by the same call."""
+        scaffold = self.ext._pristine_journal_template("1zdc0 hooked", "hooked", "2026-01-05")
+        body = f"(Path(root) / 'docs' / 'agents' / 'journals' / '1zdc0-hooked.md').write_text({scaffold!r}, encoding='utf-8')"
+        self._declare(hook="acme_journal_hooks:prepare", helpers=("acme_journal_hooks",),
+                      helper_source=self._hook_source(body))
+        printed = self._gate()
+        self.assertEqual(self._hook_calls(), [f"True {self.root}"])
+        self.assertEqual(list(self.journals.iterdir()), [])
+        self.assertIn("deleted 1 pristine scaffold(s)", printed)
+
+    def test_hook_is_not_called_after_1_15_or_by_the_preview(self):
+        """AC-4."""
+        self._declare(hook="acme_journal_hooks:prepare", helpers=("acme_journal_hooks",),
+                      helper_source=self._hook_source())
+        self._write_pristine("1zdc1 kept", "kept", "2026-01-05")
+        self._gate("1.15.0")
+        self._gate("1.20.3")
+        preview = self.ext.migrate_journals(self.root, apply=False)
+        self.assertEqual(len(preview["deleted"]), 1)
+        self.assertEqual(self._hook_calls(), [])
+
+    def test_hook_that_raises_skips_the_migration_with_a_path_free_warning(self):
+        """AC-5."""
+        body = f"raise OSError(13, 'denied ' + str(root) + '/private-detail', str(root))"
+        self._declare(hook="acme_journal_hooks:prepare", helpers=("acme_journal_hooks",),
+                      helper_source=self._hook_source(body))
+        self._write_pristine("1zdc2 kept", "kept", "2026-01-05")
+        before = self._journal_tree()
+        printed = self._gate()
+        self.assertEqual(self._journal_tree(), before)
+        self.assertEqual(len(self._hook_calls()), 1)
+        self.assertIn("pre-migration hook acme_journal_hooks:prepare raised PermissionError", printed)
+        self.assertIn("Migrate journals prompt", printed)
+        for fragment in (str(self.root), str(self.root.resolve()), "private-detail", "denied"):
+            self.assertNotIn(fragment, printed)
+
+    def test_old_or_missing_declaration_module_migrates_as_before(self):
+        """AC-7: no extracted module, then one that predates the constants."""
+        for label in ("missing", "old"):
+            with self.subTest(label):
+                if label == "old":
+                    (self.scripts / "mcp_tool_extensions.py").write_text(
+                        "EXTENSION_MODULES = ()\nEXTENSION_HELPER_MODULES = ()\n", encoding="utf-8"
+                    )
+                self._write_pristine("1zdc3 builtin", "builtin", "2026-01-05")
+                dist = self._write_journal("1zdc4-dist.md", _render_dist_template("1zdc4 dist", "d", "2026-01-05"))
+                self._gate()
+                self.assertEqual(sorted(p.name for p in self.journals.iterdir()), ["1zdc4-dist.md"])
+                self.assertEqual(self.ext.migrate_journals(self.root)["left"], [dist])
+                (self.journals / "1zdc4-dist.md").unlink()
+
+    # Wave 1zyb3 delivery repairs (DEL-2, DEL-3, DEL-4d).
+
+    def test_free_text_placeholders_use_bounded_quantifiers(self):
+        """DEL-2: two free-text placeholders on one line never backtrack
+        quadratically; each capture is bounded and the bound is the one
+        ``_journal_template_max_length`` counts."""
+        bound = self.ext._JOURNAL_PLACEHOLDER_MAX
+        self.assertEqual(bound, 512)
+        pattern = self.ext._compile_journal_template("fixed\n{{wave_id}} - {{title}}\n").pattern
+        self.assertEqual(pattern.count(f"[^\\n]{{1,{bound}}}"), 2)
+        self.assertNotRegex(pattern, r"(?<!\\)[+*]")
+        self.assertEqual(
+            self.ext._journal_template_max_length("fixed\n{{wave_id}} - {{title}}\n{{date}} {{wave_id}}\n"),
+            len("fixed\n - \n \n") + 3 * bound + 10,
+        )
+        compiled = self.ext._compile_journal_template("fixed\n{{wave_id}} - {{title}}\n")
+        self.assertIsNotNone(compiled.fullmatch("fixed\n" + "w" * bound + " - " + "t" * bound + "\n"))
+        self.assertIsNone(compiled.fullmatch("fixed\n" + "w" * (bound + 1) + " - t\n"))
+        # A pathological line far longer than the bound is refused quickly
+        # even by the bare pattern (generous ceiling; unbounded it is quadratic).
+        started = time.monotonic()
+        self.assertIsNone(compiled.fullmatch("fixed\n" + "a - " * 50_000 + "\n"))
+        self.assertLess(time.monotonic() - started, 30)
+
+    def test_journal_longer_than_the_template_bound_is_never_pattern_matched(self):
+        """DEL-2: a journal longer than the template can match is left
+        without running the pattern at all."""
+        template = "fixed\n{{wave_id}} - {{title}}\n"
+        self._declare(templates=(template,))
+        calls = []
+
+        class _Spy:
+            def fullmatch(self, text):
+                calls.append(len(text))
+                return None
+
+        limit = self.ext._journal_template_max_length(template)
+        long_rel = self._write_journal("1zdd0-long.md", "fixed\n" + "a - " * (limit // 4 + 10) + "\n")
+        short_rel = self._write_journal("1zdd1-short.md", "fixed\n1zdd1 short - other\n")
+        with patch.object(self.ext, "_compile_journal_template", return_value=_Spy()):
+            report = self.ext.migrate_journals(self.root, apply=False)
+        self.assertEqual(sorted(report["left"]), sorted([long_rel, short_rel]))
+        self.assertEqual(calls, [len("fixed\n1zdd1 short - other\n")])
+
+    def test_helper_link_to_a_sibling_script_is_refused(self):
+        """DEL-3: a same-directory link whose target carries another name is
+        refused, as the server's loader requires the module's own file."""
+        self._declare(hook="acme_journal_hooks:prepare", helpers=("acme_journal_hooks",))
+        (self.scripts / "other_hooks.py").write_text(self._hook_source(), encoding="utf-8")
+        try:
+            os.symlink("other_hooks.py", self.scripts / "acme_journal_hooks.py")
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+        self._write_pristine("1zdd2 kept", "kept", "2026-01-05")
+        before = self._journal_tree()
+        with self.assertRaisesRegex(self.ext.JournalDeclarationError, "directly in the framework scripts directory"):
+            self._gate()
+        self.assertEqual(self._hook_calls(), [])
+        self.assertEqual(self._journal_tree(), before)
+
+    def test_invalid_declaration_leaves_the_memory_naming_migration_unapplied(self):
+        """DEL-4d: the declaration is validated first inside the 1.15.0 gate."""
+        self._declare(templates=("x\n{{author}}\n",))
+        with patch.object(self.ext, "_migrate_memory_naming") as naming, patch.object(
+            self.ext, "_migrate_journals"
+        ) as journals:
+            with self.assertRaises(self.ext.JournalDeclarationError):
+                self.ext.pre_docs_gate(MagicMock(root=self.root, from_version="1.14.0"))
+        naming.assert_not_called()
+        journals.assert_not_called()
+
+    def test_declaration_module_is_executed_once_per_gate(self):
+        """DEL-4d: the loaded templates are always passed on, so the
+        migration never loads the declaration a second time."""
+        self._declare(templates=(_DIST_TEMPLATE,))
+        self._write_journal("1zdd3-dist.md", _render_dist_template("1zdd3 dist", "d", "2026-01-05"))
+        real = self.ext._exec_module_from_file
+        names = []
+
+        def _counting(name, path):
+            names.append(name)
+            return real(name, path)
+
+        with patch.object(self.ext, "_exec_module_from_file", side_effect=_counting):
+            self._gate()
+        self.assertEqual(names.count(self.ext._JOURNAL_DECLARATION_MODULE), 1)
+        self.assertEqual(list(self.journals.iterdir()), [])
+
+        # With an empty declaration too.
+        self._declare()
+        names.clear()
+        with patch.object(self.ext, "_exec_module_from_file", side_effect=_counting):
+            self._gate()
+        self.assertEqual(names.count(self.ext._JOURNAL_DECLARATION_MODULE), 1)
+
+
+class JournalMigrationDescriptorTests(_JournalMigrationFixture, unittest.TestCase):
+    """Wave 1zxo0 (1zxns): on POSIX the journal migration enumerates, reads,
+    creates and removes only through directory handles from a no-follow walk,
+    so a folder swapped for a link between the containment check and the
+    write is refused. ``_journal_walk_checkpoint`` is the seam at that point."""
+
+    _symlink = JournalMigrationLinkSafetyTests._symlink
+    _content_journal = JournalMigrationLinkSafetyTests._content_journal
+    _snapshot = JournalMigrationLinkSafetyTests._snapshot
+
+    def setUp(self):
+        super().setUp()
+        if not self.ext._journal_dir_fd_supported():
+            self.skipTest("descriptor-relative operations unavailable (Windows)")
+        self._outside_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._outside_tmp.cleanup)
+        self.outside = Path(self._outside_tmp.name)
+
+    def _swap_dir_for_link(self, path, parked_name):
+        parked = path.with_name(parked_name)
+        os.rename(path, parked)
+        self._symlink(path, self.outside, directory=True)
+        return parked
+
+    def _apply_with_checkpoint(self, stage, action):
+        def checkpoint(seen):
+            if seen == stage:
+                action()
+
+        with patch.object(self.ext, "_journal_walk_checkpoint", side_effect=checkpoint) as seam:
+            report = self.ext.migrate_journals(self.root, apply=True)
+        self.assertIn(stage, [c.args[0] for c in seam.call_args_list])
+        return report
+
+    def test_journals_folder_swapped_before_the_write_is_refused(self):
+        wave_id = "1zcaa swap-journals"
+        name, text = self._content_journal(wave_id)
+        folder = self._make_wave(_live_waves_rel(), wave_id)
+        (self.outside / name).write_text("outside bytes\n", encoding="utf-8")
+        before = self._snapshot(self.outside)
+        parked = []
+        report = self._apply_with_checkpoint(
+            "destination",
+            lambda: parked.append(self._swap_dir_for_link(self.journals, "journals-real")),
+        )
+        self.assertEqual(self._snapshot(self.outside), before)
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), [_record_name()])
+        self.assertEqual((parked[0] / name).read_text(encoding="utf-8"), text)
+        self.assertIn(f"docs/agents/journals/{name}", report["left"])
+        self.assertEqual(report["moved"], [])
+
+    def test_destination_folder_swapped_before_the_write_is_refused(self):
+        wave_id = "1zcab swap-destination"
+        name, text = self._content_journal(wave_id)
+        folder = self._make_wave(_live_waves_rel(), wave_id)
+        (self.outside / _record_name()).write_text("# Wave Record\n", encoding="utf-8")
+        before = self._snapshot(self.outside)
+        parked = []
+        report = self._apply_with_checkpoint(
+            "destination",
+            lambda: parked.append(self._swap_dir_for_link(folder, "parked-wave")),
+        )
+        self.assertEqual(self._snapshot(self.outside), before)
+        self.assertEqual(sorted(p.name for p in parked[0].iterdir()), [_record_name()])
+        self.assertEqual((self.journals / name).read_text(encoding="utf-8"), text)
+        self.assertIn(f"docs/agents/journals/{name}", report["left"])
+        self.assertEqual(report["moved"], [])
+
+    def test_journals_folder_swapped_before_enumeration_is_refused(self):
+        wave_id = "1zcac swap-enumeration"
+        name, text = self._content_journal(wave_id)
+        folder = self._make_wave(_live_waves_rel(), wave_id)
+        self._content_journal(wave_id, self.outside)
+        (self.outside / "1zcad-s.md").write_text(
+            self.ext._pristine_journal_template("1zcad s", "s", "2026-01-05"), encoding="utf-8"
+        )
+        before = self._snapshot(self.outside)
+        parked = []
+        report = self._apply_with_checkpoint(
+            "journals",
+            lambda: parked.append(self._swap_dir_for_link(self.journals, "journals-real")),
+        )
+        self.assertEqual(self._snapshot(self.outside), before)
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), [_record_name()])
+        self.assertEqual((parked[0] / name).read_text(encoding="utf-8"), text)
+        self.assertEqual(report["left"], ["docs/agents/journals"])
+        self.assertEqual((report["deleted"], report["moved"]), ([], []))
+        self.assertIn("is a link or leaves the repository", " ".join(report["warnings"]))
+
+    def test_create_and_remove_go_through_directory_handles(self):
+        wave_id = "1zcae handles"
+        name, text = self._content_journal(wave_id)
+        folder = self._make_wave(_live_waves_rel(), wave_id)
+        self._write_pristine("1zcaf scaffold", "scaffold", "2026-01-05")
+        real_open, real_unlink = os.open, os.unlink
+        creates, unlinks = [], []
+
+        def spy_open(path, flags, *args, **kwargs):
+            if flags & os.O_CREAT:
+                creates.append(kwargs.get("dir_fd"))
+            return real_open(path, flags, *args, **kwargs)
+
+        def spy_unlink(path, *args, **kwargs):
+            unlinks.append(kwargs.get("dir_fd"))
+            return real_unlink(path, *args, **kwargs)
+
+        # The spies replace the functions the capability check looks up, so
+        # the check is pinned for the duration of the run.
+        with patch.object(self.ext, "_journal_dir_fd_supported", return_value=True), \
+                patch.object(os, "open", spy_open), patch.object(os, "unlink", spy_unlink):
+            report = self.ext.migrate_journals(self.root, apply=True)
+        self.assertEqual(len(report["moved"]), 1)
+        self.assertEqual(len(report["deleted"]), 1)
+        self.assertEqual((folder / "1zcae-jrnl handles.md").read_text(encoding="utf-8"), text)
+        self.assertEqual(len(creates), 1)
+        self.assertEqual(len(unlinks), 2)
+        self.assertTrue(all(isinstance(fd, int) for fd in creates + unlinks), (creates, unlinks))
+
+    def test_walk_refuses_a_link_component(self):
+        target = self.root / "docs" / "linked"
+        self._symlink(target, self.outside, directory=True)
+        with self.assertRaises(self.ext._JournalWalkRefused):
+            self.ext._journal_open_dir(self.root, ("docs", "linked"))
+
+
+class _PathBranchMixin:
+    """Wave 1zxo0 (1zxns): ``os.supports_dir_fd`` emptied, as on Windows, so
+    the journal migration takes its path branch; the inherited tests run
+    unchanged against it."""
+
+    def setUp(self):
+        super().setUp()
+        patcher = patch.object(os, "supports_dir_fd", set())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        walk = patch.object(
+            self.ext, "_journal_open_dir",
+            side_effect=AssertionError("the path branch opened a directory handle"),
+        )
+        walk.start()
+        self.addCleanup(walk.stop)
+
+    def test_capability_check_reports_the_path_branch(self):
+        self.assertFalse(self.ext._journal_dir_fd_supported())
+
+
+class JournalMigrationPathBranchTests(_PathBranchMixin, JournalMigrationTests):
+    pass
+
+
+class JournalMigrationPathBranchLinkSafetyTests(_PathBranchMixin, JournalMigrationLinkSafetyTests):
+    pass
+
+
+class JournalMigrationPathFreeMessageTests(_JournalMigrationFixture, unittest.TestCase):
+    """Wave 1zxo0 (1zxns): journal migration warnings, the printed summary and
+    every report entry carry no absolute path, even when the underlying
+    exception names one."""
+
+    def _root_forms(self):
+        return {str(self.root), str(self.root.resolve())}
+
+    def _assert_path_free(self, report, printed=""):
+        blob = json.dumps(report) + printed
+        for form in self._root_forms():
+            self.assertNotIn(form, blob)
+            self.assertNotIn(json.dumps(form)[1:-1], blob)
+
+    def test_record_discovery_failure_is_path_free(self):
+        import record_paths
+
+        wave_id = "1zcag discovery"
+        name = f"{wave_id.replace(' ', '-')}.md"
+        (self.journals / name).write_text(f"# J\n\nwave-id: `{wave_id}`\n\n- Note.\n", encoding="utf-8")
+        planted = str(self.root / "docs" / "waves-root")
+        for exc in (
+            OSError(errno.EACCES, f"Permission denied: {planted}", planted),
+            RuntimeError(f"record layout invalid at {planted}"),
+            ValueError(f"{self.root.resolve()} is not a record root"),
+        ):
+            with self.subTest(exc=type(exc).__name__), patch.object(
+                record_paths, "load_record_roots", side_effect=exc
+            ):
+                report = self.ext.migrate_journals(self.root)
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    self.ext._migrate_journals(self.root)
+                self._assert_path_free(report, out.getvalue())
+                self.assertTrue(any("record discovery unavailable" in w for w in report["warnings"]))
+                self.assertEqual(report["left"], [f"docs/agents/journals/{name}"])
+
+    def test_path_containment_import_failure_is_path_free(self):
+        import builtins
+
+        real_import = builtins.__import__
+        planted = str(self.root / "elsewhere")
+
+        def failing_import(name, *args, **kwargs):
+            if name == "path_containment":
+                raise ImportError(f"No module named path_containment in {planted}")
+            return real_import(name, *args, **kwargs)
+
+        with patch.object(builtins, "__import__", side_effect=failing_import):
+            report = self.ext.migrate_journals(self.root)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.ext._migrate_journals(self.root)
+        self._assert_path_free(report, out.getvalue())
+        self.assertEqual(report["left"], ["docs/agents/journals"])
+        self.assertTrue(any("path containment unavailable: ImportError" in w for w in report["warnings"]))
+
+    def test_exception_text_falls_back_to_the_class_name(self):
+        import builtins
+
+        real_import = builtins.__import__
+
+        def failing_import(name, *args, **kwargs):
+            if name == "lifecycle_lock":
+                raise ImportError("unavailable")
+            return real_import(name, *args, **kwargs)
+
+        with patch.object(builtins, "__import__", side_effect=failing_import):
+            text = self.ext._journal_exception_text(OSError(errno.EIO, "x", str(self.root)), self.root)
+        self.assertEqual(text, "OSError")
+
+    def test_rel_fallback_is_parent_and_name(self):
+        outside = Path(tempfile.gettempdir()).resolve() / "other-parent" / "file.md"
+        self.assertEqual(self.ext._journal_rel(self.root.resolve(), outside), "other-parent/file.md")
+        inside = self.root.resolve() / "docs" / "x.md"
+        self.assertEqual(self.ext._journal_rel(self.root.resolve(), inside), "docs/x.md")
 
 
 class PermissionsRenderConsentTests(unittest.TestCase):

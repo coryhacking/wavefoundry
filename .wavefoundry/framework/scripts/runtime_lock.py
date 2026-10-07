@@ -4,12 +4,26 @@
 This module deliberately owns only cross-platform file-lock mechanics. Resource
 wrappers retain decisions about re-entrancy, abandonment, launch ordering,
 stale owners, and recovery.
+
+Reload contract (wave 1zxnz, change 1zx02): ``wf_reload_mcp`` reloads this
+module in place, state preserved. The process hold registry and its guard are
+kept across the reload, and the reload rebinds every exception class defined
+here to its original object, so modules that bound those classes at import
+keep catching what reloaded code raises. A release that adds or changes
+an exception class in this module (a new subclass would derive from the
+discarded reload-time base) therefore needs a host restart, and its
+CHANGELOG must say so. Old ``RuntimeFileLock`` instances
+still held by unevicted modules run their old method code against this
+module's current globals, so the helpers those methods call keep their names
+and signatures.
 """
 from __future__ import annotations
 
 import errno
 import json
 import os
+import struct
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -288,6 +302,105 @@ def _open_lock_carrier(path: Path, mode: str) -> BinaryIO:
         os.close(fd)
 
 
+# Wave 1zxnz (1zx02): the packed ``struct flock`` layout, per platform. There is
+# no portable Python helper, so the field order and the native size are
+# recorded here (moved from the indexer's ``F_GETLK`` probe, wave 1p99o). The
+# buffer is padded to the native ``sizeof(struct flock)``.
+_FLOCK_FIELDS_LINUX = ("l_type", "l_whence", "l_start", "l_len", "l_pid")
+_FLOCK_FIELDS_DARWIN = ("l_start", "l_len", "l_pid", "l_type", "l_whence")
+_FLOCK_LAYOUTS: dict[str, tuple[str, tuple[str, ...], int]] = {
+    # Linux (asm-generic, x86_64/arm64): short l_type; short l_whence;
+    # off_t l_start; off_t l_len; pid_t l_pid; 32 bytes with tail padding.
+    "linux": ("@hhqqi", _FLOCK_FIELDS_LINUX, 32),
+    # macOS: off_t l_start; off_t l_len; pid_t l_pid; short l_type;
+    # short l_whence; 24 bytes.
+    "darwin": ("@qqihh", _FLOCK_FIELDS_DARWIN, 24),
+}
+_FLOCK_MACHINES = frozenset({"x86_64", "amd64", "aarch64", "arm64"})
+_OFD_COMMAND_NAMES = ("F_OFD_GETLK", "F_OFD_SETLK", "F_OFD_SETLKW")
+# An OFD request failing with one of these means the kernel or the filesystem
+# does not support OFD locks; the acquire falls back to ``lockf``.
+_OFD_UNSUPPORTED_ERRNOS = frozenset(
+    code
+    for code in (
+        errno.EINVAL,
+        getattr(errno, "ENOSYS", None),
+        getattr(errno, "ENOTSUP", None),
+        getattr(errno, "EOPNOTSUPP", None),
+    )
+    if code is not None
+)
+_LOCK_BUSY_ERRNOS = (errno.EACCES, errno.EAGAIN)
+
+
+def flock_layout() -> tuple[str, tuple[str, ...], int] | None:
+    """``(format, fields, native_size)`` of ``struct flock`` here, or ``None``.
+
+    Known only on Linux and macOS, with a 64-bit interpreter on x86_64/amd64
+    or aarch64/arm64. Anywhere else the layout is not verified and callers
+    must not pack one.
+    """
+    if os.name == "nt":
+        return None
+    if sys.platform == "darwin":
+        key = "darwin"
+    elif sys.platform.startswith("linux"):
+        key = "linux"
+    else:
+        return None
+    if sys.maxsize <= 2**32:
+        return None
+    try:
+        machine = os.uname().machine.lower()
+    except (AttributeError, OSError):
+        return None
+    if machine not in _FLOCK_MACHINES:
+        return None
+    return _FLOCK_LAYOUTS[key]
+
+
+def pack_flock(
+    layout: tuple[str, tuple[str, ...], int],
+    *,
+    l_type: int,
+    l_start: int,
+    l_len: int,
+    l_whence: int = os.SEEK_SET,
+    l_pid: int = 0,
+) -> bytes:
+    """Pack a ``struct flock``, padded to the platform's native size."""
+    fmt, fields, size = layout
+    values = {
+        "l_type": l_type,
+        "l_whence": l_whence,
+        "l_start": l_start,
+        "l_len": l_len,
+        "l_pid": l_pid,
+    }
+    packed = struct.pack(fmt, *(values[name] for name in fields))
+    return packed.ljust(size, b"\0")
+
+
+def unpack_flock(layout: tuple[str, tuple[str, ...], int], raw: bytes) -> dict[str, int]:
+    """The fields of a packed ``struct flock`` by name."""
+    fmt, fields, _size = layout
+    return dict(zip(fields, struct.unpack_from(fmt, raw)))
+
+
+def _ofd_lock_support(fcntl_module: Any) -> tuple[tuple[str, tuple[str, ...], int], int, int] | None:
+    """``(layout, F_OFD_SETLK, F_OFD_SETLKW)`` when OFD locks may be used.
+
+    The commands come from the ``fcntl`` module, never hard-coded; all three
+    ``F_OFD_*`` names must be present and the ``struct flock`` layout known.
+    """
+    if any(not hasattr(fcntl_module, name) for name in _OFD_COMMAND_NAMES):
+        return None
+    layout = flock_layout()
+    if layout is None:
+        return None
+    return layout, fcntl_module.F_OFD_SETLK, fcntl_module.F_OFD_SETLKW
+
+
 @dataclass(frozen=True)
 class RuntimeLockProbe:
     held: bool | None
@@ -295,7 +408,20 @@ class RuntimeLockProbe:
 
 
 class RuntimeFileLock:
-    """One persistent lock-file carrier with configurable OS-lock mechanics."""
+    """One persistent lock-file carrier with configurable OS-lock mechanics.
+
+    ``style="record"`` locks a byte range. On Linux and macOS (64-bit, x86_64
+    or arm64) it is an open file description (OFD) lock (wave 1zxnz, 1zx02):
+    it belongs to this lock's own open file description, so the holding
+    process opening and closing another descriptor of the file cannot release
+    it, as it would a classic POSIX record lock. OFD and classic record locks
+    conflict with each other, within and across processes, so older processes
+    that still use ``lockf`` stay excluded. Where OFD is unavailable (other
+    platforms, missing ``F_OFD_*`` constants, or a kernel or filesystem that
+    rejects the request as unsupported) the lock falls back to ``lockf``,
+    decided per acquire. ``mechanism`` records what acquired the lock:
+    ``"ofd"``, ``"lockf"``, ``"flock"`` or ``"msvcrt"``; release uses the same.
+    """
 
     def __init__(
         self,
@@ -321,6 +447,8 @@ class RuntimeFileLock:
         self.style = style
         self.handle: BinaryIO | None = None
         self.acquired = False
+        self.mechanism: str | None = None
+        self._ofd_unlock: tuple[tuple[str, tuple[str, ...], int], int] | None = None
 
     def acquire(self) -> "RuntimeFileLock":
         """Create the parent lazily, open the carrier, and acquire its OS lock."""
@@ -338,16 +466,19 @@ class RuntimeFileLock:
                 f"Unable to open runtime lock {self.path}: {exc}",
             ) from exc
         self.handle = handle
+        self.mechanism = None
+        self._ofd_unlock = None
         try:
-            self._acquire_os_lock(handle)
+            mechanism = self._acquire_os_lock(handle)
         except BaseException:
             handle.close()
             self.handle = None
             raise
+        self.mechanism = "msvcrt" if os.name == "nt" else mechanism
         self.acquired = True
         return self
 
-    def _acquire_os_lock(self, handle: BinaryIO) -> None:
+    def _acquire_os_lock(self, handle: BinaryIO) -> str | None:
         if os.name == "nt":
             import msvcrt
 
@@ -383,6 +514,25 @@ class RuntimeFileLock:
 
         import fcntl
 
+        if self.style == "record":
+            support = _ofd_lock_support(fcntl)
+            if support is not None:
+                layout, setlk, setlkw = support
+                request = pack_flock(
+                    layout,
+                    l_type=fcntl.F_WRLCK,
+                    l_start=self.offset,
+                    l_len=self.length,
+                )
+                try:
+                    fcntl.fcntl(handle.fileno(), setlkw if self.blocking else setlk, request)
+                except OSError as exc:
+                    # Busy stays busy: only an unsupported result falls back.
+                    if exc.errno not in _OFD_UNSUPPORTED_ERRNOS:
+                        raise self._acquire_failure(exc) from exc
+                else:
+                    self._ofd_unlock = (layout, setlk)
+                    return "ofd"
         flags = fcntl.LOCK_EX
         if not self.blocking:
             flags |= fcntl.LOCK_NB
@@ -398,15 +548,19 @@ class RuntimeFileLock:
             else:
                 fcntl.flock(handle.fileno(), flags)
         except OSError as exc:
-            if exc.errno in (errno.EACCES, errno.EAGAIN):
-                raise RuntimeLockBusy(
-                    exc.errno,
-                    f"Runtime lock busy: {self.path}",
-                ) from exc
-            raise RuntimeLockError(
-                exc.errno or errno.EIO,
-                f"Unable to acquire runtime lock {self.path}: {exc}",
-            ) from exc
+            raise self._acquire_failure(exc) from exc
+        return "lockf" if self.style == "record" else "flock"
+
+    def _acquire_failure(self, exc: OSError) -> RuntimeLockError:
+        if exc.errno in _LOCK_BUSY_ERRNOS:
+            return RuntimeLockBusy(
+                exc.errno,
+                f"Runtime lock busy: {self.path}",
+            )
+        return RuntimeLockError(
+            exc.errno or errno.EIO,
+            f"Unable to acquire runtime lock {self.path}: {exc}",
+        )
 
     def write_metadata(self, payload: Mapping[str, Any]) -> None:
         """Rewrite JSON at byte zero without replacing the locked inode."""
@@ -441,7 +595,20 @@ class RuntimeFileLock:
                 else:
                     import fcntl
 
-                    if self.style == "record":
+                    ofd_unlock = getattr(self, "_ofd_unlock", None)
+                    if self.style == "record" and ofd_unlock is not None:
+                        layout, setlk = ofd_unlock
+                        fcntl.fcntl(
+                            handle.fileno(),
+                            setlk,
+                            pack_flock(
+                                layout,
+                                l_type=fcntl.F_UNLCK,
+                                l_start=self.offset,
+                                l_len=self.length,
+                            ),
+                        )
+                    elif self.style == "record":
                         fcntl.lockf(
                             handle.fileno(),
                             fcntl.LOCK_UN,
@@ -519,17 +686,31 @@ def probe_runtime_lock(
     return RuntimeLockProbe(False)
 
 
-# POSIX record locks belong to the process, and closing ANY descriptor of the
-# locked file releases them, so a process holding a record lock must not open
-# that file again. Holders register here and readers in the same process
-# consult the registry instead of opening the file. It lives in this module,
-# which an MCP reload leaves loaded (wave 1za2y).
-_PROCESS_RECORD_HOLDS: dict[str, dict[str, Any]] = {}
+# Classic POSIX record locks belong to the process, and closing ANY descriptor
+# of the locked file releases them, so a process holding one must not open that
+# file again. OFD locks (wave 1zxnz, 1zx02) are immune, but the ``lockf``
+# fallback is not, so holders still register here and readers in the same
+# process consult the registry instead of opening the file (wave 1za2y). An
+# MCP reload re-executes this module in place, state preserved: each piece of
+# module-level state below keeps the object already in the namespace when it
+# has the right type, so a hold registered before a reload stays visible.
+_existing_holds = globals().get("_PROCESS_RECORD_HOLDS")
+_PROCESS_RECORD_HOLDS: dict[str, dict[str, Any]] = (
+    _existing_holds if isinstance(_existing_holds, dict) else {}
+)
 # Serializes acquire-and-register against every in-process reader's
 # check-and-open (wave 1za2y): a reader that opened the file between another
 # thread's acquire and its registration would release that thread's lock.
 # Re-entrant, because a refused acquire formats its message through a reader.
-_PROCESS_HOLD_GUARD = threading.RLock()
+# ``threading.RLock`` is a factory function, so the type check uses the type of
+# an instance.
+_existing_guard = globals().get("_PROCESS_HOLD_GUARD")
+_PROCESS_HOLD_GUARD = (
+    _existing_guard
+    if isinstance(_existing_guard, type(threading.RLock()))
+    else threading.RLock()
+)
+del _existing_holds, _existing_guard
 
 
 def process_hold_guard() -> threading.RLock:

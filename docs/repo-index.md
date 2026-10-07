@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-04
+Last verified: 2026-10-07
 
 ## Repository Summary
 
@@ -35,29 +35,29 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 17551 |
-| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1467 |
-| scripts/run_tests | `.wavefoundry/framework/scripts` | code | 427 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 18744 |
+| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1598 |
 | graph | `.wavefoundry/framework/scripts` | code | 390 |
-| demo/results-py311 | `.wavefoundry/framework/scripts` | code | 291 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 291 |
+| scripts/run_tests | `.wavefoundry/framework/scripts` | code | 390 |
+| indexer | `.wavefoundry/framework/scripts` | code | 300 |
+| demo/results-py311 | `.wavefoundry/framework/scripts` | code | 296 |
 | chunker | `.wavefoundry/framework/scripts` | code | 283 |
-| indexer | `.wavefoundry/framework/scripts` | code | 283 |
 | 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 258 |
-| framework index | `.wavefoundry/framework/scripts` | code | 236 |
-| dashboard_lib | `.wavefoundry/framework/scripts` | code | 232 |
-| dashboard | `.wavefoundry/framework/dashboard` | code | 224 |
-| scripts/render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 183 |
-| memory_records | `.wavefoundry/framework/scripts` | code | 114 |
-| scripts/commit_provenance | `.wavefoundry/framework/scripts` | code | 104 |
-| workflow-config | `.wavefoundry/framework/scripts` | code | 99 |
-| run_tests | `.wavefoundry/framework/scripts` | code | 76 |
-| upgrade_extensions | `.wavefoundry/framework/scripts` | code | 70 |
+| framework index | `.wavefoundry/framework/scripts` | code | 240 |
+| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 237 |
+| framework/dashboard | `.wavefoundry/framework/dashboard` | code | 225 |
+| framework/scripts | `.wavefoundry/framework/scripts` | code | 221 |
+| scripts/workflow-config | `.wavefoundry/framework/scripts` | code | 138 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 106 |
+| retrieval_eval | `.wavefoundry/framework/scripts` | code | 104 |
+| upgrade_extensions | `.wavefoundry/framework/scripts` | code | 100 |
+| memory_records | `.wavefoundry/framework/scripts` | code | 89 |
+| run_tests | `.wavefoundry/framework/scripts` | code | 75 |
+| memory_eval | `.wavefoundry/framework/scripts` | code | 55 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 53 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 46 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
 | evidence | `docs/waves/1yzd0 server-package-boundary/evidence` | code | 36 |
-| m | `docs/waves/1yzd0 server-package-boundary/evidence/m` | code | 36 |
 | configuration | `(root)` | config | 27 |
 <!-- wave:repo-index-modules end -->
 

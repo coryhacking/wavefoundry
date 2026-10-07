@@ -645,7 +645,7 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
     def test_council_signoff_gate_pass_fail(self):
         accepted = gates.council_signoff_gate(self.context('planned_with_verdict'))
         self.assertEqual(self.codes(accepted), [])
-        self.assertIn('wave-council-readiness', accepted.data['required_council_signoffs'])
+        self.assertIn('council-readiness', accepted.data['required_council_signoffs'])
         rejected = gates.council_signoff_gate(self.context('missing_lane'))
         self.assertEqual(self.codes(rejected), ['missing_wave_council_signoff'])
         self.assertIn('typed approval', rejected.diagnostics[0]['message'])

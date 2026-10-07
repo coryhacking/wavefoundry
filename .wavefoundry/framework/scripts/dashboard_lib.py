@@ -19,6 +19,7 @@ from typing import Any
 import server
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 import record_paths  # record roots (wave 1y0gz)
+import lifecycle_gate_support  # change-id allow-list and member-doc read rule (wave 1zxo0)
 from runtime_lock import (
     RuntimeFileLock,
     RuntimeLockBusy,
@@ -34,6 +35,7 @@ from review_evidence import (
     render_review_evidence_projection,
     render_review_status_projection,
     required_review_status_keys,
+    review_status_display_keys,
     review_status_human_table,
     review_status_rows,
     validate_review_evidence_records,
@@ -999,12 +1001,15 @@ def _review_evidence_dashboard_state(
         }
 
     status_keys = required_review_status_keys(root, text, records)
+    # Wave 1zyb4: the rows read like the wave's status block, which keeps the
+    # council-key spelling it already uses (comparison stays canonical).
+    display_keys = review_status_display_keys(text, status_keys)
     projection = (
         render_review_evidence_projection(
             empty_external_finding_synthesis_section(), records
         ).strip()
         + "\n\n"
-        + review_status_human_table(records, status_keys)
+        + review_status_human_table(records, display_keys)
     )
     try:
         expected_wave = render_review_evidence_projection(text, records)
@@ -1038,7 +1043,7 @@ def _review_evidence_dashboard_state(
             "why": str(row["why"]),
             "next_action": str(row["next_action"]),
         }
-        for row in review_status_rows(records, status_keys)
+        for row in review_status_rows(records, display_keys)
     ]
     return {
         "integrity": "ok",
@@ -1123,9 +1128,12 @@ def _stat_mtime_iso(path: Path) -> str | None:
         return None
 
 
-def parse_change_doc(root: Path, change_path: Path) -> ChangeRecord:
+def parse_change_doc(root: Path, change_path: Path, text: str | None = None) -> ChangeRecord:
+    """Parse one change doc. Wave 1zxo0 (1zxns): a caller that already read
+    the doc under the member-doc rule passes ``text``, and no read happens here."""
     try:
-        text = change_path.read_text(encoding="utf-8")
+        if text is None:
+            text = change_path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
         # Wave 1v1df AC-7: BOTH causes degrade to a record whose unreadability
         # is BOUND to `read_error`, never inferred from status "unknown". The
@@ -1255,17 +1263,41 @@ def collect_changes(root: Path) -> dict[str, list[dict[str, Any]]]:
         # invariant ever loosens, instead of resolving against the CWD.
         wave_md = _root_anchored(root, str(wave["path"]))
         for change in wave.get("changes", []):
-            change_path = wave_md.parent / f"{change['id']}.md"
-            if not change_path.exists():
+            # Wave 1zxo0 (1zxns): the asserting path helper (ids reaching here
+            # are allow-listed) and one read under the member-doc rule; a
+            # refused or undecodable doc degrades to the unreadable record.
+            try:
+                change_path = lifecycle_gate_support._wave_change_doc_path(root, wave_md, change["id"])
+            except lifecycle_gate_support.ChangeIdRejected:
                 continue
-            record = parse_change_doc(root, change_path)
+            if not os.path.lexists(change_path):
+                continue
+            try:
+                text = lifecycle_gate_support._read_member_doc_text(
+                    change_path.parent, change_path, root=root
+                )
+            except (OSError, UnicodeError) as exc:
+                wave_changes.append(_change_payload(_unreadable_change_record(
+                    root, change_path, server._read_error_detail(exc))))
+                continue
+            record = parse_change_doc(root, change_path, text=text)
             wave_changes.append(_change_payload(record))
 
     for plan in server.list_plans(root):
+        # Wave 1zxo0 (1zxns): the same member-doc read rule as the wave rows,
+        # so a staged link or non-regular entry is never followed or opened.
         plan_path = root / plan["path"]
-        if not plan_path.exists():
+        if not os.path.lexists(plan_path):
             continue
-        record = parse_change_doc(root, plan_path)
+        try:
+            text = lifecycle_gate_support._read_member_doc_text(
+                plan_path.parent, plan_path, root=root
+            )
+        except (OSError, UnicodeError) as exc:
+            plan_changes.append(_change_payload(_unreadable_change_record(
+                root, plan_path, server._read_error_detail(exc))))
+            continue
+        record = parse_change_doc(root, plan_path, text=text)
         plan_changes.append(_change_payload(record))
 
     return {"wave": wave_changes, "plan": plan_changes}

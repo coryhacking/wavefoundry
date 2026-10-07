@@ -141,25 +141,56 @@ def fenced_line_flags(lines: list[str]) -> list[bool]:
     An unterminated fence flags nothing (its opener and every later line are
     ordinary lines), and a fence opened inside a blockquote is unterminated
     when a line lacking that blockquote prefix comes before its closer.
+
+    Complexity (wave 1zyb2, change 1zxnt): each line is split into its
+    blockquote depth and text once, and a failed closer scan records, per
+    opener key ``(depth, fence character, fence length)``, the line index
+    where it stopped (the first depth drop, or the end of the input). A later
+    opener with the same key before that index is unterminated without a
+    rescan, because its scan window is a suffix of the failed one. Openers
+    with ``k`` distinct keys therefore cost at most ``O(k * n)`` line probes.
+    Both blockquote depth and fence length are unbounded key components, so
+    ``k`` is not a constant: unclosed fences of decreasing length (or
+    decreasing depth) make ``k`` grow with ``n`` and cost ``O(n^2)`` line
+    probes. Each distinct key needs its own opener line at least as long as
+    its fence length and depth, so a set of ``k`` keys spread over both
+    dimensions needs about ``k^1.5`` input bytes and ``k`` is ``O(B^(2/3))``
+    for ``B`` input bytes (``O(sqrt(B))`` when the keys vary in one dimension
+    only). Repeated openers with one key are linear. In general the cost is
+    ``O(k * n)`` line probes, at most ``O(B^1.5)``, and each probe matches its
+    line, so byte work has the same
+    ``O(B^1.5)`` bound (about 5 s for an 8 MB input of 4,000 unclosed fences
+    of decreasing length, measured). Real documents use a handful of keys,
+    so no attempt is made to beat that bound.
     """
+    split = [split_blockquote(line) for line in lines]
     flags = [False] * len(lines)
+    # Opener key -> the index at which a failed scan for that key stopped.
+    failed_until: dict[tuple[int, str, int], int] = {}
     index = 0
     while index < len(lines):
-        depth, rest = split_blockquote(lines[index])
+        depth, rest = split[index]
         opener = _fence_opener(rest)
         if opener is None:
             index += 1
             continue
         char, length = opener
+        key = (depth, char, length)
+        if index < failed_until.get(key, -1):
+            index += 1
+            continue
         close: Optional[int] = None
+        stop = len(lines)
         for probe in range(index + 1, len(lines)):
-            probe_depth, probe_rest = split_blockquote(lines[probe])
+            probe_depth, probe_rest = split[probe]
             if probe_depth < depth:
+                stop = probe
                 break
             if probe_depth == depth and _closes_fence(probe_rest, char, length):
                 close = probe
                 break
         if close is None:
+            failed_until[key] = stop
             index += 1
             continue
         for flagged in range(index, close + 1):

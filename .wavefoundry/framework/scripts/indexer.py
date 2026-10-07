@@ -3122,23 +3122,13 @@ def _sync_chunk_derived_state(index_dir: Path, *, expected=False, verbose=False,
     return stats
 
 
-# Wave 1p99o: `struct flock` field order differs between Linux and macOS/BSD; there is no portable
-# Python helper. Build/parse it per-platform for the non-destructive F_GETLK probe.
-_FLOCK_STRUCT = {
-    # Linux (asm-generic, x86-64/arm64): short l_type; short l_whence; off_t l_start; off_t l_len; pid_t l_pid;
-    "linux": ("@hhqqi", ("l_type", "l_whence", "l_start", "l_len", "l_pid")),
-    # macOS/BSD: off_t l_start; off_t l_len; pid_t l_pid; short l_type; short l_whence;
-    "darwin": ("@qqihh", ("l_start", "l_len", "l_pid", "l_type", "l_whence")),
-}
-
-
 def _index_build_lock_held(index_dir: Path) -> "tuple[Optional[bool], Optional[int]]":
     """Non-destructively test whether the whole-index build lock is currently held.
 
     Returns ``(held, holder_pid)``. ``held`` is ``None`` when the state cannot be determined (probe
     error / unknown platform) — the acquire-time lock remains the ultimate authority, so status callers
-    treat ``None`` as not-held. POSIX uses ``fcntl`` ``F_GETLK`` (queries without acquiring and returns
-    the holder PID); native Windows uses a momentary non-blocking ``msvcrt`` lock on the sentinel byte
+    treat ``None`` as not-held. POSIX uses ``fcntl`` ``F_GETLK`` (queries without acquiring; the holder
+    PID is ``None`` when the kernel reports none, as it does for an OFD holder, wave 1zxnz); native Windows uses a momentary non-blocking ``msvcrt`` lock on the sentinel byte
     (Windows has no F_GETLK; it also has no defunct-owner problem, so the microsecond acquire is safe).
     A hold by this process is answered from the ``runtime_lock`` process registry first, without
     opening the file (wave 1za2y)."""
@@ -3170,22 +3160,29 @@ def _index_build_lock_held_unguarded(lock_path: Path) -> "tuple[Optional[bool], 
             )
             return (probe.held, None)
         import fcntl
-        import struct as _struct
-        plat = "darwin" if sys.platform == "darwin" else ("linux" if sys.platform.startswith("linux") else None)
-        if plat is None:
+        # Wave 1zxnz (1zx02): ``runtime_lock`` owns the ``struct flock`` layout.
+        # Imported here, never at module level: an older upgrade runner can
+        # import this module while its cached ``runtime_lock`` predates the
+        # layout, and the import or attribute error then falls into the
+        # catch-all below as an undetermined result.
+        from runtime_lock import flock_layout, pack_flock, unpack_flock
+
+        layout = flock_layout()
+        if layout is None:
             return (None, None)  # unknown flock struct layout — undetermined
-        fmt, fields = _FLOCK_STRUCT[plat]
-        vals = {"l_type": fcntl.F_WRLCK, "l_whence": 0, "l_start": INDEX_BUILD_LOCK_SENTINEL, "l_len": 1, "l_pid": 0}
-        packed = _struct.pack(fmt, *(vals[name] for name in fields))
+        packed = pack_flock(layout, l_type=fcntl.F_WRLCK, l_start=INDEX_BUILD_LOCK_SENTINEL, l_len=1)
         fd = os.open(str(lock_path), os.O_RDONLY)
         try:
             res = fcntl.fcntl(fd, fcntl.F_GETLK, packed)
         finally:
             os.close(fd)
-        out = dict(zip(fields, _struct.unpack(fmt, res)))
+        out = unpack_flock(layout, res)
         if out["l_type"] == fcntl.F_UNLCK:
             return (False, None)  # no conflicting lock -> not held
-        return (True, out["l_pid"] or None)
+        # An OFD holder (wave 1zxnz) is reported with l_pid -1: no pid here,
+        # so status falls back to the pid recorded in the lock metadata.
+        pid = out["l_pid"]
+        return (True, pid if pid > 0 else None)
     except index_compatibility.IndexCompatibilityError:
         raise
     except Exception:  # noqa: BLE001 — probe failure -> undetermined; acquire-time lock is the authority

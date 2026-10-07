@@ -103,7 +103,8 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
             prepare.parent.mkdir(parents=True)
             prepare.write_text(
                 review_policy.REVIEW_POLICY_SURFACE_MARKER_BEGIN
-                + "\nPrepare Wave; review policy receipt; re-Prepare; delivery_mode\n"
+                # Wave 1zyb4 (1zxnw): the single_prepare anchor is tier-neutral.
+                + "\nPrepare Wave is the single readiness authority; review policy receipt; re-Prepare; delivery_mode\n"
                 + review_policy.REVIEW_POLICY_SURFACE_MARKER_END
                 + "\n",
                 encoding="utf-8",
@@ -630,10 +631,12 @@ class ReviewPolicyUpgradeTests(unittest.TestCase):
                 self.assertEqual(closed_events.read_bytes(), closed_events_before)
                 projected = open_md.read_text("utf-8")
                 self.assertIn("operator-signoff", projected)
+                # Wave 1zyb4: a block with no council row gets the current key.
                 self.assertEqual(
-                    "wave-council-delivery" in projected,
+                    "| council-delivery |" in projected,
                     enabled,
                 )
+                self.assertNotIn("wave-council-delivery", projected)
 
     def test_noop_policy_migration_leaves_readied_waves_untouched(self):
         with tempfile.TemporaryDirectory() as tmp:

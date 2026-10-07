@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
+from history_paths import is_history_path
 from review_policy import REVIEW_POLICY_CARRIER_REGISTRY
 
 
@@ -40,7 +41,10 @@ def _role_docs(root: Path) -> dict[str, list[dict[str, object]]]:
     if not agents.is_dir():
         return grouped
     for path in sorted(agents.rglob("*.md")):
-        if path.name in _EXEMPT or "memory" in path.parts or "journals" in path.parts:
+        # History and memory are tested on the root-relative path (wave 1zyb2,
+        # 1zxnt), so an ancestor directory of the checkout never decides it.
+        relative = path.relative_to(root)
+        if path.name in _EXEMPT or "memory" in relative.parts or is_history_path(relative):
             continue
         try:
             text = path.read_text(encoding="utf-8")
@@ -49,7 +53,7 @@ def _role_docs(root: Path) -> dict[str, list[dict[str, object]]]:
         role = _metadata(text, _ROLE)
         if not role:
             continue
-        rel = path.relative_to(root).as_posix()
+        rel = relative.as_posix()
         grouped.setdefault(role, []).append({
             "path": rel,
             "category": _metadata(text, _CATEGORY),

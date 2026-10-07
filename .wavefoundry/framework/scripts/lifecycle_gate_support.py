@@ -1,11 +1,13 @@
 """Pure lifecycle policy and diagnostic support; never imports the server."""
 from __future__ import annotations
 
+import errno
 import importlib.util
 import json
 import math
 import os
 import re
+import stat
 import sys
 from pathlib import Path
 from typing import (
@@ -15,6 +17,7 @@ from typing import (
     Optional,
     Sequence,
 )
+import path_containment
 import record_paths
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 from gardener_metadata import ambiguous_excluded_headings, canonical_review_policy_body
@@ -100,11 +103,11 @@ def _read_wave_council_policy(root: Path) -> dict[str, Any]:
             "errors": list(policy_errors),
             "phases": {
                 "prepare": {
-                    "signoff_key": "wave-council-readiness",
+                    "signoff_key": review_evidence.COUNCIL_READINESS_SIGNOFF_KEY,
                     "moderator_role": "wave-council",
                 },
                 "review": {
-                    "signoff_key": "wave-council-delivery",
+                    "signoff_key": review_evidence.COUNCIL_DELIVERY_SIGNOFF_KEY,
                     "moderator_role": "wave-council",
                 },
             },
@@ -123,8 +126,8 @@ def _read_wave_council_policy(root: Path) -> dict[str, Any]:
         phases_raw = {}
 
     phase_defaults = {
-        "prepare": "wave-council-readiness",
-        "review": "wave-council-delivery",
+        "prepare": review_evidence.COUNCIL_READINESS_SIGNOFF_KEY,
+        "review": review_evidence.COUNCIL_DELIVERY_SIGNOFF_KEY,
     }
     phases: dict[str, dict[str, str]] = {}
     for phase, default_key in phase_defaults.items():
@@ -171,9 +174,18 @@ def _required_wave_council_signoffs(
         "review": ["review"],
         "close": ["prepare", "review"],
     }
+    # Config values are canonicalized here, at the comparison site (wave
+    # 1zyb4): a config naming the earlier council keys requires the same keys
+    # as one naming the current keys. The policy object is never rewritten.
+    canonical = review_evidence.canonical_signoff_key
+
+    def _phase_key(phase: str) -> str | None:
+        key = policy.get("phases", {}).get(phase, {}).get("signoff_key")
+        return canonical(key) if key else None
+
     required: list[str] = []
     for phase in phase_map.get(lifecycle_phase, []):
-        signoff_key = policy.get("phases", {}).get(phase, {}).get("signoff_key")
+        signoff_key = _phase_key(phase)
         if signoff_key and signoff_key not in required:
             required.append(signoff_key)
     if policy.get("delivery_mode") == "targeted" and lifecycle_phase in {"review", "close"}:
@@ -195,7 +207,7 @@ def _required_wave_council_signoffs(
                 current_heads=heads,
             )
         if not council_required:
-            review_key = policy.get("phases", {}).get("review", {}).get("signoff_key")
+            review_key = _phase_key("review")
             required = [key for key in required if key != review_key]
     if not required:
         return required
@@ -204,8 +216,8 @@ def _required_wave_council_signoffs(
     if transition_policy != "applies-from-next-prepare" or lifecycle_phase == "prepare" or not (wave_text or wave_md):
         return required
 
-    prepare_key = policy.get("phases", {}).get("prepare", {}).get("signoff_key")
-    review_key = policy.get("phases", {}).get("review", {}).get("signoff_key")
+    prepare_key = _phase_key("prepare")
+    review_key = _phase_key("review")
     authority = resolve_review_authority(root, wave_md, wave_text=wave_text)
     prepare_signoff_recorded = bool(
         prepare_key
@@ -255,6 +267,266 @@ def _required_wave_council_signoffs(
 _CHANGE_ID_PATTERN = re.compile(rf"^{_vocab.MEMBER_ID_LABEL_RE}:\s+`([^`]+)`", re.MULTILINE)
 
 
+# Wave 1zxo0 (1zxns): the one allow-list for a change id. The prefix and slug
+# fragments are literal copies of ``wave_lint_lib.constants``
+# ``LIFECYCLE_PREFIX_PATTERN`` and ``SLUG_PATTERN`` (importing them here would
+# cycle through ``wave_lint_lib``); a parity test pins them equal. The kind is
+# the kind SHAPE ``vocabulary_profile`` enforces for extra kinds, not the live
+# kind list, so an archived record written under a profile that later dropped
+# an extra kind stays readable while every accepted value stays path-safe: no
+# separator, colon, control character, dot, uppercase letter, or leading or
+# trailing space, and never a reserved Windows device name.
+_CHANGE_ID_PREFIX_FRAGMENT = r"(?:[0-9a-z]{5,6}|00000)"
+_CHANGE_ID_SLUG_FRAGMENT = r"[a-z0-9][a-z0-9-]*"
+_CHANGE_ID_KIND_SHAPE_FRAGMENT = r"[a-z][a-z0-9]{1,15}"
+CHANGE_ID_SHAPE_RE = re.compile(
+    rf"{_CHANGE_ID_PREFIX_FRAGMENT}-{_CHANGE_ID_KIND_SHAPE_FRAGMENT} {_CHANGE_ID_SLUG_FRAGMENT}"
+)
+
+
+def is_change_id(value: Any) -> bool:
+    """True only for a ``str`` that fully matches ``CHANGE_ID_SHAPE_RE``."""
+    return isinstance(value, str) and CHANGE_ID_SHAPE_RE.fullmatch(value) is not None
+
+
+class ChangeIdRejected(ValueError):
+    """A path helper was handed a value that is not a change id (wave 1zxo0).
+
+    The message never carries the value."""
+
+
+_DRIVE_PREFIX_RE = re.compile(r"^[A-Za-z]:")
+
+
+def _change_id_reason_class(value: str) -> str:
+    """The reason class for a rejected member id: ``control character``,
+    ``path character`` or ``shape``. Never the value itself."""
+    if any(ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F for ch in value):
+        return "control character"
+    if any(ch in value for ch in ("/", "\\", ":")) or value.strip() in (".", ".."):
+        return "path character"
+    return "shape"
+
+
+def _change_id_shape_error(change_id: Any) -> Optional[dict[str, Any]]:
+    """An ``invalid_arguments`` diagnostic when ``change_id`` cannot be a change id.
+
+    Wave 1zv87 (1zv85): lifecycle tools build ``<wave dir>/<change_id>.md``
+    from this argument, so an id that is empty, absolute (a drive-letter form
+    included), or carries a path separator (``/`` or ``\\``), a ``..``
+    component, or a NUL is refused here, with no filesystem access, before any
+    path is built.  Wave 1zxo0 (1zxns): moved here from the server and closed
+    with the allow-list, so any other value that is not of the form
+    ``<prefix>-<kind> <slug>`` is refused too.  The message never echoes the
+    value."""
+    value = change_id if isinstance(change_id, str) else ""
+    reason = ""
+    if not value.strip():
+        reason = "is empty"
+    elif "\x00" in value:
+        reason = "contains a NUL character"
+    elif value.startswith(("/", "\\")) or _DRIVE_PREFIX_RE.match(value) or os.path.isabs(value):
+        reason = "is an absolute path"
+    elif "/" in value or "\\" in value:
+        reason = "contains a path separator"
+    elif value == "..":
+        reason = "is a `..` path component"
+    elif not is_change_id(value):
+        reason = "is not a change id of the form `<prefix>-<kind> <slug>`"
+    if not reason:
+        return None
+    return _diagnostic(
+        "invalid_arguments",
+        f"change_id {reason}; pass the FULL admitted change id as listed by the wave record.",
+        recovery_tools=["wf_current_wave"],
+        recovery_usage="wf_current_wave()",
+    )
+
+
+def _member_id_pattern(profile=None) -> "re.Pattern[str]":
+    if profile is None:
+        return _CHANGE_ID_PATTERN
+    return re.compile(rf"^{profile.MEMBER_ID_LABEL_RE}:\s+`([^`]+)`", re.MULTILINE)
+
+
+def _partition_member_ids(text: str, profile=None) -> tuple[list[str], list[dict[str, Any]]]:
+    """Split a record's member-id lines into allow-listed ids and rejections.
+
+    Wave 1zxo0 (1zxns): ``valid`` keeps record order; each rejected entry is
+    ``{"line": <1-based line of the member line>, "reason": <class>}`` and never
+    carries the rejected value, so no message built from it can echo it.
+    ``profile`` parses an archived record (see
+    ``_extract_change_ids_from_wave_text``)."""
+    valid: list[str] = []
+    rejected: list[dict[str, Any]] = []
+    for match in _member_id_pattern(profile).finditer(text):
+        value = match.group(1)
+        if is_change_id(value):
+            valid.append(value)
+        else:
+            rejected.append({
+                "line": text.count("\n", 0, match.start()) + 1,
+                "reason": _change_id_reason_class(value),
+            })
+    return valid, rejected
+
+
+def _change_id_invalid_message(record_rel: str, entry: Mapping[str, Any]) -> str:
+    """The ``change_id_invalid`` message: record path, line number and reason
+    class only, with the hand-edit recovery (wave 1zxo0)."""
+    return (
+        f"{record_rel} line {entry['line']} holds a member id that is not a change id "
+        f"({entry['reason']}); no path is built from it. Edit that line by hand (no tool "
+        "repairs it, and wf_remove_change refuses an invalid id), then run wf_validate_docs."
+    )
+
+
+def _change_id_invalid_diagnostics(
+    record_rel: str, rejected: Iterable[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """One blocking ``change_id_invalid`` diagnostic per rejected member line.
+    The one advisory use (bulk ``wf_get_change``) builds its own, so no flag is
+    forwarded through here."""
+    return [
+        _diagnostic(
+            "change_id_invalid",
+            _change_id_invalid_message(record_rel, entry),
+            recovery_tools=["wf_validate_docs"],
+            recovery_usage="wf_validate_docs()",
+        )
+        for entry in rejected
+    ]
+
+
+# Wave 1zxo0 (1zxns): the member-doc read rule. A member change doc is read
+# only as a regular file (never a link) directly in its expected folder, inside
+# that folder and inside the repository once resolved, through a capped read.
+MEMBER_DOC_MAX_BYTES = 8 * 1024 * 1024
+
+
+class MemberDocRefused(OSError):
+    """A member change doc failed the read rule; an ``OSError`` so existing
+    ``except OSError`` branches report it as unreadable. The message is a
+    cause class only, never a path."""
+
+    def __init__(self, cause: str) -> None:
+        super().__init__(errno.EPERM, cause)
+
+
+def _member_doc_lstat(path: Path) -> Optional[os.stat_result]:
+    """``lstat`` of a member doc when it is a regular file, else ``None``: the
+    existence probe that feeds a member-doc read, so a link or a directory
+    reads as absent rather than being followed."""
+    try:
+        entry = os.lstat(path)
+    except (OSError, ValueError):
+        return None
+    return entry if stat.S_ISREG(entry.st_mode) else None
+
+
+def runtime_lock_identities(root: Path) -> set[tuple[int, int]]:
+    """``(st_dev, st_ino)`` of every ``*.lock`` file under ``<root>/.wavefoundry/``
+    (wave 1zv87, 1zuq7): the identities a hard link to a runtime lock shares.
+    Only ``stat`` is used; no lock file is opened. The single owner of this
+    rule: the member-doc read below and the server's runtime-lock refusal
+    (``server_impl._runtime_lock_identities``) both call it."""
+    identities: set[tuple[int, int]] = set()
+    for dirpath, _dirnames, filenames in os.walk(Path(root) / ".wavefoundry"):
+        for name in filenames:
+            if not os.path.normcase(name).casefold().endswith(".lock"):
+                continue
+            try:
+                lock_stat = os.stat(os.path.join(dirpath, name))
+            except OSError:
+                continue
+            identities.add((lock_stat.st_dev, lock_stat.st_ino))
+    return identities
+
+
+def _runtime_lock_identity_match(resolved_root: Path, entry: os.stat_result) -> bool:
+    """True when ``entry`` shares ``(st_dev, st_ino)`` with a ``*.lock`` file
+    under ``<root>/.wavefoundry/``: a hard link to a runtime lock. The identity
+    half of the server's runtime-lock refusal (wave 1zxnz), through the shared
+    ``runtime_lock_identities``; no lock file is opened."""
+    return (entry.st_dev, entry.st_ino) in runtime_lock_identities(resolved_root)
+
+
+def _read_member_doc_bytes(folder: Path, path: Path, *, root: Path) -> bytes:
+    """Read a member change doc under the member-doc read rule (wave 1zxo0).
+
+    Reads only when ``path.parent`` is ``folder``; ``lstat`` shows a regular
+    file (not a link); the resolved path lies in the resolved ``folder`` and in
+    the resolved repository ``root`` (so a folder link leaving the repository
+    serves nothing, while one inside it still works); the file is not a hard
+    link to a runtime lock (the wave 1zxnz rule, so the read cannot release a
+    held record lock); and, on POSIX, an ``O_NOFOLLOW|O_NONBLOCK`` open whose
+    ``fstat`` matches the ``lstat`` identity. At most ``MEMBER_DOC_MAX_BYTES``
+    + 1 bytes are read and more than the cap is refused; the ``lstat`` size is
+    not trusted. A refusal raises ``MemberDocRefused``; a missing file raises
+    the ordinary ``FileNotFoundError``. Windows has no ``O_NOFOLLOW``: the
+    ``lstat`` check plus resolved containment stands alone there, and the
+    window between check and open is a documented limit, as in
+    ``runtime_lock``.
+    """
+    folder = Path(folder)
+    path = Path(path)
+    if path.parent != folder:
+        raise MemberDocRefused("not in its expected folder")
+    entry = os.lstat(path)
+    if not stat.S_ISREG(entry.st_mode):
+        raise MemberDocRefused("not a regular file")
+    try:
+        resolved_folder = folder.resolve(strict=True)
+        resolved = path.resolve(strict=True)
+        resolved_root = Path(root).resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise MemberDocRefused("could not be resolved") from exc
+    if path_containment.contained_resolved_path(resolved_folder, resolved) is None:
+        raise MemberDocRefused("resolves outside its folder")
+    if path_containment.contained_resolved_path(resolved_root, resolved) is None:
+        raise MemberDocRefused("resolves outside the repository")
+    if entry.st_nlink > 1 and _runtime_lock_identity_match(resolved_root, entry):
+        raise MemberDocRefused("resolves to a framework runtime lock")
+    limit = MEMBER_DOC_MAX_BYTES + 1
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    if nofollow:
+        flags = os.O_RDONLY | nofollow | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
+        try:
+            fd = os.open(path, flags)
+        except OSError as exc:
+            if exc.errno in (errno.ELOOP, errno.EMLINK):
+                raise MemberDocRefused("not a regular file") from exc
+            raise
+        try:
+            opened = os.fstat(fd)
+            if (not stat.S_ISREG(opened.st_mode)
+                    or (opened.st_dev, opened.st_ino) != (entry.st_dev, entry.st_ino)):
+                raise MemberDocRefused("changed while being opened")
+            chunks: list[bytes] = []
+            remaining = limit
+            while remaining > 0:
+                chunk = os.read(fd, min(remaining, 1024 * 1024))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            data = b"".join(chunks)
+        finally:
+            os.close(fd)
+    else:
+        with open(path, "rb") as handle:
+            data = handle.read(limit)
+    if len(data) > MEMBER_DOC_MAX_BYTES:
+        raise MemberDocRefused("exceeds the member document size cap")
+    return data
+
+
+def _read_member_doc_text(folder: Path, path: Path, *, root: Path) -> str:
+    """``_read_member_doc_bytes`` decoded as UTF-8 (``UnicodeDecodeError`` on
+    bad bytes, as ``read_text`` raised)."""
+    return _read_member_doc_bytes(folder, path, root=root).decode("utf-8")
+
+
 # Wave 1zime (1zimq): the shared any-marker item pattern; the gate counts an
 # open item under every list marker, not only `-`.
 _CLOSE_GATE_CHECKBOX_LINE_RE = change_doc_checklist.CHECKLIST_ITEM_RE
@@ -278,15 +550,19 @@ def _close_gate_change_ids(wave_text: str) -> list[str]:
     indented member id block cannot escape the gate; only ``change``
     records are kept (the parser's legacy ``item`` fallback ids are not change
     documents).  Column-0 ids the lint parser does not accept (a non-lint id
-    shape) are kept too, so no id the gate read before is dropped.
+    shape) are kept too, so no id the gate read before is dropped.  Wave 1zxo0
+    (1zxns): every id passes the allow-list; a rejected column-0 line is
+    reported by ``_collect_silent_unchecked_items_for_close`` as a ``change id``
+    finding instead.
     """
     from wave_lint_lib.wave_validators import _parse_work_records
 
     ids: list[str] = []
     for record in _parse_work_records(wave_text, ""):
-        if record.anchor_type == "change" and record.record_id not in ids:
+        if (record.anchor_type == "change" and is_change_id(record.record_id)
+                and record.record_id not in ids):
             ids.append(record.record_id)
-    for change_id in _CHANGE_ID_PATTERN.findall(wave_text):
+    for change_id in _partition_member_ids(wave_text)[0]:
         if change_id not in ids:
             ids.append(change_id)
     return ids
@@ -321,7 +597,9 @@ def _close_gate_parse_ac_priority(priority_section: str) -> dict[str, str]:
     return result
 
 
-def _collect_silent_unchecked_items_for_close(wave_md: Path, wave_text: str) -> list[dict[str, str]]:
+def _collect_silent_unchecked_items_for_close(
+    wave_md: Path, wave_text: str, root: Optional[Path] = None,
+) -> list[dict[str, str]]:
     """Walk admitted change docs; return silent open items that block close.
 
     Wave 1p31b (1p32k): the close-time hard gate. Every AC and task must be ``[x]`` or
@@ -331,11 +609,25 @@ def _collect_silent_unchecked_items_for_close(wave_md: Path, wave_text: str) -> 
     (an unusual mark such as ``[-]`` is open and shown in ``item_text``), items
     are read through the shared parser (blockquoted items count; fenced
     examples do not), and change ids come from docs-lint's record parser.
+    Wave 1zxo0 (1zxns): member docs are read under the member-doc read rule
+    inside ``root`` (the lifecycle callers pass it; without it the wave folder
+    bounds the read), and a rejected member line is a ``change id`` finding.
     """
+    read_root = root if root is not None else wave_md.parent
     findings: list[dict[str, str]] = []
+    # Wave 1zxo0 (1zxns): a member line whose id fails the allow-list blocks
+    # close as a ``change id`` finding; no path is built from it, the finding
+    # carries an empty ``change_id`` (never the value) and the line number only.
+    for entry in _partition_member_ids(wave_text)[1]:
+        findings.append({
+            "change_id": "",
+            "item_type": "change id",
+            "item_id": entry["reason"],
+            "item_text": str(entry["line"]),
+        })
     for change_id in _close_gate_change_ids(wave_text):
-        change_path = wave_md.parent / f"{change_id}.md"
-        if not change_path.exists():
+        change_path = _wave_change_doc_path(read_root, wave_md, change_id)
+        if not os.path.lexists(change_path):
             # 1v0lx: absent is not "nothing to check". The gate cannot verify
             # ACs and tasks it cannot see, so a ghost blocks close exactly as
             # an unreadable document does, under its own item id (the recovery
@@ -351,7 +643,7 @@ def _collect_silent_unchecked_items_for_close(wave_md: Path, wave_text: str) -> 
             })
             continue
         try:
-            change_text = change_path.read_text(encoding="utf-8")
+            change_text = _read_member_doc_text(change_path.parent, change_path, root=read_root)
         except (OSError, UnicodeError) as exc:
             # BOTH causes block. An earlier revision kept the legacy silent skip
             # for I/O failures and surfaced only decode failures, which left the
@@ -466,17 +758,25 @@ def _diagnostic(
 def _extract_change_ids_from_wave_text(text: str, profile=None) -> list[str]:
     """Member ids listed in a wave record; ``profile`` (an
     ``vocabulary_profile.archive_profile()`` object) parses an archived record
-    written under another vocabulary (wave 1z8ts)."""
-    if profile is None:
-        return _CHANGE_ID_PATTERN.findall(text)
-    return re.findall(rf"^{profile.MEMBER_ID_LABEL_RE}:\s+`([^`]+)`", text, re.MULTILINE)
+    written under another vocabulary (wave 1z8ts). Wave 1zxo0 (1zxns): only
+    allow-listed ids are returned, in record order; see
+    ``_partition_member_ids`` for the rejected lines."""
+    return _partition_member_ids(text, profile)[0]
 
 
 def _wave_change_doc_path(root: Path, wave_md: Path, change_id: str) -> Path:
+    """``<wave folder>/<id>.md``; raises ``ChangeIdRejected`` before any
+    filesystem work for a value that is not a change id (wave 1zxo0)."""
+    if not is_change_id(change_id):
+        raise ChangeIdRejected("not a change id; no path is built from it")
     return wave_md.parent / f"{change_id}.md"
 
 
 def _plan_change_doc_path(root: Path, change_id: str) -> Path:
+    """``<plans root>/<id>.md``; raises ``ChangeIdRejected`` before any
+    filesystem work for a value that is not a change id (wave 1zxo0)."""
+    if not is_change_id(change_id):
+        raise ChangeIdRejected("not a change id; no path is built from it")
     return record_paths.load_record_roots(root).plans / f"{change_id}.md"
 
 
@@ -502,13 +802,17 @@ def _repo_rel(root: Path, path: Path) -> str:
 
 
 def _change_location_state(root: Path, wave_md: Path, change_id: str) -> dict[str, Any]:
+    """Where a member doc is. Wave 1zxo0 (1zxns): presence is ``lexists``, so
+    a link is present but never followed here; every caller that reads the
+    doc does so through ``_read_member_doc_bytes``, which refuses it with the
+    readability diagnostic before any move or write."""
     staged = _plan_change_doc_path(root, change_id)
     wave_path = _wave_change_doc_path(root, wave_md, change_id)
     return {
         "staged_path": staged,
         "wave_path": wave_path,
-        "staged_exists": staged.exists(),
-        "wave_exists": wave_path.exists(),
+        "staged_exists": os.path.lexists(staged),
+        "wave_exists": os.path.lexists(wave_path),
     }
 
 
@@ -758,7 +1062,8 @@ def _prepare_policy_state(
         try:
             override = (change_text_overrides or {}).get(change_id)
             if override is None:
-                body = path.read_bytes()
+                # Wave 1zxo0 (1zxns): the member-doc read rule.
+                body = _read_member_doc_bytes(path.parent, path, root=root)
                 text = body.decode("utf-8")
             else:
                 text = override
@@ -986,7 +1291,7 @@ def _prepare_council_instructions(rotating_seat: str | None, *, typed: bool = Fa
     Keyed on the pair (seat, authority) so every producer renders the same
     text for the same roster and authority; the receipt binding rebuilds this
     rather than inheriting a string built from superseded wave text.  On a
-    declared (typed) wave the authority is the typed ``wave-council-readiness``
+    declared (typed) wave the authority is the typed ``council-readiness``
     approval, so the brief points there (wave 1zime, 1ziml); legacy waves keep
     the ``## Review Checkpoints`` prose line.
     """
@@ -1011,7 +1316,7 @@ def _prepare_council_instructions(rotating_seat: str | None, *, typed: bool = Fa
             "This wave's review authority is the typed ledger, so record the outcome there: first "
             "the readiness review run, then each required lane's readiness approval, then the "
             "council verdict as a typed approval, "
-            "wf_review_event(event='approval', signoff_key='wave-council-readiness', "
+            "wf_review_event(event='approval', signoff_key='council-readiness', "
             "approval_phase='readiness', mode='create', ...), whose evidence names the seats "
             "actually run, each at most once, with per-seat evidence or an explicit no-findings "
             f"note (e.g. `{_prepare_council_verdict_template(rotating_seat, typed=True)}`). "
@@ -1042,7 +1347,7 @@ def _prepare_council_verdict_template(rotating_seat: str | None, *, typed: bool 
         # Wave 1zime (1ziml): the typed approval is the record that counts.
         return (
             "wf_review_event(wave_id=<wave id>, event='approval', "
-            "signoff_key='wave-council-readiness', approval_phase='readiness', "
+            "signoff_key='council-readiness', approval_phase='readiness', "
             "actor='wave-council', context_id=<fresh context id>, mode='create', "
             "evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; "
             "primer-depth: standard; "

@@ -810,17 +810,17 @@ class LifecycleToolRefusalTests(unittest.TestCase):
             # The wave-bulk mode resolves the wave through discovery.
             ("wf_get_change", lambda: srv.wf_get_change_response(root, wave_id="1abcd")),
             ("wf_mark_item", lambda: srv._mark_change_item_response(
-                root, "1abcd", "1abce", "AC-1", "x", target_section="Acceptance Criteria", mode="create")),
+                root, "1abcd", "1abce-enh x", "AC-1", "x", target_section="Acceptance Criteria", mode="create")),
             ("wf_mark_item", lambda: srv._mark_change_item_response(
-                root, "1abcd", "1abce", "Task one", "x", target_section="Tasks", mode="create")),
-            ("wf_add_change", lambda: srv.wf_add_change_response(root, "1abcd", "1abce", mode="create")),
-            ("wf_remove_change", lambda: srv.wf_remove_change_response(root, "1abcd", "1abce", mode="create")),
+                root, "1abcd", "1abce-enh x", "Task one", "x", target_section="Tasks", mode="create")),
+            ("wf_add_change", lambda: srv.wf_add_change_response(root, "1abcd", "1abce-enh x", mode="create")),
+            ("wf_remove_change", lambda: srv.wf_remove_change_response(root, "1abcd", "1abce-enh x", mode="create")),
             ("wf_review_event", lambda: srv.wf_review_event_response(
                 root, "1abcd", "approval", "qa", "ctx-1", mode="create", signoff_key="qa")),
             ("wf_pause_wave", lambda: srv.wf_pause_wave_response(root, "1abcd", mode="create")),
             ("wf_review_wave", lambda: srv.wf_review_wave_response(root, "1abcd")),
             ("wf_close_wave", lambda: srv.wf_close_wave_response(root, "1abcd", mode="create")),
-            ("wf_close_change", lambda: srv.wf_close_change_response(root, "1abcd", "1abce", mode="create")),
+            ("wf_close_change", lambda: srv.wf_close_change_response(root, "1abcd", "1abce-enh x", mode="create")),
             ("wf_prepare_wave", lambda: srv.wf_prepare_wave_response(root, "1abcd", mode="dry_run")),
             ("wf_implement_wave", lambda: srv.wf_implement_wave_response(root, "1abcd", mode="create")),
             ("wf_reopen_wave", lambda: srv.wf_reopen_wave_response(root, "1abcd")),

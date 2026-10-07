@@ -169,7 +169,9 @@ _SHIPPED_VOCABULARY = {
     "BACKREF_LABEL": "Wave",
 }
 SHIPPED_DEFAULTS: "dict[str, dict[str, Any]]" = {
-    "vocabulary_profile": {**_SHIPPED_VOCABULARY, "ARCHIVE_PROFILE": None, "EXTRA_CHANGE_KINDS": ()},
+    "vocabulary_profile": {**_SHIPPED_VOCABULARY, "ARCHIVE_PROFILE": None, "EXTRA_CHANGE_KINDS": (),
+                           # Wave 1zyb4 (1zxnw): the lifecycle prompt-name override.
+                           "PROMPT_NAME_OVERRIDES": {}},
     "record_paths": {
         "WAVES_ROOT": "docs/waves",
         "PLANS_ROOT": "docs/plans",
@@ -203,6 +205,9 @@ SHIPPED_DECLARATION: "dict[str, Any]" = {
     "EXTENSION_ARTIFACT_PATH_FIELDS": {},
     # Wave 1zv8c (1zv89): declared skills, read only by the renderer.
     "EXTENSION_SKILLS": {},
+    # Wave 1zyb3 (1zxnv): the journal migration declaration, read only by the upgrade.
+    "EXTENSION_JOURNAL_TEMPLATES": (),
+    "EXTENSION_JOURNAL_PRE_MIGRATION_HOOK": "",
 }
 # Every constant a profile asset may name, per module.
 _EDITABLE = {**SHIPPED_DEFAULTS, "mcp_tool_extensions": SHIPPED_DECLARATION}
@@ -221,10 +226,46 @@ def profile_names(profiles_dir: "Path | None" = None) -> list[str]:
     return sorted(p.stem for p in directory.glob("*.json"))
 
 
-def _profile_errors(data: Any) -> list[str]:
+def _module_file_errors(data: dict, profiles_dir: "Path | None") -> list[str]:
+    """Problems with an asset's ``module_files`` (wave 1zyb3, change 1zxnu):
+    ``{module_name: path relative to the profiles directory}``, each module
+    declared in the asset's ``EXTENSION_MODULES`` or
+    ``EXTENSION_HELPER_MODULES`` and each source an existing file."""
+    if "module_files" not in data:
+        return []
+    files = data["module_files"]
+    if not isinstance(files, dict) or not files:
+        return ["'module_files' must be a non-empty object of module name to source path"]
+    directory = PROFILES_DIR if profiles_dir is None else Path(profiles_dir)
+    entry = data["modules"].get("mcp_tool_extensions")
+    entry = entry if isinstance(entry, dict) else {}
+    declared: set[str] = set()
+    for name in ("EXTENSION_MODULES", "EXTENSION_HELPER_MODULES"):
+        value = entry.get(name)
+        if isinstance(value, (list, tuple)):
+            declared.update(item for item in value if isinstance(item, str))
+    errors: list[str] = []
+    for module, rel in files.items():
+        if not isinstance(module, str) or not module.isidentifier():
+            errors.append(f"module_files key {module!r} must be a flat module name")
+            continue
+        if module not in declared:
+            errors.append(f"module_files names {module!r}, which the asset's EXTENSION_MODULES or "
+                          "EXTENSION_HELPER_MODULES does not declare")
+        if (not isinstance(rel, str) or not rel or "\\" in rel or ":" in rel or rel.startswith("/")
+                or any(part in ("", ".", "..") for part in rel.split("/"))):
+            errors.append(f"module_files[{module!r}] must be a '/'-separated path inside the profiles "
+                          f"directory, not {rel!r}")
+            continue
+        if not (directory / rel).is_file():
+            errors.append(f"module_files[{module!r}]: no source file {rel} in {directory}")
+    return errors
+
+
+def _profile_errors(data: Any, profiles_dir: "Path | None" = None) -> list[str]:
     if not isinstance(data, dict) or not isinstance(data.get("modules"), dict) or not data["modules"]:
         return ["a profile needs a non-empty 'modules' object"]
-    errors: list[str] = []
+    errors: list[str] = _module_file_errors(data, profiles_dir)
     if "active" in data and not isinstance(data["active"], bool):
         errors.append(f"'active' must be true or false, not {data['active']!r}")
     for module, values in data["modules"].items():
@@ -253,7 +294,7 @@ def load_profile(name: str, profiles_dir: "Path | None" = None) -> dict:
         data = json.loads(path.read_text(encoding="utf-8"))
     except ValueError as exc:
         raise ProfileInvalid(f"profile {name!r} is not valid JSON: {exc}") from exc
-    errors = _profile_errors(data)
+    errors = _profile_errors(data, directory)
     if errors:
         raise ProfileInvalid(f"profile {name!r}: " + "; ".join(errors))
     return data
@@ -287,7 +328,8 @@ def copy_scripts_tree(dest: Path, *, with_support: bool = True) -> Path:
     if with_support:
         tests = scripts / "tests"
         tests.mkdir()
-        for name in ("__init__.py", "record_layout_support.py", "declaration_support.py"):
+        for name in ("__init__.py", "record_layout_support.py", "declaration_support.py",
+                     "tool_surface_support.py"):
             shutil.copy2(SCRIPTS_DIR / "tests" / name, tests / name)
         for rel in ("docs_lint", "profiles"):
             shutil.copytree(SCRIPTS_DIR / "tests" / "fixtures" / rel, tests / "fixtures" / rel)
@@ -317,6 +359,9 @@ if "mcp_tool_extensions" in spec["names"] and mcp_tool_extensions.declared():
 if "mcp_tool_extensions" in spec["names"] and hasattr(mcp_tool_extensions, "skill_declaration_problems"):
     # Wave 1zv8c (1zv89): the skill declaration, as the renderer checks it.
     out["declaration"] += mcp_tool_extensions.skill_declaration_problems()
+if "mcp_tool_extensions" in spec["names"] and hasattr(mcp_tool_extensions, "journal_declaration_problems"):
+    # Wave 1zyb3 (1zxnv): the journal migration declaration, as the upgrade checks it.
+    out["declaration"] += mcp_tool_extensions.journal_declaration_problems()
 print(json.dumps(out))
 """
 
@@ -353,7 +398,8 @@ def replace_file_in(root: Path, path: Path, data: bytes) -> None:
 
 
 def apply_profile(scripts_dir: Path, profile: dict, *, modules: "tuple[str, ...] | None" = None,
-                  repo_root: "Path | None" = None, python: "str | None" = None) -> "dict[str, dict[str, Any]]":
+                  repo_root: "Path | None" = None, python: "str | None" = None,
+                  profiles_dir: "Path | None" = None) -> "dict[str, dict[str, Any]]":
     """Edit ``profile``'s constants into the COPIED ``scripts_dir`` the way a
     fork does at merge time, then import the modules in a fresh interpreter
     to validate them (a tool declaration is also checked as the roster
@@ -362,14 +408,17 @@ def apply_profile(scripts_dir: Path, profile: dict, *, modules: "tuple[str, ...]
     Each constant's assignment must match exactly once. ``modules`` limits
     the edit to some of the profile's modules (a control tree that differs in
     one module only). With ``repo_root`` the layout is also validated against
-    that repository. Never applied to the canonical scripts tree."""
+    that repository. The asset's ``module_files`` (wave 1zyb3) are copied from
+    ``profiles_dir`` (default: the tests' own) into the copied scripts
+    directory as ``<module>.py`` when the declaration module is edited. Never
+    applied to the canonical scripts tree."""
     scripts_dir = Path(scripts_dir)
     try:
         if os.path.samefile(scripts_dir, SCRIPTS_DIR):
             raise ProfileInvalid("apply_profile edits a copied tree, never the canonical scripts directory")
     except OSError:
         pass
-    errors = _profile_errors(profile)
+    errors = _profile_errors(profile, profiles_dir)
     if errors:
         raise ProfileInvalid("; ".join(errors))
     selected = tuple(m for m in PROFILE_MODULES if m in profile["modules"] and (modules is None or m in modules))
@@ -386,6 +435,11 @@ def apply_profile(scripts_dir: Path, profile: dict, *, modules: "tuple[str, ...]
             if count != 1:
                 raise ProfileInvalid(f"{module}.{name}: {count} assignments matched in {path}, exactly one expected")
         replace_file_in(repo_root if repo_root is not None else scripts_dir, path, text.encode("utf-8"))
+    if "mcp_tool_extensions" in selected:
+        source_dir = PROFILES_DIR if profiles_dir is None else Path(profiles_dir)
+        for module, rel in (profile.get("module_files") or {}).items():
+            replace_file_in(repo_root if repo_root is not None else scripts_dir,
+                            scripts_dir / f"{module}.py", (source_dir / rel).read_bytes())
     spec = {
         # The declaration module is imported (and checked) only when the
         # profile edits it, so a tree without it still takes a record profile.

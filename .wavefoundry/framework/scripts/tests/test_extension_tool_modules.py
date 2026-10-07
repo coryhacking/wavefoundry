@@ -1518,6 +1518,7 @@ with tempfile.TemporaryDirectory() as tmp:
         empty = dict(EXTENSION_MODULES=(), EXTENSION_HELPER_MODULES=(), EXTENSION_TOOL_PREFIXES=(), EXTENSION_TOOL_TIERS={}, EXTENSION_OVERRIDES={},
                      EXTENSION_TOOL_ALIASES={}, EXTENSION_TOOL_PARAMETERS={}, EXTENSION_HIDDEN_TOOLS=(),
                      EXTENSION_LIFECYCLE_TOOLS=(), EXTENSION_ARTIFACT_PATH_FIELDS={}, EXTENSION_SKILLS={},
+                     EXTENSION_JOURNAL_TEMPLATES=(), EXTENSION_JOURNAL_PRE_MIGRATION_HOOK="",
                      EXTENSION_REPLACEMENTS={})
         results = {}
         for label, attrs in cases.items():
@@ -4909,6 +4910,67 @@ class LockAndCreditDeclarationTests(unittest.TestCase):
                     problem = declaration_profile_mismatch(shipped)
                 self.assertIsNotNone(problem)
                 self.assertIn(f"mcp_tool_extensions.{constant} is", problem)
+
+
+class ExtensionProvenanceLabelTests(unittest.TestCase):
+    """Wave 1zxo0 (1zxns, AC-13): ``wf_server_info`` ``data.extensions`` paths are
+    repository-relative under the root, ``framework:<rel>`` for a framework
+    loaded from outside the root, ``external:<name>`` otherwise, and never
+    absolute on POSIX or Windows spellings."""
+
+    def setUp(self) -> None:
+        from unittest.mock import patch
+        from server_tools_support import load_server
+
+        self.srv = load_server()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        # The framework (this scripts tree) lies outside this temporary root.
+        self.root = Path(tmp.name) / "repo"
+        self.root.mkdir()
+        self.framework_dir = Path(self.srv.__file__).resolve().parents[2]
+        self.outside = Path(tmp.name) / "elsewhere" / "acme_external.py"
+        provenance = self.srv._empty_extension_provenance()
+        provenance["declaration"] = {**provenance["declaration"],
+                                     "path": str(self.framework_dir / "scripts" / "mcp_tool_extensions.py")}
+        provenance["modules"] = [
+            {"module": "acme_in_root", "path": str(self.root / "ext" / "acme_in_root.py")},
+            {"module": "acme_external", "path": str(self.outside)},
+        ]
+        provenance["helper_modules"] = [
+            {"module": "acme_helper", "path": str(self.framework_dir / "scripts" / "acme_helper.py")},
+            {"module": "acme_windows", "path": "C:\\Users\\someone\\acme_windows.py"},
+        ]
+        patcher = patch.object(self.srv, "_EXTENSION_PROVENANCE", provenance)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_labels_are_relative_framework_or_external(self) -> None:
+        extensions = self.srv._extension_provenance_for_response(self.root)
+        self.assertEqual(extensions["declaration"]["path"], "framework:scripts/mcp_tool_extensions.py")
+        self.assertEqual([m["path"] for m in extensions["modules"]],
+                         ["ext/acme_in_root.py", "external:acme_external.py"])
+        self.assertEqual(extensions["helper_modules"][0]["path"], "framework:scripts/acme_helper.py")
+        self.assertTrue(extensions["helper_modules"][1]["path"].startswith("external:"))
+        self.assertTrue(extensions["helper_modules"][1]["path"].endswith("acme_windows.py"))
+
+    def test_server_info_extensions_carry_no_absolute_path(self) -> None:
+        import ntpath
+        import re as _re
+
+        data = self.srv.wf_server_info_response(self.root)["data"]["extensions"]
+        paths = [data["declaration"]["path"], *(m["path"] for m in data["modules"]),
+                 *(m["path"] for m in data["helper_modules"])]
+        for value in paths:
+            with self.subTest(value=value):
+                bare = value.split(":", 1)[1] if value.startswith(("framework:", "external:")) else value
+                self.assertFalse(os.path.isabs(bare), value)
+                self.assertFalse(ntpath.isabs(bare), value)
+                self.assertIsNone(_re.match(r"^[A-Za-z]:", bare), value)
+                self.assertNotIn("\\", value)
+        blob = json.dumps(data)
+        for absolute in (str(self.root), str(self.framework_dir), str(self.outside.parent)):
+            self.assertNotIn(absolute, blob)
 
 
 if __name__ == "__main__":

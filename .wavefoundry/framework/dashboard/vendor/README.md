@@ -31,7 +31,9 @@ files extracted from it.
 
 ## Reproduce and check
 
-In the Wavefoundry source repository, one command runs the whole check:
+The verifier command exists only in the Wavefoundry source repository; an installed framework
+does not have it and reports drift through `wf_audit` instead (see below). In the source
+repository, one command runs the whole check:
 `python3 .wavefoundry/framework/scripts/verify_vendored_scripts.py` (on Windows, `py -3` in
 place of `python3`). It downloads each tarball in the registry table from
 `https://registry.npmjs.org/` only, compares its SHA-512 with the recorded `dist.integrity`,
@@ -47,11 +49,14 @@ redirect target is checked before it is followed, so a host off the registry is 
 contacted. A deliberate refusal (a non-registry URL, a redirect that left the registry, a
 tarball over the size cap) prints `refused:`; a download that could not complete prints
 `download failed:`.
+In the source repository only,
 `python3 .wavefoundry/framework/scripts/verify_vendored_scripts.py --offline` makes no network
 request: it hashes each vendored file and compares it with the file table, exiting 0 when every
 file matches, 1 when a file differs or is missing (each is named) and 2 when this README cannot
 be parsed. The default test suite and `build_pack` run the same offline comparison, so a
 changed vendored file stops a build.
+In an installed framework, the same offline comparison ships with the framework and runs on
+every `wf_audit`, which reports the result as `data.vendored_scripts` (report-only, no network).
 The online check uses the network, so it is optional and never part of the default test suite;
 it is development-only and is not included in the framework distribution, so a target repository
 does not have it and uses the manual procedure below.

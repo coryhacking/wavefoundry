@@ -473,5 +473,346 @@ class RuntimeFileLockTests(unittest.TestCase):
                 self.assertNotIn(old_path, source, f"{name}: {old_path}")
 
 
+_CHILD_LOCKF = """
+import fcntl, os, sys
+fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o666)
+offset = int(sys.argv[2])
+try:
+    fcntl.lockf(fd, fcntl.LOCK_EX | fcntl.LOCK_NB, 1, offset, os.SEEK_SET)
+except OSError:
+    print("held", flush=True)
+    sys.exit(0)
+if sys.argv[3] == "probe":
+    print("free", flush=True)
+    sys.exit(0)
+print("locked", flush=True)
+sys.stdin.readline()
+"""
+
+_SENTINEL = 1 << 30
+
+
+def _ofd_expected() -> bool:
+    """Requirement 1's conditions: a known layout and all three constants."""
+    if os.name == "nt":
+        return False
+    import fcntl
+
+    return rl.flock_layout() is not None and all(
+        hasattr(fcntl, name) for name in rl._OFD_COMMAND_NAMES
+    )
+
+
+def _child_probe(path: Path, offset: int = _SENTINEL) -> str:
+    import subprocess
+
+    out = subprocess.run(
+        [sys.executable, "-B", "-c", _CHILD_LOCKF, str(path), str(offset), "probe"],
+        capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL,
+    )
+    return out.stdout.strip() or f"<no answer: {out.stderr[-500:]}>"
+
+
+class _ChildLockfHolder:
+    """A child process holding a classic ``lockf`` on one byte until closed."""
+
+    def __init__(self, path: Path, offset: int = _SENTINEL) -> None:
+        import subprocess
+
+        self.proc = subprocess.Popen(
+            [sys.executable, "-B", "-c", _CHILD_LOCKF, str(path), str(offset), "hold"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+        )
+        self.first = self.proc.stdout.readline().strip()
+
+    def close(self) -> None:
+        if self.proc.stdin.closed:
+            return
+        try:
+            self.proc.stdin.write("\n")
+            self.proc.stdin.flush()
+        except (BrokenPipeError, OSError):
+            pass
+        try:
+            self.proc.wait(timeout=30)
+        except Exception:  # noqa: BLE001
+            self.proc.kill()
+            self.proc.wait(timeout=30)
+        for stream in (self.proc.stdin, self.proc.stdout):
+            try:
+                stream.close()
+            except OSError:
+                pass
+
+
+def _fake_fcntl(*, drop_ofd: bool = False, ofd_errno: int | None = None):
+    """A stand-in ``fcntl`` module that records calls and can fail OFD requests.
+
+    It delegates to the real module, so a lock it takes is real. ``drop_ofd``
+    removes the ``F_OFD_*`` constants; ``ofd_errno`` makes every OFD request
+    fail with that errno (constants are supplied when the platform lacks them).
+    """
+    import fcntl as real
+
+    fake = types.ModuleType("fcntl")
+    for name in dir(real):
+        if not name.startswith("__"):
+            setattr(fake, name, getattr(real, name))
+    calls: dict[str, list] = {"fcntl": [], "lockf": []}
+    if drop_ofd:
+        for name in rl._OFD_COMMAND_NAMES:
+            if hasattr(fake, name):
+                delattr(fake, name)
+    elif ofd_errno is not None:
+        for index, name in enumerate(rl._OFD_COMMAND_NAMES):
+            if not hasattr(fake, name):
+                setattr(fake, name, 900 + index)
+    ofd_commands = {getattr(fake, name) for name in rl._OFD_COMMAND_NAMES if hasattr(fake, name)}
+
+    def fcntl_call(fd, cmd, arg=0):
+        calls["fcntl"].append((cmd, arg))
+        if ofd_errno is not None and cmd in ofd_commands:
+            raise OSError(ofd_errno, os.strerror(ofd_errno))
+        return real.fcntl(fd, cmd, arg)
+
+    def lockf_call(fd, cmd, *args):
+        calls["lockf"].append((cmd, args))
+        return real.lockf(fd, cmd, *args)
+
+    fake.fcntl = fcntl_call
+    fake.lockf = lockf_call
+    return fake, calls
+
+
+_LINUX_LAYOUT = rl._FLOCK_LAYOUTS["linux"]
+
+
+@unittest.skipIf(os.name == "nt", "POSIX record-lock mechanics")
+class RecordLockMechanismTests(unittest.TestCase):
+    """Wave 1zxnz (1zx02): OFD record locks, the lockf fallback, release symmetry."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name) / ".wavefoundry" / "record.lock"
+
+    def lock(self, **kwargs) -> rl.RuntimeFileLock:
+        return rl.RuntimeFileLock(self.path, offset=_SENTINEL, style="record", **kwargs)
+
+    # AC-1 -----------------------------------------------------------------
+    def test_ofd_lock_survives_an_unrelated_close_in_the_holder(self) -> None:
+        if not _ofd_expected():
+            self.skipTest("platform excluded by Requirement 1 (no known layout or no F_OFD_* constants)")
+        lock = self.lock().acquire()
+        try:
+            self.assertEqual(lock.mechanism, "ofd")
+            fd = os.open(self.path, os.O_RDONLY)
+            os.close(fd)
+            self.path.read_bytes()
+            self.assertEqual(_child_probe(self.path), "held")
+        finally:
+            lock.release()
+        self.assertEqual(_child_probe(self.path), "free")
+
+    # AC-2 -----------------------------------------------------------------
+    def test_ofd_and_classic_locks_exclude_each_other(self) -> None:
+        if not _ofd_expected():
+            self.skipTest("platform excluded by Requirement 1 (no known layout or no F_OFD_* constants)")
+        import fcntl
+
+        self.path.parent.mkdir(parents=True)
+        holder = _ChildLockfHolder(self.path)
+        self.addCleanup(holder.close)
+        self.assertEqual(holder.first, "locked")
+        with self.assertRaises(rl.RuntimeLockBusy):
+            self.lock().acquire()
+        holder.close()
+        # In one process: an OFD acquire over this process's own classic lock.
+        fd = os.open(self.path, os.O_RDWR)
+        try:
+            fcntl.lockf(fd, fcntl.LOCK_EX | fcntl.LOCK_NB, 1, _SENTINEL, os.SEEK_SET)
+            with self.assertRaises(rl.RuntimeLockBusy):
+                self.lock().acquire()
+        finally:
+            os.close(fd)
+        lock = self.lock().acquire()
+        try:
+            self.assertEqual(lock.mechanism, "ofd")
+            self.assertEqual(_child_probe(self.path), "held")
+        finally:
+            lock.release()
+
+    # AC-3 -----------------------------------------------------------------
+    def assert_lockf_fallback(self, fake, calls) -> None:
+        import fcntl as real
+
+        with patch.dict(sys.modules, {"fcntl": fake}):
+            lock = self.lock().acquire()
+            try:
+                self.assertEqual(lock.mechanism, "lockf")
+                self.assertEqual(_child_probe(self.path), "held")
+            finally:
+                lock.release()
+        self.assertEqual([cmd for cmd, _args in calls["lockf"]],
+                         [real.LOCK_EX | real.LOCK_NB, real.LOCK_UN])
+        self.assertEqual(_child_probe(self.path), "free")
+
+    def test_missing_ofd_constants_fall_back_to_lockf(self) -> None:
+        fake, calls = _fake_fcntl(drop_ofd=True)
+        self.assert_lockf_fallback(fake, calls)
+        self.assertEqual(calls["fcntl"], [])
+
+    def test_unsupported_ofd_errnos_fall_back_to_lockf(self) -> None:
+        codes = {errno.EINVAL, errno.ENOSYS, errno.ENOTSUP, errno.EOPNOTSUPP}
+        for code in sorted(codes):
+            with self.subTest(errno=errno.errorcode.get(code, code)):
+                fake, calls = _fake_fcntl(ofd_errno=code)
+                with patch.object(rl, "flock_layout", return_value=rl.flock_layout() or _LINUX_LAYOUT):
+                    self.assert_lockf_fallback(fake, calls)
+                self.assertEqual(len(calls["fcntl"]), 1, calls)
+
+    def test_busy_ofd_never_falls_back_and_other_errors_are_not_busy(self) -> None:
+        for code in (errno.EAGAIN, errno.EACCES):
+            with self.subTest(errno=errno.errorcode[code]):
+                fake, calls = _fake_fcntl(ofd_errno=code)
+                with patch.dict(sys.modules, {"fcntl": fake}), \
+                        patch.object(rl, "flock_layout", return_value=rl.flock_layout() or _LINUX_LAYOUT):
+                    with self.assertRaises(rl.RuntimeLockBusy):
+                        self.lock().acquire()
+                self.assertEqual(calls["lockf"], [])
+        fake, calls = _fake_fcntl(ofd_errno=errno.EIO)
+        with patch.dict(sys.modules, {"fcntl": fake}), \
+                patch.object(rl, "flock_layout", return_value=rl.flock_layout() or _LINUX_LAYOUT):
+            with self.assertRaises(rl.RuntimeLockError) as raised:
+                self.lock().acquire()
+        self.assertNotIsInstance(raised.exception, rl.RuntimeLockBusy)
+        self.assertEqual(calls["lockf"], [])
+
+    def test_unknown_layout_never_packs_and_falls_back(self) -> None:
+        fake, calls = _fake_fcntl()
+        with patch.object(rl, "flock_layout", return_value=None):
+            self.assert_lockf_fallback(fake, calls)
+        self.assertEqual(calls["fcntl"], [])
+
+    # AC-4 -----------------------------------------------------------------
+    def test_ofd_release_unlocks_with_ofd_and_frees_the_byte(self) -> None:
+        if not _ofd_expected():
+            self.skipTest("platform excluded by Requirement 1 (no known layout or no F_OFD_* constants)")
+        import fcntl as real
+
+        fake, calls = _fake_fcntl()
+        layout = rl.flock_layout()
+        with patch.dict(sys.modules, {"fcntl": fake}):
+            lock = self.lock().acquire()
+            self.assertEqual(lock.mechanism, "ofd")
+            lock.release()
+        self.assertEqual(calls["lockf"], [])
+        (acquire_cmd, acquire_buf), (release_cmd, release_buf) = calls["fcntl"]
+        self.assertEqual(acquire_cmd, real.F_OFD_SETLK)
+        self.assertEqual(release_cmd, real.F_OFD_SETLK)
+        self.assertEqual(rl.unpack_flock(layout, acquire_buf)["l_type"], real.F_WRLCK)
+        released = rl.unpack_flock(layout, release_buf)
+        self.assertEqual(released["l_type"], real.F_UNLCK)
+        self.assertEqual((released["l_start"], released["l_len"]), (_SENTINEL, 1))
+        native = {"linux": 32, "darwin": 24}["darwin" if sys.platform == "darwin" else "linux"]
+        self.assertEqual(len(acquire_buf), native)
+        self.assertEqual(len(release_buf), native)
+        holder = _ChildLockfHolder(self.path)
+        self.addCleanup(holder.close)
+        self.assertEqual(holder.first, "locked")
+
+    def test_packed_buffers_have_the_native_struct_size(self) -> None:
+        self.assertEqual(len(rl.pack_flock(rl._FLOCK_LAYOUTS["linux"], l_type=1, l_start=2, l_len=3)), 32)
+        self.assertEqual(len(rl.pack_flock(rl._FLOCK_LAYOUTS["darwin"], l_type=1, l_start=2, l_len=3)), 24)
+        for key in ("linux", "darwin"):
+            layout = rl._FLOCK_LAYOUTS[key]
+            packed = rl.pack_flock(layout, l_type=3, l_start=_SENTINEL, l_len=1, l_pid=-1)
+            self.assertEqual(
+                rl.unpack_flock(layout, packed),
+                {"l_type": 3, "l_whence": 0, "l_start": _SENTINEL, "l_len": 1, "l_pid": -1},
+            )
+
+    def test_layout_is_known_only_on_listed_platforms(self) -> None:
+        with patch.object(rl.sys, "platform", "freebsd14"):
+            self.assertIsNone(rl.flock_layout())
+        with patch.object(rl.sys, "maxsize", 2**31 - 1):
+            self.assertIsNone(rl.flock_layout())
+        fake_uname = types.SimpleNamespace(machine="riscv64")
+        with patch.object(rl.os, "uname", return_value=fake_uname):
+            self.assertIsNone(rl.flock_layout())
+        arm = types.SimpleNamespace(machine="arm64")
+        with patch.object(rl.os, "uname", return_value=arm), patch.object(rl.sys, "platform", "linux"):
+            self.assertEqual(rl.flock_layout(), rl._FLOCK_LAYOUTS["linux"])
+        with patch.object(rl.os, "uname", return_value=arm), patch.object(rl.sys, "platform", "darwin"):
+            self.assertEqual(rl.flock_layout(), rl._FLOCK_LAYOUTS["darwin"])
+
+    def test_flock_style_reports_flock(self) -> None:
+        with rl.RuntimeFileLock(self.path) as lock:
+            self.assertEqual(lock.mechanism, "flock")
+
+
+class _FcntlTripwire(types.ModuleType):
+    """Fails on any attribute read: the Windows branch must not touch ``fcntl``."""
+
+    def __getattribute__(self, name):
+        if name.startswith("__"):
+            return super().__getattribute__(name)
+        raise AssertionError(f"fcntl.{name} touched on the Windows branch")
+
+
+class WindowsMechanismTests(unittest.TestCase):
+    """AC-5: the msvcrt branch reports its mechanism and never reads fcntl."""
+
+    def test_windows_branch_reports_msvcrt_and_never_touches_fcntl(self) -> None:
+        calls: list[int] = []
+        fake = types.SimpleNamespace(
+            LK_NBLCK=10, LK_LOCK=11, LK_UNLCK=12,
+            locking=lambda fd, mode, length: calls.append(mode),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "locks" / "record.lock"
+            with patch.object(rl.os, "name", "nt"), patch.dict(
+                sys.modules, {"msvcrt": fake, "fcntl": _FcntlTripwire("fcntl")}
+            ):
+                lock = rl.RuntimeFileLock(path, offset=1 << 30, style="record").acquire()
+                self.assertEqual(lock.mechanism, "msvcrt")
+                lock.release()
+        self.assertEqual(calls, [10, 12])
+
+
+class LayoutOwnershipTests(unittest.TestCase):
+    """AC-7: one layout owner; the indexer reads it from runtime_lock."""
+
+    def test_indexer_has_no_struct_flock_table(self) -> None:
+        self.assertFalse(hasattr(indexer, "_FLOCK_STRUCT"))
+        source = (SCRIPTS_DIR / "indexer.py").read_text(encoding="utf-8")
+        self.assertNotIn("@hhqqi", source)
+        self.assertNotIn("@qqihh", source)
+        tree = ast.parse(source)
+        module_level = {
+            node.module
+            for node in tree.body
+            if isinstance(node, ast.ImportFrom) and node.module
+        } | {
+            alias.name
+            for node in tree.body
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        }
+        self.assertNotIn("runtime_lock", module_level)
+
+    def test_an_older_runtime_lock_leaves_the_probe_undetermined(self) -> None:
+        if os.name == "nt":
+            self.skipTest("POSIX F_GETLK probe")
+        with tempfile.TemporaryDirectory() as tmp:
+            index_dir = Path(tmp)
+            (index_dir / indexer.INDEX_BUILD_LOCK_NAME).write_text("{}\n", encoding="utf-8")
+            stale = types.ModuleType("runtime_lock")
+            stale.process_hold = lambda path: None
+            stale.process_hold_guard = rl.process_hold_guard
+            with patch.dict(sys.modules, {"runtime_lock": stale}):
+                self.assertEqual(indexer._index_build_lock_held(index_dir), (None, None))
+
+
 if __name__ == "__main__":
     unittest.main()

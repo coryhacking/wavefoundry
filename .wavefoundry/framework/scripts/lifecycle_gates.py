@@ -382,7 +382,8 @@ def _evaluate_shared_delivery_state(
                 key,
                 approval_phase=(
                     "readiness"
-                    if key == "wave-council-readiness"
+                    if review_evidence.canonical_signoff_key(key)
+                    == review_evidence.COUNCIL_READINESS_SIGNOFF_KEY
                     else "delivery"
                 ),
             ),
@@ -550,7 +551,9 @@ def gardener_gate(ctx: GateContext, *, garden_passed: bool = True) -> GateResult
 
 def close_checkbox_gate(ctx: GateContext) -> GateResult:
     diagnostics: list[GateDiagnostic] = []
-    silent_all = lifecycle_gate_support._collect_silent_unchecked_items_for_close(ctx.wave_md, ctx.wave_text)
+    silent_all = lifecycle_gate_support._collect_silent_unchecked_items_for_close(
+        ctx.wave_md, ctx.wave_text, ctx.root
+    )
     # 1uu9z follow-up: an unreadable admitted document is a different failure
     # than an unchecked item and gets its own diagnostic. Folding it into the
     # unchecked-items count produced a false count and an unactionable
@@ -560,7 +563,24 @@ def close_checkbox_gate(ctx: GateContext) -> GateResult:
     unreadable_docs = [i for i in doc_findings if i["item_id"] == "unreadable"]
     missing_docs = [i for i in doc_findings if i["item_id"] == "missing"]
     missing_section_docs = [i for i in doc_findings if i["item_id"] == "missing_sections"]
-    silent_unchecked = [i for i in silent_all if i["item_type"] != "change document"]
+    # Wave 1zxo0 (1zxns): a member line whose id fails the allow-list is its
+    # own blocking code with the hand-edit recovery, never an unchecked item.
+    invalid_ids = [i for i in silent_all if i["item_type"] == "change id"]
+    silent_unchecked = [
+        i for i in silent_all if i["item_type"] not in ("change document", "change id")
+    ]
+    record_rel = lifecycle_gate_support._repo_rel(ctx.root, ctx.wave_md)
+    for item in invalid_ids:
+        diagnostics.append(
+            lifecycle_gate_support._diagnostic(
+                "change_id_invalid",
+                "Wave close blocked: " + lifecycle_gate_support._change_id_invalid_message(
+                    record_rel, {"line": item["item_text"], "reason": item["item_id"]}
+                ),
+                recovery_tools=["wf_validate_docs"],
+                recovery_usage="wf_validate_docs()",
+            )
+        )
     for item in missing_docs:
         diagnostics.append(
             lifecycle_gate_support._diagnostic(
@@ -938,7 +958,7 @@ def council_signoff_gate(ctx: GateContext) -> GateResult:
         and not required_council_signoffs
         and lifecycle_gate_support._read_workflow_config(ctx.root).get("wave_review") is None
     ):
-        required_council_signoffs = ["wave-council-readiness"]
+        required_council_signoffs = [review_evidence.COUNCIL_READINESS_SIGNOFF_KEY]
     if required_council_signoffs:
         # Wave 1to78: council-signoff currency is review-evidence content —
         # typed-exclusive on declared waves, prose on legacy waves.

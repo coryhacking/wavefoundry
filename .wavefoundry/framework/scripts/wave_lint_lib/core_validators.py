@@ -16,6 +16,7 @@ from .constants import (
 )
 from .helpers import load_json, resolve_record_roots
 from record_paths import validate_record_layout
+import vocabulary_profile as _vocab  # lifecycle prompt names (wave 1zyb4)
 from review_policy import (
     REVIEW_POLICY_OBLIGATION_ANCHORS,
     REVIEW_POLICY_SURFACE_MARKER_BEGIN,
@@ -394,9 +395,9 @@ def check_review_policy_carriers(root: Path) -> list[str]:
     policy_surface_active = any(
         REVIEW_POLICY_SURFACE_MARKER_BEGIN in path.read_text(encoding="utf-8")
         for path in (
-            root / "docs/prompts/prepare-wave.prompt.md",
-            root / "docs/prompts/review-wave.prompt.md",
-            root / "docs/prompts/close-wave.prompt.md",
+            root / _vocab.prompt_doc("prepare-wave"),
+            root / _vocab.prompt_doc("review-wave"),
+            root / _vocab.prompt_doc("close-wave"),
         )
         if path.is_file()
     )
@@ -616,6 +617,32 @@ def check_review_protocol_carrier_parity(
         upsert=_upsert_review_protocol_region,
         entries=entries,
     )
+
+
+def check_prompt_name_migration(root: Path) -> list[str]:
+    """A pending prompt-name migration (wave 1zyb4, change 1zxnw): the
+    manifest's applied names (``prompt_names``; absent means the defaults)
+    differ from the vocabulary profile's. Silent under the default profile with
+    no ``prompt_names`` key, and when the manifest is absent or unreadable
+    (``check_required_files`` and ``check_prompt_surface_manifest`` report it)."""
+    path = root / "docs/prompts/prompt-surface-manifest.json"
+    if not path.is_file():
+        return []
+    data, error = load_json(path)
+    if error or not isinstance(data, dict):
+        return []
+    try:
+        pending = _vocab.pending_prompt_name_keys(data.get("prompt_names"))
+    except ValueError as exc:
+        return [f"docs/prompts/prompt-surface-manifest.json: invalid `prompt_names` ({exc})"]
+    if not pending:
+        return []
+    return [
+        "docs/prompts/prompt-surface-manifest.json: lifecycle prompt-name migration pending for "
+        + ", ".join(f"`{key}` (to `{_vocab.prompt_doc(key)}`)" for key in pending)
+        + "; the applied names differ from the vocabulary profile's. Run `wf render-surfaces` "
+        "to move the prompts and record `prompt_names`."
+    ]
 
 
 def check_prompt_surface_manifest(root: Path) -> list[str]:

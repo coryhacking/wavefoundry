@@ -196,6 +196,121 @@ class FenceTests(unittest.TestCase):
         self.assertIn("- [ ] a", cdc.section_text(text, "Tasks"))
 
 
+def _reference_fenced_line_flags(lines: list[str]) -> list[bool]:
+    """The pre-1zxnt algorithm, verbatim (wave 1zyb2, change 1zxnt AC-1)."""
+    flags = [False] * len(lines)
+    index = 0
+    while index < len(lines):
+        depth, rest = cdc.split_blockquote(lines[index])
+        opener = cdc._fence_opener(rest)
+        if opener is None:
+            index += 1
+            continue
+        char, length = opener
+        close = None
+        for probe in range(index + 1, len(lines)):
+            probe_depth, probe_rest = cdc.split_blockquote(lines[probe])
+            if probe_depth < depth:
+                break
+            if probe_depth == depth and cdc._closes_fence(probe_rest, char, length):
+                close = probe
+                break
+        if close is None:
+            index += 1
+            continue
+        for flagged in range(index, close + 1):
+            flags[flagged] = True
+        index = close + 1
+    return flags
+
+
+class FenceScanDifferentialTests(unittest.TestCase):
+    """Wave 1zyb2 (1zxnt) AC-1: the linear scan returns exactly what the old scan returned."""
+
+    def _assert_same(self, lines):
+        self.assertEqual(cdc.fenced_line_flags(lines), _reference_fenced_line_flags(lines), lines)
+
+    def test_seeded_random_inputs_match_the_reference(self):
+        import random
+
+        rng = random.Random(1729)
+        bodies = []
+        for char in "`~":
+            for length in (3, 4, 5):
+                fence = char * length
+                bodies += [fence, fence + "python", fence + " md", fence + "  "]
+        bodies += ["```a`b", "plain text", "", "## Heading", "- [ ] item", "    ```", "``` not"]
+        for _ in range(400):
+            lines = []
+            for _ in range(rng.randint(0, 40)):
+                depth = rng.choice((0, 0, 0, 1, 1, 2, 3))
+                prefix = "".join(rng.choice(("> ", ">")) for _ in range(depth))
+                lines.append(prefix + rng.choice(bodies))
+            self._assert_same(lines)
+
+    def test_hand_written_cases_match_the_reference(self):
+        cases = [
+            "a\n```\nx\n```\nb",
+            "> ```\n> > ~~~\n> > x\n> > ~~~\n> ```",
+            "> ```\n> x\nplain\n```",
+            "> ```\nplain\n> ```\n> x\n> ```",
+            "````\nx\n```\ny\n```",
+            "```\n~~~\n```\n~~~",
+            "",
+            "```",
+            "```python\n```python\n```python",
+        ]
+        for text in cases:
+            with self.subTest(text=text):
+                self._assert_same(text.split("\n"))
+        self._assert_same([])
+
+    def test_an_opener_after_a_depth_drop_is_scanned_afresh(self):
+        lines = ["> ```", "> x", "plain", "> ```", "> y", "> ```"]
+        self.assertEqual(cdc.fenced_line_flags(lines), [False, False, False, True, True, True])
+        self._assert_same(lines)
+
+    def test_an_unterminated_fence_then_a_terminated_one_of_another_length(self):
+        lines = ["````", "```", "x", "```"]
+        self.assertEqual(cdc.fenced_line_flags(lines), [False, True, True, True])
+        self._assert_same(lines)
+
+
+class FenceScanScalingTests(unittest.TestCase):
+    """Wave 1zyb2 (1zxnt) AC-2: a ratio bound, not a wall-time bound."""
+
+    @staticmethod
+    def _best_of_three(lines):
+        import gc
+        import time
+
+        best = None
+        gc.disable()
+        try:
+            for _ in range(3):
+                start = time.perf_counter()
+                result = cdc.fenced_line_flags(lines)
+                elapsed = time.perf_counter() - start
+                best = elapsed if best is None else min(best, elapsed)
+        finally:
+            gc.enable()
+        return best, result
+
+    def _assert_linear(self, line):
+        small, small_result = self._best_of_three([line] * 2000)
+        large, large_result = self._best_of_three([line] * 8000)
+        self.assertEqual(small_result, [False] * 2000)
+        self.assertEqual(large_result, [False] * 8000)
+        ratio = large / max(small, 1e-9)
+        self.assertLess(ratio, 8, f"t(8000)/t(2000) = {ratio:.2f} for {line!r} (linear 4, quadratic 16)")
+
+    def test_unclosed_info_string_openers_scale_linearly(self):
+        self._assert_linear("```python")
+
+    def test_unclosed_quoted_tilde_openers_scale_linearly(self):
+        self._assert_linear("> ~~~x")
+
+
 class NearMissHeadingTests(unittest.TestCase):
     """Wave 1zls7 (1zltr) Requirement 4a (red-team R5)."""
 
@@ -309,8 +424,10 @@ class CloseGateShapeTests(unittest.TestCase):
                          [("AC", "AC-1", "AC-1: open")])
 
     def test_column_zero_id_outside_the_lint_shape_is_still_checked(self):
-        # Delivery review N2a: the collector keeps column-0 ids the lint
-        # record parser does not accept, so such a change cannot escape.
+        # Delivery review N2a: a column-0 id the lint record parser does not
+        # accept cannot escape the gate. Wave 1zxo0 (1zxns): it fails the
+        # allow-list, so it blocks as a `change id` finding (empty change id,
+        # reason class) and no path is built from it.
         block = (f"{_vocab.MEMBER_ID_LABEL}: `1abcd-bug sample`\n{_vocab.MEMBER_STATUS_LABEL}: `implementing`\n\n"
                  f"{_vocab.MEMBER_ID_LABEL}: `odd sample`\n{_vocab.MEMBER_STATUS_LABEL}: `implementing`\n")
         wave_md, wave_text = _write_wave(self.root, _doc(), change_block=block)
@@ -319,7 +436,7 @@ class CloseGateShapeTests(unittest.TestCase):
         self.assertNotIn("odd sample", [r.record_id for r in _parse_work_records(wave_text, "")])
         found = [(f["change_id"], f["item_id"])
                  for f in self.gates._collect_silent_unchecked_items_for_close(wave_md, wave_text)]
-        self.assertEqual(found, [("odd sample", "AC-1")])
+        self.assertEqual(found, [("", "shape")])
 
     def test_valid_document_findings_are_unchanged(self):
         # AC-4: canonical marks, `-` markers, no fences: the findings the

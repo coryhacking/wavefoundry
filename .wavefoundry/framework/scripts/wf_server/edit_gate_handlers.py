@@ -220,8 +220,17 @@ def wf_get_handoff_response(root: Path) -> dict[str, Any]:
             usage="wf_set_handoff(content='# Session Handoff\\n\\n...')",
         )
     try:
-        content = handoff_path.read_text(encoding="utf-8")
+        # Wave 1zxnz (1zx02): a handoff resolving to a runtime lock is never opened.
+        content = server_impl._read_repo_text_checked(root, handoff_path)
         mtime = handoff_path.stat().st_mtime
+    except server_impl.RuntimeLockTargetRefused as exc:
+        return server_impl._response(
+            "error",
+            {"path": "docs/agents/session-handoff.md"},
+            diagnostics=[server_impl._runtime_lock_target_refused_diagnostic(exc.rel_path)],
+            next_tools=["wf_current_wave"],
+            usage="wf_current_wave()",
+        )
     except OSError as exc:
         return server_impl._response("error", {"path": "docs/agents/session-handoff.md"}, diagnostics=[_diagnostic("read_error", str(exc))], next_tools=["wf_current_wave"], usage="wf_current_wave()")
     return server_impl._response(
@@ -237,8 +246,18 @@ def wf_set_handoff_response(root: Path, content: str, cache: Optional[server_imp
     from wf_server import server_impl
     handoff_path = root / "docs" / "agents" / "session-handoff.md"
     try:
+        # Wave 1zxnz (1zx02): a handoff resolving to a runtime lock is never opened.
+        server_impl._refuse_runtime_lock_target(root, handoff_path)
         handoff_path.parent.mkdir(parents=True, exist_ok=True)
         handoff_path.write_text(content, encoding="utf-8")
+    except server_impl.RuntimeLockTargetRefused as exc:
+        return server_impl._response(
+            "error",
+            {"path": "docs/agents/session-handoff.md"},
+            diagnostics=[server_impl._runtime_lock_target_refused_diagnostic(exc.rel_path)],
+            next_tools=["wf_current_wave"],
+            usage="wf_current_wave()",
+        )
     except OSError as exc:
         return server_impl._response("error", {"path": "docs/agents/session-handoff.md"}, diagnostics=[_diagnostic("write_error", str(exc))], next_tools=["wf_current_wave"], usage="wf_current_wave()")
     server_impl._trigger_background_index_refresh_for_paths(root, ["docs/agents/session-handoff.md"])

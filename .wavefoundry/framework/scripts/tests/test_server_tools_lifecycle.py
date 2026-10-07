@@ -244,13 +244,13 @@ class ListWavesTests(unittest.TestCase):
 
     def test_parses_changes(self):
         _make_wave(self.root, "1200a my-wave", "active", [
-            {"id": "1234-feat foo", "status": "ready"},
-            {"id": "1235-bug bar", "status": "planned"},
+            {"id": "1234a-feat foo", "status": "ready"},
+            {"id": "1235a-bug bar", "status": "planned"},
         ])
         waves = self.srv.list_waves(self.root)
         changes = waves[0]["changes"]
         self.assertEqual(len(changes), 2)
-        self.assertEqual(changes[0]["id"], "1234-feat foo")
+        self.assertEqual(changes[0]["id"], "1234a-feat foo")
         self.assertEqual(changes[0]["status"], "ready")
 
     def test_multiple_waves_sorted(self):
@@ -1283,7 +1283,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "operator-signoff", actor="operator", fresh=False, independent=False
         )
         council = self._approval_record(
-            "wave-council-delivery", actor="wave-council", fresh=True, independent=True
+            "council-delivery", actor="wave-council", fresh=True, independent=True
         )
         full_repair = {
             "record_type": "finding_synthesis",
@@ -1298,16 +1298,16 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         }
         diagnostics = self.srv.lifecycle_gates._approval_evidence_diagnostics(
             "marked",
-            ["operator-signoff", "wave-council-delivery"],
+            ["operator-signoff", "council-delivery"],
             records=(operator, council, full_repair),
         )
         self.assertTrue(diagnostics)
         self.assertIn("operator-signoff", diagnostics[0]["message"])
-        self.assertIn("wave-council-delivery", diagnostics[0]["message"])
+        self.assertIn("council-delivery", diagnostics[0]["message"])
 
     def test_prepare_readiness_approval_is_not_staled_by_delivery_repairs(self):
         readiness = self._approval_record(
-            "wave-council-readiness",
+            "council-readiness",
             actor="wave-council",
             fresh=True,
             independent=True,
@@ -1320,8 +1320,8 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "evidence_record_id": "ev-delivery-finding",
             "cycle": 1,
             "approval_recheck_lanes": [
-                "wave-council-readiness",
-                "wave-council-delivery",
+                "council-readiness",
+                "council-delivery",
             ],
             "review_depth": "full",
             "blocking": True,
@@ -1342,7 +1342,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "cycle": 0,
         }
         delivery = self._approval_record(
-            "wave-council-delivery",
+            "council-delivery",
             actor="wave-council",
             fresh=True,
             independent=True,
@@ -1350,7 +1350,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertEqual(
             self.srv.lifecycle_gates._approval_evidence_diagnostics(
                 "marked",
-                ["wave-council-readiness", "wave-council-delivery"],
+                ["council-readiness", "council-delivery"],
                 records=(readiness, delivery_finding, delivery_run, full_repair, delivery),
             ),
             [],
@@ -1358,7 +1358,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertTrue(
             self.srv.lifecycle_gates._approval_evidence_diagnostics(
                 "marked",
-                ["wave-council-readiness", "wave-council-delivery"],
+                ["council-readiness", "council-delivery"],
                 records=(readiness, delivery_finding, delivery_run, delivery, full_repair),
             )
         )
@@ -1416,8 +1416,8 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         text = wave_md.read_text(encoding="utf-8")
         text = text.replace("Status: planned", "Status: closed", 1).replace(
-            "| wave-council-readiness | pending |",
-            "| wave-council-readiness | historical |",
+            "| council-readiness | pending |",
+            "| council-readiness | historical |",
             1,
         )
         wave_md.write_text(text, encoding="utf-8")
@@ -5282,7 +5282,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
             rejected = self.srv.wf_review_event_response(
                 self.root, self.wave_id, "approval", "wave-council",
                 f"bad-readiness-{supplied_phase}", mode="create",
-                signoff_key="wave-council-readiness",
+                signoff_key="council-readiness",
                 approval_phase=supplied_phase, fresh_context=True, independent=True,
                 integrity_checks=integrity_checks(),
                 evidence={"observed": "invalid phase", "artifact_or_test_id": "phase"},
@@ -5937,12 +5937,12 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
         (self.wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(
             # Wave 1zv87 (1zv85): marking requires the change to be admitted.
             f"# Wave\n\nWave ID: `{self.wave_id}`\nStatus: implementing\n\n"
-            f"{vocabulary_profile.MEMBER_ID_LABEL}: `1200c-mark-sample`\n",
+            f"{vocabulary_profile.MEMBER_ID_LABEL}: `1200c-enh mark-sample`\n",
             encoding="utf-8",
         )
 
     def _write_change(self, body):
-        (self.wave_dir / "1200c-mark-sample.md").write_text(body, encoding="utf-8")
+        (self.wave_dir / "1200c-enh mark-sample.md").write_text(body, encoding="utf-8")
 
     @staticmethod
     def _diagnostic(response):
@@ -5953,7 +5953,7 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
             "# Sample\n\n## Tasks\n\n- [ ] Implement\n- [ ] Implement\n"
         )
         response = self.srv._mark_change_item_response(
-            self.root, self.wave_id, "1200c-mark-sample", "Implement", "x", target_section="Tasks",
+            self.root, self.wave_id, "1200c-enh mark-sample", "Implement", "x", target_section="Tasks",
         )
         diagnostic = self._diagnostic(response)
         self.assertEqual(response["status"], "error")
@@ -5967,7 +5967,7 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
             "# Sample\n\n## Tasks\n\nA prose line that is not a checkbox.\n- [ ] Implement\n"
         )
         response = self.srv._mark_change_item_response(
-            self.root, self.wave_id, "1200c-mark-sample", "Missing", "x", target_section="Tasks",
+            self.root, self.wave_id, "1200c-enh mark-sample", "Missing", "x", target_section="Tasks",
         )
         diagnostic = self._diagnostic(response)
         self.assertEqual(response["status"], "error")
@@ -5981,12 +5981,12 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
             "  and preserve semicolon values.\n"
         )
         response = self.srv._mark_change_item_response(
-            self.root, self.wave_id, "1200c-mark-sample",
+            self.root, self.wave_id, "1200c-enh mark-sample",
             "Implement the parser and preserve semicolon values.", "x",
             target_section="Tasks", mode="create",
         )
         self.assertEqual(response["status"], "ok", response)
-        self.assertIn("[x] Implement the parser", (self.wave_dir / "1200c-mark-sample.md").read_text(encoding="utf-8"))
+        self.assertIn("[x] Implement the parser", (self.wave_dir / "1200c-enh mark-sample.md").read_text(encoding="utf-8"))
 
     def test_missing_wrapped_task_returns_every_logical_label(self):
         self._write_change(
@@ -5994,7 +5994,7 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
             "  and preserve semicolon values.\n- [ ] Add tests.\n"
         )
         response = self.srv._mark_change_item_response(
-            self.root, self.wave_id, "1200c-mark-sample", "Missing", "x",
+            self.root, self.wave_id, "1200c-enh mark-sample", "Missing", "x",
             target_section="Tasks",
         )
         self.assertEqual(response["status"], "error", response)
@@ -6010,7 +6010,7 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
             "| AC-1 | required | Core |\n"
         )
         response = self.srv._mark_change_item_response(
-            self.root, self.wave_id, "1200c-mark-sample", "AC-1", "~", target_section="Acceptance Criteria",
+            self.root, self.wave_id, "1200c-enh mark-sample", "AC-1", "~", target_section="Acceptance Criteria",
         )
         diagnostic = self._diagnostic(response)
         self.assertEqual(response["status"], "error")
@@ -6022,7 +6022,7 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
         wave_md = self.wave_dir / vocabulary_profile.RECORD_FILENAME
         wave_text = (
             _loc(f"# Wave Record\nwave-id: `{self.wave_id}`\nStatus: implementing\n\n"
-                 "## Changes\n\nChange ID: `1200c-mark-sample`\nChange Status: `implementing`\n")
+                 "## Changes\n\nChange ID: `1200c-enh mark-sample`\nChange Status: `implementing`\n")
         )
         wave_md.write_text(wave_text, encoding="utf-8")
         return self.srv.lifecycle_gate_support._collect_silent_unchecked_items_for_close(wave_md, wave_text)
@@ -6039,19 +6039,19 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
         self._write_change(body)
         self.assertEqual(len(self._close_findings()), 2)
         ac = self.srv._mark_change_item_response(
-            self.root, self.wave_id, "1200c-mark-sample", "AC-1", "x",
+            self.root, self.wave_id, "1200c-enh mark-sample", "AC-1", "x",
             target_section="Acceptance Criteria", mode="create",
         )
         self.assertEqual(ac["status"], "ok", ac)
         task = self.srv._mark_change_item_response(
-            self.root, self.wave_id, "1200c-mark-sample", "dash step", "x",
+            self.root, self.wave_id, "1200c-enh mark-sample", "dash step", "x",
             target_section="Tasks", mode="create",
         )
         self.assertEqual(task["status"], "ok", task)
         self.assertEqual(task["data"]["matched_text"], "- [x] dash step\n")
         expected = body.replace("> - [ ] AC-1", "> - [x] AC-1").replace(
             "- [-] dash step\n```", "- [x] dash step\n```", 1)
-        self.assertEqual((self.wave_dir / "1200c-mark-sample.md").read_text(encoding="utf-8"), expected)
+        self.assertEqual((self.wave_dir / "1200c-enh mark-sample.md").read_text(encoding="utf-8"), expected)
         self.assertEqual(self._close_findings(), [])
 
     def test_mark_reads_near_miss_sections(self):
@@ -6060,11 +6060,11 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
         body = "# Sample\n\n##  Tasks\n\n   - [ ] indented step\n"
         self._write_change(body)
         response = self.srv._mark_change_item_response(
-            self.root, self.wave_id, "1200c-mark-sample", "indented step", "x",
+            self.root, self.wave_id, "1200c-enh mark-sample", "indented step", "x",
             target_section="Tasks", mode="create",
         )
         self.assertEqual(response["status"], "ok", response)
-        self.assertEqual((self.wave_dir / "1200c-mark-sample.md").read_text(encoding="utf-8"),
+        self.assertEqual((self.wave_dir / "1200c-enh mark-sample.md").read_text(encoding="utf-8"),
                          body.replace("[ ]", "[x]"))
 
     def test_quoted_wrapped_criterion_marks_by_its_logical_label_with_reason(self):
@@ -6075,7 +6075,7 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
         )
         self._write_change(body)
         response = self.srv._mark_change_item_response(
-            self.root, self.wave_id, "1200c-mark-sample", "AC-1: wrapped criterion", "~",
+            self.root, self.wave_id, "1200c-enh mark-sample", "AC-1: wrapped criterion", "~",
             target_section="Acceptance Criteria", reason="Operator removed it during implementation", mode="create",
         )
         self.assertEqual(response["status"], "ok", response)
@@ -6090,10 +6090,10 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
             "## AC Priority\r\n\r\n| AC | Priority | Rationale |\r\n| --- | --- | --- |\r\n"
             "| AC-1 | required | Core |\r\n| AC-2 | required | Core |\r\n"
         ).encode("utf-8")
-        path = self.wave_dir / "1200c-mark-sample.md"
+        path = self.wave_dir / "1200c-enh mark-sample.md"
         path.write_bytes(body)
         task = self.srv._mark_change_item_response(
-            self.root, self.wave_id, "1200c-mark-sample", "Implement", "x",
+            self.root, self.wave_id, "1200c-enh mark-sample", "Implement", "x",
             target_section="Tasks", mode="create",
         )
         self.assertEqual(task["status"], "ok", task)
@@ -6101,14 +6101,14 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
         expected = body.replace(b"- [ ] Implement", b"- [x] Implement")
         self.assertEqual(path.read_bytes(), expected)
         ac = self.srv._mark_change_item_response(
-            self.root, self.wave_id, "1200c-mark-sample", "AC-2: wrapped criterion", "~",
+            self.root, self.wave_id, "1200c-enh mark-sample", "AC-2: wrapped criterion", "~",
             target_section="Acceptance Criteria", reason="Dropped", mode="create",
         )
         self.assertEqual(ac["status"], "ok", ac)
         expected = expected.replace(b"- [ ] AC-2: wrapped\r\n", b"- [~] AC-2: wrapped *Dropped*\r\n")
         self.assertEqual(path.read_bytes(), expected)
         again = self.srv._mark_change_item_response(
-            self.root, self.wave_id, "1200c-mark-sample", "Implement", "x",
+            self.root, self.wave_id, "1200c-enh mark-sample", "Implement", "x",
             target_section="Tasks", mode="create",
         )
         self.assertFalse(again["data"]["changed"])
@@ -6127,7 +6127,7 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
                 )
                 self._write_change(body)
                 response = self.srv._mark_change_item_response(
-                    self.root, self.wave_id, "1200c-mark-sample", "AC-1: quoted", "x",
+                    self.root, self.wave_id, "1200c-enh mark-sample", "AC-1: quoted", "x",
                     target_section="Acceptance Criteria",
                 )
                 self.assertEqual(response["status"], "ok", response)
@@ -6227,7 +6227,7 @@ class MarkAcReceiptRefreshTests(unittest.TestCase):
             "wave-council",
             "receipt-refresh-before-deferral",
             mode="create",
-            signoff_key="wave-council-readiness",
+            signoff_key="council-readiness",
             approval_phase="readiness",
             fresh_context=True,
             independent=True,
@@ -6262,7 +6262,7 @@ class MarkAcReceiptRefreshTests(unittest.TestCase):
         self.assertGreater(refreshed["review_actions"]["total_current_actions"], 0)
         self.assertEqual(
             refreshed["review_actions"]["next_actions"][0]["state_args"]["signoff_key"],
-            "wave-council-readiness",
+            "council-readiness",
         )
         self.assertIn("[~] AC-1: Defer only with a reason.", self.change_path.read_text(encoding="utf-8"))
         self.assertIn("requires an operator-run compatibility project", self.change_path.read_text(encoding="utf-8"))
@@ -8614,7 +8614,7 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
         _append_typed_approval(
             self.root,
             wave_id,
-            "wave-council-readiness",
+            "council-readiness",
             actor="wave-council",
         )
         wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
@@ -9204,7 +9204,7 @@ class SeverityTriageTests(unittest.TestCase):
         yields no finding."""
         self._make_wave_with_evidence([
             "- operator-signoff: approved",
-            "- wave-council-delivery: approved — rotating-seat [highest-salience surface]; "
+            "- council-delivery: approved — rotating-seat [highest-salience surface]; "
             "flow below the allow threshold; lower risk; criticality assessed",
         ])
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
@@ -9262,8 +9262,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 "delivery_mode": "universal" if enabled else "disabled",
                 "transition_policy": transition_policy,
                 "phases": {
-                    "prepare": {"signoff_key": "wave-council-readiness", "moderator_role": "wave-council"},
-                    "review": {"signoff_key": "wave-council-delivery", "moderator_role": "wave-council"},
+                    "prepare": {"signoff_key": "council-readiness", "moderator_role": "wave-council"},
+                    "review": {"signoff_key": "council-delivery", "moderator_role": "wave-council"},
                 },
             },
         }
@@ -9323,10 +9323,10 @@ class WaveCouncilPolicyTests(unittest.TestCase):
 
     def test_prepare_passes_when_readiness_signoff_present(self):
         self._write_config()
-        self._make_wave(status="planned", evidence_lines=["- wave-council-readiness: approved"])
+        self._make_wave(status="planned", evidence_lines=["- council-readiness: approved"])
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
             result = self.srv.wf_prepare_wave_response(self.root, "1200a test-wave", mode="dry_run")
-        self.assertIn("wave-council-readiness", result["data"]["required_council_signoffs"])
+        self.assertIn("council-readiness", result["data"]["required_council_signoffs"])
         self.assertNotEqual(result["status"], "error")
 
     def test_review_requires_delivery_council_signoff(self):
@@ -9344,7 +9344,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             evidence_lines=[
                 "- operator-signoff: approved",
                 "- code-reviewer: approved",
-                "- wave-council-delivery: approved",
+                "- council-delivery: approved",
             ],
         )
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
@@ -9366,7 +9366,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self._make_wave(status="active", evidence_lines=["- operator-signoff: approved", "- code-reviewer: approved"])
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
             result = self.srv.wf_review_wave_response(self.root, "1200a test-wave")
-        self.assertEqual(result["data"]["required_council_signoffs"], ["wave-council-delivery"])
+        self.assertEqual(result["data"]["required_council_signoffs"], ["council-delivery"])
         self.assertTrue(any(d["code"] == "missing_wave_council_signoff" for d in result["diagnostics"]))
 
     def test_transition_policy_close_does_not_require_missing_readiness_signoff(self):
@@ -9376,13 +9376,13 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             evidence_lines=[
                 "- operator-signoff: approved",
                 "- code-reviewer: approved",
-                "- wave-council-delivery: approved",
+                "- council-delivery: approved",
             ],
         )
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
                 result = self.srv.wf_close_wave_response(self.root, "1200a test-wave", mode="dry_run")
-        self.assertEqual(result["data"]["required_council_signoffs"], ["wave-council-delivery"])
+        self.assertEqual(result["data"]["required_council_signoffs"], ["council-delivery"])
         self.assertFalse(any(d["code"] == "missing_wave_council_signoff" for d in result.get("diagnostics", [])))
 
     def test_transition_policy_distinguishes_stale_absent_and_current_readiness(self):
@@ -9400,9 +9400,9 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         """
         self._write_config(transition_policy="applies-from-next-prepare")
         expected = {
-            "stale": ["wave-council-readiness", "wave-council-delivery"],
-            "absent": ["wave-council-readiness", "wave-council-delivery"],
-            "current": ["wave-council-readiness", "wave-council-delivery"],
+            "stale": ["council-readiness", "council-delivery"],
+            "absent": ["council-readiness", "council-delivery"],
+            "current": ["council-readiness", "council-delivery"],
         }
         for state, keys in expected.items():
             created = self.srv.wf_create_wave_response(
@@ -9429,7 +9429,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                     "wave-council",
                     f"transition-{state}-approval",
                     mode="create",
-                    signoff_key="wave-council-readiness",
+                    signoff_key="council-readiness",
                     approval_phase="readiness",
                     fresh_context=True,
                     independent=True,
@@ -9479,7 +9479,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                     },
                     source_lanes=["qa-reviewer"],
                     blocking_required_lanes=["qa-reviewer"],
-                    approval_recheck_lanes=["wave-council-readiness"],
+                    approval_recheck_lanes=["council-readiness"],
                     review_boundaries_changed=[],
                     fresh_context=True,
                     independent=True,
@@ -9556,7 +9556,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         )
         self.assertEqual(
             self._close_roster(wave_md),
-            ["wave-council-readiness", "wave-council-delivery"],
+            ["council-readiness", "council-delivery"],
             "governed wave with no readiness approval must keep the readiness key",
         )
 
@@ -9577,7 +9577,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             wave_id=wave_id,
             event="approval",
             mode="create",
-            signoff_key="wave-council-delivery",
+            signoff_key="council-delivery",
             approval_phase="delivery",
             actor="wave-council",
             context_id="close-exit-b-delivery",
@@ -9595,7 +9595,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         # key, which is strictly MORE permissive than the silent accept.
         self.assertEqual(
             self._close_roster(wave_md),
-            ["wave-council-readiness", "wave-council-delivery"],
+            ["council-readiness", "council-delivery"],
             "a current delivery approval must not drop the readiness key from a "
             "wave that was prepared under the policy",
         )
@@ -9615,12 +9615,12 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             _waves_dir(self.root) / created["data"]["wave_id"] / vocabulary_profile.RECORD_FILENAME
         )
         self.assertNotIn(
-            "wave-council-readiness",
+            "council-readiness",
             self._close_roster(wave_md),
             "a wave never prepared under the policy keeps its carve-out",
         )
 
-    def _prepared_wave_with_change(self, slug, change_id="1abc-bug sample", *, ready=True):
+    def _prepared_wave_with_change(self, slug, change_id="1abcz-bug sample", *, ready=True):
         """A governed wave built through canonical creation/admission/Prepare."""
         from server_tools_support import make_declared_wave, declared_wave_doc_gates
         from test_declared_wave_fixtures import fixture_doc_stubs
@@ -9649,7 +9649,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
     def _record_readiness_approval(self, wave_id, signoff_key, context_id):
         # A specialist lane must be recorded BY that lane; only the council key
         # is recorded by `wave-council`.
-        actor = "wave-council" if signoff_key.startswith("wave-council") else signoff_key
+        actor = "wave-council" if signoff_key.startswith(("wave-council", "council-")) else signoff_key
         self.srv.wf_review_event_response(
             self.root, wave_id=wave_id, event="run", mode="create",
             actor=actor, context_id=context_id,
@@ -9690,7 +9690,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             for mode in ("dry_run", "create"):
                 result = self.srv.wf_review_event_response(
                     self.root, wave_id=wave_id, event="approval", mode=mode,
-                    signoff_key="wave-council-readiness", approval_phase="readiness",
+                    signoff_key="council-readiness", approval_phase="readiness",
                     actor="wave-council", context_id=context,
                     fresh_context=True, independent=True,
                     evidence={"observed": "reviewed scope", "artifact_or_test_id": artifact},
@@ -9729,7 +9729,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                     "disposition_rationale": "required readiness behavior",
                 },
                 source_lanes=["qa-reviewer"], blocking_required_lanes=["qa-reviewer"],
-                approval_recheck_lanes=["wave-council-readiness"], review_boundaries_changed=[],
+                approval_recheck_lanes=["council-readiness"], review_boundaries_changed=[],
                 fresh_context=True, independent=True, integrity_checks=integrity_checks(),
             )
             self.assertEqual(result["status"], "dry_run" if mode == "dry_run" else "ok", result)
@@ -9742,7 +9742,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self._run_prepare(wave_id=wave_id, mode="ready")
         result = self.srv.wf_review_event_response(
             self.root, wave_id, "approval", "wave-council", "delivery-only",
-            mode="create", signoff_key="wave-council-delivery", approval_phase="delivery",
+            mode="create", signoff_key="council-delivery", approval_phase="delivery",
             fresh_context=True, independent=True,
             evidence={"observed": "delivery reviewed", "artifact_or_test_id": "test:delivery-only"},
             integrity_checks=integrity_checks(),
@@ -9760,10 +9760,10 @@ class WaveCouncilPolicyTests(unittest.TestCase):
     def test_prepare_supersession_attribution_and_delivery_currency(self):
         self._write_config(transition_policy="applies-from-next-prepare")
         wave_id, wave_md, change_path = self._prepared_wave_with_change("metadata-rotation")
-        approved = self._record_readiness_approval(wave_id, "wave-council-readiness", "metadata-ready")
+        approved = self._record_readiness_approval(wave_id, "council-readiness", "metadata-ready")
         self.assertEqual(approved["status"], "ok", approved)
         self.assertTrue(self.srv.resolve_review_authority(self.root, wave_md).signoff_current(
-            "wave-council-readiness", approval_phase="readiness"))
+            "council-readiness", approval_phase="readiness"))
         run = self.srv.wf_review_event_response(
             self.root, wave_id=wave_id, event="run", mode="create",
             actor="wave-council", context_id="metadata-delivery",
@@ -9772,7 +9772,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self.assertEqual(run["status"], "ok", run)
         approval = self.srv.wf_review_event_response(
             self.root, wave_id=wave_id, event="approval", mode="create",
-            signoff_key="wave-council-delivery", approval_phase="delivery",
+            signoff_key="council-delivery", approval_phase="delivery",
             actor="wave-council", context_id="metadata-delivery",
             fresh_context=True, independent=True,
             evidence={"observed": "delivery reviewed", "artifact_or_test_id": "test:metadata"},
@@ -9789,15 +9789,15 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             result = self._run_prepare(wave_id=wave_id, mode=mode)
             diagnostic = next(d for d in result["diagnostics"] if d["code"] == "review_policy_receipt_superseded")
             self.assertTrue(diagnostic["advisory"])
-            self.assertIn("changed change docs: 1abc-bug sample", diagnostic["message"])
+            self.assertIn("changed change docs: 1abcz-bug sample", diagnostic["message"])
             self.assertIn("Which section changed is not attributable from persisted data", diagnostic["message"])
             self.assertNotIn("policy_inputs", result["data"]["review_policy"]["receipt"])
             self.assertIn("missing_wave_council_signoff", [d["code"] for d in result["diagnostics"]])
             authority = self.srv.resolve_review_authority(self.root, wave_md)
-            self.assertTrue(authority.signoff_current("wave-council-delivery", approval_phase="delivery"))
-            projection = self.srv.review_authority_projection(authority.records, ["wave-council-delivery"], approval_phase="delivery")
+            self.assertTrue(authority.signoff_current("council-delivery", approval_phase="delivery"))
+            projection = self.srv.review_authority_projection(authority.records, ["council-delivery"], approval_phase="delivery")
             self.assertIn("not receipt-bound", projection["status_rows"][0]["why"])
-            actions, _ = self.srv._guided_review_actions(authority.records, ["wave-council-delivery"], approval_phase="delivery", required_run_kind="initial_delivery")
+            actions, _ = self.srv._guided_review_actions(authority.records, ["council-delivery"], approval_phase="delivery", required_run_kind="initial_delivery")
             self.assertFalse(any(action.get("state_args", {}).get("event") == "approval" for action in actions["next_actions"]))
 
     def test_prepare_supersession_success_and_legacy_metadata_fallback(self):
@@ -9825,12 +9825,12 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             if mode == "ready":
                 self.assertIn("Which specific document changed is not attributable from persisted data", message)
             else:
-                self.assertIn("changed change docs: 1abc-bug sample", message)
+                self.assertIn("changed change docs: 1abcz-bug sample", message)
 
     def test_repeated_receipt_advice_tracks_latest_approval_per_lane(self):
         self._write_config()
         wave_id, wave_md, change_path = self._prepared_wave_with_change("metadata-repeat")
-        for lane in ("wave-council-readiness", "qa-reviewer"):
+        for lane in ("council-readiness", "qa-reviewer"):
             approved = self._record_readiness_approval(wave_id, lane, "old-" + lane)
             self.assertEqual(approved["status"], "ok", approved)
         old_records = self.srv.resolve_review_authority(self.root, wave_md).records
@@ -9846,10 +9846,10 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         initial = advice()
         self.assertEqual(len(initial), 1)
         self.assertTrue(initial[0]["advisory"])
-        self.assertIn("changed change docs: 1abc-bug sample", initial[0]["message"])
+        self.assertIn("changed change docs: 1abcz-bug sample", initial[0]["message"])
         # Delivery inspection never repeats readiness advice.
         self.assertFalse(advice("implementation"))
-        self.assertEqual(self._record_readiness_approval(wave_id, "wave-council-readiness", "repeat-council")["status"], "ok")
+        self.assertEqual(self._record_readiness_approval(wave_id, "council-readiness", "repeat-council")["status"], "ok")
         self.assertTrue(advice(), "qa's latest approval still has the old binding")
         self.assertEqual(self._record_readiness_approval(wave_id, "qa-reviewer", "repeat-qa")["status"], "ok")
         self.assertFalse(advice(), "historical approvals must not keep advice alive")
@@ -9877,7 +9877,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self._write_config(transition_policy="applies-from-next-prepare")
         wave_id, wave_md, change_path = self._prepared_wave_with_change("stale-refusal")
 
-        ok = self._record_readiness_approval(wave_id, "wave-council-readiness", "c0")
+        ok = self._record_readiness_approval(wave_id, "council-readiness", "c0")
         self.assertEqual(ok["status"], "ok", ok)
 
         # Move a policy input: a requirement edit is digested.
@@ -9898,7 +9898,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
 
         refused = self.srv.wf_review_event_response(
             self.root, wave_id=wave_id, event="approval", mode="create",
-            signoff_key="wave-council-readiness", approval_phase="readiness",
+            signoff_key="council-readiness", approval_phase="readiness",
             actor="wave-council", context_id="c1",
             fresh_context=True, independent=True,
             evidence={
@@ -9921,7 +9921,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
     def test_the_refusal_covers_specialist_lanes_not_only_the_council_key(self):
         """1upba AC-1: `readiness_approval` is true for every key except two.
 
-        An implementation scoped to `wave-council-readiness` alone would pass a
+        An implementation scoped to `council-readiness` alone would pass a
         council-key-only test while leaving specialist lanes accepting stale
         binds, which is half the defect shipping.
         """
@@ -9942,7 +9942,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         """1upba AC-1 negative boundary.
 
         The `readiness_approval` predicate deliberately excludes
-        `wave-council-delivery` and `operator-signoff`.  An implementer who
+        `council-delivery` and `operator-signoff`.  An implementer who
         hoisted the recompute above that branch would refuse them while still
         passing every positive case above.
         """
@@ -9959,7 +9959,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         )
         delivery = self.srv.wf_review_event_response(
             self.root, wave_id=wave_id, event="approval", mode="create",
-            signoff_key="wave-council-delivery", approval_phase="delivery",
+            signoff_key="council-delivery", approval_phase="delivery",
             actor="wave-council", context_id="dv",
             fresh_context=True, independent=True,
             evidence={
@@ -9988,7 +9988,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             encoding="utf-8",
         )
         refused = self._record_readiness_approval(
-            wave_id, "wave-council-readiness", "ambig"
+            wave_id, "council-readiness", "ambig"
         )
         self.assertEqual(refused["status"], "error", refused)
         message = " ".join(d["message"] for d in refused["diagnostics"])
@@ -10005,7 +10005,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         wave_id, _wave_md, change_path = self._prepared_wave_with_change("stale-read")
         change_path.write_bytes(b"\xff\xfe not valid utf-8 \xff")
         accepted = self._record_readiness_approval(
-            wave_id, "wave-council-readiness", "unreadable"
+            wave_id, "council-readiness", "unreadable"
         )
         self.assertEqual(accepted["status"], "ok", accepted)
         codes = [d["code"] for d in accepted["diagnostics"]]
@@ -10027,14 +10027,14 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             encoding="utf-8",
         )
         refused = self._record_readiness_approval(
-            wave_id, "wave-council-readiness", "attr"
+            wave_id, "council-readiness", "attr"
         )
         message = " ".join(d["message"] for d in refused["diagnostics"])
         self.assertIn("current receipt", message)
         self.assertIn("pending receipt", message)
         self.assertIn("policy_input_digest", message)
         self.assertIn("digested change ids", message)
-        self.assertIn("1abc-bug sample", message)
+        self.assertIn("1abcz-bug sample", message)
         self.assertIn("not attributable from persisted data", message)
 
     def test_prepare_dry_run_surfaces_a_pending_mint_and_writes_nothing(self):
@@ -10095,7 +10095,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             encoding="utf-8",
         )
         refused = self._record_readiness_approval(
-            wave_id, "wave-council-readiness", "nondigest"
+            wave_id, "council-readiness", "nondigest"
         )
         self.assertEqual(refused["status"], "error", refused)
         message = " ".join(d["message"] for d in refused["diagnostics"])
@@ -10117,7 +10117,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         # names which tool it drives". An earlier version guarded on a
         # `wf_mark_ac_response` symbol that exists nowhere in the tree.
         marked = self.srv._mark_change_item_response(
-            self.root, wave_id, "1abc-bug sample", "AC-1", "~",
+            self.root, wave_id, "1abcz-bug sample", "AC-1", "~",
             target_section="Acceptance Criteria", mode="create",
             reason="Deliberately deferred for this fixture so the deferral path "
                    "publishes a receipt and the supersession signal is observable.",
@@ -10154,7 +10154,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             "{not valid json at all\n", encoding="utf-8"
         )
         self.assertIn(
-            "wave-council-readiness",
+            "council-readiness",
             self._close_roster(wave_md),
             "an unreadable ledger must not be read as never-prepared",
         )
@@ -10183,7 +10183,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         with self.subTest(cause="decode"):
             wave_md.write_bytes(b"\xff\xfe not valid utf-8 \xff")
             self.assertIn(
-                "wave-council-readiness",
+                "council-readiness",
                 self.srv.lifecycle_gate_support._required_wave_council_signoffs(
                     self.root, "close", wave_md=wave_md
                 ),
@@ -10200,7 +10200,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             finally:
                 os.chmod(wave_md, stat.S_IRUSR | stat.S_IWUSR)
             self.assertIn(
-                "wave-council-readiness",
+                "council-readiness",
                 roster,
                 "a permission-unreadable wave record must not be read as "
                 "never-prepared",
@@ -10220,7 +10220,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         cfg["wave_review"] = "not an object"
         cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
         refused = self._record_readiness_approval(
-            wave_id, "wave-council-readiness", "badcfg"
+            wave_id, "council-readiness", "badcfg"
         )
         self.assertEqual(refused["status"], "error", refused)
         message = " ".join(d["message"] for d in refused["diagnostics"])
@@ -10241,10 +10241,10 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             encoding="utf-8",
         )
         refused = self._record_readiness_approval(
-            wave_id, "wave-council-readiness", "ambignamed"
+            wave_id, "council-readiness", "ambignamed"
         )
         message = " ".join(d["message"] for d in refused["diagnostics"])
-        self.assertIn("1abc-bug sample", message, "the offending document must be named")
+        self.assertIn("1abcz-bug sample", message, "the offending document must be named")
         self.assertIn("Progress Log", message, "the offending heading must be named")
 
     def test_an_accepted_degraded_approval_is_actually_appended(self):
@@ -10254,7 +10254,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         wave_id, wave_md, change_path = self._prepared_wave_with_change("degraded-append")
         change_path.write_bytes(b"\xff\xfe not valid utf-8 \xff")
         accepted = self._record_readiness_approval(
-            wave_id, "wave-council-readiness", "degraded"
+            wave_id, "council-readiness", "degraded"
         )
         self.assertEqual(accepted["status"], "ok", accepted)
         authority = self.srv.resolve_review_authority(
@@ -10262,7 +10262,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         )
         self.assertTrue(
             authority.signoff_recorded(
-                "wave-council-readiness", approval_phase="readiness"
+                "council-readiness", approval_phase="readiness"
             ),
             "the degraded path must genuinely record the approval, not just return ok",
         )
@@ -10276,14 +10276,14 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         """
         self._write_config(transition_policy="applies-from-next-prepare")
         wave_id, wave_md, change_path = self._prepared_wave_with_change("replay")
-        first = self._record_readiness_approval(wave_id, "wave-council-readiness", "rp")
+        first = self._record_readiness_approval(wave_id, "council-readiness", "rp")
         self.assertEqual(first["status"], "ok", first)
         change_path.write_text(
             change_path.read_text(encoding="utf-8").replace("1. x", "1. x and more"),
             encoding="utf-8",
         )
         before = (wave_md.parent / "events.jsonl").read_bytes()
-        replay = self._record_readiness_approval(wave_id, "wave-council-readiness", "rp")
+        replay = self._record_readiness_approval(wave_id, "council-readiness", "rp")
         self.assertEqual(replay["status"], "ok", replay)
         self.assertEqual(
             (wave_md.parent / "events.jsonl").read_bytes(), before,
@@ -10306,7 +10306,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         """
         self._write_config(transition_policy="applies-from-next-prepare")
         wave_id, wave_md, change_path = self._prepared_wave_with_change("dry-status")
-        self._record_readiness_approval(wave_id, "wave-council-readiness", "dry")
+        self._record_readiness_approval(wave_id, "council-readiness", "dry")
 
         clean = self._run_prepare(wave_id=wave_id, mode="dry_run")
         self.assertEqual(
@@ -10357,7 +10357,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         """1uugg AC-1/2: only literal True is advisory at prepare gates."""
         self._write_config(transition_policy="applies-from-next-prepare")
         wave_id, _wave_md, _change_path = self._prepared_wave_with_change("literal-advisory")
-        self._record_readiness_approval(wave_id, "wave-council-readiness", "literal")
+        self._record_readiness_approval(wave_id, "council-readiness", "literal")
 
         for value, expected_status in ((True, "dry_run"), (None, "error"), (False, "error"), ("false", "error"), (1, "error")):
             diagnostic = {"code": "probe", "message": "probe"}
@@ -10517,6 +10517,10 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 # the envelope; it softens no blocker.
                 ("_prepare_council_location_advisory", "_diagnostic", "prepare_council_verdict_misplaced"),
                 ("policy_advisory_gate", "_review_policy_receipt_diagnostics", "<helper-call>"),
+                # Wave 1zxo0 (1zxns): bulk wf_get_change is a read tool; a
+                # rejected member line is advisory there and blocking in every
+                # phase gate (prepare, implement, review, close).
+                ("wf_get_change_response", "_diagnostic", "change_id_invalid"),
                 # Wave 1zlu1 (1zlu2): wf_close_change's dry-run report of a lint
                 # failure that already exists on a document it would write, and
                 # its report of a dependency declared only in a change document.
@@ -10700,14 +10704,14 @@ class WaveCouncilPolicyTests(unittest.TestCase):
 
         id_a = republish()
         self.assertEqual(
-            self._record_readiness_approval(wave_id, "wave-council-readiness", "A")["status"],
+            self._record_readiness_approval(wave_id, "council-readiness", "A")["status"],
             "ok",
         )
 
         change_path.write_text(original.replace("1. x", "1. x variant B"), encoding="utf-8")
         id_b = republish()
 
-        def current(key="wave-council-readiness"):
+        def current(key="council-readiness"):
             text = wave_md.read_text(encoding="utf-8")
             return self.srv.resolve_review_authority(
                 self.root, wave_md, wave_text=text
@@ -10715,7 +10719,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
 
         self.assertFalse(current(), "the A-bound approval must be non-current at B")
         self.assertEqual(
-            self._record_readiness_approval(wave_id, "wave-council-readiness", "B")["status"],
+            self._record_readiness_approval(wave_id, "council-readiness", "B")["status"],
             "ok",
         )
         self.assertTrue(current(), "the B-bound approval is current at B")
@@ -10737,7 +10741,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         AC-1 lane-scoping defect, and with zero duplicate approvals."""
         self._write_config(transition_policy="applies-from-next-prepare")
         wave_id, wave_md, change_path = self._prepared_wave_with_change("ac10-converge")
-        self._record_readiness_approval(wave_id, "wave-council-readiness", "pre")
+        self._record_readiness_approval(wave_id, "council-readiness", "pre")
         change_path.write_text(
             change_path.read_text(encoding="utf-8").replace("1. x", "1. x edited"),
             encoding="utf-8",
@@ -10748,7 +10752,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self.assertEqual(errors, ())
         self.srv._publish_prepare_policy_state(self.root, wave_md, text, state)
 
-        keys = ["wave-council-readiness", *state["required_lanes"]]
+        keys = ["council-readiness", *state["required_lanes"]]
         self.assertGreater(len(keys), 1, "the fixture must exercise more than the council key")
         for key in keys:
             resp = self._record_readiness_approval(wave_id, key, f"conv-{key}")
@@ -10793,7 +10797,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             change_path.read_text(encoding="utf-8").replace("1. x", "1. x and more"),
             encoding="utf-8",
         )
-        for key in ("operator-signoff", "wave-council-delivery"):
+        for key in ("operator-signoff", "council-delivery"):
             with self.subTest(signoff_key=key):
                 self.srv.wf_review_event_response(
                     self.root, wave_id=wave_id, event="run", mode="create",
@@ -10827,7 +10831,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         """
         self._write_config(transition_policy="applies-from-next-prepare")
         wave_id, _wave_md, change_path = self._prepared_wave_with_change("dry-attr")
-        self._record_readiness_approval(wave_id, "wave-council-readiness", "dryattr")
+        self._record_readiness_approval(wave_id, "council-readiness", "dryattr")
         change_path.write_text(
             change_path.read_text(encoding="utf-8").replace("1. x", "1. x and more"),
             encoding="utf-8",
@@ -10858,7 +10862,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         wave_id, _wave_md, _change_path = self._prepared_wave_with_change("mark-neutral")
         # A task mark is receipt-neutral: nothing is published, so nothing lapses.
         marked = self.srv._mark_change_item_response(
-            self.root, wave_id, "1abc-bug sample", "do it.", "x",
+            self.root, wave_id, "1abcz-bug sample", "do it.", "x",
             target_section="Tasks", mode="create",
         )
         self.assertEqual(marked["status"], "ok", marked)
@@ -10880,7 +10884,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         wave_id, _wave_md, _change_path = self._prepared_wave_with_change("none-empty")
         with patch.object(self.srv, "_prepare_policy_state", return_value=(None, ())) as _gate_mock_6:
             refused = self._record_readiness_approval(
-                wave_id, "wave-council-readiness", "noneempty"
+                wave_id, "council-readiness", "noneempty"
             )
             _gate_mock_6.assert_called()
         self.assertEqual(refused["status"], "error", refused)
@@ -10939,7 +10943,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         )
         preview = self.srv.wf_review_event_response(
             self.root, wave_id=wave_id, event="approval", mode="dry_run",
-            signoff_key="wave-council-readiness", approval_phase="readiness",
+            signoff_key="council-readiness", approval_phase="readiness",
             actor="wave-council", context_id="drywarn",
             fresh_context=True, independent=True,
             evidence={"observed": "preview", "artifact_or_test_id": "test:dry-warn"},
@@ -10967,7 +10971,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             ).records
         )
         marked = self.srv._mark_change_item_response(
-            self.root, wave_id, "1abc-bug sample", "AC-1", "~",
+            self.root, wave_id, "1abcz-bug sample", "AC-1", "~",
             target_section="Acceptance Criteria", mode="create",
             reason="Deferred so the supersession attribution is observable by value.",
         )
@@ -10994,7 +10998,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self.assertNotIn(b"\r", lf)
         change_path.write_bytes(lf.replace(b"\n", b"\r\n"))
         marked = self.srv._mark_change_item_response(
-            self.root, wave_id, "1abc-bug sample", "AC-1", "~",
+            self.root, wave_id, "1abcz-bug sample", "AC-1", "~",
             target_section="Acceptance Criteria", mode="create",
             reason="Deferred on a CRLF document.",
         )
@@ -11016,7 +11020,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self._write_config(transition_policy="applies-from-next-prepare")
         wave_id, _wave_md, _change_path = self._prepared_wave_with_change("ac-complete")
         marked = self.srv._mark_change_item_response(
-            self.root, wave_id, "1abc-bug sample", "AC-1", "x",
+            self.root, wave_id, "1abcz-bug sample", "AC-1", "x",
             target_section="Acceptance Criteria", mode="create",
         )
         self.assertEqual(marked["status"], "ok", marked)
@@ -11040,7 +11044,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             encoding="utf-8",
         )
         refused = self._record_readiness_approval(
-            wave_id, "wave-council-readiness", "ambigroute"
+            wave_id, "council-readiness", "ambigroute"
         )
         self.assertEqual(refused["status"], "error", refused)
         tools = [t for d in refused["diagnostics"] for t in (d.get("recovery_tools") or [])]
@@ -11069,7 +11073,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         state, errors = self.srv.lifecycle_gate_support._prepare_policy_state(self.root, wave_md, text, ids, {})
         self.assertEqual(errors, ())
         self.srv._publish_prepare_policy_state(self.root, wave_md, text, state)
-        self._record_readiness_approval(wave_id, "wave-council-readiness", f"adv-{slug}")
+        self._record_readiness_approval(wave_id, "council-readiness", f"adv-{slug}")
         return wave_id, wave_md, change_path
 
     def test_an_advisory_only_create_publishes_and_activates(self):
@@ -11216,7 +11220,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        self._record_readiness_approval(wave_id, "wave-council-readiness", "ac3b")
+        self._record_readiness_approval(wave_id, "council-readiness", "ac3b")
         resp = self._run_prepare(wave_id=wave_id, mode="dry_run")
         stale = [d for d in resp.get("diagnostics") or []
                  if d["code"] == "review_policy_receipt_stale"]
@@ -11296,7 +11300,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         """
         self._write_config(transition_policy="applies-from-next-prepare")
         wave_id, wave_md, change_path = self._prepared_wave_with_change("ac10b-real")
-        self._record_readiness_approval(wave_id, "wave-council-readiness", "ac10b")
+        self._record_readiness_approval(wave_id, "council-readiness", "ac10b")
         change_path.write_text(
             change_path.read_text(encoding="utf-8").replace("1. x", "1. x and more"),
             encoding="utf-8",
@@ -11385,8 +11389,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         results = []
         expected = {
             True: (
-                "wave-council-readiness",
-                "wave-council-delivery",
+                "council-readiness",
+                "council-delivery",
                 "qa-reviewer",
                 "operator-signoff",
             ),
@@ -11408,8 +11412,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 "delivery_mode": "universal" if enabled else "disabled",
                 "transition_policy": transition_policy,
                 "phases": {
-                    "prepare": {"signoff_key": "wave-council-readiness", "moderator_role": "wave-council"},
-                    "review": {"signoff_key": "wave-council-delivery", "moderator_role": "wave-council"},
+                    "prepare": {"signoff_key": "council-readiness", "moderator_role": "wave-council"},
+                    "review": {"signoff_key": "council-delivery", "moderator_role": "wave-council"},
                 },
             },
         }
@@ -11431,7 +11435,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         # Re-author with ONLY the legacy key to prove it is no longer honored.
         cfg = {"lifecycle_id_policy": {"epoch_utc": "2020-02-02T02:02:00Z", "hour_offset": 0},
                "wave_council_policy": {"enabled": True,
-                                       "phases": {"prepare": {"signoff_key": "wave-council-readiness"}}}}
+                                       "phases": {"prepare": {"signoff_key": "council-readiness"}}}}
         (self.root / "docs" / "workflow-config.json").write_text(json.dumps(cfg), encoding="utf-8")
         policy = self.srv.lifecycle_gate_support._read_wave_council_policy(self.root)
         self.assertEqual(policy, {}, msg="legacy `wave_council_policy` must no longer resolve")
@@ -11445,8 +11449,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             "wave_review": {
                 "enabled": True,
                 "phases": {
-                    "prepare": {"signoff_key": "wave-council-readiness", "moderator_role": "wave-council"},
-                    "review": {"signoff_key": "wave-council-delivery", "moderator_role": "wave-council"},
+                    "prepare": {"signoff_key": "council-readiness", "moderator_role": "wave-council"},
+                    "review": {"signoff_key": "council-delivery", "moderator_role": "wave-council"},
                 },
             },
             # Legacy key: disabled → would return {} if it won; precedence test
@@ -11538,7 +11542,7 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         _append_typed_approval(
             self.root,
             wave_id,
-            "wave-council-readiness",
+            "council-readiness",
             actor="wave-council",
         )
         wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
@@ -11588,7 +11592,7 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         _append_typed_approval(
             self.root,
             wave_id,
-            "wave-council-readiness",
+            "council-readiness",
             actor="wave-council",
         )
         self._add_invalid_verdict(wave_id)
@@ -12038,7 +12042,7 @@ class WaveImplementTests(unittest.TestCase):
         return wave_id
 
     def _add_council_verdict(self, wave_id: str) -> None:
-        self._add_prepare_review_signoffs(wave_id, ["wave-council-readiness"])
+        self._add_prepare_review_signoffs(wave_id, ["council-readiness"])
         wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
@@ -12091,7 +12095,7 @@ class WaveImplementTests(unittest.TestCase):
                 {
                     **WaveLifecycleMutationTests._approval_record(
                         lane,
-                        actor="wave-council" if lane == "wave-council-readiness" else lane,
+                        actor="wave-council" if lane == "council-readiness" else lane,
                     ),
                     "approval_phase": "readiness",
                     "policy_receipt_id": receipt_id,
@@ -12154,8 +12158,8 @@ class WaveImplementTests(unittest.TestCase):
         projected_lanes = [
             key for key in keys
             if key not in {
-                "wave-council-readiness",
-                "wave-council-delivery",
+                "council-readiness",
+                "council-delivery",
                 "operator-signoff",
             }
         ]
@@ -12177,8 +12181,8 @@ class WaveImplementTests(unittest.TestCase):
         projection_lanes = [
             key for key in keys
             if key not in {
-                "wave-council-readiness",
-                "wave-council-delivery",
+                "council-readiness",
+                "council-delivery",
                 "operator-signoff",
             }
         ]
@@ -12200,8 +12204,8 @@ class WaveImplementTests(unittest.TestCase):
             projection_lanes = [
                 key for key in keys
                 if key not in {
-                    "wave-council-readiness",
-                    "wave-council-delivery",
+                    "council-readiness",
+                    "council-delivery",
                     "operator-signoff",
                 }
             ]
@@ -12433,7 +12437,7 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
 
     def test_wf_close_wave_populates_wave_summary(self):
         """AC-1: After wf_close_wave, ## Wave Summary contains a populated paragraph."""
-        wave_md = self._make_closeable_wave("1200a-summ-test", "1200a-feat-summ-change")
+        wave_md = self._make_closeable_wave("1200a-summ-test", "1200a-feat summ-change")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
                 result = self.srv.wf_close_wave_response(self.root, "1200a-summ-test", mode="create")
@@ -12450,7 +12454,7 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
         """AC-2: Summary includes completed ACs and decision log entries."""
         wave_md = self._make_closeable_wave(
             "1200a-detail-test",
-            "1200a-feat-detail",
+            "1200a-feat detail",
             completed_acs=["AC-1: Core behavior", "AC-2: Edge case handling"],
             decisions=["Use structured extraction instead of LLM inference"],
         )
@@ -12468,7 +12472,7 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
         `----` separator cell leaked into the summary as a `--------` 'key decision'."""
         wave_md = self._make_closeable_wave(
             "1200a-sep-test",
-            "1200a-feat-sep",
+            "1200a-feat sep",
             completed_acs=["AC-1: Core behavior"],
             decisions=["Resolve the contradiction toward fix-canonical"],
         )
@@ -12485,7 +12489,7 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
 
     def test_wf_close_wave_summary_requires_no_operator_input(self):
         """AC-3: Summary is generated without operator intervention."""
-        wave_md = self._make_closeable_wave("1200a-auto-test", "1200a-feat-auto")
+        wave_md = self._make_closeable_wave("1200a-auto-test", "1200a-feat auto")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
                 result = self.srv.wf_close_wave_response(self.root, "1200a-auto-test", mode="create")
@@ -12495,7 +12499,7 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
 
     def test_wf_close_wave_dry_run_includes_summary_without_writing(self):
         """AC-4: dry_run returns wave_summary in data without writing to disk."""
-        wave_md = self._make_closeable_wave("1200a-dryrun-summ", "1200a-feat-dryrun-summ")
+        wave_md = self._make_closeable_wave("1200a-dryrun-summ", "1200a-feat dryrun-summ")
         original_text = wave_md.read_text(encoding="utf-8")
         with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
             result = self.srv.wf_close_wave_response(self.root, "1200a-dryrun-summ", mode="dry_run")
@@ -12507,7 +12511,7 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
 
     def test_wf_close_wave_summary_does_not_break_existing_close_behavior(self):
         """AC-5: Existing close behavior (status update, signoff) is not regressed."""
-        wave_md = self._make_closeable_wave("1200a-regression-test", "1200a-feat-regression")
+        wave_md = self._make_closeable_wave("1200a-regression-test", "1200a-feat regression")
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
                 result = self.srv.wf_close_wave_response(self.root, "1200a-regression-test", mode="create")
@@ -12589,30 +12593,30 @@ class SignoffLatestStateTests(unittest.TestCase):
     def test_full_attack_matrix(self):
         cases = [
             # explicit positive
-            ("- wave-council-delivery: approved 2026-07-13 — final.\n", "wave-council-delivery", True),
+            ("- council-delivery: approved 2026-07-13 — final.\n", "council-delivery", True),
             # approved then withdrawn → false
-            ("- wave-council-delivery: approved.\n- wave-council-delivery: withdrawn.\n", "wave-council-delivery", False),
+            ("- council-delivery: approved.\n- council-delivery: withdrawn.\n", "council-delivery", False),
             # withdrawn then approved → true
-            ("- wave-council-delivery: withdrawn.\n- wave-council-delivery: approved 2026-07-13.\n", "wave-council-delivery", True),
+            ("- council-delivery: withdrawn.\n- council-delivery: approved 2026-07-13.\n", "council-delivery", True),
             # every negative/unknown state → false
-            ("- wave-council-delivery: not approved\n", "wave-council-delivery", False),
-            ("- wave-council-delivery: pending\n", "wave-council-delivery", False),
-            ("- wave-council-delivery: signoff pending\n", "wave-council-delivery", False),
-            ("- wave-council-delivery: blocked because previous checks passed\n", "wave-council-delivery", False),
-            ("- wave-council-delivery: rejected — approved earlier though\n", "wave-council-delivery", False),
-            ("- wave-council-delivery: denied\n", "wave-council-delivery", False),
-            ("- wave-council-delivery: failed\n", "wave-council-delivery", False),
-            ("- wave-council-delivery: withdrawn\n", "wave-council-delivery", False),
-            ("- wave-council-delivery: revoked\n", "wave-council-delivery", False),
-            ("- wave-council-delivery: rescinded\n", "wave-council-delivery", False),
-            ("- wave-council-delivery: <approved when ready>\n", "wave-council-delivery", False),
-            ("- wave-council-delivery: awaiting confirmation\n", "wave-council-delivery", False),
+            ("- council-delivery: not approved\n", "council-delivery", False),
+            ("- council-delivery: pending\n", "council-delivery", False),
+            ("- council-delivery: signoff pending\n", "council-delivery", False),
+            ("- council-delivery: blocked because previous checks passed\n", "council-delivery", False),
+            ("- council-delivery: rejected — approved earlier though\n", "council-delivery", False),
+            ("- council-delivery: denied\n", "council-delivery", False),
+            ("- council-delivery: failed\n", "council-delivery", False),
+            ("- council-delivery: withdrawn\n", "council-delivery", False),
+            ("- council-delivery: revoked\n", "council-delivery", False),
+            ("- council-delivery: rescinded\n", "council-delivery", False),
+            ("- council-delivery: <approved when ready>\n", "council-delivery", False),
+            ("- council-delivery: awaiting confirmation\n", "council-delivery", False),
             # superseded-only approval → false
-            ("- wave-council-delivery(superseded): approved 2026-07-12\n", "wave-council-delivery", False),
+            ("- council-delivery(superseded): approved 2026-07-12\n", "council-delivery", False),
             # withdrawn current followed by superseded approval → false
-            ("- wave-council-delivery: WITHDRAWN pending\n- wave-council-delivery(superseded): approved\n", "wave-council-delivery", False),
+            ("- council-delivery: WITHDRAWN pending\n- council-delivery(superseded): approved\n", "council-delivery", False),
             # approved current followed by superseded withdrawal → true
-            ("- wave-council-delivery: approved 2026-07-13\n- wave-council-delivery(superseded): withdrawn\n", "wave-council-delivery", True),
+            ("- council-delivery: approved 2026-07-13\n- council-delivery(superseded): withdrawn\n", "council-delivery", True),
             # lane-prefix collisions → false
             ("- qa-reviewer: approved\n", "qa", False),
             ("- operator-signoff-notes: approved\n", "operator", False),
@@ -12646,7 +12650,7 @@ class SignoffLatestStateTests(unittest.TestCase):
                 self.skipTest(f"wave record not found: {wave_dir}")
             text = path.read_text(encoding="utf-8")
             ev = self.review.combined_review_evidence(text)
-            self.assertIs(self.review.lane_has_signoff_in_evidence(ev, "wave-council-delivery"),
+            self.assertIs(self.review.lane_has_signoff_in_evidence(ev, "council-delivery"),
                           expect_delivery, wave_dir)
             self.assertIs(self.review.lane_has_signoff_in_evidence(ev, "operator"),
                           expect_operator, wave_dir)
@@ -12694,8 +12698,8 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
                     "enabled": True,
                     "delivery_mode": "universal",
                     "phases": {
-                        "prepare": {"signoff_key": "wave-council-readiness", "moderator_role": "wave-council"},
-                        "review": {"signoff_key": "wave-council-delivery", "moderator_role": "wave-council"},
+                        "prepare": {"signoff_key": "council-readiness", "moderator_role": "wave-council"},
+                        "review": {"signoff_key": "council-delivery", "moderator_role": "wave-council"},
                     },
                 },
             }),
@@ -12757,7 +12761,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         # specialist-lane approvals through the registered public producer.
         _append_review_run(self.root, self.wave_id, kind="readiness")
         for signoff_key, actor in (
-            ("wave-council-readiness", "wave-council"),
+            ("council-readiness", "wave-council"),
             ("code-reviewer", "code-reviewer"),
         ):
             approval = self.srv.wf_review_event_response(
@@ -12812,7 +12816,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         _append_review_run(self.root, self.wave_id, kind="initial_delivery")
         for signoff_key, actor in (
             ("operator-signoff", "operator"),
-            ("wave-council-delivery", "wave-council"),
+            ("council-delivery", "wave-council"),
             ("code-reviewer", "code-reviewer"),
         ):
             approval = self.srv.wf_review_event_response(
@@ -12941,7 +12945,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         self.assertNotIn("missing_wave_council_signoff", self._codes(refreshed))
         self.assertNotIn("review_policy_receipt_stale", self._codes(refreshed))
         for signoff_key, actor in (
-            ("wave-council-readiness", "wave-council"),
+            ("council-readiness", "wave-council"),
             ("code-reviewer", "code-reviewer"),
         ):
             approval = self.srv.wf_review_event_response(
@@ -13063,11 +13067,11 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
     # -- AC-1(a): readiness council surface (f) ------------------------------
 
     def test_prose_only_readiness_council_signoff_satisfies_nothing(self):
-        self._drop_approval("wave-council-readiness")
+        self._drop_approval("council-readiness")
         self.wave_md.write_text(
             self.wave_md.read_text(encoding="utf-8").replace(
                 "- operator-signoff: <approved when operator confirms closure>",
-                "- wave-council-readiness: approved",
+                "- council-readiness: approved",
             ),
             encoding="utf-8",
         )
@@ -13136,7 +13140,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         )
         self.assertEqual(lane_reapproval["status"], "ok", lane_reapproval)
 
-        self._drop_approval("wave-council-readiness")
+        self._drop_approval("council-readiness")
         disabled_prepare = self._run(
             self.srv.wf_prepare_wave_response,
             self.root,
@@ -13158,7 +13162,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
 
     def test_implement_rejects_declared_wave_with_only_prose_verdict(self):
         """A well-formed prose verdict cannot forge activation readiness."""
-        self._drop_approval("wave-council-readiness")
+        self._drop_approval("council-readiness")
         before = self.wave_md.read_bytes()
         result = self._run(
             self.srv.wf_implement_wave_response,
@@ -13172,9 +13176,9 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
 
     def test_typed_wave_missing_readiness_points_a_prose_verdict_at_wf_review_event(self):
         """Wave 1zls7 (1zltv) AC-3: a prose verdict on a declared wave missing
-        `wave-council-readiness` gets the typed-authority advisory; status,
+        `council-readiness` gets the typed-authority advisory; status,
         blocking diagnostics, next_tools and usage are unchanged."""
-        self._drop_approval("wave-council-readiness")
+        self._drop_approval("council-readiness")
         rel = _waves_rel(self.wave_md.parent.name, vocabulary_profile.RECORD_FILENAME)
         for fn, kwargs in ((self.srv.wf_implement_wave_response, {"mode": "dry_run"}),
                            (self.srv.wf_prepare_wave_response, {"mode": "dry_run"})):
@@ -13184,7 +13188,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
                 [advisory] = [d for d in response["diagnostics"]
                               if d["code"] == "prepare_council_verdict_misplaced"]
                 self.assertIs(advisory.get("advisory"), True)
-                for text in ("wf_review_event", "wave-council-readiness",
+                for text in ("wf_review_event", "council-readiness",
                              "not readiness authority", f"`{rel}` under `## Review Checkpoints`"):
                     self.assertIn(text, advisory["message"])
                 with patch.object(self.srv, "_prepare_council_location_advisory", return_value=None):
@@ -13302,7 +13306,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         self.assertEqual(refreshed["status"], "ok", refreshed)
         self.assertNotIn("review_policy_receipt_stale", self._codes(refreshed))
         for signoff_key, actor in (
-            ("wave-council-readiness", "wave-council"),
+            ("council-readiness", "wave-council"),
             ("code-reviewer", "code-reviewer"),
         ):
             approved = self.srv.wf_review_event_response(
@@ -13395,7 +13399,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         self.assertEqual(superseded["status"], "error", superseded)
         self.assertIn("missing_wave_council_signoff", self._codes(superseded))
         for signoff_key, actor in (
-            ("wave-council-readiness", "wave-council"),
+            ("council-readiness", "wave-council"),
             ("code-reviewer", "code-reviewer"),
         ):
             approved = self.srv.wf_review_event_response(
@@ -13673,7 +13677,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         self.assertIsNotNone(receipt)
         self.assertTrue(receipt["delivery_council_required"])
         self.assertIn(
-            "wave-council-delivery",
+            "council-delivery",
             self.srv.lifecycle_gate_support._required_wave_council_signoffs(
                 self.root,
                 "review",
@@ -14242,7 +14246,7 @@ class DeclaredWaveTreeSweepTests(unittest.TestCase):
                         key,
                         approval_phase=(
                             "readiness"
-                            if key == "wave-council-readiness"
+                            if key == "council-readiness"
                             else "delivery"
                         ),
                     )
@@ -15560,7 +15564,7 @@ _WAVE_CLOSE_READY_TEXT = (
     "wave-id: `{wave_id}`\n"
     "Status: active\n\n"
     "## Changes\n\n"
-    "Change ID: `{wave_id}-feat sample`\n"
+    "Change ID: `{change_id}`\n"
     "Change Status: `complete`\n\n"
     "## Review Evidence\n\n"
     "- operator-signoff: approved\n")
@@ -15580,13 +15584,14 @@ class WaveCloseSecretsGateTests(unittest.TestCase):
         self.wave_id = "1200b secrets-gate-test"
         wave_dir = _waves_dir(self.root) / self.wave_id
         wave_dir.mkdir(parents=True, exist_ok=True)
-        wave_text = _WAVE_CLOSE_READY_TEXT.format(wave_id=self.wave_id)
+        wave_text = _WAVE_CLOSE_READY_TEXT.format(wave_id=self.wave_id, change_id=self.wave_id[:5] + "-feat sample")
         (wave_dir / vocabulary_profile.RECORD_FILENAME).write_text(wave_text, encoding="utf-8")
         # 1v0lx: close blocks on a missing admitted document; the close-ready
         # fixture models a valid wave, so its docs exist on disk.
         for cid in self.srv._CHANGE_ID_PATTERN.findall(wave_text):
             (wave_dir / f"{cid}.md").write_text(
-                _loc(f"# Sample\n\nChange ID: `{cid}`\n\n## Acceptance Criteria\n\n## Tasks\n"), encoding="utf-8")
+                _loc(f"# Sample\n\nChange ID: `{cid}`\nChange Status: `complete`\n\n## Acceptance Criteria\n\n## Tasks\n"),
+                encoding="utf-8")
 
     def tearDown(self):
         import shutil
@@ -16405,10 +16410,10 @@ class ImplementDependencyProducerTests(unittest.TestCase):
 
     def ready(self):
         prepared = self.srv.wf_prepare_wave_response(self.root, self.wave_id, mode="ready")
-        keys = [*prepared["data"]["review_policy"]["required_lanes"], "wave-council-readiness"]
+        keys = [*prepared["data"]["review_policy"]["required_lanes"], "council-readiness"]
         for key in dict.fromkeys(keys):
             result = self.srv.wf_review_event_response(
-                self.root, self.wave_id, event="approval", actor="wave-council" if key.startswith("wave-council") else key,
+                self.root, self.wave_id, event="approval", actor="wave-council" if key.startswith(("wave-council", "council-")) else key,
                 context_id="dependency-approval-" + key, signoff_key=key,
                 approval_phase="readiness", fresh_context=True, independent=True,
                 evidence={"observed": "producer fixture reviewed", "artifact_or_test_id": self.id()},
@@ -16787,19 +16792,19 @@ class LifecycleHintGapTests(unittest.TestCase):
         self.assertEqual(resp["usage"], f"wf_review_wave(wave_id={wave_id!r}, phase='prepare')")
 
     def test_docs_lint_blocker_still_recommends_validation(self):
-        for approvals in (("wave-council-readiness", "code-reviewer"), ("code-reviewer",)):
+        for approvals in (("council-readiness", "code-reviewer"), ("code-reviewer",)):
             with self.subTest(approvals=approvals):
                 root, _wave_md, wave_id = self._wave(approvals)
                 resp = self._prepare(root, wave_id, "dry_run", validate=lambda *a, **k: dict(self.LINT_BAD))
                 self.assertEqual(resp["status"], "error")
                 self.assertIn("docs_lint_error", self._codes(resp))
-                if "wave-council-readiness" not in approvals:
+                if "council-readiness" not in approvals:
                     self.assertIn("missing_wave_council_signoff", self._codes(resp))
                 self.assertEqual(resp["usage"], "wf_validate_docs()")
                 self.assertEqual(resp["next_tools"], ["wf_validate_docs", "wf_current_wave"])
 
     def test_close_blocked_by_a_delivery_approval_names_its_remedy(self):
-        root, wave_md, wave_id = self._wave(("wave-council-readiness", "code-reviewer"), status="active")
+        root, wave_md, wave_id = self._wave(("council-readiness", "code-reviewer"), status="active")
         wave_md.write_text(wave_md.read_text(encoding="utf-8").replace(
             "Change Status: `planned`", "Change Status: `done`"), encoding="utf-8")
         self._event(root, wave_id, "run", "wave-council", "hint-delivery-run", run_kind="initial_delivery")
@@ -16818,7 +16823,7 @@ class LifecycleHintGapTests(unittest.TestCase):
         self.assertEqual(resp["next_tools"][:len(first["recovery_tools"])], first["recovery_tools"])
 
     def test_failing_delivery_review_names_the_first_blocker(self):
-        root, _wave_md, wave_id = self._wave(("wave-council-readiness", "code-reviewer"), status="active")
+        root, _wave_md, wave_id = self._wave(("council-readiness", "code-reviewer"), status="active")
         with self._patched():
             resp = self.srv.wf_review_wave_response(root, wave_id, phase="implementation")
         self.assertEqual(resp["status"], "error")
@@ -16864,7 +16869,7 @@ class LifecycleHintGapTests(unittest.TestCase):
 
     # AC-3
     def test_failing_prepare_review_never_recommends_implementation(self):
-        root, _wave_md, wave_id = self._wave(("wave-council-readiness",))
+        root, _wave_md, wave_id = self._wave(("council-readiness",))
         with self._patched():
             resp = self.srv.wf_review_wave_response(root, wave_id, phase="prepare")
         self.assertEqual(resp["status"], "error")
@@ -16899,7 +16904,7 @@ class LifecycleHintGapTests(unittest.TestCase):
         self.assertNotIn("wf_implement_wave", resp["usage"])
 
     def test_passing_prepare_review_still_recommends_implementation(self):
-        root, _wave_md, wave_id = self._wave(("wave-council-readiness", "code-reviewer"))
+        root, _wave_md, wave_id = self._wave(("council-readiness", "code-reviewer"))
         with self._patched():
             resp = self.srv.wf_review_wave_response(root, wave_id, phase="prepare")
         self.assertEqual(resp["status"], "ok", resp.get("diagnostics"))
@@ -16934,7 +16939,7 @@ class LifecycleHintGapTests(unittest.TestCase):
 
         for mode in ("ready", "create"):
             with self.subTest(mode=mode):
-                root, _wave_md, wave_id = self._wave(("wave-council-readiness", "code-reviewer"))
+                root, _wave_md, wave_id = self._wave(("council-readiness", "code-reviewer"))
                 with patch.object(gates, "_review_evidence_diagnostics", side_effect=readiness_blocks) as evidence_mock:
                     resp = self._prepare(root, wave_id, mode)
                 evidence_mock.assert_called()
@@ -16998,7 +17003,7 @@ class LifecycleHintGapTests(unittest.TestCase):
                 typed_template = support._prepare_council_verdict_template(seat, typed=True)
                 for text in (typed_instructions, typed_template):
                     self.assertIn("wf_review_event(", text)
-                    self.assertIn("signoff_key='wave-council-readiness'", text)
+                    self.assertIn("signoff_key='council-readiness'", text)
                 self.assertNotIn("Record the verdict in ## Review Checkpoints", typed_instructions)
                 self.assertIn("## Review Checkpoints narrative is optional and is not authority", typed_instructions)
                 self.assertTrue(typed_instructions.endswith(
@@ -17020,7 +17025,7 @@ class LifecycleHintGapTests(unittest.TestCase):
         root, _wave_md, wave_id = self._wave(())
         resp = self._prepare(root, wave_id, "dry_run")
         brief = resp["data"]["council_brief"]
-        self.assertIn("signoff_key='wave-council-readiness'", brief["instructions"])
+        self.assertIn("signoff_key='council-readiness'", brief["instructions"])
         self.assertIn("wf_review_event(", brief["verdict_format"])
 
     def test_unbound_typed_brief_without_review_policy(self):
@@ -17033,5 +17038,5 @@ class LifecycleHintGapTests(unittest.TestCase):
         self.assertTrue(self.srv.resolve_review_authority(root, wave_md).typed)
         self.assertIsNone(resp["data"]["review_policy"])
         brief = resp["data"]["council_brief"]
-        self.assertIn("signoff_key='wave-council-readiness'", brief["instructions"])
+        self.assertIn("signoff_key='council-readiness'", brief["instructions"])
         self.assertIn("wf_review_event(", brief["verdict_format"])

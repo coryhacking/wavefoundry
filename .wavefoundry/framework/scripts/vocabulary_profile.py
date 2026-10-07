@@ -68,6 +68,13 @@ ARCHIVE_PROFILE: "dict[str, str] | None" = None
 # removing one that existing records use makes those records fail lint by name.
 EXTRA_CHANGE_KINDS: tuple[str, ...] = ()
 
+# Names of the tier-named lifecycle prompts (wave 1zyb4, change 1zxnw): a
+# mapping of a ``DEFAULT_PROMPT_NAMES`` key to ``{"slug": ..., "shortcut":
+# ..., "aliases": [...]}`` (aliases optional, default none). A key left out
+# keeps its default name. The renderer moves already-rendered prompts and
+# records the names it applied in the prompt-surface manifest.
+PROMPT_NAME_OVERRIDES: "dict[str, dict[str, object]]" = {}
+
 # ---------------------------------------------------------------------------
 # Derived forms (not edited)
 # ---------------------------------------------------------------------------
@@ -104,6 +111,287 @@ def retired_kind_message(kind: str) -> str:
         f"Change kind {kind!r} is retired for new change docs; existing {kind!r} ids stay valid. "
         "Plan the work as one or more enhancement changes with kind 'enh' (wf_new_enhancement)."
     )
+
+
+# The tier-named lifecycle prompts (wave 1zyb4, change 1zxnw). Fixed, not
+# edited: a distribution renames one through PROMPT_NAME_OVERRIDES above. Each
+# key is the prompt's default slug; its public prompt is
+# ``docs/prompts/<slug>.prompt.md``, its agent body
+# ``docs/prompts/agents/<slug>.prompt.md`` and its skill (where the framework
+# registers one) ``wf-<slug>``.
+DEFAULT_PROMPT_NAMES: "dict[str, dict[str, object]]" = {
+    "plan-change": {"slug": "plan-change", "shortcut": "Plan change", "aliases": ()},
+    "create-wave": {"slug": "create-wave", "shortcut": "Create wave", "aliases": ()},
+    "add-change-to-wave": {"slug": "add-change-to-wave", "shortcut": "Add change to wave", "aliases": ()},
+    "remove-change-from-wave": {
+        "slug": "remove-change-from-wave", "shortcut": "Remove change from wave", "aliases": (),
+    },
+    "prepare-wave": {"slug": "prepare-wave", "shortcut": "Prepare wave", "aliases": ("Ready wave",)},
+    "implement-wave": {"slug": "implement-wave", "shortcut": "Implement wave", "aliases": ()},
+    "implement-change": {"slug": "implement-change", "shortcut": "Implement change", "aliases": ()},
+    "pause-wave": {"slug": "pause-wave", "shortcut": "Pause wave", "aliases": ()},
+    "review-wave": {"slug": "review-wave", "shortcut": "Review wave", "aliases": ()},
+    "close-wave": {"slug": "close-wave", "shortcut": "Close wave", "aliases": ()},
+    "close-change": {"slug": "close-change", "shortcut": "Close change", "aliases": ()},
+}
+# Framework prompt slugs a renamed prompt may not take: the untiered and
+# product-named prompts, the agent bodies without a public twin, the retired
+# names and the prompt index.
+FIXED_PROMPT_SLUGS: tuple[str, ...] = (
+    "review-plan", "memory-review", "council-review", "archetype-council", "red-team-review",
+    "evaluate-decision", "refresh-techdocs", "codebase-cleanup-review", "package-wavefoundry",
+    "install-wavefoundry", "upgrade-wavefoundry", "framework-config-review",
+    "agent-routing-concurrency", "start-dashboard", "stop-dashboard", "restart-dashboard",
+    "init-wave-context", "upgrade-wave-context", "performance-reviewer", "security-reviewer",
+    "interrogate-plan", "plan-feature", "implement-feature", "finalize-feature", "index",
+)
+# The renderer's skills that no mapped prompt names (a copy: this module cannot
+# import the renderer; a test pins it to the registry), and the retired skill
+# folder names the renderer removes on every render.
+FIXED_SKILL_NAMES: tuple[str, ...] = (
+    "wf-review-plan", "wf-evaluate-decision", "wf-memory-review", "wf-council", "wf-guru",
+    "wf-upgrade", "wf-package", "wf-code-cleanup", "wf-techdocs",
+)
+FIXED_STALE_SKILL_NAMES: tuple[str, ...] = ("auto-guru", "wf-interrogate-plan", "wf-plan-feature")
+# The framework's untiered public shortcuts (a test pins them to the manifest).
+FIXED_PROMPT_SHORTCUTS: tuple[str, ...] = (
+    "Init Wavefoundry", "Start dashboard", "Stop dashboard", "Restart dashboard",
+    "Upgrade Wavefoundry", "Package Wavefoundry", "Review memories", "Review plan",
+    "Red-team review", "Refresh TechDocs",
+)
+_PROMPT_SLUG_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
+_PROMPT_NAME_MAX = 64
+_SHORTCUT_FORBIDDEN = ("`", "*", "|", "[", "]")
+_PROMPT_SPEC_FIELDS = ("slug", "shortcut", "aliases")
+
+
+def _prompt_spec(default: "dict[str, object]", spec: object) -> "dict[str, object]":
+    """One derived entry: ``spec`` when it is usable, else ``default`` (an
+    unusable override is reported by ``prompt_name_errors`` at import)."""
+    if not isinstance(spec, dict):
+        return dict(default)
+    aliases = spec.get("aliases", ())
+    if not isinstance(aliases, (list, tuple)):
+        aliases = ()
+    return {
+        "slug": spec.get("slug", default["slug"]),
+        "shortcut": spec.get("shortcut", default["shortcut"]),
+        "aliases": tuple(aliases),
+    }
+
+
+def derive_prompt_names(overrides: object = None) -> "dict[str, dict[str, object]]":
+    """``DEFAULT_PROMPT_NAMES`` overlaid with ``overrides`` (default: the live
+    ``PROMPT_NAME_OVERRIDES``); unknown keys are ignored here and reported by
+    ``prompt_name_errors``."""
+    overrides = PROMPT_NAME_OVERRIDES if overrides is None else overrides
+    names = {key: dict(default) for key, default in DEFAULT_PROMPT_NAMES.items()}
+    if isinstance(overrides, dict):
+        for key, spec in overrides.items():
+            if key in names:
+                names[key] = _prompt_spec(DEFAULT_PROMPT_NAMES[key], spec)
+    return names
+
+
+def _shortcut_problem(value: object) -> "str | None":
+    if not isinstance(value, str):
+        return "must be a string"
+    if not value or value != value.strip() or "\n" in value or "\r" in value:
+        return "must be a non-empty single line without surrounding spaces"
+    if len(value) > _PROMPT_NAME_MAX:
+        return f"must be at most {_PROMPT_NAME_MAX} characters"
+    if any(char in value for char in _SHORTCUT_FORBIDDEN):
+        return "must not contain `, *, |, [ or ]"
+    return None
+
+
+def prompt_name_errors(overrides: object = None) -> list[str]:
+    """Every problem with ``PROMPT_NAME_OVERRIDES`` (default: the live
+    constant); empty when valid. Each message names the constant and the key."""
+    overrides = PROMPT_NAME_OVERRIDES if overrides is None else overrides
+    label = "PROMPT_NAME_OVERRIDES"
+    if not isinstance(overrides, dict):
+        return [f"{label} must be a dict of prompt key to name, not {type(overrides).__name__}"]
+    errors: list[str] = []
+    for key, spec in overrides.items():
+        if key not in DEFAULT_PROMPT_NAMES:
+            errors.append(f"{label} key {key!r} is not a tier-named lifecycle prompt "
+                          f"(known: {', '.join(DEFAULT_PROMPT_NAMES)})")
+            continue
+        if not isinstance(spec, dict):
+            errors.append(f"{label}[{key!r}] must be a dict with 'slug', 'shortcut' and optional 'aliases'")
+            continue
+        unknown = sorted(str(name) for name in spec if name not in _PROMPT_SPEC_FIELDS)
+        if unknown:
+            errors.append(f"{label}[{key!r}] has unknown field(s): {', '.join(unknown)}")
+        for name in ("slug", "shortcut"):
+            if name not in spec:
+                errors.append(f"{label}[{key!r}] is missing {name!r}")
+        slug = spec.get("slug")
+        if "slug" in spec and (not isinstance(slug, str) or not _PROMPT_SLUG_RE.fullmatch(slug)
+                               or len(slug) > _PROMPT_NAME_MAX):
+            errors.append(f"{label}[{key!r}] slug {slug!r} must match "
+                          f"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$ and be at most {_PROMPT_NAME_MAX} characters")
+        elif isinstance(slug, str):
+            if slug in FIXED_PROMPT_SLUGS:
+                errors.append(f"{label}[{key!r}] slug {slug!r} is a fixed framework prompt slug")
+            skill = f"wf-{slug}"
+            if skill in FIXED_SKILL_NAMES or skill in FIXED_STALE_SKILL_NAMES:
+                errors.append(f"{label}[{key!r}] skill name {skill!r} is a fixed or retired framework skill")
+        if "shortcut" in spec:
+            problem = _shortcut_problem(spec["shortcut"])
+            if problem:
+                errors.append(f"{label}[{key!r}] shortcut {spec['shortcut']!r} {problem}")
+        aliases = spec.get("aliases", ())
+        if not isinstance(aliases, (list, tuple)):
+            errors.append(f"{label}[{key!r}] aliases must be a list of strings")
+        else:
+            for alias in aliases:
+                problem = _shortcut_problem(alias)
+                if problem:
+                    errors.append(f"{label}[{key!r}] alias {alias!r} {problem}")
+    if errors:
+        return errors
+    names = derive_prompt_names(overrides)
+    overridden = set(overrides)
+    by_slug: "dict[str, list[str]]" = {}
+    for key, entry in names.items():
+        by_slug.setdefault(entry["slug"], []).append(key)
+    for slug, keys in by_slug.items():
+        if len(keys) > 1:
+            named = sorted(set(keys) & overridden) or keys
+            errors.append(f"{label} key(s) {', '.join(map(repr, named))}: slug {slug!r} is used by "
+                          f"{' and '.join(map(repr, keys))}")
+    phrases: "dict[str, list[tuple[str, str]]]" = {}
+    for shortcut_text in FIXED_PROMPT_SHORTCUTS:
+        phrases.setdefault(shortcut_text.casefold(), []).append(("a fixed framework shortcut", shortcut_text))
+    for key, entry in names.items():
+        for phrase in (entry["shortcut"], *entry["aliases"]):
+            phrases.setdefault(phrase.casefold(), []).append((repr(key), phrase))
+    for folded, owners in phrases.items():
+        if len(owners) > 1:
+            keys = sorted({owner for owner, _ in owners if owner.strip("'") in overridden})
+            if not keys:
+                keys = sorted({owner for owner, _ in owners if owner.startswith("'")})
+            errors.append(f"{label} key(s) {', '.join(keys)}: shortcut or alias {owners[0][1]!r} "
+                          f"is used by {' and '.join(owner for owner, _ in owners)} (compared case-insensitively)")
+    default_owner = {default["slug"]: key for key, default in DEFAULT_PROMPT_NAMES.items()}
+    for start in sorted(overridden):
+        seen = [start]
+        current = start
+        while True:
+            nxt = default_owner.get(names[current]["slug"])
+            if nxt is None or nxt == current:
+                break
+            if nxt == start:
+                errors.append(f"{label} key {start!r}: rename cycle {' -> '.join(seen + [start])}")
+                break
+            if nxt in seen:
+                break
+            seen.append(nxt)
+            current = nxt
+    return errors
+
+
+PROMPT_NAMES: "dict[str, dict[str, object]]" = derive_prompt_names()
+
+
+def prompt_slug(key: str) -> str:
+    """The slug of a mapped lifecycle prompt in this profile."""
+    return PROMPT_NAMES[key]["slug"]
+
+
+def prompt_doc(key: str) -> str:
+    """The public prompt path, ``docs/prompts/<slug>.prompt.md``."""
+    return f"docs/prompts/{prompt_slug(key)}.prompt.md"
+
+
+def agent_prompt_doc(key: str) -> str:
+    """The agent body path, ``docs/prompts/agents/<slug>.prompt.md``."""
+    return f"docs/prompts/agents/{prompt_slug(key)}.prompt.md"
+
+
+def skill_name(key: str) -> str:
+    """The skill name, ``wf-<slug>``."""
+    return f"wf-{prompt_slug(key)}"
+
+
+def shortcut(key: str) -> str:
+    """The shortcut phrase, for example ``Prepare wave``."""
+    return PROMPT_NAMES[key]["shortcut"]
+
+
+def shortcut_aliases(key: str) -> "tuple[str, ...]":
+    """The alias phrases, for example ``("Ready wave",)``."""
+    return tuple(PROMPT_NAMES[key]["aliases"])
+
+
+def title_case(phrase: str) -> str:
+    """Each word's first letter upper-cased (``Prepare wave`` -> ``Prepare Wave``)."""
+    return " ".join(word[:1].upper() + word[1:] for word in phrase.split(" "))
+
+
+def shortcut_title(key: str) -> str:
+    """The shortcut in title case, as prompt headings write it."""
+    return title_case(shortcut(key))
+
+
+_PROMPT_HEADING_RE = re.compile(r"\A# [^\r\n]*")
+_PROMPT_SHORTCUT_LINE_RE = re.compile(r"(?m)^Shortcut: [^\r\n]*")
+
+
+def shortcut_line(key: str) -> str:
+    """The ``Shortcut:`` line of a lifecycle prompt in this profile, with the
+    singular ``| Alias:`` form for one alias and ``| Aliases:`` for several."""
+    line = f"Shortcut: **`{shortcut(key)}`**"
+    aliases = shortcut_aliases(key)
+    if aliases:
+        label = "Alias" if len(aliases) == 1 else "Aliases"
+        line += f" | {label}: " + ", ".join(f"**`{alias}`**" for alias in aliases)
+    return line
+
+
+def localize_prompt_template(key: str, text: str) -> str:
+    """A shipped lifecycle prompt template in this profile's names: only its
+    line-1 ``# `` heading (the shortcut in title case) and its first
+    ``Shortcut:`` line are rewritten; other text is kept. The identity under the
+    default names. Apply it to a shipped template only."""
+    text = _PROMPT_HEADING_RE.sub(lambda _m: f"# {shortcut_title(key)}", text, count=1)
+    return _PROMPT_SHORTCUT_LINE_RE.sub(lambda _m: shortcut_line(key), text, count=1)
+
+
+def prompt_names_record_problems(record: object) -> list[str]:
+    """Problems with a manifest ``prompt_names`` object (key to applied slug)."""
+    if not isinstance(record, dict):
+        return ["prompt_names must be an object of prompt key to applied slug"]
+    problems: list[str] = []
+    for key, slug in record.items():
+        if key not in DEFAULT_PROMPT_NAMES:
+            problems.append(f"prompt_names key {key!r} is not a tier-named lifecycle prompt")
+        elif not isinstance(slug, str) or not _PROMPT_SLUG_RE.fullmatch(slug) or len(slug) > _PROMPT_NAME_MAX:
+            problems.append(f"prompt_names[{key!r}] slug {slug!r} is not a valid prompt slug")
+    return problems
+
+
+def applied_prompt_slugs(record: object) -> "dict[str, str]":
+    """Every key's applied slug from a manifest ``prompt_names`` object
+    (``None`` when absent: every key at its default). Raises ``ValueError``
+    naming the problems when the object is invalid."""
+    applied = {key: default["slug"] for key, default in DEFAULT_PROMPT_NAMES.items()}
+    if record is None:
+        return applied
+    problems = prompt_names_record_problems(record)
+    if problems:
+        raise ValueError("; ".join(problems))
+    applied.update(record)
+    return applied
+
+
+def pending_prompt_name_keys(record: object) -> "list[str]":
+    """The keys whose applied slug (from a manifest ``prompt_names`` object,
+    ``None`` meaning defaults) differs from the slug in this profile."""
+    applied = applied_prompt_slugs(record)
+    return [key for key in DEFAULT_PROMPT_NAMES if applied[key] != prompt_slug(key)]
 
 
 RECORD_FILENAME_RE = re.escape(RECORD_FILENAME)
@@ -309,7 +597,7 @@ def archive_profile() -> _Profile:
 
 def validate() -> None:
     """Raise :class:`VocabularyProfileInvalid` when the constants are unusable."""
-    errors = validation_errors()
+    errors = validation_errors() + prompt_name_errors()
     if ARCHIVE_PROFILE is not None:
         errors += [f"ARCHIVE_PROFILE: {e}" for e in validation_errors(ARCHIVE_PROFILE)]
     if errors:

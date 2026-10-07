@@ -28,6 +28,7 @@ import copy
 import itertools
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import types
@@ -38,6 +39,15 @@ from unittest.mock import patch
 from server_tools_support import _make_repo, load_server, load_thin_runner
 from declaration_support import apply_base_declaration, base_declaration
 from record_layout_support import PROFILES_DIR, SHIPPED_DECLARATION
+# Wave 1zyb3 (change 1zxnu): the serializer lives in one stdlib-only support
+# module, which the subprocess boot imports from a scratch copy.
+from tool_surface_support import (  # noqa: F401 - re-exported for sibling tests
+    FIXTURE_SCHEMA,
+    _canonical_schema,
+    _stub_handler,
+    serialize_surface,
+    strip_prose_descriptions,
+)
 
 TESTS_DIR = Path(__file__).resolve().parent
 SCRIPTS_DIR = TESTS_DIR.parent
@@ -45,12 +55,6 @@ GOLDEN_PATH = TESTS_DIR / "fixtures" / "tool-surface-golden.json"
 # Wave 1zyc3 (1zyc2): one golden per declaring profile asset.
 PROFILE_GOLDEN_DIR = TESTS_DIR / "fixtures" / "tool-surface-golden"
 UPDATE_ENV = "WF_UPDATE_TOOL_SURFACE_GOLDEN"
-FIXTURE_SCHEMA = "1"
-
-# JSON-Schema keywords whose VALUE is a map of names to schemas. A key named
-# ``description`` directly under one of these is a property/definition name,
-# not prose, and must survive; anywhere else ``description`` is prose.
-_SCHEMA_MAP_KEYS = frozenset({"properties", "$defs", "definitions", "patternProperties"})
 
 _WRAPPER_NAMES = (
     "_wrap_first_party_tool_costs",
@@ -75,63 +79,6 @@ _TRIPLE_WRAPPED_RESPONSE = "wf_add_change_response"
 # ---------------------------------------------------------------------------
 # Serialization
 # ---------------------------------------------------------------------------
-
-def strip_prose_descriptions(node, *, in_name_map: bool = False):
-    """Drop schema-node ``description`` prose; keep names that happen to be
-    ``description`` inside ``properties`` / ``$defs`` maps."""
-    if isinstance(node, dict):
-        out = {}
-        for key, value in node.items():
-            if key == "description" and not in_name_map:
-                continue
-            child_is_map = (key in _SCHEMA_MAP_KEYS) and not in_name_map
-            out[key] = strip_prose_descriptions(value, in_name_map=child_is_map)
-        return out
-    if isinstance(node, list):
-        return [strip_prose_descriptions(item) for item in node]
-    return node
-
-
-def _canonical_schema(schema):
-    """Deep copy with prose stripped and set-like ``required`` arrays sorted
-    so declaration order never shows up as a public-surface diff."""
-    out = strip_prose_descriptions(copy.deepcopy(schema))
-
-    def _sort_required(node):
-        if isinstance(node, dict):
-            for key, value in node.items():
-                if key == "required" and isinstance(value, list) and all(
-                    isinstance(item, str) for item in value
-                ):
-                    node[key] = sorted(value)
-                else:
-                    _sort_required(value)
-        elif isinstance(node, list):
-            for item in node:
-                _sort_required(item)
-
-    _sort_required(out)
-    return out
-
-
-def serialize_surface(mcp, tiers) -> dict:
-    """Deterministic document for every registered tool."""
-    registry = mcp._tool_manager._tools
-    tools = {}
-    for name in sorted(registry):
-        tool = registry[name]
-        annotations = getattr(tool, "annotations", None)
-        tools[name] = {
-            "tier": tiers.get(name),
-            "inputSchema": _canonical_schema(tool.parameters),
-            "annotations": (
-                annotations.model_dump(exclude_none=True)
-                if annotations is not None
-                else None
-            ),
-        }
-    return {"fixture_schema": FIXTURE_SCHEMA, "tools": tools}
-
 
 def render_surface(surface) -> bytes:
     """Byte-stable rendering: sorted keys, UTF-8, LF newlines on every platform."""
@@ -217,10 +164,6 @@ def parity_errors(registered: set[str], tiers, runner_tools) -> list[str]:
 # ---------------------------------------------------------------------------
 # Booting the real server with a stub handler
 # ---------------------------------------------------------------------------
-
-def _stub_handler(root: Path):
-    return types.SimpleNamespace(root=root.resolve(), close=lambda: None)
-
 
 class _BootedSurface(unittest.TestCase):
     """Per-method boot (reload-sensitive: server.py is re-executed by
@@ -477,11 +420,85 @@ def profile_golden_path(name: str, golden_dir: Path = PROFILE_GOLDEN_DIR) -> Pat
     return Path(golden_dir) / f"{name}.json"
 
 
+def declares_modules(asset: dict) -> bool:
+    """Whether the asset declares an extension or helper module, which only a
+    scratch copy of the scripts tree can serve (wave 1zyb3, change 1zxnu)."""
+    declaration = profile_declaration(asset)
+    return bool(declaration.get("EXTENSION_MODULES") or declaration.get("EXTENSION_HELPER_MODULES"))
+
+
+# Boots the server in a scratch copy made by ``copy_scripts_tree`` and
+# ``apply_profile`` (wave 1zyb3, change 1zxnu). ``_load_extension_module`` loads
+# a declared module only from the real scripts directory, so a module-declaring
+# asset is served from the copy, in its own interpreter. Prints one JSON line.
+_SCRATCH_BOOT_DRIVER = r"""
+import importlib.util, json, sys
+from pathlib import Path
+from unittest.mock import patch
+scripts = Path(sys.argv[1])
+spec = json.loads(sys.argv[2])
+sys.path.insert(0, str(scripts))
+sys.path.insert(0, str(scripts / "tests"))
+from declaration_support import base_declaration
+from record_layout_support import SHIPPED_DECLARATION
+from tool_surface_support import _stub_handler, serialize_surface
+
+def emit(**out):
+    print(json.dumps(out))
+    sys.exit(0)
+
+declaration = {name: tuple(value) if isinstance(SHIPPED_DECLARATION.get(name), tuple) else value
+               for name, value in spec["declaration"].items()}
+root = Path(spec["root"])
+(root / "docs").mkdir(parents=True, exist_ok=True)
+(root / "docs" / "workflow-config.json").write_text(json.dumps(
+    {"lifecycle_id_policy": {"epoch_utc": "2020-02-02T02:02:00Z", "hour_offset": 0}}), encoding="utf-8")
+fw = root / ".wavefoundry" / "framework"
+fw.mkdir(parents=True, exist_ok=True)
+(fw / "VERSION").write_text("test-pack-version", encoding="utf-8")
+try:
+    server_spec = importlib.util.spec_from_file_location("server", scripts / "server.py")
+    runner = importlib.util.module_from_spec(server_spec)
+    sys.modules["server"] = runner
+    server_spec.loader.exec_module(runner)
+except ImportError as exc:
+    emit(skip=f"mcp package not installed: {exc}")
+impl = sys.modules["server_impl"]
+import mcp_tool_extensions
+import mcp_tool_roster as roster
+with base_declaration(**declaration):
+    try:
+        tiers = roster.all_tool_tiers()
+    except mcp_tool_extensions.ExtensionDeclarationError as exc:
+        emit(problems=[f"invalid declaration: {exc}"])
+    with patch.object(impl, "build_handler", return_value=_stub_handler(root)):
+        try:
+            mcp = runner.build_server(root)
+        except ImportError as exc:
+            emit(skip=f"mcp package not installed: {exc}")
+        except Exception as exc:  # noqa: BLE001 - a boot refusal is the failure
+            emit(problems=[f"server refused the declaration: {exc}"])
+    for tool, properties in spec["schema_patch"].items():
+        mcp._tool_manager._tools[tool].parameters["properties"].update(properties)
+    emit(surface=serialize_surface(mcp, tiers))
+"""
+
+# The subprocess boot copies the scripts tree and starts the server; a loaded
+# machine must not fail it, so the timeout is generous.
+SCRATCH_BOOT_TIMEOUT_SECONDS = 300
+
+
 class ProfileToolSurfaceGoldenTests(unittest.TestCase):
     """Requirement 2: each declaring profile asset boots the server exactly
     as the shipped golden test does, on the shipped-empty declaration plus
     that asset's tool declaration alone, and compares the served surface
-    (tiers from ``all_tool_tiers()``) with its own golden."""
+    (tiers from ``all_tool_tiers()``) with its own golden.
+
+    An asset that declares extension or helper modules boots in a scratch
+    copy of the scripts tree, in a subprocess (wave 1zyb3, change 1zxnu);
+    every other asset boots in process. Skills are not part of the golden:
+    the server never serves them, so the declared asset's skill is pinned by
+    ``DeclaredProfileSkillTests`` instead."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -490,7 +507,7 @@ class ProfileToolSurfaceGoldenTests(unittest.TestCase):
         if scripts_dir not in sys.path:
             sys.path.insert(0, scripts_dir)
 
-    def _boot(self, declaration: dict, mutate=None) -> "tuple[dict | None, list[str]]":
+    def _boot(self, declaration: dict, schema_patch=None) -> "tuple[dict | None, list[str]]":
         """Serialize the surface served under ``declaration``. Returns
         ``(surface, [])`` or ``(None, problems)`` when the declaration is
         invalid or the server refuses to boot with it."""
@@ -515,12 +532,50 @@ class ProfileToolSurfaceGoldenTests(unittest.TestCase):
                     self.skipTest("mcp package not installed")
                 except Exception as exc:  # noqa: BLE001 - a boot refusal is the failure
                     return None, [f"server refused the declaration: {exc}"]
-            if mutate is not None:
-                mutate(mcp)
+            for tool, properties in (schema_patch or {}).items():
+                mcp._tool_manager._tools[tool].parameters["properties"].update(properties)
             return serialize_surface(mcp, tiers), []
 
-    def _check(self, asset: dict, fixture: Path, environ=None, mutate=None) -> list[str]:
-        surface, problems = self._boot(profile_declaration(asset), mutate)
+    def _boot_in_scratch(self, asset: dict, schema_patch=None,
+                         module_sources=None) -> "tuple[dict | None, list[str]]":
+        """The surface a module-declaring asset serves, booted from a scratch
+        copy with the asset applied; ``module_sources`` replaces a copied
+        module's source after the asset is applied."""
+        from record_layout_support import ProfileInvalid, apply_profile, copy_scripts_tree
+
+        scratch = Path(tempfile.mkdtemp(dir=self.tmp.name))
+        scripts = copy_scripts_tree(scratch / "framework")
+        try:
+            apply_profile(scripts, asset)
+        except ProfileInvalid as exc:
+            return None, [f"invalid declaration: {exc}"]
+        for module, source in (module_sources or {}).items():
+            (scripts / f"{module}.py").write_text(source, encoding="utf-8")
+        spec = {"declaration": profile_declaration(asset), "root": str(scratch / "repo"),
+                "schema_patch": schema_patch or {}}
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        result = subprocess.run(
+            [sys.executable, "-B", "-c", _SCRATCH_BOOT_DRIVER, str(scripts), json.dumps(spec)],
+            cwd=str(scripts), env=env, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", check=False, timeout=SCRATCH_BOOT_TIMEOUT_SECONDS,
+        )
+        lines = result.stdout.strip().splitlines()
+        if result.returncode != 0 or not lines:
+            self.fail(f"scratch boot failed (exit {result.returncode}): {result.stderr[-4000:]}")
+        out = json.loads(lines[-1])
+        if out.get("skip"):
+            self.skipTest(out["skip"])
+        if out.get("problems"):
+            return None, out["problems"]
+        return out["surface"], []
+
+    def _check(self, asset: dict, fixture: Path, environ=None, schema_patch=None,
+               module_sources=None) -> list[str]:
+        if declares_modules(asset):
+            surface, problems = self._boot_in_scratch(asset, schema_patch, module_sources)
+        else:
+            surface, problems = self._boot(profile_declaration(asset), schema_patch)
         if problems:
             return problems
         return check_golden(surface, fixture, environ)
@@ -553,7 +608,47 @@ class ProfileToolSurfaceGoldenTests(unittest.TestCase):
         self.assertIn("with_line_numbers", tools["code_read"]["inputSchema"]["properties"])
         shipped = json.loads(GOLDEN_PATH.read_bytes().decode("utf-8"))["tools"]
         self.assertNotIn("wf_alias_help", shipped)
-        self.assertEqual(set(tools) - set(shipped), {"wf_alias_help", "wf_alias_read_raw"})
+        # Wave 1zyb3 (change 1zxnu): the added names are the aliases, the
+        # module tool and the alias_for_core name; the hidden name is gone.
+        self.assertEqual(set(tools) - set(shipped), {
+            "wf_alias_help", "wf_alias_read_raw", "wf_alias_gpu_doctor",
+            "dist_inventory", "dist_open_dashboard_core"})
+        self.assertEqual(set(shipped) - set(tools), {"wf_gpu_doctor"})
+
+    def test_declared_golden_pins_module_hidden_and_replaced_tools(self):
+        # Wave 1zyb3 (change 1zxnu) AC-9: the committed fixture alone.
+        tools = json.loads(profile_golden_path("declared").read_bytes().decode("utf-8"))["tools"]
+        shipped = json.loads(GOLDEN_PATH.read_bytes().decode("utf-8"))["tools"]
+        asset = declaring_profile_assets()["declared"]
+        declaration = asset["modules"]["mcp_tool_extensions"]
+        # The module tool: its declared tier and its own schema.
+        inventory = tools["dist_inventory"]
+        self.assertEqual(inventory["tier"], declaration["EXTENSION_TOOL_TIERS"]["dist_inventory"])
+        self.assertEqual(set(inventory["inputSchema"]["properties"]),
+                         {"area", "limit", "kinds", "include_archived"})
+        self.assertEqual(inventory["inputSchema"].get("required"), ["area"])
+        # The hidden canonical name is absent; its alias serves the core schema and tier.
+        self.assertNotIn("wf_gpu_doctor", tools)
+        self.assertEqual(tools["wf_alias_gpu_doctor"]["inputSchema"], shipped["wf_gpu_doctor"]["inputSchema"])
+        self.assertEqual(tools["wf_alias_gpu_doctor"]["tier"], shipped["wf_gpu_doctor"]["tier"])
+        # The replaced core name serves the module's schema; alias_for_core the core one.
+        self.assertEqual(set(tools["wf_open_dashboard"]["inputSchema"]["properties"]), {"view"})
+        self.assertNotEqual(tools["wf_open_dashboard"]["inputSchema"], shipped["wf_open_dashboard"]["inputSchema"])
+        self.assertEqual(tools["dist_open_dashboard_core"]["inputSchema"],
+                         shipped["wf_open_dashboard"]["inputSchema"])
+        self.assertEqual(tools["dist_open_dashboard_core"]["tier"], shipped["wf_open_dashboard"]["tier"])
+        self.assertEqual(tools["wf_open_dashboard"]["tier"], shipped["wf_open_dashboard"]["tier"])
+
+    def test_module_declaring_asset_boots_in_scratch(self):
+        asset = declaring_profile_assets()["declared"]
+        self.assertTrue(declares_modules(asset))
+        self.assertFalse(declares_modules({"modules": {"mcp_tool_extensions": {
+            "EXTENSION_TOOL_ALIASES": {"wf_alias_help": "wf_help"}}}}))
+        self.assertGreaterEqual(SCRATCH_BOOT_TIMEOUT_SECONDS, 300)
+        with patch.object(self, "_boot", side_effect=AssertionError("in-process boot used")):
+            surface, problems = self._boot_in_scratch(asset)
+        self.assertEqual(problems, [])
+        self.assertIn("dist_inventory", surface["tools"])
 
     def test_profile_goldens_use_lf_and_utf8(self):
         for name in declaring_profile_assets():
@@ -575,35 +670,51 @@ class ProfileToolSurfaceGoldenTests(unittest.TestCase):
             entry["modules"]["mcp_tool_extensions"].update(changes)
             return entry
 
-        def core_schema(mcp):
-            mcp._tool_manager._tools["wf_help"].parameters["properties"]["surprise"] = {"type": "integer"}
+        fixture_module = (PROFILES_DIR / asset["module_files"]["dist_tools"]).read_text(encoding="utf-8")
+        replacements = {k: v for k, v in base["EXTENSION_REPLACEMENTS"].items() if k != "dist_tools"}
+        without_replacement = fixture_module[:fixture_module.index("    @mcp.tool()\n    def wf_open_dashboard")]
 
         cases = {
             "mapping": (
                 with_entry(EXTENSION_TOOL_PARAMETERS={"wf_alias_read_raw": {
                     "rename": {"filename": "path"}, "fixed": {"with_line_numbers": False}}}),
-                None,
+                {}, None,
                 ["wf_alias_read_raw", "inputSchema/properties/filename"],
             ),
             "pinned parameter": (
                 with_entry(EXTENSION_TOOL_PARAMETERS={"wf_alias_read_raw": {
                     "rename": {"file": "path"}}}),
-                None,
+                {}, None,
                 ["wf_alias_read_raw", "inputSchema/properties/with_line_numbers"],
             ),
             "tier and target": (
                 with_entry(EXTENSION_TOOL_ALIASES={**base["EXTENSION_TOOL_ALIASES"],
                                                    "wf_alias_help": "wf_review_event"}),
-                None,
+                {}, None,
                 ["wf_alias_help: changed key tier", "wf_alias_help", "inputSchema/properties/wave_id"],
             ),
             "core schema under the profile": (
-                asset, core_schema, ["wf_help", "inputSchema/properties/surprise"],
+                asset, {}, {"wf_help": {"surprise": {"type": "integer"}}},
+                ["wf_help", "inputSchema/properties/surprise"],
+            ),
+            # Wave 1zyb3 (change 1zxnu) AC-10.
+            "module tool schema": (
+                asset, {"dist_tools": fixture_module.replace("limit: int = 10", "limit: str = '10'")}, None,
+                ["dist_inventory: changed key inputSchema/properties/limit"],
+            ),
+            "hidden tool un-hidden": (
+                with_entry(EXTENSION_HIDDEN_TOOLS=[]), {}, None,
+                ["added tool: wf_gpu_doctor"],
+            ),
+            "replacement dropped": (
+                with_entry(EXTENSION_REPLACEMENTS=replacements), {"dist_tools": without_replacement}, None,
+                ["removed tool: dist_open_dashboard_core", "wf_open_dashboard: ", "inputSchema/properties"],
             ),
         }
-        for label, (mutated, mutate, fragments) in cases.items():
+        for label, (mutated, module_sources, schema_patch, fragments) in cases.items():
             with self.subTest(case=label):
-                lines = self._check(mutated, fixture, environ={}, mutate=mutate)
+                lines = self._check(mutated, fixture, environ={}, schema_patch=schema_patch,
+                                    module_sources=module_sources)
                 self.assertTrue(lines, f"{label}: drift was not detected")
                 joined = "\n".join(lines)
                 for fragment in fragments:
@@ -659,6 +770,39 @@ class ProfileToolSurfaceGoldenTests(unittest.TestCase):
             "EXTENSION_HIDDEN_TOOLS": ["wf_help"], "EXTENSION_TOOL_ALIASES": {"a": "b"}}}})
         self.assertEqual(declaration["EXTENSION_HIDDEN_TOOLS"], ("wf_help",))
         self.assertEqual(declaration["EXTENSION_TOOL_ALIASES"], {"a": "b"})
+
+
+class DeclaredProfileSkillTests(unittest.TestCase):
+    """Wave 1zyb3 (change 1zxnu) AC-12: skills sit outside the golden format
+    (the server never serves them), so the ``declared`` asset's skill is
+    pinned here by rendering a temporary repository under its declaration."""
+
+    def test_declared_asset_renders_its_marked_skill_and_template_prompt_doc(self):
+        import time
+
+        if str(SCRIPTS_DIR) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_DIR))
+        import render_agent_surfaces as ras
+
+        declaration = profile_declaration(declaring_profile_assets()["declared"])
+        (name, spec), = declaration["EXTENSION_SKILLS"].items()
+        template = SCRIPTS_DIR.parent / "install" / spec["prompt_doc_template"]
+        with tempfile.TemporaryDirectory() as temp_dir, base_declaration(**declaration):
+            root = Path(temp_dir)
+            hosts = (".codex", ".claude", ".agents")
+            for host in hosts:
+                (root / host).mkdir()
+            written = ras.render_agent_surfaces(root)
+            self.assertIn(spec["prompt_doc"], written)
+            self.assertEqual(
+                (root / spec["prompt_doc"]).read_text(encoding="utf-8"),
+                template.read_text(encoding="utf-8").replace("{{generated_at}}", time.strftime("%Y-%m-%d")),
+            )
+            for host in hosts:
+                skill = (root / host / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+                self.assertTrue(ras.has_declared_skill_marker(skill), host)
+                self.assertIn(f"name: {name}\n", skill)
+                self.assertIn(f"`{spec['prompt_doc']}`", skill)
 
 
 # ---------------------------------------------------------------------------

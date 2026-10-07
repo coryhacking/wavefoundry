@@ -265,7 +265,7 @@ These apply in every Archetype Council pass. A pass that violates them is not an
 - Do not invoke Archetype Council as a replacement for the Wave Council when `wave_review.enabled` is true
 - Do not run seats outside isolation in Phase 2
 - Do not produce findings without paired actions
-- Do not record an Archetype Council verdict against a `wave-council-readiness` or `wave-council-delivery` lifecycle slot — those signoffs belong to the Wave Council and the lifecycle gates that consume them
+- Do not record an Archetype Council verdict against a `council-readiness` or `council-delivery` lifecycle slot — those signoffs belong to the Wave Council and the lifecycle gates that consume them
 
 ---
 

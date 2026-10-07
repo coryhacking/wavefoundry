@@ -17,10 +17,11 @@ import stat
 import sys
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as _dataclass_replace
 from pathlib import Path
 from textwrap import dedent
 
+from history_paths import is_history_path  # shared history components (wave 1zyb2)
 import marker_namespaces
 import mcp_tool_extensions  # declared distribution skills, read at call time (wave 1zv8c)
 import record_paths  # record roots (wave 1y0gz)
@@ -138,11 +139,19 @@ REVIEW_PROTOCOL_CARRIER_BLOCK = dedent(
     """
 ).strip()
 
-CONTEXT_EFFICIENCY_DESTINATION = "docs/prompts/create-wave.prompt.md"
+# Wave 1zyb4 (change 1zxnw): the tier-named lifecycle prompts, shortcuts and
+# skills take their names from the vocabulary profile; under the default
+# profile every derived value equals its earlier literal. Template file names
+# stay fixed: they are framework-internal sources.
+_vp_doc = vocabulary_profile.prompt_doc
+_vp_shortcut = vocabulary_profile.shortcut
+_vp_skill = vocabulary_profile.skill_name
+
+CONTEXT_EFFICIENCY_DESTINATION = _vp_doc("create-wave")
 
 LIFECYCLE_PROMPT_BASELINES: tuple[tuple[str, str], ...] = (
-    ("docs/prompts/create-wave.prompt.md", "create-wave.prompt.md"),
-    ("docs/prompts/implement-wave.prompt.md", "implement-wave.prompt.md"),
+    (_vp_doc("create-wave"), "create-wave.prompt.md"),
+    (_vp_doc("implement-wave"), "implement-wave.prompt.md"),
     ("docs/prompts/memory-review.prompt.md", "memory-review.prompt.md"),
     *(
         (carrier.destination, carrier.source.removeprefix("lifecycle:"))
@@ -150,7 +159,7 @@ LIFECYCLE_PROMPT_BASELINES: tuple[tuple[str, str], ...] = (
         if carrier.owner == "renderer" and carrier.source.startswith("lifecycle:")
     ),
     ("docs/prompts/review-plan.prompt.md", "review-plan.prompt.md"),
-    ("docs/prompts/close-change.prompt.md", "close-change.prompt.md"),
+    (_vp_doc("close-change"), "close-change.prompt.md"),
 )
 
 REVIEW_PLAN_OLD_PROMPT = "docs/prompts/interrogate-plan.prompt.md"
@@ -293,7 +302,8 @@ def _review_role_slug(carrier: ReviewProtocolCarrier) -> str | None:
     path = Path(carrier.destination)
     if path.suffix != ".md" or tuple(path.parts[:2]) != ("docs", "agents"):
         return None
-    if "journals" in path.parts or "memory" in path.parts or "personas" in path.parts:
+    # ``path`` is the repo-relative carrier destination (wave 1zyb2, 1zxnt).
+    if is_history_path(path) or "memory" in path.parts or "personas" in path.parts:
         return None
     return path.stem
 
@@ -349,7 +359,7 @@ CURSOR_AUTO_GURU_MDC = dedent(
 
     Canonical rules for **all** agent hosts: `AGENTS.md` § **Codebase and documentation questions (auto-Guru)** and `docs/agents/guru.md`. This file is a Cursor-specific reinforcement of that contract.
 
-    Applies to every chat in this workspace unless the user is invoking a **wave lifecycle** command from `docs/prompts/index.md` (**Plan change**, **Implement wave**, **Close wave**, etc.).
+    Applies to every chat in this workspace unless the user is invoking a **wave lifecycle** command from `docs/prompts/index.md` (**@PLAN@**, **@IMPLEMENT@**, **@CLOSE@**, etc.).
 
     ## When this rule applies
 
@@ -368,6 +378,8 @@ CURSOR_AUTO_GURU_MDC = dedent(
     - For large investigations, use a **read-only subagent** (Task) with `docs/agents/guru.md` as the prompt and return cited findings to the parent thread.
     - Operators do **not** need to say **Guru**; the explicit shortcut remains in `docs/prompts/index.md`.
     """
+).replace("@PLAN@", _vp_shortcut("plan-change")).replace("@IMPLEMENT@", _vp_shortcut("implement-wave")).replace(
+    "@CLOSE@", _vp_shortcut("close-wave")
 )
 
 CLAUDE_AUTO_GURU_SECTION = dedent(
@@ -392,7 +404,7 @@ CLAUDE_GURU_AGENT = dedent(
     """\
     ---
     name: guru
-    description: PROACTIVELY use when the user asks how this repository's source code or project documentation works — behavior, architecture, specs, framework scripts, indexing, chunking, retrieval, or where to find implementation. Do not use for wave lifecycle commands (Plan change, Implement wave, Close wave, Prepare wave, etc.).
+    description: PROACTIVELY use when the user asks how this repository's source code or project documentation works — behavior, architecture, specs, framework scripts, indexing, chunking, retrieval, or where to find implementation. Do not use for wave lifecycle commands (@PLAN@, @IMPLEMENT@, @CLOSE@, @PREPARE@, etc.).
     tools: Read, Grep, Glob, Bash, ToolSearch, mcp__wavefoundry__code_ask, mcp__wavefoundry__code_search, mcp__wavefoundry__code_keyword, mcp__wavefoundry__code_lexical, mcp__wavefoundry__code_read, mcp__wavefoundry__code_outline, mcp__wavefoundry__code_definition, mcp__wavefoundry__code_references, mcp__wavefoundry__code_callhierarchy, mcp__wavefoundry__code_dependencies, mcp__wavefoundry__code_impact, mcp__wavefoundry__code_list_files, mcp__wavefoundry__code_constants, mcp__wavefoundry__code_pattern, mcp__wavefoundry__code_callgraph, mcp__wavefoundry__code_graph_path, mcp__wavefoundry__code_graph_community, mcp__wavefoundry__docs_search, mcp__wavefoundry__seed_get
     ---
 
@@ -415,7 +427,9 @@ CLAUDE_GURU_AGENT = dedent(
     - Architecture doc drafts and journal writes belong in the main session per `docs/agents/guru.md` write permissions.
     - Wave lifecycle execution stays with the main agent / wave-coordinator prompts.
     """
-)
+).replace("@PLAN@", _vp_shortcut("plan-change")).replace("@IMPLEMENT@", _vp_shortcut("implement-wave")).replace(
+    "@CLOSE@", _vp_shortcut("close-wave")
+).replace("@PREPARE@", _vp_shortcut("prepare-wave"))
 
 # ---------------------------------------------------------------------------
 # Skill registry (wave 1p6lp / change 1p6lo)
@@ -473,6 +487,10 @@ class Skill:
     description: str
     body: str
     requires_doc: "str | None" = None
+    # Wave 1zyb3 (change 1zxnu): a distribution's declared skill carries the
+    # ownership marker and may name a prompt-doc template under install/.
+    declared: bool = False
+    prompt_doc_template: "str | None" = None
 
 
 WF_GURU_SKILL_BODY = dedent(
@@ -567,17 +585,17 @@ WF_COUNCIL_SKILL_BODY = dedent(
     - Prose, naming, AC formulation, or decision narrative: **Archetype review**, `docs/prompts/archetype-council.prompt.md`.
     - One sharp adversarial challenge on a single artifact: **Red-team review**, `docs/prompts/red-team-review.prompt.md`.
     - These on-demand reviews record no lifecycle signoffs and satisfy no gate; when a prompt directs recording against a wave, use the `wf_review_event` MCP tool.
-    - Boundary: the open wave's REQUIRED review lanes run under Review wave (`wf-review-wave`), and a change doc or current wave record gets Review plan (`wf-review-plan`; aliases: Interrogate this plan, Stress-test this plan) before implementation; this router is for on-demand reviews outside both.
+    - Boundary: the open wave's REQUIRED review lanes run under @REVIEW@ (`@REVIEW_SKILL@`), and a change doc or current wave record gets Review plan (`wf-review-plan`; aliases: Interrogate this plan, Stress-test this plan) before implementation; this router is for on-demand reviews outside both.
     """
-)
+).replace("@REVIEW_SKILL@", _vp_skill("review-wave")).replace("@REVIEW@", _vp_shortcut("review-wave"))
 
 SKILL_REGISTRY: "tuple[Skill, ...]" = (
     Skill(
-        name="wf-plan-change",
-        description="Plan a change of any kind (feature, bug fix, enhancement, refactor, documentation, tech debt, task, maintenance, operations) and produce a consolidated change doc ready for wave admission. The Plan change workflow.",
+        name=_vp_skill("plan-change"),
+        description=f"Plan a change of any kind (feature, bug fix, enhancement, refactor, documentation, tech debt, task, maintenance, operations) and produce a consolidated change doc ready for wave admission. The {_vp_shortcut('plan-change')} workflow.",
         body=_thin_pointer_body(
             "Plan a change",
-            "docs/prompts/plan-change.prompt.md",
+            _vp_doc("plan-change"),
             (
                 "The workflow selects the scaffold among the `wf_new_<kind>` MCP creation tools (bug, enhancement, refactor, documentation, tech debt, task, maintenance, operations, change) by change kind, then admits the doc with `wf_add_change`.",
                 "Gate reminder: planning writes docs only; no repository code edits until the stage gate (change doc, wave admission, recorded readiness) is satisfied.",
@@ -585,37 +603,38 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
         ),
     ),
     Skill(
-        name="wf-prepare-wave",
-        description="Confirm a wave's readiness before implementation (docs validation, gardening, lint, and the prepare-phase council gate). The Prepare wave / Ready wave workflow.",
+        name=_vp_skill("prepare-wave"),
+        description="Confirm a wave's readiness before implementation (docs validation, gardening, lint, and the prepare-phase council gate). "
+        f"The {' / '.join((_vp_shortcut('prepare-wave'), *vocabulary_profile.shortcut_aliases('prepare-wave')))} workflow.",
         body=_thin_pointer_body(
             "Prepare a wave",
-            "docs/prompts/prepare-wave.prompt.md",
+            _vp_doc("prepare-wave"),
             (
                 "Prefer the `wf_prepare_wave` MCP tool: `dry_run` to validate, `ready` to record readiness without opening, `create` to prepare and open.",
-                "The prepare-phase council review runs as the last prepare step; `wave-council-readiness` must be recorded before the wave readies.",
+                "The prepare-phase council review runs as the last prepare step; `council-readiness` must be recorded before the wave readies.",
                 "Gate reminder: only one wave may be OPEN at a time; readiness alone never takes that slot.",
             ),
         ),
     ),
     Skill(
-        name="wf-implement-wave",
-        description="Open a readied wave and coordinate multi-change implementation with real-time AC and task tracking. The Implement wave workflow.",
+        name=_vp_skill("implement-wave"),
+        description=f"Open a readied wave and coordinate multi-change implementation with real-time AC and task tracking. The {_vp_shortcut('implement-wave')} workflow.",
         body=_thin_pointer_body(
             "Implement a wave",
-            "docs/prompts/implement-wave.prompt.md",
+            _vp_doc("implement-wave"),
             (
                 "Prefer the `wf_implement_wave` MCP tool to open the readied wave and receive the ordered change list and watchpoints.",
                 "Gate reminder: the stage gate applies before any code edit (change doc, wave admission, recorded readiness); mark ACs and tasks as work completes, not at wave end.",
-                "Single-change variant: Implement change (`docs/prompts/implement-change.prompt.md`).",
+                f"Single-change variant: {_vp_shortcut('implement-change')} (`{_vp_doc('implement-change')}`).",
             ),
         ),
     ),
     Skill(
-        name="wf-review-wave",
-        description="Run the open wave's required review lanes and record typed review evidence ahead of closure. The Review wave workflow.",
+        name=_vp_skill("review-wave"),
+        description=f"Run the open wave's required review lanes and record typed review evidence ahead of closure. The {_vp_shortcut('review-wave')} workflow.",
         body=_thin_pointer_body(
             "Review a wave",
-            "docs/prompts/review-wave.prompt.md",
+            _vp_doc("review-wave"),
             (
                 "Start from the `wf_review_wave` MCP tool for guided actions; record evidence with `wf_review_event` (dry-run first, then create).",
                 "Reminder: review evidence is typed and executable; approvals bind to the current receipt and lapse when the reviewed surface changes.",
@@ -623,41 +642,42 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
         ),
     ),
     Skill(
-        name="wf-close-wave",
-        description="Close and archive a wave after delivery review, reconciling every AC and task checkbox. Closure is operator-owned. The Close wave workflow.",
+        name=_vp_skill("close-wave"),
+        description=f"Close and archive a wave after delivery review, reconciling every AC and task checkbox. Closure is operator-owned. The {_vp_shortcut('close-wave')} workflow.",
         body=_thin_pointer_body(
             "Close a wave",
-            "docs/prompts/close-wave.prompt.md",
+            _vp_doc("close-wave"),
             (
                 "Prefer the `wf_close_wave` MCP tool; run `dry_run` freely to validate close readiness.",
                 'Gate reminder: closure is operator-owned. Call `mode="create"` only when the operator explicitly instructs closure in the current request; closure is never inferred from adjacent actions such as "run the review" or "fix the tests".',
-                "Single change: Close change (`docs/prompts/close-change.prompt.md`) marks one change `complete` inside the open wave; Close wave is still the only wave close.",
+                f"Single change: {_vp_shortcut('close-change')} (`{_vp_doc('close-change')}`) marks one change `complete` inside the open wave; {_vp_shortcut('close-wave')} is still the only wave close.",
             ),
         ),
     ),
     Skill(
-        name="wf-close-change",
-        description="Close one admitted change inside the open wave with wf_close_change, marking it complete and activating its dependents; never closes the wave (Close wave is the only wave close). The Close change workflow.",
+        name=_vp_skill("close-change"),
+        description=f"Close one admitted change inside the open wave with wf_close_change, marking it complete and activating its dependents; never closes the wave ({_vp_shortcut('close-wave')} is the only wave close). The {_vp_shortcut('close-change')} workflow.",
         body=_thin_pointer_body(
             "Close a change",
-            "docs/prompts/close-change.prompt.md",
+            _vp_doc("close-change"),
             (
                 "Prefer the `wf_close_change` MCP tool; run `dry_run` (the default) first, then `create` once the dry run is clean.",
-                "Run it after Review wave has cleared the change: a completed change cannot be reopened, and the tool records no review evidence.",
-                "Close wave (`wf-close-wave`) remains the only wave close, whatever the change count.",
+                f"Run it after {_vp_shortcut('review-wave')} has cleared the change: a completed change cannot be reopened, and the tool records no review evidence.",
+                f"{_vp_shortcut('close-wave')} (`{_vp_skill('close-wave')}`) remains the only wave close, whatever the change count.",
             ),
         ),
     ),
     Skill(
         name="wf-review-plan",
-        description="Review a change doc, or the current wave record when no change is specified, before implementation by walking every unresolved decision branch one question at a time. The Review plan workflow; distinct from Review wave.",
+        description="Review a change doc, or the current wave record when no change is specified, before implementation by walking every unresolved decision branch one question at a time. "
+        f"The Review plan workflow; distinct from {_vp_shortcut('review-wave')}.",
         body=_thin_pointer_body(
             "Review a plan",
             "docs/prompts/review-plan.prompt.md",
             (
                 "Review the named change doc, or fall back to the current wave record when no change is specified; this may run before or after admission, but only before implementation.",
                 "Self-answer from project resources first; surface only the questions that genuinely need operator judgment.",
-                "This optional review records no typed signoff and satisfies no lifecycle gate; use `wf-review-wave` for the open wave's required delivery-review lanes.",
+                f"This optional review records no typed signoff and satisfies no lifecycle gate; use `{_vp_skill('review-wave')}` for the open wave's required delivery-review lanes.",
             ),
         ),
     ),
@@ -686,11 +706,11 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
         ),
     ),
     Skill(
-        name="wf-pause-wave",
-        description="Park the current session's wave state in the durable handoff artifact when stopping work or handing off. The Pause wave workflow.",
+        name=_vp_skill("pause-wave"),
+        description=f"Park the current session's wave state in the durable handoff artifact when stopping work or handing off. The {_vp_shortcut('pause-wave')} workflow.",
         body=_thin_pointer_body(
             "Pause a wave",
-            "docs/prompts/pause-wave.prompt.md",
+            _vp_doc("pause-wave"),
             (
                 "Prefer the `wf_pause_wave` MCP tool; it also closes any open edit gates.",
                 "Write the durable handoff artifact; do not improvise a summary in its place.",
@@ -699,12 +719,14 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
     ),
     Skill(
         name="wf-council",
-        description="Convene an on-demand review on one artifact, choosing among the role-based Wave Council, the stance-based Archetype Council, and standalone Red-team review. Not the open wave's required lanes (Review wave) and not Review plan, the optional change-doc or current-wave stress test whose aliases are Interrogate this plan and Stress-test this plan.",
+        description="Convene an on-demand review on one artifact, choosing among the role-based Wave Council, the stance-based Archetype Council, and standalone Red-team review. "
+        f"Not the open wave's required lanes ({_vp_shortcut('review-wave')}) and not Review plan, the optional change-doc or current-wave stress test whose aliases are Interrogate this plan and Stress-test this plan.",
         body=WF_COUNCIL_SKILL_BODY,
     ),
     Skill(
         name="wf-guru",
-        description="PROACTIVELY use when the user asks how repository source code or project documentation works — locating behavior, explaining pipelines, architecture, specs, framework scripts, indexing, chunking, retrieval, or MCP tools. Not for wave lifecycle commands (Plan change, Implement wave, Close wave, etc.).",
+        description="PROACTIVELY use when the user asks how repository source code or project documentation works — locating behavior, explaining pipelines, architecture, specs, framework scripts, indexing, chunking, retrieval, or MCP tools. "
+        f"Not for wave lifecycle commands ({_vp_shortcut('plan-change')}, {_vp_shortcut('implement-wave')}, {_vp_shortcut('close-wave')}, etc.).",
         body=WF_GURU_SKILL_BODY,
         requires_doc=GURU_ROLE_REL,
     ),
@@ -729,7 +751,8 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
     ),
     Skill(
         name="wf-code-cleanup",
-        description="Recommend-only maintainability sweep of the whole codebase for dead code, duplication, complexity, abandoned files, and technical debt, producing keep/simplify/remove recommendations (Codebase cleanup review / Dead code review). It changes nothing itself; not a review of one artifact (wf-council) and not the open wave's required lanes (wf-review-wave).",
+        description="Recommend-only maintainability sweep of the whole codebase for dead code, duplication, complexity, abandoned files, and technical debt, producing keep/simplify/remove recommendations (Codebase cleanup review / Dead code review). It changes nothing itself; not a review of one artifact (wf-council) "
+        f"and not the open wave's required lanes ({_vp_skill('review-wave')}).",
         body=_thin_pointer_body(
             "Codebase cleanup review",
             "docs/prompts/codebase-cleanup-review.prompt.md",
@@ -757,12 +780,48 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
 )
 
 
+# Wave 1zyb3 (change 1zxnu): the first body line of every SKILL.md rendered
+# for a declared skill. It marks the file as renderer-owned, so a render never
+# overwrites a hand-written SKILL.md and removes the marked folder of a skill
+# the distribution stops declaring. Framework (wf-) skills stay unmarked.
+DECLARED_SKILL_MARKER = "<!-- wavefoundry:declared-skill -->"
+
+
 def skill_document(skill: Skill) -> str:
     """Assemble the standard SKILL.md text for one registry entry."""
 
+    body = f"{DECLARED_SKILL_MARKER}\n\n{skill.body}" if skill.declared else skill.body
     return (
-        f"---\nname: {skill.name}\ndescription: {skill.description}\n---\n\n{skill.body}"
+        f"---\nname: {skill.name}\ndescription: {skill.description}\n---\n\n{body}"
     )
+
+
+def _legacy_declared_skill_document(skill: Skill) -> str:
+    """The pre-marker rendering of a declared skill (wave 1zv8c), adopted as owned."""
+
+    return skill_document(_dataclass_replace(skill, declared=False))
+
+
+def has_declared_skill_marker(text: str) -> bool:
+    """Whether ``text`` carries the declared-skill marker as its first body line.
+
+    The marker must be the first non-blank line after a frontmatter block that
+    opens on the first line; a trailing carriage return is ignored. A plain
+    line scan, not a YAML parser.
+    """
+
+    lines = [line[:-1] if line.endswith("\r") else line for line in text.split("\n")]
+    if not lines or lines[0] != "---":
+        return False
+    for index in range(1, len(lines)):
+        if lines[index] == "---":
+            break
+    else:
+        return False
+    for line in lines[index + 1:]:
+        if line.strip():
+            return line == DECLARED_SKILL_MARKER
+    return False
 
 
 def declared_skill_problems(skills: object = None) -> list[str]:
@@ -782,7 +841,7 @@ def declared_skill_problems(skills: object = None) -> list[str]:
                 continue
             for _host_root, skills_dir in SKILL_HOSTS:
                 folder = f"{skills_dir}/{name}"
-                if any(rel == folder or rel.startswith(f"{folder}/") for rel in STALE_SKILL_PATHS):
+                if any(rel == folder or rel.startswith(f"{folder}/") for rel in stale_skill_paths()):
                     problems.append(
                         f"skill {name!r}: the name renders to the retired skill path {folder}, "
                         "which every render removes"
@@ -816,8 +875,45 @@ def declared_skills() -> "tuple[Skill, ...]":
                 spec["title"], spec["prompt_doc"], tuple(spec["summary"]), label="skill"
             ),
             requires_doc=spec["prompt_doc"],
+            declared=True,
+            prompt_doc_template=spec.get("prompt_doc_template"),
         )
         for name, spec in skills.items()
+    )
+
+
+def _declared_prompt_doc_creations(repo_root: Path) -> "dict[str, Path]":
+    """``{prompt_doc: template}`` for every declared skill whose prompt doc is
+    absent and whose declaration names a ``prompt_doc_template`` (wave 1zyb3,
+    change 1zxnu). Resolves each template target first, then packaged, and
+    raises naming the template path when neither exists, before any write."""
+
+    creations: "dict[str, Path]" = {}
+    for skill in declared_skills():
+        template_name = skill.prompt_doc_template
+        if not template_name or not skill.requires_doc:
+            continue
+        # ``lexists``: a dangling link at the prompt doc counts as present,
+        # so the creation never writes through it (wave 1zyb3 delivery repair).
+        if os.path.lexists(repo_root / skill.requires_doc) or skill.requires_doc in creations:
+            continue
+        try:
+            creations[skill.requires_doc] = _resolve_install_asset(repo_root, template_name)
+        except RuntimeError as exc:
+            raise RuntimeError(
+                f"declared skill {skill.name!r}: missing prompt_doc_template "
+                f"{template_name}; nothing was rendered: {exc}"
+            ) from exc
+    return creations
+
+
+def _skill_is_eligible(repo_root: Path, skill: Skill, creations: "Mapping[str, Path]") -> bool:
+    """A skill renders where its gate doc exists or this render creates it."""
+
+    return (
+        not skill.requires_doc
+        or skill.requires_doc in creations
+        or (repo_root / skill.requires_doc).is_file()
     )
 
 
@@ -835,8 +931,10 @@ def _skill_output_destinations(repo_root: Path) -> list[str]:
     """
 
     destinations: list[str] = []
-    for skill in _all_skills():
-        if skill.requires_doc and not (repo_root / skill.requires_doc).is_file():
+    skills = _all_skills()
+    creations = _declared_prompt_doc_creations(repo_root)
+    for skill in skills:
+        if not _skill_is_eligible(repo_root, skill, creations):
             continue
         for host_root, skills_dir in SKILL_HOSTS:
             if (repo_root / host_root).is_dir():
@@ -857,6 +955,118 @@ def _skill_path_has_symlink_component(root: Path, path: Path) -> bool:
         if current.is_symlink():
             return True
     return False
+
+
+def _refused_declared_skill_paths(
+    root: Path,
+    skills: "tuple[Skill, ...]",
+    creations: "Mapping[str, Path]",
+    active_skill_roots: "Mapping[str, Path]",
+) -> "list[str]":
+    """Repository-relative SKILL.md paths of eligible declared skills that a
+    render must not overwrite (wave 1zyb3, change 1zxnu): an existing file
+    without the marker whose bytes, ignoring CRLF, differ from the pre-marker
+    rendering of the same skill. A marked or adoptable file is owned."""
+
+    refused: list[str] = []
+    for skill in skills:
+        if not skill.declared or not _skill_is_eligible(root, skill, creations):
+            continue
+        legacy = _legacy_declared_skill_document(skill).encode("utf-8")
+        for skills_dir, declared_root in active_skill_roots.items():
+            target = declared_root / skill.name / "SKILL.md"
+            if not target.is_file():
+                continue
+            try:
+                existing = target.read_bytes()
+            except OSError as exc:
+                raise RuntimeError(
+                    f"cannot read the existing skill {skills_dir}/{skill.name}/SKILL.md: {exc}"
+                ) from exc
+            if has_declared_skill_marker(existing.decode("utf-8", errors="replace")):
+                continue
+            if existing.replace(b"\r\n", b"\n") == legacy:
+                continue
+            refused.append(f"{skills_dir}/{skill.name}/SKILL.md")
+    return refused
+
+
+def _is_link_or_reparse(path: Path, info: os.stat_result) -> bool:
+    """Whether ``path`` is a symlink, a Windows junction or other reparse
+    point, or resolves anywhere but its own lexical path."""
+
+    if stat.S_ISLNK(info.st_mode):
+        return True
+    reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    if reparse and getattr(info, "st_file_attributes", 0) & reparse:
+        return True
+    try:
+        return path.resolve(strict=False) != path
+    except OSError:
+        return True
+
+
+def _declared_skill_orphans(active_skill_roots: "Mapping[str, Path]") -> "list[tuple[str, Path, Path]]":
+    """``(rel, SKILL.md, folder)`` for every marked skill folder on an active
+    host whose name no declared skill uses (wave 1zyb3, change 1zxnu).
+
+    ``wf-`` folders are the framework's. A linked child (symlink, junction or
+    reparse point, or one that resolves elsewhere) is skipped without reading
+    through it, as is one whose SKILL.md is linked or not a regular file. A
+    marked folder holding anything besides SKILL.md is left untouched and
+    reported. Names compare casefolded, so a folder that differs from a
+    declared name only in case is kept on every filesystem. Each root is
+    already resolved and link-free, so a child's lexical path is its real one.
+    """
+
+    declared = {
+        str(name).casefold() for name in getattr(mcp_tool_extensions, "EXTENSION_SKILLS", {}) or {}
+    }
+    orphans: list[tuple[str, Path, Path]] = []
+    for skills_dir, declared_root in active_skill_roots.items():
+        try:
+            children = sorted(declared_root.iterdir(), key=lambda child: child.name)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise RuntimeError(f"cannot list the host skill root {skills_dir}: {exc}") from exc
+        for child in children:
+            if child.name.startswith("wf-") or child.name.casefold() in declared:
+                continue
+            try:
+                child_info = os.lstat(child)
+            except OSError:
+                continue
+            if _is_link_or_reparse(child, child_info) or not stat.S_ISDIR(child_info.st_mode):
+                continue
+            skill_file = child / "SKILL.md"
+            try:
+                file_info = os.lstat(skill_file)
+            except OSError:
+                continue
+            if _is_link_or_reparse(skill_file, file_info) or not stat.S_ISREG(file_info.st_mode):
+                continue
+            try:
+                text = skill_file.read_bytes().decode("utf-8", errors="replace")
+            except OSError:
+                continue
+            if not has_declared_skill_marker(text):
+                continue
+            rel = f"{skills_dir}/{child.name}/SKILL.md"
+            try:
+                entries = sorted(entry.name for entry in child.iterdir())
+            except OSError:
+                continue
+            if entries != ["SKILL.md"]:
+                print(
+                    "render_agent_surfaces: NOTICE - undeclared skill folder left in place: "
+                    f"{skills_dir}/{child.name} holds files besides its marked SKILL.md; "
+                    "remove the folder by hand if it is no longer wanted",
+                    file=sys.stderr,
+                )
+                continue
+            orphans.append((rel, skill_file, child))
+    return orphans
 
 
 def render_skills(repo_root: Path) -> list[str]:
@@ -900,15 +1110,20 @@ def render_skills(repo_root: Path) -> list[str]:
     # Validate every cleanup and write destination before mutating any host.
     # This preserves all hosts if one later lexical path redirects through a
     # symlink, including a per-skill directory symlink inside a valid root.
-    for rel in STALE_SKILL_PATHS:
+    stale_paths = stale_skill_paths()
+    for rel in stale_paths:
         stale = root / rel
         if _skill_path_has_symlink_component(root, stale):
             raise RuntimeError(
                 "stale skill path escapes its declared host skill root through a symlink: "
                 f"{rel}"
             )
+    creations = _declared_prompt_doc_creations(root)
+    creation_paths = {
+        prompt_doc: _contained_review_carrier_path(root, prompt_doc) for prompt_doc in creations
+    }
     for skill in skills:
-        if skill.requires_doc and not (root / skill.requires_doc).is_file():
+        if not _skill_is_eligible(root, skill, creations):
             continue
         for skills_dir, declared_root in active_skill_roots.items():
             target = declared_root / skill.name / "SKILL.md"
@@ -917,9 +1132,13 @@ def render_skills(repo_root: Path) -> list[str]:
                     "skill output path escapes its declared host skill root through a symlink: "
                     f"{skills_dir}/{skill.name}/SKILL.md"
                 )
+    # Wave 1zyb3 (change 1zxnu): decide every declared-skill refusal and every
+    # orphan before the first write.
+    refused = _refused_declared_skill_paths(root, skills, creations, active_skill_roots)
+    orphans = _declared_skill_orphans(active_skill_roots)
 
     written: list[str] = []
-    for rel in STALE_SKILL_PATHS:
+    for rel in stale_paths:
         stale = root / rel
         skills_dir = next(
             (
@@ -956,6 +1175,37 @@ def render_skills(repo_root: Path) -> list[str]:
                     parent.rmdir()
                 except OSError:
                     pass
+    for rel, skill_file, folder in orphans:
+        try:
+            skill_file.unlink()
+        except OSError as exc:
+            raise RuntimeError(f"cannot remove the undeclared skill {rel}: {exc}") from exc
+        written.append(rel)
+        # unlink + rmdir, never rmtree: an entry that appeared in the folder
+        # after the orphan decision survives, and the folder is reported.
+        try:
+            folder.rmdir()
+        except OSError as exc:
+            print(
+                "render_agent_surfaces: NOTICE - undeclared skill folder left in place: "
+                f"{rel.rsplit('/', 1)[0]} could not be removed after its marked SKILL.md "
+                f"was ({type(exc).__name__}); remove the folder by hand if it is no longer wanted",
+                file=sys.stderr,
+            )
+    if creations:
+        today = time.strftime("%Y-%m-%d")
+        for prompt_doc, template in creations.items():
+            with template.open("r", encoding="utf-8", newline="") as handle:
+                content = handle.read().replace("{{generated_at}}", today)
+            _write_review_carrier_text(creation_paths[prompt_doc], content, exclusive=True)
+            written.append(prompt_doc)
+    for rel in refused:
+        print(
+            "render_agent_surfaces: NOTICE - declared skill not rendered: "
+            f"{rel} exists without the declared-skill marker, so it is not overwritten; "
+            "rename the declared skill, or remove or rename the hand-written folder",
+            file=sys.stderr,
+        )
     for skill in skills:
         if skill.requires_doc and not (root / skill.requires_doc).is_file():
             continue
@@ -963,6 +1213,8 @@ def render_skills(repo_root: Path) -> list[str]:
             if skills_dir not in active_skill_roots:
                 continue
             rel = f"{skills_dir}/{skill.name}/SKILL.md"
+            if rel in refused:
+                continue
             target = root / rel
             document = skill_document(skill)
             # A skill file can also be a review carrier (wf-guru on Codex):
@@ -1635,8 +1887,9 @@ def _initial_review_carrier_text(repo_root: Path, carrier: ReviewProtocolCarrier
     form outside the owned protocol region.
     """
 
-    if carrier.destination == "docs/prompts/create-wave.prompt.md":
-        return dedent(
+    if carrier.destination == CONTEXT_EFFICIENCY_DESTINATION:
+        # Wave 1zyb4 (1zxnw): the heading follows the profile's Create wave name.
+        return vocabulary_profile.localize_prompt_template("create-wave", dedent(
             """\
             # Create Wave
 
@@ -1657,7 +1910,7 @@ def _initial_review_carrier_text(repo_root: Path, carrier: ReviewProtocolCarrier
 
             No review findings recorded.
             """
-        )
+        ))
     seed_path = repo_root / ".wavefoundry" / "framework" / "seeds" / carrier.source_seed
     if carrier.source_seed not in {
         "100-project-prompt-surface-bootstrap.prompt.md",
@@ -1765,10 +2018,15 @@ def _write_review_carrier_text(path: Path, content: "str | bytes", *, exclusive:
     truncate a member that appeared between the presence check and the open;
     the sibling baseline families keep the default check-then-truncate.
     ``bytes`` content (wave 1zyc5, the change prompt move) is written verbatim
-    in binary mode, so the copy never depends on the file's encoding.
+    in binary mode, so the copy never depends on the file's encoding. Exclusive
+    ``bytes`` writes (the prompt moves of waves 1zyc5 and 1zyb4) are atomic:
+    see :func:`_write_bytes_atomic_exclusive`.
     """
 
     path.parent.mkdir(parents=True, exist_ok=True)
+    if exclusive and isinstance(content, bytes):
+        _write_bytes_atomic_exclusive(path, content)
+        return
     flags = os.O_WRONLY | os.O_CREAT | (os.O_EXCL if exclusive else os.O_TRUNC)
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
@@ -1782,6 +2040,85 @@ def _write_review_carrier_text(path: Path, content: "str | bytes", *, exclusive:
         return
     with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
         handle.write(content)
+
+
+def _write_bytes_atomic_exclusive(path: Path, content: bytes) -> None:
+    """Publish ``content`` at ``path`` whole or not at all, refusing an existing path.
+
+    The bytes go to a temporary file in the destination folder first, so an
+    interruption never leaves a truncated file at ``path``. The temporary file
+    is then hard-linked to ``path``, which fails when anything (a file, a
+    directory or a symlink) already exists there, so the "refuse if the target
+    exists" rule holds without a check-then-write race. Where the filesystem
+    has no hard links, Windows renames (its rename refuses an existing target)
+    and other platforms fall back to the exclusive create of the default path;
+    if writing that direct copy fails, the target file this call created (and
+    only that file, never one that was already there) is removed before the
+    error is raised. Removing the temporary file is best-effort: after a
+    successful link, a failed unlink leaves the hidden temporary name behind as
+    a second link to the published file, and the write result still stands.
+    """
+
+    import secrets
+
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    temp: "Path | None" = None
+    for _attempt in range(8):
+        candidate = path.parent / f".{path.name}.{secrets.token_hex(6)}.tmp"
+        try:
+            fd = os.open(candidate, flags, 0o666)
+        except FileExistsError:
+            continue
+        except OSError as exc:
+            raise RuntimeError(f"review carrier write refused for {path}: {exc}") from exc
+        temp = candidate
+        break
+    if temp is None:
+        raise RuntimeError(f"review carrier write refused for {path}: no temporary name was free")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temp, path)
+        except FileExistsError as exc:
+            raise RuntimeError(f"review carrier write refused for {path}: {exc}") from exc
+        except OSError:
+            if os.name == "nt":
+                try:
+                    os.rename(temp, path)
+                except OSError as exc:
+                    raise RuntimeError(f"review carrier write refused for {path}: {exc}") from exc
+            else:
+                exclusive_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                if hasattr(os, "O_NOFOLLOW"):
+                    exclusive_flags |= os.O_NOFOLLOW
+                try:
+                    out = os.open(path, exclusive_flags, 0o666)
+                except OSError as exc:
+                    raise RuntimeError(f"review carrier write refused for {path}: {exc}") from exc
+                created = os.fstat(out)
+                try:
+                    with os.fdopen(out, "wb") as handle:
+                        handle.write(content)
+                except BaseException:
+                    # Remove only the file this call created (the exclusive
+                    # open proved nothing was there): a partial copy left at
+                    # the target would block every later migration run.
+                    try:
+                        if os.path.samestat(os.lstat(path), created):
+                            os.unlink(path)
+                    except OSError:
+                        pass
+                    raise
+    finally:
+        try:
+            os.unlink(temp)
+        except OSError:  # already renamed away, or not removable: the write result stands
+            pass
 
 
 def migrate_review_plan_prompt(repo_root: Path) -> list[str]:
@@ -1922,8 +2259,10 @@ CHANGE_PROMPT_RENAMES: "tuple[tuple[str, str, str], ...]" = (
     ),
 )
 RETIRED_FINALIZE_PROMPT = "docs/prompts/finalize-feature.prompt.md"
-CLOSE_CHANGE_PROMPT = "docs/prompts/close-change.prompt.md"
-CLOSE_CHANGE_SHORTCUT = "Close change"
+# Wave 1zyb4 (1zxnw): the profile's names; the manifest repair below uses the
+# APPLIED name (the manifest's ``prompt_names`` record) instead.
+CLOSE_CHANGE_PROMPT = _vp_doc("close-change")
+CLOSE_CHANGE_SHORTCUT = _vp_shortcut("close-change")
 PROMPT_SURFACE_MANIFEST = "docs/prompts/prompt-surface-manifest.json"
 _MARKDOWN_LINK_TARGET_RE = re.compile(r"\]\(\s*<?([^)\s>]+)>?(?:\s+[^)]*)?\)")
 
@@ -1962,17 +2301,24 @@ def _change_prompt_pair_conflict(repo_root: Path, old_rel: str, new_rel: str) ->
     return None
 
 
-def _moved_prompt_link_report(repo_root: Path) -> "tuple[str, ...]":
+def _moved_prompt_link_report(
+    repo_root: Path, moved: "tuple[str, ...] | None" = None
+) -> "tuple[str, ...]":
     """Report markdown links whose target resolves to a moved prompt path.
 
     Walks the same file set the docs-lint link validator checks (history
     records and memory files included), so every link that would fail the
-    upgrade docs gate is reported.
+    upgrade docs gate is reported. ``moved`` is the set of old paths (default:
+    the feature-to-change renames; wave 1zyb4 passes the profile moves).
     """
     # Local import: defer the wave_lint_lib edge to call time (see _expected_agent_category use).
     from wave_lint_lib.helpers import iter_linkable_docs, relative_to_root
 
-    old_paths = {old_rel for old_rel, _new_rel, _shortcut in CHANGE_PROMPT_RENAMES}
+    old_paths = (
+        {old_rel for old_rel, _new_rel, _shortcut in CHANGE_PROMPT_RENAMES}
+        if moved is None
+        else set(moved)
+    )
     old_names = {Path(old_rel).name for old_rel in old_paths}
     root = repo_root.resolve()
     report: list[str] = []
@@ -2004,6 +2350,25 @@ def _moved_prompt_link_report(repo_root: Path) -> "tuple[str, ...]":
                 if candidate in old_paths:
                     report.append(f"{rel}:{line_no}")
     return tuple(dict.fromkeys(report))
+
+
+def _applied_close_change_entry(data: dict) -> "tuple[str, str]":
+    """The Close change manifest entry at the APPLIED name (wave 1zyb4, change
+    1zxnw): the manifest's ``prompt_names`` record for ``close-change``, else
+    the default. The profile migration that runs next moves it to the profile's
+    name, so the repair never adds a second entry while a close chain is only
+    partly applied."""
+
+    try:
+        applied = vocabulary_profile.applied_prompt_slugs(data.get("prompt_names"))
+    except ValueError:
+        applied = vocabulary_profile.applied_prompt_slugs(None)
+    slug = applied["close-change"]
+    if slug == vocabulary_profile.prompt_slug("close-change"):
+        shortcut = vocabulary_profile.shortcut("close-change")
+    else:
+        shortcut = vocabulary_profile.DEFAULT_PROMPT_NAMES["close-change"]["shortcut"]
+    return f"docs/prompts/{slug}.prompt.md", shortcut
 
 
 def _repair_change_prompt_manifest(repo_root: Path) -> "list[str]":
@@ -2045,10 +2410,11 @@ def _repair_change_prompt_manifest(repo_root: Path) -> "list[str]":
                 }
                 changed = True
         updated.append(entry)
+    close_doc, close_shortcut = _applied_close_change_entry(data)
     if not any(
-        isinstance(entry, dict) and entry.get("doc") == CLOSE_CHANGE_PROMPT for entry in updated
+        isinstance(entry, dict) and entry.get("doc") == close_doc for entry in updated
     ):
-        close_entry = {"doc": CLOSE_CHANGE_PROMPT, "shortcut": CLOSE_CHANGE_SHORTCUT}
+        close_entry = {"doc": close_doc, "shortcut": close_shortcut}
         if finalize_index is None:
             updated.append(close_entry)
         else:
@@ -2131,6 +2497,319 @@ def migrate_change_prompt_renames(repo_root: Path) -> ChangePromptMigration:
     return ChangePromptMigration(written=tuple(written), link_report=link_report)
 
 
+# ---------------------------------------------------------------------------
+# Profile prompt-name migration (wave 1zyb4, change 1zxnw)
+#
+# A distribution renames the tier-named lifecycle prompts through
+# ``vocabulary_profile.PROMPT_NAME_OVERRIDES``. The names a target's prompts
+# were last rendered under are recorded in the manifest's ``prompt_names``
+# object (key to applied slug, only keys that differ from the default), because
+# a chain (the item prompt taking the file name the container prompt gives up)
+# makes file names alone ambiguous. Prompts move byte-for-byte; content is
+# never rewritten.
+# ---------------------------------------------------------------------------
+
+# The mapped prompts the framework registers a skill for.
+SKILL_PROMPT_KEYS: "tuple[str, ...]" = (
+    "plan-change", "prepare-wave", "implement-wave", "review-wave", "close-wave",
+    "close-change", "pause-wave",
+)
+
+
+@dataclass(frozen=True)
+class ProfilePromptMigration:
+    """Result of :func:`migrate_profile_prompt_names`: paths written or
+    removed, ``file:line`` links to moved prompts (reported, never edited),
+    and diagnostics for the render to print."""
+
+    written: "tuple[str, ...]"
+    link_report: "tuple[str, ...]"
+    diagnostics: "tuple[str, ...]"
+
+
+@dataclass(frozen=True)
+class _PromptMovePair:
+    key: str
+    source: str
+    target: str
+
+
+def _prompt_pair_paths(slug: str) -> "tuple[str, str]":
+    return f"docs/prompts/{slug}.prompt.md", f"docs/prompts/agents/{slug}.prompt.md"
+
+
+def _write_prompt_manifest(path: Path, original: str, data: dict) -> bool:
+    """Write ``data`` in the manifest's newline style; returns whether it changed."""
+    newline = "\r\n" if "\r\n" in original else "\n"
+    content = json.dumps(data, indent=2, ensure_ascii=False)
+    if original.endswith(("\n", "\r")):
+        content += "\n"
+    if newline != "\n":
+        content = content.replace("\n", newline)
+    if content == original:
+        return False
+    _write_review_carrier_text(path, content)
+    return True
+
+
+def _read_prompt_manifest(repo_root: Path) -> "tuple[Path, str, dict]":
+    """The manifest path, text and object; raises ``ValueError`` when absent,
+    unreadable or not a JSON object."""
+    lexical = repo_root / PROMPT_SURFACE_MANIFEST
+    if not lexical.is_file():
+        raise ValueError(f"{PROMPT_SURFACE_MANIFEST} is absent")
+    path = _contained_review_carrier_path(repo_root, PROMPT_SURFACE_MANIFEST)
+    try:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            original = handle.read()
+        data = json.loads(original)
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise ValueError(f"{PROMPT_SURFACE_MANIFEST} is unreadable or not valid JSON ({exc})") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"{PROMPT_SURFACE_MANIFEST} is not a JSON object")
+    return path, original, data
+
+
+def _profile_prompt_plan(
+    repo_root: Path, applied: "Mapping[str, str]"
+) -> "tuple[list[str], dict[str, list[_PromptMovePair]], list[str]]":
+    """Key order (dependencies first), each key's pairs, and every conflict."""
+
+    targets = {key: vocabulary_profile.prompt_slug(key) for key in vocabulary_profile.DEFAULT_PROMPT_NAMES}
+    pending = [key for key in targets if applied[key] != targets[key]]
+    pairs: "dict[str, list[_PromptMovePair]]" = {}
+    for key in pending:
+        pairs[key] = [
+            _PromptMovePair(key, source, target)
+            for source, target in zip(_prompt_pair_paths(applied[key]), _prompt_pair_paths(targets[key]))
+        ]
+    conflicts: list[str] = []
+    source_owner: "dict[str, str]" = {}
+    for key in pending:
+        for pair in pairs[key]:
+            if pair.source in source_owner:
+                conflicts.append(
+                    f"{pair.source}: applied names of {source_owner[pair.source]!r} and {key!r} collide"
+                )
+            source_owner[pair.source] = key
+    for key in pending:
+        for pair in pairs[key]:
+            source_lexical = repo_root / pair.source
+            target_lexical = repo_root / pair.target
+            if not os.path.lexists(source_lexical):
+                continue
+            label = f"{pair.source} -> {pair.target}"
+            if source_lexical.is_symlink():
+                conflicts.append(f"{label}: the source is a symlink")
+                continue
+            try:
+                source_path = _contained_review_carrier_path(repo_root, pair.source)
+                target_path = _contained_review_carrier_path(repo_root, pair.target)
+            except RuntimeError as exc:
+                conflicts.append(f"{label}: {exc}")
+                continue
+            if not stat.S_ISREG(os.lstat(source_lexical).st_mode) or not source_path.is_file():
+                conflicts.append(f"{label}: the source is not a regular file")
+                continue
+            if not os.path.lexists(target_lexical):
+                continue
+            if source_owner.get(pair.target, key) != key:
+                continue  # a chain: the target moves away first
+            try:
+                identical = (
+                    not target_lexical.is_symlink()
+                    and target_path.is_file()
+                    and source_path.read_bytes() == target_path.read_bytes()
+                )
+            except OSError:
+                identical = False
+            if not identical:
+                conflicts.append(f"{label}: both exist")
+    # Dependency order: a key whose target is another key's source waits for it.
+    depends = {
+        key: sorted({source_owner[pair.target] for pair in pairs[key]
+                     if source_owner.get(pair.target, key) != key})
+        for key in pending
+    }
+    order: list[str] = []
+    state: "dict[str, int]" = {}
+
+    def visit(key: str, trail: "list[str]") -> None:
+        if state.get(key) == 2:
+            return
+        if state.get(key) == 1:
+            cycle = trail[trail.index(key):] + [key]
+            conflicts.append(
+                "rename cycle between applied and target names: "
+                + " -> ".join(_prompt_pair_paths(applied[item])[0] for item in cycle)
+            )
+            return
+        state[key] = 1
+        for other in depends[key]:
+            visit(other, trail + [key])
+        state[key] = 2
+        order.append(key)
+
+    for key in pending:
+        visit(key, [])
+    return order, pairs, list(dict.fromkeys(conflicts))
+
+
+def _move_prompt_pair(repo_root: Path, pair: _PromptMovePair) -> "list[str]":
+    """Move one pair by exact byte copy, then unlink the source (rollback on failure)."""
+
+    source_lexical = repo_root / pair.source
+    if not os.path.lexists(source_lexical):
+        return []
+    source_path = _contained_review_carrier_path(repo_root, pair.source)
+    target_path = _contained_review_carrier_path(repo_root, pair.target)
+    try:
+        original = source_path.read_bytes()
+    except OSError as exc:
+        raise RuntimeError(
+            f"prompt name migration blocked: {pair.source} could not be read; it was preserved: {exc}"
+        ) from exc
+    copied = False
+    if os.path.lexists(repo_root / pair.target):
+        # A copy completed before an interruption: only the unlink remains.
+        try:
+            same = not (repo_root / pair.target).is_symlink() and target_path.read_bytes() == original
+        except OSError:
+            same = False
+        if not same:
+            raise RuntimeError(
+                f"prompt name migration blocked: {pair.target} appeared during the migration; "
+                f"{pair.source} was preserved"
+            )
+    else:
+        _write_review_carrier_text(target_path, original, exclusive=True)
+        copied = True
+    try:
+        source_path.unlink()
+    except OSError as exc:
+        outcome = f"{pair.target} was kept"
+        if copied:
+            try:
+                target_path.unlink()
+                outcome = f"{pair.target} was removed"
+            except OSError:
+                outcome = f"{pair.target} could not be removed and must be deleted by hand"
+        raise RuntimeError(
+            f"prompt name migration blocked while removing {pair.source}; "
+            f"it was preserved and {outcome}: {exc}"
+        ) from exc
+    return [pair.source, pair.target]
+
+
+def _record_applied_prompt_name(repo_root: Path, key: str, applied_slug: str) -> bool:
+    """Rewrite the manifest once for ``key``: its public entry at the target
+    doc and shortcut, and ``prompt_names`` recording the target slug (dropped
+    at the default; the object removed when empty). Returns whether it wrote."""
+
+    path, original, data = _read_prompt_manifest(repo_root)
+    target_slug = vocabulary_profile.prompt_slug(key)
+    applied_doc = _prompt_pair_paths(applied_slug)[0]
+    target_doc = _prompt_pair_paths(target_slug)[0]
+    entries = data.get("public_prompt_surface")
+    if isinstance(entries, list):
+        data["public_prompt_surface"] = [
+            {
+                name: (target_doc if name == "doc" else vocabulary_profile.shortcut(key) if name == "shortcut" else value)
+                for name, value in entry.items()
+            }
+            if isinstance(entry, dict) and entry.get("doc") == applied_doc
+            else entry
+            for entry in entries
+        ]
+    record = data.get("prompt_names")
+    record = dict(record) if isinstance(record, dict) else {}
+    if target_slug == vocabulary_profile.DEFAULT_PROMPT_NAMES[key]["slug"]:
+        record.pop(key, None)
+    else:
+        record[key] = target_slug
+    if record:
+        data["prompt_names"] = record
+    else:
+        data.pop("prompt_names", None)
+    return _write_prompt_manifest(path, original, data)
+
+
+def migrate_profile_prompt_names(repo_root: Path) -> ProfilePromptMigration:
+    """Move rendered lifecycle prompts from their applied names (the manifest's
+    ``prompt_names``, absent meaning the defaults) to the profile's names.
+
+    The whole plan is preflighted before any write: any conflict (a target that
+    exists and is neither another pair's source nor a byte-identical copy of
+    its source, a linked, special or uncontained source, colliding applied
+    names, or a rename cycle) raises one error naming every conflicting pair
+    and nothing is written. Keys move in dependency order; each key's public
+    prompt and agent body move by exact byte copy and unlink, and the manifest
+    records the key before the next key moves, so a rerun after an
+    interruption converges. Under the default profile with no ``prompt_names``
+    key nothing is read beyond the manifest and nothing is written.
+    """
+
+    profiled = any(
+        vocabulary_profile.prompt_slug(key) != default["slug"]
+        for key, default in vocabulary_profile.DEFAULT_PROMPT_NAMES.items()
+    )
+    record_invalid = False
+    try:
+        _path, _original, data = _read_prompt_manifest(repo_root)
+        record_invalid = True
+        applied = vocabulary_profile.applied_prompt_slugs(data.get("prompt_names"))
+    except ValueError as exc:
+        # Silent under the default profile with an absent or unreadable
+        # manifest (docs-lint requires and checks it); reported otherwise.
+        diagnostics: "tuple[str, ...]" = ()
+        if profiled or record_invalid:
+            diagnostics = (
+                f"prompt name migration skipped, nothing was moved: {exc}. The renderer records "
+                f"renamed lifecycle prompts under `prompt_names` in {PROMPT_SURFACE_MANIFEST}; "
+                "repair or create it, then rerun `wf render-surfaces`.",
+            )
+        return ProfilePromptMigration(written=(), link_report=(), diagnostics=diagnostics)
+    order, pairs, conflicts = _profile_prompt_plan(repo_root, applied)
+    if conflicts:
+        raise RuntimeError(
+            "prompt name migration blocked: "
+            + "; ".join(conflicts)
+            + ". All files were preserved and nothing was written. Merge any project-authored "
+            "prose into the prompt at the profile's name, remove the other copy, and rerun "
+            "`wf render-surfaces`."
+        )
+    written: list[str] = []
+    moved: list[str] = []
+    for key in order:
+        for pair in pairs[key]:
+            done = _move_prompt_pair(repo_root, pair)
+            if done:
+                moved.append(pair.source)
+            written.extend(done)
+        if _record_applied_prompt_name(repo_root, key, applied[key]):
+            written.append(PROMPT_SURFACE_MANIFEST)
+    link_report = _moved_prompt_link_report(repo_root, tuple(moved)) if moved else ()
+    return ProfilePromptMigration(
+        written=tuple(dict.fromkeys(written)), link_report=link_report, diagnostics=()
+    )
+
+
+def stale_skill_paths() -> "tuple[str, ...]":
+    """``STALE_SKILL_PATHS`` plus, for every mapped prompt the profile renames,
+    its default skill path on each host, unless a current registry skill uses
+    that name (a chain reuses it and the render overwrites it)."""
+
+    current = {skill.name for skill in SKILL_REGISTRY}
+    extra: list[str] = []
+    for key in SKILL_PROMPT_KEYS:
+        default = f"wf-{vocabulary_profile.DEFAULT_PROMPT_NAMES[key]['slug']}"
+        if default in current:
+            continue
+        for _host_root, skills_dir in SKILL_HOSTS:
+            extra.append(f"{skills_dir}/{default}/SKILL.md")
+    return STALE_SKILL_PATHS + tuple(extra)
+
+
 def _agent_surface_output_destinations(repo_root: Path) -> list[str]:
     """Return every non-registry agent destination this pass may write.
 
@@ -2168,6 +2847,7 @@ def preflight_agent_surface_paths(repo_root: Path) -> None:
         UPGRADE_POLICY_DESTINATION,
         *_agent_surface_output_destinations(repo_root),
         *_skill_output_destinations(repo_root),
+        *_declared_prompt_doc_creations(repo_root),
     ]
     for destination in dict.fromkeys(destinations):
         _contained_review_carrier_path(repo_root, destination)
@@ -2354,6 +3034,11 @@ def reconcile_lifecycle_prompt_baselines(repo_root: Path) -> list[str]:
             # materialized carrier satisfies `check_metadata` on the first
             # docs-lint pass; stamp it exactly as the scaffold baselines do.
             content = handle.read().replace("{{generated_at}}", today)
+        # Wave 1zyb4 (1zxnw): a mapped prompt's heading and Shortcut line take
+        # the profile's names; the identity under the default profile.
+        key = template_name.removesuffix(".prompt.md")
+        if key in vocabulary_profile.DEFAULT_PROMPT_NAMES:
+            content = vocabulary_profile.localize_prompt_template(key, content)
         _write_review_carrier_text(path, content)
         written.append(destination)
     return written
@@ -2831,6 +3516,19 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
             f"(edit it to the -change path, then rerun the docs gate): {location}",
             file=sys.stderr,
         )
+    # Wave 1zyb4 (1zxnw): right after the 1zyc5 move and before skills and
+    # baselines render, move prompts to the profile's names. Preflights the
+    # whole plan and raises before any write on conflict.
+    profile_migration = migrate_profile_prompt_names(repo_root)
+    migration_written = [*migration_written, *profile_migration.written]
+    for location in profile_migration.link_report:
+        print(
+            "render_agent_surfaces: NOTICE - markdown link targets a prompt the profile renamed "
+            f"(edit it to the prompt's new path, then rerun the docs gate): {location}",
+            file=sys.stderr,
+        )
+    for diagnostic in profile_migration.diagnostics:
+        print(f"render_agent_surfaces: NOTICE - {diagnostic}", file=sys.stderr)
     # Wave 1p6lp: the skill registry renders BEFORE the reconcile passes so a
     # freshly migrated carrier skill (wf-guru on Codex) is reconciled in the
     # same render, and BEFORE the Guru gate because lifecycle skills are not

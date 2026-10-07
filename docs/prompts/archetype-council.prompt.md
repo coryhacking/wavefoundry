@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-22
+Last verified: 2026-10-07
 
 **Shortcut phrases:** `Archetype review` · `Archetype council`
 
@@ -24,7 +24,7 @@ Reach for the **Wave Council** when the artifact is code, architecture, trust-bo
 | Sharpen a README draft for visitor reception | **Archetype review** (with Hemingway swap) |
 | Stress-test an ADR's comparison logic | **Archetype review** (with Munger swap) |
 | Get one sharp adversarial challenge before commit | **Red-team review** |
-| Satisfy `wave-council-readiness` for Prepare wave | **Wave Council** (`Council review`) — Archetype Council does not record this signoff |
+| Satisfy `council-readiness` for Prepare wave | **Wave Council** (`Council review`) — Archetype Council does not record this signoff |
 | Review a code change for architecture / security / qa | **Wave Council** (`Council review`) |
 
 ---
@@ -88,8 +88,8 @@ The findings are preserved in `1p318`'s Decision Log under "Three-persona review
 | **Archetype review** | Optional, operator-invoked, stance-based; AC text / prose / decision narrative / naming |
 | **Red-team review** (`docs/prompts/red-team-review.prompt.md`) | Single adversarial stance, in isolation; or Phase 1 primer to Wave Council |
 | **Wave Council** (`Council review`) | Role-based specialist seats; required at Prepare wave / Review wave when `wave_review.enabled`; code / architecture / trust-boundary work |
-| **Prepare wave** | Lifecycle gate — Wave Council readiness pass is embedded; records `wave-council-readiness` signoff |
-| **Review wave** | Lifecycle gate — Wave Council delivery pass is embedded; records `wave-council-delivery` signoff |
+| **Prepare wave** | Lifecycle gate — Wave Council readiness pass is embedded; records `council-readiness` signoff |
+| **Review wave** | Lifecycle gate — Wave Council delivery pass is embedded; records `council-delivery` signoff |
 | **Evaluate decision** | Architecture / technology decision specifically — produces an ADR |
 | **Review plan** | Optional no-signoff stress test of a change doc, or current-wave fallback, before or after admission and before implementation (natural-language aliases: **Interrogate this plan**, **Stress-test this plan**); distinct from **Review wave** |
 

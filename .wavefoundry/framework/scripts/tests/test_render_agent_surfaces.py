@@ -426,7 +426,7 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
             "`code-reviewer` is not optional",
             "branch-complete and re-entrant checks",
             "QA verifies state across repeated calls or routine steps",
-            "current receipt-derived `required_council_signoffs` lists `wave-council-delivery`",
+            "current receipt-derived `required_council_signoffs` lists `council-delivery`",
             "AC scope gap check", "`qa-reviewer` attests every required row",
             "Verify every `[~]` AC", "## AC and Task Verification Truth Hierarchy",
             "## Project review specifics",

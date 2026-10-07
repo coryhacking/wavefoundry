@@ -276,6 +276,159 @@ _RELOAD_BOOTSTRAP_EXCLUSIONS = {
 }
 
 
+# Wave 1zxnz (1zx02): flat script modules that a module wf_reload_mcp evicts or
+# reloads imports, but that the reload leaves loaded. Each reason says why a
+# stale copy is acceptable until the host restarts. Reducing this list is a
+# follow-up; the guard below keeps it from growing silently.
+_RELOAD_RETAINED_FLAT_MODULES = {
+    "accel_embedder": "process-wide accelerated embedder cache, loaded lazily by the index runtime",
+    "cli_stdio": "stable stdio reconfigure helper, imported lazily",
+    "dashboard_lib": "dashboard process coordination; flock-style locks only, read lazily",
+    "graph_snapshot": "process-wide graph snapshot cache, read lazily",
+    "index_compatibility": "pins the loaded index runtime; a reload deliberately does not replace it",
+    "index_state_store": "index store bound to the loaded index runtime, read lazily",
+    "install_log_lib": "stable install-log reader API, imported lazily",
+    "lifecycle_id": "stable lifecycle id helpers; tool paths reach it through the script cache",
+    "machine_authority": "stable scanner path predicate used by the secrets validators",
+    "process_info": "process-wide psutil loader, deliberately left loaded",
+    "provider_policy": "stable execution-provider selection, imported lazily",
+    "render_agent_surfaces": "stable renderer API, imported lazily at call time",
+    "repo_root": "runner bootstrap (_RELOAD_BOOTSTRAP_EXCLUSIONS)",
+    "scanner_skips": "scanner skip records; flock-style locks only",
+    "setup_index": "setup entry point, imported lazily for its CA ladder and checks",
+    "setup_readiness": "runner bootstrap (_RELOAD_BOOTSTRAP_EXCLUSIONS)",
+    "sqlite_runtime": "process-wide SQLite binding, which must not change inside one process",
+    "subprocess_util": "runner bootstrap (_RELOAD_BOOTSTRAP_EXCLUSIONS)",
+    "techdocs_audit_lib": "stable audit API, imported lazily at call time",
+    "tree_sitter_cache": "process-wide parser cache, imported lazily",
+    "upgrade_lib": "stable upgrade-lock helpers, imported lazily",
+    "upgrade_wavefoundry": "upgrade runner, imported lazily; an upgrade ends with a restart or reload",
+    "venv_bootstrap": "runner bootstrap (_RELOAD_BOOTSTRAP_EXCLUSIONS)",
+}
+
+# Wave 1zxnz (1zx02): module-level ``from runtime_lock import NAME`` bindings in
+# modules the reload leaves loaded. Exception classes keep their identity
+# across the in-place reload; any other bound name keeps old code until
+# restart and must be listed here with the reason that is acceptable.
+_RUNTIME_LOCK_STALE_BINDINGS = {
+    ("dashboard_lib", "RuntimeFileLock"): "flock-style dashboard locks only; old code is consistent until restart",
+    ("dashboard_lib", "write_json_in_place"): "metadata rewrite helper; old code is consistent until restart",
+    ("scanner_skips", "RuntimeFileLock"): "flock-style scanner lock only; old code is consistent until restart",
+}
+
+
+def _in_place_reloaded(source):
+    """Names in server_impl's ``_IN_PLACE_RELOAD_MODULES`` tuple (wave 1zxnz)."""
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "_IN_PLACE_RELOAD_MODULES"
+                                                for t in node.targets):
+            return {n.value for n in ast.walk(node.value) if isinstance(n, ast.Constant)
+                    and isinstance(n.value, str)}
+    raise AssertionError("Expected a module-level _IN_PLACE_RELOAD_MODULES tuple")
+
+
+def _flat_stems():
+    from framework_files import framework_source_files
+
+    return {p.stem for p in framework_source_files(include_aliases=True) if p.parent == SCRIPTS}
+
+
+def _evicted_flat_names(server_source):
+    """Flat names the reload evicts or reloads: the purge literal, every
+    package module by its flat key, and server_impl itself."""
+    package_keys = {key for key in _evaluated_purge_keys(server_source) if "." not in key}
+    return set(_purge_entries(server_source)) | package_keys | {"server_impl"}
+
+
+def _evicted_module_sources(server_source, overrides=None):
+    """``{label: source}`` for every module the reload evicts or reloads:
+    purge-literal flat modules, every ``wave_lint_lib`` module, and every
+    ``wf_server`` package module including server_impl."""
+    overrides = overrides or {}
+    stems = _flat_stems()
+    labels = {name: name for name in _purge_entries(server_source) if name in stems}
+    for path in sorted((SCRIPTS / "wave_lint_lib").rglob("*.py")):
+        rel = path.relative_to(SCRIPTS).as_posix()
+        labels[rel] = rel
+    for path in sorted((SCRIPTS / "wf_server").glob("*.py")):
+        rel = path.relative_to(SCRIPTS).as_posix()
+        labels[rel] = rel
+    result = {label: source_path(name).read_text(encoding="utf-8") for label, name in labels.items()}
+    result["wf_server/server_impl.py"] = server_source
+    result.update(overrides)
+    return result
+
+
+def _flat_imports_anywhere(source, stems):
+    """Top-level names of flat script modules imported anywhere in ``source``
+    (module level and inside functions)."""
+    found = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            modules = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            modules = [node.module]
+        else:
+            continue
+        found.update(m.split(".")[0] for m in modules if m.split(".")[0] in stems)
+    return found
+
+
+def _reload_closure_problems(server_source, retained, overrides=None):
+    """Problems with the reload closure (wave 1zxnz, 1zx02): an evicted or
+    reloaded module importing a flat module that is neither evicted, reloaded
+    in place, nor allow-listed; and allow-list entries that are evicted or
+    that no evicted module imports any more."""
+    stems = _flat_stems()
+    evicted = _evicted_flat_names(server_source)
+    in_place = _in_place_reloaded(server_source)
+    imported = set()
+    for source in _evicted_module_sources(server_source, overrides).values():
+        imported |= _flat_imports_anywhere(source, stems)
+    problems = [f"not reloaded: {name}" for name in sorted(imported - evicted - in_place - set(retained))]
+    problems += [f"allow-listed but evicted: {name}" for name in sorted(set(retained) & (evicted | in_place))]
+    problems += [f"allow-listed but not imported: {name}" for name in sorted(set(retained) - imported)]
+    return problems
+
+
+def _module_level_nodes(tree):
+    """Nodes that run at import time: everything outside function bodies."""
+    stack = list(tree.body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            continue
+        yield node
+        stack.extend(ast.iter_child_nodes(node))
+
+
+def _runtime_lock_binding_problems(server_source, stale_bindings, overrides=None):
+    """Module-level ``from runtime_lock import NAME`` in a flat module the
+    reload leaves loaded, where NAME is neither a ``runtime_lock`` exception
+    class nor listed in ``stale_bindings``; plus stale map entries."""
+    import runtime_lock
+
+    overrides = overrides or {}
+    evicted = _evicted_flat_names(server_source) | _in_place_reloaded(server_source)
+    bindings = set()
+    for stem in sorted(_flat_stems() - evicted):
+        source = overrides.get(stem, None)
+        if source is None:
+            source = _source(stem)
+        for node in _module_level_nodes(ast.parse(source)):
+            if isinstance(node, ast.ImportFrom) and node.module == "runtime_lock" and not node.level:
+                bindings.update((stem, alias.name) for alias in node.names)
+
+    def is_exception_class(name):
+        value = getattr(runtime_lock, name, None)
+        return isinstance(value, type) and issubclass(value, BaseException)
+
+    problems = [f"stale binding: {module}.{name}" for module, name in sorted(bindings)
+                if not is_exception_class(name) and (module, name) not in stale_bindings]
+    problems += [f"listed but not bound: {module}.{name}" for module, name in sorted(set(stale_bindings) - bindings)]
+    return problems
+
+
 def _patch_census(source, moved):
     tree = ast.parse(source)
     aliases = set()
@@ -636,6 +789,76 @@ class LifecycleGateStructureTests(unittest.TestCase):
         # 1y0bd AC-9's provenance-only invariant: not a member, not cited, unchanged.
         self.assertIn("- [x] AC-9: `sensor_runner` is a member of the purge-set literal", prior)
         self.assertIn("so layering row (a) is mechanically verified for every module it names.", prior)
+
+
+class ReloadClosureGuardTests(unittest.TestCase):
+    """Wave 1zxnz (1zx02) AC-10: what a reload re-imports never imports a
+    flat module the reload leaves stale, unless the allow-list says why."""
+
+    def setUp(self):
+        self.source = _source("server_impl")
+
+    def test_the_tree_passes_with_the_starting_lists(self):
+        self.assertEqual(_in_place_reloaded(self.source), {"runtime_lock"})
+        self.assertEqual(_reload_closure_problems(self.source, _RELOAD_RETAINED_FLAT_MODULES), [])
+        self.assertEqual(_runtime_lock_binding_problems(self.source, _RUNTIME_LOCK_STALE_BINDINGS), [])
+        self.assertEqual(len(_RELOAD_RETAINED_FLAT_MODULES), 23)
+        self.assertNotIn("runtime_lock", _RELOAD_RETAINED_FLAT_MODULES)
+        self.assertTrue(_RELOAD_BOOTSTRAP_EXCLUSIONS <= set(_RELOAD_RETAINED_FLAT_MODULES))
+        self.assertTrue(all(reason.strip() for reason in _RELOAD_RETAINED_FLAT_MODULES.values()))
+
+    def test_an_unlisted_stale_import_is_reported_by_name(self):
+        evicted = _evicted_flat_names(self.source) | _in_place_reloaded(self.source)
+        candidates = sorted(_flat_stems() - evicted - set(_RELOAD_RETAINED_FLAT_MODULES))
+        self.assertTrue(candidates)
+        stale = candidates[0]
+        lifecycle_lock = _source("lifecycle_lock")
+        mutated = {"lifecycle_lock": lifecycle_lock + f"\n\ndef _probe():\n    import {stale}\n"}
+        self.assertEqual(
+            _reload_closure_problems(self.source, _RELOAD_RETAINED_FLAT_MODULES, mutated),
+            [f"not reloaded: {stale}"],
+        )
+
+    def test_removing_the_in_place_reload_reports_runtime_lock(self):
+        mutated = self.source.replace('_IN_PLACE_RELOAD_MODULES = ("runtime_lock",)',
+                                      "_IN_PLACE_RELOAD_MODULES = ()", 1)
+        self.assertNotEqual(mutated, self.source)
+        self.assertEqual(_reload_closure_problems(mutated, _RELOAD_RETAINED_FLAT_MODULES),
+                         ["not reloaded: runtime_lock"])
+
+    def test_allow_list_entries_must_be_retained_and_imported(self):
+        evicted = dict(_RELOAD_RETAINED_FLAT_MODULES, lifecycle_lock="evicted, so wrong here")
+        self.assertEqual(_reload_closure_problems(self.source, evicted),
+                         ["allow-listed but evicted: lifecycle_lock"])
+        in_place = dict(_RELOAD_RETAINED_FLAT_MODULES, runtime_lock="reloaded in place, so wrong here")
+        self.assertEqual(_reload_closure_problems(self.source, in_place),
+                         ["allow-listed but evicted: runtime_lock"])
+        evicted_names = _evicted_flat_names(self.source) | _in_place_reloaded(self.source)
+        unused = sorted(_flat_stems() - evicted_names - set(_RELOAD_RETAINED_FLAT_MODULES))[0]
+        extra = dict(_RELOAD_RETAINED_FLAT_MODULES, **{unused: "no evicted module imports it"})
+        self.assertEqual(_reload_closure_problems(self.source, extra),
+                         [f"allow-listed but not imported: {unused}"])
+
+    def test_a_new_module_level_runtime_lock_binding_is_reported(self):
+        target = "process_info"
+        self.assertNotIn(target, _evicted_flat_names(self.source))
+        mutated = {target: _source(target) + "\nfrom runtime_lock import RuntimeFileLock\n"}
+        self.assertEqual(
+            _runtime_lock_binding_problems(self.source, _RUNTIME_LOCK_STALE_BINDINGS, mutated),
+            [f"stale binding: {target}.RuntimeFileLock"],
+        )
+        # Exception classes keep their identity across the reload; a
+        # function-local import runs against the reloaded module.
+        exceptions = {target: _source(target) + "\nfrom runtime_lock import RuntimeLockBusy\n"}
+        self.assertEqual(
+            _runtime_lock_binding_problems(self.source, _RUNTIME_LOCK_STALE_BINDINGS, exceptions), [])
+        local = {target: _source(target) + "\ndef _probe():\n    from runtime_lock import RuntimeFileLock\n"}
+        self.assertEqual(
+            _runtime_lock_binding_problems(self.source, _RUNTIME_LOCK_STALE_BINDINGS, local), [])
+        dropped = {key: value for key, value in _RUNTIME_LOCK_STALE_BINDINGS.items()
+                   if key != ("scanner_skips", "RuntimeFileLock")}
+        self.assertEqual(_runtime_lock_binding_problems(self.source, dropped),
+                         ["stale binding: scanner_skips.RuntimeFileLock"])
 
 
 if __name__ == "__main__":

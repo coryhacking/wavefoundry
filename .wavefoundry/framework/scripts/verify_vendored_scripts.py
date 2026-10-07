@@ -31,13 +31,42 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
-import re
+import os  # noqa: F401  the confined reader's os calls, patched through here by the tests
 import sys
 import tarfile
 import urllib.request
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+
+# Wave 1zyb2 (1zxnt): the offline half (README parsing, the confined reader, the read cap and
+# the offline comparison) lives in the shipped ``vendored_integrity`` module, defined once; its
+# public names are re-exported here so ``build_pack`` and existing callers keep working. The
+# read cap is not re-exported: ``vendored_integrity.MAX_VENDORED_FILE_BYTES`` is the one value,
+# read at call time by every read this module makes.
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+from vendored_integrity import (  # noqa: E402,F401  re-exported
+    ReadmeError,
+    RegistryEntry,
+    VendoredFile,
+    VendoredFileRefused,
+    _FILE_ROW_RE,
+    _FILE_TABLE_HEADER,
+    _REGISTRY_ROW_RE,
+    _REGISTRY_TABLE_HEADER,
+    _SEPARATOR_ROW_RE,
+    _TABLE_LINE_RE,
+    _cause,
+    _read_readme,
+    _read_regular,
+    _readme_label,
+    _row_label,
+    _row_path_problem,
+    _table_rows,
+    offline_problems,
+    parse_readme,
+    read_vendored_file,
+)
 
 REGISTRY_PREFIX = "https://registry.npmjs.org/"
 REQUEST_TIMEOUT_SECONDS = 60
@@ -46,22 +75,7 @@ MAX_TARBALL_BYTES = 32 * 1024 * 1024
 
 DEFAULT_VENDOR_DIR = Path(__file__).resolve().parent.parent / "dashboard" / "vendor"
 
-# Each table is found by its exact header line (wave 1zls7, change 1zodv); every line after
-# its separator row, up to the first line that does not start with ``|``, is a data row of
-# that table and must fully match the table's row pattern. An indented row, or a
-# table-shaped line after the table's end and before the next ``## `` heading, is refused.
 _SCRIPT_SUFFIXES = (".js", ".mjs", ".cjs")
-_FILE_TABLE_HEADER = "| File | Package | Source in the tarball | Licence | SHA-256 |"
-_REGISTRY_TABLE_HEADER = "| Package | Tarball | `dist.integrity` |"
-_TABLE_LINE_RE = re.compile(r"\s*\|")
-_SEPARATOR_ROW_RE = re.compile(r"\|(?:\s*:?-+:?\s*\|)+\s*")
-_FILE_ROW_RE = re.compile(
-    r"\| `(?P<path>[^`]+)` \| `(?P<package>[^`]+@[^`]+)` \| `(?P<source>[^`]+)` \| [^|]+ \| "
-    r"`(?P<sha256>[0-9a-f]{64})` \|\s*"
-)
-_REGISTRY_ROW_RE = re.compile(
-    r"\| `(?P<package>[^`]+@[^`]+)` \| `(?P<url>[^`]+)` \| `(?P<integrity>sha512-[A-Za-z0-9+/=]+)` \|\s*"
-)
 
 
 class FetchError(Exception):
@@ -71,84 +85,6 @@ class FetchError(Exception):
 class FetchRefused(FetchError):
     """The verifier refused a download on purpose: a non-registry URL, a redirect that left the
     registry, or a body over the size cap (printed as ``refused:``)."""
-
-
-class ReadmeError(Exception):
-    """The vendor README cannot be parsed (exit 2)."""
-
-
-@dataclass(frozen=True)
-class VendoredFile:
-    path: str
-    package: str
-    source: str
-    sha256: str
-
-
-@dataclass(frozen=True)
-class RegistryEntry:
-    package: str
-    url: str
-    integrity: str
-
-
-def _table_rows(lines: list[str], header: str, row_re: "re.Pattern[str]", name: str) -> list["re.Match[str]"]:
-    """The data rows of the one table whose header line is exactly ``header``.
-
-    Raises :class:`ReadmeError` when the header is absent or repeated, when the separator row
-    does not follow it, or when a data row does not fully match ``row_re`` (naming the line).
-    """
-    starts = [index for index, line in enumerate(lines) if line.rstrip() == header]
-    if len(starts) != 1:
-        raise ReadmeError(f"expected exactly one {name} table header, found {len(starts)}")
-    start = starts[0]
-    if start + 1 >= len(lines) or not _SEPARATOR_ROW_RE.fullmatch(lines[start + 1]):
-        raise ReadmeError(f"line {start + 2}: the {name} table header is not followed by a separator row")
-    rows: list[re.Match[str]] = []
-    end = len(lines)
-    for index in range(start + 2, len(lines)):
-        line = lines[index]
-        if not line.startswith("|"):
-            if line.lstrip().startswith("|"):
-                raise ReadmeError(f"line {index + 1}: indented {name} table row: {line}")
-            if "|" in line and line.strip():
-                # The leading pipe is optional in a rendered table, so this is still a row.
-                raise ReadmeError(f"line {index + 1}: malformed {name} table row: {line}")
-            end = index
-            break
-        match = row_re.fullmatch(line)
-        if match is None:
-            raise ReadmeError(f"line {index + 1}: malformed {name} table row: {line}")
-        rows.append(match)
-    # A row after the table's end (past a blank line, say) would otherwise be dropped
-    # silently: refuse any table-shaped line before the next ``## `` heading.
-    for index in range(end, len(lines)):
-        line = lines[index]
-        if line.startswith("## "):
-            break
-        if _TABLE_LINE_RE.match(line):
-            raise ReadmeError(f"line {index + 1}: {name} table row after the end of the table: {line}")
-    return rows
-
-
-def parse_readme(text: str) -> tuple[list[VendoredFile], dict[str, RegistryEntry]]:
-    """Return the file table rows and the registry table keyed by ``name@version``."""
-    lines = text.splitlines()
-    files = [
-        VendoredFile(m["path"], m["package"], m["source"], m["sha256"])
-        for m in _table_rows(lines, _FILE_TABLE_HEADER, _FILE_ROW_RE, "file")
-    ]
-    registry: dict[str, RegistryEntry] = {}
-    for m in _table_rows(lines, _REGISTRY_TABLE_HEADER, _REGISTRY_ROW_RE, "registry"):
-        if m["package"] in registry:
-            raise ReadmeError(f"duplicate registry row for {m['package']}")
-        registry[m["package"]] = RegistryEntry(m["package"], m["url"], m["integrity"])
-    if not files or not registry:
-        raise ReadmeError("no file table rows or no registry table rows found")
-    for f in files:
-        if f.package not in registry:
-            raise ReadmeError(f"{f.path}: package {f.package} has no registry row")
-    return files, registry
 
 
 def _is_registry_url(url: str) -> bool:
@@ -212,9 +148,9 @@ def verify(
 ) -> int:
     """Verify every package and file; print one line each and return the exit code."""
     try:
-        files, registry = parse_readme(readme_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, ReadmeError) as exc:
-        print(f"error: cannot parse {readme_path}: {exc}")
+        files, registry = _read_readme(readme_path, vendor_dir)
+    except ReadmeError as exc:
+        print(f"error: cannot parse {_readme_label(readme_path, vendor_dir)}: {exc}")
         return 2
     failed = False
     unverifiable = False
@@ -254,54 +190,31 @@ def verify(
                     member = None
                 handle = archive.extractfile(member) if member is not None and member.isfile() else None
                 if handle is None:
-                    print(f"{f.path}: missing member {f.source} in {package}")
+                    print(f"{_row_label(f)}: missing member {f.source} in {package}")
+                    failed = True
+                    continue
+                try:
+                    vendored = read_vendored_file(vendor_dir, f.path)
+                except (OSError, VendoredFileRefused) as exc:
+                    print(f"{_row_label(f)}: cannot read vendored file: {_cause(exc)}")
                     failed = True
                     continue
                 data = handle.read()
                 member_sha = hashlib.sha256(data).hexdigest()
-                try:
-                    vendored = (vendor_dir / f.path).read_bytes()
-                except OSError as exc:
-                    print(f"{f.path}: cannot read vendored file: {exc}")
-                    failed = True
-                    continue
                 vendored_sha = hashlib.sha256(vendored).hexdigest()
                 if member_sha != f.sha256 or vendored_sha != f.sha256:
-                    print(f"{f.path}: sha256 mismatch: recorded {f.sha256}, tarball member {member_sha}, "
+                    print(f"{_row_label(f)}: sha256 mismatch: recorded {f.sha256}, tarball member {member_sha}, "
                           f"vendored {vendored_sha}")
                     failed = True
                 elif vendored != data:
-                    print(f"{f.path}: content differs from {f.source}")
+                    print(f"{_row_label(f)}: content differs from {f.source}")
                     failed = True
                 else:
-                    print(f"{f.path}: ok (matches {package} {f.source})")
+                    print(f"{_row_label(f)}: ok (matches {package} {f.source})")
     # A mismatch outranks a package that could not be checked.
     if failed:
         return 1
     return 2 if unverifiable else 0
-
-
-def offline_problems(vendor_dir: Path) -> list[str]:
-    """Compare each vendored file's SHA-256 with the file table; return one problem per file.
-
-    Reads only ``vendor_dir/README.md`` and the files it lists, as bytes, so the result is the
-    same on every platform and nothing touches the network. An empty list means every file
-    matches. Raises :class:`ReadmeError` when the README cannot be read or parsed.
-    """
-    try:
-        files, _registry = parse_readme((vendor_dir / "README.md").read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError) as exc:
-        raise ReadmeError(f"cannot read {vendor_dir / 'README.md'}: {exc}") from exc
-    problems: list[str] = []
-    for f in files:
-        try:
-            actual = hashlib.sha256((vendor_dir / f.path).read_bytes()).hexdigest()
-        except OSError as exc:
-            problems.append(f"{f.path}: missing or unreadable vendored file: {exc}")
-            continue
-        if actual != f.sha256:
-            problems.append(f"{f.path}: sha256 mismatch: recorded {f.sha256}, vendored {actual}")
-    return problems
 
 
 def unlisted_scripts(vendor_dir: Path) -> list[str]:
@@ -310,7 +223,7 @@ def unlisted_scripts(vendor_dir: Path) -> list[str]:
 
     Dotfiles such as ``.DS_Store``, the README and licence files are not scripts and are ignored.
     """
-    files, _registry = parse_readme((vendor_dir / "README.md").read_text(encoding="utf-8"))
+    files, _registry = _read_readme(vendor_dir / "README.md", vendor_dir)
     listed = {f.path for f in files}
     found = (
         p.relative_to(vendor_dir).as_posix()
@@ -325,7 +238,7 @@ def verify_offline(vendor_dir: Path) -> int:
     try:
         problems = offline_problems(vendor_dir)
     except ReadmeError as exc:
-        print(f"error: cannot parse {vendor_dir / 'README.md'}: {exc}")
+        print(f"error: cannot parse README.md: {exc}")
         return 2
     for problem in problems:
         print(problem)

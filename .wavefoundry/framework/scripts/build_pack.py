@@ -763,11 +763,13 @@ def _check_vendored_scripts(framework_dir: Path) -> None:
     vendor_dir = framework_dir / "dashboard" / "vendor"
     if not vendor_dir.is_dir():
         return
-    import verify_vendored_scripts  # lazy: only the packaging path needs it
+    # Lazy: only the packaging path needs it. The shipped offline module, not the
+    # network verifier that re-exports it (wave 1zyb2, 1zxnt).
+    import vendored_integrity
 
     try:
-        problems = verify_vendored_scripts.offline_problems(vendor_dir)
-    except verify_vendored_scripts.ReadmeError as exc:
+        problems = vendored_integrity.offline_problems(vendor_dir)
+    except vendored_integrity.ReadmeError as exc:
         raise SystemExit(f"error: vendored scripts cannot be checked: {exc}")
     if problems:
         raise SystemExit("error: vendored scripts do not match their pinned hashes:\n  " + "\n  ".join(problems))

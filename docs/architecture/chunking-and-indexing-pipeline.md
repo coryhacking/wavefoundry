@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-01
+Last verified: 2026-10-07
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -147,19 +147,26 @@ Every entry point above coordinates through one **whole-index build lock**
 (`.wavefoundry/index/index-build.lock`, `indexer._index_build_lock`) so concurrent triggers never
 corrupt the index or run two builds at once. The pattern:
 
-- **The OS lock is the authority.** Acquisition takes a **`fcntl` record lock** (POSIX) / **`msvcrt`
+- **The OS lock is the authority.** Acquisition takes a **record lock** (POSIX) / **`msvcrt`
   byte lock** (Windows) on a single **sentinel byte** (kept off the byte-0 metadata so the JSON stays
   readable while held); it is released automatically when the holder exits, even on a crash. A second
-  builder that finds the lock held fails fast with `IndexBuildAlreadyRunning`.
+  builder that finds the lock held fails fast with `IndexBuildAlreadyRunning`. On Linux and macOS
+  (64-bit, x86_64 or arm64) the record lock is an open file description (OFD) lock (wave `1zxnz`),
+  which an unrelated open and close of the file in the holding process cannot release; OFD and classic
+  `lockf` locks exclude each other, so an older builder still using `lockf` stays excluded. Elsewhere,
+  or when the kernel or filesystem rejects OFD as unsupported, the acquire falls back to `lockf`.
 - **Status tests the lock non-destructively.** `index_build_status` reports an authoritative
-  `held` by *testing* the OS lock — POSIX `fcntl` `F_GETLK` (queries without acquiring and returns the
-  holder PID) / a momentary non-blocking `msvcrt` acquire on Windows — never by inferring from the
-  lock file's presence. Read `lock.held`, not the file.
-- **A hold by the server process is answered from memory (wave `1za2y`).** A POSIX record lock is
-  released when its holder closes *any* descriptor of the file, and `F_GETLK` never reports the
+  `held` by *testing* the OS lock (POSIX `fcntl` `F_GETLK`, which queries without acquiring, or a
+  momentary non-blocking `msvcrt` acquire on Windows), never by inferring from the lock file's presence. Read
+  `lock.held`, not the file. The kernel reports an OFD holder with no pid (`-1`), so the probe then
+  returns no holder pid and `lock.owner_pid` comes from the lock metadata; a `lockf` holder's pid is
+  still reported by the kernel. The `struct flock` layout the probe packs is owned by `runtime_lock`.
+- **A hold by the server process is answered from memory (wave `1za2y`).** A classic POSIX record lock
+  (the `lockf` fallback) is released when its holder closes *any* descriptor of the file, and `F_GETLK` never reports the
   caller's own lock, so while the MCP server itself holds the lock (the `fts` rebuild, `index_optimize`)
   no code in that process may open the lock file. `_index_build_lock` records the hold in a
-  process registry in `runtime_lock` (which an MCP reload does not replace) as part of acquiring,
+  process registry in `runtime_lock` (which an MCP reload reloads in place, state preserved, with its
+  exception classes kept) as part of acquiring,
   under a re-entrant guard that every in-process reader also takes while it checks the registry and
   opens the file; status then reports `held: true` with this process as owner. A second acquire in
   the same process is refused with `IndexBuildAlreadyRunning` before the file is touched.

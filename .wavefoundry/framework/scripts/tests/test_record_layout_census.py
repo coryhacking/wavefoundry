@@ -140,7 +140,6 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     # -- server-routing lane (Requirement 4): non-construction sites only --
     ("wf_server/server_impl.py", "_DEMOTION_WAVES = 0.75  # docs/waves/"): "comment",
     ("wf_server/server_impl.py", "_DEMOTION_PLANS = 0.60  # docs/plans/"): "comment",
-    ("wf_server/server_impl.py", "# Prefer wave folder; fall back to docs/plans"): "comment",
     ("wf_server/server_impl.py", "usage=\"wf_map(address='doc:docs/plans/1234-feat x.md')\""): "message",
     ("wf_server/server_impl.py", "When a change doc is relocated from ``docs/plans/`` to a wave folder"): "docstring",
     ("wf_server/server_impl.py", "valid from ``docs/plans/`` but become invalid"): "docstring",

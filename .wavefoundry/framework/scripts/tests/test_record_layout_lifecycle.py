@@ -218,15 +218,15 @@ class InvalidLayoutFailsClosedTests(_RepoCase):
             ("wf_list_plans", lambda: srv.wf_list_plans_response(root)),
             ("wf_current_wave", lambda: srv.wf_current_wave_response(root)),
             ("wf_get_change", lambda: srv.wf_get_change_response(root, "1abcd")),
-            ("wf_add_change", lambda: srv.wf_add_change_response(root, "1abcd", "1abce", mode="create")),
-            ("wf_remove_change", lambda: srv.wf_remove_change_response(root, "1abcd", "1abce", mode="create")),
+            ("wf_add_change", lambda: srv.wf_add_change_response(root, "1abcd", "1abce-enh x", mode="create")),
+            ("wf_remove_change", lambda: srv.wf_remove_change_response(root, "1abcd", "1abce-enh x", mode="create")),
             ("wf_prepare_wave", lambda: srv.wf_prepare_wave_response(root, "1abcd", mode="dry_run")),
             ("wf_new_change", lambda: srv._change_create_response(root, "enh", "refused-change", mode="create")),
             ("wf_review_event", lambda: srv.wf_review_event_response(
                 root, "1abcd", "approval", "qa", "ctx-1", mode="create", signoff_key="qa",
             )),
             ("wf_close_wave", lambda: srv.wf_close_wave_response(root, "1abcd", mode="create")),
-            ("wf_close_change", lambda: srv.wf_close_change_response(root, "1abcd", "1abce", mode="create")),
+            ("wf_close_change", lambda: srv.wf_close_change_response(root, "1abcd", "1abce-enh x", mode="create")),
             ("wf_pause_wave", lambda: srv.wf_pause_wave_response(root, "1abcd", mode="create")),
             ("wf_implement_wave", lambda: srv.wf_implement_wave_response(root, "1abcd", mode="create")),
             ("wf_review_wave", lambda: srv.wf_review_wave_response(root, "1abcd")),
@@ -235,10 +235,10 @@ class InvalidLayoutFailsClosedTests(_RepoCase):
             # Finding `mark-item-decorator-unpinned`: both mark tools share the
             # `wf_mark_item`-decorated response path.
             ("wf_mark_item", lambda: srv._mark_change_item_response(
-                root, "1abcd", "1abce", "AC-1", "x", target_section="Acceptance Criteria", mode="create",
+                root, "1abcd", "1abce-enh x", "AC-1", "x", target_section="Acceptance Criteria", mode="create",
             )),
             ("wf_mark_item", lambda: srv._mark_change_item_response(
-                root, "1abcd", "1abce", "Task one", "x", target_section="Tasks", mode="create",
+                root, "1abcd", "1abce-enh x", "Task one", "x", target_section="Tasks", mode="create",
             )),
         )
 
@@ -316,11 +316,11 @@ class WrapperFailClosedTests(_RepoCase):
         return (
             ("wf_prepare_wave", lambda: self._tool("wf_prepare_wave")(wave_id, mode="dry_run")),
             ("wf_close_wave", lambda: self._tool("wf_close_wave")(wave_id, mode="dry_run")),
-            ("wf_close_change", lambda: self._tool("wf_close_change")(wave_id, "1abce", mode="dry_run")),
+            ("wf_close_change", lambda: self._tool("wf_close_change")(wave_id, "1abce-enh x", mode="dry_run")),
             ("wf_implement_wave", lambda: self._tool("wf_implement_wave")(wave_id, mode="dry_run")),
             ("wf_review_wave", lambda: self._tool("wf_review_wave")(wave_id)),
-            ("wf_mark_ac", lambda: self._tool("wf_mark_ac")(wave_id, "1abce", "AC-1", "x", mode="dry_run")),
-            ("wf_mark_task", lambda: self._tool("wf_mark_task")(wave_id, "1abce", "Task one", "x", mode="dry_run")),
+            ("wf_mark_ac", lambda: self._tool("wf_mark_ac")(wave_id, "1abce-enh x", "AC-1", "x", mode="dry_run")),
+            ("wf_mark_task", lambda: self._tool("wf_mark_task")(wave_id, "1abce-enh x", "Task one", "x", mode="dry_run")),
             ("wf_pause_wave", lambda: self._tool("wf_pause_wave")(wave_id, mode="dry_run")),
             ("wf_reopen_wave", lambda: self._tool("wf_reopen_wave")(wave_id, purpose="review")),
         )

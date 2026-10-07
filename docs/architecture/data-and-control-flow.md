@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-04
+Last verified: 2026-10-07
 
 ## Runtime advisory boundary
 
@@ -276,6 +276,19 @@ publication lock, and context-efficiency producer leases under `locks/producers/
 open, POSIX/Windows acquire and release, byte ranges, typed busy versus I/O
 outcomes, held probing, handle closure, and in-place JSON metadata. Lock files
 persist after release; pathname existence never proves a live holder.
+
+Record-style locks (the lifecycle and index-build locks) are open file
+description (OFD) locks on Linux and macOS with a 64-bit interpreter on x86_64
+or arm64 (wave `1zxnz`), so an unrelated open and close of the lock file in the
+holding process cannot release them. Elsewhere, or when the kernel or filesystem
+rejects OFD as unsupported, they fall back to classic `lockf`, decided per
+acquire; a busy OFD result is busy and never falls back. OFD and `lockf` locks
+exclude each other, so older processes stay excluded during an upgrade. Each
+lock records its `mechanism` (`ofd`, `lockf`, `flock` or `msvcrt`) and releases
+with it. `runtime_lock.py` also owns the per-platform `struct flock` layout, and
+holds the in-process hold registry; `wf_reload_mcp` reloads it in place, state
+preserved, keeping the registry, its guard and its exception classes, before any
+evicted module is re-imported.
 
 Resource wrappers retain policy. Dashboard code owns check → launch-lock →
 recheck → spawn → lifetime-lock ordering; review evidence owns same-thread

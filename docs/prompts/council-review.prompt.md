@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-22
+Last verified: 2026-10-07
 
 **Shortcut phrases:** `Council review` · `Run council` · `Wave Council review`
 
 Run a full Wave Council review on any artifact — a plan, implementation, decision, change doc, design, or approach. Use this whenever you want the structured two-phase adversarial review outside the normal wave lifecycle.
 
-> **Note:** Standalone council reviews are advisory. They do not record `wave-council-readiness` or `wave-council-delivery` lifecycle signoffs in `## Review Evidence`. Those signoffs require the prepare-wave and review-wave lifecycle paths respectively.
+> **Note:** Standalone council reviews are advisory. They do not record `council-readiness` or `council-delivery` lifecycle signoffs in `## Review Evidence`. Those signoffs require the prepare-wave and review-wave lifecycle paths respectively.
 
 > **Related:** for a single adversarial pass on one artifact without convening a council, use **Red-team review** (`docs/prompts/red-team-review.prompt.md`) — it likewise records no signoffs and satisfies no gate.
 
@@ -104,8 +104,8 @@ The council reviews what you give it. If the artifact is ambiguous, the red-team
 | Command | When to use |
 |---|---|
 | **Council review** | Any artifact, any time — standalone adversarial + council pass |
-| **Prepare wave** | Lifecycle gate — council readiness pass is embedded; records `wave-council-readiness` signoff |
-| **Review wave** | Lifecycle gate — council delivery pass is embedded; records `wave-council-delivery` signoff |
+| **Prepare wave** | Lifecycle gate — council readiness pass is embedded; records `council-readiness` signoff |
+| **Review wave** | Lifecycle gate — council delivery pass is embedded; records `council-delivery` signoff |
 | **Evaluate decision** | Architecture/technology decision specifically — produces an ADR |
 | **Review plan** | Optional no-signoff stress test of a change doc, or current-wave fallback, before or after admission and before implementation (natural-language aliases: **Interrogate this plan**, **Stress-test this plan**); distinct from **Review wave** |
 | **Framework config review** | Removal-biased audit of the agent operating surface (config/seeds/prompts/constraints/docs) — not an artifact review |

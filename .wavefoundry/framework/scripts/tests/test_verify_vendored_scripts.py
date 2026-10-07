@@ -29,6 +29,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 import verify_vendored_scripts as vvs  # noqa: E402
+import vendored_integrity  # noqa: E402  the one read cap lives here (wave 1zyb2)
 
 VENDOR_DIR = SCRIPTS_ROOT.parent / "dashboard" / "vendor"
 URL = "https://registry.npmjs.org/demo/-/demo-1.0.0.tgz"
@@ -399,16 +400,17 @@ class MalformedRowTests(unittest.TestCase):
                 readme = self.good.replace(anchor, "\n" + row + anchor, 1)
                 code, out = self._run(readme)
                 self.assertEqual(code, 2, out)
-                self.assertIn("malformed file table row", out)
-                self.assertIn(row, out)
-                self.assertIn("line 6", out)
+                self.assertIn("line 6: malformed file table row", out)
+                # The row is named by line number, never echoed (wave 1zyb2).
+                self.assertNotIn(row, out)
 
     def test_a_malformed_registry_row_exits_two_and_names_it(self):
         row = "| `demo@1.0.0` | https://registry.npmjs.org/demo/-/demo-1.0.0.tgz | `sha512-abc` |"
         code, out = self._run(self.good + row + "\n")
         self.assertEqual(code, 2, out)
         self.assertIn("malformed registry table row", out)
-        self.assertIn(row, out)
+        self.assertRegex(out, r"line \d+: malformed registry table row")
+        self.assertNotIn(row, out)
 
     def test_each_table_header_must_appear_exactly_once(self):
         missing = self.good.replace("| File | Package | Source in the tarball | Licence | SHA-256 |",
@@ -449,8 +451,8 @@ class MalformedRowTests(unittest.TestCase):
                     return lines
                 code, out = self._shipped_variant(edit)
                 self.assertEqual(code, 2, out)
-                self.assertIn("indented file table row", out)
-                self.assertIn("`react-dom/react-dom.production.min.js`", out)
+                self.assertRegex(out, r"line \d+: indented file table row")
+                self.assertNotIn("`react-dom/react-dom.production.min.js`", out)
 
     def test_a_last_row_without_its_leading_pipe_exits_two(self):
         """Review N1: the leading pipe is optional in a rendered table, so a last row
@@ -460,8 +462,8 @@ class MalformedRowTests(unittest.TestCase):
             return lines
         code, out = self._shipped_variant(edit)
         self.assertEqual(code, 2, out)
-        self.assertIn("malformed file table row", out)
-        self.assertIn("elk.bundled.js", out)
+        self.assertRegex(out, r"line \d+: malformed file table row")
+        self.assertNotIn("elk.bundled.js", out)
 
     def test_rows_after_a_blank_line_exit_two_and_name_the_line(self):
         """Review F1: a blank line inside a table does not end it silently."""
@@ -470,8 +472,8 @@ class MalformedRowTests(unittest.TestCase):
             return lines
         code, out = self._shipped_variant(edit)
         self.assertEqual(code, 2, out)
-        self.assertIn("file table row after the end of the table", out)
-        self.assertIn("`react-dom/react-dom.production.min.js`", out)
+        self.assertRegex(out, r"line \d+: file table row after the end of the table")
+        self.assertNotIn("`react-dom/react-dom.production.min.js`", out)
 
     def test_registry_rows_after_a_blank_line_are_refused(self):
         def edit(lines, first):
@@ -595,6 +597,320 @@ class OfflineCheckTests(unittest.TestCase):
             with contextlib.redirect_stdout(out):
                 code = vvs.main(["--offline"])
         self.assertEqual(code, 0, out.getvalue())
+
+
+def _row_readme(rel: str, sha256: str) -> str:
+    """A README whose single file row names ``rel`` (any spelling) with ``sha256``."""
+    tarball = _tarball({"package/dist/demo.js": CONTENT})
+    return (
+        "# Vendored\n\n"
+        "| File | Package | Source in the tarball | Licence | SHA-256 |\n"
+        "| --- | --- | --- | --- | --- |\n"
+        f"| `{rel}` | `demo@1.0.0` | `package/dist/demo.js` | MIT (`demo/LICENSE`) | `{sha256}` |\n\n"
+        "## Registry integrity\n\n"
+        "| Package | Tarball | `dist.integrity` |\n"
+        "| --- | --- | --- |\n"
+        f"| `demo@1.0.0` | `{URL}` | `{_integrity(tarball)}` |\n"
+    )
+
+
+_SECRET = b"outside-the-vendor-folder\n"
+_SECRET_SHA = hashlib.sha256(_SECRET).hexdigest()
+
+
+class ConfinedVendoredReadTests(unittest.TestCase):
+    """Wave 1zxo0 (1zxns): every vendored read is confined to the vendor folder, refuses
+    links and non-regular files, and is capped; the README goes through the same checks."""
+
+    def setUp(self) -> None:
+        self.base = Path(tempfile.mkdtemp(prefix="wf-vvs-conf-"))
+        self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
+        self.vendor = self.base / "vendor"
+        (self.vendor / "demo").mkdir(parents=True)
+        (self.vendor / "demo" / "demo.js").write_bytes(CONTENT)
+        self.outside = self.base / "secret.txt"
+        self.outside.write_bytes(_SECRET)
+        self.opened: list[str] = []
+
+    def _write_readme(self, rel: str, sha256: str = _SECRET_SHA) -> None:
+        (self.vendor / "README.md").write_text(_row_readme(rel, sha256), encoding="utf-8")
+
+    def _spy_open(self):
+        real_open = os.open
+        real_builtin = open
+
+        def spy(path, *args, **kwargs):
+            self.opened.append(os.fspath(path))
+            return real_open(path, *args, **kwargs)
+
+        def spy_builtin(path, *args, **kwargs):
+            if isinstance(path, (str, os.PathLike)):
+                self.opened.append(os.fspath(path))
+            return real_builtin(path, *args, **kwargs)
+
+        stack = contextlib.ExitStack()
+        stack.enter_context(mock.patch.object(vvs.os, "open", side_effect=spy))
+        stack.enter_context(mock.patch("builtins.open", side_effect=spy_builtin))
+        return stack
+
+    def _assert_refused_unread(self, rel: str, label: str | None = None) -> None:
+        self._write_readme(rel)
+        with self._spy_open():
+            problems = vvs.offline_problems(self.vendor)
+        self.assertEqual(len(problems), 1, problems)
+        line = problems[0]
+        label = rel if label is None else label
+        self.assertTrue(line.startswith(f"{label}: "), line)
+        if label != rel:
+            # A row refused for its spelling is named by number, never echoed.
+            self.assertNotIn(rel, line)
+        # Nothing after the label carries an absolute path.
+        tail = line[len(label):]
+        self.assertNotIn(str(self.base), tail)
+        self.assertNotIn(str(self.base.resolve()), tail)
+        # Nothing but the README was opened, and no digest of anything else is printed.
+        self.assertEqual([Path(o).name for o in self.opened], ["README.md"], self.opened)
+        self.assertNotIn("sha256 mismatch", line)
+        computed = [token for token in line.replace(":", " ").split() if len(token) == 64]
+        self.assertEqual(computed, [], line)
+
+    def test_lexical_row_classes_are_refused_unread(self):
+        for rel in (
+            str(self.outside),
+            "/etc/hosts",
+            "C:/x/y.js",
+            "c:demo.js",
+            "demo\\demo.js",
+            "demo//demo.js",
+            "./demo/demo.js",
+            "demo/./demo.js",
+            "../secret.txt",
+            "demo/../../secret.txt",
+            "demo/",
+            "demo/de\x07mo.js",
+            "demo/\x1b[2Jdemo.js",
+            "demo/de\tmo.js",
+        ):
+            with self.subTest(rel=rel):
+                self.opened.clear()
+                self._assert_refused_unread(rel, label="row 1")
+
+    def test_a_lexically_refused_row_is_named_by_its_table_position(self):
+        good_sha = hashlib.sha256(CONTENT).hexdigest()
+        readme = _row_readme("demo/demo.js", good_sha)
+        bad_row = (f"| `{self.outside}` | `demo@1.0.0` | `package/dist/demo.js` | MIT (`demo/LICENSE`) | "
+                   f"`{_SECRET_SHA}` |\n")
+        good_row = next(line for line in readme.splitlines(keepends=True) if line.startswith("| `demo/demo.js`"))
+        (self.vendor / "README.md").write_text(readme.replace(good_row, good_row + bad_row), encoding="utf-8")
+        problems = vvs.offline_problems(self.vendor)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertTrue(problems[0].startswith("row 2: "), problems)
+        self.assertNotIn(str(self.outside), problems[0])
+
+    def test_a_row_without_a_registry_entry_is_not_echoed_when_refused(self):
+        readme = _row_readme(str(self.outside), _SECRET_SHA).replace("`demo@1.0.0` | `package", "`other@1.0.0` | `package")
+        (self.vendor / "README.md").write_text(readme, encoding="utf-8")
+        with self.assertRaises(vvs.ReadmeError) as ctx:
+            vvs.offline_problems(self.vendor)
+        self.assertIn("row 1:", str(ctx.exception))
+        self.assertNotIn(str(self.outside), str(ctx.exception))
+
+    @unittest.skipIf(os.name == "nt", "symlink creation needs privileges on Windows")
+    def test_a_link_component_is_refused_unread(self):
+        (self.vendor / "leaf.js").symlink_to(self.outside)
+        (self.vendor / "dirlink").symlink_to(self.base, target_is_directory=True)
+        (self.vendor / "inner.js").symlink_to(self.vendor / "demo" / "demo.js")
+        # A directory link that stays inside the vendor folder is still a link component.
+        (self.vendor / "alias").symlink_to(self.vendor / "demo", target_is_directory=True)
+        for rel in ("leaf.js", "dirlink/secret.txt", "inner.js", "alias/demo.js"):
+            with self.subTest(rel=rel):
+                self.opened.clear()
+                self._assert_refused_unread(rel)
+
+    def test_a_path_resolving_outside_the_vendor_folder_is_refused(self):
+        # No link component and no `..`: simulate a resolution that leaves the folder.
+        self._write_readme("demo/demo.js", hashlib.sha256(CONTENT).hexdigest())
+        real_resolve = Path.resolve
+
+        def fake_resolve(path, *args, **kwargs):
+            if path.name == "demo.js":
+                return real_resolve(self.outside)
+            return real_resolve(path, *args, **kwargs)
+
+        with mock.patch.object(Path, "resolve", fake_resolve), self._spy_open():
+            problems = vvs.offline_problems(self.vendor)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("outside the vendor folder", problems[0])
+        self.assertEqual([Path(o).name for o in self.opened], ["README.md"])
+
+    def test_a_directory_row_is_refused_unread(self):
+        (self.vendor / "adir.js").mkdir()
+        self._assert_refused_unread("adir.js")
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs are POSIX only")
+    def test_a_fifo_row_is_refused_without_blocking(self):
+        os.mkfifo(self.vendor / "pipe.js")
+        self._assert_refused_unread("pipe.js")
+
+    def test_an_oversized_row_is_refused_unread(self):
+        (self.vendor / "big.js").write_bytes(b"x" * 4097)
+        with mock.patch.object(vendored_integrity, "MAX_VENDORED_FILE_BYTES", 4096):
+            self._assert_refused_unread("big.js")
+
+    def test_growth_past_the_cap_after_lstat_is_refused_by_the_read_count(self):
+        # lstat sees a small file; the read then returns more than the cap.
+        target = self.vendor / "demo" / "demo.js"
+        body = b"y" * 4097
+        target.write_bytes(body)
+        self._write_readme("demo/demo.js", hashlib.sha256(body).hexdigest())
+        real_lstat = os.lstat
+
+        def small_lstat(path, *args, **kwargs):
+            result = real_lstat(path, *args, **kwargs)
+            if Path(path) == target:
+                values = list(result)
+                values[6] = 1  # st_size
+                return os.stat_result(values)
+            return result
+
+        with mock.patch.object(vendored_integrity, "MAX_VENDORED_FILE_BYTES", 4096), \
+                mock.patch.object(vvs.os, "lstat", side_effect=small_lstat):
+            problems = vvs.offline_problems(self.vendor)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("exceeds the size cap", problems[0])
+
+    def test_the_read_requests_at_most_cap_plus_one_bytes(self):
+        target = self.vendor / "demo" / "demo.js"
+        requested: list[object] = []
+        real_fdopen = os.fdopen
+        real_builtin = open
+
+        class _Recording:
+            def __init__(self, handle):
+                self._handle = handle
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                self._handle.close()
+
+            def fileno(self):
+                return self._handle.fileno()
+
+            def read(self, *args):
+                requested.append(args)
+                return self._handle.read(*args)
+
+        def fdopen(fd, *args, **kwargs):
+            return _Recording(real_fdopen(fd, *args, **kwargs))
+
+        def builtin(path, *args, **kwargs):
+            return _Recording(real_builtin(path, *args, **kwargs))
+
+        with mock.patch.object(vendored_integrity, "MAX_VENDORED_FILE_BYTES", 4096), \
+                mock.patch.object(vvs.os, "fdopen", side_effect=fdopen), \
+                mock.patch("builtins.open", side_effect=builtin):
+            data = vvs._read_regular(target)
+        self.assertEqual(data, CONTENT)
+        self.assertEqual(requested, [(4097,)])
+
+    def test_verify_applies_the_same_checks_to_its_vendored_read(self):
+        tarball = _tarball({"package/dist/demo.js": CONTENT})
+        for rel, label in (("../secret.txt", "row 1"), (str(self.outside), "row 1"),
+                           ("demo\\demo.js", "row 1"), ("demo/\x07.js", "row 1"), ("adir.js", "adir.js")):
+            with self.subTest(rel=rel):
+                (self.vendor / "adir.js").mkdir(exist_ok=True)
+                self._write_readme(rel)
+                self.opened.clear()
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out), self._spy_open():
+                    code = vvs.verify(self.vendor / "README.md", self.vendor, fetch=lambda url: tarball)
+                text = out.getvalue()
+                self.assertEqual(code, 1, text)
+                self.assertIn(f"{label}: cannot read vendored file", text)
+                if label != rel:
+                    self.assertNotIn(rel, text)
+                self.assertNotIn(_SECRET_SHA, text)
+                self.assertNotIn(str(self.base.resolve()), text)
+                self.assertNotIn(str(self.base), text)
+                self.assertEqual([Path(o).name for o in self.opened], ["README.md"])
+
+    def _readme_refusals(self) -> list[str]:
+        messages: list[str] = []
+        with self.assertRaises(vvs.ReadmeError) as ctx:
+            vvs.offline_problems(self.vendor)
+        messages.append(str(ctx.exception))
+        with self.assertRaises(vvs.ReadmeError) as ctx:
+            vvs.unlisted_scripts(self.vendor)
+        messages.append(str(ctx.exception))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = vvs.verify(self.vendor / "README.md", self.vendor, fetch=lambda url: b"")
+        self.assertEqual(code, 2)
+        messages.append(out.getvalue())
+        for message in messages:
+            self.assertIn("README.md", message)
+            self.assertNotIn(str(self.base), message)
+            self.assertNotIn(str(self.base.resolve()), message)
+        return messages
+
+    def test_a_directory_readme_is_refused_in_all_three_readers(self):
+        (self.vendor / "README.md").mkdir()
+        for message in self._readme_refusals():
+            self.assertIn("not a regular file", message)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs are POSIX only")
+    def test_a_fifo_readme_is_refused_without_blocking(self):
+        os.mkfifo(self.vendor / "README.md")
+        for message in self._readme_refusals():
+            self.assertIn("not a regular file", message)
+
+    def test_an_oversized_readme_is_refused_in_all_three_readers(self):
+        self._write_readme("demo/demo.js", hashlib.sha256(CONTENT).hexdigest())
+        with mock.patch.object(vendored_integrity, "MAX_VENDORED_FILE_BYTES", 16):
+            for message in self._readme_refusals():
+                self.assertIn("exceeds the size cap", message)
+
+    def test_an_unreadable_readme_message_carries_no_absolute_path(self):
+        (self.vendor / "README.md").write_bytes(b"\xff\xfe not utf-8")
+        for message in self._readme_refusals():
+            self.assertIn("UnicodeDecodeError", message)
+
+    def test_verify_reads_the_cap_from_the_shipped_module(self):
+        # The network verifier's vendored read honors the one cap in vendored_integrity.
+        self._write_readme("demo/demo.js", hashlib.sha256(CONTENT).hexdigest())
+        tarball = _tarball({"package/dist/demo.js": CONTENT})
+        out = io.StringIO()
+        # The README is larger than the patched cap, so it is parsed before patching.
+        files, registry = vvs._read_readme(self.vendor / "README.md", self.vendor)
+        with contextlib.redirect_stdout(out), \
+                mock.patch.object(vvs, "_read_readme", return_value=(files, registry)), \
+                mock.patch.object(vendored_integrity, "MAX_VENDORED_FILE_BYTES", len(CONTENT) - 1):
+            code = vvs.verify(self.vendor / "README.md", self.vendor, fetch=lambda url: tarball)
+        text = out.getvalue()
+        self.assertEqual(code, 1, text)
+        self.assertIn("demo/demo.js: cannot read vendored file: exceeds the size cap", text)
+
+    def test_the_cap_constant_equals_the_tarball_cap(self):
+        self.assertEqual(vendored_integrity.MAX_VENDORED_FILE_BYTES, vvs.MAX_TARBALL_BYTES)
+
+    def test_the_real_vendor_folder_still_passes(self):
+        self.assertEqual(vvs.offline_problems(VENDOR_DIR), [])
+
+    def test_build_pack_refuses_a_tree_with_a_bad_row(self):
+        import build_pack
+
+        framework = self.base / "framework"
+        vendor = framework / "dashboard" / "vendor"
+        vendor.mkdir(parents=True)
+        (vendor / "README.md").write_text(_row_readme("../../../secret.txt", _SECRET_SHA), encoding="utf-8")
+        with self.assertRaises(SystemExit) as ctx:
+            build_pack._check_vendored_scripts(framework)
+        message = str(ctx.exception.code)
+        self.assertIn("row 1: ", message)
+        self.assertNotIn("../../../secret.txt", message)
+        self.assertNotIn(str(self.base), message)
 
 
 if __name__ == "__main__":

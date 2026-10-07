@@ -1494,6 +1494,9 @@ class RenderedEditHookPathTests(unittest.TestCase):
             # (https://platform.claude.com/docs/en/agents-and-tools/tool-use/text-editor-tool).
             "str_replace_based_edit_tool": {"tool_name": "str_replace_based_edit_tool", "tool_input": {
                 "command": "str_replace", "path": seed, "old_str": "a", "new_str": "b"}},
+            # Wave 1zyb3 (1zxny): apply_patch names its paths on patch header lines.
+            "cli apply_patch": {"toolName": "apply_patch", "toolArgs": json.dumps(
+                {"input": f"*** Begin Patch\n*** Update File: {seed}\n@@\n-a\n+b\n*** End Patch\n"})},
         }
         for name, payload in blocked_copilot.items():
             with self.subTest(host="copilot", case=name):
@@ -1606,6 +1609,148 @@ class RenderedEditHookPathTests(unittest.TestCase):
             payload = json.dumps({"tool_name": name, "tool_input": {"file_path": seed, "notebook_path": seed}})
             with self.subTest(tool_name=name):
                 self.assertEqual(self._run_raw(".claude/hooks/pre-edit.py", payload).returncode, 2)
+
+    # Wave 1zyb3 (1zxny) -------------------------------------------------------------------------
+
+    @staticmethod
+    def _patch(*lines, newline="\n"):
+        return newline.join(("*** Begin Patch",) + lines + ("*** End Patch",)) + newline
+
+    @staticmethod
+    def _patch_payloads(patch_text):
+        # No Copilot reference documents the apply_patch argument key; these are the shapes the
+        # hook reads: the CLI form (`toolArgs` a JSON string holding `input`), the VS Code form
+        # (`tool_input.input`), the `patch` key, and a raw `toolArgs` patch string.
+        return {
+            "cli input": {"toolName": "apply_patch", "toolArgs": json.dumps({"input": patch_text})},
+            "vscode input": {"tool_name": "apply_patch", "tool_input": {"input": patch_text}},
+            "cli patch key": {"toolName": "apply_patch", "toolArgs": json.dumps({"patch": patch_text})},
+            "raw string": {"toolName": "apply_patch", "toolArgs": patch_text},
+        }
+
+    def _pre(self, payload):
+        return self._run_raw(".github/hooks/pre-tool-use.py", json.dumps(payload))
+
+    def test_apply_patch_gates_every_header_kind_in_every_payload_shape(self):
+        """AC-1 and AC-2."""
+        seed = ".wavefoundry/framework/seeds/100-x.prompt.md"
+        script = str(self.root / ".wavefoundry" / "framework" / "scripts" / "tool.py")
+        other, other2 = "src/app.py", str(self.root / "src" / "lib.py")
+        gated = {
+            "add seed": self._patch(f"*** Add File: {seed}", "+x"),
+            "update script": self._patch(f"*** Update File: {script}", "@@", "-a", "+b"),
+            "delete seed": self._patch(f"*** Delete File: {seed}"),
+            "move ungated to gated": self._patch(f"*** Update File: {other}", f"*** Move to: {seed}", "@@", "-a", "+b"),
+            "move gated to ungated": self._patch(f"*** Update File: {script}", f"*** Move to: {other}", "@@", "-a", "+b"),
+            "multi-file": self._patch(f"*** Add File: {other}", "+x", f"*** Update File: {other2}", "@@", "-a", "+b",
+                                      f"*** Delete File: {seed}"),
+        }
+        for label, patch_text in gated.items():
+            for shape, payload in self._patch_payloads(patch_text).items():
+                with self.subTest(case=label, shape=shape):
+                    self._gates()
+                    result = self._pre(payload)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self._gates(seed=True, framework=True)
+                    self.assertEqual(self._pre(payload).returncode, 0)
+        # The right gate is consulted: a seed stays blocked with only the framework gate open.
+        self._gates(framework=True)
+        self.assertEqual(self._pre(self._patch_payloads(gated["add seed"])["cli input"]).returncode, 2)
+        self.assertEqual(self._pre(self._patch_payloads(gated["update script"])["cli input"]).returncode, 0)
+        # A patch touching only ungated files is allowed with every gate closed.
+        self._gates()
+        plain = self._patch(f"*** Add File: {other}", "+x", f"*** Update File: {other2}", f"*** Move to: docs/x.md")
+        for shape, payload in self._patch_payloads(plain).items():
+            with self.subTest(shape=shape, ungated=True):
+                self.assertEqual(self._pre(payload).returncode, 0)
+
+    def test_apply_patch_reads_header_lines_only_with_crlf_and_indent_parity(self):
+        """AC-3."""
+        seed = ".wavefoundry/framework/seeds/x.prompt.md"
+        self._gates()
+        content = self._patch("*** Add File: src/notes.md", f"+*** Add File: {seed}", f"+*** Update File: {seed}",
+                              "+*** Move to: .wavefoundry/framework/scripts/x.py")
+        removed = self._patch("*** Update File: src/notes.md", "@@", f"-*** Delete File: {seed}", "+fine")
+        for label, patch_text in (("added", content), ("removed", removed)):
+            for shape, payload in self._patch_payloads(patch_text).items():
+                with self.subTest(content=label, shape=shape):
+                    self.assertEqual(self._pre(payload).returncode, 0)
+        plain = self._patch("*** Add File: src/ok.py", "+x", f"*** Update File: {seed}", "@@", "-a", "+b")
+        crlf = plain.replace("\n", "\r\n")
+        indented = "".join("    " + line if line.startswith("***") else line for line in plain.splitlines(True))
+        indented_crlf = indented.replace("\n", "\r\n")
+        for label, patch_text in (("lf", plain), ("crlf", crlf), ("indented", indented),
+                                  ("indented crlf", indented_crlf), ("tab indent", plain.replace("*** Update", "\t*** Update"))):
+            for shape, payload in self._patch_payloads(patch_text).items():
+                with self.subTest(form=label, shape=shape):
+                    self._gates()
+                    self.assertEqual(self._pre(payload).returncode, 2)
+                    self._gates(seed=True, framework=True)
+                    self.assertEqual(self._pre(payload).returncode, 0)
+        self._gates()
+        # A stray top-level `file_path` never stands in for the patch's headers.
+        for payload in ({"toolName": "apply_patch", "toolArgs": json.dumps({"input": "no headers here\n"}),
+                         "file_path": "src/app.py"},
+                        {"tool_name": "apply_patch", "tool_input": {"input": "+only content\n", "file_path": "src/app.py"}}):
+            with self.subTest(fallback=payload):
+                result = self._pre(payload)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("no patch file header was found", result.stderr)
+        # Nor does it add a gated path to an ungated patch.
+        payload = {"toolName": "apply_patch", "toolArgs": json.dumps({"input": self._patch("*** Add File: src/a.py", "+x")}),
+                   "file_path": seed}
+        self.assertEqual(self._pre(payload).returncode, 0)
+
+    def test_apply_patch_without_a_header_path_is_uninspectable(self):
+        """AC-4."""
+        self._gates(seed=True, framework=True)
+        payloads = {
+            "no args": {"toolName": "apply_patch"},
+            "empty args": {"toolName": "apply_patch", "toolArgs": json.dumps({})},
+            "empty input": {"tool_name": "apply_patch", "tool_input": {"input": ""}},
+            "non-string input": {"tool_name": "apply_patch", "tool_input": {"input": ["*** Add File: a.py"]}},
+            "empty raw string": {"toolName": "apply_patch", "toolArgs": ""},
+            "no header": {"toolName": "apply_patch", "toolArgs": json.dumps({"input": "*** Begin Patch\n+x\n*** End Patch\n"})},
+            "empty header path": {"tool_name": "apply_patch", "tool_input": {"input": "*** Add File:   \n+x\n"}},
+            "header without space": {"tool_name": "apply_patch", "tool_input": {"input": "*** Add File:a.py\n"}},
+            "json string args": {"toolName": "apply_patch", "toolArgs": json.dumps("no header")},
+        }
+        for label, payload in payloads.items():
+            with self.subTest(label):
+                result = self._pre(payload)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("could not inspect", result.stderr)
+                self.assertIn("patch headers (*** Add File:, *** Update File:, *** Delete File:, *** Move to:)",
+                              result.stderr)
+
+    def test_apply_patch_post_hook_lints_and_reindexes_every_header_path(self):
+        """AC-5: one docs-lint run per docs header path, one reindex mark per header path."""
+        scripts = self.root / ".wavefoundry" / "framework" / "scripts"
+        calls = self.base / "calls"
+        (scripts / "indexer.py").write_text(_STUB_INDEXER + (
+            "\n\n_mark = mark_reindex_pending\n\n\n"
+            "def mark_reindex_pending(index_dir):\n"
+            f"    with open({str(calls / 'reindex')!r}, 'a') as fh:\n"
+            "        fh.write('x')\n"
+            "    _mark(index_dir)\n"), encoding="utf-8")
+        (scripts / "docs_lint.py").write_text(
+            "import sys\n"
+            f"open({str(calls / 'lint')!r}, 'a').write('x')\n"
+            "print('docs-lint: stub failure')\nsys.exit(1)\n", encoding="utf-8")
+        calls.mkdir()
+        patch_text = self._patch("*** Update File: docs/a.md", "*** Move to: docs/b.md", "@@", "-a", "+b",
+                                 "*** Delete File: docs/c.md", "*** Add File: src/x.py", "+x",
+                                 "+*** Add File: docs/not-a-header.md")
+        for shape, payload in self._patch_payloads(patch_text.replace("\n", "\r\n")).items():
+            with self.subTest(shape=shape):
+                for name in ("lint", "reindex"):
+                    (calls / name).write_text("", encoding="utf-8")
+                result = self._run_raw(".github/hooks/post-tool-use.py", json.dumps(payload))
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stderr.count("stub failure"), 3)
+                self.assertEqual((calls / "lint").read_text(encoding="utf-8"), "xxx")
+                self.assertEqual((calls / "reindex").read_text(encoding="utf-8"), "xxxx")
+                self._pending()
 
     def test_windsurf_docs_lint_triggers_a_debounced_reindex(self):
         coalesce = self.root / ".wavefoundry" / "index" / "coalesce-checked"

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-06
+Last verified: 2026-10-07
 
 ## Review Lane Summary
 
@@ -15,8 +15,8 @@ Last verified: 2026-10-06
 | `docs-contract-reviewer` | `docs/specs/*.md` behavioral contract changes | Yes at wave closure |
 | `performance-reviewer` | Indexing, search, or MCP response path changes | Advisory |
 | `release-reviewer` | Packaging, VERSION, or distribution format changes | Yes |
-| `wave-council-readiness` | Every wave before implementation (`wave_review.enabled`) | Yes |
-| `wave-council-delivery` | Every wave after implementation and before closure (`wave_review.enabled`) | Yes |
+| `council-readiness` | Every wave before implementation (`wave_review.enabled`) | Yes |
+| `council-delivery` | Every wave after implementation and before closure (`wave_review.enabled`) | Yes |
 
 All review lanes follow the **Retrieval Posture (All Lanes)** in `docs/contributing/agent-team-workflow.md` — MCP retrieval tools first, and how-many/blast-radius claims backed by `code_references`/`code_callhierarchy`, never a sampled grep.
 
@@ -75,7 +75,7 @@ Before implementation begins, the wave-coordinator confirms:
 - [ ] AC priority recorded on each change doc (`## AC priority`)
 - [ ] product-owner acknowledgment recorded for product-impacting waves
 - [ ] `qa-reviewer` confirmed for any bug fix (per `review_policies.require_qa_reviewer_for_bug_fixes`)
-- [ ] `wave-council-readiness` signoff recorded when `wave_review.enabled` (on declared waves this is a typed approval event in `events.jsonl`, projected into `## Review Evidence`; a prose signoff line satisfies the gate only on legacy waves)
+- [ ] `council-readiness` signoff recorded when `wave_review.enabled` (on declared waves this is a typed approval event in `events.jsonl`, projected into `## Review Evidence`; a prose signoff line satisfies the gate only on legacy waves)
 - [ ] Every blocking readiness finding has a terminal current head before that signoff; repair and
       independent reverification happen during readiness, before implementation
 
@@ -85,7 +85,7 @@ Before implementation begins, the wave-coordinator confirms:
 
 1. All changes marked `complete` or `deferred` with explicit rationale
 2. All required review lanes from readiness are reconciled in `## Review checkpoints` (including deferred with rationale when applicable)
-3. `wave-council-readiness` is present when review is enabled, and `wave-council-delivery` is present when the persisted Prepare receipt says the configured delivery mode requires it (typed, phase-scoped approval events on declared waves; prose lines count only on legacy waves)
+3. `council-readiness` is present when review is enabled, and `council-delivery` is present when the persisted Prepare receipt says the configured delivery mode requires it (typed, phase-scoped approval events on declared waves; prose lines count only on legacy waves)
 4. Docs-contract review: recorded as performed (findings in `## Review checkpoints`) or `not applicable` with rationale, when any `docs/specs/*.md` changed during the wave
 5. Journal distillation complete: any important implementation/review lessons added to relevant role or persona journals
 6. Durable memory promoted to `docs/references/project-context-memory.md` (and other canonical docs when applicable)
@@ -100,8 +100,8 @@ Before implementation begins, the wave-coordinator confirms:
 
 The framework ships `wave_review.enabled: true` and `delivery_mode: targeted` by default. Readiness Council is required whenever review is enabled. Delivery Council follows the explicit mode: `universal` requires it for every wave, `targeted` requires it only when the Prepare receipt or current boundary triggers select it (including upgrade/release, permission/trust-boundary, and cross-platform work), and `disabled` is valid only with `enabled: false`.
 
-- `wave-council-readiness` before implementation
-- `wave-council-delivery` before closure when the selected delivery mode requires it
+- `council-readiness` before implementation
+- `council-delivery` before closure when the selected delivery mode requires it
 
 Wave Council runs a red-team adversarial primer (Phase 1) before fixed seats (Phase 2), then synthesizes. The full protocol — depth tiers, seat responsibilities, output shape — is in `docs/agents/specialists/wave-council.md`.
 
@@ -115,7 +115,7 @@ Prepare is the sole policy authority. It derives the ordered specialist roster f
 
 Review and Close consume one shared delivery evaluator for ledger validity, receipt/marker currency, docs lint, required lanes, Council selection, approval evidence, and operator state. Close then adds only its registered closure delta (garden, unresolved change/checkbox, repair-independence, memory, secrets, gates, and transition checks), preventing the two lifecycle paths from silently drifting.
 
-**Readiness recording contract:** on declared waves, the typed `wave-council-readiness` approval is the machine authority. A structured `prepare-council` checkpoint may still summarize the seats actually run, but it is narrative and cannot change a lifecycle result; when present, docs-lint may warn if its roster lacks corresponding evidence. Legacy waves retain the structured verdict compatibility gate. Seat verification follows the all-phase code-grounded verification tenet (canonical definition: seed `209-agent-harness-core.prompt.md`, "Code-Grounded Verification"; review-phase contract: `docs/prompts/council-review.prompt.md`).
+**Readiness recording contract:** on declared waves, the typed `council-readiness` approval is the machine authority. A structured `prepare-council` checkpoint may still summarize the seats actually run, but it is narrative and cannot change a lifecycle result; when present, docs-lint may warn if its roster lacks corresponding evidence. Legacy waves retain the structured verdict compatibility gate. Seat verification follows the all-phase code-grounded verification tenet (canonical definition: seed `209-agent-harness-core.prompt.md`, "Code-Grounded Verification"; review-phase contract: `docs/prompts/council-review.prompt.md`).
 
 ## Code Review Requirements
 

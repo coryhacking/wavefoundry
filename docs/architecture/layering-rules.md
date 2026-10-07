@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-05
+Last verified: 2026-10-07
 
 ## Allowed Dependencies
 
@@ -25,6 +25,7 @@ Last verified: 2026-10-05
 | Handler siblings → `wf_server/server_impl.py` | No module-top import of the composition root or another handler sibling. Shared helpers resolve through function-local public imports; every handler sibling participates in purge-and-reimport reload. Registration remains in the composition root. | `test_handler_modules.py` checks import boundaries, re-export identity, name resolution, packaging and actual scratch reload; import-derived purge coverage is checked by `test_lifecycle_gates_structure.py`. |
 | Declared extension modules → `wf_server/server_impl.py` | Registration stays in the composition root except for modules declared in `mcp_tool_extensions`, which register against a staging surface; `server_impl` imports them by declared name during registration (not at module top) and installs their tools before the prefix contract and `MIDDLEWARE`; aliases, core-behaviour aliases and hidden names (wave `1z8oz`) are applied after the chain, inside the same fail-closed block. `mcp_tool_roster` reads `mcp_tool_extensions` (the first import dependency between flat siblings, recorded in `1ye5y-adr`). | `test_extension_tool_modules.py` drives build, reload and refusal through the real server in a scratch scripts tree. |
 | `render_agent_surfaces.py` → `mcp_tool_extensions.py` | The second import dependency between flat siblings (wave `1zv8c`), beside `mcp_tool_roster` → `mcp_tool_extensions`: the agent-surface renderer imports the stdlib-only declaration module at module top and reads `EXTENSION_SKILLS` through the module attribute at call time (never a `from` import), so a test base declaration and the upgrade old-code window see the current module, and an old module without the constant reads as empty. The edge points one way: `mcp_tool_extensions` imports no framework module. `EXTENSION_SKILLS` is read only by the renderer and is never fatal to the server: it is outside `declared()`, `declaration_problems` and `validate_declaration`, and `_skill_output_destinations`, which `preflight_agent_surface_paths` calls, validates it before the first write of any render. | `test_declared_extension_skills.py` (byte-identical tree on refusal for both render entry points, call-time read, skills-only declaration keeps `declared()` false) |
+| `upgrade_extensions.py` → `mcp_tool_extensions.py` and the declared journal hook's helper module | Wave `1zyb3` (change `1zxnv`): inside its pre-1.15.0 journal migration gate, `pre_docs_gate` loads the extracted `mcp_tool_extensions.py` by file path under a private module name, never through `sys.modules`, and reads `EXTENSION_JOURNAL_TEMPLATES` and `EXTENSION_JOURNAL_PRE_MIGRATION_HOOK` with `getattr` defaults, so a missing module or one without the constants reads as empty. The hook's helper module is loaded the same way, only from a `.py` file named exactly `<module>.py` directly in the extracted scripts directory. `mcp_tool_extensions` still imports no framework module. | `test_upgrade_wavefoundry.py` `JournalDeclarationMigrationTests` (refusal with byte-identical journals, hook ordering, old and missing module) |
 | MCP server → target repo | Must never write outside configured allowed roots without mutation tool approval | Inferred from AGENTS.md and seed-050 safety rules |
 | `build_pack.py` → VERSION | Must stamp VERSION before writing zip; VERSION must match zip basename date+letter | Verified from build_pack.py behavior described in seeds |
 | `docs_lint.py` → manifest | Must fail (exit non-zero) when `framework_revision` in manifest does not match `.wavefoundry/framework/VERSION` | Verified from seed-010 lint gate requirement |
@@ -142,6 +143,24 @@ every other non-test module outside an allowlist of comment, docstring,
 message, frozen oracle and retired-name sites. When the waves root holds folders
 but none contains the profile's record file, docs-lint, `wf_list_waves` and
 `wf_current_wave` report the advisory `record_file_not_found`.
+
+It also owns the names of the eleven tier-named lifecycle prompts (wave 1zyb4):
+a fixed `DEFAULT_PROMPT_NAMES` table (slug, shortcut and aliases per prompt)
+overlaid with the fork-edited `PROMPT_NAME_OVERRIDES` into `PROMPT_NAMES`, read
+through its helpers (`prompt_doc`, `agent_prompt_doc`, `skill_name`, `shortcut`,
+`shortcut_aliases`) by every consumer: the agent-surface renderer (lifecycle
+baselines, skill registry, guru templates), the review-policy carrier registry
+and region texts, the lifecycle reconciler, the context-efficiency prompt map,
+docs-lint's required prompt files and carrier probes, and the reconcile scan's
+suggestions. Untiered and product-named prompts stay fixed. Validation refuses
+unknown keys, malformed or fixed slugs, colliding slugs, shortcuts and skills,
+and rename cycles; a chain (one prompt taking the name another gives up) is
+valid. The renderer migrates already-rendered prompts: it records the names it
+applied under `prompt_names` in the prompt-surface manifest, moves prompts
+byte-for-byte in dependency order before skills and baselines render, and
+docs-lint reports a pending migration while that record differs from the profile.
+
+`history_paths` (wave 1zyb2) is a stdlib-only leaf module that imports no framework module: it owns `HISTORY_PATH_COMPONENTS` and `is_history_path`, the one record-history test, and is imported by the docs-lint validators, the agent-surface renderer and integrity scan, the reconcile scanner, the upgrade role backfill (inside the function, after the target's scripts directory is on `sys.path`) and the server's retrieval demotion. Its contract is stated in the project overview.
 
 This paragraph is the single statement of the label rule (change 1z8os). A label
 (the id key, the member id and status labels, the derived previous-status label

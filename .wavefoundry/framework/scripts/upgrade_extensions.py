@@ -72,6 +72,7 @@ disk writes occur.
 """
 from __future__ import annotations
 
+import errno
 import json
 import hashlib
 import importlib.util
@@ -1322,11 +1323,12 @@ def _same_journal_file(a, b) -> bool:
     return os.path.samestat(a, b)
 
 
-def _read_journal_bytes(path: Path, expected) -> "bytes | None":
+def _read_journal_bytes(path, expected, dir_fd: "int | None" = None) -> "bytes | None":
     """The bytes of a vetted journal, or ``None``. The open refuses a final
     link where the platform can, and the open file must still be the regular,
     singly linked file ``expected`` described (a swap between the ``lstat`` and
-    the open is refused, not followed)."""
+    the open is refused, not followed). With ``dir_fd`` (wave 1zxo0, 1zxns),
+    ``path`` is a name opened relative to that directory handle."""
     flags = (
         os.O_RDONLY
         | getattr(os, "O_NOFOLLOW", 0)
@@ -1334,7 +1336,7 @@ def _read_journal_bytes(path: Path, expected) -> "bytes | None":
         | getattr(os, "O_BINARY", 0)
     )
     try:
-        fd = os.open(path, flags)
+        fd = os.open(path, flags, dir_fd=dir_fd)
     except OSError:
         return None
     try:
@@ -1354,12 +1356,14 @@ def _read_journal_bytes(path: Path, expected) -> "bytes | None":
         os.close(fd)
 
 
-def _write_journal_exclusive(destination: Path, data: bytes) -> bool:
+def _write_journal_exclusive(destination, data: bytes, dir_fd: "int | None" = None) -> bool:
     """Wave 1zv87 (1zuq5): create ``destination`` and write ``data``, or return
     ``False``. ``O_CREAT | O_EXCL`` refuses any existing name, a dangling link
     included, so nothing is followed or replaced; ``O_NOFOLLOW`` is kept as
-    defense in depth where it exists (not on Windows). The path is absolute
-    (``dir_fd`` is unsupported on Windows)."""
+    defense in depth where it exists (not on Windows). Without ``dir_fd`` the
+    path is absolute (the Windows branch: ``dir_fd`` is unsupported there).
+    With ``dir_fd`` (wave 1zxo0, 1zxns), ``destination`` is a name created and,
+    on a failed write, removed relative to the destination folder's handle."""
     flags = (
         os.O_CREAT
         | os.O_EXCL
@@ -1368,7 +1372,7 @@ def _write_journal_exclusive(destination: Path, data: bytes) -> bool:
         | getattr(os, "O_BINARY", 0)
     )
     try:
-        fd = os.open(destination, flags, 0o666)
+        fd = os.open(destination, flags, 0o666, dir_fd=dir_fd)
     except OSError:
         return False
     ok = False
@@ -1384,7 +1388,7 @@ def _write_journal_exclusive(destination: Path, data: bytes) -> bool:
     if not ok:
         # This run created the name exclusively; drop the partial copy.
         try:
-            os.unlink(destination)
+            os.unlink(destination, dir_fd=dir_fd)
         except OSError:
             pass
     return ok
@@ -1403,6 +1407,130 @@ def _remove_journal_source(path_containment, root: Path, rel: Path, original) ->
     except OSError:
         return False
     return True
+
+
+def _journal_dir_fd_supported() -> bool:
+    """Wave 1zxo0 (1zxns): whether the descriptor-bound journal migration can
+    run. It needs ``open``, ``unlink`` and ``stat`` relative to a directory
+    handle, ``scandir`` of a handle, and ``O_DIRECTORY``/``O_NOFOLLOW``. All
+    are present on Linux, macOS and WSL2; ``os.supports_dir_fd`` is empty on
+    Windows, which keeps the path branch."""
+    return (
+        hasattr(os, "O_DIRECTORY")
+        and hasattr(os, "O_NOFOLLOW")
+        and {os.open, os.unlink, os.stat} <= os.supports_dir_fd
+        and os.scandir in os.supports_fd
+    )
+
+
+def _journal_walk_checkpoint(stage: str) -> None:
+    """A no-op seam between a containment check and the descriptor work that
+    follows it (wave 1zxo0, 1zxns). ``stage`` is ``"journals"`` (after the
+    journals folder check, before its walk) or ``"destination"`` (after the
+    destination folder check, before its walk and the write). Tests patch it
+    to substitute a link at that point; the descriptor walk must refuse it."""
+    return None
+
+
+class _JournalWalkRefused(OSError):
+    """A link met by the descriptor walk (wave 1zxo0, 1zxns). Carries no path."""
+
+
+def _journal_open_dir(root: Path, parts) -> int:
+    """A handle on ``root / parts`` opened one component at a time with
+    ``O_RDONLY | O_DIRECTORY | O_NOFOLLOW`` relative to the previous handle, so
+    no component below ``root`` is a link at the moment it is used.
+
+    The pattern of ``runtime_lock._open_lock_carrier``, kept local because the
+    upgrade extension runs pack-loaded: macOS reports a symlinked directory as
+    ``ENOTDIR`` and Linux as ``ELOOP``, and either is confirmed to be a link by
+    ``os.stat(..., follow_symlinks=False)`` before ``_JournalWalkRefused`` is
+    raised. Any other failure raises its own ``OSError``. The caller closes
+    the returned handle."""
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for name in parts:
+            if name in ("", os.curdir, os.pardir) or os.sep in name or (
+                os.altsep and os.altsep in name
+            ):
+                raise _JournalWalkRefused(errno.EINVAL, "unsafe path component")
+            try:
+                child = os.open(name, flags, dir_fd=fd)
+            except OSError as exc:
+                if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+                    try:
+                        is_link = stat.S_ISLNK(
+                            os.stat(name, dir_fd=fd, follow_symlinks=False).st_mode
+                        )
+                    except OSError:
+                        is_link = False
+                    if is_link:
+                        raise _JournalWalkRefused(errno.ELOOP, "link component") from exc
+                raise
+            os.close(fd)
+            fd = child
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def _journal_dir_unchanged(root: Path, parts, fd: int) -> bool:
+    """Whether a fresh no-follow walk to ``root / parts`` still reaches the
+    directory ``fd`` holds, so a folder replaced after it was opened (by a link
+    or another directory) is never written into or removed from."""
+    try:
+        current = _journal_open_dir(root, parts)
+    except OSError:
+        return False
+    try:
+        return os.path.samestat(os.fstat(current), os.fstat(fd))
+    except OSError:
+        return False
+    finally:
+        os.close(current)
+
+
+def _remove_journal_source_at(root: Path, journals_fd: int, name: str, original) -> bool:
+    """Descriptor-bound :func:`_remove_journal_source` (wave 1zxo0, 1zxns): the
+    journals folder must still be the one ``journals_fd`` holds, and a re-stat
+    relative to that handle must show the regular, singly linked file first
+    seen; the name is then removed relative to the same handle."""
+    if not _journal_dir_unchanged(root, _JOURNALS_REL.parts, journals_fd):
+        return False
+    try:
+        st = os.stat(name, dir_fd=journals_fd, follow_symlinks=False)
+    except OSError:
+        return False
+    if not _journal_source_ok(st) or not _same_journal_file(st, original):
+        return False
+    try:
+        os.unlink(name, dir_fd=journals_fd)
+    except OSError:
+        return False
+    return True
+
+
+def _journal_exception_text(exc: BaseException, root: Path) -> str:
+    """An exception for a journal migration warning, with no absolute path
+    (wave 1zxo0, 1zxns): ``lifecycle_lock.path_free_exception_text`` from the
+    extracted tree, or the class name alone when that import fails."""
+    try:
+        import lifecycle_lock  # noqa: PLC0415
+
+        return lifecycle_lock.path_free_exception_text(exc, Path(root))
+    except Exception:  # noqa: BLE001 - never fatal to an upgrade
+        return type(exc).__name__
+
+
+def _journal_rel(resolved_root: Path, path: Path) -> str:
+    """``path`` relative to ``resolved_root`` as POSIX text; outside it, only
+    ``<parent name>/<file name>`` (wave 1zxo0, 1zxns), never an absolute path."""
+    try:
+        return path.relative_to(resolved_root).as_posix()
+    except ValueError:
+        return f"{path.parent.name}/{path.name}"
 
 
 def _journal_wave_dirs(root: Path) -> "tuple[dict[str, list[tuple[Path, bool]]] | None, re.Pattern | None, str | None]":
@@ -1432,7 +1560,9 @@ def _journal_wave_dirs(root: Path) -> "tuple[dict[str, list[tuple[Path, bool]]] 
             by_token.setdefault(record_paths.wave_id_of(folder), []).append((folder, archived))
         return by_token, profile_re, None
     except Exception as exc:  # noqa: BLE001 - never fatal to an upgrade
-        return None, profile_re, f"record discovery unavailable: {exc}"
+        return None, profile_re, (
+            f"record discovery unavailable: {_journal_exception_text(exc, root)}"
+        )
 
 
 def _journal_destination(path_containment, root: Path, name: str, wave_id: str,
@@ -1472,7 +1602,174 @@ def _journal_destination(path_containment, root: Path, name: str, wave_id: str,
     return folder / destination_name, None
 
 
-def migrate_journals(root, *, apply: bool = False) -> dict:
+class JournalDeclarationError(RuntimeError):
+    """An invalid journal migration declaration (wave 1zyb3, change 1zxnv):
+    refuses the upgrade before any journal is touched."""
+
+    def __init__(self, problems: list[str]):
+        self.problems = list(problems)
+        super().__init__("invalid journal migration declaration: " + "; ".join(self.problems))
+
+
+# Private module names, so a stale ``mcp_tool_extensions`` (or helper) in
+# ``sys.modules`` never answers and nothing loaded here is left registered.
+_JOURNAL_DECLARATION_MODULE = "_wf_upgrade_journal_declaration"
+_JOURNAL_HOOK_MODULE_PREFIX = "_wf_upgrade_journal_hook_"
+# Each free-text placeholder matches 1 to _JOURNAL_PLACEHOLDER_MAX characters
+# of one line. A real wave id or title is far shorter; the bound keeps a
+# template with two free-text placeholders on one line from backtracking
+# quadratically over a very long journal line (wave 1zyb3 delivery repair).
+_JOURNAL_PLACEHOLDER_MAX = 512
+_JOURNAL_PLACEHOLDER_PATTERNS = {
+    "wave_id": rf"[^\n]{{1,{_JOURNAL_PLACEHOLDER_MAX}}}",
+    "title": rf"[^\n]{{1,{_JOURNAL_PLACEHOLDER_MAX}}}",
+    "date": r"\d{4}-\d{2}-\d{2}",
+}
+_JOURNAL_PLACEHOLDER_MAX_LENGTHS = {
+    "wave_id": _JOURNAL_PLACEHOLDER_MAX,
+    "title": _JOURNAL_PLACEHOLDER_MAX,
+    "date": 10,
+}
+_JOURNAL_PLACEHOLDER_SPLIT = re.compile(r"\{\{(wave_id|title|date)\}\}")
+_UNSET = object()
+
+
+def _journal_scripts_dir(root: Path) -> Path:
+    return Path(root) / ".wavefoundry" / "framework" / "scripts"
+
+
+def _exec_module_from_file(name: str, path: Path):
+    """Execute the ``.py`` file at ``path`` as a fresh module called ``name``,
+    never registered in ``sys.modules``."""
+    spec = importlib.util.spec_from_file_location(name, str(path))
+    if spec is None or spec.loader is None:
+        raise ImportError(name)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_journal_hook(scripts: Path, hook: str):
+    """The declared ``module:function`` hook, loaded by file path from
+    ``scripts``: the module must be a ``.py`` file listed directly there
+    (exact name, as the server's extension loader requires) whose resolved
+    parent is that directory and whose resolved name is that file name.
+    Returns the callable; raises :class:`JournalDeclarationError` with
+    path-free problems otherwise."""
+    import inspect  # noqa: PLC0415
+
+    module_name, function_name = hook.split(":")
+    label = f"journal pre-migration hook {hook!r}"
+    file_name = f"{module_name}.py"
+    try:
+        listed = os.listdir(scripts)
+    except OSError as exc:
+        raise JournalDeclarationError(
+            [f"{label}: the framework scripts directory cannot be listed ({type(exc).__name__})"]
+        ) from None
+    path = scripts / file_name
+    try:
+        resolved_scripts = scripts.resolve()
+        resolved = path.resolve()
+        regular = stat.S_ISREG(os.stat(resolved).st_mode)
+    except OSError:
+        regular = False
+        resolved = resolved_scripts = None
+    # The resolved file must also carry the module's own name, as the
+    # server's extension loader requires ``source_path.stem == module_name``:
+    # a same-directory link to a sibling script is refused.
+    if (file_name not in listed or not regular or resolved.parent != resolved_scripts
+            or resolved.name != file_name):
+        raise JournalDeclarationError(
+            [f"{label}: module {module_name!r} has no {file_name} file directly in the framework scripts directory"]
+        )
+    # A helper may import helpers declared before it, as on the server.
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
+    try:
+        module = _exec_module_from_file(_JOURNAL_HOOK_MODULE_PREFIX + module_name, resolved)
+    except Exception as exc:  # noqa: BLE001 - refused, never raised raw
+        raise JournalDeclarationError(
+            [f"{label}: module {module_name!r} could not be imported ({type(exc).__name__})"]
+        ) from None
+    function = getattr(module, function_name, None)
+    if function is None:
+        raise JournalDeclarationError([f"{label}: module {module_name!r} defines no {function_name!r}"])
+    if not callable(function):
+        raise JournalDeclarationError([f"{label}: {function_name!r} is not callable"])
+    try:
+        inspect.signature(function).bind(Path(scripts))
+    except (TypeError, ValueError):
+        raise JournalDeclarationError(
+            [f"{label}: {function_name!r} cannot be called with one positional argument (the repository root)"]
+        ) from None
+    return function
+
+
+def _load_journal_declaration(root, *, load_hook: bool = True) -> "tuple[tuple[str, ...], str, object]":
+    """The journal migration declaration from the EXTRACTED tree (wave 1zyb3,
+    change 1zxnv): ``(templates, hook_name, hook_callable_or_None)``.
+
+    ``mcp_tool_extensions.py`` is loaded by file path under a private module
+    name. A missing file, or a module that predates the constants, reads as
+    the empty declaration. An import failure, an invalid declaration or (with
+    ``load_hook``) a hook that cannot be loaded raises :class:`JournalDeclarationError`, whose
+    problems carry no path and no exception text."""
+    scripts = _journal_scripts_dir(root)
+    path = scripts / "mcp_tool_extensions.py"
+    if not path.is_file():
+        return (), "", None
+    try:
+        module = _exec_module_from_file(_JOURNAL_DECLARATION_MODULE, path)
+    except Exception as exc:  # noqa: BLE001 - refused, never raised raw
+        raise JournalDeclarationError(
+            [f"mcp_tool_extensions could not be imported ({type(exc).__name__})"]
+        ) from None
+    templates = getattr(module, "EXTENSION_JOURNAL_TEMPLATES", ())
+    hook = getattr(module, "EXTENSION_JOURNAL_PRE_MIGRATION_HOOK", "")
+    check = getattr(module, "journal_declaration_problems", None)
+    if callable(check):
+        problems = list(check())
+    elif templates or hook:
+        problems = ["mcp_tool_extensions declares journal migration entries but has no journal_declaration_problems"]
+    else:
+        problems = []
+    if problems:
+        raise JournalDeclarationError(problems)
+    function = _load_journal_hook(scripts, hook) if hook and load_hook else None
+    return tuple(templates), hook, function
+
+
+def _compile_journal_template(template: str) -> "re.Pattern[str]":
+    """A declared template as one full-match pattern: literal text escaped,
+    the first occurrence of each placeholder a named one-line group and every
+    later one a backreference to it. No nested quantifiers."""
+    parts = _JOURNAL_PLACEHOLDER_SPLIT.split(template)
+    pattern: list[str] = []
+    seen: set[str] = set()
+    for index, part in enumerate(parts):
+        if index % 2 == 0:
+            pattern.append(re.escape(part))
+        elif part in seen:
+            pattern.append(f"(?P={part})")
+        else:
+            seen.add(part)
+            pattern.append(f"(?P<{part}>{_JOURNAL_PLACEHOLDER_PATTERNS[part]})")
+    return re.compile("".join(pattern))
+
+
+def _journal_template_max_length(template: str) -> int:
+    """The longest text :func:`_compile_journal_template`'s pattern can match:
+    the literal text plus each placeholder occurrence at its bound. A journal
+    longer than this is never matched against the template at all."""
+    parts = _JOURNAL_PLACEHOLDER_SPLIT.split(template)
+    return sum(
+        len(part) if index % 2 == 0 else _JOURNAL_PLACEHOLDER_MAX_LENGTHS[part]
+        for index, part in enumerate(parts)
+    )
+
+
+def migrate_journals(root, *, apply: bool = False, templates=_UNSET) -> dict:
     """Mechanically migrate the retired journal directory (wave 1t9w9).
 
     Fail-safe by construction: (a) a journal that provably equals the pristine
@@ -1497,9 +1794,30 @@ def migrate_journals(root, *, apply: bool = False) -> dict:
     linked file; the destination is created only by an exclusive, no-follow
     open; and the source is re-checked right before it is removed. A refused
     journals folder ends the migration with nothing touched.
+
+    Wave 1zxo0 (1zxns): where :func:`_journal_dir_fd_supported` holds (Linux,
+    macOS, WSL2) the journals folder and each destination folder are opened by
+    a no-follow walk from the repository root, and every enumeration, read,
+    create, re-stat and removal is relative to those handles, so a directory
+    component swapped after the checks above is refused rather than followed;
+    a refusal leaves the journal in place under ``left``. Windows keeps the
+    path branch, whose check-to-use window is a documented limit. Warnings and
+    report entries carry no absolute path.
+
+    Wave 1zyb3 (1zxnv): a journal that fully matches a declared template
+    (``EXTENSION_JOURNAL_TEMPLATES``) is deleted too. ``templates`` defaults to
+    the declaration loaded from the extracted tree, so a preview sees the same
+    oracle; an invalid declaration raises :class:`JournalDeclarationError`.
+    The pre-migration hook is never called here.
     """
 
     root = Path(root)
+    if templates is _UNSET:
+        templates = _load_journal_declaration(root, load_hook=False)[0]
+    patterns = tuple(
+        (_compile_journal_template(template), _journal_template_max_length(template))
+        for template in templates
+    )
     report: dict = {"deleted": [], "moved": [], "left": [], "warnings": []}
     try:
         os.lstat(root / _JOURNALS_REL)
@@ -1516,17 +1834,19 @@ def migrate_journals(root, *, apply: bool = False) -> dict:
     except Exception as exc:  # noqa: BLE001 - never fatal to an upgrade
         report["left"].append(journals_rel)
         report["warnings"].append(
-            f"journal migration: skipped (path containment unavailable: {exc})"
+            "journal migration: skipped (path containment unavailable: "
+            f"{_journal_exception_text(exc, root)})"
         )
         return report
     journals_dir = path_containment.contained_path(
         root, _JOURNALS_REL, refuse_symlink_components=True
     )
+    refused_warning = (
+        f"journal migration: skipped ({journals_rel} is a link or leaves the repository)"
+    )
     if journals_dir is None:
         report["left"].append(journals_rel)
-        report["warnings"].append(
-            f"journal migration: skipped ({journals_rel} is a link or leaves the repository)"
-        )
+        report["warnings"].append(refused_warning)
         return report
     journals_st = _journal_lstat(journals_dir)
     if journals_st is None or not stat.S_ISDIR(journals_st.st_mode):
@@ -1534,27 +1854,107 @@ def migrate_journals(root, *, apply: bool = False) -> dict:
     resolved_root = root.resolve()
 
     def _rel(path: Path) -> str:
-        try:
-            return path.relative_to(resolved_root).as_posix()
-        except ValueError:
-            return path.as_posix()
+        return _journal_rel(resolved_root, path)
 
+    # Wave 1zxo0 (1zxns): on POSIX every journal operation is bound to a
+    # directory handle from a no-follow walk; Windows keeps the path branch.
+    journals_fd = None
+    if _journal_dir_fd_supported():
+        _journal_walk_checkpoint("journals")
+        try:
+            journals_fd = _journal_open_dir(root, _JOURNALS_REL.parts)
+        except OSError:
+            report["left"].append(journals_rel)
+            report["warnings"].append(refused_warning)
+            return report
+    try:
+        _migrate_journal_entries(
+            root, resolved_root, journals_dir, journals_fd, path_containment,
+            apply, report, _rel, patterns,
+        )
+    finally:
+        if journals_fd is not None:
+            os.close(journals_fd)
+    return report
+
+
+def _move_journal_at(root: Path, resolved_root: Path, journals_fd: int, name: str,
+                     source_st, destination: Path, data: bytes) -> bool:
+    """Write a vetted journal into its destination through directory handles
+    (wave 1zxo0, 1zxns): the destination folder is opened by a no-follow walk
+    from the resolved root, the journals folder must still be the one
+    ``journals_fd`` holds, and the source must still be the file first seen,
+    all before the exclusive create relative to the destination handle."""
+    _journal_walk_checkpoint("destination")
+    try:
+        parts = destination.parent.relative_to(resolved_root).parts
+        dest_fd = _journal_open_dir(resolved_root, parts)
+    except (OSError, ValueError):
+        return False
+    try:
+        if not _journal_dir_unchanged(root, _JOURNALS_REL.parts, journals_fd):
+            return False
+        try:
+            st = os.stat(name, dir_fd=journals_fd, follow_symlinks=False)
+        except OSError:
+            return False
+        if not _journal_source_ok(st) or not _same_journal_file(st, source_st):
+            return False
+        return _write_journal_exclusive(destination.name, data, dir_fd=dest_fd)
+    finally:
+        os.close(dest_fd)
+
+
+def _migrate_journal_entries(root: Path, resolved_root: Path, journals_dir: Path,
+                             journals_fd: "int | None", path_containment, apply: bool,
+                             report: dict, _rel, patterns=()) -> None:
+    """The per-journal loop of :func:`migrate_journals`. With ``journals_fd``
+    (wave 1zxo0, 1zxns) journals are enumerated, inspected, read and removed
+    relative to that handle, so no source path is reopened by name; without it
+    the path branch (Windows) runs as before."""
+    journals_rel = _JOURNALS_REL.as_posix()
     by_token, profile_re, skipped = _journal_wave_dirs(root)
     if skipped is not None:
         report["warnings"].append(
             f"journal migration: wave-journal relocation skipped ({skipped})"
         )
-    for path in sorted(journals_dir.glob("*.md")):
-        if path.name == "README.md":
+    if journals_fd is not None:
+        try:
+            with os.scandir(journals_fd) as entries:
+                names = sorted(entry.name for entry in entries if entry.name.endswith(".md"))
+        except OSError:
+            report["left"].append(journals_rel)
+            return
+    else:
+        names = [path.name for path in sorted(journals_dir.glob("*.md"))]
+
+    def _remove(name: str, original) -> bool:
+        if journals_fd is not None:
+            return _remove_journal_source_at(root, journals_fd, name, original)
+        return _remove_journal_source(path_containment, root, _JOURNALS_REL / name, original)
+
+    for name in names:
+        if name == "README.md":
             continue
-        source_rel = f"{journals_rel}/{path.name}"
-        rel = _JOURNALS_REL / path.name
-        source = path_containment.contained_path(root, rel, refuse_symlink_components=True)
-        source_st = _journal_lstat(source)
-        if source is None or not _journal_source_ok(source_st):
-            report["left"].append(source_rel)
-            continue
-        data = _read_journal_bytes(source, source_st)
+        source_rel = f"{journals_rel}/{name}"
+        if journals_fd is not None:
+            try:
+                source_st = os.stat(name, dir_fd=journals_fd, follow_symlinks=False)
+            except OSError:
+                source_st = None
+            if not _journal_source_ok(source_st):
+                report["left"].append(source_rel)
+                continue
+            data = _read_journal_bytes(name, source_st, dir_fd=journals_fd)
+        else:
+            source = path_containment.contained_path(
+                root, _JOURNALS_REL / name, refuse_symlink_components=True
+            )
+            source_st = _journal_lstat(source)
+            if source is None or not _journal_source_ok(source_st):
+                report["left"].append(source_rel)
+                continue
+            data = _read_journal_bytes(source, source_st)
         try:
             text = data.decode("utf-8") if data is not None else None
         except UnicodeDecodeError:
@@ -1568,10 +1968,15 @@ def migrate_journals(root, *, apply: bool = False) -> dict:
         wave_m = re.search(r"^wave-id: `(.+)`$", text, re.MULTILINE)
         title_m = re.search(r"^# Journal - (.+)$", text, re.MULTILINE)
         date_m = re.search(r"^Last verified: (\d{4}-\d{2}-\d{2})\s*$", text, re.MULTILINE)
-        if wave_m and title_m and date_m and text == _pristine_journal_template(
+        pristine = bool(wave_m and title_m and date_m) and text == _pristine_journal_template(
             wave_m.group(1), title_m.group(1), date_m.group(1)
+        )
+        # Wave 1zyb3 (1zxnv): then each declared template, as one full match.
+        if pristine or any(
+            len(text) <= max_length and pattern.fullmatch(text)
+            for pattern, max_length in patterns
         ):
-            if not apply or _remove_journal_source(path_containment, root, rel, source_st):
+            if not apply or _remove(name, source_st):
                 report["deleted"].append(source_rel)
             else:
                 report["left"].append(source_rel)
@@ -1584,11 +1989,11 @@ def migrate_journals(root, *, apply: bool = False) -> dict:
         destination = None
         if id_m and by_token is not None:
             destination, reason = _journal_destination(
-                path_containment, root, path.name, id_m.group(1), by_token
+                path_containment, root, name, id_m.group(1), by_token
             )
             if reason is not None:
                 report["warnings"].append(
-                    f"journal migration: left {path.name} in place: {reason}"
+                    f"journal migration: left {name} in place: {reason}"
                 )
         if destination is None:
             report["left"].append(source_rel)
@@ -1600,21 +2005,28 @@ def migrate_journals(root, *, apply: bool = False) -> dict:
             else:
                 report["left"].append(source_rel)
             continue
-        if not _write_journal_exclusive(destination, data):
+        if journals_fd is not None:
+            written = _move_journal_at(
+                root, resolved_root, journals_fd, name, source_st, destination, data
+            )
+        else:
+            written = _write_journal_exclusive(destination, data)
+        if not written:
             report["left"].append(source_rel)
             continue
-        if _remove_journal_source(path_containment, root, rel, source_st):
+        if _remove(name, source_st):
             report["moved"].append(entry)
         else:
             report["left"].append(source_rel)
-    return report
 
 
-def _migrate_journals(root: Path) -> None:
-    """The post-extract caller: :func:`migrate_journals` with ``apply=True``
-    plus its printed summary (wave 1zv87, 1zuq6)."""
+def _migrate_journals(root: Path, templates=_UNSET) -> None:
+    """The applying caller, run by :func:`pre_docs_gate` before the docs gate:
+    :func:`migrate_journals` with ``apply=True`` plus its printed summary (wave
+    1zv87, 1zuq6). ``templates`` is the declaration ``pre_docs_gate`` already
+    loaded (wave 1zyb3, 1zxnv); by default it is loaded here."""
 
-    report = migrate_journals(root, apply=True)
+    report = migrate_journals(root, apply=True, templates=templates)
     for warning in report["warnings"]:
         print(warning, flush=True)
     deleted, moved = report["deleted"], report["moved"]
@@ -1634,6 +2046,27 @@ def _migrate_journals(root: Path) -> None:
             "finish by hand.",
             flush=True,
         )
+
+
+def _run_journal_pre_migration_hook(root: Path, hook_name: str, hook) -> bool:
+    """Call the declared pre-migration hook once with the repository root
+    (wave 1zyb3, 1zxnv). True when the migration may run: no hook, or the
+    hook returned. A hook that raises skips the migration for this upgrade
+    with one warning naming the hook and the exception class, never the
+    exception text, which may carry an absolute path."""
+    if hook is None:
+        return True
+    try:
+        hook(Path(root))
+    except Exception as exc:  # noqa: BLE001 - never fatal to an upgrade
+        print(
+            f"journal migration WARNING: skipped; the pre-migration hook {hook_name} "
+            f"raised {type(exc).__name__}. Journals were left in place; a later "
+            "upgrade or the Migrate journals prompt finishes the work.",
+            flush=True,
+        )
+        return False
+    return True
 
 
 def repair_declaring_scaffold(root) -> list[str]:
@@ -1898,8 +2331,17 @@ def pre_docs_gate(ctx):
     # unknown-means-old safe default.
     from_version = ctx.from_version if isinstance(ctx.from_version, str) else ""
     if _from_version_predates(from_version, "1.15.0"):
+        # Wave 1zyb3 (1zxnv): the distribution's journal declaration, loaded
+        # by path from the extracted tree only when the migration runs, and
+        # FIRST, so an invalid one (or a hook that cannot be loaded) raises
+        # before the memory-naming or journal migration changes anything. The
+        # loaded templates are always passed on, so the declaration module is
+        # executed once; the hook runs right before the journal migration, and
+        # a hook that raises skips it.
+        templates, hook_name, hook = _load_journal_declaration(ctx.root)
         _migrate_memory_naming(ctx.root)
-        _migrate_journals(ctx.root)
+        if _run_journal_pre_migration_hook(ctx.root, hook_name, hook):
+            _migrate_journals(ctx.root, templates)
 
     lock = _read_json_object(
         ctx.root / ".wavefoundry" / "upgrade-in-progress.json"
@@ -2206,8 +2648,16 @@ def _backfill_role_field_on_agent_docs(root: Path) -> list[str]:
 
     # Wave 1p3b9 (1p3b7 F6): recursive walk replaces the previous fixed-subdir
     # iteration so enterprise nested layouts (e.g.,
-    # `docs/agents/teams/<team>/<role>.md`) are covered. `journals` at any
-    # depth is skipped; the exempt-filename list still applies.
+    # `docs/agents/teams/<team>/<role>.md`) are covered. A history directory
+    # at any depth is skipped; the exempt-filename list still applies.
+    # Wave 1zyb2 (1zxnt): the shared history predicate is imported here, after
+    # the target's scripts directory is on sys.path, and tests the
+    # root-relative path so an ancestor of the checkout never decides it.
+    scripts = root / ".wavefoundry" / "framework" / "scripts"
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
+    from history_paths import is_history_path
+
     try:
         candidates = sorted(agents_root.rglob("*.md"))
     except OSError:
@@ -2217,7 +2667,7 @@ def _backfill_role_field_on_agent_docs(root: Path) -> list[str]:
             continue
         if path.name in _AGENT_DOC_ROLE_EXEMPT_NAMES:
             continue
-        if "journals" in path.parts:
+        if is_history_path(path.relative_to(root)):
             continue
         try:
             text = path.read_text(encoding="utf-8")
@@ -2432,7 +2882,13 @@ def _preview_role_field_backfill(root: Path) -> list[str]:
     agents_root = root / "docs" / "agents"
     if not agents_root.is_dir():
         return planned
-    # Wave 1p3b9 (1p3b7 F6): recursive walk parallels the action helper.
+    # Wave 1p3b9 (1p3b7 F6): recursive walk parallels the action helper,
+    # including the shared history predicate (wave 1zyb2, 1zxnt).
+    scripts = root / ".wavefoundry" / "framework" / "scripts"
+    if str(scripts) not in sys.path:
+        sys.path.insert(0, str(scripts))
+    from history_paths import is_history_path
+
     try:
         candidates = sorted(agents_root.rglob("*.md"))
     except OSError:
@@ -2442,7 +2898,7 @@ def _preview_role_field_backfill(root: Path) -> list[str]:
             continue
         if path.name in _AGENT_DOC_ROLE_EXEMPT_NAMES:
             continue
-        if "journals" in path.parts:
+        if is_history_path(path.relative_to(root)):
             continue
         try:
             text = path.read_text(encoding="utf-8")

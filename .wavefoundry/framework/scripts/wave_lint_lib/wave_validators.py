@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Iterable
@@ -18,6 +19,7 @@ from review_evidence import (
 )
 from context_efficiency import checkpoint_validation_errors
 import change_doc_checklist  # shared checklist parser (wave 1zime, 1zimq)
+from history_paths import is_history_path  # shared history components (wave 1zyb2, 1zxnt)
 
 from .constants import (
     ALLOWED_CHANGE_STATUS_TRANSITIONS,
@@ -787,7 +789,9 @@ def _check_agent_role_metadata(root: Path, only: set[Path] | None = None, skip: 
     for path in sorted(agents_root.rglob("*.md")):
         if path in seen:
             continue
-        if path.name in _AGENT_ROLE_EXEMPT_NAMES or "journals" in path.parts or "memory" in path.parts:
+        # History and memory are tested on the root-relative path (wave 1zyb2, 1zxnt).
+        relative = path.relative_to(root)
+        if path.name in _AGENT_ROLE_EXEMPT_NAMES or is_history_path(relative) or "memory" in relative.parts:
             continue
         if only is not None and path not in only:
             continue
@@ -809,7 +813,12 @@ def _check_agent_role_metadata(root: Path, only: set[Path] | None = None, skip: 
 
 
 def _expected_agent_category(path: Path) -> str | None:
-    if path.name in _CATEGORY_EXEMPT_NAMES or "journals" in path.parts or "memory" in path.parts:
+    """The category a ``docs/agents`` doc must declare, or ``None`` when exempt.
+
+    ``path`` is RELATIVE to the repository root (wave 1zyb2, 1zxnt), so an
+    ancestor directory of the checkout never decides a component test.
+    """
+    if path.name in _CATEGORY_EXEMPT_NAMES or is_history_path(path) or "memory" in path.parts:
         return None
     if path.stem.startswith("factor-") or "factor" in path.parts:
         return "factor"
@@ -835,7 +844,9 @@ def _check_agent_category_metadata(root: Path, only: set[Path] | None = None, sk
     if not agents_root.is_dir():
         return failures
     for path in sorted(agents_root.rglob("*.md")):
-        if path.name in _CATEGORY_EXEMPT_NAMES or "journals" in path.parts or "memory" in path.parts:
+        # History and memory are tested on the root-relative path (wave 1zyb2, 1zxnt).
+        relative = path.relative_to(root)
+        if path.name in _CATEGORY_EXEMPT_NAMES or is_history_path(relative) or "memory" in relative.parts:
             continue
         if only is not None and path not in only:
             continue
@@ -848,7 +859,7 @@ def _check_agent_category_metadata(root: Path, only: set[Path] | None = None, sk
             failures.append(f"{rel}: missing required `Category:` metadata")
             continue
         category = category_match.group(1).strip()
-        expected = _expected_agent_category(path)
+        expected = _expected_agent_category(relative)
         if expected is not None and category != expected:
             failures.append(f"{rel}: `Category:` must be `{expected}`")
     return failures
@@ -1248,19 +1259,29 @@ def change_doc_header_status(raw: str) -> str | None:
 
 
 def member_status_drift(wave_text: str, wave_dir: Path, *,
-                        change_id: str | None = None) -> list[tuple[str, str | None, str | None]]:
+                        change_id: str | None = None,
+                        root: Path | None = None) -> list[tuple[str, str | None, str | None]]:
     """``(change_id, wave_status, doc_status)`` for each wave-record member
     whose change document at ``wave_dir / f"{change_id}.md"`` exists and whose
     header status differs (wave 1zoju, 1zodx). A missing or unreadable change
     document is not drift; a header with no readable status is drift with
     ``doc_status`` ``None``. ``change_id`` limits the comparison to one member
-    (one document read)."""
+    (one document read). Wave 1zxo0 (1zxns): each document is read under the
+    member-doc rule inside ``root`` (without it, the wave folder bounds the
+    read); a refused document is unreadable, not drift. The helper is imported
+    here, not at module level, to avoid an import cycle."""
+    from lifecycle_gate_support import _read_member_doc_bytes, is_change_id
+
+    read_root = root if root is not None else wave_dir
     drift: list[tuple[str, str | None, str | None]] = []
     for record in _parse_change_records(wave_text, ""):
         if change_id is not None and record.record_id != change_id:
             continue
+        if not is_change_id(record.record_id):
+            continue
+        doc_path = wave_dir / f"{record.record_id}.md"
         try:
-            raw = (wave_dir / f"{record.record_id}.md").read_bytes().decode("utf-8")
+            raw = _read_member_doc_bytes(wave_dir, doc_path, root=read_root).decode("utf-8")
         except (OSError, UnicodeError):
             continue
         doc_status = change_doc_header_status(raw)
@@ -1712,7 +1733,7 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
         # is not closed or completed; reported once per run.
         if warnings is None or status_drift_exempt(wave_text):
             return
-        for entry in member_status_drift(wave_text, wave_md.parent, change_id=change_id):
+        for entry in member_status_drift(wave_text, wave_md.parent, change_id=change_id, root=root):
             if (wave_md, entry[0]) not in reported_drift:
                 reported_drift.add((wave_md, entry[0]))
                 warnings.append(_status_drift_warning(root, wave_md, entry))
@@ -1845,18 +1866,27 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                     label = _vocab.MEMBER_ID_LABEL if record.anchor_type == "change" else "Item ID"
                     failures.append(f"{rel}: duplicate {label} `{record.record_id}` across wave artifacts")
                 seen_item_ids.add(record.record_id)
-        for raw_line in [line for line in text.splitlines() if line.startswith("Item ID:")]:
-            if not ITEM_ID_PATTERN.match(raw_line):
-                item_value = _extract_backtick_value(raw_line)
-                failures.append(f"{rel}: wave artifact has unstable Item ID `{item_value}`")
-        for raw_line in [line for line in text.splitlines() if line.startswith(f"{_vocab.MEMBER_ID_LABEL}:")]:
-            if not CHANGE_ID_PATTERN.match(raw_line):
-                undeclared = _undeclared_change_kinds(raw_line)
-                if undeclared:
-                    failures.extend(_undeclared_change_kind_failure(rel, cid, kind) for cid, kind in undeclared)
-                    continue
-                change_value = _extract_backtick_value(raw_line)
-                failures.append(f"{rel}: wave artifact has unstable {_vocab.MEMBER_ID_LABEL} `{change_value}`")
+        # Wave 1zxo0 (1zxns): an unstable id is reported by line number and
+        # reason class, never by value (it may carry control characters or
+        # text aimed at an agent's context).
+        from lifecycle_gate_support import _change_id_reason_class
+
+        for line_number, raw_line in enumerate(text.splitlines(), start=1):
+            if not raw_line.startswith("Item ID:") or ITEM_ID_PATTERN.match(raw_line):
+                continue
+            reason = _change_id_reason_class(_extract_backtick_value(raw_line) if "`" in raw_line else "")
+            failures.append(f"{rel}: wave artifact has unstable Item ID on line {line_number} ({reason})")
+        for line_number, raw_line in [(n, line) for n, line in enumerate(text.splitlines(), start=1) if line.startswith(f"{_vocab.MEMBER_ID_LABEL}:")]:
+            if CHANGE_ID_PATTERN.match(raw_line):
+                continue
+            undeclared = _undeclared_change_kinds(raw_line)
+            if undeclared:
+                failures.extend(_undeclared_change_kind_failure(rel, cid, kind) for cid, kind in undeclared)
+                continue
+            reason = _change_id_reason_class(_extract_backtick_value(raw_line) if "`" in raw_line else "")
+            failures.append(
+                f"{rel}: wave artifact has unstable {_vocab.MEMBER_ID_LABEL} on line {line_number} ({reason})"
+            )
 
         if work_records and all(record.status is None for record in work_records):
             status_label = _vocab.MEMBER_STATUS_LABEL if change_records else "Item Status"
@@ -1937,10 +1967,22 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
         if wave_matches and _wave_requires_wave_owned_change_docs(text):
             for change_id in sorted(set(CHANGE_ID_PATTERN.findall(text))):
                 expected = path.parent / f"{change_id}.md"
-                if not expected.exists():
+                # Wave 1zxo0 (1zxns): lstat before the read, so a member doc
+                # that is a link or a non-regular file (a FIFO would block the
+                # read) is reported by change id, never followed or opened.
+                try:
+                    expected_mode = os.lstat(expected).st_mode
+                except OSError:
+                    expected_mode = None
+                if expected_mode is None:
                     failures.append(
                         f"{rel}: wave-owned change `{change_id}` must exist at "
-                        f"`{relative_to_root(root, expected)}` (relocate during Prepare wave before implementation)"
+                        f"`{relative_to_root(root, expected)}` (relocate during {_vocab.shortcut('prepare-wave')} before implementation)"
+                    )
+                elif not stat.S_ISREG(expected_mode):
+                    failures.append(
+                        f"{rel}: wave-owned change `{change_id}` is not a regular file (a link or "
+                        f"special file); it was not read. Replace it with the change document itself."
                     )
                 else:
                     change_text = read_text(expected)

@@ -4969,7 +4969,16 @@ class IndexBuildLockHeldTests(unittest.TestCase):
             time.sleep(0.2)
             held, pid = self.bi._index_build_lock_held(self.index_dir)
             self.assertTrue(held)                      # F_GETLK sees the conflicting lock
-            self.assertEqual(pid, proc.pid)            # kernel returns the holder PID
+            # Wave 1zxnz (1zx02): an OFD holder is reported with no pid (the
+            # kernel says -1), so the holder pid is None and status reads the
+            # owner from the lock metadata; a lockf fallback holder still
+            # reports its pid.
+            import fcntl
+            import runtime_lock
+            ofd = runtime_lock.flock_layout() is not None and all(
+                hasattr(fcntl, name) for name in runtime_lock._OFD_COMMAND_NAMES
+            )
+            self.assertEqual(pid, None if ofd else proc.pid)
             # metadata is readable while held (lock is on the sentinel byte, not byte 0)
             meta = self.bi.read_index_build_lock_metadata(self.index_dir / self.bi.INDEX_BUILD_LOCK_NAME)
             self.assertEqual(meta.get("pid"), proc.pid)

@@ -1193,12 +1193,21 @@ def cursor_after_file_edit_source() -> str:
 #   fails closed when none is present. `str_replace_based_edit_tool` is Anthropic's text editor
 #   tool, which takes `path`
 #   (https://platform.claude.com/docs/en/agents-and-tools/tool-use/text-editor-tool).
-# `apply_patch` carries its paths inside patch text and is not gated (a known limit).
+# Wave 1zyb3 (1zxny): `apply_patch` carries its paths inside the patch text, on header lines
+# (`*** Add File: `, `*** Update File: `, `*** Delete File: `, `*** Move to: `). The hook reads the
+# text from the arguments' `input`, then `patch`, or from a raw string arguments field, gates
+# every header path (both sides of a move), and blocks as uninspectable when no header path is
+# found. No Copilot reference documents the argument key, hence the candidates and the fail-closed
+# rule. Codex `apply_patch` stays ungated: Wavefoundry renders no Codex hook.
 COPILOT_EDIT_TOOL_NAMES: tuple[str, ...] = (
     "create", "edit", "write", "str_replace_editor", "str_replace_based_edit_tool",
     "create_file", "createFile", "writeFile", "insert_edit_into_file",
     "replace_string_in_file", "multi_replace_string_in_file", "editFiles",
-    "edit_notebook_file",
+    "edit_notebook_file", "apply_patch",
+)
+COPILOT_PATCH_TOOL_NAMES: tuple[str, ...] = ("apply_patch",)
+COPILOT_PATCH_HEADERS: tuple[str, ...] = (
+    "*** Add File: ", "*** Update File: ", "*** Delete File: ", "*** Move to: ",
 )
 # The text-editor tools take a `command`. Anthropic's text editor tool documents `view` as its
 # only read; `str_replace`, `create`, `insert` and (in text_editor_20241022/20250124) `undo_edit`
@@ -1212,9 +1221,14 @@ _COPILOT_PAYLOAD_SOURCE = """
 COPILOT_EDIT_TOOL_NAMES = __EDIT_TOOLS__
 COPILOT_TEXT_EDITOR_TOOL_NAMES = __TEXT_EDITOR_TOOLS__
 COPILOT_TEXT_EDITOR_READ_COMMANDS = __TEXT_EDITOR_READS__
+COPILOT_PATCH_TOOL_NAMES = __PATCH_TOOLS__
+COPILOT_PATCH_HEADERS = __PATCH_HEADERS__
 COPILOT_PATH_KEYS = (
     "toolArgs or tool_input: path, file_path, filePath, notebook_path, files[], "
     "replacements[].filePath; then " + ", ".join(".".join(key) for key in FILE_PATH_KEYS)
+    + "; for apply_patch only, the patch headers ("
+    + ", ".join(header.strip() for header in COPILOT_PATCH_HEADERS)
+    + ") in toolArgs or tool_input: input, patch, or the raw arguments string"
 )
 
 
@@ -1239,7 +1253,47 @@ def copilot_tool_args(payload: dict[str, object]) -> dict[str, object]:
     return {}
 
 
+def copilot_patch_text(payload: dict[str, object]) -> str:
+    # The arguments' `input`, then `patch`; an arguments string that is not a JSON object is the patch.
+    for key in ("toolArgs", "tool_input"):
+        value = payload.get(key)
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except (ValueError, RecursionError):
+                parsed = None
+            if not isinstance(parsed, dict):
+                return value
+            value = parsed
+        if isinstance(value, dict):
+            for name in ("input", "patch"):
+                text = value.get(name)
+                if isinstance(text, str) and text:
+                    return text
+            return ""
+    return ""
+
+
+def copilot_patch_paths(text: str) -> list[str]:
+    # Header lines only: an added or removed hunk line starts with `+` or `-`, so it never counts.
+    paths: list[str] = []
+    for line in text.split("\\n"):
+        if line.endswith("\\r"):
+            line = line[:-1]
+        line = line.lstrip()
+        for header in COPILOT_PATCH_HEADERS:
+            if line.startswith(header):
+                path = line[len(header):].strip()
+                if path and path not in paths:
+                    paths.append(path)
+                break
+    return paths
+
+
 def copilot_edit_paths(payload: dict[str, object]) -> list[str]:
+    if copilot_tool_name(payload) in COPILOT_PATCH_TOOL_NAMES:
+        # The header paths alone: no generic fallback stands in for the patch's real targets.
+        return copilot_patch_paths(copilot_patch_text(payload))
     args = copilot_tool_args(payload)
     paths: list[str] = []
     for key in ("path", "file_path", "filePath", "notebook_path"):
@@ -1276,7 +1330,9 @@ def copilot_is_edit(payload: dict[str, object]) -> bool:
     return True
 """.replace("__EDIT_TOOLS__", repr(COPILOT_EDIT_TOOL_NAMES)).replace(
     "__TEXT_EDITOR_TOOLS__", repr(COPILOT_TEXT_EDITOR_TOOL_NAMES)).replace(
-    "__TEXT_EDITOR_READS__", repr(COPILOT_TEXT_EDITOR_READ_COMMANDS))
+    "__TEXT_EDITOR_READS__", repr(COPILOT_TEXT_EDITOR_READ_COMMANDS)).replace(
+    "__PATCH_TOOLS__", repr(COPILOT_PATCH_TOOL_NAMES)).replace(
+    "__PATCH_HEADERS__", repr(COPILOT_PATCH_HEADERS))
 
 
 def copilot_pre_tool_use_source() -> str:
@@ -1290,6 +1346,8 @@ def main() -> int:
         return 0
     paths = copilot_edit_paths(payload)
     if not paths:
+        if copilot_tool_name(payload) in COPILOT_PATCH_TOOL_NAMES:
+            return block_uninspectable("no patch file header was found", COPILOT_PATH_KEYS)
         return block_uninspectable("no file path was found", COPILOT_PATH_KEYS)
     for file_path in paths:
         verdict = gate_file_path(file_path)

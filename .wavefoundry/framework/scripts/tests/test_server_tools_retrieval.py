@@ -14193,6 +14193,10 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
 
     def test_hot_reload_reapplies_exact_argument_schema_to_whole_registry(self):
         """1tmaz: re-registration must not restore FastMCP's raw kwargs field."""
+        # Wave 1zyb2 (1zxnt): the registry is built from the shipped declaration,
+        # not whatever declaration state an earlier test left behind.
+        from declaration_support import apply_base_declaration
+        apply_base_declaration(self)
         mcp = self._build_thin_runner.build_server(self.root)
         with patch.object(
             self._build_thin_runner.server_impl,

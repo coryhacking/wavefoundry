@@ -1,0 +1,20 @@
+{
+  "description": "The shipped vocabulary and layout with a lifecycle prompt-name override (change 1zxnw) mirroring a distribution whose container prompts take -set names and whose item prompts take -wave names: a chain in which the item prompts Implement wave and Close wave take the file names the container prompts give up.",
+  "modules": {
+    "vocabulary_profile": {
+      "PROMPT_NAME_OVERRIDES": {
+        "create-wave": {"slug": "create-set", "shortcut": "Create set"},
+        "prepare-wave": {"slug": "prepare-set", "shortcut": "Prepare set", "aliases": ["Ready set"]},
+        "implement-wave": {"slug": "implement-set", "shortcut": "Implement set"},
+        "pause-wave": {"slug": "pause-set", "shortcut": "Pause set"},
+        "review-wave": {"slug": "review-set", "shortcut": "Review set"},
+        "close-wave": {"slug": "close-set", "shortcut": "Close set"},
+        "plan-change": {"slug": "plan-wave", "shortcut": "Plan wave"},
+        "add-change-to-wave": {"slug": "add-wave-to-set", "shortcut": "Add wave to set"},
+        "remove-change-from-wave": {"slug": "remove-wave-from-set", "shortcut": "Remove wave from set"},
+        "implement-change": {"slug": "implement-wave", "shortcut": "Implement wave"},
+        "close-change": {"slug": "close-wave", "shortcut": "Close wave"}
+      }
+    }
+  }
+}

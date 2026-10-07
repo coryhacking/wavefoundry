@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-03
+Last verified: 2026-10-07
 
 ## Configuration
 
@@ -73,9 +73,18 @@ lock):
   serialization of the mutating lifecycle MCP tools (the census in the 1seat
   change doc), acquired non-blocking at the registration layer; a held lock
   returns a structured `lifecycle_mutation_locked` busy response. It is a
-  record lock at offset `1 << 30`, which POSIX ties to the process: a second
-  acquire in the same process succeeds and closing any descriptor of the file
-  releases it. Every hold is therefore registered in `runtime_lock`'s
+  byte-range record lock at offset `1 << 30`. On Linux and macOS (64-bit,
+  x86_64 or arm64) it is an open file description (OFD) lock (wave 1zxnz):
+  it belongs to the lock's own open file description, so opening and closing
+  another descriptor of the file in the holding process cannot release it.
+  OFD and classic record locks conflict, within and across processes, so an
+  older process that still takes `lockf` stays excluded. Where OFD is not
+  available (other platforms, missing `F_OFD_*` constants, or a kernel or
+  filesystem that rejects OFD as unsupported) the acquire falls back to
+  `lockf`, decided per acquire; a busy OFD result never falls back. A classic
+  `lockf` lock is tied to the process: a second acquire in the same process
+  succeeds and closing any descriptor of the file releases it. Every hold is
+  therefore registered in `runtime_lock`'s
   in-process hold registry (pid, `acquired_at` and the owning thread), with
   acquire and registration as one step under `process_hold_guard()`, and the
   entry is removed before the OS lock is released. A re-entry from any thread
@@ -88,9 +97,17 @@ lock):
   body, returns `lifecycle_lock_reentry`, which names no other session. Other
   body exceptions propagate. The refusals name the lock by its
   repository-relative path, built from attributes on the lock exceptions,
-  never from their text, which carries the absolute path. The registry lives in `runtime_lock`, which an MCP reload does not
-  evict, so a hold taken before a reload stays visible to the re-imported
-  `lifecycle_lock` and `review_evidence`.
+  never from their text, which carries the absolute path. The registry lives in `runtime_lock`, which an MCP reload
+  reloads in place, state preserved (wave 1zxnz): the registry and its guard
+  keep their objects, and every exception class `runtime_lock` defines is
+  rebound to its original object, so modules that bound those classes at
+  import keep catching what reloaded code raises. A hold taken before a
+  reload therefore stays visible to the re-imported `lifecycle_lock` and
+  `review_evidence`, and a release that adds a name to `runtime_lock` loads
+  on reload. A release that changes the definition of a `runtime_lock`
+  exception class needs a host restart. The reload-closure guard test
+  (`test_lifecycle_gates_structure.py`) fails when a reloaded module imports
+  a flat module the reload leaves stale without a recorded reason.
 - **`project_state_publication_lock`**
   (`.wavefoundry/locks/review-evidence-adoptions.lock` — the adoption-shaped
   basename is an opaque compatibility ABI kept stable for 1.14+ same-path
@@ -162,8 +179,9 @@ This recovery reporting adds no downloader, cache location, or selection path.
 
 ## Shared Utilities
 
-- `.wavefoundry/framework/scripts/process_info.py` is the single process-information seam (wave `1zc7n`, ADR `1z9df-adr psutil-process-info`): pid liveness, zombie state, command line, working directory and start time from `psutil`, a required dependency, with no hand-rolled fallback. It answers questions and never decides policy; process information is reporting only, and the OS locks above stay the only correctness authority. When `psutil` cannot be imported, liveness reads "not running" so every build and refresh proceeds to its lock, and `index_health`, `index_build_status` and `wf_server_info` report `process_info_unavailable` recommending `wf setup`. Code that runs before dependencies are installed or inside an older upgrade runner (`venv_bootstrap`, setup before `ensure_deps`, `upgrade_lib`, `dashboard_lib`, `sqlite_storage_migration`, the modules `upgrade_protocol` validates) keeps its own standard-library process queries and never imports `psutil`. Like `runtime_lock`, it is not reloaded by `wf_reload_mcp`; a change takes effect after an MCP restart.
+- `.wavefoundry/framework/scripts/process_info.py` is the single process-information seam (wave `1zc7n`, ADR `1z9df-adr psutil-process-info`): pid liveness, zombie state, command line, working directory and start time from `psutil`, a required dependency, with no hand-rolled fallback. It answers questions and never decides policy; process information is reporting only, and the OS locks above stay the only correctness authority. When `psutil` cannot be imported, liveness reads "not running" so every build and refresh proceeds to its lock, and `index_health`, `index_build_status` and `wf_server_info` report `process_info_unavailable` recommending `wf setup`. Code that runs before dependencies are installed or inside an older upgrade runner (`venv_bootstrap`, setup before `ensure_deps`, `upgrade_lib`, `dashboard_lib`, `sqlite_storage_migration`, the modules `upgrade_protocol` validates) keeps its own standard-library process queries and never imports `psutil`. It is not reloaded by `wf_reload_mcp`; a change takes effect after an MCP restart.
 - `.wavefoundry/framework/scripts/path_containment.py` owns the resolving containment predicate and its pure already-resolved comparison; callers retain their existing resolution, symlink and failure policies.
+- `.wavefoundry/framework/scripts/lifecycle_gate_support.py` owns the change-id allow-list (`CHANGE_ID_SHAPE_RE`, `is_change_id`, `<prefix>-<kind> <slug>` on the kind shape) and the member-doc read rule (`_read_member_doc_bytes`: a regular file, not a link, directly in its expected folder, inside that folder and inside the repository once resolved, read with a size cap; wave `1zxo0`). Member ids are filtered at extraction, the member-doc path helpers refuse anything else, and every lifecycle and dashboard reader of a member change doc reads through the rule, as do the staged-plan listing (`list_plans`) and the dashboard plan rows. Docs-lint is only partly covered: its wave-owned-doc loop applies the same no-link regular-file check before its read, but its other passes still read member docs through ordinary file reads (a follow-up). The rule's runtime-lock identity test (`runtime_lock_identities`) is shared with the server's runtime-lock refusal.
 
 - `.wavefoundry/framework/scripts/wave_lint_lib/` — shared modules for docs_lint: `link_validators.py`, `metadata_validators.py`, `context.py`, `helpers.py`.
 - These are internal to `.wavefoundry/framework/scripts/`; not exposed as a public library.

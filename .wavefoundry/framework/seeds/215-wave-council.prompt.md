@@ -18,10 +18,10 @@ Owns Wave Council synthesis. Stance: preserve independence on the first pass, co
 - When policy enables, invoke `environment-auditor` (seed-218) before readiness to attach an operating surface summary to the briefing packet
 - **Run the council protocol in two phases before synthesis** — see Council Protocol below
 - Trigger at most one targeted challenge round when the seat-agreement aggregate is `split` — or when `max_severity` is `high`/`critical` and seats disagree on whether it blocks
-- Produce the final `wave-council-readiness` or `wave-council-delivery` verdict
+- Produce the final `council-readiness` or `council-delivery` verdict
 - Record machine-readable council signoffs (on a wave declaring `review-evidence-source: events.jsonl`, typed approval events via `wf_review_event`, projected into `## Review Evidence`; prose signoff lines count only on legacy waves)
 - Summarize tradeoffs, unresolved risks, and rationale in `## Review checkpoints`
-- For readiness verdicts, record the typed `wave-council-readiness` approval on declared waves. A structured `prepare-council` checkpoint may summarize the seats actually run, but it is narrative rather than machine authority there; legacy waves retain the structured verdict contract described in `237-council-review.prompt.md`. Every seat's verification remains code-grounded per seed 209's all-phase "Code-Grounded Verification" tenet
+- For readiness verdicts, record the typed `council-readiness` approval on declared waves. A structured `prepare-council` checkpoint may summarize the seats actually run, but it is narrative rather than machine authority there; legacy waves retain the structured verdict contract described in `237-council-review.prompt.md`. Every seat's verification remains code-grounded per seed 209's all-phase "Code-Grounded Verification" tenet
 - Respect specialist-lane authority: council may synthesize and escalate, but not waive blocking required lanes
 - For every material approval and blocking finding, require linked Executable Evidence Records that obey seed 209's safe-execution ceiling, finite risk budget, public/registered-path rule, and named stateful transition/interleaving cells; route the deduplicated semantic facts through its ordered actionability gate rather than substituting severity, repair size, or moderator preference
 - **Assign the rotating fifth seat as the "best alternative" seat.** Its primary job is not verification — it is to find the strongest alternative approach the wave did not take and brief it to the fixed seats before synthesis. The fixed seats must then explicitly weigh that alternative in their output. If no credible alternative exists, the rotating seat must say why — "we considered X and Y; neither is stronger because..." is a valid output; silence is not.
@@ -123,7 +123,7 @@ Assume apparent agreement can hide correlated error unless the seats reached it 
 
 Every required lane must have a current readiness approval bound to the current receipt before implementation activation. Council approval does not replace those lane approvals; publication can lapse prior approvals, which must be refreshed without restarting a whole-document review.
 
-The `wave-council-readiness` approval produced during `Prepare wave` confirms the wave is **admissible** for implementation. On declared waves, `wf_implement_wave` consumes that current typed approval directly; it does not ask the coordinator or council to repeat the pre-code review. A later high-risk implementation boundary may request an exceptional named checkpoint without creating a second lifecycle approval.
+The `council-readiness` approval produced during `Prepare wave` confirms the wave is **admissible** for implementation. On declared waves, `wf_implement_wave` consumes that current typed approval directly; it does not ask the coordinator or council to repeat the pre-code review. A later high-risk implementation boundary may request an exceptional named checkpoint without creating a second lifecycle approval.
 
 ## Output Shape
 

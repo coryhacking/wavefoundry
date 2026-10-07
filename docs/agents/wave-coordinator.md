@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: wave-coordinator
 Category: coordinate
-Last verified: 2026-10-06
+Last verified: 2026-10-07
 
 ## Host-neutral orchestration
 
@@ -51,7 +51,7 @@ A good coordinator output leaves behind:
 - next lane invocation or lifecycle step
 - explicit blockers, assumptions, and required repairs
 - merged reviewer observations when concurrent lanes ran
-- typed `wave-council-readiness` and `wave-council-delivery` approval references when the current review-policy receipt requires them
+- typed `council-readiness` and `council-delivery` approval references when the current review-policy receipt requires them
 - a clear verdict when the wave changes state
 
 ## Assumption Tracking
@@ -72,4 +72,4 @@ Coordinator decisions span planning and execution — apply complex-tier reasoni
 
 ## Implementation readiness
 
-Prepare wave has passed cleanly; declared review-enabled waves require the typed `wave-council-readiness` approval on the current receipt. Legacy prose-verdict and review-disabled behavior are preserved.
+Prepare wave has passed cleanly; declared review-enabled waves require the typed `council-readiness` approval on the current receipt. Legacy prose-verdict and review-disabled behavior are preserved.

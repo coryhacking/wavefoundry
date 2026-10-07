@@ -152,7 +152,7 @@ Applies to all repository code: framework scripts, seed prompts, test files, bui
 
 1. A consolidated change document exists at `docs/plans/<change-id>.md` or `docs/waves/<wave-id>/<change-id>.md`.
 2. The change is admitted into a wave via **Create wave** / **Add change to wave**.
-3. The wave is **readied** — a successful **Prepare wave** / **Ready wave** pass with `wave-council-readiness` recorded. On declared waves, missing typed readiness returns an error until the approval is recorded; the `ready_for_council_review` intermediate status is legacy-wave compatibility only. After recording the review, call `wf_prepare_wave` again (`mode='ready'` to ready-without-opening, or `mode='create'` to prepare-and-open).
+3. The wave is **readied** — a successful **Prepare wave** / **Ready wave** pass with `council-readiness` recorded. On declared waves, missing typed readiness returns an error until the approval is recorded; the `ready_for_council_review` intermediate status is legacy-wave compatibility only. After recording the review, call `wf_prepare_wave` again (`mode='ready'` to ready-without-opening, or `mode='create'` to prepare-and-open).
 
 If any step is missing, stop and route back to **Plan change**, **Create wave**, **Add change to wave**, or **Prepare wave**.
 

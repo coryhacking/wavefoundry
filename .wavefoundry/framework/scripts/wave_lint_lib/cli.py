@@ -12,7 +12,7 @@ import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm
 from .context import build_context
 from .constants import AUDIT_DEFAULT_REPORT
 from .docs_constants_validators import check_docs_constants, check_wave_scaffolding_integrity
-from .core_validators import check_forbidden_root_wrappers, check_prompt_file_extensions, check_prompt_surface_manifest, check_pycache, check_required_files, check_review_policy_carrier_parity, check_review_policy_carriers, check_review_protocol_carrier_parity, check_scaffold_declares_nothing, check_seed_prefix_uniqueness, check_workflow_config, inert_record_layout_findings
+from .core_validators import check_forbidden_root_wrappers, check_prompt_file_extensions, check_prompt_name_migration, check_prompt_surface_manifest, check_pycache, check_required_files, check_review_policy_carrier_parity, check_review_policy_carriers, check_review_protocol_carrier_parity, check_scaffold_declares_nothing, check_seed_prefix_uniqueness, check_workflow_config, inert_record_layout_findings
 from .design_system_validators import check_design_system
 from .design_system_governance_validators import check_design_governance
 from .design_system_surface_validators import check_design_surface
@@ -336,6 +336,7 @@ def _run_full_checks(root: Path, args: argparse.Namespace, timings: dict | None 
         failures.extend(check_docs_constants(root))
         failures.extend(check_wave_scaffolding_integrity(root))
         failures.extend(check_prompt_surface_manifest(root))
+        failures.extend(check_prompt_name_migration(root))
         failures.extend(check_wave_docs(root, skip=oversized, warnings=warnings))
         failures.extend(check_closed_wave_requirements(root))
         failures.extend(check_plan_filenames(root, skip=oversized))

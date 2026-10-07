@@ -1,15 +1,39 @@
 {
-  "description": "The shipped vocabulary and layout with a sample distribution tool declaration (change 1zim4): one plain alias and one parameter-mapped alias (a renamed parameter and a pinned one) on stock tools, so the suite runs with declarations present.",
+  "description": "The shipped vocabulary and layout with a sample distribution declaration (changes 1zim4 and 1zxnu): one plain alias and one parameter-mapped alias (a renamed parameter and a pinned one) on stock tools; an extension module serving its own tool and replacing a core name; a hidden canonical tool served through a plain alias; and a declared skill whose prompt doc comes from a shipped template, so the suite runs with declarations present.",
+  "module_files": {
+    "dist_tools": "dist_tools.py"
+  },
   "modules": {
     "mcp_tool_extensions": {
+      "EXTENSION_MODULES": ["dist_tools"],
+      "EXTENSION_TOOL_PREFIXES": ["dist_"],
+      "EXTENSION_TOOL_TIERS": {
+        "dist_inventory": "read"
+      },
       "EXTENSION_TOOL_ALIASES": {
         "wf_alias_help": "wf_help",
-        "wf_alias_read_raw": "code_read"
+        "wf_alias_read_raw": "code_read",
+        "wf_alias_gpu_doctor": "wf_gpu_doctor"
       },
       "EXTENSION_TOOL_PARAMETERS": {
         "wf_alias_read_raw": {
           "rename": {"file": "path"},
           "fixed": {"with_line_numbers": false}
+        }
+      },
+      "EXTENSION_HIDDEN_TOOLS": ["wf_gpu_doctor"],
+      "EXTENSION_REPLACEMENTS": {
+        "dist_tools": {
+          "wf_open_dashboard": {"alias_for_core": "dist_open_dashboard_core"}
+        }
+      },
+      "EXTENSION_SKILLS": {
+        "dist-review": {
+          "title": "Distribution review",
+          "description": "Review a plan with the distribution's checklist. The distribution review workflow.",
+          "prompt_doc": "docs/prompts/dist-review.prompt.md",
+          "summary": ["Read the prompt doc before the first step."],
+          "prompt_doc_template": "lifecycle-prompts/review-plan.prompt.md"
         }
       }
     }

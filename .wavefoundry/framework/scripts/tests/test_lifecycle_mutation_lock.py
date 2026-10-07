@@ -485,6 +485,50 @@ _HOLD_LIFECYCLE = _CHILD_PRELUDE + (
     "print('released', flush=True)\n"
 )
 
+# Wave 1zxnz (1zx02): a classic ``lockf`` on the lifecycle sentinel byte, as a
+# pre-change process takes it. ``probe`` reports and exits; ``hold`` keeps it
+# until a line arrives on stdin.
+_LOCKF_LIFECYCLE = _CHILD_PRELUDE + (
+    "import fcntl, os\n"
+    "import lifecycle_lock\n"
+    "path = root / lifecycle_lock.LIFECYCLE_MUTATION_LOCK_REL\n"
+    "path.parent.mkdir(parents=True, exist_ok=True)\n"
+    "fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o666)\n"
+    "offset = lifecycle_lock.LIFECYCLE_MUTATION_LOCK_SENTINEL\n"
+    "try:\n"
+    "    fcntl.lockf(fd, fcntl.LOCK_EX | fcntl.LOCK_NB, 1, offset, os.SEEK_SET)\n"
+    "except OSError:\n"
+    "    print('busy', flush=True)\n"
+    "    sys.exit(0)\n"
+    "if sys.argv[3] == 'probe':\n"
+    "    print('acquired', flush=True)\n"
+    "    sys.exit(0)\n"
+    "print('held', flush=True)\n"
+    "sys.stdin.readline()\n"
+)
+
+
+def _other_process_lockf(root: Path) -> str:
+    """One raw ``lockf`` attempt on the lifecycle sentinel byte from a fresh interpreter."""
+    out = subprocess.run(
+        [sys.executable, "-B", "-c", _LOCKF_LIFECYCLE, str(SCRIPTS_ROOT), str(root), "probe"],
+        capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL,
+    )
+    return out.stdout.strip() or f"<no answer: rc={out.returncode} {out.stderr[-2000:]}>"
+
+
+def _ofd_expected() -> bool:
+    """Requirement 1's conditions: a known layout and all three constants."""
+    if os.name == "nt":
+        return False
+    import fcntl
+    import runtime_lock
+
+    return runtime_lock.flock_layout() is not None and all(
+        hasattr(fcntl, name) for name in runtime_lock._OFD_COMMAND_NAMES
+    )
+
+
 _WAIT_INSIDE_TRANSACTION = _CHILD_PRELUDE + (
     "import time\n"
     "import lifecycle_lock\n"
@@ -516,11 +560,11 @@ def _other_process_lifecycle(root: Path) -> str:
 class _Child:
     """A fresh-interpreter child whose stdout lines are read with a timeout."""
 
-    def __init__(self, code: str, root: Path) -> None:
+    def __init__(self, code: str, root: Path, *extra: str) -> None:
         import queue
 
         self.proc = subprocess.Popen(
-            [sys.executable, "-B", "-c", code, str(SCRIPTS_ROOT), str(root)],
+            [sys.executable, "-B", "-c", code, str(SCRIPTS_ROOT), str(root), *extra],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True,
         )
@@ -1001,6 +1045,11 @@ class LifecycleHoldReloadTests(unittest.TestCase):
         publication = _Child(_HOLD_PUBLICATION, self.root)
         self.addCleanup(publication.close)
         self.assertEqual(publication.expect(60), "held")
+        # Wave 1zxnz (1zx02) AC-9: runtime_lock is reloaded in place; its state
+        # and its exception classes are the same objects afterwards.
+        holds, guard = self.rl._PROCESS_RECORD_HOLDS, self.rl._PROCESS_HOLD_GUARD
+        error, busy = self.rl.RuntimeLockError, self.rl.RuntimeLockBusy
+        file_lock = self.rl.RuntimeFileLock
         with old_ll.lifecycle_mutation_lock(self.root):
             # What wf_reload_mcp does: drop the script cache, reload server_impl.
             self.server_impl._script_cache.clear()
@@ -1010,6 +1059,13 @@ class LifecycleHoldReloadTests(unittest.TestCase):
             self.assertIsNot(new_ll, old_ll, "reload no longer re-imports lifecycle_lock")
             self.assertIsNot(new_re, old_re, "reload no longer re-imports review_evidence")
             self.assertIs(sys.modules["runtime_lock"], self.rl)
+            self.assertIsNot(self.rl.RuntimeFileLock, file_lock, "runtime_lock was not reloaded")
+            self.assertIs(self.rl._PROCESS_RECORD_HOLDS, holds)
+            self.assertIs(self.rl._PROCESS_HOLD_GUARD, guard)
+            self.assertIs(self.rl.RuntimeLockError, error)
+            self.assertIs(self.rl.RuntimeLockBusy, busy)
+            self.assertIs(new_ll.RuntimeLockBusy, busy)
+            self.assertIs(new_ll.RuntimeFileLock, self.rl.RuntimeFileLock)
             self.assertIsNotNone(self.rl.process_hold(path))
             with self.assertRaisesRegex(new_ll.LifecycleLockBusy, "already held by this process"):
                 with new_ll.lifecycle_mutation_lock(self.root):
@@ -1654,3 +1710,172 @@ class MemoryToolPublicationRefusalTests(unittest.TestCase):
         with patch("os.stat", fake_stat):
             result, written = self._consolidate_with_partial_archive(deny_body)
         self._assert_rollback_reported_incomplete(result, written)
+
+
+@unittest.skipIf(os.name == "nt", "POSIX record-lock mechanics")
+class LifecycleOfdLockTests(unittest.TestCase):
+    """Wave 1zxnz (1zx02) AC-1, AC-2: the lifecycle lock is an OFD lock that
+    an unrelated close cannot release, and it excludes classic ``lockf``
+    holders in both directions."""
+
+    def setUp(self):
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        import lifecycle_lock
+
+        self.ll = lifecycle_lock
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / ".wavefoundry").mkdir()
+        self.path = self.root / lifecycle_lock.LIFECYCLE_MUTATION_LOCK_REL
+
+    def test_an_unrelated_close_in_the_holder_keeps_the_lock(self):
+        if not _ofd_expected():
+            self.skipTest("platform excluded by Requirement 1 (no known layout or no F_OFD_* constants)")
+        acquired = []
+        real_acquire = self.ll.RuntimeFileLock.acquire
+
+        def spy(lock_self, *args, **kwargs):
+            out = real_acquire(lock_self, *args, **kwargs)
+            acquired.append(lock_self)
+            return out
+
+        with patch.object(self.ll.RuntimeFileLock, "acquire", spy):
+            with self.ll.lifecycle_mutation_lock(self.root):
+                # The mechanism first: a silent fallback fails here, never skips.
+                self.assertEqual([lock.mechanism for lock in acquired], ["ofd"])
+                # Bypass the registry: open and close the lock file directly.
+                fd = os.open(self.path, os.O_RDONLY)
+                os.close(fd)
+                self.path.read_bytes()
+                self.assertEqual(_other_process_lockf(self.root), "busy")
+        self.assertEqual(_other_process_lockf(self.root), "acquired")
+
+    def test_a_classic_lockf_holder_makes_the_lifecycle_lock_busy(self):
+        holder = _Child(_LOCKF_LIFECYCLE, self.root, "hold")
+        self.addCleanup(holder.close)
+        self.assertEqual(holder.expect(60), "held")
+        with self.assertRaises(self.ll.LifecycleLockBusy):
+            with self.ll.lifecycle_mutation_lock(self.root):
+                self.fail("entered while a classic lockf holder held the byte")
+        holder.say()
+        holder.close()
+        with self.ll.lifecycle_mutation_lock(self.root):
+            self.assertEqual(_other_process_lockf(self.root), "busy")
+        self.assertEqual(_other_process_lockf(self.root), "acquired")
+
+
+_RELOAD_DRIVER = r'''
+import json, sys, tempfile
+from pathlib import Path
+sys.path.insert(0, str(Path.cwd() / "tests"))
+from server_tools_support import _make_repo, load_server, load_thin_runner
+
+SCRATCH = Path.cwd()
+out = {}
+with tempfile.TemporaryDirectory() as tmp:
+    root = _make_repo(Path(tmp))
+    load_server()
+    runner = load_thin_runner()
+    runner.build_server(root)
+    try:
+        # A release adds a name to runtime_lock and an evicted module imports it.
+        rl = SCRATCH / "runtime_lock.py"
+        rl.write_text(rl.read_text(encoding="utf-8")
+                      + "\n\ndef reload_probe_marker():\n    return 'fresh'\n", encoding="utf-8")
+        ll = SCRATCH / "lifecycle_lock.py"
+        source = ll.read_text(encoding="utf-8")
+        edited = source.replace("from runtime_lock import (", "from runtime_lock import (\n    reload_probe_marker,", 1)
+        assert edited != source
+        ll.write_text(edited + "\n\ndef reload_probe():\n    return reload_probe_marker()\n", encoding="utf-8")
+        try:
+            response = runner.perform_mcp_reload()
+            out["status"] = response.get("status")
+            out["codes"] = [d.get("code") for d in response.get("diagnostics") or []]
+            out["probe"] = sys.modules["lifecycle_lock"].reload_probe()
+        except Exception as exc:
+            out["raised"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        try:
+            runner._get_handler().close()
+        except Exception:
+            pass
+print(json.dumps(out))
+'''
+
+
+def _run_reload_driver(mutate_server=None) -> dict:
+    import shutil
+
+    with tempfile.TemporaryDirectory() as temp:
+        scratch = Path(temp) / "scripts"
+        shutil.copytree(SCRIPTS_ROOT, scratch, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        if mutate_server is not None:
+            server = scratch / "wf_server" / "server_impl.py"
+            source = server.read_text(encoding="utf-8")
+            mutated = mutate_server(source)
+            assert mutated != source
+            server.write_text(mutated, encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, "-B", "-c", _RELOAD_DRIVER],
+            cwd=scratch,
+            env=dict(os.environ, PYTHONPATH=str(scratch), PYTHONDONTWRITEBYTECODE="1"),
+            capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            raise AssertionError(f"reload driver failed:\n{result.stderr[-6000:]}")
+        return json.loads(result.stdout.strip().splitlines()[-1])
+
+
+class RuntimeLockReloadInPlaceTests(unittest.TestCase):
+    """Wave 1zxnz (1zx02) AC-8: a reload loads new runtime_lock names."""
+
+    def test_a_reload_picks_up_a_name_added_to_runtime_lock(self):
+        out = _run_reload_driver()
+        self.assertEqual(out.get("status"), "ok", out)
+        self.assertNotIn("reload_failed", out.get("codes", []), out)
+        self.assertEqual(out.get("probe"), "fresh", out)
+
+    def test_without_the_in_place_reload_the_import_fails(self):
+        out = _run_reload_driver(lambda source: source.replace(
+            '_IN_PLACE_RELOAD_MODULES = ("runtime_lock",)', "_IN_PLACE_RELOAD_MODULES = ()", 1))
+        self.assertIn("ImportError", out.get("raised", ""), out)
+        self.assertIn("reload_probe_marker", out.get("raised", ""), out)
+
+
+@unittest.skipIf(os.name == "nt", "POSIX flock fixture")
+class DashboardLockAfterReloadTests(unittest.TestCase):
+    """Wave 1zxnz (1zx02) AC-15: ``dashboard_lib`` bound runtime_lock's names
+    at import and is not evicted; after a reload its busy conversion still
+    catches what the lock raises."""
+
+    def test_a_held_dashboard_lock_is_still_dashboard_busy_after_reload(self):
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+        import dashboard_lib
+        import runtime_lock
+        from wf_server import server_impl
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / ".wavefoundry").mkdir()
+        busy = runtime_lock.RuntimeLockBusy
+        server_impl._script_cache.clear()
+        importlib.reload(server_impl)
+        self.assertIs(sys.modules["dashboard_lib"], dashboard_lib, "dashboard_lib was evicted")
+        self.assertIs(runtime_lock.RuntimeLockBusy, busy)
+        # The scenario: dashboard_lib still holds the pre-reload class.
+        self.assertIsNot(dashboard_lib.RuntimeFileLock, runtime_lock.RuntimeFileLock)
+        holder = _Child(_CHILD_PRELUDE + (
+            "import dashboard_lib\n"
+            "with dashboard_lib.dashboard_start_lock(root):\n"
+            "    print('held', flush=True)\n"
+            "    sys.stdin.readline()\n"
+        ), root)
+        self.addCleanup(holder.close)
+        self.assertEqual(holder.expect(60), "held")
+        with self.assertRaises(dashboard_lib.DashboardLockBusy):
+            with dashboard_lib.dashboard_start_lock(root):
+                self.fail("entered a dashboard lock another process holds")
