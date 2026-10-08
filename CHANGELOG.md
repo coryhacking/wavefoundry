@@ -129,6 +129,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The upgrade dry-run migration preview no longer reports an error for targets older than 1.5.0; it evaluates history paths with the incoming framework's predicate. Wave 200xy / 200v2.
 - A failure to remove an undeclared skill file now reports the repository-relative path and the error class instead of the operating-system error text. Wave 200xy / 200v2.
 - Journal migration date patterns accept ASCII digits only. Wave 200xy / 200v2.
+- `wf setup` no longer adds framework test files to the documentation index. Setup now resolves include prefixes the same way as every other index build, so setup and incremental refreshes agree on the corpus and a setup that follows a refresh no longer re-embeds unchanged files. A docs-only or code-only setup now gives the graph the same docs and code scope as every other build. The first index build after upgrading removes the framework test-file rows an earlier setup added; this is expected. Wave 204jj / 2038p.
 
 ## [1.28.0] - 2026-09-30
 

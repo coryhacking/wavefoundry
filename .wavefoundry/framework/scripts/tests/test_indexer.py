@@ -2330,10 +2330,10 @@ class IncrementalBuildTests(unittest.TestCase):
         )
 
     def test_fold_survives_forwarded_non_empty_override_prefixes(self):
-        """Regression (1p4ww × self-hosting): a launcher that FORWARDS non-empty
-        project include-prefixes — e.g. setup_index merging the workflow-config
-        code prefix ``.wavefoundry/framework/scripts`` and passing it as
-        ``project_include_prefixes`` — must NOT disable the framework-seed fold.
+        """Regression (1p4ww × self-hosting): a caller that passes an explicit
+        override of non-empty project include-prefixes (for example the code
+        prefix ``.wavefoundry/framework/scripts`` passed as
+        ``project_include_prefixes``) must NOT disable the framework-seed fold.
 
         The override path previously returned early WITHOUT appending
         ``FRAMEWORK_FOLD_DOCS_PREFIXES``, so the moment a project configured ANY
@@ -2348,7 +2348,7 @@ class IncrementalBuildTests(unittest.TestCase):
         index_dir = self.root / ".wavefoundry" / "index"
         folded = {".wavefoundry/framework/README.md", ".wavefoundry/framework/seeds/100-x.prompt.md"}
 
-        # content="all" with a FORWARDED override prefix (the setup_index merge result).
+        # content="all" with an explicit override prefix.
         with patch.object(self.bi, "_get_embedder",
                           side_effect=[_make_embedder_mock(dim=4), _make_embedder_mock(dim=4)]):
             self.bi.build_index(
@@ -2362,7 +2362,7 @@ class IncrementalBuildTests(unittest.TestCase):
         meta = _read_meta_store(index_dir)["file_meta"]
         docs_chunks = {c["path"] for c in _read_index_chunks(index_dir, "docs")}
 
-        # The forwarded code prefix is honored...
+        # The override code prefix is honored...
         self.assertIn(".wavefoundry/framework/scripts/tools.py", meta)
         # ...AND the folded seeds survive into both meta and the docs index.
         for path in folded:
@@ -2538,6 +2538,192 @@ class IncrementalBuildTests(unittest.TestCase):
         # Second incremental on a clean index.
         result2 = self.bi.build_index(self.root, full=False, content="all", verbose=False)
         self.assertEqual(result2.get("stranded_rows_reaped", 0), 0)
+
+
+class _SubprocessProxy:
+    """``setup_index``'s view of ``subprocess`` with only ``Popen`` replaced, so the
+    process-boundary shim never leaks into any other module's subprocess use."""
+
+    def __init__(self, popen):
+        self.Popen = popen
+
+    def __getattr__(self, name):
+        return getattr(subprocess, name)
+
+
+class SetupLaunchedCorpusParityTests(unittest.TestCase):
+    """Change 2038p: a setup-launched build and a bare incremental compute one
+    corpus per layer.
+
+    Setup used to forward the workflow prefixes as an explicit override, which
+    made every file under the configured code prefix docs-eligible, framework
+    tests included. The next bare incremental reaped those rows and the next
+    setup re-embedded them as drift, with no source change. The build runs
+    through the real launcher ``setup_index.main``: only the process boundary
+    (``subprocess.Popen`` in ``setup_index``, shimmed to run ``indexer.main``
+    in process), the model, dependency and GPU hooks, and the model-bundle
+    lookup are substituted. Reap and drift are observed with ``wraps=`` spies.
+    """
+
+    SCRIPTS = ".wavefoundry/framework/scripts"
+    TESTS_PREFIX = ".wavefoundry/framework/scripts/tests/"
+    TEST_FILE = ".wavefoundry/framework/scripts/tests/test_tools.py"
+    TOOLS = ".wavefoundry/framework/scripts/tools.py"
+    FOLDED = (".wavefoundry/framework/README.md", ".wavefoundry/framework/seeds/100-x.prompt.md")
+
+    def setUp(self):
+        from test_setup_index import load_setup_index
+
+        self.bi = load_build_index()
+        self.setup = load_setup_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.index_dir = self.root / ".wavefoundry" / "index"
+        _make_repo(self.root, {
+            "docs/guide.md": "## Intro\n\nHello.\n",
+            ".wavefoundry/framework/README.md": "## Framework\n\nCanonical.\n",
+            ".wavefoundry/framework/seeds/100-x.prompt.md": "# Seed\n\nBody.\n",
+            self.TOOLS: '"""Framework helpers for the fixture."""\n\n\ndef helper():\n'
+                        '    """Return one, documented."""\n    return 1\n',
+            self.TEST_FILE: '"""Tests for the fixture helpers: a docstring that must never be docs."""\n\n\n'
+                            'def test_helper():\n    """Helper returns one."""\n    assert True\n',
+        })
+        (self.root / "docs" / "workflow-config.json").write_text(json.dumps({
+            "lifecycle_id_policy": {"epoch_utc": "2020-02-02T02:02:00Z", "hour_offset": 0},
+            "indexing": {"project_include_prefixes": {"docs": [], "code": [self.SCRIPTS]}},
+        }), encoding="utf-8")
+        self.embedded: list[list[str]] = []
+        self.reaps: list[tuple[dict, dict]] = []
+        self.drifts: list[tuple[set, set]] = []
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    @contextmanager
+    def _observed(self):
+        """Embedder counter plus ``wraps=`` spies that record each call's eligibility and result."""
+        real_reap = self.bi._reap_stranded_vector_rows
+        real_drift = self.bi._detect_vector_drift
+
+        def reap(*args, **kwargs):
+            result = real_reap(*args, **kwargs)
+            self.reaps.append((kwargs.get("eligible_by_table") or {}, result))
+            return result
+
+        def drift(*args, **kwargs):
+            result = real_drift(*args, **kwargs)
+            self.drifts.append((set(kwargs.get("chunk_eligible_rel_paths") or ()), set(result)))
+            return result
+
+        with patch.object(self.bi, "_get_embedder", return_value=_make_embedder_mock(calls=self.embedded)), \
+             patch.object(self.bi, "_reap_stranded_vector_rows", wraps=reap), \
+             patch.object(self.bi, "_detect_vector_drift", wraps=drift):
+            yield
+
+    def _setup_build(self) -> None:
+        bi = self.bi
+        real_popen = subprocess.Popen
+
+        def popen(cmd, *args, **kwargs):
+            if len(cmd) > 1 and Path(str(cmd[1])).name == "indexer.py":
+                code = bi.main([str(part) for part in cmd[2:]])
+                return types.SimpleNamespace(returncode=code, stdout=iter(()), pid=0,
+                                             wait=lambda timeout=None: code)
+            return real_popen(cmd, *args, **kwargs)
+
+        model_bundle = types.SimpleNamespace(
+            find_local_bundle=lambda _dirs: None,
+            local_model_set_status=lambda: "current",
+            attest_online_cache=lambda: False,
+        )
+        with patch.dict(sys.modules, {"model_bundle": model_bundle}), \
+             patch.object(self.setup, "subprocess", _SubprocessProxy(popen)), \
+             patch.object(self.setup, "ensure_deps"), \
+             patch.object(self.setup, "_reexec_with_venv_if_needed"), \
+             patch.object(self.setup, "_indexer_models", return_value=[]), \
+             patch.object(self.setup, "prewarm_models"), \
+             patch.object(self.setup, "report_embedding_provider_decision"), \
+             patch.object(self.setup, "_prewarm_gpu_accel", return_value=[]), \
+             self._observed(), \
+             redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as err:
+            code = self.setup.main(["--root", str(self.root)])
+        self.assertEqual(code, 0, err.getvalue())
+
+    def _bare_incremental(self) -> None:
+        with self._observed(), redirect_stdout(io.StringIO()):
+            result = self.bi.build_index(self.root, content="all", verbose=False)
+        self.assertFalse(result.get("failed"), result)
+
+    def _paths(self, table: str) -> set[str]:
+        return {c["path"] for c in _read_index_chunks(self.index_dir, table)}
+
+    def _assert_no_test_path_eligible_or_indexed(self, label: str) -> None:
+        for table in ("docs", "code"):
+            leaked = sorted(p for p in self._paths(table) if p.startswith(self.TESTS_PREFIX))
+            self.assertEqual(leaked, [], f"{label}: framework test rows in chunks_{table}")
+        for eligible_by_table, _result in self.reaps:
+            for table, eligible in eligible_by_table.items():
+                leaked = sorted(p for p in eligible if p.startswith(self.TESTS_PREFIX))
+                self.assertEqual(leaked, [], f"{label}: framework test path {table}-eligible")
+        for eligible, _result in self.drifts:
+            leaked = sorted(p for p in eligible if p.startswith(self.TESTS_PREFIX))
+            self.assertEqual(leaked, [], f"{label}: framework test path drift-eligible")
+
+    @staticmethod
+    def _reaped_paths(result: dict) -> set[str]:
+        return {p for paths in (result.get("paths_by_table") or {}).values() for p in paths}
+
+    def _assert_settled_setup(self, label: str) -> None:
+        """A setup build over an unchanged tree: no drift and no embedding."""
+        self.reaps.clear()
+        self.drifts.clear()
+        self.embedded.clear()
+        self._setup_build()
+        self.assertTrue(self.drifts, f"{label}: drift detection never ran")
+        self.assertEqual([found for _eligible, found in self.drifts if found], [],
+                         f"{label}: drifted paths reported")
+        self.assertEqual(self.embedded, [], f"{label}: the embedder ran on an unchanged tree")
+        self._assert_no_test_path_eligible_or_indexed(label)
+
+    def test_setup_and_incremental_builds_agree_on_the_corpus(self):
+        # Build 1: setup through its real launcher.
+        self._setup_build()
+        self._assert_no_test_path_eligible_or_indexed("setup build")
+        docs, code = self._paths("docs"), self._paths("code")
+        for path in self.FOLDED:
+            self.assertIn(path, docs, f"folded framework doc missing from chunks_docs: {path}")
+        self.assertIn(self.TOOLS, code)
+        self.assertIn(self.TOOLS, docs, "the non-test script's docstring rows left the docs table")
+
+        # Build 2: a bare incremental (the hook, monitor and index_build shape) reaps nothing.
+        self.reaps.clear()
+        self.drifts.clear()
+        self._bare_incremental()
+        self.assertTrue(self.reaps, "the incremental reap never ran")
+        self.assertEqual([self._reaped_paths(r) for _e, r in self.reaps if self._reaped_paths(r)], [],
+                         "the bare incremental reaped rows the setup build wrote")
+        self._assert_no_test_path_eligible_or_indexed("bare incremental")
+
+        # Build 3: the next setup reports no drift and embeds nothing.
+        self._assert_settled_setup("second setup build")
+
+    def test_leaked_rows_from_an_override_build_are_reaped_by_the_next_setup(self):
+        """AC-12: state leaked by the old forward cleans up with no rebuild."""
+        with self._observed(), redirect_stdout(io.StringIO()):
+            result = self.bi.build_index(self.root, full=True, content="all",
+                                         project_include_prefixes=(self.SCRIPTS,), verbose=False)
+        self.assertFalse(result.get("failed"), result)
+        self.assertIn(self.TEST_FILE, self._paths("docs"), "precondition: the override leaked the test file")
+
+        self.reaps.clear()
+        self.drifts.clear()
+        self._setup_build()
+        self.assertIn(self.TEST_FILE, set().union(*(self._reaped_paths(r) for _e, r in self.reaps)),
+                      "the setup build did not reap the leaked rows")
+        self._assert_no_test_path_eligible_or_indexed("cleanup setup build")
+        self.assertIn(self.TOOLS, self._paths("docs"))
+
+        self._assert_settled_setup("setup build after cleanup")
 
 
 class StatCacheTests(unittest.TestCase):
@@ -2929,7 +3115,6 @@ class ExplicitPrecisionRebuildTests(unittest.TestCase):
                  patch.object(self.bi, "_get_embedder") as embed, \
                  patch.object(setup, "ensure_deps"), \
                  patch.object(setup, "_reexec_with_venv_if_needed"), \
-                 patch.object(setup, "_workflow_project_include_prefixes", return_value={}), \
                  patch.object(setup, "_indexer_models", return_value=[]), \
                  patch.object(setup, "prewarm_models"), \
                  patch.object(setup, "report_embedding_provider_decision"), \

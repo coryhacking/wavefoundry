@@ -42,6 +42,7 @@ import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import provider_policy
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
+import workflow_include_prefixes  # stdlib-only workflow prefix reader (change 2038p)
 
 # Wave 1p8gv: setup is a direct CLI entry (`wf update-indexes`, setup_wavefoundry step 1) that prints
 # non-ASCII; reconfigure stdout/stderr to UTF-8 so it never raises on a cp1252 Windows console.
@@ -88,13 +89,6 @@ def _utc_log_timestamp() -> str:
 def _enable_timestamped_stdio() -> None:
     sys.stdout = _TimestampedStream(sys.stdout)
     sys.stderr = _TimestampedStream(sys.stderr)
-
-INDEXING_WORKFLOW_KEY = "indexing"
-INCLUDE_FRAMEWORK_CODE_KEY = "include_framework_code_for_code_search"  # compatibility shim
-PROJECT_INCLUDE_PREFIXES_KEY = "project_include_prefixes"
-DOCS_PREFIXES_KEY = "docs"
-CODE_PREFIXES_KEY = "code"
-
 
 class ModelPrewarmError(RuntimeError):
     """Raised when a required model cache could not be prepared for setup."""
@@ -2257,7 +2251,6 @@ def _run_indexer(
     verbose: bool,
     include_tests: bool,
     include_generated: bool,
-    project_include_prefixes: tuple[str, ...],
     rechunk: bool = False,
 ) -> None:
     # Wave 1p8pe: prefer the console-free tool-venv pythonw.exe on Windows for this foreground indexer
@@ -2273,8 +2266,9 @@ def _run_indexer(
         cmd.append("--include-tests")
     if include_generated:
         cmd.append("--include-generated")
-    for prefix in project_include_prefixes:
-        cmd.extend(["--project-include-prefix", prefix])
+    # Change 2038p: no --project-include-prefix. The indexer reads docs/workflow-config.json
+    # itself, exactly as every other launcher, so setup and incremental builds agree on the corpus
+    # (a forwarded override made framework tests docs-eligible here and nowhere else).
     if verbose:
         cmd.append("--verbose")
     # indexer.py always timestamps its own output.  Stream line-by-line and write to the raw
@@ -2391,20 +2385,6 @@ def _run_indexer(
     raise subprocess.CalledProcessError(proc.returncode, cmd, output=combined_output)
 
 
-def _merge_project_include_prefixes(
-    docs_prefixes: tuple[str, ...],
-    code_prefixes: tuple[str, ...],
-) -> tuple[str, ...]:
-    """Stable union of docs and code workflow prefixes for a single ``indexer.py --content all`` pass."""
-    merged: list[str] = []
-    for group in (docs_prefixes, code_prefixes):
-        for raw in group:
-            token = raw.strip().replace("\\", "/").strip("/")
-            if token and token not in merged:
-                merged.append(token)
-    return tuple(merged)
-
-
 def build_index(
     root: Path,
     full: bool,
@@ -2412,26 +2392,18 @@ def build_index(
     verbose: bool,
     include_tests: bool = False,
     include_generated: bool = False,
-    project_include_prefixes_for_docs: tuple[str, ...] = (),
-    project_include_prefixes_for_code: tuple[str, ...] = (),
     rechunk: bool = False,
     code_only: bool = False,
 ) -> None:
     if code_only:
         print("Building code semantic index...", flush=True)
         content = "code"
-        prefixes = project_include_prefixes_for_code
     elif include_code:
         print("Building docs and code semantic index (single indexer pass)...", flush=True)
         content = "all"
-        prefixes = _merge_project_include_prefixes(
-            project_include_prefixes_for_docs,
-            project_include_prefixes_for_code,
-        )
     else:
         print("Building docs/seed semantic index...", flush=True)
         content = "docs"
-        prefixes = project_include_prefixes_for_docs
     _run_indexer(
         root,
         full=full,
@@ -2439,7 +2411,6 @@ def build_index(
         verbose=verbose,
         include_tests=include_tests,
         include_generated=include_generated,
-        project_include_prefixes=prefixes,
         rechunk=rechunk,
     )
     # Wave 1p601: the codebase map is decoupled from the index build (it lives in
@@ -2448,50 +2419,6 @@ def build_index(
     # prepare-and-open/close, upgrade, forced index_build content="map", the direct
     # change-only CLI, and the resource's missing-file fallback. Ready-only/dry-run
     # lifecycle modes and reads of an existing map do not regenerate it.
-
-
-def _coerce_prefix_list(raw: object) -> tuple[str, ...]:
-    if not isinstance(raw, list):
-        return ()
-    out: list[str] = []
-    for item in raw:
-        if not isinstance(item, str):
-            continue
-        token = item.strip().replace("\\", "/").strip("/")
-        if token and token not in out:
-            out.append(token)
-    return tuple(out)
-
-
-def _workflow_project_include_prefixes(root: Path) -> dict[str, tuple[str, ...]]:
-    cfg = root / "docs" / "workflow-config.json"
-    if not cfg.exists():
-        return {DOCS_PREFIXES_KEY: (), CODE_PREFIXES_KEY: ()}
-    try:
-        data = json.loads(cfg.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {DOCS_PREFIXES_KEY: (), CODE_PREFIXES_KEY: ()}
-    if not isinstance(data, dict):
-        return {DOCS_PREFIXES_KEY: (), CODE_PREFIXES_KEY: ()}
-    indexing = data.get(INDEXING_WORKFLOW_KEY, {})
-    if not isinstance(indexing, dict):
-        return {DOCS_PREFIXES_KEY: (), CODE_PREFIXES_KEY: ()}
-
-    configured = indexing.get(PROJECT_INCLUDE_PREFIXES_KEY, {})
-    docs_prefixes: tuple[str, ...] = ()
-    code_prefixes: tuple[str, ...] = ()
-    if isinstance(configured, list):
-        prefixes = _coerce_prefix_list(configured)
-        docs_prefixes = prefixes
-        code_prefixes = prefixes
-    elif isinstance(configured, dict):
-        docs_prefixes = _coerce_prefix_list(configured.get(DOCS_PREFIXES_KEY))
-        code_prefixes = _coerce_prefix_list(configured.get(CODE_PREFIXES_KEY))
-
-    # Backwards compatibility: old boolean opt-in maps to framework scripts code prefix.
-    if not code_prefixes and bool(indexing.get(INCLUDE_FRAMEWORK_CODE_KEY, False)):
-        code_prefixes = (".wavefoundry/framework/scripts",)
-    return {DOCS_PREFIXES_KEY: docs_prefixes, CODE_PREFIXES_KEY: code_prefixes}
 
 
 # ---------------------------------------------------------------------------
@@ -2553,7 +2480,7 @@ _ACTIVE_HF_HUB_SOCKET_TIMEOUTS: "dict[str, float] | None" = None
 
 def _setup_deadlines(root: Path | None) -> dict[str, float]:
     """Resolve Phase-1 setup child deadlines (seconds) from ``docs/workflow-config.json`` ``setup.<key>``
-    (wave 1p9it). Analogous to ``_workflow_project_include_prefixes``. Fail-safe: a missing file,
+    (wave 1p9it). Analogous to ``workflow_include_prefixes.read_project_include_prefixes``. Fail-safe: a missing file,
     malformed JSON, missing block/key, or a non-positive/non-numeric value falls back to the shipped
     default for that key and never raises. A lock-held deadline above its cap
     (``_LOCK_HELD_DEADLINE_CAPS``) resolves to the cap. ``root=None`` (e.g. a direct unit-test call)
@@ -2697,9 +2624,10 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print("Done. Both semantic models are ready; indexes were not published.", flush=True)
         return 0
-    include_prefixes = _workflow_project_include_prefixes(root)
-    docs_prefixes = include_prefixes.get(DOCS_PREFIXES_KEY, ())
-    code_prefixes = include_prefixes.get(CODE_PREFIXES_KEY, ())
+    # Informational only (change 2038p): the indexer resolves these prefixes itself on every launch.
+    include_prefixes = workflow_include_prefixes.read_project_include_prefixes(root)
+    docs_prefixes = include_prefixes[workflow_include_prefixes.DOCS_KEY]
+    code_prefixes = include_prefixes[workflow_include_prefixes.CODE_KEY]
     if docs_prefixes or code_prefixes:
         print(
             "Workflow policy: project include-prefixes enabled "
@@ -2707,7 +2635,6 @@ def main(argv: list[str] | None = None) -> int:
             flush=True,
         )
     if args.graph_only:
-        graph_prefixes = tuple(dict.fromkeys((*docs_prefixes, *code_prefixes)))
         try:
             _run_indexer(
                 root,
@@ -2716,7 +2643,6 @@ def main(argv: list[str] | None = None) -> int:
                 verbose=args.verbose,
                 include_tests=False,
                 include_generated=False,
-                project_include_prefixes=graph_prefixes,
             )
         except TimeoutError as exc:
             # Stall watchdog abort: exit clean with the stage-named message, matching the
@@ -2792,8 +2718,6 @@ def main(argv: list[str] | None = None) -> int:
             verbose=args.verbose,
             include_tests=args.include_tests,
             include_generated=args.include_generated,
-            project_include_prefixes_for_docs=docs_prefixes,
-            project_include_prefixes_for_code=code_prefixes,
             code_only=_code_only,
         )
     except TimeoutError as exc:

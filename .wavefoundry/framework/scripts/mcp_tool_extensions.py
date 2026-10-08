@@ -229,7 +229,7 @@ FRAMEWORK_SCRIPT_MODULE_NAMES = frozenset({
     'techdocs_baseline', 'tree_sitter_cache', 'upgrade_bridge_bootstrap', 'upgrade_bundle',
     'upgrade_extensions', 'upgrade_lib', 'upgrade_protocol', 'upgrade_wavefoundry',
     'vendored_integrity', 'venv_bootstrap', 'verify_vendored_scripts', 'vocabulary_profile',
-    'wave_gate', 'wf_cli',
+    'wave_gate', 'wf_cli', 'workflow_include_prefixes',
 })
 
 

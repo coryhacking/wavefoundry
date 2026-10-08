@@ -161,7 +161,6 @@ class VersionAwareDependencyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(self.mod, "ensure_deps") as mock_ensure, \
                  patch.object(self.mod, "_reexec_with_venv_if_needed"), \
-                 patch.object(self.mod, "_workflow_project_include_prefixes", return_value={}), \
                  patch.object(self.mod, "_run_indexer"):
                 with redirect_stdout(io.StringIO()):
                     rc = self.mod.main(["--root", tmp, "--graph-only"])
@@ -179,7 +178,6 @@ class VersionAwareDependencyTests(unittest.TestCase):
             with patch.dict(sys.modules, {"model_bundle": model_bundle}), \
                  patch.object(self.mod, "ensure_deps"), \
                  patch.object(self.mod, "_reexec_with_venv_if_needed"), \
-                 patch.object(self.mod, "_workflow_project_include_prefixes", return_value={}), \
                  patch.object(self.mod, "_run_indexer"):
                 output = io.StringIO()
                 with redirect_stdout(output):
@@ -201,7 +199,6 @@ class VersionAwareDependencyTests(unittest.TestCase):
             with patch.dict(sys.modules, {"model_bundle": model_bundle}), \
                  patch.object(self.mod, "ensure_deps"), \
                  patch.object(self.mod, "_reexec_with_venv_if_needed"), \
-                 patch.object(self.mod, "_workflow_project_include_prefixes", return_value={}), \
                  patch.object(self.mod, "_run_indexer"):
                 self.assertEqual(self.mod.main(["--root", tmp, "--graph-only"]), 0)
         model_bundle.materialize_bundle.assert_called_once_with(
@@ -475,8 +472,6 @@ class SetupIndexTests(unittest.TestCase):
                         verbose=True,
                         include_tests=True,
                         include_generated=True,
-                        project_include_prefixes_for_docs=(),
-                        project_include_prefixes_for_code=(),
                     )
 
         calls = [c.args[0] for c in popen_mock.call_args_list]
@@ -493,28 +488,61 @@ class SetupIndexTests(unittest.TestCase):
         self.assertIn("--verbose", cmd)
         self.assertNotIn("--project-include-prefix", cmd)
 
-    def test_build_index_can_forward_project_include_prefixes_for_code_pass(self):
-        root = Path("/tmp/wavefoundry-test-root")
-        with patch.object(self.mod, "_tool_venv_python", return_value=FAKE_VENV_PYTHON):
-            with patch("subprocess.Popen", return_value=self._make_popen_mock()) as popen_mock:
-                with redirect_stdout(io.StringIO()):
-                    self.mod.build_index(
-                        root,
-                        full=False,
-                        include_code=True,
-                        verbose=False,
-                        project_include_prefixes_for_docs=("docs/external",),
-                        project_include_prefixes_for_code=(".wavefoundry/framework/scripts", "vendor/docs"),
-                    )
-        calls = [c.args[0] for c in popen_mock.call_args_list]
-        self.assertEqual(len(calls), 1)
-        cmd = calls[0]
-        self.assertIn("--content", cmd)
-        self.assertIn("all", cmd)
-        self.assertIn("--project-include-prefix", cmd)
-        self.assertIn("docs/external", cmd)
-        self.assertIn(".wavefoundry/framework/scripts", cmd)
-        self.assertIn("vendor/docs", cmd)
+    def test_main_never_forwards_project_include_prefixes_in_any_mode(self):
+        """Change 2038p AC-1: setup launches the indexer bare on every path, so the
+        indexer resolves include prefixes from workflow config exactly as the
+        incremental launchers do. A forwarded override made framework tests
+        docs-eligible under setup only. The detached background child argv is
+        checked too (it re-enters setup with --code-only or --docs-only)."""
+        model_bundle = types.SimpleNamespace(
+            find_local_bundle=lambda _dirs: None,
+            local_model_set_status=lambda: "current",
+            attest_online_cache=lambda: False,
+        )
+        modes = {
+            "default": [],
+            "docs-only": ["--docs-only"],
+            "code-only": ["--code-only"],
+            "graph-only": ["--graph-only"],
+            "background-code": ["--background-code"],
+            "background-docs": ["--background-docs"],
+        }
+        for label, flags in modes.items():
+            with self.subTest(label), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "docs").mkdir()
+                (root / "docs" / "workflow-config.json").write_text(json.dumps({"indexing": {
+                    "project_include_prefixes": {
+                        "docs": ["docs/external"],
+                        "code": [".wavefoundry/framework/scripts", "vendor/docs"],
+                    }}}), encoding="utf-8")
+                background = MagicMock(pid=4242)
+                out = io.StringIO()
+                with patch.dict(sys.modules, {"model_bundle": model_bundle}), \
+                     patch.object(self.mod, "ensure_deps"), \
+                     patch.object(self.mod, "_reexec_with_venv_if_needed"), \
+                     patch.object(self.mod, "_tool_venv_python", return_value=FAKE_VENV_PYTHON), \
+                     patch.object(self.mod, "_indexer_models", return_value=[]), \
+                     patch.object(self.mod, "prewarm_models"), \
+                     patch.object(self.mod, "report_embedding_provider_decision"), \
+                     patch.object(self.mod, "_prewarm_gpu_accel", return_value=[]), \
+                     patch.object(self.mod, "_optimize_after_build"), \
+                     patch.object(self.mod.subprocess_util, "isolated_popen",
+                                  return_value=background) as spawn, \
+                     patch("subprocess.Popen", return_value=self._make_popen_mock()) as popen_mock, \
+                     redirect_stdout(out), redirect_stderr(io.StringIO()):
+                    rc = self.mod.main(["--root", tmp, *flags])
+                self.assertEqual(rc, 0)
+                indexer_argvs = [c.args[0] for c in popen_mock.call_args_list]
+                child_argvs = [c.args[0] for c in spawn.call_args_list]
+                self.assertEqual(len(indexer_argvs), 1, indexer_argvs)
+                self.assertEqual(len(child_argvs), 1 if label.startswith("background") else 0)
+                for cmd in indexer_argvs + child_argvs:
+                    self.assertNotIn("--project-include-prefix", cmd)
+                    self.assertNotIn(".wavefoundry/framework/scripts", cmd)
+                    self.assertNotIn("docs/external", cmd)
+                # The informational policy line stays, read through the shared reader.
+                self.assertIn("Workflow policy: project include-prefixes enabled", out.getvalue())
 
     def test_run_indexer_lock_busy_prints_friendly_message(self):
         root = Path("/tmp/wavefoundry-test-root")
@@ -536,7 +564,6 @@ class SetupIndexTests(unittest.TestCase):
                         verbose=False,
                         include_tests=False,
                         include_generated=False,
-                        project_include_prefixes=(),
                     )
 
         popen_mock.assert_called_once()
@@ -865,7 +892,6 @@ class SetupIndexTests(unittest.TestCase):
             with patch.dict(sys.modules, {"model_bundle": model_bundle}), \
                  patch.object(self.mod, "ensure_deps"), \
                  patch.object(self.mod, "_reexec_with_venv_if_needed"), \
-                 patch.object(self.mod, "_workflow_project_include_prefixes", return_value={}), \
                  patch.object(self.mod, "_indexer_models", return_value=["model-a"]), \
                  patch.object(self.mod, "prewarm_models", side_effect=lambda **_kwargs: events.append("models")), \
                  patch.object(self.mod, "report_embedding_provider_decision"), \
@@ -1090,52 +1116,6 @@ class SetupIndexTests(unittest.TestCase):
             build.assert_not_called()
             native.assert_not_called()
             self.assertEqual(sentinel.read_bytes(), b'legacy source must remain unopened')
-
-    def test_workflow_project_include_prefixes_defaults_empty(self):
-        root = Path("/tmp/wavefoundry-missing-config")
-        with patch.object(Path, "exists", return_value=False):
-            result = self.mod._workflow_project_include_prefixes(root)
-        self.assertEqual(result["docs"], ())
-        self.assertEqual(result["code"], ())
-
-    def test_workflow_project_include_prefixes_reads_generic_config(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            cfg = root / "docs" / "workflow-config.json"
-            cfg.parent.mkdir(parents=True, exist_ok=True)
-            cfg.write_text(
-                '{"indexing":{"project_include_prefixes":{"docs":["docs/external"],"code":[".wavefoundry/framework/scripts","vendor/docs"]}}}',
-                encoding="utf-8",
-            )
-            result = self.mod._workflow_project_include_prefixes(root)
-        self.assertEqual(result["docs"], ("docs/external",))
-        self.assertEqual(result["code"], (".wavefoundry/framework/scripts", "vendor/docs"))
-
-    def test_workflow_project_include_prefixes_accepts_list_shorthand(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            cfg = root / "docs" / "workflow-config.json"
-            cfg.parent.mkdir(parents=True, exist_ok=True)
-            cfg.write_text(
-                '{"indexing":{"project_include_prefixes":[".wavefoundry/framework/scripts","vendor/docs"]}}',
-                encoding="utf-8",
-            )
-            result = self.mod._workflow_project_include_prefixes(root)
-        self.assertEqual(result["docs"], (".wavefoundry/framework/scripts", "vendor/docs"))
-        self.assertEqual(result["code"], (".wavefoundry/framework/scripts", "vendor/docs"))
-
-    def test_workflow_project_include_prefixes_supports_legacy_boolean(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            cfg = root / "docs" / "workflow-config.json"
-            cfg.parent.mkdir(parents=True, exist_ok=True)
-            cfg.write_text(
-                '{"indexing":{"include_framework_code_for_code_search":true}}',
-                encoding="utf-8",
-            )
-            result = self.mod._workflow_project_include_prefixes(root)
-        self.assertEqual(result["docs"], ())
-        self.assertEqual(result["code"], (".wavefoundry/framework/scripts",))
 
 
 class OptimizeAfterBuildAccountingTests(unittest.TestCase):
@@ -2584,7 +2564,6 @@ class SetupPhase1DeadlineTests(unittest.TestCase):
                                 verbose=False,
                                 include_tests=False,
                                 include_generated=False,
-                                project_include_prefixes=(),
                             )
 
         proc.terminate.assert_called_once()
@@ -2612,7 +2591,6 @@ class SetupPhase1DeadlineTests(unittest.TestCase):
                         verbose=False,
                         include_tests=False,
                         include_generated=False,
-                        project_include_prefixes=(),
                     )
         self.assertEqual(out.getvalue(), "a\nb\nc\n")
         proc.wait.assert_called_once()
@@ -2645,7 +2623,6 @@ class SetupPhase1DeadlineTests(unittest.TestCase):
                             verbose=False,
                             include_tests=False,
                             include_generated=False,
-                            project_include_prefixes=(),
                         )
         self.assertIn("did not exit", str(raised.exception))
         proc.terminate.assert_called_once()
@@ -2659,7 +2636,6 @@ class SetupPhase1DeadlineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(self.mod, "ensure_deps"), \
                  patch.object(self.mod, "_reexec_with_venv_if_needed"), \
-                 patch.object(self.mod, "_workflow_project_include_prefixes", return_value={}), \
                  patch.object(self.mod, "_run_indexer", side_effect=stall):
                 err = io.StringIO()
                 with redirect_stdout(io.StringIO()), redirect_stderr(err):
@@ -2880,8 +2856,7 @@ class HfHubSocketTimeoutScopeTests(unittest.TestCase):
                 )
                 with patch.object(self.mod, "ensure_deps"), \
                      patch.object(self.mod, "_reexec_with_venv_if_needed"), \
-                     patch.object(self.mod, "_workflow_project_include_prefixes", return_value={}), \
-                     patch.object(self.mod, "_run_indexer"):
+                         patch.object(self.mod, "_run_indexer"):
                     with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                         rc = self.mod.main(["--root", tmp, "--graph-only"])
             self.assertEqual(rc, 0)

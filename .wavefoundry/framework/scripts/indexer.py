@@ -39,6 +39,7 @@ import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
 import model_bundle
 import index_source_guard
+import workflow_include_prefixes  # the single workflow-config prefix reader (change 2038p)
 
 # Activate the shared tool venv IN-PROCESS before any heavy import (wave 1p7pl/1p802). No-op when
 # already in the venv or when it does not exist yet (fresh bootstrap).
@@ -1513,43 +1514,17 @@ def _filter_framework_pack_artifacts(files: list[Path], root: Path) -> list[Path
 
 
 def _normalize_prefixes(prefixes: tuple[str, ...]) -> tuple[str, ...]:
-    normalized: list[str] = []
-    for raw in prefixes:
-        token = raw.strip().replace("\\", "/").strip("/")
-        if token and token not in normalized:
-            normalized.append(token)
-    return tuple(normalized)
+    return workflow_include_prefixes.normalize_prefixes(prefixes)
 
 
 def _workflow_project_include_prefixes(root: Path) -> dict[str, tuple[str, ...]]:
-    """Read docs/code project include-prefix lists from workflow-config.json."""
-    cfg = root / "docs" / "workflow-config.json"
-    if not cfg.exists():
-        return {"docs": (), "code": ()}
-    try:
-        data = json.loads(cfg.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"docs": (), "code": ()}
-    if not isinstance(data, dict):
-        return {"docs": (), "code": ()}
-    indexing = data.get("indexing", {})
-    if not isinstance(indexing, dict):
-        return {"docs": (), "code": ()}
-    configured = indexing.get("project_include_prefixes", {})
-    docs_prefixes: tuple[str, ...] = ()
-    code_prefixes: tuple[str, ...] = ()
-    if isinstance(configured, list):
-        merged = _normalize_prefixes(tuple(configured))
-        docs_prefixes = merged
-        code_prefixes = merged
-    elif isinstance(configured, dict):
-        docs_prefixes = _normalize_prefixes(tuple(configured.get("docs") or ()))
-        code_prefixes = _normalize_prefixes(tuple(configured.get("code") or ()))
-    # Legacy boolean: index framework scripts under the code layer when the
-    # explicit code prefix list is empty.
-    if not code_prefixes and bool(indexing.get("include_framework_code_for_code_search", False)):
-        code_prefixes = (".wavefoundry/framework/scripts",)
-    return {"docs": docs_prefixes, "code": code_prefixes}
+    """Read docs/code project include-prefix lists from workflow-config.json.
+
+    Delegates to ``workflow_include_prefixes``, the single fail-safe reader
+    (change 2038p). Kept as a module-level name: the indexer's own resolvers and
+    the MCP server call it here, and tests patch it here.
+    """
+    return workflow_include_prefixes.read_project_include_prefixes(root)
 
 
 def _effective_project_include_prefixes(
@@ -1561,18 +1536,19 @@ def _effective_project_include_prefixes(
     """Resolve project-layer semantic include-prefixes for this run.
 
     Explicit ``override`` (a CLI ``--project-include-prefix`` or a direct call
-    argument) selects the configured surface. Otherwise, for the project layer,
-    the indexer reads ``docs/workflow-config.json`` itself and selects the prefix
-    list matching this run's content — so launchers (hooks, dashboard, background
-    refresh) no longer have to read the config and forward prefixes on every
-    invocation.
+    argument, for manual and test use) selects the configured surface for every
+    layer the run builds. Otherwise, for the project layer, the indexer reads
+    ``docs/workflow-config.json`` itself and selects the prefix list matching
+    this run's content. No launcher forwards prefixes (change 2038p: setup,
+    hooks, the MCP server and background refreshes all launch the indexer bare),
+    so every launcher computes the same per-layer corpus.
 
     The 1p4ww framework-seed fold is a project-DOCS invariant: it must survive
-    even when an ``override`` is present. setup_index forwards the merged
-    docs+code workflow prefixes as ``override`` (non-empty whenever a project
-    configures self-hosting code prefixes like ``.wavefoundry/framework/scripts``),
-    so an unconditional ``override`` short-circuit silently drops the folded seeds
-    from the docs index. We therefore append ``FRAMEWORK_FOLD_DOCS_PREFIXES`` for
+    even when an ``override`` is present. A caller that passes an explicit
+    override (non-empty whenever it names a self-hosting code prefix like
+    ``.wavefoundry/framework/scripts``) would otherwise hit an unconditional
+    ``override`` short-circuit that silently drops the folded seeds from the
+    docs index. We therefore append ``FRAMEWORK_FOLD_DOCS_PREFIXES`` for
     docs/all content on the project layer regardless of override.
     """
     is_project = _graph_layer_for_index_dir(index_dir) == "project"
@@ -6213,7 +6189,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=[],
         help=(
             "Allow this repo-relative prefix to bypass default project index excludes "
-            "(repeatable; applies to content=code)."
+            "(repeatable). Overrides the docs/workflow-config.json prefixes for every layer "
+            "this run builds: docs eligibility, file_meta and graph scope as well as code. "
+            "For manual and test use; no launcher passes it."
         ),
     )
     parser.add_argument("--watch", action="store_true", help="Watch for file changes and rebuild incrementally (requires watchdog)")
