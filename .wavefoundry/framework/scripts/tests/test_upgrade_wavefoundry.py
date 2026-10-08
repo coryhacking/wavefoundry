@@ -1,6 +1,7 @@
 """Tests for upgrade_wavefoundry.py — _compute_seed_diffs (12r1b) and extension hooks (12r1y)."""
 from __future__ import annotations
 
+import ast
 import contextlib
 import datetime
 import errno
@@ -55,6 +56,8 @@ def _stage_review_protocol_seeds(root: Path) -> Path:
 
 
 def _assert_review_protocol_contract(test: unittest.TestCase, root: Path) -> None:
+    import vocabulary_profile
+
     target_seeds = root / ".wavefoundry" / "framework" / "seeds"
     canonical_text = target_seeds.joinpath(
         "209-agent-harness-core.prompt.md"
@@ -101,11 +104,14 @@ def _assert_review_protocol_contract(test: unittest.TestCase, root: Path) -> Non
         "must not reverify its own",
         (root / "docs" / "agents" / "qa-reviewer.md").read_text(encoding="utf-8"),
     )
-    for name in ("review-wave.prompt.md", "close-wave.prompt.md"):
+    for rel in (
+        vocabulary_profile.prompt_doc("review-wave"),
+        vocabulary_profile.prompt_doc("close-wave"),
+    ):
         test.assertIn(
             "memory_validate",
-            (root / "docs" / "prompts" / name).read_text(encoding="utf-8"),
-            f"{name} must carry the agent-validation memory checkpoint",
+            (root / rel).read_text(encoding="utf-8"),
+            f"{rel} must carry the agent-validation memory checkpoint",
         )
 
 
@@ -2684,6 +2690,7 @@ class ChangePromptRenameInstallingUpgradeTests(unittest.TestCase):
 
     def test_installing_upgrade_moves_prompts_rewrites_manifest_and_replaces_skills(self):
         import venv_bootstrap
+        import vocabulary_profile
 
         with patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
                 patch.object(self.mod, "SCRIPTS_DIR", self.scripts), \
@@ -2695,22 +2702,31 @@ class ChangePromptRenameInstallingUpgradeTests(unittest.TestCase):
         prompts = self.root / "docs" / "prompts"
         self.assertFalse((prompts / "plan-feature.prompt.md").exists())
         self.assertFalse((prompts / "implement-feature.prompt.md").exists())
-        self.assertEqual((prompts / "plan-change.prompt.md").read_bytes(), self.plan_bytes)
-        self.assertEqual((prompts / "implement-change.prompt.md").read_bytes(), self.impl_bytes)
+        self.assertEqual((self.root / vocabulary_profile.prompt_doc("plan-change")).read_bytes(), self.plan_bytes)
+        self.assertEqual((self.root / vocabulary_profile.prompt_doc("implement-change")).read_bytes(), self.impl_bytes)
         manifest = json.loads((prompts / "prompt-surface-manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(
             manifest["public_prompt_surface"],
             [
-                {"doc": "docs/prompts/plan-change.prompt.md", "shortcut": "Plan change"},
-                {"doc": "docs/prompts/implement-change.prompt.md", "shortcut": "Implement change"},
-                {"doc": "docs/prompts/close-change.prompt.md", "shortcut": "Close change"},
+                {
+                    "doc": vocabulary_profile.prompt_doc("plan-change"),
+                    "shortcut": vocabulary_profile.shortcut("plan-change"),
+                },
+                {
+                    "doc": vocabulary_profile.prompt_doc("implement-change"),
+                    "shortcut": vocabulary_profile.shortcut("implement-change"),
+                },
+                {
+                    "doc": vocabulary_profile.prompt_doc("close-change"),
+                    "shortcut": vocabulary_profile.shortcut("close-change"),
+                },
             ],
         )
         self.assertFalse(self.old_skill.parent.exists())
         skills = self.root / ".codex" / "skills"
-        self.assertTrue((skills / "wf-plan-change" / "SKILL.md").is_file())
-        self.assertTrue((skills / "wf-close-change" / "SKILL.md").is_file())
-        self.assertTrue((prompts / "close-change.prompt.md").is_file())
+        self.assertTrue((skills / vocabulary_profile.skill_name("plan-change") / "SKILL.md").is_file())
+        self.assertTrue((skills / vocabulary_profile.skill_name("close-change") / "SKILL.md").is_file())
+        self.assertTrue((self.root / vocabulary_profile.prompt_doc("close-change")).is_file())
 
 
 class ReviewPlanInstallingUpgradeTests(unittest.TestCase):
@@ -4154,10 +4170,15 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
         import render_agent_surfaces as ras
         import review_policy
         import venv_bootstrap
+        import vocabulary_profile
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir).resolve()
             _stage_review_protocol_seeds(root)
+            # Profile prompt migration requires a readable manifest, even when empty.
+            manifest = root / "docs" / "prompts" / "prompt-surface-manifest.json"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text("{}\n", encoding="utf-8")
             codex_config = root / ".codex" / "config.toml"
             codex_config.parent.mkdir(parents=True)
             operator_tail = (
@@ -4195,8 +4216,8 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
             self.assertIn("wf_review_wave(phase='implementation')", text)
             for rel in (
                 "docs/agents/qa-reviewer.md",
-                "docs/prompts/review-wave.prompt.md",
-                "docs/prompts/create-wave.prompt.md",
+                vocabulary_profile.prompt_doc("review-wave"),
+                vocabulary_profile.prompt_doc("create-wave"),
                 "docs/contributing/review-and-evals.md",
             ):
                 created = root / rel
@@ -4303,6 +4324,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
         import memory_records
         import review_policy
         import venv_bootstrap
+        import vocabulary_profile
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir).resolve()
@@ -4336,6 +4358,8 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
             prompt_root = root / "docs" / "prompts"
             upgrade_prompt = prompt_root / "upgrade-wavefoundry.prompt.md"
             upgrade_prompt.parent.mkdir(parents=True, exist_ok=True)
+            # Missing carriers are materialized only with known prompt-migration state.
+            (prompt_root / "prompt-surface-manifest.json").write_text("{}\n", encoding="utf-8")
             upgrade_prefix = "# Project Upgrade\n\nproject prefix\n\n"
             upgrade_suffix = "\n\n## Project extension\n\nkeep exactly\n"
             old_policy_block = review_policy.UPGRADE_POLICY_BLOCK.replace(
@@ -4350,8 +4374,8 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
                 self.assertEqual(_root, root)
                 for rel in (
                     "docs/agents/qa-reviewer.md",
-                    "docs/prompts/create-wave.prompt.md",
-                    "docs/prompts/review-wave.prompt.md",
+                    vocabulary_profile.prompt_doc("create-wave"),
+                    vocabulary_profile.prompt_doc("review-wave"),
                     "docs/contributing/review-and-evals.md",
                 ):
                     self.assertTrue((root / rel).is_file(), f"{rel} must exist before index update")
@@ -4382,8 +4406,8 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
             for rel in (
                 "docs/agents/code-reviewer.md",
                 "docs/agents/qa-reviewer.md",
-                "docs/prompts/review-wave.prompt.md",
-                "docs/prompts/create-wave.prompt.md",
+                vocabulary_profile.prompt_doc("review-wave"),
+                vocabulary_profile.prompt_doc("create-wave"),
                 "docs/contributing/review-and-evals.md",
             ):
                 path = root / rel
@@ -4394,7 +4418,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
                 self.assertNotIn("wavefoundry:context-efficiency", path_text)
             _assert_review_protocol_contract(self, root)
             create_text = (
-                root / "docs" / "prompts" / "create-wave.prompt.md"
+                root / vocabulary_profile.prompt_doc("create-wave")
             ).read_text(encoding="utf-8")
             # declaration-check: asserts the declaration contract; creates no lifecycle state
             self.assertIn("review-evidence-source: events.jsonl", create_text)
@@ -4418,17 +4442,17 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
             self.assertTrue(upgraded_policy.endswith(upgrade_suffix))
             self.assertIn("**Review memories**", upgraded_policy)
             self.assertNotIn("**Old memory command**", upgraded_policy)
-            for prompt_name in (
-                "create-wave.prompt.md",
-                "prepare-wave.prompt.md",
-                "implement-wave.prompt.md",
-                "review-wave.prompt.md",
-                "close-wave.prompt.md",
-                "memory-review.prompt.md",
+            for rel in (
+                vocabulary_profile.prompt_doc("create-wave"),
+                vocabulary_profile.prompt_doc("prepare-wave"),
+                vocabulary_profile.prompt_doc("implement-wave"),
+                vocabulary_profile.prompt_doc("review-wave"),
+                vocabulary_profile.prompt_doc("close-wave"),
+                "docs/prompts/memory-review.prompt.md",
             ):
-                self.assertTrue(prompt_root.joinpath(prompt_name).is_file())
+                self.assertTrue((root / rel).is_file())
                 self.assertGreater(
-                    prompt_root.joinpath(prompt_name).stat().st_size,
+                    (root / rel).stat().st_size,
                     500,
                 )
             self.assertIn(
@@ -5915,20 +5939,24 @@ class PostExtractStaleLeafRefreshTests(unittest.TestCase):
 
     # Whichever container name the declaration carries (a distribution may
     # rename it), a leading space makes it invalid. CONTAINER_NAME_PLURAL
-    # does not match the anchored pattern.
-    _CONTAINER_ASSIGNMENT = re.compile(r'^CONTAINER_NAME = "([^"]*)"', re.M)
+    # does not match the anchored pattern. Decode the literal so both quote
+    # styles emitted by profile writers exercise the same invalid-name guard.
+    _CONTAINER_ASSIGNMENT = re.compile(r"^CONTAINER_NAME = (.+)$", re.M)
 
     def _assert_invalid_profile_stops_before_phase_2c(self, current):
         stale = self._cache_v1_28_vocabulary_profile()
         held = stale.VocabularyProfileInvalid
         invalid, count = self._CONTAINER_ASSIGNMENT.subn(
-            lambda m: f'CONTAINER_NAME = " {m.group(1)}"', current, count=1
+            lambda m: "CONTAINER_NAME = " + repr(" " + ast.literal_eval(m.group(1))),
+            current, count=1
         )
         self.assertEqual(count, 1)
         (self.scripts / "vocabulary_profile.py").write_text(invalid, encoding="utf-8")
-        with contextlib.redirect_stdout(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()), \
+                patch.object(self.ext, "enforce_index_guard_handoff") as downstream:
             with self.assertRaises(RuntimeError) as caught:
                 self.ext.post_extract(self._ctx())
+        downstream.assert_not_called()
         self.assertEqual(type(caught.exception.__cause__).__name__, "VocabularyProfileInvalid")
         self.assertIn("CONTAINER_NAME must be", str(caught.exception.__cause__))
         self.assertIn("vocabulary_profile", str(caught.exception))
@@ -5940,10 +5968,13 @@ class PostExtractStaleLeafRefreshTests(unittest.TestCase):
 
     def test_ac9_invalid_profile_under_another_container_name_stops_before_phase_2c(self):
         current = source_path("vocabulary_profile.py").read_text(encoding="utf-8")
-        renamed, count = self._CONTAINER_ASSIGNMENT.subn('CONTAINER_NAME = "Batch"', current, count=1)
-        self.assertEqual(count, 1)
-        self.assertNotIn('CONTAINER_NAME = "Wave"', renamed)
-        self._assert_invalid_profile_stops_before_phase_2c(renamed)
+        for quote in ('"', "'"):
+            with self.subTest(quote=quote):
+                assignment = f"CONTAINER_NAME = {quote}Batch{quote}"
+                renamed, count = self._CONTAINER_ASSIGNMENT.subn(assignment, current, count=1)
+                self.assertEqual(count, 1)
+                self.assertIn(assignment, renamed)
+                self._assert_invalid_profile_stops_before_phase_2c(renamed)
 
     def test_ac10_v1_27_record_paths_is_refreshed_against_a_fresh_vocabulary_profile(self):
         source = (self.FIXTURES / "record_paths_v1_27_0.py.txt").read_text(encoding="utf-8")

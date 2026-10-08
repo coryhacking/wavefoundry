@@ -10,15 +10,17 @@ Last verified: 2026-10-08
 
 **Paused wave:** *(none)*
 
-**Last closed wave:** `203pu graph-call-attribution-integrity` — receiver-call target integrity and additive graph attribution counts. Also closed in this session: `200ey containment-and-distribution-seams` — contained repository I/O, renderer and upgrade boundaries, distribution compatibility, neutral council role and deferred-MCP guidance.
+**Last closed wave:** `203ha upgrade-profile-qualification` — fixed five non-default-profile upgrade test failures and prepared the public Waveforge R1–R9/A1–A3 handoff.
 
-Both waves closed on explicit operator instruction on 2026-10-08. All admitted ACs/tasks are complete, required typed reviews and operator approvals are recorded, and no pending memory candidates remain for either wave. Unique wave records and ledgers are retained. The operator also authorized committing and pushing the combined delivery.
+Closed on explicit operator instruction on 2026-10-08. All four ACs and all tasks are complete, readiness and independent code/QA reviews are approved, operator signoff is recorded, and the memory checkpoint yielded no candidates. Commit and push are authorized. Public handoff: `docs/waves/203ha upgrade-profile-qualification/waveforge-handoff.md`.
+
+Previously closed and pushed in `d8bee00a`: `200ey containment-and-distribution-seams` and `203pu graph-call-attribution-integrity`.
 
 ## Last-closed verification
 
-Both canonical close mutations passed with the current green framework receipt: 11,885 tests across 173 files, 20 intentional skips, recorded `2026-10-08T16:01:47.554265+00:00`, inputs hash `5723cd56d77db3438ef5eb5d9fbaec5e243e7d43416ab66caec123f8d0e33038`. No framework source/test/seed edit followed that run. Full docs validation passed with the standing 20397 AC-8 wording advisory before closure. Prior failed runs and repaired findings remain in the wave evidence.
+Closure proved the current green framework receipt: 11,885 tests across 173 files, 20 existing skips, recorded `2026-10-08T19:13:12.019056+00:00`, input hash `dde11ab2ef7918216ee07fa1ab0244033acfd6bc8f590157818322a084e17c2f`. Both focused profile owner runs pass 681 tests with two existing skips each. Independent probes preserved invalid-profile rejection, exact outputs, missing-manifest refusal and unwired-render detection. The initial full run was rejected for concurrent documentation edits; the quiet rerun is authoritative. Framework sources have not changed since it. All edit gates are closed.
 
-After the host restart, operator-requested `wf setup` succeeded using the host CoreML provider. The sandbox attempt could not compile CoreML and correctly preserved the existing index when CPU precision differed. Final MCP health reports setup and semantic indexes ready; the earlier stale-runtime/setup-input warnings are cleared. Historical-memory setup backfill still reports one remaining wave awaiting validation, separate from these two completed closure checkpoints.
+After the host restart, operator-requested `wf setup` succeeded using the host CoreML provider. The sandbox attempt could not compile CoreML and correctly preserved the existing index when CPU precision differed. Final MCP health reports setup and semantic indexes ready; the earlier stale-runtime/setup-input warnings are cleared. Historical-memory setup backfill still reports one remaining wave awaiting validation, separate from the completed waves.
 
 Retrospective memory: retain the corrected callable/dependency-owner lesson `203is` and existing graph receiver-ownership lesson `203ew`; generated duplicate or nonactionable candidates retain their rejection/supersession history. Repeated per-wave memory proposals produced no new candidates.
 
@@ -28,7 +30,7 @@ Native Windows diagnostic branches, standard-user repair, policy-blocked handoff
 
 ## Open questions / Deferred decisions
 
-Native Windows removal qualification, previously reported non-default-profile upgrade-test failures and exact-release-archive qualification remain unverified follow-ups. No downstream Waveforge integration or new live Claude qualification was performed.
+Native Windows removal qualification and exact-release-archive qualification remain unverified follow-ups. The five previously reported non-default-profile upgrade-test failures are resolved, independently reviewed and closed in wave 203ha. No downstream Waveforge integration or new live Claude qualification was performed.
 
 The crash-dialog investigation identified deliberate child-process SIGSEGV tests for isolation, CPU fallback and fatal-stack diagnostics; the supplied report matched that fixture pattern without exact PID correlation. A separate proposed change would use quieter routine process-death controls while retaining synthetic SIGSEGV parsing and explicit fatal-stack qualification. No test coverage or system CrashReporter preference was changed.
 
