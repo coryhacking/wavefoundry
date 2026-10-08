@@ -154,7 +154,7 @@
     "challenge_round_policy": "at-most-one-targeted-round-on-material-disagreement",
     "phases": {
       "prepare": {
-        "signoff_key": "wave-council-readiness",
+        "signoff_key": "council-readiness",
         "moderator_role": "wave-council",
         "fixed_seats": [
           "architecture-reviewer",
@@ -165,7 +165,7 @@
         "rotating_seat_policy": "Select one domain seat from review triggers and wave evidence. Prefer docs-contract-reviewer for seed/prompt/behavioral-contract changes, performance-reviewer for indexing/search/hot-path changes, release-reviewer for packaging/distribution changes, or an applicable persona when operator-facing acceptance is central."
       },
       "review": {
-        "signoff_key": "wave-council-delivery",
+        "signoff_key": "council-delivery",
         "moderator_role": "wave-council",
         "fixed_seats": [
           "architecture-reviewer",

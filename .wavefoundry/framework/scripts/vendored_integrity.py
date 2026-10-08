@@ -14,6 +14,7 @@ import hashlib
 import os
 import re
 import stat
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -107,15 +108,34 @@ def _table_rows(lines: list[str], header: str, row_re: "re.Pattern[str]", name: 
     return rows
 
 
+def _unsafe_char(ch: str) -> bool:
+    """A C0 or C1 control character, DEL, or a Unicode format character (category ``Cf``,
+    which holds the bidirectional controls and the zero-width characters)."""
+    return ord(ch) < 0x20 or 0x7F <= ord(ch) < 0xA0 or unicodedata.category(ch) == "Cf"
+
+
+def _check_fields(match: "re.Match[str]", table: str, row: int, fields: tuple[str, ...]) -> None:
+    """Refuse a row whose named fields carry a control or format character (wave 200xy,
+    change 200v1). The message names the table, the row number and the field only, never the
+    field text, so the value cannot reach a terminal or an audit payload."""
+    for field in fields:
+        if any(_unsafe_char(ch) for ch in match[field]):
+            raise ReadmeError(f"{table} row {row}: {field} contains a control or format character")
+
+
 def parse_readme(text: str) -> tuple[list[VendoredFile], dict[str, RegistryEntry]]:
-    """Return the file table rows and the registry table keyed by ``name@version``."""
+    """Return the file table rows and the registry table keyed by ``name@version``.
+
+    A ``package``, ``source`` or ``url`` field holding a control or format character is refused
+    with :class:`ReadmeError` naming the table, row and field (wave 200xy, change 200v1)."""
     lines = text.splitlines()
-    files = [
-        VendoredFile(m["path"], m["package"], m["source"], m["sha256"], row)
-        for row, m in enumerate(_table_rows(lines, _FILE_TABLE_HEADER, _FILE_ROW_RE, "file"), start=1)
-    ]
+    files: list[VendoredFile] = []
+    for row, m in enumerate(_table_rows(lines, _FILE_TABLE_HEADER, _FILE_ROW_RE, "file"), start=1):
+        _check_fields(m, "file", row, ("package", "source"))
+        files.append(VendoredFile(m["path"], m["package"], m["source"], m["sha256"], row))
     registry: dict[str, RegistryEntry] = {}
     for number, m in enumerate(_table_rows(lines, _REGISTRY_TABLE_HEADER, _REGISTRY_ROW_RE, "registry"), start=1):
+        _check_fields(m, "registry", number, ("package", "url"))
         if m["package"] in registry:
             raise ReadmeError(f"registry row {number}: duplicate package")
         registry[m["package"]] = RegistryEntry(m["package"], m["url"], m["integrity"])
@@ -132,9 +152,10 @@ def _row_path_problem(rel: str) -> str | None:
 
     Identical on every platform, so a table that passes on one OS passes on all: an absolute or
     drive-prefixed path, a backslash, an empty component, ``.`` or ``..``, or a control
-    character is refused.
+    character is refused. A Unicode format character (category ``Cf``) counts as a control
+    character (wave 200xy, change 200v1).
     """
-    if any(ord(ch) < 0x20 or 0x7F <= ord(ch) < 0xA0 for ch in rel):
+    if any(_unsafe_char(ch) for ch in rel):
         return "path contains a control character"
     if not rel or rel.startswith("/") or re.match(r"[A-Za-z]:", rel):
         return "path is absolute or drive-prefixed"

@@ -4740,8 +4740,13 @@ def validate_external_review_evidence(
     wave_path: Path,
     *,
     closure: bool = False,
+    wave_text: str | None = None,
 ) -> ReviewEvidenceValidation:
-    """Validate one wave directly from its declaration and fixed sibling ledger."""
+    """Validate one wave directly from its declaration and fixed sibling ledger.
+
+    ``wave_text`` (wave 200xy, change 200v1): the record text a caller already
+    read under its own read rule (docs-lint reads record documents through the
+    member-doc rule); when given, the record is not read again."""
 
     wave_md = Path(wave_path)
     if wave_md.name != _vocab.RECORD_FILENAME:
@@ -4754,7 +4759,7 @@ def validate_external_review_evidence(
         )
     try:
         text = _canonicalize_finding_synthesis_markers(
-            wave_md.read_text(encoding="utf-8")
+            wave_md.read_text(encoding="utf-8") if wave_text is None else wave_text
         )
     except (OSError, UnicodeError) as exc:
         # Path-free like the ledger-read sibling below (1uzwh idiom): the

@@ -17,11 +17,22 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.dont_write_bytecode = True
+# Change 1zyv1: bytecode goes only to the project cache (``bytecode_cache``),
+# never beside the sources; writes stay off until configure() enables the cache.
+if __name__ == "__main__" or sys.pycache_prefix is None:
+    sys.dont_write_bytecode = True
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
+
+import bytecode_cache  # noqa: E402
+
+if __name__ == "__main__":
+    # ``wf setup --check`` is report-only, like the session-start hook: it reads
+    # the cache but never writes it, so the check leaves the repository unchanged.
+    bytecode_cache.configure(read_only=len(sys.argv) > 1 and sys.argv[1] == "setup" and any(
+        arg == "--check" or arg.startswith("--check=") for arg in sys.argv[2:]))
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)

@@ -21,6 +21,15 @@ from dataclasses import dataclass, replace as _dataclass_replace
 from pathlib import Path
 from textwrap import dedent
 
+# Change 1zyv1: bytecode goes only to the project cache (``bytecode_cache``),
+# never beside the sources; writes stay off until configure() enables the cache.
+if __name__ == "__main__" or sys.pycache_prefix is None:
+    sys.dont_write_bytecode = True
+import bytecode_cache  # noqa: E402
+
+if __name__ == "__main__":
+    bytecode_cache.configure()
+
 from history_paths import is_history_path  # shared history components (wave 1zyb2)
 import marker_namespaces
 import mcp_tool_extensions  # declared distribution skills, read at call time (wave 1zv8c)
@@ -1069,14 +1078,15 @@ def _declared_skill_orphans(active_skill_roots: "Mapping[str, Path]") -> "list[t
     return orphans
 
 
-def render_skills(repo_root: Path) -> list[str]:
+def render_skills(repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()) -> list[str]:
     """Render every registry skill, then every declared skill, to each active skill host.
 
     Returns changed paths only (write_text compares bytes first). Runs on
     every render — per-skill doc-presence gates (requires_doc) decide skill
     eligibility; host-dir presence decides where each eligible skill lands.
     Also removes the pre-registry stale paths so migrated skills never
-    coexist with their old locations.
+    coexist with their old locations. A declared prompt doc in ``skip_paths``
+    (see :func:`unrecorded_profile_prompt_paths`) is not created this render.
     """
 
     for skill in SKILL_REGISTRY:
@@ -1118,7 +1128,11 @@ def render_skills(repo_root: Path) -> list[str]:
                 "stale skill path escapes its declared host skill root through a symlink: "
                 f"{rel}"
             )
-    creations = _declared_prompt_doc_creations(root)
+    creations = {
+        prompt_doc: template
+        for prompt_doc, template in _declared_prompt_doc_creations(root).items()
+        if prompt_doc not in skip_paths
+    }
     creation_paths = {
         prompt_doc: _contained_review_carrier_path(root, prompt_doc) for prompt_doc in creations
     }
@@ -1179,7 +1193,12 @@ def render_skills(repo_root: Path) -> list[str]:
         try:
             skill_file.unlink()
         except OSError as exc:
-            raise RuntimeError(f"cannot remove the undeclared skill {rel}: {exc}") from exc
+            # Wave 200xy (200v2): relative path and exception class only,
+            # like the rmdir NOTICE below; the OSError text names the
+            # absolute file path.
+            raise RuntimeError(
+                f"cannot remove the undeclared skill {rel} ({type(exc).__name__})"
+            ) from exc
         written.append(rel)
         # unlink + rmdir, never rmtree: an entry that appeared in the folder
         # after the orphan decision survives, and the folder is reported.
@@ -2525,6 +2544,29 @@ class ProfilePromptMigration:
     written: "tuple[str, ...]"
     link_report: "tuple[str, ...]"
     diagnostics: "tuple[str, ...]"
+    # Wave 200xy (200xx): False when the manifest record could not be read, so
+    # no name was recorded and the later passes skip the profile's paths.
+    record_readable: bool = True
+
+
+def unrecorded_profile_prompt_paths(migration: ProfilePromptMigration) -> "frozenset[str]":
+    """The public and agent prompt paths of every key the profile renames,
+    when the migration could not read the manifest record; empty otherwise.
+
+    A file written there with no record is a migration input the next render
+    cannot place (a chain then finds its target occupied), so every pass that
+    writes, creates or requires a file at one of these paths skips it for the
+    render (wave 200xy, change 200xx). Empty under the default profile.
+    """
+
+    if migration.record_readable:
+        return frozenset()
+    return frozenset(
+        path
+        for key, default in vocabulary_profile.DEFAULT_PROMPT_NAMES.items()
+        if vocabulary_profile.prompt_slug(key) != default["slug"]
+        for path in (vocabulary_profile.prompt_doc(key), vocabulary_profile.agent_prompt_doc(key))
+    )
 
 
 @dataclass(frozen=True)
@@ -2763,12 +2805,20 @@ def migrate_profile_prompt_names(repo_root: Path) -> ProfilePromptMigration:
         # manifest (docs-lint requires and checks it); reported otherwise.
         diagnostics: "tuple[str, ...]" = ()
         if profiled or record_invalid:
+            skipped = (
+                " The lifecycle prompts at the profile's names were not materialized in this "
+                "render; a rerun after the manifest exists creates them."
+                if profiled
+                else ""
+            )
             diagnostics = (
                 f"prompt name migration skipped, nothing was moved: {exc}. The renderer records "
                 f"renamed lifecycle prompts under `prompt_names` in {PROMPT_SURFACE_MANIFEST}; "
-                "repair or create it, then rerun `wf render-surfaces`.",
+                f"repair or create it, then rerun `wf render-surfaces`.{skipped}",
             )
-        return ProfilePromptMigration(written=(), link_report=(), diagnostics=diagnostics)
+        return ProfilePromptMigration(
+            written=(), link_report=(), diagnostics=diagnostics, record_readable=False
+        )
     order, pairs, conflicts = _profile_prompt_plan(repo_root, applied)
     if conflicts:
         raise RuntimeError(
@@ -2915,7 +2965,9 @@ def _merge_claude_agent(text: str, generated: str, path: Path) -> str | None:
     return header.rstrip("\r\n") + body.replace("\n", newline)
 
 
-def reconcile_review_protocol_surfaces(repo_root: Path) -> list[str]:
+def reconcile_review_protocol_surfaces(
+    repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()
+) -> list[str]:
     """Reconcile framework-owned protocol regions without replacing project prose.
 
     The public setup/upgrade renderer materializes missing canonical minimums
@@ -2923,12 +2975,15 @@ def reconcile_review_protocol_surfaces(repo_root: Path) -> list[str]:
     repo-local reviewers, and native wrappers remain explicitly existing-only
     so rendering cannot silently enable optional capabilities. A malformed
     marker pair fails safe and leaves the file untouched with a loud diagnostic.
+    A carrier in ``skip_paths`` is neither created nor edited this render.
     """
 
     carriers = review_protocol_carriers(repo_root)
     preflight_agent_surface_paths(repo_root)
     written: list[str] = []
     for carrier in carriers:
+        if carrier.destination in skip_paths:
+            continue
         path = _contained_review_carrier_path(repo_root, carrier.destination)
         if not path.is_file():
             if carrier.conditional_existing or not carrier.create_if_missing:
@@ -2996,8 +3051,13 @@ def review_protocol_carriers_skipped_by_render(repo_root: Path) -> list[str]:
     return list(dict.fromkeys(skipped))
 
 
-def reconcile_lifecycle_prompt_baselines(repo_root: Path) -> list[str]:
-    """Materialize missing lifecycle baselines without replacing project prose."""
+def reconcile_lifecycle_prompt_baselines(
+    repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()
+) -> list[str]:
+    """Materialize missing lifecycle baselines without replacing project prose.
+
+    A destination in ``skip_paths`` is not materialized this render.
+    """
 
     written: list[str] = []
     template_root = (
@@ -3019,6 +3079,8 @@ def reconcile_lifecycle_prompt_baselines(repo_root: Path) -> list[str]:
         )
     today = time.strftime("%Y-%m-%d")
     for destination, template_name in LIFECYCLE_PROMPT_BASELINES:
+        if destination in skip_paths:
+            continue
         path = _contained_review_carrier_path(repo_root, destination)
         if path.is_file():
             continue
@@ -3434,13 +3496,18 @@ def render_techdocs_baseline(repo_root: Path, *, dry_run: bool = False) -> Techd
     )
 
 
-def reconcile_review_policy_surfaces(repo_root: Path) -> list[str]:
-    """Render the policy registry's lifecycle obligations into owned regions."""
+def reconcile_review_policy_surfaces(
+    repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()
+) -> list[str]:
+    """Render the policy registry's lifecycle obligations into owned regions.
+
+    A carrier in ``skip_paths`` is neither required nor edited this render.
+    """
 
     written: list[str] = []
     for carrier in REVIEW_POLICY_CARRIER_REGISTRY:
         block = REVIEW_POLICY_SURFACE_BLOCKS.get(carrier.destination)
-        if carrier.owner != "renderer" or block is None:
+        if carrier.owner != "renderer" or block is None or carrier.destination in skip_paths:
             continue
         path = _contained_review_carrier_path(repo_root, carrier.destination)
         if not path.is_file():
@@ -3465,9 +3532,16 @@ def reconcile_review_policy_surfaces(repo_root: Path) -> list[str]:
     return written
 
 
-def reconcile_context_efficiency_surface(repo_root: Path) -> list[str]:
-    """Reconcile the Create-wave telemetry carrier without replacing project prose."""
+def reconcile_context_efficiency_surface(
+    repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()
+) -> list[str]:
+    """Reconcile the Create-wave telemetry carrier without replacing project prose.
 
+    Nothing is created or edited when the carrier is in ``skip_paths``.
+    """
+
+    if CONTEXT_EFFICIENCY_DESTINATION in skip_paths:
+        return []
     path = _contained_review_carrier_path(repo_root, CONTEXT_EFFICIENCY_DESTINATION)
     if not path.is_file():
         carrier = next(
@@ -3529,12 +3603,15 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
         )
     for diagnostic in profile_migration.diagnostics:
         print(f"render_agent_surfaces: NOTICE - {diagnostic}", file=sys.stderr)
+    # Wave 200xy (200xx): with no readable record, no pass writes, creates or
+    # requires a file at a renamed key's prompt paths this render.
+    unrecorded = unrecorded_profile_prompt_paths(profile_migration)
     # Wave 1p6lp: the skill registry renders BEFORE the reconcile passes so a
     # freshly migrated carrier skill (wf-guru on Codex) is reconciled in the
     # same render, and BEFORE the Guru gate because lifecycle skills are not
     # Guru-gated (per-skill gates live in the registry).
-    skills_written = render_skills(repo_root)
-    lifecycle_written = reconcile_lifecycle_prompt_baselines(repo_root)
+    skills_written = render_skills(repo_root, skip_paths=unrecorded)
+    lifecycle_written = reconcile_lifecycle_prompt_baselines(repo_root, skip_paths=unrecorded)
     scaffold_written = reconcile_scaffold_baselines(repo_root)
     # The phase-0c in-process reconciler can still be old code on the upgrade
     # that installs this release. Replay only its shared upgrade-policy marker
@@ -3543,12 +3620,12 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
         upgrade_policy_written = list(reconcile_upgrade_policy_surface(repo_root))
     except ValueError as exc:
         raise RuntimeError(str(exc)) from exc
-    review_written = reconcile_review_protocol_surfaces(repo_root)
+    review_written = reconcile_review_protocol_surfaces(repo_root, skip_paths=unrecorded)
     # Policy companions include optional carriers materialized by the review
     # protocol pass (for example the agent and council review prompts). Run
     # policy second so one render converges from a sparse pre-adoption tree.
-    policy_written = reconcile_review_policy_surfaces(repo_root)
-    context_written = reconcile_context_efficiency_surface(repo_root)
+    policy_written = reconcile_review_policy_surfaces(repo_root, skip_paths=unrecorded)
+    context_written = reconcile_context_efficiency_surface(repo_root, skip_paths=unrecorded)
     framework_written = list(
         dict.fromkeys(
             [
@@ -3664,7 +3741,7 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     # Native Guru wrappers are materialized above, after the initial carrier
     # census. Reconcile again so the first public render gives them the same
     # protocol minimum and later renders cannot overwrite it away.
-    reconciled_again = reconcile_review_protocol_surfaces(repo_root)
+    reconciled_again = reconcile_review_protocol_surfaces(repo_root, skip_paths=unrecorded)
 
     # Net-change decision for the tier-3 candidates: a file whose final
     # post-reconcile bytes equal its pre-render bytes was not written in any

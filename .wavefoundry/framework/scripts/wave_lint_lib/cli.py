@@ -24,13 +24,15 @@ from .helpers import (
     iter_markdown_docs,
     load_json,
     read_text_cache_clear,
+    record_refusal,
+    record_refusal_failures,
     relative_to_root,
     resolve_record_roots,
     write_if_changed,
 )
 from .link_validators import check_markdown_links
 from .metadata_validators import check_metadata
-from .secrets_validators import _get_changed_files, _is_inside_git, check_hardcoded_secrets
+from .secrets_validators import _get_changed_files, _is_inside_git, check_hardcoded_secrets, fileset_refusals
 from .wave_validators import (
     check_memory_docs,
     check_closed_wave_requirements,
@@ -193,6 +195,19 @@ def _record_discovery_refusal(root: Path, roots) -> list[str]:
     return []
 
 
+def _record_refusal_report(root: Path) -> list[str]:
+    """Wave 200xy (200v1): one blocking failure per refused record document.
+
+    The passes and the record reader record each refusal in the per-run
+    registry in ``helpers`` (cleared by ``read_text_cache_clear`` at the start
+    of the run); the secrets pass's file-set filter records the record
+    documents it dropped, which join the same registry. Emitted once, after
+    the passes, in both the full and the incremental run."""
+    for rel, cause in fileset_refusals().items():
+        record_refusal(root, root / rel, cause)
+    return record_refusal_failures()
+
+
 def _run_incremental_checks(root: Path):
     """Post-edit incremental lint (wave 1p9c1).
 
@@ -204,6 +219,10 @@ def _run_incremental_checks(root: Path):
     scan. The authoritative corpus lint stays at wf_validate_docs / wf_close_wave / prepare / install /
     upgrade, which call the cli without ``--changed``."""
     changed = _get_changed_files(root)
+    # Wave 200xy (200v1): the changed-set filter drops a linked or special
+    # record document without following it; keep its refusal for the report.
+    for rel, cause in fileset_refusals().items():
+        record_refusal(root, root / rel, cause)
     fallback_files = {root / rel for rel in INCREMENTAL_FULL_FALLBACK_FILES}
     if any(path in fallback_files for path in changed):
         return None  # a config/corpus file changed → run the full lint
@@ -276,6 +295,7 @@ def _run_incremental_checks(root: Path):
         # must revalidate the owning wave/adoption proof on the incremental hook.
         failures.extend(check_wave_docs(root, only=changed_event_wave_docs, skip=set(), warnings=warnings))
 
+    failures.extend(_record_refusal_report(root))
     return (failures, warnings)
 
 
@@ -378,6 +398,7 @@ def _run_full_checks(root: Path, args: argparse.Namespace, timings: dict | None 
                 continue
             failures.extend(check_markdown_links(root, path))
 
+    failures.extend(_record_refusal_report(root))
     return failures, warnings, infos
 
 

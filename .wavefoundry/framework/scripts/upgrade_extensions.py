@@ -1034,6 +1034,10 @@ _MEMORY_BOOTSTRAP_EXCLUDED = {
         "activates the tool venv when imported; memory_records calls only "
         "build_prefix and load_lifecycle_policy, both unchanged since v1.27.0"
     ),
+    "bytecode_cache": (
+        "process-wide bytecode policy (change 1zyv1); memory_backfill calls "
+        "configure() only when run as __main__, so a reload never needs new code"
+    ),
 }
 
 
@@ -1623,7 +1627,9 @@ _JOURNAL_PLACEHOLDER_MAX = 512
 _JOURNAL_PLACEHOLDER_PATTERNS = {
     "wave_id": rf"[^\n]{{1,{_JOURNAL_PLACEHOLDER_MAX}}}",
     "title": rf"[^\n]{{1,{_JOURNAL_PLACEHOLDER_MAX}}}",
-    "date": r"\d{4}-\d{2}-\d{2}",
+    # Wave 200xy (200v2): ASCII digits only; ``\d`` in a str pattern also
+    # matches every other Unicode decimal digit.
+    "date": r"[0-9]{4}-[0-9]{2}-[0-9]{2}",
 }
 _JOURNAL_PLACEHOLDER_MAX_LENGTHS = {
     "wave_id": _JOURNAL_PLACEHOLDER_MAX,
@@ -1967,7 +1973,7 @@ def _migrate_journal_entries(root: Path, resolved_root: Path, journals_dir: Path
         text = text.replace("\r\n", "\n")
         wave_m = re.search(r"^wave-id: `(.+)`$", text, re.MULTILINE)
         title_m = re.search(r"^# Journal - (.+)$", text, re.MULTILINE)
-        date_m = re.search(r"^Last verified: (\d{4}-\d{2}-\d{2})\s*$", text, re.MULTILINE)
+        date_m = re.search(r"^Last verified: ([0-9]{4}-[0-9]{2}-[0-9]{2})\s*$", text, re.MULTILINE)
         pristine = bool(wave_m and title_m and date_m) and text == _pristine_journal_template(
             wave_m.group(1), title_m.group(1), date_m.group(1)
         )
@@ -2873,21 +2879,73 @@ def _write_migration_report(root: Path, sections: list[tuple[str, list[str]]]) -
 # True so operators can review what the migration WOULD do before committing.
 
 
-def _preview_role_field_backfill(root: Path) -> list[str]:
+class _IncomingModuleUnavailable(Exception):
+    """An incoming framework module needed by a preview could not be loaded.
+
+    The message is the cause's exception class name only: no traceback and
+    no path, so the preview section stays one line.
+    """
+
+
+def _incoming_history_paths(zip_path=None):
+    """Return the INCOMING framework's ``history_paths`` module for a preview.
+
+    Wave 200xy (200v2): the preview models the code that runs after
+    extraction, so the predicate comes from the incoming framework, never
+    from the target's tree (a target older than the module has none, and a
+    dry run extracts nothing). Loaded by absolute path, this module takes the
+    file beside it by file location; loaded from the pack (a relative member
+    filename, see `_storage_identity_helper`), it reads the member beside it
+    from ``zip_path``. Either way the module is private: it is never
+    registered in ``sys.modules`` and ``sys.path`` is not touched.
+
+    Because the module is executed without ``sys.modules`` registration,
+    ``history_paths`` must stay free of constructs that look their own module
+    up there (for example ``dataclasses``, which resolves annotations through
+    ``sys.modules[cls.__module__]``); ``tests/test_history_paths.py`` pins it.
+    """
+    from types import ModuleType
+    try:
+        here = Path(__file__)
+        if here.is_absolute():
+            location = here.with_name("history_paths.py")
+            spec = importlib.util.spec_from_file_location("_incoming_history_paths", location)
+            if spec is None or spec.loader is None:
+                raise ImportError("history_paths")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+        if zip_path is None:
+            raise FileNotFoundError("history_paths")
+        member = here.with_name("history_paths.py").as_posix()
+        with zipfile.ZipFile(zip_path, "r") as archive:
+            source = archive.read(member).decode("utf-8")
+        module = ModuleType("_incoming_history_paths")
+        module.__file__ = member
+        exec(compile(source, member, "exec"), module.__dict__)
+        return module
+    except Exception as exc:  # noqa: BLE001 -- reported as one line by class
+        raise _IncomingModuleUnavailable(type(exc).__name__) from None
+
+
+def _preview_role_field_backfill(root: Path, *, zip_path=None) -> list[str]:
     """Preview variant of `_backfill_role_field_on_agent_docs`. Returns the
     list of repository-relative paths that WOULD have `Role: <slug>` inserted,
     formatted as ``<path>: would insert Role: <slug>``. Zero filesystem
-    mutations."""
+    mutations.
+
+    ``zip_path`` is the incoming pack; the history predicate is loaded from
+    the incoming framework (see `_incoming_history_paths`), never from the
+    target's tree. Raises `_IncomingModuleUnavailable` when it cannot be
+    loaded."""
     planned: list[str] = []
     agents_root = root / "docs" / "agents"
     if not agents_root.is_dir():
         return planned
     # Wave 1p3b9 (1p3b7 F6): recursive walk parallels the action helper,
-    # including the shared history predicate (wave 1zyb2, 1zxnt).
-    scripts = root / ".wavefoundry" / "framework" / "scripts"
-    if str(scripts) not in sys.path:
-        sys.path.insert(0, str(scripts))
-    from history_paths import is_history_path
+    # including the shared history predicate (wave 1zyb2, 1zxnt), taken from
+    # the incoming framework (wave 200xy, 200v2).
+    is_history_path = _incoming_history_paths(zip_path).is_history_path
 
     try:
         candidates = sorted(agents_root.rglob("*.md"))
@@ -3286,11 +3344,18 @@ def post_extract(ctx):
     if getattr(ctx, "dry_run", False):
         preview_sections: list[tuple[str, list[str]]] = []
         try:
-            planned = _preview_role_field_backfill(ctx.root)
+            planned = _preview_role_field_backfill(
+                ctx.root, zip_path=getattr(ctx, "zip_path", None)
+            )
             preview_sections.append((
                 "Role: backfill on docs/agents/*.md "
                 "(C4 / 1p35l: docs-lint now enforces Role: on every agent doc)",
                 planned,
+            ))
+        except _IncomingModuleUnavailable as exc:
+            preview_sections.append((
+                "Role: backfill on docs/agents/*.md",
+                [f"ERROR (preview): the incoming history predicate could not be loaded ({exc})"],
             ))
         except Exception:
             preview_sections.append((

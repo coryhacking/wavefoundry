@@ -326,8 +326,9 @@ class RedirectBeforeFollowTests(unittest.TestCase):
     def test_an_off_registry_redirect_is_refused_without_requesting_the_target(self):
         with self.assertRaises(vvs.FetchRefused) as ctx:
             vvs.default_fetch(self.registry.base + "off")
-        self.assertIn("redirect left the registry", str(ctx.exception))
-        self.assertIn(self.off.base + "other.tgz", str(ctx.exception))
+        self.assertEqual(str(ctx.exception), "redirect left the registry")
+        # Wave 200xy (200v1): the server-supplied target is never echoed.
+        self.assertNotIn(self.off.base, str(ctx.exception))
         self.assertEqual(self.off.hits, [])
 
     def test_a_chain_that_leaves_the_registry_and_returns_is_refused(self):
@@ -911,6 +912,88 @@ class ConfinedVendoredReadTests(unittest.TestCase):
         self.assertIn("row 1: ", message)
         self.assertNotIn("../../../secret.txt", message)
         self.assertNotIn(str(self.base), message)
+
+
+
+class VerifierEchoTests(unittest.TestCase):
+    """Wave 200xy, change 200v1 (AC-8): the network verifier prints no README
+    field that failed the field check, no redirect target and no exception
+    text."""
+
+    SENTINEL = "SENTINEL-SERVER-TEXT"
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="wf-vvs-echo-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        (self.tmp / "demo").mkdir()
+        (self.tmp / "demo" / "demo.js").write_bytes(CONTENT)
+        self.tarball = _tarball({"package/dist/demo.js": CONTENT})
+
+    def _run(self, readme: str, fetch) -> tuple[int, str]:
+        (self.tmp / "README.md").write_text(readme, encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = vvs.verify(self.tmp / "README.md", self.tmp, fetch=fetch)
+        return code, out.getvalue()
+
+    def _readme(self, url: str = URL, source: str = "package/dist/demo.js") -> str:
+        return _readme(url, _integrity(self.tarball), hashlib.sha256(CONTENT).hexdigest(), source=source)
+
+    def test_a_field_failing_the_check_is_never_printed(self):
+        fetched: list[str] = []
+
+        def fetch(url: str) -> bytes:
+            fetched.append(url)
+            return self.tarball
+
+        cases = {
+            "url": self._readme(url=f"https://registry.npmjs.org/{self.SENTINEL}\x1b[2J.tgz"),
+            "source": self._readme(source=f"package/{self.SENTINEL}‮.js"),
+        }
+        for field, readme in cases.items():
+            with self.subTest(field=field):
+                code, out = self._run(readme, fetch)
+                self.assertEqual(code, 2, out)
+                self.assertIn("cannot parse", out)
+                self.assertIn(f"row 1: {field} contains a control or format character", out)
+                self.assertNotIn(self.SENTINEL, out)
+                self.assertEqual(fetched, [])
+
+    def test_both_refused_redirect_lines_carry_no_target(self):
+        target = f"https://{self.SENTINEL}.example/x.tgz"
+
+        def handler_site(url: str, timeout=None):  # noqa: ANN001
+            handler = vvs._RegistryRedirectHandler()
+            handler.redirect_request(mock.Mock(), mock.Mock(), 302, "Found", {}, target)
+            raise AssertionError("the handler should have refused")
+
+        for site, opener in (
+            ("redirect_request", mock.patch.object(vvs, "_open", side_effect=handler_site)),
+            ("default_fetch", mock.patch.object(vvs, "_open", return_value=_FakeResponse(target, b"x"))),
+        ):
+            with self.subTest(site=site), opener:
+                code, out = self._run(self._readme(), vvs.default_fetch)
+                self.assertEqual(code, 2, out)
+                self.assertIn("demo@1.0.0: refused: redirect left the registry\n", out)
+                self.assertNotIn(self.SENTINEL, out)
+                self.assertNotIn("example", out)
+
+    def test_a_download_failure_prints_the_class_only(self):
+        import email.message
+        import urllib.error
+
+        errors = (
+            urllib.error.HTTPError(URL, 503, f"{self.SENTINEL} reason", email.message.Message(), None),
+            OSError(f"{self.SENTINEL} unreachable"),
+            ValueError(f"{self.SENTINEL} bad value"),
+        )
+        for error in errors:
+            with self.subTest(error=type(error).__name__), \
+                    mock.patch.object(vvs, "_open", side_effect=error):
+                code, out = self._run(self._readme(), vvs.default_fetch)
+                self.assertEqual(code, 2, out)
+                self.assertIn(f"demo@1.0.0: download failed: {type(error).__name__}\n", out)
+                self.assertNotIn(self.SENTINEL, out)
 
 
 if __name__ == "__main__":

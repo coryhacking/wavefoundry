@@ -447,6 +447,69 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
                 },
             )
 
+    # Wave 200xy (200xx): the two replacement sides name the tier-neutral
+    # readiness council key; text an earlier release reconciled converges.
+    _EARLIER_COUNCIL_REVIEW_TEXT = (
+        "a declared wave records the machine authority as a typed `wave-council-readiness` approval "
+        "event. Its `## Review Checkpoints` verdict may retain the structured `prepare-council` fields "
+        "as narrative, but that prose never changes a declared wave's lifecycle outcome. A legacy wave "
+        "still uses the structured verdict line as its compatibility gate."
+    )
+    _EARLIER_PREPARE_TEXT = (
+        "On declared waves, record `wave-council-readiness` as a typed approval event via "
+        "`wf_review_event`; this typed record is the sole machine authority, and any structured "
+        "`prepare-council` checkpoint is narrative only. Legacy prose waves retain the structured "
+        "checkpoint compatibility gate. Call `wf_prepare_wave` again after the current typed approval "
+        "is recorded (`ready` to ready without opening, or `create` to prepare and open)."
+    )
+
+    def test_council_key_replacements_converge_from_every_earlier_text(self):
+        council = "docs/prompts/council-review.prompt.md"
+        prepare = vocabulary_profile.prompt_doc("prepare-wave")
+        table = review_policy_reconcile.KNOWN_SECTION_REPLACEMENTS
+        cases = {
+            council: (table[council][0][0], self._EARLIER_COUNCIL_REVIEW_TEXT),
+            prepare: (table[prepare][0][0], self._EARLIER_PREPARE_TEXT),
+        }
+        for relative, (original, earlier) in cases.items():
+            new = earlier.replace("`wave-council-readiness`", "`council-readiness`")
+            self.assertNotIn("wave-council-readiness", new)
+            for label, body in (("original", original), ("earlier", earlier), ("new", new)):
+                with self.subTest(carrier=relative, holding=label), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    path = root / relative
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(f"operator prefix\n{body}\noperator suffix\n", encoding="utf-8")
+                    changed = review_policy_reconcile.reconcile_lifecycle_sections(root)
+                    self.assertEqual(changed, () if label == "new" else (relative,))
+                    text = path.read_text(encoding="utf-8")
+                    self.assertEqual(text, f"operator prefix\n{new}\noperator suffix\n")
+                    self.assertEqual(review_policy_reconcile.reconcile_lifecycle_sections(root), ())
+
+    def test_legacy_matchers_naming_the_earlier_key_still_match(self):
+        """The two old-side matchers keep matching text earlier releases wrote."""
+        table = review_policy_reconcile.KNOWN_SECTION_REPLACEMENTS
+        implement = vocabulary_profile.prompt_doc("implement-wave")
+        prepare = vocabulary_profile.prompt_doc("prepare-wave")
+        handoff = table[implement][2][0]
+        typed = table[prepare][0][0]
+        self.assertIn("the `wave-council-readiness` verdict covers admissibility", handoff)
+        self.assertIn("record `wave-council-readiness` in `## Review Evidence`", typed)
+        for relative, legacy in ((implement, handoff), (prepare, typed)):
+            with self.subTest(carrier=relative), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"operator prefix\n{legacy}operator suffix\n", encoding="utf-8")
+                self.assertEqual(review_policy_reconcile.reconcile_lifecycle_sections(root), (relative,))
+                self.assertNotIn(legacy, path.read_text(encoding="utf-8"))
+        # Only the two old-side matchers and the two added legacy pairs still
+        # name the earlier readiness key; every replacement side is current.
+        olds = [legacy for pairs in table.values() for legacy, _new in pairs if "wave-council-readiness" in legacy]
+        news = [new for pairs in table.values() for _legacy, new in pairs if "wave-council-readiness" in new]
+        self.assertEqual(len(olds), 4)
+        self.assertEqual(news, [])
+
 
 class ShippedMarkdownIsNotProjectDriftTests(unittest.TestCase):
     """The upgrade must not demand a manual rewrite of a file it ships.

@@ -975,28 +975,213 @@ class MemberDocRuntimeLockLinkTests(unittest.TestCase):
                 self.assertEqual(srv._is_runtime_lock_path(self.root, path), expected)
 
 
+
+class SingleIdChangeLookupTests(_GuardCase):
+    """Wave 200xy (200v1) AC-5 and AC-6: the single-id change lookup reads each
+    candidate through the member-doc rule, after the runtime-lock check."""
+
+    _STEM = "1200s-enh looked-up"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.plans = record_paths.load_record_roots(self.root).plans
+        self.plans.mkdir(parents=True, exist_ok=True)
+        self.entry = self.plans / f"{self._STEM}.md"
+
+    def resource_change(self):
+        import types as _types
+
+        from declaration_support import RecordingFastMCP
+
+        recorder = RecordingFastMCP()
+        handler = _types.SimpleNamespace(root=self.root, cache=None)
+        srv.register_mcp_surface(recorder, lambda: handler)
+        return recorder.resource_functions["resource_change"]
+
+    def _single(self) -> dict:
+        return srv.wf_get_change_response(self.root, change_id=self._STEM)
+
+    def _assert_unreadable(self, response: dict, *forbidden: str) -> None:
+        blob = json.dumps(response, default=str)
+        self.assertEqual(response["status"], "error", response)
+        self.assertIn("change_doc_unreadable", self.codes(response), response)
+        [match] = srv._resolve_change_doc_matches(self.root, self._STEM)
+        self.assertEqual(match["content"], "")
+        self.assertNotIn("refused", match)
+        self.assertNotIn("/", match["read_error"])
+        self.assertNotIn(str(self.outer), match["read_error"])
+        for text in forbidden:
+            self.assertNotIn(text, blob)
+
+    def test_a_linked_change_doc_is_an_unreadable_match(self) -> None:
+        if not _can_symlink(self.outer):
+            self.skipTest("symbolic links are unavailable")
+        inside = self.root / "docs" / "inside-target.md"
+        inside.write_text(_doc_text(self._STEM, "planned").replace("Fixture criterion", "Inside criterion"),
+                          encoding="utf-8")
+        self.outside.write_text(_doc_text(self._STEM, "planned").replace("Fixture criterion", "Outside criterion"),
+                                encoding="utf-8")
+        resource = self.resource_change()
+        for label, target, marker in (("inside", inside, "Inside criterion"),
+                                      ("outside", self.outside, "Outside criterion")):
+            with self.subTest(target=label):
+                if os.path.lexists(self.entry):
+                    self.entry.unlink()
+                self.entry.symlink_to(target)
+                with self.subTest(caller="wf_get_change"):
+                    self._assert_unreadable(self._single(), marker, str(target))
+                with self.subTest(caller="get_change"):
+                    self.assertIsNone(srv.get_change(self.root, self._STEM))
+                with self.subTest(caller="resource_change"):
+                    text = resource(self._STEM)
+                    self.assertTrue(text.startswith("# Unreadable Change"), text)
+                    self.assertNotIn(marker, text)
+                    self.assertNotIn(str(target), text)
+                    self.assertNotIn(str(self.outer), text)
+
+    def test_a_refused_linked_doc_matches_only_its_own_token(self) -> None:
+        # The member-doc refusal branch still filters by token: a linked doc is an
+        # unreadable match for its own id and no match at all for an unrelated one.
+        if not _can_symlink(self.outer):
+            self.skipTest("symbolic links are unavailable")
+        self.outside.write_text(_doc_text(self._STEM, "planned"), encoding="utf-8")
+        self.entry.symlink_to(self.outside)
+        [match] = srv._resolve_change_doc_matches(self.root, self._STEM)
+        self.assertEqual(match["content"], "")
+        self.assertEqual(srv._resolve_change_doc_matches(self.root, "1zzzz-bug unrelated"), [])
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs are POSIX only")
+    def test_a_fifo_candidate_does_not_block(self) -> None:
+        os.mkfifo(self.entry)
+        response = _call_with_fifo_guard(self, self.entry, self._single)
+        self._assert_unreadable(response)
+
+    def test_an_ordinary_document_is_returned_as_before(self) -> None:
+        body = _doc_text(self._STEM, "planned").replace("\n", "\r\n")
+        self.entry.write_bytes(body.encode("utf-8"))
+        response = self._single()
+        expected = self.entry.read_text(encoding="utf-8")
+        self.assertEqual(response["status"], "ok", response)
+        self.assertEqual(response["data"]["change"]["content"], expected)
+        [match] = srv._resolve_change_doc_matches(self.root, self._STEM)
+        self.assertEqual(match, {
+            "path": self.entry.relative_to(self.root).as_posix(),
+            "change_id": self._STEM,
+            "content": expected,
+        })
+        self.assertEqual(self.resource_change()(self._STEM), expected)
+
+    def test_symlinked_and_hard_linked_locks_are_refused_unopened(self) -> None:
+        lock_dir = self.root / ".wavefoundry" / "index"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        lock = lock_dir / "index-build.lock"
+        lock.write_bytes(f"{_MARKER} lock body\n".encode("utf-8"))
+        kinds = []
+        if _can_symlink(self.outer):
+            kinds.append("symlink")
+        kinds.append("hard link")
+        resource = self.resource_change()
+        for kind in kinds:
+            with self.subTest(kind=kind):
+                if os.path.lexists(self.entry):
+                    self.entry.unlink()
+                try:
+                    if kind == "symlink":
+                        self.entry.symlink_to(lock)
+                    else:
+                        os.link(lock, self.entry)
+                except (OSError, NotImplementedError):
+                    self.skipTest("hard links are unavailable")
+                opened: list[str] = []
+                real_open, real_os_open = builtins.open, os.open
+
+                def spy_open(path, *args, **kwargs):
+                    opened.append(os.path.realpath(os.fspath(path)) if not isinstance(path, int) else "")
+                    return real_open(path, *args, **kwargs)
+
+                def spy_os_open(path, *args, **kwargs):
+                    opened.append(os.path.realpath(os.fspath(path)))
+                    return real_os_open(path, *args, **kwargs)
+
+                with patch.object(builtins, "open", spy_open), patch.object(os, "open", spy_os_open):
+                    [match] = srv._resolve_change_doc_matches(self.root, self._STEM)
+                    text = resource(self._STEM)
+                self.assertTrue(match.get("refused"), match)
+                self.assertEqual(match["content"], "")
+                self.assertTrue(text.startswith("# Refused"), text)
+                self.assertNotIn(os.path.realpath(lock), opened)
+                self.assertNotIn(_MARKER, json.dumps(match) + text)
+        # The member-doc rule's own lock-identity refusal (reached when the
+        # path check does not see the lock, as in a swap between the two) is
+        # also ``refused``.
+        if os.path.lexists(self.entry):
+            self.entry.unlink()
+        try:
+            os.link(lock, self.entry)
+        except (OSError, NotImplementedError):
+            return
+        with patch.object(srv, "_refuse_runtime_lock_target", lambda root, path: None):
+            [match] = srv._resolve_change_doc_matches(self.root, self._STEM)
+        self.assertTrue(match.get("refused"), match)
+        self.assertIn("runtime lock", match["read_error"])
+
+    def test_add_change_on_a_linked_change_doc_changes_nothing(self) -> None:
+        if not _can_symlink(self.outer):
+            self.skipTest("symbolic links are unavailable")
+        self.outside.write_text(_doc_text(self._STEM, "planned").replace("Fixture criterion", "Outside criterion"),
+                                encoding="utf-8")
+        self.entry.symlink_to(self.outside)
+
+        def snapshot() -> dict:
+            return {
+                path.relative_to(self.root).as_posix(): (
+                    os.readlink(path) if path.is_symlink() else path.read_bytes() if path.is_file() else None)
+                for path in sorted(self.root.rglob("*"))
+            }
+
+        before = snapshot()
+        response = srv.wf_add_change_response(self.root, WAVE_ID[:5], self._STEM, mode="create")
+        self.assertEqual(response["status"], "error", response)
+        self.assertEqual(snapshot(), before)
+        self.assertNotIn("Outside criterion", json.dumps(response))
+        self.assertNotIn(str(self.outside), json.dumps(response))
+
+    def test_the_uncalled_unique_resolver_is_gone(self) -> None:
+        self.assertFalse(hasattr(srv, "_resolve_unique_change_doc"))
+
 class WaveOwnedDocLintGuardTests(_GuardCase):
-    """DEL-5: docs-lint's wave-owned-doc loop never reads a member doc that is
-    not a regular file, and names the change id, never a target."""
+    """DEL-5: docs-lint never reads a member doc that is not a regular file.
+    Wave 200xy (200v1): the refusal goes through the per-run registry, so the
+    docs-lint entry point reports it once, by the entry's own path and a cause
+    class, never by a target or anything read from one."""
 
     def _lint(self) -> list[str]:
-        from wave_lint_lib import helpers, wave_validators
+        """Run the docs-lint entry point in process; return its stderr lines."""
+        from wave_lint_lib import cli
 
-        helpers.read_text_cache_clear()
-        return list(wave_validators.check_wave_docs(self.root))
+        err = io.StringIO()
+        with patch.dict(os.environ, {"PROJECT_ROOT": str(self.root)}), \
+                patch.object(sys, "argv", ["docs_lint.py"]), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            cli.main()
+        return err.getvalue().splitlines()
 
-    def _failures_for_a(self, failures: list[str]) -> list[str]:
-        return [f for f in failures if "not a regular file" in f]
+    def _failures_for(self, lines: list[str], doc: Path) -> list[str]:
+        rel = doc.relative_to(self.root).as_posix()
+        return [line for line in lines if line.startswith("ERROR: ") and rel in line]
+
+    def _expected(self, doc: Path) -> str:
+        return (f"ERROR: {doc.relative_to(self.root).as_posix()}: record document refused "
+                "(a link or special file); it was not read. Replace it with the document itself.")
 
     @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs are POSIX only")
     def test_a_fifo_member_doc_is_reported_without_blocking(self) -> None:
         doc = self.doc(A)
         doc.unlink()
         os.mkfifo(doc)
-        failures = _call_with_fifo_guard(self, doc, self._lint)
-        hits = self._failures_for_a(failures)
-        self.assertEqual(len(hits), 1, failures)
-        self.assertIn(f"`{A}`", hits[0])
+        lines = _call_with_fifo_guard(self, doc, self._lint)
+        hits = self._failures_for(lines, doc)
+        self.assertEqual(hits, [self._expected(doc)], lines)
 
     def test_a_linked_member_doc_is_reported_without_its_target(self) -> None:
         if not _can_symlink(self.outer):
@@ -1006,10 +1191,9 @@ class WaveOwnedDocLintGuardTests(_GuardCase):
         doc = self.doc(A)
         doc.unlink()
         doc.symlink_to(self.outside)
-        failures = self._lint()
-        hits = self._failures_for_a(failures)
-        self.assertEqual(len(hits), 1, failures)
-        self.assertIn(f"`{A}`", hits[0])
-        for failure in failures:
-            self.assertNotIn(_MARKER, failure)
-            self.assertNotIn(str(self.outer), failure)
+        lines = self._lint()
+        hits = self._failures_for(lines, doc)
+        self.assertEqual(hits, [self._expected(doc)], lines)
+        for line in lines:
+            self.assertNotIn(_MARKER, line)
+            self.assertNotIn(str(self.outside), line)

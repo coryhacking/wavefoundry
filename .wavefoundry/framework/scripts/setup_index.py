@@ -20,7 +20,10 @@ import threading
 import time
 from pathlib import Path
 
-sys.dont_write_bytecode = True
+# Change 1zyv1: bytecode goes only to the project cache (``bytecode_cache``),
+# never beside the sources; writes stay off until configure() enables the cache.
+if __name__ == "__main__" or sys.pycache_prefix is None:
+    sys.dont_write_bytecode = True
 
 FASTEMBED_CACHE_DEFAULT = Path.home() / ".wavefoundry" / "cache" / "fastembed"
 if not os.environ.get("FASTEMBED_CACHE_PATH"):
@@ -29,6 +32,11 @@ if not os.environ.get("FASTEMBED_CACHE_PATH"):
 SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
+
+import bytecode_cache  # noqa: E402
+
+if __name__ == "__main__":
+    bytecode_cache.configure()
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import provider_policy

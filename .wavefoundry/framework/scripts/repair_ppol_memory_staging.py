@@ -21,6 +21,16 @@ import sys
 import tempfile
 import zipfile
 
+# Change 1zyv1: bytecode goes only to the project cache (``bytecode_cache``),
+# never beside the sources; writes stay off until configure() enables the cache.
+if __name__ == "__main__" or sys.pycache_prefix is None:
+    sys.dont_write_bytecode = True
+import bytecode_cache  # noqa: E402
+
+if __name__ == "__main__":
+    bytecode_cache.configure()
+
+
 VERSION = "1.24.0+ppol"
 PACK_SHA256 = "77ca918696b3e481a4287eb253596dee4e84dbef46c98f70eda990eb7287b82a"
 FEATURE_SHA256 = "a1b1c8cf99f3e73bda380a791ff169f0586bd01f0a8405ae11369890659552b6"

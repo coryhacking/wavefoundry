@@ -45,6 +45,16 @@ from typing import Callable
 # read at call time by every read this module makes.
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+# Change 1zyv1: bytecode goes only to the project cache (``bytecode_cache``),
+# never beside the sources; writes stay off until configure() enables the cache.
+if __name__ == "__main__" or sys.pycache_prefix is None:
+    sys.dont_write_bytecode = True
+import bytecode_cache  # noqa: E402
+
+if __name__ == "__main__":
+    bytecode_cache.configure()
+
 from vendored_integrity import (  # noqa: E402,F401  re-exported
     ReadmeError,
     RegistryEntry,
@@ -103,7 +113,8 @@ class _RegistryRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
         if not _is_registry_url(newurl):
             fp.close()
-            raise FetchRefused(f"redirect left the registry: {newurl}")
+            # The target is server-supplied, so only the refusal class is named (wave 200xy).
+            raise FetchRefused("redirect left the registry")
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
@@ -126,12 +137,14 @@ def default_fetch(url: str) -> bytes:
         with _open(url) as response:
             final_url = response.geturl()
             if not _is_registry_url(final_url):
-                raise FetchRefused(f"redirect left the registry: {final_url}")
+                raise FetchRefused("redirect left the registry")
             body = response.read(MAX_TARBALL_BYTES + 1)
     except FetchError:
         raise
     except (OSError, ValueError) as exc:
-        raise FetchError(f"{type(exc).__name__}: {exc}") from exc
+        # The class only: an exception's text can carry server-supplied words (an HTTP reason
+        # phrase), so it is never printed (wave 200xy, change 200v1).
+        raise FetchError(type(exc).__name__) from exc
     if len(body) > MAX_TARBALL_BYTES:
         raise FetchRefused(f"tarball exceeds the size cap of {MAX_TARBALL_BYTES} bytes")
     return body

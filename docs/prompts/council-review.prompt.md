@@ -81,7 +81,7 @@ Synthesis must include:
 - `improvements_recommended`: concrete improvements regardless of verdict
 - Final verdict: **pass**, **pass with conditions**, or **blocked**
 
-When the review is used for `Prepare wave`, a declared wave records the machine authority as a typed `wave-council-readiness` approval event. Its `## Review Checkpoints` verdict may retain the structured `prepare-council` fields as narrative, but that prose never changes a declared wave's lifecycle outcome. A legacy wave still uses the structured verdict line as its compatibility gate.
+When the review is used for `Prepare wave`, a declared wave records the machine authority as a typed `council-readiness` approval event. Its `## Review Checkpoints` verdict may retain the structured `prepare-council` fields as narrative, but that prose never changes a declared wave's lifecycle outcome. A legacy wave still uses the structured verdict line as its compatibility gate.
 
 **Roster honesty:** the `seats:` field lists the seats *actually run*, each at most once — never paste the template's example roster verbatim. A rotating pick that is also a fixed seat appears once in `seats:` and is identified by the `rotating-seat:` field. Every listed seat (other than the `red-team` primer and the `wave-council` moderator) must have recorded evidence in the wave record — a finding or an explicit no-findings note in `## Prepare Review Evidence`, `## Review Evidence`, or a `## Review Checkpoints` entry other than the verdict line itself. docs-lint flags rostered seats with no recorded evidence: a seat named only inside its own verdict line does not self-certify.
 

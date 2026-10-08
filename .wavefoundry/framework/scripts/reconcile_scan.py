@@ -347,9 +347,10 @@ def _guru_description_hits(rel: str, text: str) -> Iterator[tuple[int, str]]:
 # ── Profile-renamed lifecycle prompts (wave 1zyb4, change 1zxnw) ─────────────
 #
 # Under a vocabulary profile that renames a tier-named lifecycle prompt, each
-# renamed key's default public path, agent path, skill name and shortcut-shaped
-# phrase (bold or backticked) is reported with the profile's name, and the bare
-# phrase on the guru agent's ``description:`` line too. A default token that
+# renamed key's default public path, agent path, skill name, and shortcut-shaped
+# shortcut and alias phrases (bold or backticked) are reported with the
+# profile's name (an alias with the key's current shortcut), and the bare
+# phrases on the guru agent's ``description:`` line too. A default token that
 # equals any current derived token (a chain reuses it) is never reported.
 # Under the default profile the table is empty.
 def _profile_prompt_name_tables() -> "tuple[tuple[tuple[re.Pattern[str], str, str], ...], tuple[tuple[re.Pattern[str], str, str], ...]]":
@@ -375,6 +376,8 @@ def _profile_prompt_name_tables() -> "tuple[tuple[tuple[re.Pattern[str], str, st
             (f"docs/prompts/agents/{slug}.prompt.md", vocabulary_profile.agent_prompt_doc(key), "path"),
             (f"wf-{slug}", vocabulary_profile.skill_name(key), "skill"),
             (default["shortcut"], vocabulary_profile.shortcut(key), "phrase"),
+            # Wave 200xy (200xx): each default alias suggests the current shortcut.
+            *((alias, vocabulary_profile.shortcut(key), "phrase") for alias in default["aliases"]),
         )
         for token, suggestion, kind in candidates:
             if token in current or token == suggestion:
@@ -465,6 +468,7 @@ _STATIC_EXCLUDED_DIRS: tuple[str, ...] = (
     "node_modules",
     ".wavefoundry/framework",  # the framework pack tree — its own source legitimately names them
     ".wavefoundry/index",      # generated/runtime semantic index artifacts
+    ".wavefoundry/cache",      # runtime caches, including the bytecode cache (change 1zyv1)
     ".wavefoundry/upgrade-assets",  # retained protocol-bridge payload/recovery artifacts
     "docs/reports",            # report history
     "docs/agents/memory",      # memory records quote history; the memory corpus has its own hygiene loop

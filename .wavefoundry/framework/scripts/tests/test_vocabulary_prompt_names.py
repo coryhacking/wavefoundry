@@ -223,6 +223,18 @@ for job in jobs:
         finally:
             pathlib.Path.unlink = original_unlink
         out.append({"result": result, "failed": failed})
+    elif action == "ensure_manifest":
+        import docs_gardener
+        _path, created = docs_gardener.ensure_manifest(root)
+        out.append({"created": created})
+    elif action == "render_without_skip":
+        # Today's behavior (wave 200xy, change 200xx): no path is skipped.
+        original_paths = ras.unrecorded_profile_prompt_paths
+        ras.unrecorded_profile_prompt_paths = lambda migration: frozenset()
+        try:
+            out.append(render(root))
+        finally:
+            ras.unrecorded_profile_prompt_paths = original_paths
     elif action == "scan":
         import reconcile_scan
         out.append([[f.file, f.line, f.retired_surface, f.matched, f.suggested]
@@ -859,6 +871,130 @@ class ProfileMigrationTests(unittest.TestCase):
         self.assertEqual([row for row in default_out if row[0] in ("docs/references/names.md",
                                                                    ".claude/agents/guru.md")], [])
 
+    def test_scan_reports_a_default_alias_but_not_current_names(self) -> None:
+        """AC-3 (wave 200xy, change 200xx): a bold or backticked default alias
+        is reported with the key's current shortcut; a current shortcut or a
+        current alias never is."""
+        root = self._copy(self.fixture, "scan-alias")
+        (root / "docs/references/aliases.md").write_text(
+            _authored("Aliases") + "\nSay **Ready wave** or `Ready wave`.\n"
+            "Say **Prepare set** or `Ready set`.\n",
+            encoding="utf-8")
+        guru = root / ".claude/agents/guru.md"
+        guru.parent.mkdir(parents=True, exist_ok=True)
+        guru.write_text("---\nname: guru\ndescription: Not for Ready wave or Ready set.\n---\n\nBody.\n",
+                        encoding="utf-8")
+        (out,), _ = _drive(self.profiled, [{"action": "scan", "root": str(root)}])
+        rows = [row for row in out if row[0] == "docs/references/aliases.md"]
+        self.assertIn(["docs/references/aliases.md", 9, "Ready wave", "**Ready wave**", "Prepare set"], rows)
+        self.assertIn(["docs/references/aliases.md", 9, "Ready wave", "`Ready wave`", "Prepare set"], rows)
+        self.assertEqual([row for row in rows if row[1] == 10], [])
+        guru_rows = [row for row in out if row[0] == ".claude/agents/guru.md"]
+        self.assertEqual(guru_rows, [[".claude/agents/guru.md", 3, "Ready wave (guru agent description)",
+                                      "Ready wave", "Prepare set"]])
+        (default_out,), _ = _drive(self.default, [{"action": "scan", "root": str(root)}])
+        self.assertEqual([row for row in default_out if row[0] in ("docs/references/aliases.md",
+                                                                   ".claude/agents/guru.md")], [])
+
+
+# ---------------------------------------------------------------------------
+# Wave 200xy (change 200xx): a fresh profiled install converges
+# ---------------------------------------------------------------------------
+
+def build_fresh_target(root: Path) -> Path:
+    """A target with no prompt-surface manifest and no mapped lifecycle prompt,
+    as a fresh install is when seed 050 first renders (before seed 012 step
+    2.9 writes the manifest)."""
+    shutil.copytree(DOCS_LINT_FIXTURE, root)
+    for host in (".claude", ".codex", ".agents"):
+        (root / host).mkdir()
+    prompts = root / "docs" / "prompts"
+    (prompts / "prompt-surface-manifest.json").unlink()
+    for slug in ("plan-change", "implement-change", "close-change"):
+        (prompts / f"{slug}.prompt.md").unlink()
+    return root
+
+
+def _mapped_profile_paths() -> "set[str]":
+    return {path for spec in OVERRIDES.values()
+            for path in _prompt_pair(spec["slug"])}
+
+
+def _prompt_pair(slug: str) -> "tuple[str, str]":
+    return f"docs/prompts/{slug}.prompt.md", f"docs/prompts/agents/{slug}.prompt.md"
+
+
+class FreshProfiledInstallTests(unittest.TestCase):
+    """AC-1 and AC-2: with no manifest record, no pass writes at a renamed
+    key's prompt paths; the render after the manifest exists materializes
+    them with the record, and the next render writes nothing."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.default, cls.profiled, base = _Trees.get()
+        cls.work = Path(tempfile.mkdtemp(dir=base))
+
+    def test_first_render_skips_profile_paths_and_the_sequence_converges(self) -> None:
+        root = build_fresh_target(self.work / "fresh-profiled")
+        before = _tree_digest(root)
+        (first,), first_err = _drive(self.profiled, [{"action": "render", "root": str(root)}])
+        self.assertNotIn("error", first)
+        after_first = _tree_digest(root)
+        new_files = {rel for rel in after_first if after_first.get(rel) != before.get(rel)}
+        self.assertTrue(new_files, "the first render wrote nothing at all")
+        self.assertEqual(new_files & _mapped_profile_paths(), set())
+        self.assertEqual(set(first["written"]) & _mapped_profile_paths(), set())
+        self.assertIn("were not materialized in this render", first_err)
+        self.assertIn("a rerun after the manifest exists creates them", first_err)
+        (created, second, third, constants), _ = _drive(self.profiled, [
+            {"action": "ensure_manifest", "root": str(root)},
+            {"action": "render", "root": str(root)},
+            {"action": "render", "root": str(root)},
+            {"action": "constants", "root": str(root)}])
+        self.assertEqual(created, {"created": True})
+        self.assertNotIn("error", second)
+        self.assertEqual(third, {"written": []})
+        destinations = [row[0] for row in constants["baselines"]]
+        for key in ("create-wave", "implement-wave", "prepare-wave", "review-wave", "close-wave",
+                    "close-change"):
+            self.assertIn(_prompt_pair(OVERRIDES[key]["slug"])[0], destinations)
+        for destination in destinations:
+            self.assertTrue((root / destination).is_file(), destination)
+        self.assertTrue((root / "docs/prompts/agents/review-set.prompt.md").is_file())
+        manifest = json.loads((root / "docs/prompts/prompt-surface-manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["prompt_names"], {key: spec["slug"] for key, spec in OVERRIDES.items()})
+
+    def test_a_guru_enabled_first_render_also_skips_profile_paths(self) -> None:
+        # With Guru available the render runs a second carrier reconciliation
+        # after the native wrappers; it must honor the same skip set.
+        root = build_fresh_target(self.work / "fresh-profiled-guru")
+        guru = root / "docs" / "agents" / "guru.md"
+        guru.parent.mkdir(parents=True, exist_ok=True)
+        guru.write_text("# Guru\n\nOwner: x\nStatus: active\nLast verified: 2026-01-01\n", encoding="utf-8")
+        before = _tree_digest(root)
+        (first,), _ = _drive(self.profiled, [{"action": "render", "root": str(root)}])
+        self.assertNotIn("error", first)
+        after_first = _tree_digest(root)
+        new_files = {rel for rel in after_first if after_first.get(rel) != before.get(rel)}
+        self.assertIn(".claude/agents/guru.md", new_files, "the Guru pass did not run")
+        self.assertEqual(new_files & _mapped_profile_paths(), set())
+        self.assertEqual(set(first["written"]) & _mapped_profile_paths(), set())
+
+    def test_default_profile_sequence_is_unchanged(self) -> None:
+        trees = {}
+        for action in ("render", "render_without_skip"):
+            root = build_fresh_target(self.work / f"fresh-default-{action}")
+            (first, created, second), _ = _drive(self.default, [
+                {"action": action, "root": str(root)},
+                {"action": "ensure_manifest", "root": str(root)},
+                {"action": action, "root": str(root)}])
+            self.assertNotIn("error", first)
+            self.assertNotIn("error", second)
+            self.assertEqual(created, {"created": True})
+            trees[action] = (first, second, _tree_digest(root))
+        self.assertEqual(trees["render"], trees["render_without_skip"])
+        self.assertIn("docs/prompts/prepare-wave.prompt.md", trees["render"][0]["written"])
+
 
 class AtomicPromptCopyTests(unittest.TestCase):
     """The prompt moves publish their copy whole or not at all."""
@@ -962,6 +1098,23 @@ class RetiredNameScanAliasTests(unittest.TestCase):
         # The retired path and skill name are still reported.
         self.assertIn("docs/prompts/prepare-wave.prompt.md", tokens)
         self.assertIn("wf-prepare-wave", tokens)
+        # Wave 200xy (200xx): a default alias kept as a current alias is
+        # current, so it is not reported either.
+        self.assertNotIn("Ready wave", tokens)
+
+    def test_a_default_alias_is_reported_with_the_current_shortcut(self) -> None:
+        import reconcile_scan
+
+        names = {key: dict(spec, aliases=list(spec["aliases"]))
+                 for key, spec in vocabulary_profile.DEFAULT_PROMPT_NAMES.items()}
+        names["prepare-wave"] = {"slug": "prepare-set", "shortcut": "Prepare set", "aliases": ["Ready set"]}
+        with mock.patch.object(vocabulary_profile, "PROMPT_NAMES", names):
+            patterns, guru = reconcile_scan._profile_prompt_name_tables()
+        self.assertIn(("Ready wave", "Prepare set"), {(token, suggestion) for _p, token, suggestion in patterns})
+        self.assertIn(("Ready wave", "Prepare set"), {(token, suggestion) for _p, token, suggestion in guru})
+        tokens = {token for _pattern, token, _suggestion in patterns}
+        self.assertNotIn("Ready set", tokens)
+        self.assertNotIn("Prepare set", tokens)
 
 
 # ---------------------------------------------------------------------------

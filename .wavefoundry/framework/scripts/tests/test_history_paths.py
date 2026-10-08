@@ -99,6 +99,27 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(completed.stdout.strip(), "['history_paths'] ('journals', 'snapshots')")
 
+    def test_history_paths_runs_without_sys_modules_registration(self):
+        # The upgrade preview executes history_paths unregistered (see
+        # ``upgrade_extensions._incoming_history_paths``): it keeps to imports
+        # that never look the module up in sys.modules, and it loads that way.
+        import importlib.util
+
+        tree = ast.parse((SCRIPTS_ROOT / "history_paths.py").read_text(encoding="utf-8"))
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported |= {a.name.split(".")[0] for a in node.names}
+            elif isinstance(node, ast.ImportFrom):
+                imported.add((node.module or "").split(".")[0])
+        self.assertLessEqual(imported, {"__future__", "pathlib"})
+        spec = importlib.util.spec_from_file_location("_unregistered_history_paths",
+                                                      SCRIPTS_ROOT / "history_paths.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertNotIn("_unregistered_history_paths", sys.modules)
+        self.assertTrue(module.is_history_path("docs/agents/journals/x.md"))
+
     def test_upgrade_sites_import_inside_the_function_after_the_path_insert(self):
         tree = ast.parse((SCRIPTS_ROOT / "upgrade_extensions.py").read_text(encoding="utf-8"))
         for node in tree.body:
@@ -108,24 +129,56 @@ class HelperTests(unittest.TestCase):
         functions = {
             node.name: node for node in tree.body
             if isinstance(node, ast.FunctionDef)
-            and node.name in ("_backfill_role_field_on_agent_docs", "_preview_role_field_backfill")
+            and node.name in ("_backfill_role_field_on_agent_docs", "_preview_role_field_backfill",
+                              "_incoming_history_paths")
         }
-        self.assertEqual(len(functions), 2)
+        self.assertEqual(len(functions), 3)
+        # Wave 200xy (200v2): the preview takes the predicate from the
+        # incoming framework, never from the target's tree: no sys.path
+        # insert and no history_paths import in the preview or its loader,
+        # and the loader never registers the module in sys.modules.
+        for name in ("_preview_role_field_backfill", "_incoming_history_paths"):
+            for node in ast.walk(functions[name]):
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    names = [a.name for a in node.names] + [getattr(node, "module", None) or ""]
+                    self.assertNotIn("history_paths", names, name)
+                self.assertFalse(
+                    isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in ("insert", "append") and ast.unparse(node.func.value) == "sys.path",
+                    f"{name} must not put the target's scripts on sys.path",
+                )
+                self.assertFalse(
+                    isinstance(node, ast.Subscript) and ast.unparse(node.value) == "sys.modules",
+                    f"{name} must not register the incoming module",
+                )
+        preview_calls = [
+            node for node in ast.walk(functions["_preview_role_field_backfill"])
+            if isinstance(node, ast.Call) and ast.unparse(node.func) == "_incoming_history_paths"
+        ]
+        self.assertEqual(len(preview_calls), 1, "the preview loads the incoming module")
+        loader = ast.unparse(functions["_incoming_history_paths"])
+        self.assertIn("spec_from_file_location", loader)
+        self.assertIn("with_name('history_paths.py')", loader)
+        self.assertIn("ZipFile(zip_path", loader)
         for name, function in functions.items():
-            insert_line = import_line = None
             for node in ast.walk(function):
-                if isinstance(node, ast.ImportFrom) and node.module == "history_paths":
-                    import_line = node.lineno
-                if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                        and node.func.attr == "insert" and ast.unparse(node.func.value) == "sys.path"):
-                    insert_line = node.lineno
                 self.assertFalse(
                     isinstance(node, ast.Attribute) and ast.unparse(node.value) == "record_paths",
                     f"{name} must not reach history through record_paths",
                 )
-            self.assertIsNotNone(import_line, name)
-            self.assertIsNotNone(insert_line, name)
-            self.assertLess(insert_line, import_line, name)
+        # The real backfill runs after extraction, so it keeps importing the
+        # (then incoming) module from the target's scripts directory.
+        name = "_backfill_role_field_on_agent_docs"
+        insert_line = import_line = None
+        for node in ast.walk(functions[name]):
+            if isinstance(node, ast.ImportFrom) and node.module == "history_paths":
+                import_line = node.lineno
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "insert" and ast.unparse(node.func.value) == "sys.path"):
+                insert_line = node.lineno
+        self.assertIsNotNone(import_line, name)
+        self.assertIsNotNone(insert_line, name)
+        self.assertLess(insert_line, import_line, name)
 
 
 class ContractDocTests(unittest.TestCase):

@@ -751,6 +751,148 @@ class RecordLockMechanismTests(unittest.TestCase):
             self.assertEqual(lock.mechanism, "flock")
 
 
+# Wave 200xy (200v2): Linux OFD evidence. The machines the Linux class runs
+# on, as ``os.uname().machine`` reports them there.
+_LINUX_OFD_MACHINES = ("x86_64", "aarch64")
+
+
+def _linux_ofd_host() -> bool:
+    """Linux on x86_64 or aarch64: where Requirement 5's class must run."""
+    if not sys.platform.startswith("linux"):
+        return False
+    try:
+        return os.uname().machine.lower() in _LINUX_OFD_MACHINES
+    except (AttributeError, OSError):
+        return False
+
+
+def _ofd_getlk(fcntl_module, layout, path: Path, offset: int = _SENTINEL) -> "tuple[dict, dict]":
+    """``F_OFD_GETLK`` for one byte through a separate open file description.
+
+    The input ``struct flock`` sets ``l_pid = 0``, which ``F_OFD_GETLK``
+    requires (a non-zero input ``l_pid`` is rejected with ``EINVAL``).
+    Returns the input fields and the reported fields.
+    """
+    request = rl.pack_flock(layout, l_type=fcntl_module.F_WRLCK, l_start=offset, l_len=1, l_pid=0)
+    fd = os.open(path, os.O_RDWR)
+    try:
+        reported = fcntl_module.fcntl(fd, fcntl_module.F_OFD_GETLK, request)
+    finally:
+        os.close(fd)
+    return rl.unpack_flock(layout, request), rl.unpack_flock(layout, reported)
+
+
+class _OfdHolderAssertions:
+    def assert_ofd_holder(self, fcntl_module, layout, path: Path) -> None:
+        """The held byte is reported as an OFD write lock: ``l_pid == -1``."""
+        sent, holder = _ofd_getlk(fcntl_module, layout, path)
+        self.assertEqual(sent["l_pid"], 0, "F_OFD_GETLK input must set l_pid = 0")
+        self.assertEqual(holder["l_type"], fcntl_module.F_WRLCK, holder)
+        self.assertEqual(holder["l_pid"], -1, holder)
+        self.assertEqual((holder["l_start"], holder["l_len"]), (_SENTINEL, 1), holder)
+
+
+@unittest.skipUnless(_linux_ofd_host(), "Linux x86_64 or aarch64 only (wave 200xy, 200v2)")
+class LinuxOfdEvidenceTests(_OfdHolderAssertions, unittest.TestCase):
+    """Wave 200xy (200v2) Requirement 5: on Linux the OFD tests run rather
+    than skip, and a held record lock is an OFD lock."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name) / ".wavefoundry" / "record.lock"
+
+    def test_ofd_tests_run_rather_than_skip(self) -> None:
+        self.assertTrue(_ofd_expected(), "the OFD tests in RecordLockMechanismTests would skip here")
+
+    def test_held_byte_reports_an_ofd_holder(self) -> None:
+        import fcntl
+
+        lock = rl.RuntimeFileLock(self.path, offset=_SENTINEL, style="record").acquire()
+        try:
+            self.assertEqual(lock.mechanism, "ofd")
+            self.assert_ofd_holder(fcntl, rl.flock_layout(), self.path)
+        finally:
+            lock.release()
+
+
+class LinuxOfdEvidenceProbeTests(_OfdHolderAssertions, unittest.TestCase):
+    """Wave 200xy (200v2) AC-5: runs on every host. A simulated ``fcntl``
+    proves the Linux class's assertions fail on a wrong-shape holder record
+    and its skip condition selects Linux x86_64 and aarch64 only."""
+
+    LAYOUT = rl._FLOCK_LAYOUTS["linux"]
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name) / "record.lock"
+        self.path.write_bytes(b"")
+
+    def _fake(self, **reported) -> "tuple[types.SimpleNamespace, list]":
+        """Linux constants; F_OFD_GETLK answers with ``reported`` fields and,
+        like the kernel, rejects a non-zero input ``l_pid`` with EINVAL."""
+        sent: list = []
+        fields = {"l_type": 1, "l_start": _SENTINEL, "l_len": 1, "l_pid": -1, **reported}
+        fake = types.SimpleNamespace(F_RDLCK=0, F_WRLCK=1, F_UNLCK=2, F_OFD_GETLK=36)
+
+        def fcntl_call(fd, cmd, arg):
+            self.assertEqual(cmd, 36)
+            sent.append(rl.unpack_flock(self.LAYOUT, arg))
+            if sent[-1]["l_pid"] != 0:
+                raise OSError(errno.EINVAL, os.strerror(errno.EINVAL))
+            return rl.pack_flock(self.LAYOUT, **fields)
+
+        fake.fcntl = fcntl_call
+        return fake, sent
+
+    def test_ofd_shaped_record_passes_and_the_input_l_pid_is_zero(self) -> None:
+        fake, sent = self._fake()
+        self.assert_ofd_holder(fake, self.LAYOUT, self.path)
+        self.assertEqual([record["l_pid"] for record in sent], [0])
+
+    def test_wrong_shape_holder_records_fail_the_assertions(self) -> None:
+        wrong = {
+            "classic lock holder (real pid)": {"l_pid": 4242},
+            "no holder": {"l_type": 2, "l_pid": 0},
+            "read lock": {"l_type": 0},
+            "other byte": {"l_start": _SENTINEL + 1},
+        }
+        for label, fields in wrong.items():
+            with self.subTest(label):
+                fake, _sent = self._fake(**fields)
+                with self.assertRaises(AssertionError):
+                    self.assert_ofd_holder(fake, self.LAYOUT, self.path)
+
+    @unittest.skipUnless(_ofd_expected(), "no F_OFD_* constants or unknown struct flock layout here")
+    def test_a_held_record_lock_reports_an_ofd_holder_through_real_fcntl(self) -> None:
+        # Wherever the OFD conditions hold (Linux, and macOS with F_OFD_*), the
+        # same assertion runs against the real kernel rather than the fake.
+        import fcntl
+
+        lock = rl.RuntimeFileLock(self.path, offset=_SENTINEL, style="record").acquire()
+        try:
+            self.assertEqual(lock.mechanism, "ofd")
+            self.assert_ofd_holder(fcntl, rl.flock_layout(), self.path)
+        finally:
+            lock.release()
+
+    def test_skip_condition_selects_linux_x86_64_and_aarch64_only(self) -> None:
+        cases = {
+            ("linux", "x86_64"): True,
+            ("linux", "aarch64"): True,
+            ("linux", "riscv64"): False,
+            ("darwin", "arm64"): False,
+            ("darwin", "x86_64"): False,
+            ("win32", "AMD64"): False,
+        }
+        for (platform, machine), expected in cases.items():
+            with self.subTest(platform=platform, machine=machine), \
+                    patch.object(sys, "platform", platform), \
+                    patch.object(os, "uname", return_value=types.SimpleNamespace(machine=machine), create=True):
+                self.assertIs(_linux_ofd_host(), expected)
+
+
 class _FcntlTripwire(types.ModuleType):
     """Fails on any attribute read: the Windows branch must not touch ``fcntl``."""
 

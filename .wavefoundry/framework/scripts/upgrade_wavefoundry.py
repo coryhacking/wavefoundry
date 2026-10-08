@@ -55,6 +55,15 @@ BIN_DIR = FRAMEWORK_DIR / "bin"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
+# Change 1zyv1: bytecode goes only to the project cache (``bytecode_cache``),
+# never beside the sources; writes stay off until configure() enables the cache.
+if __name__ == "__main__" or sys.pycache_prefix is None:
+    sys.dont_write_bytecode = True
+import bytecode_cache  # noqa: E402
+
+if __name__ == "__main__":
+    bytecode_cache.configure()
+
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
@@ -865,10 +874,18 @@ def _read_graph_builder_version_from_pack(root: Path) -> str:
 # deliberately stdlib-only and import-light. Same pattern as
 # `_verify_storage_publication`. The probe imports the INSTALLED framework's
 # own graph module, so a pre-rename install reads its own old state layout.
+# Change 1zyv1: the flag comes first so no ``__pycache__`` lands beside those
+# sources; an install that predates ``bytecode_cache`` simply stays uncached.
 _GRAPH_BUILDER_PROBE = (
-    "import sys, pathlib;"
-    "sys.path.insert(0, sys.argv[1]);"
-    "import graph_indexer;"
+    "import sys, pathlib\n"
+    "sys.dont_write_bytecode = True\n"
+    "sys.path.insert(0, sys.argv[1])\n"
+    "try:\n"
+    "    import bytecode_cache\n"
+    "    bytecode_cache.configure()\n"
+    "except ImportError:\n"
+    "    pass\n"
+    "import graph_indexer\n"
     "sys.stdout.write(graph_indexer.read_state_builder_version("
     "pathlib.Path(sys.argv[2]) / '.wavefoundry' / 'index'))"
 )

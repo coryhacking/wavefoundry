@@ -11,11 +11,19 @@ import threading
 from pathlib import Path
 from typing import Any, Optional
 
-sys.dont_write_bytecode = True
+# Change 1zyv1: bytecode goes only to the project cache (``bytecode_cache``),
+# never beside the sources; writes stay off until configure() enables the cache.
+if __name__ == "__main__" or sys.pycache_prefix is None:
+    sys.dont_write_bytecode = True
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
+
+import bytecode_cache  # noqa: E402
+
+if __name__ == "__main__":
+    bytecode_cache.configure()
 
 import repo_root
 import setup_readiness
@@ -650,8 +658,16 @@ def perform_mcp_reload(*, notify: str = "schedule") -> dict[str, Any]:
             if _key.startswith("wave_lint_lib"):
                 del _sys.modules[_key]
         # Only a reload that compiled the source it read may mark that source current.
-        before_reload = _reloaded_source_digests() if _discard_reloaded_bytecode(server_impl) else {}
-        server_impl = importlib.reload(server_impl)
+        # Change 1zyv1: the reload runs with bytecode writes off (restored after);
+        # with the project cache's writes on it would write a fresh ``.pyc`` into
+        # the prefix, and the check below would then stop recording identity.
+        saved_dont_write_bytecode = sys.dont_write_bytecode
+        sys.dont_write_bytecode = True
+        try:
+            before_reload = _reloaded_source_digests() if _discard_reloaded_bytecode(server_impl) else {}
+            server_impl = importlib.reload(server_impl)
+        finally:
+            sys.dont_write_bytecode = saved_dont_write_bytecode
         # The reloaded spec may name a different cache (a changed pycache prefix), and
         # another process may have written one meanwhile; either makes the executed
         # bytes unknown, so record nothing.

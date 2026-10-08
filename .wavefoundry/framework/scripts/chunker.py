@@ -18,7 +18,10 @@ from typing import Callable, Optional
 _log = logging.getLogger(__name__)
 
 
-sys.dont_write_bytecode = True
+# Change 1zyv1: a library never turns bytecode writes on, and leaves an entry's
+# project cache (``bytecode_cache``) alone; with no prefix active it keeps them off.
+if sys.pycache_prefix is None:
+    sys.dont_write_bytecode = True
 
 # ---------------------------------------------------------------------------
 # Tree-sitter lazy loader — optional; falls back to regex chunkers if absent

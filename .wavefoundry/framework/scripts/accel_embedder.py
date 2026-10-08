@@ -136,8 +136,14 @@ def _run_tree_kill(cmd, **kwargs):
 # activated in-process (venv_bootstrap, ADR 1p7pb tier 3), so a child started
 # from ``sys.executable`` must activate the venv itself before importing any
 # third-party package. Without this prelude the probe failed on every system
-# Python lacking numpy and setup silently fell back to the CPU.
+# Python lacking numpy and setup silently fell back to the CPU. Change 1zyv1: the
+# child is an entry, so it sets the bytecode flag and configures the project cache
+# before its first framework import (never ``__pycache__`` beside the sources).
 _COREML_STATIC_PROBE_PRELUDE = """\
+import sys
+sys.dont_write_bytecode = True
+import bytecode_cache
+bytecode_cache.configure()
 import venv_bootstrap
 venv_bootstrap.activate_tool_venv()
 """

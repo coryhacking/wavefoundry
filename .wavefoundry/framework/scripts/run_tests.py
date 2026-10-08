@@ -156,6 +156,38 @@ _FILE_TIMEOUT_SECONDS = 600
 # Benchmark-only schedule-control modes (Requirement 4 of 1tm6d).
 _SCHEDULE_MODES = ("bootstrap", "alphabetical", "timing")
 
+# Change 1zyv1: the project bytecode cache (``bytecode_cache``). ``main()`` sets
+# the prefix this run hands its workers, warm-up and profile child; it stays
+# ``None`` when the cache was refused or the layout is absent, and importing this
+# module never sets it (the close gate borrows the runner in-process).
+_BYTECODE_PREFIX_ENV = "PYTHONPYCACHEPREFIX"
+_BYTECODE_PREFIX: "str | None" = None
+_BYTECODE_WARM_TIMEOUT_SECONDS = 900
+# Whether the warm-up also compiles each interpreter's stdlib, purelib and
+# platlib. A prefix makes Python ignore the installation's own ``__pycache__``,
+# so read-only workers with a cold prefix would recompile the standard library;
+# only a fixture runner in a test turns this off.
+_BYTECODE_WARM_INSTALLATION = True
+# Compiles the framework scripts directory (argv[1]) and, when argv[2] is "1",
+# the interpreter's stdlib (minus test and GUI packages), purelib and platlib,
+# into the prefix named by PYTHONPYCACHEPREFIX.
+_BYTECODE_WARM_CODE = (
+    "import compileall, os, re, sys, sysconfig\n"
+    "targets = [(sys.argv[1], None)]\n"
+    "if sys.argv[2] == '1':\n"
+    "    paths = sysconfig.get_paths()\n"
+    "    std = paths.get('stdlib') or ''\n"
+    "    skip = re.compile(re.escape(os.path.join(std, '')) + "
+    "r'(?:test|idlelib|turtledemo|tkinter|site-packages)[\\\\/]')\n"
+    "    targets += [(std, skip), (paths.get('purelib'), None), (paths.get('platlib'), None)]\n"
+    "seen = set()\n"
+    "for path, rx in targets:\n"
+    "    if not path or path in seen or not os.path.isdir(path):\n"
+    "        continue\n"
+    "    seen.add(path)\n"
+    "    compileall.compile_dir(path, quiet=2, rx=rx, workers=0)\n"
+)
+
 _USAGE = """usage: run_tests.py [--no-cache | --file NAME ... | --profile NAME [--file NAME ...]
                     | --schedule-control MODE --timings-file PATH]
 
@@ -892,6 +924,9 @@ def _run_file(file_path: Path) -> FileResult:
     # environment variable also reaches every Python child a test spawns, so
     # none of them writes ``__pycache__`` into the repository.
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    # Change 1zyv1: read-only workers read the warmed project cache; the prefix
+    # is passed only when this run's configure() left one active.
+    _apply_bytecode_prefix(env)
     start = time.monotonic()
     try:
         result = subprocess.run(
@@ -932,6 +967,75 @@ def _run_file(file_path: Path) -> FileResult:
         count = 0
         skipped = 0
     return FileResult(file_path.name, rc, output, count, elapsed, skipped)
+
+
+def _apply_bytecode_prefix(env: dict) -> dict:
+    """Set ``PYTHONPYCACHEPREFIX`` in a child environment to this run's active
+    prefix, or remove it when none is active (change 1zyv1)."""
+    if _BYTECODE_PREFIX:
+        env[_BYTECODE_PREFIX_ENV] = _BYTECODE_PREFIX
+    else:
+        env.pop(_BYTECODE_PREFIX_ENV, None)
+    return env
+
+
+def _configure_bytecode_cache() -> "tuple[str | None, bool]":
+    """Configure this run's bytecode cache: ``(active prefix or None, top_level)``.
+
+    An inherited ``PYTHONPYCACHEPREFIX`` is set only by a parent run, so it marks
+    a child (a second-profile copy): the child reuses that prefix read-only and
+    does no warm-up and no temp-mirror cleanup. A top-level run, including
+    ``python3 -B run_tests.py``, configures with the runner's authority, so it
+    still flushes on a changed framework version and warms the cache.
+    """
+    import bytecode_cache
+
+    if os.environ.get(_BYTECODE_PREFIX_ENV):
+        return bytecode_cache.configure(read_only=True), False
+    return bytecode_cache.configure(runner=True), True
+
+
+def _warm_interpreters() -> "list[str]":
+    """The worker interpreter, this runner's interpreter, and ``$PYTHON`` when set."""
+    found = [_test_runner_python(), sys.executable, os.environ.get("PYTHON") or ""]
+    return [python for python in dict.fromkeys(found) if python]
+
+
+def _warm_bytecode_cache(prefix: str) -> None:
+    """Compile into ``prefix`` before read-only workers start (change 1zyv1).
+
+    One child per interpreter, launched without ``-B`` and without
+    ``PYTHONDONTWRITEBYTECODE`` so it writes even when this runner was started
+    with ``-B``. A failure or timeout costs speed only and is reported."""
+    env = subprocess_util.utf8_child_env(dict(os.environ))
+    env.pop("PYTHONDONTWRITEBYTECODE", None)
+    env[_BYTECODE_PREFIX_ENV] = prefix
+    scope = "1" if _BYTECODE_WARM_INSTALLATION else "0"
+    start = time.monotonic()
+    for python in _warm_interpreters():
+        try:
+            done = _run_tree_kill(
+                [python, "-c", _BYTECODE_WARM_CODE, str(_SCRIPT_DIR), scope],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                env=env, timeout=_BYTECODE_WARM_TIMEOUT_SECONDS,
+            )
+            if done.returncode != 0:
+                print(f"run_tests: bytecode cache warm-up exited {done.returncode} for {python}; "
+                      "continuing uncached for what it missed.", file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001 - warming is an optimization
+            print(f"run_tests: bytecode cache warm-up failed for {python} "
+                  f"({type(exc).__name__}); continuing.", file=sys.stderr)
+    print(f"Bytecode cache warm ({time.monotonic() - start:.1f}s).", flush=True)
+
+
+def _remove_bytecode_temp_mirrors(prefix: str) -> None:
+    """Remove the cache's mirrors of the temporary directory (both spellings)."""
+    try:
+        import bytecode_cache
+
+        bytecode_cache.remove_temp_mirrors(prefix)
+    except Exception:  # noqa: BLE001 - cleanup is best effort
+        pass
 
 
 def _schedule_order(test_files: list[Path], durations: dict[str, float], mode: str) -> list[Path]:
@@ -1288,6 +1392,9 @@ def _child_runner_env(profile_env: "dict[str, str] | None" = None) -> dict:
     the run applied."""
     env = subprocess_util.utf8_child_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    # Change 1zyv1: the copy's runner reuses this run's warm prefix read-only;
+    # the inherited variable marks it as a child (no warm-up, no cleanup).
+    _apply_bytecode_prefix(env)
     env.update(profile_env or {})
     return env
 
@@ -1468,6 +1575,21 @@ def main() -> int:
         print(_USAGE, end="")
         return 0
 
+    # Change 1zyv1: configure here, never at import (the close gate borrows this
+    # module in-process). A top-level run warms the cache and prunes its temp
+    # mirrors; a child reuses the inherited prefix and does neither.
+    global _BYTECODE_PREFIX
+    _BYTECODE_PREFIX, top_level = _configure_bytecode_cache()
+    if top_level and _BYTECODE_PREFIX:
+        _warm_bytecode_cache(_BYTECODE_PREFIX)
+    try:
+        return _main(opts)
+    finally:
+        if top_level and _BYTECODE_PREFIX:
+            _remove_bytecode_temp_mirrors(_BYTECODE_PREFIX)
+
+
+def _main(opts: dict) -> int:
     if opts["profile"] is not None:
         return _run_profile(opts["profile"], opts["files"])
 

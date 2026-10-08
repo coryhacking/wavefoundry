@@ -24,6 +24,18 @@ import hashlib
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+import sys  # noqa: E402
+
+# Change 1zyv1: bytecode goes only to the project cache (``bytecode_cache``),
+# never beside the sources; writes stay off until configure() enables the cache.
+if __name__ == "__main__" or sys.pycache_prefix is None:
+    sys.dont_write_bytecode = True
+import bytecode_cache  # noqa: E402
+
+if __name__ == "__main__":
+    bytecode_cache.configure()
+
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 from typing import Any, Callable, Iterable, Mapping, Optional
 from runtime_lock import RuntimeFileLock, RuntimeLockBusy, RuntimeLockError

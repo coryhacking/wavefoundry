@@ -24,6 +24,50 @@ import subprocess_util  # noqa: E402
 import lifecycle_id  # noqa: E402  — wave 1p8l0: lifecycle-backed `<prefix>-sec` finding IDs
 from machine_authority import is_machine_authority_path  # noqa: E402
 from scanner_skips import is_recordable_path, update_scanner_skips  # noqa: E402
+import stat  # noqa: E402
+
+from .helpers import (  # noqa: E402
+    RECORD_CAUSE_LINK,
+    RECORD_CAUSE_UNREADABLE,
+    _refusal_cause,
+    is_record_document,
+)
+
+# Wave 200xy (200v1): the skip reason for a record document (a ``*.md`` entry
+# under the waves or plans root) that the member-doc read rule refuses. The
+# detail is a path-free cause class.
+RECORD_REFUSED_SKIP_REASON = "record document refused"
+
+# Record documents the file-set filter dropped because ``lstat`` did not show a
+# regular file: repository-relative path -> cause class. Reset at the start of
+# each check_hardcoded_secrets run, which surfaces each entry through the skip
+# channel; ``cli`` reads it for docs-lint's own one-report registry.
+_FILESET_REFUSED: dict[str, str] = {}
+
+
+def fileset_refusals() -> dict[str, str]:
+    """The record documents the file-set filter dropped since the last reset."""
+    return dict(_FILESET_REFUSED)
+
+
+def _fileset_admits(root: Path, p: Path, rel: str) -> bool:
+    """The file-set filter. A record document is admitted only when ``lstat``
+    shows a regular file (a link or special file is never followed; it is
+    recorded in ``_FILESET_REFUSED``); any other path keeps the following
+    ``exists()``/``is_file()`` check."""
+    if is_record_document(root, p):
+        try:
+            st = os.lstat(p)
+        except FileNotFoundError:
+            return False
+        except OSError:
+            _FILESET_REFUSED.setdefault(rel, RECORD_CAUSE_UNREADABLE)
+            return False
+        if stat.S_ISREG(st.st_mode):
+            return True
+        _FILESET_REFUSED.setdefault(rel, RECORD_CAUSE_LINK)
+        return False
+    return p.exists() and p.is_file()
 
 _INLINE_SUPPRESS_RE = re.compile(r"#\s*wavefoundry-ignore:\s*secrets(.*)")
 
@@ -127,6 +171,10 @@ def is_wavefoundry_lock_path(rel_path: str) -> bool:
 
 
 def _get_changed_files(root: Path) -> list[Path]:
+    # Wave 200xy (200v1): this listing repopulates the file-set refusals, so it
+    # resets them first; a repeated in-process ``--changed`` run (which reads
+    # them before check_hardcoded_secrets) never reports a stale refusal.
+    _FILESET_REFUSED.clear()
     # Tracked files changed since HEAD (staged + unstaged)
     changed = subprocess_util.isolated_run(
         ["git", "diff", "--name-only", "HEAD"],
@@ -145,7 +193,7 @@ def _get_changed_files(root: Path) -> list[Path]:
         line = line.strip()
         if line and not is_wavefoundry_lock_path(line):
             p = root / line
-            if p.exists() and p.is_file() and p not in seen:
+            if p not in seen and _fileset_admits(root, p, line):
                 seen.add(p)
                 paths.append(p)
     return paths
@@ -204,7 +252,8 @@ def _get_all_files(root: Path) -> list[Path]:
         walked = [
             p for p in root.rglob("*")
             if not is_wavefoundry_lock_path(p.relative_to(root).as_posix())
-            and p.is_file() and ".git" not in p.parts
+            and ".git" not in p.parts
+            and _fileset_admits(root, p, p.relative_to(root).as_posix())
             and (not exclude_machine_authority or not is_machine_authority_path(p.relative_to(root).as_posix(), root))
         ]
         return _filter_gitignored(root, walked)
@@ -219,7 +268,7 @@ def _get_all_files(root: Path) -> list[Path]:
         line = line.strip()
         if line and not is_wavefoundry_lock_path(line):
             p = root / line
-            if p.exists() and p.is_file() and p not in seen:
+            if p not in seen and _fileset_admits(root, p, line):
                 seen.add(p)
                 paths.append(p)
     return paths
@@ -1010,11 +1059,11 @@ def _worker_init_secrets_scanner(
         pass
 
 
-def _scan_with_outcome(*args, return_cost: bool = False) -> tuple:
+def _scan_with_outcome(*args, return_cost: bool = False, record_root: Path | None = None) -> tuple:
     """Internal transport; the public raw scanner still returns three values."""
     before_skips, before_costs = len(_SCANNER_SKIPS), len(_SCANNER_COSTS)
     outcome = {"complete": False}
-    result = scan_file_raw(*args, _outcome=outcome)
+    result = scan_file_raw(*args, _outcome=outcome, record_root=record_root)
     outcome["skips"] = _SCANNER_SKIPS[before_skips:]
     cost = (
         _SCANNER_COSTS[-1]
@@ -1024,8 +1073,13 @@ def _scan_with_outcome(*args, return_cost: bool = False) -> tuple:
 
 
 def _scan_file_secrets_worker(args: tuple) -> tuple:
-    """Worker task: scan one file using initializer-compiled globals."""
-    file_path_str, rel = args
+    """Worker task: scan one file using initializer-compiled globals.
+
+    ``args`` is ``(path, rel)`` or ``(path, rel, record_root)``; the record root
+    (wave 200xy, 200v1) is set for a record document, read through the
+    member-doc rule."""
+    file_path_str, rel = args[0], args[1]
+    record_root_str = args[2] if len(args) > 2 else None
     from pathlib import Path as _Path
     return _scan_with_outcome(
         _Path(file_path_str), rel,
@@ -1036,6 +1090,7 @@ def _scan_file_secrets_worker(args: tuple) -> tuple:
         _WORKER_GLOBAL_REGEXES,
         _WORKER_GLOBAL_STOPWORDS,
         return_cost=True,
+        record_root=_Path(record_root_str) if record_root_str else None,
     )
 
 
@@ -1099,6 +1154,7 @@ def scan_file_raw(
     global_stopwords: list[str] | None = None,
     *,
     _outcome: dict | None = None,
+    record_root: Path | None = None,
 ) -> tuple[list[str], str | None, list[dict]]:
     """Scan a single file for raw rule hits and process-local instrumentation.
 
@@ -1109,6 +1165,12 @@ def scan_file_raw(
     Cleanly suppressed lines (wavefoundry-ignore with a reason) are excluded entirely.
     The internal outcome distinguishes complete empty text from skipped/unreadable
     candidates without changing the three-value return contract.
+
+    ``record_root`` (wave 200xy, 200v1): set when ``file_path`` is a record
+    document; it is then probed with ``lstat`` (never a following ``stat``),
+    the size guard runs on that ``lstat`` before any read, and the bytes come
+    from the member-doc rule. A refusal is surfaced through the skip channel
+    with a path-free cause class and never yields text.
     """
     if _outcome is not None:
         _outcome["complete"] = False
@@ -1124,15 +1186,43 @@ def scan_file_raw(
     # Wave 1p44s — input guards BEFORE reading the file. Each returns the same
     # ([], None, []) shape as a clean skip so phase-2 short-circuits without a
     # stale-exception sweep (AC-5). Size/binary skips are surfaced (AC-9).
-    try:
-        size = file_path.stat().st_size
-    except OSError:
-        return [], None, []  # vanished mid-scan (stat race) — treat as a clean skip
+    record_data: bytes | None = None
+    if record_root is not None:
+        try:
+            entry = os.lstat(file_path)
+        except FileNotFoundError:
+            return [], None, []  # vanished mid-scan: treat as a clean skip
+        except OSError:
+            _record_scan_skip(rel, RECORD_REFUSED_SKIP_REASON, RECORD_CAUSE_UNREADABLE)
+            return [], None, []
+        if not stat.S_ISREG(entry.st_mode):
+            _record_scan_skip(rel, RECORD_REFUSED_SKIP_REASON, RECORD_CAUSE_LINK)
+            return [], None, []
+        size = entry.st_size
+    else:
+        try:
+            size = file_path.stat().st_size
+        except OSError:
+            return [], None, []  # vanished mid-scan (stat race) — treat as a clean skip
     if size > MAX_FILE_BYTES:
         _record_scan_skip(rel, "file too large", f"{size} bytes > {MAX_FILE_BYTES} cap")
         return [], None, []
+    if record_root is not None:
+        from lifecycle_gate_support import MemberDocRefused, _read_member_doc_bytes
+
+        try:
+            record_data = _read_member_doc_bytes(file_path.parent, file_path, root=record_root)
+        except MemberDocRefused as exc:
+            _record_scan_skip(rel, RECORD_REFUSED_SKIP_REASON, _refusal_cause(exc))
+            return [], None, []
+        except FileNotFoundError:
+            return [], None, []  # disappeared between lstat and read: clean skip
+        except OSError:
+            _record_scan_skip(rel, RECORD_REFUSED_SKIP_REASON, RECORD_CAUSE_UNREADABLE)
+            return [], None, []
     try:
-        if b"\x00" in file_path.read_bytes()[:BINARY_SNIFF_BYTES]:
+        head = record_data if record_data is not None else file_path.read_bytes()
+        if b"\x00" in head[:BINARY_SNIFF_BYTES]:
             _record_scan_skip(
                 rel, "binary file", f"NUL byte in first {BINARY_SNIFF_BYTES} bytes"
             )
@@ -1140,7 +1230,10 @@ def scan_file_raw(
     except OSError:
         return [], None, []  # disappeared between stat and read — clean skip
     try:
-        content = file_path.read_text(encoding="utf-8", errors="replace")
+        if record_data is not None:
+            content = record_data.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+        else:
+            content = file_path.read_text(encoding="utf-8", errors="replace")
     except Exception:
         return [], None, []
 
@@ -1152,7 +1245,13 @@ def scan_file_raw(
             f"{len(long_lines)} line(s) over {MAX_LINE_BYTES} characters; first at {long_lines[0]}",
         )
     content_lower = content.lower()
-    file_sha256 = _sha256_file(file_path) if framework_allowlist else None
+    if not framework_allowlist:
+        file_sha256 = None
+    elif record_data is not None:
+        # The bytes already read under the member-doc rule, hashed as _sha256_file does.
+        file_sha256 = hashlib.sha256(record_data.replace(b"\r\n", b"\n")).hexdigest()
+    else:
+        file_sha256 = _sha256_file(file_path)
     # Wave 1p44w — policy flag a rule filter can read via attributes. Default off
     # ("") so an expired JWT still SURFACES; an opt-in policy enables suppression.
     _jwt_suppress = "1" if policy and policy.get("suppress_expired_jwts") else ""
@@ -1483,6 +1582,7 @@ def check_hardcoded_secrets(
     _SCANNER_SKIPS.clear()
     _SCANNER_COSTS.clear()  # wave 1x4ol
     _SCANNER_SKIPS_UNPUBLISHED.clear()  # wave 1x5tr
+    _FILESET_REFUSED.clear()  # wave 200xy (200v1)
 
     rules, policy, load_errors = load_merged_ruleset(root)
     if load_errors:
@@ -1613,6 +1713,8 @@ def check_hardcoded_secrets(
 
     # Build (file_path, rel) pairs, filtering non-existent and out-of-root paths.
     file_scan_list: list[tuple[Path, str]] = []
+    # Wave 200xy (200v1): record documents are read through the member-doc rule.
+    record_rels: set[str] = set()
     for file_path in files:
         try:
             # Wave 1p6dx: forward-slash the rel path (.as_posix(), not str() which is `\`-separated
@@ -1625,19 +1727,25 @@ def check_hardcoded_secrets(
         # so a Wavefoundry lock file is never opened.
         if is_wavefoundry_lock_path(rel):
             continue
+        if is_record_document(root, file_path):
+            record_rels.add(rel)
         file_scan_list.append((file_path, rel))
 
     # Phase 1: parallel file scanning via ProcessPoolExecutor (spawn + initializer).
     # Each worker receives compiled rules via the initializer (once per process)
     # rather than per-task — avoids redundant regex compilation across all files.
     # Falls back to serial on any spawn/IPC error.
-    _worker_scan_args = [(str(fp), rel) for fp, rel in file_scan_list]
+    _worker_scan_args = [
+        (str(fp), rel, str(root)) if rel in record_rels else (str(fp), rel)
+        for fp, rel in file_scan_list
+    ]
 
     def _serial_scan() -> list:
         return [
             _scan_with_outcome(
                 fp, rel, compiled_rules, global_allowlist_paths, framework_allowlist,
                 policy, global_regexes, global_stopwords,
+                record_root=root if rel in record_rels else None,
             )
             for fp, rel in file_scan_list
         ]
@@ -1706,6 +1814,10 @@ def check_hardcoded_secrets(
             # Wave 1x5tr (delivery review) — validate per path HERE, so one name the
             # ledger cannot hold (a backslash on POSIX) cannot veto the whole delta;
             # an unrecordable guard skip is warned once and re-observed next run.
+            if any(row.get("reason") == RECORD_REFUSED_SKIP_REASON for row in outcome["skips"]):
+                # Wave 200xy (200v1): a refused record document is never
+                # cached as a clean scan; it is re-observed on the next run.
+                _SCANNER_SKIPS_UNPUBLISHED.append(rel)
             if is_recordable_path(rel):
                 scan_outcomes[rel] = outcome
             elif outcome["skips"]:
@@ -1734,6 +1846,18 @@ def check_hardcoded_secrets(
         failures.extend(file_failures)
         if file_changed:
             exceptions_changed = True
+
+    # Wave 200xy (200v1): a record document the file-set filter dropped (a link
+    # or special file) is surfaced through the same skip channel, recorded as
+    # an incomplete scan and kept out of the scan cache, never silently.
+    for rel, cause in sorted(_FILESET_REFUSED.items()):
+        if rel in scan_outcomes:
+            continue
+        before = len(_SCANNER_SKIPS)
+        _record_scan_skip(rel, RECORD_REFUSED_SKIP_REASON, cause)
+        _SCANNER_SKIPS_UNPUBLISHED.append(rel)
+        if is_recordable_path(rel):
+            scan_outcomes[rel] = {"complete": False, "skips": _SCANNER_SKIPS[before:]}
 
     try:
         update_scanner_skips(root, scan_outcomes)

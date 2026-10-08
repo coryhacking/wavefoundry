@@ -3,6 +3,13 @@
 
 from __future__ import annotations
 
+# Change 1zyv1: no bytecode beside the sources. This file also runs as a member of the
+# release upgrade zipapp and as a standalone copied bridge, where ``bytecode_cache`` is not
+# importable, so it only disables writes, before any other import, and never caches.
+import sys
+
+sys.dont_write_bytecode = True
+
 import argparse
 import errno
 import hashlib

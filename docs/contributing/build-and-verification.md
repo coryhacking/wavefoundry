@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-06
+Last verified: 2026-10-07
 
 ## Verification Commands
 
@@ -18,7 +18,7 @@ Run these from the repository root to verify the Wavefoundry self-hosted surface
 # Docs gate (metadata + prompt surface + manifest validation)
 wf docs-gardener && wf docs-lint
 
-# Framework script tests (no bytecode)
+# Framework script tests (bytecode only in .wavefoundry/cache/pycache)
 python3 .wavefoundry/framework/scripts/run_tests.py
 ```
 
@@ -263,17 +263,21 @@ Both subcommands are dispatched by the single cross-OS `wf` (bash) / `wf.cmd` (W
 
 ## Framework Script Hygiene
 
-Run tests without writing bytecode:
+Run the tests:
 
 ```bash
 python3 -B .wavefoundry/framework/scripts/run_tests.py
 ```
 
-Or use the run_tests.py wrapper which already sets `-B`. If `__pycache__` directories appeared anyway, clean them:
+**Bytecode cache (change `1zyv1`).** Framework processes write Python bytecode only under `.wavefoundry/cache/pycache/`, never into `__pycache__` beside the framework sources:
 
-```bash
-find .wavefoundry/framework/scripts -type d -name '__pycache__' -prune -exec rm -rf {} \;
-```
+- **Location.** Derived from the location of `bytecode_cache.py` alone (`<root>/.wavefoundry/framework/scripts` maps to `<root>/.wavefoundry/cache/pycache`); a copy of the scripts outside that layout runs uncached. The directory is gitignored (managed `.gitignore` block) and is outside the pack, the receipt hash, the project index, the secrets file set and the reconcile scan.
+- **Flush.** A stamp file in the cache records the bytes of `.wavefoundry/framework/VERSION`; the first framework process that sees a different version renames the cache aside and removes it without following links, so every upgrade or reinstall starts clean. No upgrade step is involved.
+- **Opt-out.** `PYTHONDONTWRITEBYTECODE=1` or `python3 -B` makes a process read the cache without writing to it. `PYTHONPYCACHEPREFIX` is never exported to children; only the test runner passes it, explicitly, to its own workers, warm-up and second-profile child.
+- **Test runner.** A top-level `run_tests.py` run (including `python3 -B run_tests.py`) flushes on a changed version, warms the cache with `compileall` (framework scripts plus each interpreter's stdlib, purelib and platlib) in a subprocess, keeps its workers read-only with the prefix, and removes the cache's mirrors of the temporary directory at the end. A runner that inherits `PYTHONPYCACHEPREFIX` is a child and does neither.
+- **Platforms.** macOS, Linux and WSL2 mirror absolute source paths under the prefix (a checkout used from both Windows and WSL2 gets separate mirrors). On native Windows the mirrored path drops the drive letter, a long path past the 260-character limit or a locked `.pyc` only skips caching, a flush blocked by open handles leaves caching off for that process, and a junction or other reparse point is refused like a symlink. The Windows behavior is inferred from CPython's documented behavior and has not been run.
+
+A stray `__pycache__` under `.wavefoundry/framework/` is a defect to report, not routine cleanup. `run_tests.py` still removes any it finds under the framework directory before and after each run.
 
 ## Close gate: the framework test receipt
 

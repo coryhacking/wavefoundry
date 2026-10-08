@@ -1311,6 +1311,15 @@ action when known.
 `wf_get_change(change_id: str = "", wave_id: str = "")`
 
 - Returns a change document by ID or prefix.
+- A single-id lookup applies the same member-doc read rule to every candidate (wave
+  `200xy`): a change document that is a link, a directory or another non-regular file (a
+  FIFO, say) is never followed or opened. A candidate whose name matches is returned as an
+  unreadable match, with empty content and a path-free `read_error`, so neither the
+  target's content nor its path appears and a FIFO cannot block the lookup. A candidate
+  that resolves to a framework runtime lock, through a symbolic link or a hard link, is
+  marked `refused` and never opened. The `wavefoundry://change/{change_id}` resource
+  returns `# Refused` for a lock and `# Unreadable Change` with the path-free cause
+  otherwise.
 - With `wave_id` and no `change_id`, returns all admitted change docs for the matching wave.
   Each member is found by its exact name, `<wave folder>/<id>.md`, falling back to
   `<plans root>/<id>.md` for a staged member (wave `1zxo0`); there is no recursive or

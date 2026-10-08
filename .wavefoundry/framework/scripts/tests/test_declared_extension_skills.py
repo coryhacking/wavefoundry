@@ -673,6 +673,49 @@ class DeclaredSkillOrphanTests(unittest.TestCase):
             notices = [line for line in err.splitlines() if "NOTICE" in line]
             self.assertEqual(len(notices), len(HOSTS), err)
             self.assertNotIn(str(root), err)
+            # Wave 200xy (200v2): the NOTICE names the rmdir failure's class.
+            for notice in notices:
+                self.assertIn("(OSError)", notice)
+
+    def test_failed_orphan_unlink_raises_path_free_before_any_write(self) -> None:
+        """Wave 200xy (200v2): a failed orphan SKILL.md unlink raises
+        RuntimeError naming the relative path and the exception class only,
+        and stops the render before any skill write or prompt creation."""
+        from unittest import mock
+
+        other_prompt = "docs/prompts/other-skill.prompt.md"
+        other = {"other-skill": _spec(title="Other Skill", prompt_doc=other_prompt,
+                                      prompt_doc_template=TEMPLATE)}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            _repo(root)
+            with base_declaration(EXTENSION_SKILLS=VALID):
+                ras.render_skills(root)
+            before = _snapshot(root)
+            real_unlink = Path.unlink
+
+            def _locked_unlink(path, *args, **kwargs):
+                if path.name == "SKILL.md" and "acme-deploy" in path.parts:
+                    raise PermissionError(13, "Permission denied", str(path))
+                return real_unlink(path, *args, **kwargs)
+
+            with base_declaration(EXTENSION_SKILLS=other), \
+                    mock.patch.object(Path, "unlink", _locked_unlink), \
+                    self.assertRaises(RuntimeError) as caught:
+                ras.render_skills(root)
+            message = str(caught.exception)
+            self.assertRegex(message, r"(\.codex|\.claude|\.agents)/skills/acme-deploy/SKILL\.md")
+            self.assertIn("(PermissionError)", message)
+            self.assertNotIn(str(root), message)
+            self.assertNotIn(str(root.resolve()), message)
+            self.assertNotIn("Permission denied", message)
+            # Nothing was written after the failure: no skill folder for the
+            # newly declared skill, no materialized prompt creation, and the
+            # tree is exactly as before the render.
+            self.assertFalse((root / other_prompt).exists())
+            for host in HOSTS:
+                self.assertFalse((root / host / "skills" / "other-skill").exists(), host)
+            self.assertEqual(_snapshot(root), before)
 
 
 class PromptDocTemplateTests(unittest.TestCase):
@@ -718,6 +761,22 @@ class PromptDocTemplateTests(unittest.TestCase):
             # The doc now exists, so a second render creates nothing and is quiet.
             self.assertEqual(ras._declared_prompt_doc_creations(root), {})
             self.assertEqual(ras.render_skills(root), [])
+
+    def test_a_skipped_prompt_doc_is_not_created_and_its_skill_waits(self) -> None:
+        """Wave 200xy (200xx): a prompt doc in ``skip_paths`` (an unrecorded
+        profile prompt path) is not created; its skill renders once it is."""
+        declaration = {"acme-deploy": _spec(prompt_doc_template=TEMPLATE)}
+        with tempfile.TemporaryDirectory() as temp_dir, base_declaration(EXTENSION_SKILLS=declaration):
+            root = Path(temp_dir)
+            _repo(root, prompt=False)
+            written = ras.render_skills(root, skip_paths=frozenset({PROMPT_DOC}))
+            self.assertFalse(os.path.lexists(root / PROMPT_DOC))
+            self.assertNotIn(PROMPT_DOC, written)
+            for host in HOSTS:
+                self.assertFalse((root / host / "skills" / "acme-deploy").exists(), host)
+            written = ras.render_skills(root)
+            self.assertIn(PROMPT_DOC, written)
+            self.assertIn(".codex/skills/acme-deploy/SKILL.md", written)
 
     def test_target_template_wins_and_an_existing_doc_is_kept(self) -> None:
         declaration = {"acme-deploy": _spec(prompt_doc_template="acme/deploy.prompt.md")}

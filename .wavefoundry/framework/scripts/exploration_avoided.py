@@ -41,7 +41,10 @@ from typing import Any, Iterable, Optional
 
 import context_efficiency
 
-sys.dont_write_bytecode = True
+# Change 1zyv1: a library never turns bytecode writes on, and leaves an entry's
+# project cache (``bytecode_cache``) alone; with no prefix active it keeps them off.
+if sys.pycache_prefix is None:
+    sys.dont_write_bytecode = True
 
 # Attribution factors, bounded WELL below 1.0 (the structural anti-inflation
 # guarantee vs a count x constant gauge). A merely-surfaced advisory is

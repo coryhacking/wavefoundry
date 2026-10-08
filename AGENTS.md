@@ -170,21 +170,17 @@ No product implementation source exists in this repository yet. When `src/wavefo
 
 ## Framework Script Hygiene
 
-Run framework tests without writing bytecode:
+Run the framework tests:
 
 ```bash
 python3 .wavefoundry/framework/scripts/run_tests.py
 ```
 
+**Bytecode cache (change `1zyv1`).** Framework processes (hooks, `wf` commands, the MCP server, setup and index children, the test runner) keep Python bytecode only in the project cache `.wavefoundry/cache/pycache/`, never in `__pycache__` beside the framework sources. The cache is gitignored, outside the pack, the indexes, the secrets and reconcile scans and the test receipt, and is flushed automatically by the first framework process after `.wavefoundry/framework/VERSION` changes (every upgrade). `PYTHONDONTWRITEBYTECODE=1` or `python3 -B` makes a process read the cache without writing to it; the test runner still warms and flushes it. A cache directory that is a symlink, or on Windows a junction or other reparse point, is refused and caching stays off. On macOS, Linux and WSL2 the cache mirrors absolute source paths; on Windows the mirrored path drops the drive letter, and a long path or a locked file only skips caching (Windows behavior is inferred, not yet run). A stray `__pycache__` under `.wavefoundry/framework/` is a defect to report, not routine cleanup.
+
 During routine `docs/` edits, the post-edit hook automatically runs incremental changed-set lint via `docs_lint.py --changed`; MCP documentation-writing tools report the same advisory result. Use that fast feedback while editing rather than manually running full lint after every change. At an explicit validation or handoff boundary, agents with MCP must run full **`wf_validate_docs`** (and fix failures); use **`wf_garden_docs`** when metadata timestamps need refresh. Manual CLI fallback: POSIX `**./.wavefoundry/bin/wf docs-lint**`; native Windows `**.\\.wavefoundry\\bin\\wf.cmd docs-lint**`.
 
 Or: `python3 -B -m unittest discover -s .wavefoundry/framework/scripts/tests`
-
-If `__pycache__` directories appeared anyway, clean them:
-
-```bash
-find .wavefoundry/framework/scripts -type d -name '__pycache__' -prune -exec rm -rf {} \;
-```
 
 ## Change Doc Tracking (Real-Time)
 

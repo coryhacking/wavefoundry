@@ -52,6 +52,9 @@ experiments/*
 .wavefoundry/index/
 .wavefoundry/framework/index/
 
+# Wavefoundry runtime caches, including the Python bytecode cache (per-machine; never commit)
+.wavefoundry/cache/
+
 # Wavefoundry upgrade recovery assets (generated locally — never commit)
 .wavefoundry/upgrade-assets/
 .wavefoundry/framework.rollback-*/

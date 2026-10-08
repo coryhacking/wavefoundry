@@ -251,5 +251,114 @@ class AuditVendoredScriptsTests(unittest.TestCase):
         self.assertEqual(self.srv._audit_vendored_scripts(repo_root), {"status": "ok", "problems": []})
 
 
+
+def _two_table_readme(package: str = "demo@1.0.0", source: str = "package/dist/demo.js",
+                      url: str = "https://registry.npmjs.org/demo/-/demo-1.0.0.tgz",
+                      path: str = "demo/demo.js", registry_package: str | None = None,
+                      extra_registry: str = "") -> str:
+    reg = package if registry_package is None else registry_package
+    return (
+        "# Vendored\n\n"
+        "| File | Package | Source in the tarball | Licence | SHA-256 |\n"
+        "| --- | --- | --- | --- | --- |\n"
+        f"| `{path}` | `{package}` | `{source}` | MIT (`demo/LICENSE`) | `{'a' * 64}` |\n\n"
+        "## Registry integrity\n\n"
+        "| Package | Tarball | `dist.integrity` |\n"
+        "| --- | --- | --- |\n"
+        f"| `{reg}` | `{url}` | `sha512-AAAA` |\n"
+        f"{extra_registry}"
+    )
+
+
+# One of each class Requirement 6 names: a C0 control, a C1 control, and three
+# category ``Cf`` characters (a bidirectional override, a bidirectional
+# isolate and a zero-width joiner).
+_UNSAFE_SAMPLES = {
+    "C0": "\x1b",
+    "DEL": "\x7f",
+    "C1": "\x9b",
+    "Cf bidirectional override": "‮",
+    "Cf bidirectional isolate": "⁦",
+    "Cf zero-width": "‍",
+}
+
+
+class ReadmeFieldCheckTests(unittest.TestCase):
+    """Wave 200xy, change 200v1 (AC-7, AC-9): README fields with control or
+    format characters are refused by row and field, never echoed."""
+
+    def _refused(self, text: str) -> str:
+        with self.assertRaises(vi.ReadmeError) as ctx:
+            vi.parse_readme(text)
+        return str(ctx.exception)
+
+    def test_every_field_refuses_every_unsafe_class_without_echo(self):
+        marker = "FIELDTEXT"
+        for label, ch in _UNSAFE_SAMPLES.items():
+            cases = {
+                ("file", "package"): _two_table_readme(package=f"{marker}{ch}x@1.0.0",
+                                                       registry_package="demo@1.0.0"),
+                ("file", "source"): _two_table_readme(source=f"package/{marker}{ch}.js"),
+                ("registry", "package"): _two_table_readme(registry_package=f"{marker}{ch}x@1.0.0",
+                                                           package="demo@1.0.0"),
+                ("registry", "url"): _two_table_readme(
+                    url=f"https://registry.npmjs.org/{marker}{ch}.tgz"),
+            }
+            for (table, field), text in cases.items():
+                with self.subTest(cls=label, table=table, field=field):
+                    message = self._refused(text)
+                    self.assertEqual(
+                        message, f"{table} row 1: {field} contains a control or format character")
+                    self.assertNotIn(marker, message)
+                    self.assertNotIn(ch, message)
+
+    def test_a_clean_readme_still_parses(self):
+        files, registry = vi.parse_readme(_two_table_readme())
+        self.assertEqual([f.package for f in files], ["demo@1.0.0"])
+        self.assertEqual(list(registry), ["demo@1.0.0"])
+
+    def test_row_path_problem_refuses_each_format_class(self):
+        for label, ch in _UNSAFE_SAMPLES.items():
+            with self.subTest(cls=label):
+                self.assertEqual(vi._row_path_problem(f"demo/de{ch}mo.js"),
+                                 "path contains a control character")
+
+    def test_offline_problems_labels_a_format_character_path_by_row(self):
+        vendor = Path(tempfile.mkdtemp(prefix="wf-vi-cf-"))
+        self.addCleanup(shutil.rmtree, vendor, ignore_errors=True)
+        for label in ("Cf bidirectional override", "Cf zero-width"):
+            ch = _UNSAFE_SAMPLES[label]
+            with self.subTest(cls=label):
+                (vendor / "README.md").write_text(
+                    _two_table_readme(path=f"demo/PATHTEXT{ch}.js"), encoding="utf-8")
+                problems = vi.offline_problems(vendor)
+                self.assertEqual(len(problems), 1, problems)
+                self.assertTrue(problems[0].startswith("row 1: "), problems)
+                self.assertNotIn("PATHTEXT", problems[0])
+                self.assertNotIn(ch, problems[0])
+
+
+class RegistryMessagePinTests(unittest.TestCase):
+    """Wave 200xy, change 200v1 (AC-9, Requirement 8): the two registry
+    messages are pinned exactly and never carry the package value."""
+
+    def test_duplicate_package_message_is_exact(self):
+        package = "PKGVALUE@1.0.0"
+        text = _two_table_readme(
+            package=package,
+            extra_registry=f"| `{package}` | `https://registry.npmjs.org/x.tgz` | `sha512-BBBB` |\n")
+        with self.assertRaises(vi.ReadmeError) as ctx:
+            vi.parse_readme(text)
+        self.assertEqual(str(ctx.exception), "registry row 2: duplicate package")
+        self.assertNotIn("PKGVALUE", str(ctx.exception))
+
+    def test_missing_registry_row_message_is_exact(self):
+        text = _two_table_readme(package="PKGVALUE@1.0.0", registry_package="other@1.0.0")
+        with self.assertRaises(vi.ReadmeError) as ctx:
+            vi.parse_readme(text)
+        self.assertEqual(str(ctx.exception), "row 1: package has no registry row")
+        self.assertNotIn("PKGVALUE", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

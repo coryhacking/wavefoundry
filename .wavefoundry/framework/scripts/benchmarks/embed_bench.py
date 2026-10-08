@@ -31,11 +31,20 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+# Change 1zyv1: bytecode goes only to the project cache (``bytecode_cache``),
+# never beside the sources; writes stay off until configure() enables the cache.
+if __name__ == "__main__" or sys.pycache_prefix is None:
+    sys.dont_write_bytecode = True
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 # Put the scripts directory on sys.path, then import the stdlib-only bootstrap before any
 # fastembed/onnxruntime import: it defaults ORT_DISABLE_TELEMETRY=1 (change 1z8or).
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
+import bytecode_cache  # noqa: E402
+
+if __name__ == "__main__":
+    bytecode_cache.configure()
+
 import venv_bootstrap  # noqa: E402
 BENCH_DIR = Path(__file__).resolve().parent
 EVAL_PATH = BENCH_DIR / "retrieval_eval.json"

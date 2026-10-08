@@ -6084,6 +6084,114 @@ class PostExtractDryRunBranchTests(unittest.TestCase):
         self.assertFalse(self._preview_log().exists())
 
 
+class RoleBackfillPreviewIncomingModuleTests(unittest.TestCase):
+    """Wave 200xy (200v2) AC-1 and AC-2: the dry-run role-backfill preview
+    takes the history predicate from the INCOMING framework. The fixture
+    target's scripts directory has no history predicate module, and the
+    import system cannot supply one, as on a target older than 1.5.0."""
+
+    MEMBER_DIR = ".wavefoundry/framework/scripts"
+    SECTION = "## Role: backfill on docs/agents/*.md"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        base = Path(self.tmp.name).resolve()
+        self.root = base / "target"
+        scripts = self.root / ".wavefoundry" / "framework" / "scripts"
+        scripts.mkdir(parents=True)
+        (scripts / "old_module.py").write_text("OLD = True\n", encoding="utf-8")
+        agents = self.root / "docs" / "agents"
+        (agents / "journals").mkdir(parents=True)
+        (agents / "code-reviewer.md").write_text(
+            "# Code Reviewer\n\nOwner: x\nStatus: active\n", encoding="utf-8"
+        )
+        (agents / "journals" / "old.md").write_text("Owner: x\nStatus: active\n", encoding="utf-8")
+        self.zip_path = base / "wavefoundry-incoming.zip"
+        blocked = patch.dict(sys.modules, {"history_paths": None})
+        blocked.start()
+        self.addCleanup(blocked.stop)
+
+    def _pack(self, *, with_history_paths=True):
+        with zipfile.ZipFile(self.zip_path, "w") as archive:
+            archive.write(source_path("upgrade_extensions.py"), f"{self.MEMBER_DIR}/upgrade_extensions.py")
+            if with_history_paths:
+                archive.write(source_path("history_paths.py"), f"{self.MEMBER_DIR}/history_paths.py")
+
+    def _pack_loaded(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            ext = load_upgrade_module()._load_extension_module(self.zip_path)
+        self.assertIsNotNone(ext)
+        self.assertFalse(Path(ext.__file__).is_absolute())
+        return ext
+
+    def _ctx(self, zip_path):
+        ctx = types.SimpleNamespace(
+            root=self.root, from_version="1.4.1", to_version="1.5.0",
+            zip_path=zip_path, yes=True, dry_run=True,
+        )
+        return ctx
+
+    def _snapshot(self):
+        return {
+            path.relative_to(self.root).as_posix(): None if path.is_dir() else path.read_bytes()
+            for path in sorted(self.root.rglob("*"))
+            if ".wavefoundry/logs" not in path.relative_to(self.root).as_posix()
+        }
+
+    def _preview(self, ext, zip_path):
+        before = self._snapshot()
+        modules_before = set(sys.modules)
+        path_before = list(sys.path)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            ext.post_extract(self._ctx(zip_path))
+        self.addCleanup(sys.path.__setitem__, slice(None), path_before)
+        self._after = (before, self._snapshot(), path_before, list(sys.path), modules_before, set(sys.modules))
+        log = self.root / ".wavefoundry" / "logs" / "upgrade-migration-1.5.0.preview.log"
+        text = log.read_text(encoding="utf-8")
+        # The records under the section heading, up to the blank line.
+        body = text.split(self.SECTION, 1)[1].split("\n", 1)[1]
+        section = body.split("\n\n", 1)[0].strip().splitlines()
+        return text, section
+
+    def _assert_side_effect_free(self):
+        """Checked after each test's section assertions, so a failure names
+        the section first: the target tree is byte-identical apart from the
+        preview log, nothing went on sys.path, and nothing was registered in
+        sys.modules (the blocked name still holds its None sentinel)."""
+        before, after, path_before, path_after, modules_before, modules_after = self._after
+        self.assertEqual(after, before)
+        self.assertEqual(path_after, path_before)
+        self.assertEqual(modules_after - modules_before, set())
+        self.assertIn("history_paths", sys.modules)
+        self.assertIsNone(sys.modules["history_paths"])
+
+    def test_pack_loaded_preview_uses_the_incoming_predicate(self):
+        self._pack()
+        text, section = self._preview(self._pack_loaded(), self.zip_path)
+        self.assertEqual(section, ["- docs/agents/code-reviewer.md: would insert `Role: code-reviewer`"])
+        self.assertNotIn("ERROR (preview)", text)
+        self._assert_side_effect_free()
+
+    def test_path_loaded_preview_uses_the_incoming_predicate(self):
+        text, section = self._preview(_load_upgrade_extensions(), None)
+        self.assertEqual(section, ["- docs/agents/code-reviewer.md: would insert `Role: code-reviewer`"])
+        self.assertNotIn("ERROR (preview)", text)
+        self._assert_side_effect_free()
+
+    def test_unloadable_incoming_module_is_one_path_free_line(self):
+        self._pack(with_history_paths=False)
+        text, section = self._preview(self._pack_loaded(), self.zip_path)
+        self.assertEqual(
+            section,
+            ["- ERROR (preview): the incoming history predicate could not be loaded (KeyError)"],
+        )
+        self.assertNotIn("Traceback", text)
+        for absolute in (str(self.root), str(self.zip_path), str(SCRIPTS_ROOT)):
+            self.assertNotIn(absolute, text)
+        self._assert_side_effect_free()
+
+
 class ChunkerVersionBumpDetectionTests(unittest.TestCase):
     """Wave 1p3dk / 1p3ho: chunker-version-aware upgrade routing.
 
@@ -7569,6 +7677,7 @@ _DELEGATE_CHILD_MODULES = (
     "vocabulary_profile.py",  # wave 1z8mm: record_paths imports it
     "render_platform_surfaces.py",
     "check_version.py",
+    "bytecode_cache.py",  # change 1zyv1: every entry script imports it
 )
 
 
@@ -12246,6 +12355,45 @@ class JournalDeclarationMigrationTests(_JournalDeclarationFixture, unittest.Test
         with patch.object(self.ext, "_exec_module_from_file", side_effect=_counting):
             self._gate()
         self.assertEqual(names.count(self.ext._JOURNAL_DECLARATION_MODULE), 1)
+
+
+# Arabic-Indic digits: each is a Unicode decimal digit that ``\d`` in a str
+# pattern matches, but none is ASCII.
+_NON_ASCII_DIGITS = str.maketrans("0123456789", "".join(chr(0x0660 + n) for n in range(10)))
+
+
+class JournalAsciiDateTests(_JournalDeclarationFixture, unittest.TestCase):
+    """Wave 200xy (200v2) AC-4: every journal migration date pattern (the
+    built-in scaffold's ``Last verified:`` capture and the declared
+    ``{{date}}`` placeholder) matches ASCII digits only."""
+
+    DATE = "2026-01-05"
+
+    def _assert_kept_and_ascii_deleted(self, name, ascii_text):
+        non_ascii_text = ascii_text.replace(self.DATE, self.DATE.translate(_NON_ASCII_DIGITS))
+        self.assertNotEqual(non_ascii_text, ascii_text)
+        rel = self._write_journal(name, non_ascii_text)
+        preview = self.ext.migrate_journals(self.root, apply=False)
+        self.assertNotIn(rel, preview["deleted"])
+        applied = self.ext.migrate_journals(self.root, apply=True)
+        self.assertNotIn(rel, applied["deleted"])
+        self.assertIn(rel, applied["left"])
+        self.assertEqual((self.journals / name).read_text(encoding="utf-8"), non_ascii_text)
+        # The same journal with ASCII digits is still a pristine scaffold.
+        self._write_journal(name, ascii_text)
+        applied = self.ext.migrate_journals(self.root, apply=True)
+        self.assertIn(rel, applied["deleted"])
+        self.assertFalse((self.journals / name).exists())
+
+    def test_built_in_scaffold_with_non_ascii_date_is_kept(self):
+        self._declare()
+        text = self.ext._pristine_journal_template("1aaaa demo-wave", "demo-wave", self.DATE)
+        self._assert_kept_and_ascii_deleted("1aaaa-demo-wave.md", text)
+
+    def test_declared_template_with_non_ascii_date_is_kept(self):
+        self._declare(templates=(_DIST_TEMPLATE,))
+        text = _render_dist_template("1zda0 dated", "dated", self.DATE)
+        self._assert_kept_and_ascii_deleted("1zda0-dated.md", text)
 
 
 class JournalMigrationDescriptorTests(_JournalMigrationFixture, unittest.TestCase):

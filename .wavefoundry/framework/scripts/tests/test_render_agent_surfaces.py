@@ -1551,11 +1551,11 @@ class ReviewPlanPromptMigrationTests(unittest.TestCase):
         ), patch.object(
             ras, "migrate_review_plan_prompt", side_effect=lambda _root: order.append("migration") or []
         ), patch.object(
-            ras, "render_skills", side_effect=lambda _root: order.append("skills") or []
+            ras, "render_skills", side_effect=lambda _root, **_kwargs: order.append("skills") or []
         ), patch.object(
             ras,
             "reconcile_lifecycle_prompt_baselines",
-            side_effect=lambda _root: order.append("baselines") or [],
+            side_effect=lambda _root, **_kwargs: order.append("baselines") or [],
         ), patch.object(ras, "reconcile_scaffold_baselines", return_value=[]), patch.object(
             ras, "reconcile_upgrade_policy_surface", return_value=[]
         ), patch.object(ras, "reconcile_review_protocol_surfaces", return_value=[]), patch.object(
@@ -1834,11 +1834,11 @@ class ChangePromptRenameMigrationTests(unittest.TestCase):
             "migrate_change_prompt_renames",
             side_effect=lambda _root: order.append("change") or ras.ChangePromptMigration((), ()),
         ), patch.object(
-            ras, "render_skills", side_effect=lambda _root: order.append("skills") or []
+            ras, "render_skills", side_effect=lambda _root, **_kwargs: order.append("skills") or []
         ), patch.object(
             ras,
             "reconcile_lifecycle_prompt_baselines",
-            side_effect=lambda _root: order.append("baselines") or [],
+            side_effect=lambda _root, **_kwargs: order.append("baselines") or [],
         ), patch.object(ras, "reconcile_scaffold_baselines", return_value=[]), patch.object(
             ras, "reconcile_upgrade_policy_surface", return_value=[]
         ), patch.object(ras, "reconcile_review_protocol_surfaces", return_value=[]), patch.object(

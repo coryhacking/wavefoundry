@@ -270,9 +270,11 @@ def _direct_local_imports(source):
 # Retain the existing process-bootstrap boundary, independently of the purge
 # list. server.py is not reloaded: it retains repo_root and setup_readiness,
 # activates venv_bootstrap at launch, and setup_readiness retains subprocess_util.
+# server.py also configures bytecode_cache at launch (change 1zyv1); its
+# configure() decides once per process, so a reload must not replace it.
 # Changing these dependencies still requires a process restart.
 _RELOAD_BOOTSTRAP_EXCLUSIONS = {
-    "repo_root", "setup_readiness", "venv_bootstrap", "subprocess_util",
+    "repo_root", "setup_readiness", "venv_bootstrap", "subprocess_util", "bytecode_cache",
 }
 
 
@@ -282,6 +284,7 @@ _RELOAD_BOOTSTRAP_EXCLUSIONS = {
 # follow-up; the guard below keeps it from growing silently.
 _RELOAD_RETAINED_FLAT_MODULES = {
     "accel_embedder": "process-wide accelerated embedder cache, loaded lazily by the index runtime",
+    "bytecode_cache": "runner bootstrap (_RELOAD_BOOTSTRAP_EXCLUSIONS)",
     "cli_stdio": "stable stdio reconfigure helper, imported lazily",
     "dashboard_lib": "dashboard process coordination; flock-style locks only, read lazily",
     "graph_snapshot": "process-wide graph snapshot cache, read lazily",
@@ -802,7 +805,7 @@ class ReloadClosureGuardTests(unittest.TestCase):
         self.assertEqual(_in_place_reloaded(self.source), {"runtime_lock"})
         self.assertEqual(_reload_closure_problems(self.source, _RELOAD_RETAINED_FLAT_MODULES), [])
         self.assertEqual(_runtime_lock_binding_problems(self.source, _RUNTIME_LOCK_STALE_BINDINGS), [])
-        self.assertEqual(len(_RELOAD_RETAINED_FLAT_MODULES), 23)
+        self.assertEqual(len(_RELOAD_RETAINED_FLAT_MODULES), 24)  # 1zyv1 adds bytecode_cache (runner bootstrap)
         self.assertNotIn("runtime_lock", _RELOAD_RETAINED_FLAT_MODULES)
         self.assertTrue(_RELOAD_BOOTSTRAP_EXCLUSIONS <= set(_RELOAD_RETAINED_FLAT_MODULES))
         self.assertTrue(all(reason.strip() for reason in _RELOAD_RETAINED_FLAT_MODULES.values()))

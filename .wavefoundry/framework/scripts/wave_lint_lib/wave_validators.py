@@ -82,7 +82,17 @@ from .constants import (
     WAVE_REQUIRED_SECTIONS,
     WAVE_WATCHPOINT_HEADINGS,
 )
-from .helpers import load_json, read_text, relative_to_root, resolve_record_roots
+from .helpers import (
+    RECORD_CAUSE_LINK,
+    load_json,
+    read_doc_text,
+    read_record_text,
+    read_text,
+    record_entry_is_regular,
+    record_refusal,
+    relative_to_root,
+    resolve_record_roots,
+)
 import record_paths  # discovery walk and ambiguity diagnostics (wave 1y043)
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 
@@ -776,7 +786,9 @@ def _check_agent_role_metadata(root: Path, only: set[Path] | None = None, skip: 
         rel = relative_to_root(root, path)
         if path.name in _AGENT_ROLE_EXEMPT_NAMES:
             continue
-        text = read_text(path)
+        text = read_doc_text(root, path)
+        if text is None:
+            continue  # a refused record document (wave 200xy, 200v1)
         role_match = _ROLE_RE.search(text)
         if not role_match:
             failures.append(f"{rel}: missing required `Role:` metadata")
@@ -798,7 +810,9 @@ def _check_agent_role_metadata(root: Path, only: set[Path] | None = None, skip: 
         if skip is not None and path in skip:
             continue
         rel = relative_to_root(root, path)
-        text = read_text(path)
+        text = read_doc_text(root, path)
+        if text is None:
+            continue  # a refused record document (wave 200xy, 200v1)
         role_match = _ROLE_RE.search(text)
         if not role_match:
             failures.append(
@@ -853,7 +867,9 @@ def _check_agent_category_metadata(root: Path, only: set[Path] | None = None, sk
         if skip is not None and path in skip:
             continue
         rel = relative_to_root(root, path)
-        text = read_text(path)
+        text = read_doc_text(root, path)
+        if text is None:
+            continue  # a refused record document (wave 200xy, 200v1)
         category_match = _CATEGORY_RE.search(text)
         if not category_match:
             failures.append(f"{rel}: missing required `Category:` metadata")
@@ -954,7 +970,9 @@ def check_factor_surface(root: Path) -> tuple[list[str], list[str]]:
             )
             continue
         rel = relative_to_root(root, canonical)
-        text = read_text(canonical)
+        text = read_doc_text(root, canonical)
+        if text is None:
+            continue  # a refused record document (wave 200xy, 200v1)
         role_match = _ROLE_RE.search(text)
         if not role_match:
             failures.append(
@@ -1314,27 +1332,56 @@ def _wave_record_docs(root: Path, roots: record_paths.RecordRoots) -> list[Path]
     discovery excludes it), so the docs lint reads belong to exactly the
     discovered wave folders."""
     docs: list[Path] = []
-    for wave_dir in record_paths.discover_wave_dirs(root, roots):
-        docs.extend(_wave_folder_docs(wave_dir))
+    for wave_dir in lint_wave_dirs(root, roots):
+        docs.extend(_wave_folder_docs(wave_dir, root))
     return sorted(docs)
 
 
-def _wave_folder_docs(wave_dir: Path) -> list[Path]:
+def lint_wave_dirs(root: Path, roots: record_paths.RecordRoots) -> list[Path]:
+    """The discovered wave folders docs-lint reads (wave 200xy, 200v1).
+
+    ``record_paths.discover_wave_dirs`` follows a linked record file for its
+    framework-wide callers and stays unchanged; here a folder whose record file
+    is not an ``lstat`` regular file holds a refused record document, which is
+    recorded once in the refusal registry, and the folder is skipped by every
+    per-wave pass."""
+    return [
+        wave_dir
+        for wave_dir in record_paths.discover_wave_dirs(root, roots)
+        if record_entry_is_regular(root, wave_dir / _vocab.RECORD_FILENAME)
+    ]
+
+
+def _wave_folder_docs(wave_dir: Path, root: Path | None = None) -> list[Path]:
     """Every ``*.md`` file under ``wave_dir``, pruning any subdirectory that
-    holds its own ``wave.md`` (that subtree is a different, undiscovered wave)."""
+    holds its own record file (that subtree is a different, undiscovered wave).
+    Wave 200xy (200v1): an entry is kept only when ``lstat`` shows a regular
+    file; with ``root`` given, a link or special file is recorded as refused."""
     docs: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(wave_dir):
         current = Path(dirpath)
         dirnames[:] = sorted(
             name for name in dirnames if not (current / name / _vocab.RECORD_FILENAME).is_file()
         )
-        docs.extend(current / name for name in filenames if name.endswith(".md") and (current / name).is_file())
+        for name in filenames:
+            if not name.endswith(".md"):
+                continue
+            entry = current / name
+            if root is not None:
+                if record_entry_is_regular(root, entry):
+                    docs.append(entry)
+                continue
+            try:
+                if stat.S_ISREG(os.lstat(entry).st_mode):
+                    docs.append(entry)
+            except OSError:
+                continue
     return docs
 
 
 def _wave_record_files(root: Path, roots: record_paths.RecordRoots) -> list[Path]:
-    """The ``wave.md`` of every discovered wave folder, sorted."""
-    return sorted(wave_dir / _vocab.RECORD_FILENAME for wave_dir in record_paths.discover_wave_dirs(root, roots))
+    """The record file of every wave folder docs-lint reads, sorted."""
+    return sorted(wave_dir / _vocab.RECORD_FILENAME for wave_dir in lint_wave_dirs(root, roots))
 
 
 def _collect_wave_state(root: Path) -> tuple[dict[str, WaveRecord], dict[str, WorkRecord]]:
@@ -1347,7 +1394,9 @@ def _collect_wave_state(root: Path) -> tuple[dict[str, WaveRecord], dict[str, Wo
         if path.name == "README.md":
             continue
         rel = relative_to_root(root, path)
-        text = read_text(path)
+        text = read_doc_text(root, path)
+        if text is None:
+            continue  # a refused record document (wave 200xy, 200v1)
         wave_matches = WAVE_ID_PATTERN.findall(text)
         wave_id = wave_matches[0] if len(wave_matches) == 1 else None
         if wave_id:
@@ -1405,7 +1454,9 @@ def check_closed_wave_requirements(root: Path) -> list[str]:
         if path.name == "README.md":
             continue
         rel = relative_to_root(root, path)
-        text = read_text(path)
+        text = read_doc_text(root, path)
+        if text is None:
+            continue  # a refused record document (wave 200xy, 200v1)
         if not re.search(rf"(?m)^{_vocab.ID_KEY_RE}:", text) or (_vocab.MEMBER_HEADING not in text and "## Items" not in text):
             continue
         status = (_metadata_value(text, "Status") or "").casefold()
@@ -1475,7 +1526,11 @@ def check_plan_filenames(root: Path, only: set[Path] | None = None, skip: set[Pa
     skip_names = {"plan-template.md", "README.md"}
 
     for path in sorted(plans_root.iterdir()):
-        if not path.is_file() or path.suffix != ".md":
+        if path.suffix != ".md":
+            continue
+        # Wave 200xy (200v1): a plans-root document is yielded only when
+        # ``lstat`` shows a regular file; a link or special file is refused.
+        if not record_entry_is_regular(root, path):
             continue
         if path.name in skip_names:
             continue
@@ -1484,7 +1539,9 @@ def check_plan_filenames(root: Path, only: set[Path] | None = None, skip: set[Pa
         if skip is not None and path in skip:
             continue
         rel = relative_to_root(root, path)
-        text = read_text(path)
+        text = read_doc_text(root, path)
+        if text is None:
+            continue  # a refused record document (wave 200xy, 200v1)
         basename = path.stem
 
         change_ids = CHANGE_ID_PATTERN.findall(text)
@@ -1600,11 +1657,21 @@ def check_orphan_wave_ledgers(root: Path) -> list[str]:
             continue
         wave_md = wave_dir / _vocab.RECORD_FILENAME
         declared_or_marked = False
-        if wave_md.is_file():
-            try:
-                text = wave_md.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                text = None
+        # Wave 200xy (200v1): the record is probed with ``lstat`` and read
+        # through the member-doc rule. A link or special file (or a read-time
+        # refusal) is recorded once in the refusal registry and the folder is
+        # skipped here, so it is never reported a second time as orphaned.
+        try:
+            wave_md_st = os.lstat(wave_md)
+        except OSError:
+            wave_md_st = None
+        if wave_md_st is not None and not stat.S_ISREG(wave_md_st.st_mode):
+            record_refusal(root, wave_md, RECORD_CAUSE_LINK)
+            continue
+        if wave_md_st is not None:
+            text = read_record_text(root, wave_md)
+            if text is None:
+                continue
             if text is not None:
                 source, source_errors = parse_review_evidence_source(text)
                 declared_or_marked = (
@@ -1746,7 +1813,9 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
             continue
         if skip is not None and path in skip:
             continue
-        text = read_text(path)
+        text = read_doc_text(root, path)
+        if text is None:
+            continue  # a refused record document (wave 200xy, 200v1)
         is_wave_record = path.name == _vocab.RECORD_FILENAME
         if is_wave_record:
             report_drift(path, text)
@@ -1754,8 +1823,9 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
             # The incremental path skips the sibling wave record unless it is
             # in scope, so an in-scope change document compares its own member.
             sibling = path.parent / _vocab.RECORD_FILENAME
-            if sibling.is_file():
-                report_drift(sibling, read_text(sibling), change_id=path.stem)
+            sibling_text = read_record_text(root, sibling) if os.path.lexists(sibling) else None
+            if sibling_text is not None:
+                report_drift(sibling, sibling_text, change_id=path.stem)
         wave_matches: list[str] = []
         watchpoints = ""
 
@@ -1767,7 +1837,9 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
             source, _source_errors = parse_review_evidence_source(text)
             inline_marker = re.search(r"(?mi)^review-evidence-protocol\s*:", text) is not None
             if source is not None or _source_errors or inline_marker:
-                review_evidence = validate_external_review_evidence(path)
+                # Wave 200xy (200v1): the record text already read through the
+                # member-doc rule is passed in, so the record is not reopened.
+                review_evidence = validate_external_review_evidence(path, wave_text=text)
                 failures.extend(
                     f"{rel}: review evidence: {error}" for error in review_evidence.errors
                 )
@@ -1969,23 +2041,24 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                 expected = path.parent / f"{change_id}.md"
                 # Wave 1zxo0 (1zxns): lstat before the read, so a member doc
                 # that is a link or a non-regular file (a FIFO would block the
-                # read) is reported by change id, never followed or opened.
+                # read) is never followed or opened. Wave 200xy (200v1): the
+                # refusal is recorded in the per-run registry (one report per
+                # entry, by its own path) instead of a message of its own.
                 try:
                     expected_mode = os.lstat(expected).st_mode
                 except OSError:
                     expected_mode = None
+                change_text = None
                 if expected_mode is None:
                     failures.append(
                         f"{rel}: wave-owned change `{change_id}` must exist at "
                         f"`{relative_to_root(root, expected)}` (relocate during {_vocab.shortcut('prepare-wave')} before implementation)"
                     )
                 elif not stat.S_ISREG(expected_mode):
-                    failures.append(
-                        f"{rel}: wave-owned change `{change_id}` is not a regular file (a link or "
-                        f"special file); it was not read. Replace it with the change document itself."
-                    )
+                    record_refusal(root, expected, RECORD_CAUSE_LINK)
                 else:
-                    change_text = read_text(expected)
+                    change_text = read_record_text(root, expected)
+                if change_text is not None:
                     change_rel = relative_to_root(root, expected)
                     failures.extend(_check_ac_priority_alignment(change_text, change_rel))
                     failures.extend(_check_checkbox_ac_syntax(change_text, change_rel))
@@ -2057,7 +2130,9 @@ def check_memory_docs(root: Path, only: set[Path] | None = None, skip: set[Path]
             continue
         if skip is not None and path in skip:
             continue
-        text = read_text(path)
+        text = read_doc_text(root, path)
+        if text is None:
+            continue  # a refused record document (wave 200xy, 200v1)
         memory_rel = path.relative_to(memory_root)
         is_archive_body = bool(memory_rel.parts and memory_rel.parts[0] == "archive")
         is_pointer = bool(memory_rel.parts and memory_rel.parts[0] == "pointers")
@@ -2271,7 +2346,9 @@ def check_journal_docs(root: Path, only: set[Path] | None = None, skip: set[Path
             continue
         if skip is not None and path in skip:
             continue
-        text = read_text(path)
+        text = read_doc_text(root, path)
+        if text is None:
+            continue  # a refused record document (wave 200xy, 200v1)
         sections = _extract_sections(text)
         for section in JOURNAL_REQUIRED_SECTIONS:
             if section not in text:
@@ -2356,7 +2433,9 @@ def check_persona_docs(root: Path, only: set[Path] | None = None, skip: set[Path
             continue
         if skip is not None and path in skip:
             continue
-        text = read_text(path)
+        text = read_doc_text(root, path)
+        if text is None:
+            continue  # a refused record document (wave 200xy, 200v1)
         sections = _extract_sections(text)
         for section in PERSONA_REQUIRED_SECTIONS:
             if section not in text:
@@ -2414,7 +2493,9 @@ def _check_doc_references(
         if path.name == "README.md":
             continue
         rel = relative_to_root(root, path)
-        text = read_text(path)
+        text = read_doc_text(root, path)
+        if text is None:
+            continue  # a refused record document (wave 200xy, 200v1)
         for wave_id in WAVE_REFERENCE_PATTERN.findall(text):
             if wave_id not in wave_inventory:
                 failures.append(missing_wave_message.format(rel=rel, wave_id=wave_id))
@@ -2525,7 +2606,9 @@ def check_migration_edges(root: Path) -> list[str]:
         for path in sorted(doc_root.rglob("*.md")):
             if _is_archived_legacy_wave_doc(root, path):
                 continue
-            text = read_text(path)
+            text = read_doc_text(root, path)
+            if text is None:
+                continue  # a refused record document (wave 200xy, 200v1)
             rel = relative_to_root(root, path)
             for marker in (*LEGACY_MARKERS, *HYBRID_LEGACY_MARKERS):
                 if marker in text:
@@ -2563,7 +2646,9 @@ def check_prepare_council_verdict(root: Path) -> tuple[list[str], list[str]]:
         return errors, warnings
 
     for path in _wave_record_files(root, roots):
-        text = read_text(path)
+        text = read_doc_text(root, path)
+        if text is None:
+            continue  # a refused record document (wave 200xy, 200v1)
         if not re.search(rf"(?m)^{_vocab.ID_KEY_RE}:", text):
             continue
         status = (_metadata_value(text, "Status") or "").casefold().strip()
@@ -2699,7 +2784,9 @@ def check_prepare_council_roster_evidence(root: Path) -> tuple[list[str], list[s
         return errors, warnings
 
     for path in _wave_record_files(root, roots):
-        text = read_text(path)
+        text = read_doc_text(root, path)
+        if text is None:
+            continue  # a refused record document (wave 200xy, 200v1)
         if not re.search(rf"(?m)^{_vocab.ID_KEY_RE}:", text):
             continue
         status = (_metadata_value(text, "Status") or "").casefold().strip()

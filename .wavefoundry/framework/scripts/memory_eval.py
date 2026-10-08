@@ -42,6 +42,16 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+# Change 1zyv1: bytecode goes only to the project cache (``bytecode_cache``),
+# never beside the sources; writes stay off until configure() enables the cache.
+if __name__ == "__main__" or sys.pycache_prefix is None:
+    sys.dont_write_bytecode = True
+import bytecode_cache  # noqa: E402
+
+if __name__ == "__main__":
+    bytecode_cache.configure()
+
+
 _SCRIPTS = Path(__file__).resolve().parent  # .wavefoundry/framework/scripts
 sys.path.insert(0, str(_SCRIPTS))
 # The golden fixture is test scaffolding: build_pack excludes `scripts/tests`,

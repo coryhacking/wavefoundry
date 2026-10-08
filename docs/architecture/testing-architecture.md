@@ -139,7 +139,7 @@ timeout. Outside a git checkout, or when the first listing times out, the
 guard is skipped with a stated message; when the end-of-run listing cannot
 be taken, the run fails with the cause stated. Ignored runtime paths
 (`.wavefoundry/logs/`, `.wavefoundry/index/`, `.wavefoundry/locks/`,
-`__pycache__`) and `.git/` are outside the standing guard, because the live
+`.wavefoundry/cache/`, `__pycache__`) and `.git/` are outside the standing guard, because the live
 host writes there during a run; test writes there are caught by an isolated
 census instead: a full run in a temporary clone that reproduces the working
 tree, with no MCP server attached, compared against a before-and-after
@@ -147,6 +147,28 @@ snapshot of every file including `.git/`. The earlier check for a nested
 `.wavefoundry` under the scripts directory remains part of the same guard.
 The runner also sets `PYTHONDONTWRITEBYTECODE=1` in the worker environment,
 so Python children that tests spawn write no bytecode into the repository.
+
+**Bytecode cache (change `1zyv1`).** `main()` (never the import, which the
+close gate borrows) configures the project cache `.wavefoundry/cache/pycache/`
+through `bytecode_cache.configure`. A top-level run, including
+`python3 -B run_tests.py`, decides with the runner's authority: it flushes the
+cache when `.wavefoundry/framework/VERSION` changed, then warms it in a
+subprocess routed through `_run_tree_kill` (launched without `-B`, one
+`compileall` child per interpreter: the worker interpreter, the runner's and
+`$PYTHON` when set; each compiles the framework scripts directory and its own
+stdlib, purelib and platlib). The warm-up is required whenever a prefix is in
+use: a prefix makes Python ignore the installation's own `__pycache__`, so a
+cold read-only worker would recompile the standard library. Workers keep `-B`
+and `PYTHONDONTWRITEBYTECODE=1`, so they only read the cache and never cache
+scratch modules, and they receive `PYTHONPYCACHEPREFIX` only when the run's
+`configure()` left a prefix active (a refused, linked cache or a missing layout
+gives them none and runs no warm-up). An inherited `PYTHONPYCACHEPREFIX` marks a
+child runner (the second-profile copy, whose `_child_runner_env` passes the
+parent's prefix): it reuses that prefix read-only and does no warm-up and no
+cleanup, so no second cold cache is built per profile run. Each top-level run
+removes the cache's mirrors of the temporary directory, in both its given and
+resolved spelling, contained and without following links. The receipt hash
+walks `.wavefoundry/framework/` only, so the cache never changes it.
 
 The former 37k-line `test_server_tools.py` monolith is a three-shard family
 plus a non-discovered support module: `test_server_tools.py` (server
@@ -473,7 +495,8 @@ contained: the runner path must resolve inside the target root, all FIVE of the
 runner's import side effects are undone (`sys.dont_write_bytecode`, the
 dashboard-suppression variable, its `sys.path` insert, the tool-venv activation
 that prepends `site-packages`, and every module the borrow registers in
-`sys.modules`), and any failure to load or to call it
+`sys.modules`; the runner configures the bytecode cache in `main()` only, so the
+borrow leaves `sys.pycache_prefix` and `PYTHONPYCACHEPREFIX` unchanged), and any failure to load or to call it
 — `SystemExit` from the venv guard included — degrades to `unreadable` rather
 than raising out of the tool call.
 
@@ -765,18 +788,14 @@ contract: `docs/contributing/review-and-evals.md`.
 No automated CI pipeline currently. All tests run manually.
 
 Minimum verification bar for any framework script change:
-1. `python3 .wavefoundry/framework/scripts/run_tests.py` passes (no bytecode: use `-B` flag or the run_tests.py wrapper)
+1. `python3 .wavefoundry/framework/scripts/run_tests.py` passes (bytecode is written only under `.wavefoundry/cache/pycache/`, with or without `-B`)
 2. Docs gate: **agents** — MCP **`wf_validate_docs`** succeeds (use **`wf_garden_docs`** first when metadata needs refresh); **CI / no MCP** — `wf docs-lint` passes on the Wavefoundry repo itself
 
 ## Framework Script Hygiene
 
 Tests write only under temporary roots, never into the repository under test; the runner's repository-state guard (see the Canonical Runner section) fails a run that changes a tracked or non-ignored file or the edit-gate file.
 
-Run tests without writing bytecode: `python3 -B .wavefoundry/framework/scripts/run_tests.py`. If caches were written, clean them:
-
-```bash
-find .wavefoundry/framework/scripts -type d -name '__pycache__' -prune -exec rm -rf {} \;
-```
+Run tests with `python3 -B .wavefoundry/framework/scripts/run_tests.py`. Bytecode goes only to the project cache `.wavefoundry/cache/pycache/` (see **Bytecode cache** in the Canonical Runner section); a stray `__pycache__` under `.wavefoundry/framework/` is a defect to report, not routine cleanup, although the runner still removes any it finds under the framework directory.
 
 ## Minimum Verification Bar for Cross-Module Changes
 

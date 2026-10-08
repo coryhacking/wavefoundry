@@ -14,7 +14,7 @@ from .constants import (
     PROMPT_SURFACE_FILES,
     WORKFLOW_REQUIRED_KEYS,
 )
-from .helpers import load_json, resolve_record_roots
+from .helpers import load_json, read_record_text, record_entry_is_regular, resolve_record_roots
 from record_paths import validate_record_layout
 import vocabulary_profile as _vocab  # lifecycle prompt names (wave 1zyb4)
 from review_policy import (
@@ -66,14 +66,18 @@ def check_scaffold_declares_nothing(root: Path, only: set[Path] | None = None) -
     failures: list[str] = []
     for rel in SCAFFOLD_DOCS:
         path = root / rel
-        if not path.is_file():
-            continue
+        # Wave 200xy (200v1): the scaffolds lie under the plans root, so each is
+        # a record document: probed with ``lstat`` (a link or special file is
+        # recorded once in the refusal registry) and read through the
+        # member-doc rule.
         if only is not None and path not in only:
             continue
-        try:
-            declared = serialization_point_paths(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError):
+        if not record_entry_is_regular(root, path):
             continue
+        text = read_record_text(root, path)
+        if text is None:
+            continue
+        declared = serialization_point_paths(text)
         if declared:
             named = ", ".join(f"`{target}`" for target in declared)
             # No "ERROR: " prefix here: `cli._emit` adds one, and every sibling

@@ -5,6 +5,17 @@ from __future__ import annotations
 import argparse
 import json
 
+import sys  # noqa: E402
+
+# Change 1zyv1: bytecode goes only to the project cache (``bytecode_cache``),
+# never beside the sources; writes stay off until configure() enables the cache.
+if __name__ == "__main__" or sys.pycache_prefix is None:
+    sys.dont_write_bytecode = True
+import bytecode_cache  # noqa: E402
+
+if __name__ == "__main__":
+    bytecode_cache.configure()
+
 import repo_root
 import wf_server.memory_handlers as memory_handlers
 

@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from urllib.parse import unquote
 
-from .helpers import read_text, relative_to_root, resolve_record_roots
+from .helpers import read_doc_text, relative_to_root, resolve_record_roots
 
 # Matches [text](href) but NOT image links ![alt](src).
 _LINK_RE = re.compile(r"(?<!!)\[(?:[^\[\]]*)\]\(([^)]+)\)")
@@ -34,7 +34,9 @@ def _strip_code(text: str) -> str:
 
 def check_markdown_links(root: Path, path: Path) -> list[str]:
     """Return an error for each relative markdown link in *path* that does not resolve."""
-    text = read_text(path)
+    text = read_doc_text(root, path)
+    if text is None:
+        return []  # a refused record document, reported once by the registry (wave 200xy)
     rel = relative_to_root(root, path)
 
     failures: list[str] = []

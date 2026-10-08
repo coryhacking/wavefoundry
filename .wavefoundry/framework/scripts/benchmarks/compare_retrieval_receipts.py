@@ -48,7 +48,18 @@ import sys
 import time
 from pathlib import Path
 
-sys.dont_write_bytecode = True
+# Change 1zyv1: bytecode goes only to the project cache (``bytecode_cache``),
+# never beside the sources; writes stay off until configure() enables the cache.
+if __name__ == "__main__" or sys.pycache_prefix is None:
+    sys.dont_write_bytecode = True
+_SCRIPTS_DIR = Path(__file__).resolve().parents[1]
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+import bytecode_cache  # noqa: E402
+
+if __name__ == "__main__":
+    bytecode_cache.configure()
+
 
 SCHEMA = "wavefoundry.retrieval-eval-computed-comparison/v1"
 TOOLS = ("code_ask", "code_search", "docs_search", "code_lexical")

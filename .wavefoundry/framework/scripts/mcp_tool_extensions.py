@@ -206,7 +206,7 @@ RESERVED_MODULE_NAMES = frozenset({
 # lists.
 FRAMEWORK_SCRIPT_MODULE_NAMES = frozenset({
     '_tag_utils', 'accel_embedder', 'agent_surface_integrity', 'ann_reference_eval', 'build_pack',
-    'build_scan_allowlist', 'change_doc_checklist', 'check_version', 'chunker', 'cli_stdio',
+    'build_scan_allowlist', 'bytecode_cache', 'change_doc_checklist', 'check_version', 'chunker', 'cli_stdio',
     'commit_provenance', 'context_efficiency', 'dashboard_handlers', 'dashboard_lib',
     'dashboard_server', 'design_token_build', 'docs_gardener', 'docs_lint', 'eval_chunker',
     'exploration_avoided', 'gardener_metadata', 'gen_codebase_map', 'gpu_doctor',

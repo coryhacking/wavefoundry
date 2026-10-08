@@ -132,6 +132,8 @@ ROUTED = {
     # The second-profile run's git listing and temporary-repository commands (change 1zim1).
     ("run_tests.py", "_copy_listed_tree", "_run_tree_kill"): 1,
     ("run_tests.py", "_profile_run_in", "_run_tree_kill"): 1,
+    # The bytecode cache warm-up, one compile child per interpreter (change 1zyv1).
+    ("run_tests.py", "_warm_bytecode_cache", "_run_tree_kill"): 1,
     ("run_secrets_scan.py", "_physical_perf_core_count", "_run_tree_kill"): 1,
     ("scan_secrets.py", "_physical_perf_core_count", "_run_tree_kill"): 1,
     ("sqlite_storage_migration.py", "_process_cwds", "_run_tree_kill"): 1,

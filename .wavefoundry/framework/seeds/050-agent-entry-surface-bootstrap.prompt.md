@@ -160,7 +160,7 @@ Implementation details to preserve:
 
 This rule must be present in `AGENTS.md` and any other agent entry files where a "development rules" or "workflow notes" section is appropriate. Add it once in a shared location rather than repeating it in every thin pointer file:
 
-> The framework test suite (`scripts/tests/`, `scripts/run_tests.py`) is a development-only artifact that lives in the Wavefoundry source repository and is **not included in the distribution pack**. Downstream repositories that vendor the pack do not have these files and must not attempt to run them. `__pycache__` directories created by Python imports under `.wavefoundry/framework/scripts/` are gitignored and excluded from `docs-lint` (wave `1p35d` / `1p35n`) — no manual cleanup needed.
+> The framework test suite (`scripts/tests/`, `scripts/run_tests.py`) is a development-only artifact that lives in the Wavefoundry source repository and is **not included in the distribution pack**. Downstream repositories that vendor the pack do not have these files and must not attempt to run them. Framework processes keep Python bytecode only in the project cache `.wavefoundry/cache/pycache/` (gitignored by the managed block), never in `__pycache__` beside the framework sources; the first framework process after `.wavefoundry/framework/VERSION` changes flushes the cache, so every upgrade starts clean. `PYTHONDONTWRITEBYTECODE=1` or `python3 -B` makes a process read the cache without writing to it. The cache is refused when `.wavefoundry/cache` or `.wavefoundry/cache/pycache` is a symlink, or on Windows a junction or other reparse point. On macOS, Linux and WSL2 it mirrors absolute source paths; on Windows the mirrored path drops the drive letter, and a long path or a locked file only skips caching. A stray `__pycache__` under `.wavefoundry/framework/` is a defect to report, not routine cleanup.
 
 ## Codebase and Documentation Questions (auto-Guru) in AGENTS.md
 
@@ -333,6 +333,9 @@ Preserve the personal-override carve-out (the framework tree can be tracked, but
 # Wavefoundry semantic index (binary + per-machine — never commit)
 .wavefoundry/index/
 .wavefoundry/framework/index/
+
+# Wavefoundry runtime caches, including the Python bytecode cache (per-machine; never commit)
+.wavefoundry/cache/
 
 # Wavefoundry upgrade recovery assets (generated locally — never commit)
 .wavefoundry/upgrade-assets/

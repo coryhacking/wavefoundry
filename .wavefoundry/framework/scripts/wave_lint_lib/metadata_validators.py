@@ -5,11 +5,13 @@ from .constants import (
     VERIFICATION_STAMP_LINE,
     VERIFICATION_STAMP_VALID,
 )
-from .helpers import read_text, relative_to_root
+from .helpers import read_doc_text, relative_to_root
 
 
 def check_metadata(root, path) -> list[str]:
-    text = read_text(path)
+    text = read_doc_text(root, path)
+    if text is None:
+        return []  # a refused record document, reported once by the registry (wave 200xy)
     rel = relative_to_root(root, path)
     if rel.startswith("docs/reports/"):
         return []

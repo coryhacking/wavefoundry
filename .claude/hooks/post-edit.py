@@ -4,9 +4,18 @@ from __future__ import annotations
 import sys as _wf_sys
 from pathlib import Path as _WfPath
 
+# Change 1zyv1: no bytecode beside the sources; the project cache (``bytecode_cache``)
+# turns writes back on under ``.wavefoundry/cache/pycache`` before the framework imports.
+_wf_sys.dont_write_bytecode = True
 _WF_SCRIPTS = _WfPath(__file__).resolve().parents[2] / ".wavefoundry" / "framework" / "scripts"
 if _WF_SCRIPTS.is_dir() and str(_WF_SCRIPTS) not in _wf_sys.path:
     _wf_sys.path.insert(0, str(_WF_SCRIPTS))
+try:
+    import bytecode_cache as _wf_bytecode_cache
+
+    _wf_bytecode_cache.configure()
+except Exception:
+    pass
 # Change 1zrag: a tool venv this interpreter cannot use (built for another Python version, or an
 # activation that raised, including the guard's SystemExit) degrades the hook instead of exiting
 # it. Empty means usable or not built yet; otherwise the hook skips self-activating children.

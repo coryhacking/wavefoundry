@@ -22,6 +22,18 @@ import subprocess
 from contextlib import contextmanager
 from contextvars import ContextVar
 
+# Change 1zyv1: bytecode goes only to the project cache (``bytecode_cache``),
+# never beside the sources; writes stay off until configure() enables the cache.
+if __name__ == "__main__" or sys.pycache_prefix is None:
+    sys.dont_write_bytecode = True
+try:  # an old upgrade runner can load this file by path without the scripts directory on sys.path
+    import bytecode_cache  # noqa: E402
+except ImportError:  # pragma: no cover - caching stays off; the import-time flag above holds
+    bytecode_cache = None
+
+if __name__ == "__main__" and bytecode_cache is not None:
+    bytecode_cache.configure()
+
 try:  # normal import: the scripts directory is on sys.path
     import index_paths
 except ImportError:  # pragma: no cover - exercised by the explicit-path load test

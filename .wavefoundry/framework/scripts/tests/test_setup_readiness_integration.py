@@ -48,7 +48,7 @@ class PublicBootstrapTests(unittest.TestCase):
         self.root = Path(self.tmp.name).resolve()
         self.scripts = self.root / ".wavefoundry/framework/scripts"
         self.scripts.mkdir(parents=True)
-        for name in ("wf_cli.py", "setup_wavefoundry.py", "server.py", "repo_root.py", "cli_stdio.py", "subprocess_util.py", "runtime_advisory.py"):
+        for name in ("wf_cli.py", "setup_wavefoundry.py", "server.py", "repo_root.py", "cli_stdio.py", "subprocess_util.py", "runtime_advisory.py", "bytecode_cache.py"):
             shutil.copy2(SCRIPTS / name, self.scripts / name)
         (self.scripts / "venv_bootstrap.py").write_text(
             "def activate_tool_venv(**kwargs):\n    raise AssertionError('ACTIVATION TRIPWIRE')\n"
@@ -176,9 +176,13 @@ class SharedAssessmentTests(unittest.TestCase):
             (root / "docs").mkdir()
             (root / "docs/workflow-config.json").write_text("{}")
 
-            def census():
+            def census(*, bytecode_cache=True):
+                # Change 1zyv1: a starting server may write the project bytecode
+                # cache (runtime state, not setup state); the report-only check
+                # writes nothing at all.
                 return {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
-                        for p in root.rglob("*") if p.is_file()}
+                        for p in root.rglob("*") if p.is_file()
+                        and (bytecode_cache or not p.relative_to(root).as_posix().startswith(".wavefoundry/cache/"))}
 
             before = census()
             driver = (
@@ -216,7 +220,7 @@ class SharedAssessmentTests(unittest.TestCase):
             self.assertEqual(startup.returncode, 1, startup.stderr)
             self.assertEqual(startup.stdout, "")
             self.assertIn("action_required", startup.stderr)
-            self.assertEqual(before, census())
+            self.assertEqual(before, census(bytecode_cache=False))
 
     def test_existing_monitor_tick_observes_setup_without_triggering_setup(self):
         import server_impl

@@ -44,7 +44,10 @@ from pathlib import Path
 
 from typing import Any, Iterable, Mapping, Optional
 
-sys.dont_write_bytecode = True
+# Change 1zyv1: a library never turns bytecode writes on, and leaves an entry's
+# project cache (``bytecode_cache``) alone; with no prefix active it keeps them off.
+if sys.pycache_prefix is None:
+    sys.dont_write_bytecode = True
 
 _scripts_dir = str(Path(__file__).resolve().parent)
 if _scripts_dir not in sys.path:

@@ -97,8 +97,6 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ('wave_lint_lib/docs_constants_validators.py', 'docs must carry a truthful ``Wave:`` reference, and wave records must not use'): 'docstring',
     ('wave_lint_lib/docs_constants_validators.py', '# (a) admitted change docs: truthful Wave: reference.'): 'comment',
     ('wave_lint_lib/wave_validators.py', "itself holds a ``wave.md`` (a nested sub-wave is discovery's business, and"): 'docstring',
-    ('wave_lint_lib/wave_validators.py', 'holds its own ``wave.md`` (that subtree is a different, undiscovered wave)."""'): 'docstring',
-    ('wave_lint_lib/wave_validators.py', '"""The ``wave.md`` of every discovered wave folder, sorted."""'): 'docstring',
     ('wave_lint_lib/wave_validators.py', '"""Enforce that every `docs/plans/*.md` basename matches its `Change ID` (or `Wave:` for'): 'docstring',
     ('wave_lint_lib/wave_validators.py', 'too). The orphan state is a candidate whose sibling ``wave.md`` is'): 'docstring',
     ('wave_lint_lib/wave_validators.py', 'wave.md-file-driven, precisely so the cheaper tamper variants (deleting'): 'docstring',

@@ -35,24 +35,24 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 18744 |
-| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1598 |
-| graph | `.wavefoundry/framework/scripts` | code | 390 |
-| scripts/run_tests | `.wavefoundry/framework/scripts` | code | 390 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 18993 |
+| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1589 |
+| graph | `.wavefoundry/framework/scripts` | code | 391 |
+| demo/results-py311 | `.wavefoundry/framework/scripts` | code | 366 |
+| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 349 |
+| scripts/run_tests | `.wavefoundry/framework/scripts` | code | 338 |
 | indexer | `.wavefoundry/framework/scripts` | code | 300 |
-| demo/results-py311 | `.wavefoundry/framework/scripts` | code | 296 |
-| chunker | `.wavefoundry/framework/scripts` | code | 283 |
-| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 258 |
-| framework index | `.wavefoundry/framework/scripts` | code | 240 |
-| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 237 |
-| framework/dashboard | `.wavefoundry/framework/dashboard` | code | 225 |
-| framework/scripts | `.wavefoundry/framework/scripts` | code | 221 |
-| scripts/workflow-config | `.wavefoundry/framework/scripts` | code | 138 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 106 |
-| retrieval_eval | `.wavefoundry/framework/scripts` | code | 104 |
-| upgrade_extensions | `.wavefoundry/framework/scripts` | code | 100 |
-| memory_records | `.wavefoundry/framework/scripts` | code | 89 |
-| run_tests | `.wavefoundry/framework/scripts` | code | 75 |
+| chunker | `.wavefoundry/framework/scripts` | code | 285 |
+| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 263 |
+| dashboard | `.wavefoundry/framework/dashboard` | code | 225 |
+| workflow-config | `.wavefoundry/framework/scripts` | code | 224 |
+| framework index | `.wavefoundry/framework/scripts` | code | 223 |
+| scripts/workflow-config | `.wavefoundry/framework/scripts` | code | 130 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 116 |
+| upgrade_extensions | `.wavefoundry/framework/scripts` | code | 102 |
+| run_tests | `.wavefoundry/framework/scripts` | code | 96 |
+| memory_records | `.wavefoundry/framework/scripts` | code | 71 |
+| render_platform_surfaces | `.wavefoundry/framework/scripts` | code | 56 |
 | memory_eval | `.wavefoundry/framework/scripts` | code | 55 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 53 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 46 |

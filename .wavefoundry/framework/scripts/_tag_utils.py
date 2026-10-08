@@ -10,7 +10,10 @@ import re
 import sys
 from pathlib import Path
 
-sys.dont_write_bytecode = True
+# Change 1zyv1: a library never turns bytecode writes on, and leaves an entry's
+# project cache (``bytecode_cache``) alone; with no prefix active it keeps them off.
+if sys.pycache_prefix is None:
+    sys.dont_write_bytecode = True
 
 _TEST_RE = re.compile(
     r"(?:^|/)tests?/"

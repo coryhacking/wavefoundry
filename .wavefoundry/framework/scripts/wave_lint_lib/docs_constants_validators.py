@@ -24,7 +24,7 @@ import re
 import stat
 from pathlib import Path
 
-from .helpers import resolve_record_roots
+from .helpers import read_record_text, record_entry_is_regular, resolve_record_roots
 import record_paths  # errno cause label (wave 1zrak, 1zu4y)
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 
@@ -334,9 +334,14 @@ def check_wave_scaffolding_integrity(root: Path) -> list[str]:
 
     for wave_dir in record_paths.discover_wave_dirs(root, roots):
         wave_md = wave_dir / _vocab.RECORD_FILENAME
-        try:
-            wave_text = wave_md.read_text(encoding="utf-8")
-        except OSError:
+        # Wave 200xy (200v1): record documents are read through the member-doc
+        # rule; a linked or special one is recorded once in the refusal
+        # registry and never read, and a folder whose record is refused is
+        # skipped.
+        if not record_entry_is_regular(root, wave_md):
+            continue
+        wave_text = read_record_text(root, wave_md)
+        if wave_text is None:
             continue
         status_m = _STATUS_RE.search(wave_text)
         if status_m and status_m.group(1).lower() == "closed":
@@ -359,9 +364,10 @@ def check_wave_scaffolding_integrity(root: Path) -> list[str]:
         for doc in sorted(wave_dir.glob("*.md")):
             if doc.name == _vocab.RECORD_FILENAME:
                 continue
-            try:
-                doc_text = doc.read_text(encoding="utf-8")
-            except OSError:
+            if not record_entry_is_regular(root, doc):
+                continue
+            doc_text = read_record_text(root, doc)
+            if doc_text is None:
                 continue
             m = _WAVE_FIELD_RE.search(doc_text)
             if not m:

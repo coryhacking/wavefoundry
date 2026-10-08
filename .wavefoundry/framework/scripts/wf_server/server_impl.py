@@ -28,7 +28,10 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Collection, Iterable, Literal, Mapping, Optional, Sequence
 
-sys.dont_write_bytecode = True
+# Change 1zyv1: bytecode goes only to the project cache (``bytecode_cache``),
+# never beside the sources; writes stay off until configure() enables the cache.
+if __name__ == "__main__" or sys.pycache_prefix is None:
+    sys.dont_write_bytecode = True
 
 # Wave 1yzd0: the modules that live in the ``wf_server`` package, by flat
 # name. A retained flat file beside the package is a three-line alias that
@@ -145,6 +148,11 @@ if not os.environ.get("FASTEMBED_CACHE_PATH"):
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
+
+import bytecode_cache  # noqa: E402
+
+if __name__ == "__main__":
+    bytecode_cache.configure()
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
@@ -6989,6 +6997,11 @@ def _refuse_unlistable_change_sources(
     return bases
 
 
+# The member-doc rule's cause class for a hard link to a runtime lock
+# (``lifecycle_gate_support._read_member_doc_bytes``).
+_MEMBER_DOC_LOCK_REFUSAL = "resolves to a framework runtime lock"
+
+
 def _resolve_change_doc_matches(root: Path, change_id_prefix: str) -> list[dict[str, Any]]:
     token = (change_id_prefix or "").strip().lower()
     if not token:
@@ -7002,7 +7015,16 @@ def _resolve_change_doc_matches(root: Path, change_id_prefix: str) -> list[dict[
             if p.name == _vocab.RECORD_FILENAME:
                 continue
             try:
-                text = _read_repo_text_checked(root, p)
+                # Wave 200xy (200v1): the lock check runs first, judged on the
+                # resolved path, so a change doc symlinked to a runtime lock
+                # stays ``refused``; the read then applies the member-doc rule
+                # (``lstat`` regular file, contained, non-blocking, capped), so
+                # a link or special file is never followed or opened.
+                _refuse_runtime_lock_target(root, p)
+                raw = _read_member_doc_bytes(p.parent, p, root=root).decode("utf-8")
+                # Universal newlines, as the ``read_text`` this replaced, so a
+                # readable document's content is unchanged.
+                text = raw.replace("\r\n", "\n").replace("\r", "\n")
             except RuntimeLockTargetRefused as exc:
                 # Wave 1zxnz (1zx02): never opened; matched by name only and
                 # reported as unreadable, with ``refused`` for the resource.
@@ -7017,6 +7039,22 @@ def _resolve_change_doc_matches(root: Path, change_id_prefix: str) -> list[dict[
                             "refused": True,
                         }
                     )
+                continue
+            except MemberDocRefused as exc:
+                # A hard link to a runtime lock is refused by the member-doc
+                # rule's identity check; it keeps ``refused`` as the symlinked
+                # lock does. Any other refusal is an unreadable match.
+                canonical_change_id = p.stem
+                if _change_doc_matches_token(p, canonical_change_id, token):
+                    match = {
+                        "path": str(p.relative_to(root)).replace("\\", "/"),
+                        "change_id": canonical_change_id,
+                        "content": "",
+                        "read_error": _read_error_detail(exc),
+                    }
+                    if exc.strerror == _MEMBER_DOC_LOCK_REFUSAL:
+                        match["refused"] = True
+                    matches.append(match)
                 continue
             except (OSError, UnicodeError) as exc:
                 canonical_change_id = p.stem
@@ -7158,16 +7196,6 @@ def _refuse_if_archived(root: Path, token: str, kind: str) -> Optional[dict[str,
         recovery_tools=["wf_get_change"],
         recovery_usage="wf_get_change(...)  # read the archived record",
     )
-
-
-def _resolve_unique_change_doc(root: Path, change_id: str) -> tuple[Optional[dict[str, Any]], Optional[dict[str, Any]]]:
-    matches = _resolve_change_doc_matches(root, change_id)
-    if not matches:
-        return None, _diagnostic("change_not_found", f"No change doc found matching '{change_id}'.", recovery_tools=["wf_list_plans"], recovery_usage="wf_list_plans()")
-    if len(matches) > 1:
-        candidates = ", ".join(f"{m['change_id']} ({m['path']})" for m in matches)
-        return None, _diagnostic("ambiguous_change_id", f"Multiple change docs match '{change_id}': {candidates}. Use a more specific ID.", recovery_tools=["wf_list_plans"], recovery_usage="wf_list_plans()")
-    return matches[0], None
 
 
 def _mark_item_block_end(lines: list[str], index: int) -> int:
@@ -13799,6 +13827,9 @@ def _close_change_scoped_lint(root: Path, paths: list[Path]) -> list[str]:
     for path in paths:
         failures.extend(check_metadata(root, path))
     failures.extend(wave_validators.check_wave_docs(root, only=set(paths)))
+    # Wave 200xy (200v1): a refused record document is reported once, by path,
+    # from docs-lint's per-run registry.
+    failures.extend(lint_helpers.record_refusal_failures())
     rels = {_repo_rel(root, path) for path in paths}
     named = [failure for failure in failures if any(rel in failure for rel in rels)]
     return list(dict.fromkeys(named))

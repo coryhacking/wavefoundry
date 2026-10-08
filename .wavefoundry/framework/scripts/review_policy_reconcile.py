@@ -56,6 +56,23 @@ _PREPARE = vocabulary_profile.shortcut("prepare-wave")
 _IMPLEMENT = vocabulary_profile.shortcut("implement-wave")
 _REVIEW = vocabulary_profile.shortcut("review-wave")
 
+# Wave 200xy (200xx): the two replacement sides naming the readiness council
+# key use the tier-neutral spelling; each has a legacy pair whose old side is
+# the text earlier releases wrote with `wave-council-readiness`.
+_COUNCIL_REVIEW_TYPED_AUTHORITY = (
+    "a declared wave records the machine authority as a typed `council-readiness` approval event. "
+    "Its `## Review Checkpoints` verdict may retain the structured `prepare-council` fields as "
+    "narrative, but that prose never changes a declared wave's lifecycle outcome. A legacy wave "
+    "still uses the structured verdict line as its compatibility gate."
+)
+_PREPARE_TYPED_APPROVAL = (
+    "On declared waves, record `council-readiness` as a typed approval event via `wf_review_event`; "
+    "this typed record is the sole machine authority, and any structured `prepare-council` "
+    "checkpoint is narrative only. Legacy prose waves retain the structured checkpoint "
+    "compatibility gate. Call `wf_prepare_wave` again after the current typed approval is "
+    "recorded (`ready` to ready without opening, or `create` to prepare and open)."
+)
+
 KNOWN_SECTION_REPLACEMENTS: dict[str, tuple[tuple[str, str], ...]] = {
     vocabulary_profile.prompt_doc("implement-wave"): (
         (
@@ -125,18 +142,31 @@ KNOWN_SECTION_REPLACEMENTS: dict[str, tuple[tuple[str, str], ...]] = {
             "- Level 2: after a recorded delivery finding, repair the affected boundary and obtain fresh independent reverification from each blocking lane; no re-Prepare unless the plan or scope became invalid",
         ),
     ),
-    "docs/prompts/council-review.prompt.md": ((
-        "the recorded verdict must be written back into `## Review Checkpoints` as a structured `prepare-council` line containing `moderator`, `primer-depth`, `seats`, `rotating-seat`, `strongest-challenge`, and `strongest-alternative`. The lifecycle gate only accepts that structured verdict, not a freeform marker.",
-        "a declared wave records the machine authority as a typed `wave-council-readiness` approval event. Its `## Review Checkpoints` verdict may retain the structured `prepare-council` fields as narrative, but that prose never changes a declared wave's lifecycle outcome. A legacy wave still uses the structured verdict line as its compatibility gate.",
-    ),),
+    "docs/prompts/council-review.prompt.md": (
+        (
+            "the recorded verdict must be written back into `## Review Checkpoints` as a structured `prepare-council` line containing `moderator`, `primer-depth`, `seats`, `rotating-seat`, `strongest-challenge`, and `strongest-alternative`. The lifecycle gate only accepts that structured verdict, not a freeform marker.",
+            _COUNCIL_REVIEW_TYPED_AUTHORITY,
+        ),
+        # Wave 200xy (200xx): text an earlier release reconciled, naming the
+        # earlier council key, converges to the current text.
+        (
+            _COUNCIL_REVIEW_TYPED_AUTHORITY.replace("`council-readiness`", "`wave-council-readiness`"),
+            _COUNCIL_REVIEW_TYPED_AUTHORITY,
+        ),
+    ),
     vocabulary_profile.prompt_doc("prepare-wave"): (
         (
             "record `wave-council-readiness` in `## Review Evidence` and the narrative verdict in `## Review checkpoints`. The recorded verdict must be a structured `prepare-council` line with `moderator`, `primer-depth`, `seats`, `rotating-seat`, `strongest-challenge`, and `strongest-alternative` fields; `seats:` names the seats actually run, each at most once, and every rostered seat must have recorded evidence in the wave record (docs-lint checks this roster⇄evidence consistency — see `docs/prompts/council-review.prompt.md`). **`wf_prepare_wave` signals this step with `status: \"ready_for_council_review\"` — run the review immediately when you see that status, then call `wf_prepare_wave` again (mode `ready` to ready-without-opening, or `create` to prepare-and-open) to complete prepare.**",
-            "On declared waves, record `wave-council-readiness` as a typed approval event via `wf_review_event`; this typed record is the sole machine authority, and any structured `prepare-council` checkpoint is narrative only. Legacy prose waves retain the structured checkpoint compatibility gate. Call `wf_prepare_wave` again after the current typed approval is recorded (`ready` to ready without opening, or `create` to prepare and open).",
+            _PREPARE_TYPED_APPROVAL,
         ),
         (
             "A clean readiness verdict confirms the wave is **admissible**. It does not replace the **pre-implementation review gate**, which is the mandatory first phase of `Implement wave`. The lifecycle sequence is: `Prepare wave` (readiness) → **pre-implementation review gate** (first phase of `Implement wave`) → first code edit.",
             f"A clean readiness verdict confirms the wave is **admissible** and is the single pre-code review decision. The lifecycle sequence is: `{_PREPARE}` (failure-first critique, packet completeness, current readiness approval) → `{_IMPLEMENT}` → first code edit.",
+        ),
+        # Wave 200xy (200xx): the earlier council key's reconciled text converges.
+        (
+            _PREPARE_TYPED_APPROVAL.replace("`council-readiness`", "`wave-council-readiness`"),
+            _PREPARE_TYPED_APPROVAL,
         ),
     ),
     "docs/prompts/upgrade-wavefoundry.prompt.md": (),

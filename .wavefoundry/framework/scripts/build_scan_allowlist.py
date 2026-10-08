@@ -20,6 +20,15 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(Path(__file__).parent))
 
+# Change 1zyv1: bytecode goes only to the project cache (``bytecode_cache``),
+# never beside the sources; writes stay off until configure() enables the cache.
+if __name__ == "__main__" or sys.pycache_prefix is None:
+    sys.dont_write_bytecode = True
+import bytecode_cache  # noqa: E402
+
+if __name__ == "__main__":
+    bytecode_cache.configure()
+
 from build_pack import FRAMEWORK_REL, should_exclude
 from wave_lint_lib.constants import SCAN_ALLOWLIST_PATH, SCAN_FINDINGS_PATH
 from wave_lint_lib.secrets_validators import (
