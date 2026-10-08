@@ -3057,6 +3057,76 @@ def migrate_council_role_renames(repo_root: Path) -> ChangePromptMigration:
     return ChangePromptMigration(written=tuple(written), link_report=link_report)
 
 
+# Wave 204hi: project-owned lifecycle guides move before policy reconciliation.
+# Source seed 001 is renamed in the distributed framework, not in project docs.
+LIFECYCLE_DOCUMENT_RENAMES: "tuple[tuple[str, str], ...]" = (
+    ("docs/contributing/feature-workflow.md", "docs/contributing/delivery-workflow.md"),
+    ("docs/contributing/feature-wave-lifecycle-overview.md", "docs/contributing/lifecycle-overview.md"),
+)
+
+
+def migrate_lifecycle_document_renames(repo_root: Path) -> ChangePromptMigration:
+    """Move the two project lifecycle guides to their change-neutral names.
+
+    Every pair is preflighted before any write: when any pair conflicts (both
+    paths exist, or the old path is a symlink, not a regular file, or resolves
+    outside the repository) one error names every conflicting pair and nothing
+    is written. Otherwise each present old file is copied byte-for-byte to its
+    new path through the exclusive publish (permission bits kept) and then
+    removed. A second migration
+    finds nothing to move and writes nothing.
+    """
+
+    conflicts = [
+        conflict
+        for old_rel, new_rel in LIFECYCLE_DOCUMENT_RENAMES
+        if (conflict := _change_prompt_pair_conflict(repo_root, old_rel, new_rel, "file")) is not None
+    ]
+    if conflicts:
+        raise RuntimeError(
+            "lifecycle document migration blocked: "
+            + "; ".join(conflicts)
+            + ". This document migration preserved all files and wrote nothing. Merge any "
+            "project-authored prose from each old file into its new file, remove "
+            "the old file, and rerun the upgrade."
+        )
+
+    written: list[str] = []
+    for old_rel, new_rel in LIFECYCLE_DOCUMENT_RENAMES:
+        old_lexical = repo_root / old_rel
+        if not (old_lexical.exists() or old_lexical.is_symlink()):
+            continue
+        old_path = _contained_review_carrier_path(repo_root, old_rel)
+        new_path = _contained_review_carrier_path(repo_root, new_rel)
+        try:
+            original, source_mode = _read_move_source(repo_root, old_rel)
+        except OSError as exc:
+            raise RuntimeError(
+                f"lifecycle document migration blocked: {_display_name(old_rel)} could not be read; "
+                f"it was preserved ({_failure_class(exc)})"
+            ) from None
+        _write_review_carrier_text(new_path, original, exclusive=True, mode=source_mode, root=repo_root)
+        try:
+            old_path.unlink()
+        except OSError as exc:
+            try:
+                new_path.unlink()
+                new_outcome = f"{_display_name(new_rel)} was removed"
+            except OSError:
+                new_outcome = f"{_display_name(new_rel)} could not be removed and must be deleted by hand"
+            raise RuntimeError(
+                f"lifecycle document migration blocked while removing {_display_name(old_rel)}; "
+                f"it was preserved and {new_outcome} ({type(exc).__name__})"
+            ) from exc
+        written.extend([old_rel, new_rel])
+
+    moved = tuple(old_rel for old_rel, _new_rel in LIFECYCLE_DOCUMENT_RENAMES if old_rel in written)
+    link_report = _moved_prompt_link_report(repo_root, moved) if moved else ()
+    return ChangePromptMigration(written=tuple(written), link_report=link_report)
+
+
+
+
 # ---------------------------------------------------------------------------
 # Profile prompt-name migration (wave 1zyb4, change 1zxnw)
 #
@@ -4161,6 +4231,15 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
         print(
             "render_agent_surfaces: NOTICE - markdown link targets the moved council role doc "
             f"(edit it to the council-chair path, then rerun the docs gate): {_display_name(location)}",
+            file=sys.stderr,
+        )
+    # Migrate project guides before managed policy regions use the new paths.
+    document_migration = migrate_lifecycle_document_renames(repo_root)
+    migration_written = [*migration_written, *document_migration.written]
+    for location in document_migration.link_report:
+        print(
+            "render_agent_surfaces: NOTICE - markdown link targets a moved lifecycle document "
+            f"(review its target; historical content is preserved): {_display_name(location)}",
             file=sys.stderr,
         )
     profile_migration = migrate_profile_prompt_names(repo_root)

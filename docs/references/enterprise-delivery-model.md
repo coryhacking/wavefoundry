@@ -3,7 +3,7 @@
 
 Owner: Engineering
 Status: draft
-Last verified: 2026-10-06
+Last verified: 2026-10-08
 
 ---
 
@@ -177,7 +177,7 @@ In practice, most Cycles run 2–4 months because strategic objectives tend to h
 
 **JIRA analogue:** Feature *or* Story, depending on scope. A Wave containing multiple Changes maps to a JIRA Feature; a Wave containing a single Change maps to a JIRA Story.
 
-**Artifacts:** Fully defined by the Wave Framework. See `docs/contributing/feature-wave-lifecycle-overview.md`.
+**Artifacts:** Fully defined by the Wave Framework. See `docs/contributing/lifecycle-overview.md`.
 
 **Governance:** Full Wave Framework lifecycle applies — Prepare wave stage gate, required reviewer lanes, Wave Council (when enabled), Progress Log, Wave Summary at close.
 
@@ -442,7 +442,7 @@ The Wave Framework's full lifecycle governance — stage gates, reviewer lanes, 
 ## Related Documents
 
 - `docs/contributing/change-workflow.md` — the Wave and Change lifecycle in detail
-- `docs/contributing/feature-wave-lifecycle-overview.md` — Wave lifecycle with reviewer lanes and Wave Council
+- `docs/contributing/lifecycle-overview.md` — Wave lifecycle with reviewer lanes and Wave Council
 - `docs/references/project-overview.md` — Wavefoundry's own workflow
 - `docs/prompts/index.md` — full MCP and CLI command catalog
 - `AGENTS.md` — stage gate and guardrails

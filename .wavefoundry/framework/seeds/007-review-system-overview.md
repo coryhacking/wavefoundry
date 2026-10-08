@@ -275,6 +275,6 @@ In a seeded project, that local source of truth lives in `docs/contributing/revi
 
 ## Related Docs
 
-- `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md`
+- `.wavefoundry/framework/seeds/001-framework-lifecycle-overview.md`
 - `docs/contributing/review-and-evals.md`
 - `docs/contributing/agent-team-workflow.md`

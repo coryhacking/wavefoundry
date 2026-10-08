@@ -540,7 +540,7 @@ class EventsOnlyResidueCensusTests(unittest.TestCase):
         self.assertIn("docs/prompts/implement-wave.prompt.md", rels)
         self.assertIn(".wavefoundry/README.md", rels)
         self.assertIn(".wavefoundry/framework/README.md", rels)
-        self.assertIn("docs/contributing/feature-workflow.md", rels)
+        self.assertIn("docs/contributing/delivery-workflow.md", rels)
         self.assertIn("README.md", rels)
         # Every committed platform family is inside the executable scope.
         self.assertIn(".agents/mcp_config.json", rels)
@@ -758,7 +758,7 @@ class EventsOnlyResidueCensusTests(unittest.TestCase):
             readme.write_text(
                 "pre-implementation-review: passed\n", encoding="utf-8"
             )
-            workflow = root / "docs" / "contributing" / "feature-workflow.md"
+            workflow = root / "docs" / "contributing" / "delivery-workflow.md"
             workflow.parent.mkdir(parents=True, exist_ok=True)
             workflow.write_text(
                 "reviewers participate during implementation\n"
@@ -775,7 +775,7 @@ class EventsOnlyResidueCensusTests(unittest.TestCase):
                     ".wavefoundry/framework/README.md",
                     ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
                     "README.md",
-                    "docs/contributing/feature-workflow.md",
+                    "docs/contributing/delivery-workflow.md",
                 },
             )
             self.assertEqual(
@@ -786,11 +786,11 @@ class EventsOnlyResidueCensusTests(unittest.TestCase):
                     ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md: "
                     "pre-implementation review gate (1 occurrence(s))",
                     "README.md: pre-implementation-review (1 occurrence(s))",
-                    "docs/contributing/feature-workflow.md: fix and re-run reviewer "
+                    "docs/contributing/delivery-workflow.md: fix and re-run reviewer "
                     "(1 occurrence(s))",
-                    "docs/contributing/feature-workflow.md: blocking findings return the wave "
+                    "docs/contributing/delivery-workflow.md: blocking findings return the wave "
                     "to implementation (level 2 loop) (1 occurrence(s))",
-                    "docs/contributing/feature-workflow.md: reviewers participate during "
+                    "docs/contributing/delivery-workflow.md: reviewers participate during "
                     "implementation (1 occurrence(s))",
                 ],
             )

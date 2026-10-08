@@ -1,10 +1,10 @@
-# Feature Wave Lifecycle Overview
+# Lifecycle Overview
 
 Owner: Engineering
 Status: active
 Last verified: 2026-10-08
 
-Adapted from `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md` for Wavefoundry's specific reviewer roles, personas, and artifact paths.
+Adapted from `.wavefoundry/framework/seeds/001-framework-lifecycle-overview.md` for Wavefoundry's specific reviewer roles, personas, and artifact paths.
 
 ## Overview
 

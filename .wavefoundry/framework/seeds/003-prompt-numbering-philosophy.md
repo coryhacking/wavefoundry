@@ -37,5 +37,5 @@ Explain how the shared Wave Framework uses numbering so the highest-value concep
 ## Related Docs
 
 - `.wavefoundry/framework/README.md`
-- `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md`
+- `.wavefoundry/framework/seeds/001-framework-lifecycle-overview.md`
 - `.wavefoundry/framework/seeds/002-wave-framework-seeding-overview.md`

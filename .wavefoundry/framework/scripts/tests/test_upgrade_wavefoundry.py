@@ -2729,6 +2729,61 @@ class ChangePromptRenameInstallingUpgradeTests(unittest.TestCase):
         self.assertTrue((self.root / vocabulary_profile.prompt_doc("close-change")).is_file())
 
 
+class LifecycleDocumentInstallingUpgradeTests(unittest.TestCase):
+    """Fresh extracted renderer owns the new document migration on its installing upgrade."""
+
+    def test_installing_upgrade_and_unwired_migration_control(self):
+        import venv_bootstrap
+        for wired in (True, False):
+            with self.subTest(wired=wired), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                framework = root / ".wavefoundry" / "framework"
+                shutil.copytree(SCRIPTS_ROOT, framework / "scripts",
+                                ignore=shutil.ignore_patterns("tests", "benchmarks", "__pycache__"))
+                shutil.copytree(SCRIPTS_ROOT.parent / "install", framework / "install")
+                shutil.copytree(SCRIPTS_ROOT.parent / "seeds", framework / "seeds")
+                scripts = framework / "scripts"
+                if not wired:
+                    renderer = scripts / "render_agent_surfaces.py"
+                    source = renderer.read_text(encoding="utf-8")
+                    call = "document_migration = migrate_lifecycle_document_renames(repo_root)"
+                    self.assertEqual(source.count(call), 1)
+                    renderer.write_text(source.replace(call, "document_migration = ChangePromptMigration((), ())"), encoding="utf-8")
+                directory = root / "docs" / "contributing"
+                directory.mkdir(parents=True)
+                legacy = directory / "feature-wave-lifecycle-overview.md"
+                legacy.write_bytes(b"# Customized lifecycle\r\n\r\nProject-specific procedure.\r\n")
+                workflow = directory / "feature-workflow.md"
+                workflow.write_bytes(b"# Customized delivery\r\n")
+                mod = load_upgrade_module()
+                with patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                        patch.object(mod, "SCRIPTS_DIR", scripts), \
+                        patch.object(mod, "_preferred_python", return_value=sys.executable), \
+                        contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    mod.phase_surface_rendering(root)
+                new = directory / "lifecycle-overview.md"
+                def assert_migrated():
+                    self.assertFalse(legacy.exists())
+                    self.assertFalse(workflow.exists())
+                    self.assertEqual((directory / "delivery-workflow.md").read_bytes(), b"# Customized delivery\r\n")
+                    self.assertIn("Project-specific procedure.", new.read_text(encoding="utf-8"))
+                    self.assertIn("<!-- wavefoundry:review-policy:begin -->", new.read_text(encoding="utf-8"))
+                if wired:
+                    assert_migrated()
+                    before = new.read_bytes()
+                    with patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                            patch.object(mod, "SCRIPTS_DIR", scripts), \
+                            patch.object(mod, "_preferred_python", return_value=sys.executable), \
+                            contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                        mod.phase_surface_rendering(root)
+                    self.assertEqual(new.read_bytes(), before)
+                else:
+                    with self.assertRaises(AssertionError):
+                        assert_migrated()
+                    self.assertTrue(legacy.is_file())
+                    self.assertFalse(new.exists())
+
+
 class ReviewPlanInstallingUpgradeTests(unittest.TestCase):
     """1w047 AC-4: Phase 1 runs the freshly extracted five-state migration."""
 

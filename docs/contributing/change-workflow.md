@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-06
+Last verified: 2026-10-08
 
 ## Default Change Path
 
@@ -95,6 +95,6 @@ See `docs/contributing/build-and-verification.md` for the full Git commits polic
 ## Related Docs
 
 - `docs/prompts/index.md` — shortcut phrase catalog
-- `docs/contributing/feature-wave-lifecycle-overview.md` — full lifecycle explanation
+- `docs/contributing/lifecycle-overview.md` — full lifecycle explanation
 - `docs/contributing/agent-team-workflow.md` — review lane and persona routing
 - `AGENTS.md` **Stage Gate (repository code)** — gate requirements

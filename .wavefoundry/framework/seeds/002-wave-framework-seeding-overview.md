@@ -41,7 +41,7 @@ This usually creates or refreshes:
 
 - canonical docs under `docs/`
 - a project orientation overview at `docs/references/project-overview.md`
-- a repo-specific feature/wave lifecycle companion at `docs/contributing/feature-wave-lifecycle-overview.md`, derived from `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md` and adapted to local reviewers/personas
+- a repo-specific lifecycle companion at `docs/contributing/lifecycle-overview.md`, derived from `.wavefoundry/framework/seeds/001-framework-lifecycle-overview.md` and adapted to local reviewers/personas
 - public prompt entry docs under `docs/prompts/`
 - agent-oriented prompt bodies under `docs/prompts/agents/` when the project keeps checked-in planning/context prompt bodies separate from the public shortcut surface
 - workflow config in `docs/workflow-config.json`, including **`lifecycle_id_policy`** when the install ships `lifecycle_id.py` so epoch and optional hour offset are explicit for new repositories
@@ -58,7 +58,7 @@ The framework assumes work should be grouped into waves when assumptions and bou
 - preserve agent handoff and memory context across sessions
 - route people and agents toward canonical docs instead of duplicating instructions everywhere
 
-The shared conceptual explanation of that lifecycle lives in `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md`. Seeded repositories should generate a project-specific companion under `docs/contributing/` that adds local reviewer roles, personas, and artifact specifics without changing the shared model.
+The shared conceptual explanation of that lifecycle lives in `.wavefoundry/framework/seeds/001-framework-lifecycle-overview.md`. Seeded repositories should generate a project-specific companion under `docs/contributing/` that adds local reviewer roles, personas, and artifact specifics without changing the shared model.
 
 The maintainer-facing create/refresh/preserve rules for seeding and upgrade live in `.wavefoundry/framework/seeds/009-framework-maintenance-contract.md`.
 

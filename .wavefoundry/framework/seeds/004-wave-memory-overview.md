@@ -71,7 +71,7 @@ Exact schemas and local routing belong in the seeded project docs in the reposit
 
 ## Related Docs
 
-- `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md`
+- `.wavefoundry/framework/seeds/001-framework-lifecycle-overview.md`
 - `.wavefoundry/framework/seeds/110-wave-memory-bootstrap.prompt.md`
 - `.wavefoundry/framework/seeds/200-wave-reconciliation.prompt.md`
 - `docs/waves/README.md`

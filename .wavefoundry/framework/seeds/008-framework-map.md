@@ -28,7 +28,7 @@ flowchart TD
 These files explain the framework and route maintainers toward the right operating documents before they touch prompts:
 
 - `.wavefoundry/framework/README.md`
-- `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md`
+- `.wavefoundry/framework/seeds/001-framework-lifecycle-overview.md`
 - `.wavefoundry/framework/seeds/002-wave-framework-seeding-overview.md`
 - subsystem overviews `003-007`
 - this file, `008-framework-map.md`
@@ -106,7 +106,7 @@ When generating new runnable prompt files, always apply the `.prompt.md` suffix.
 
 | Layer | Lives in shared package | Lives in project repository |
 | --- | --- | --- |
-| Conceptual lifecycle model | `001-feature-wave-framework-overview.md` | `docs/contributing/feature-wave-lifecycle-overview.md` adapts the model with local reviewers, personas, and artifact paths |
+| Conceptual lifecycle model | `001-framework-lifecycle-overview.md` | `docs/contributing/lifecycle-overview.md` adapts the model with local reviewers, personas, and artifact paths |
 | Seeding and generation rules | `002-wave-framework-seeding-overview.md` and shared prompts | `docs/README.md`, `docs/prompts/index.md`, and related local docs explain the instantiated local surface |
 | Memory/persona/review model | `004-007` overview docs and supporting prompts | `docs/references/project-context-memory.md`, `docs/agents/personas/`, `docs/agents/memory/`, local review docs |
 | Public command behavior | shared public prompt files | local prompt docs and optional local agent prompt bodies |
@@ -114,7 +114,7 @@ When generating new runnable prompt files, always apply the `.prompt.md` suffix.
 ## Maintainer Reading Order
 
 1. Read `README.md` for package identity, prompt map, and numbered overview list.
-2. Read `001-feature-wave-framework-overview.md` for the conceptual operating model.
+2. Read `001-framework-lifecycle-overview.md` for the conceptual operating model.
 3. Read `002-wave-framework-seeding-overview.md` for init/upgrade and generated-output behavior.
 4. Use `003-007` and this map for subsystem and package-structure context.
 5. Read the specific prompt(s) only after the owning concept and output contract are clear.
@@ -122,6 +122,6 @@ When generating new runnable prompt files, always apply the `.prompt.md` suffix.
 ## Related Docs
 
 - `.wavefoundry/framework/README.md`
-- `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md`
+- `.wavefoundry/framework/seeds/001-framework-lifecycle-overview.md`
 - `.wavefoundry/framework/seeds/002-wave-framework-seeding-overview.md`
 - `.wavefoundry/framework/seeds/009-framework-maintenance-contract.md`

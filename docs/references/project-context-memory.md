@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-10-08
 
 Durable reusable workflow guidance discovered during waves and promoted from journals.
 
@@ -81,3 +81,7 @@ Test setup readiness using actual MCP renderer output and actual setup continuat
 When changing optimize result handling, exercise the real `indexer.optimize_index_tables` producer with final epoch CAS returning false through close, MCP and setup consumers. Assert failure diagnostics together with `building` state and an absent reader token, plus a successful-finalization control. Consumer fixtures containing hand-written `error` values missed a producer that emitted `failure`. Install in-memory producer mutations after fixture setup because setup reloads the indexer. Durable coverage: `test_index_optimize_contract.py`.
 
 Reload coverage expectations must come from an independent source: module-body direct sibling imports with explicit bootstrap exclusions, not the purge list being tested. Exercise actual `perform_mcp_reload` with stale module/callable sentinels, require replacement and a working new callable, and delete a purge member as a negative control. This census is bounded to direct imports; it does not prove lazy/transitive reload coverage. Durable coverage: `test_lifecycle_gates_structure.py`. Both lessons follow independently killed defects in wave `1yj14`.
+
+## Lifecycle migration fixture boundaries (wave 204hi)
+
+A byte-preserving move and subsequent managed-region reconciliation are separate contracts: verify exact bytes/modes at the move boundary and custom prose preservation through the real installing renderer. Under renamed vocabulary profiles, provide a readable prompt-surface manifest and assert the actual Prepare policy marker before claiming direct-document validation. Put history fixtures under `record_paths.WAVES_ROOT` and compute relative links from that directory. Default-only tests missed both assumptions; qualify `second` and `prompt-names`. Validated memory `20472-mem lifecycle-migration-fixtures-need-profile-aware-carrier-acti` records the independently detected and repaired cases.

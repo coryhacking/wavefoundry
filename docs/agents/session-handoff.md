@@ -10,19 +10,19 @@ Last verified: 2026-10-08
 
 **Paused wave:** *(none)*
 
-**Last closed wave:** `203ha upgrade-profile-qualification` — fixed five non-default-profile upgrade test failures and prepared the public Waveforge R1–R9/A1–A3 handoff.
+**Last closed wave:** `204hi lifecycle-document-names` — renamed three lifecycle documents, preserved downstream customizations through a contained upgrade migration, and retained policy validation at the new path.
 
-Closed on explicit operator instruction on 2026-10-08. All four ACs and all tasks are complete, readiness and independent code/QA reviews are approved, operator signoff is recorded, and the memory checkpoint yielded no candidates. Commit and push are authorized. Public handoff: `docs/waves/203ha upgrade-profile-qualification/waveforge-handoff.md`.
+Closed on explicit operator instruction on 2026-10-08. All five ACs and all tasks are complete; independent code, QA, docs-contract and security approvals and operator signoff are recorded. Commit and push are authorized. Waveforge integration guidance is in the wave record.
 
-Previously closed and pushed in `d8bee00a`: `200ey containment-and-distribution-seams` and `203pu graph-call-attribution-integrity`.
+Previously pushed: `203ha upgrade-profile-qualification` as c5fa8e02, followed by generated map refresh 49b701bb; `200ey containment-and-distribution-seams` and `203pu graph-call-attribution-integrity` as d8bee00a. The earlier public R1–R9/A1–A3 handoff remains at `docs/waves/203ha upgrade-profile-qualification/waveforge-handoff.md`.
 
 ## Last-closed verification
 
-Closure proved the current green framework receipt: 11,885 tests across 173 files, 20 existing skips, recorded `2026-10-08T19:13:12.019056+00:00`, input hash `dde11ab2ef7918216ee07fa1ab0244033acfd6bc8f590157818322a084e17c2f`. Both focused profile owner runs pass 681 tests with two existing skips each. Independent probes preserved invalid-profile rejection, exact outputs, missing-manifest refusal and unwired-render detection. The initial full run was rejected for concurrent documentation edits; the quiet rerun is authoritative. Framework sources have not changed since it. All edit gates are closed.
+Closure proved the current green framework receipt: 11,894 tests across 174 files, 20 existing skips, 412.596s; input hash `660d1a46ca27f86aab3f159a26b3685cbf28484ade8a820791e10e29e09f2c15`, recorded `2026-10-08T20:32:39.636317+00:00`. The host-permission rerun resolved sandbox-only failures without source changes. Eight focused migration tests pass under default, second and prompt-names profiles; the prompt-names upgrade owner passes 682 tests with two existing skips. Both QA fixture findings are terminal. All edit gates are closed.
 
-After the host restart, operator-requested `wf setup` succeeded using the host CoreML provider. The sandbox attempt could not compile CoreML and correctly preserved the existing index when CPU precision differed. Final MCP health reports setup and semantic indexes ready; the earlier stale-runtime/setup-input warnings are cleared. Historical-memory setup backfill still reports one remaining wave awaiting validation, separate from the completed waves.
+Retrospective: memory `20472` records profile-aware carrier activation and history-path fixtures; its generic draft `202kr` remains superseded. The lesson is also promoted to `docs/references/project-context-memory.md`. The close checkpoint found no remaining candidates.
 
-Retrospective memory: retain the corrected callable/dependency-owner lesson `203is` and existing graph receiver-ownership lesson `203ew`; generated duplicate or nonactionable candidates retain their rejection/supersession history. Repeated per-wave memory proposals produced no new candidates.
+Current framework edits report loaded code stale: restart the host before relying on updated loaded code. Earlier operator-requested setup succeeded using host CoreML; historical-memory setup backfill reported one remaining wave awaiting validation, separate from these completed waves.
 
 ## Post-release qualification
 

@@ -140,7 +140,7 @@ Wavefoundry has two active persona agents representing people who use or operate
 1. Read `AGENTS.md` → **Start Here** section to understand the shortcut phrase table, stage gate, and git commits policy.
 2. Consult `docs/prompts/index.md` for the full public command surface.
 3. For architecture context, start with `docs/ARCHITECTURE.md`.
-4. For workflow details, see `docs/contributing/change-workflow.md` and `docs/contributing/feature-wave-lifecycle-overview.md`.
+4. For workflow details, see `docs/contributing/change-workflow.md` and `docs/contributing/lifecycle-overview.md`.
 
 <!-- wavefoundry:review-policy:begin -->
 ## Review-policy baseline

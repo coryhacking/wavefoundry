@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-07
+Last verified: 2026-10-08
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -498,6 +498,44 @@ Inventory/drift-detection subagents run read-only. Broad edits to `docs/prompts/
    - `.claude/agents/guru.md`: the renderer refreshes only the body and keeps the existing frontmatter, so the scan flags its `description:` line; edit that line to say **Plan change**.
    - Repair every other reconcile finding for the renamed names in live docs.
 - **Distribution prompt names.** The lifecycle prompt names in the seeds (file names, headings, `Shortcut:` lines and skills) are framework defaults. A distribution may rename the tier-named lifecycle prompts through its vocabulary profile. The renderer moves default-named prompts and their agent bodies byte-for-byte to the profile's names and records the applied names under `prompt_names` in `docs/prompts/prompt-surface-manifest.json`. When that key is present, author or reconcile each listed prompt at its listed name: the file, its heading, its `Shortcut:` line (the shortcut its `public_prompt_surface` entry records), its `docs/prompts/index.md` row and its `AGENTS.md` shortcut row; otherwise use the defaults. Repair each reconcile finding that names a default prompt path, skill or shortcut.
+
+## Lifecycle document names
+
+The conceptual seed is now `001-framework-lifecycle-overview.md` (formerly
+`001-feature-wave-framework-overview.md`); its numeric seed identity remains 001.
+The installing upgrade's fresh surface renderer moves these project guides before
+review-policy reconciliation:
+
+| Earlier path | Current path |
+| --- | --- |
+| `docs/contributing/feature-workflow.md` | `docs/contributing/delivery-workflow.md` |
+| `docs/contributing/feature-wave-lifecycle-overview.md` | `docs/contributing/lifecycle-overview.md` |
+
+The document migration preserves exact bytes and permission bits at the move
+boundary. Subsequent rendering may reconcile the lifecycle guide's managed policy
+region; project prose outside that region remains intact. Missing optional guides
+are not created by this migration. Fresh seeding authors them at the current paths.
+Both document pairs are preflighted before either move: an existing destination,
+linked source, non-file source or path escaping the repository refuses the document
+migration. Earlier upgrade phases may already have written their own outputs; this
+is not whole-upgrade rollback. A concurrent destination is never overwritten.
+If both names exist, preserve them, merge project guidance deliberately into the
+current document, remove the superseded file, and rerun the upgrade. Successful
+moves are idempotent; if an I/O failure interrupts later work, inspect the reported
+paths and preserve both copies until the conflict is resolved.
+
+Reconcile moved guides' titles, source references and current authored links during
+the upgrade editing pass. The renderer reports Markdown links to documents it moved
+without rewriting them, including links in history. Preserve historical records and
+ledgers; report any resulting docs-gate conflict for explicit resolution rather
+than silently rewriting evidence. Reports cover Markdown link targets, not all
+plain-text mentions, and only moves performed in that render; rerun the docs gate
+after reconciliation. The new lifecycle path retains direct-document policy and
+phase obligations plus its managed policy baseline.
+
+The filename and carrier registration changes alone do not change policy receipt
+inputs or require re-Prepare. An upgrade that also changes actual policy inputs
+still requires the normal re-Prepare; no historical approval or receipt is rewritten.
 
 ## Git Commits
 

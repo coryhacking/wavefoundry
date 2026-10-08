@@ -230,7 +230,7 @@ documented protocol bridge boundary.""",
 The review policy requires phase-scoped integrity evidence. After repair,
 check the same root cause and adjacent repair class before focused repair
 reverification.""",
-    "docs/contributing/feature-wave-lifecycle-overview.md": """## Review-policy lifecycle baseline
+    "docs/contributing/lifecycle-overview.md": """## Review-policy lifecycle baseline
 
 The review policy records phase-scoped approval_phase evidence separately for
 readiness and delivery.""",
@@ -296,8 +296,8 @@ REVIEW_POLICY_CARRIER_REGISTRY = (
     ReviewPolicyCarrier("policy-baseline:build-and-verification", "docs/contributing/build-and-verification.md", "renderer", (), True, False),
     ReviewPolicyCarrier("docs/contributing/review-and-evals.md", "docs/contributing/review-and-evals.md", "direct_docs", ("policy", "integrity", "phase", "repair_census"), True, False),
     ReviewPolicyCarrier("policy-baseline:review-and-evals", "docs/contributing/review-and-evals.md", "renderer", (), True, False),
-    ReviewPolicyCarrier("docs/contributing/feature-wave-lifecycle-overview.md", "docs/contributing/feature-wave-lifecycle-overview.md", "direct_docs", ("policy", "phase"), True, False),
-    ReviewPolicyCarrier("policy-baseline:feature-wave-lifecycle", "docs/contributing/feature-wave-lifecycle-overview.md", "renderer", (), True, False),
+    ReviewPolicyCarrier("docs/contributing/lifecycle-overview.md", "docs/contributing/lifecycle-overview.md", "direct_docs", ("policy", "phase"), True, False),
+    ReviewPolicyCarrier("policy-baseline:lifecycle", "docs/contributing/lifecycle-overview.md", "renderer", (), True, False),
     ReviewPolicyCarrier("docs/specs/mcp-tool-surface.md", "docs/specs/mcp-tool-surface.md", "direct_docs", ("receipt", "integrity", "phase"), True, False),
     ReviewPolicyCarrier("policy-baseline:mcp-tool-surface", "docs/specs/mcp-tool-surface.md", "renderer", (), True, False),
     ReviewPolicyCarrier("docs/agents", "docs/agents", "direct_docs", ("policy", "repair_census"), True, False),

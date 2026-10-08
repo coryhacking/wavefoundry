@@ -195,7 +195,7 @@ Rules:
 
 ## Numbered Overview Docs
 
-- `001-feature-wave-framework-overview.md` — primary conceptual overview of the Wave Framework lifecycle and operating model
+- `001-framework-lifecycle-overview.md` — primary conceptual overview of the Wave Framework lifecycle and operating model
 - `002-wave-framework-seeding-overview.md` — init, upgrade, migration, and seeded-output mechanics
 - `003-prompt-numbering-philosophy.md` — numbering ranges, insertion strategy, and how to place new shared docs vs prompts
 - `004-wave-memory-overview.md` — shared model for wave state, handoffs, carry-forward, and durable workflow memory
@@ -206,7 +206,7 @@ Rules:
 
 ## Seeding Overview
 
-For the canonical package-local explanation of how the framework operates from feature planning through wave closure, see `framework/seeds/001-feature-wave-framework-overview.md`.
+For the canonical package-local explanation of how the framework operates from feature planning through wave closure, see `framework/seeds/001-framework-lifecycle-overview.md`.
 
 For the canonical package-local explanation of how seeding works, how init differs from upgrade, what `wave-0` means, and what gets generated into a project's repository, see `framework/seeds/002-wave-framework-seeding-overview.md`.
 
@@ -217,7 +217,7 @@ every upgrade deploy its missing-only project prompt from
 `framework/install/lifecycle-prompts/memory-review.prompt.md`; upgrades may recommend the
 shortcut after a memory brief, but never run curation or purge automatically.
 
-Those overview docs also define the requirement for seeded repo-local orientation docs such as `docs/references/project-overview.md` and a repo-specific lifecycle companion at `docs/contributing/feature-wave-lifecycle-overview.md`, which should explain the local workflow, reviewer roles, synthesized personas, and artifact paths.
+Those overview docs also define the requirement for seeded repo-local orientation docs such as `docs/references/project-overview.md` and a repo-specific lifecycle companion at `docs/contributing/lifecycle-overview.md`, which should explain the local workflow, reviewer roles, synthesized personas, and artifact paths.
 
 ## Minimal Required Repo-Local Outputs
 
@@ -399,7 +399,7 @@ The coordinator's execution loop during the implement phase follows a ReAct-deri
 - **Root cause capture (Reflexion):** after a blocking finding, the coordinator records a `Reflect:` entry identifying the pattern and updating remaining tasks proactively.
 - **Three loop levels:** Level 1 (micro — internal to implementer, no log entry), Level 2 (exceptional focused independent checkpoint — re-check the affected boundary, no re-Prepare), Level 3 (wave lifecycle — scope or plan invalidation, stop and re-Prepare or re-plan). Finding type — not severity — determines the level.
 
-See `001-feature-wave-framework-overview.md` section 3a for the full loop model, finding classification table, and escalation reference.
+See `001-framework-lifecycle-overview.md` section 3a for the full loop model, finding classification table, and escalation reference.
 
 ### Wave Artifact Contract
 

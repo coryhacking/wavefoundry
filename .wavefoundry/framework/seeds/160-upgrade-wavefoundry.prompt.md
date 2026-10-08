@@ -513,7 +513,7 @@ The migrations:
  - `docs/plans/plan-template.md` `## Serialization Points` — for an existing operator template, repair merge-safely when the section carries no guidance about lane derivation: Prepare selects automatic review lanes from the explicit repo-relative paths declared there and from nothing else, never from Scope or other narrative. State both declaration forms, because prose declares nothing: a bullet whose content is entirely repo-relative paths, or an explicit `**Review targets (repo-relative paths):**` block whose backtick-quoted entries may contain spaces. State the token grammar too: A declared path token has at least one `/`, so a root-level file (a changelog, a readme) is never a token in either form, and a bullet declares all or nothing in either form, so one such token turns the whole bullet into prose and every other path in it goes undeclared with it. In a bullet a `*` disqualifies the token too; inside the explicit block a span is kept only when its last segment carries an extension or the span ends in `/`, so there a `*` span is accepted as a phantom (a `*.json`, a `dir/*/`) that matches no file and recruits a lane only through a trigger token it happens to carry (a directory prefix, an extension, or a trigger basename), a block holding only phantoms leaves the document declared with whatever roster those triggers recruit (empty when none is a trigger), and any other `*` span turns its bullet into prose. Put a root-level file in its own prose bullet, and declare the directory that holds globbed files. **Any example in the shipped or project template must not itself declare a target**: put it inside a fenced block, or the scaffold ships already in declared mode and every change doc created from it is born with a roster its author never chose. Verify separately that the template declares nothing. State plainly that path scoring is a FLOOR and that any lane may additionally be requested by judgment in the wave record's `Requested review lanes`, because architecture, security and performance risk are usually judgment calls no file path expresses. If the template has no `## Serialization Points` section at all, add one before `## Affected Architecture Docs`; without it a change doc in this repository can never declare a review target.
  - **No bulk re-authoring of existing change docs is required by this migration.** A change doc that declares no repo-relative path keeps the previous whole-document scoring, labelled in the receipt as `risk trigger (undeclared targets, whole-document fallback)`, so an un-migrated plan keeps exactly the review coverage it had. Adoption is per DOCUMENT: each admitted change is scored in its own mode and the results union, so migrating one plan never reduces a sibling's review. Declaration is two-tier: a bullet whose content is entirely repo-relative paths, or an explicit `**Review targets (repo-relative paths):**` block whose backtick-quoted entries additionally tolerate spaces. Prose inside `## Serialization Points` declares nothing in either form, including prose written as a bullet and including a sentence inside the explicit block that merely quotes a path. One consequence is worth stating plainly: a plan whose Serialization Points are prose sentences that merely mention paths is treated as undeclared and keeps whole-document scoring, which is more review, not less. An author who wants that plan's precise roster back re-declares it in one of the two forms above, at whatever pace suits them.
  - `docs/references/project-overview.md` when missing or stale
- - `docs/contributing/feature-wave-lifecycle-overview.md` when missing or stale so it stays aligned with `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md` plus local reviewer/persona policy
+ - `docs/contributing/lifecycle-overview.md` when missing or stale so it stays aligned with `.wavefoundry/framework/seeds/001-framework-lifecycle-overview.md` plus local reviewer/persona policy
  - `docs/prompts/prompt-surface-manifest.json`
  - `docs/agents/session-handoff.md` when missing
  - waves root
@@ -644,7 +644,7 @@ Include the following topics in plain language:
  - Closed legacy baseline wave `docs/waves/00000 wave-zero-plans-and-specs/` (if present), existing journals and persona history, standing directives and active cautions, repo-grown policy in workflow docs unless migration replaced stale text, durable `docs/specs/*.md` contracts (never relocated as legacy corpus).
 
 3. **High-level workflow** (unchanged unless docs explicitly evolved)
- - Same public phrase ladder as init: **Plan change** through **Close change** / **Close wave**; pointer to `docs/contributing/change-workflow.md`, `docs/contributing/feature-wave-lifecycle-overview.md`, and `AGENTS.md` stage gate / implementation guard.
+ - Same public phrase ladder as init: **Plan change** through **Close change** / **Close wave**; pointer to `docs/contributing/change-workflow.md`, `docs/contributing/lifecycle-overview.md`, and `AGENTS.md` stage gate / implementation guard.
 
 4. **Commands and trigger phrases**
  - **`Upgrade Wavefoundry`** vs **`Install Wavefoundry`** (legacy: **`Install wave framework`** / **`Install wave context`**; alias after detection); **`Init Wavefoundry`** (legacy: **`Init wave framework`** / **`Init wave context`**) for first-time or legacy baseline capture only when appropriate.
@@ -919,3 +919,41 @@ When seed 050 changes, merge its **Check readiness after Git changes** instructi
 During the editing pass, reconcile this tooling-only policy into existing install/upgrade prompts and Wavefoundry Python support guidance, preserving project additions and renderer-owned regions. Explain the once-per-`wf` invocation and once-per-MCP-serving-start stderr notice, silent dry-run verification, and structured `setup_readiness.advisories` visibility. The advisory is nonblocking and must not be treated as a setup/rebuild action.
 
 Use `.wavefoundry/framework/README.md` **Python runtime advisory and transition** for the deliberate transition: select newer PATH `python3` for both setup and the restarted host; stop all consumers before ordinary setup replaces an incompatible shared environment, or select and propagate an isolated `WAVEFOUNDRY_TOOL_VENV`. Setup does not install Python. Preserve pending recovery ownership and perform a full host restart after changing interpreters.
+
+## Lifecycle document names
+
+The conceptual seed is now `001-framework-lifecycle-overview.md` (formerly
+`001-feature-wave-framework-overview.md`); its numeric seed identity remains 001.
+The installing upgrade's fresh surface renderer moves these project guides before
+review-policy reconciliation:
+
+| Earlier path | Current path |
+| --- | --- |
+| `docs/contributing/feature-workflow.md` | `docs/contributing/delivery-workflow.md` |
+| `docs/contributing/feature-wave-lifecycle-overview.md` | `docs/contributing/lifecycle-overview.md` |
+
+The document migration preserves exact bytes and permission bits at the move
+boundary. Subsequent rendering may reconcile the lifecycle guide's managed policy
+region; project prose outside that region remains intact. Missing optional guides
+are not created by this migration. Fresh seeding authors them at the current paths.
+Both document pairs are preflighted before either move: an existing destination,
+linked source, non-file source or path escaping the repository refuses the document
+migration. Earlier upgrade phases may already have written their own outputs; this
+is not whole-upgrade rollback. A concurrent destination is never overwritten.
+If both names exist, preserve them, merge project guidance deliberately into the
+current document, remove the superseded file, and rerun the upgrade. Successful
+moves are idempotent; if an I/O failure interrupts later work, inspect the reported
+paths and preserve both copies until the conflict is resolved.
+
+Reconcile moved guides' titles, source references and current authored links during
+the upgrade editing pass. The renderer reports Markdown links to documents it moved
+without rewriting them, including links in history. Preserve historical records and
+ledgers; report any resulting docs-gate conflict for explicit resolution rather
+than silently rewriting evidence. Reports cover Markdown link targets, not all
+plain-text mentions, and only moves performed in that render; rerun the docs gate
+after reconciliation. The new lifecycle path retains direct-document policy and
+phase obligations plus its managed policy baseline.
+
+The filename and carrier registration changes alone do not change policy receipt
+inputs or require re-Prepare. An upgrade that also changes actual policy inputs
+still requires the normal re-Prepare; no historical approval or receipt is rewritten.

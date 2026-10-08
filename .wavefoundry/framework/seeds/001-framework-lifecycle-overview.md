@@ -1,4 +1,4 @@
-# Feature-Wave Framework Overview
+# Framework Lifecycle Overview
 
 ## Purpose
 
@@ -205,7 +205,7 @@ flowchart TD
 - `.wavefoundry/framework/seeds/005-persona-system-overview.md`
 - `.wavefoundry/framework/seeds/007-review-system-overview.md`
 - `docs/contributing/change-workflow.md`
-- `docs/contributing/feature-workflow.md`
+- `docs/contributing/delivery-workflow.md`
 - `docs/contributing/discovery-delivery-workflow.md`
 - `docs/contributing/review-and-evals.md`
 - `docs/waves/README.md`
