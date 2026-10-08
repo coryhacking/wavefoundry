@@ -104,7 +104,7 @@ _Grouping: graph communities collapsed to packages/directories. Areas shown: 24 
 - Area id: `scripts-render-agent-surfaces` (MCP: `wavefoundry://area/scripts-render-agent-surfaces`)
 - Responsibility: scripts/render_agent_surfaces
 - Size: 262 graph nodes
-- Key entry points (by cross-file fan-in): `render_agent_surfaces` (function), `localize_template` (function), `prompt_doc` (function), `shortcut` (function), `write_contained_bytes` (function)
+- Key entry points (by cross-file fan-in): `render_agent_surfaces` (function), `prompt_doc` (function), `shortcut` (function), `localize_template` (function), `write_contained_bytes` (function)
 - Key files: `.wavefoundry/framework/scripts/render_agent_surfaces.py`, `.wavefoundry/framework/scripts/render_platform_surfaces.py`, `.wavefoundry/framework/scripts/contained_files.py`, `.wavefoundry/framework/scripts/vocabulary_profile.py`, `.wavefoundry/framework/scripts/reconcile_scan.py`, `.wavefoundry/framework/scripts/techdocs_baseline.py`
 - Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/render_agent_surfaces.py")` or `code_outline` on the key files above.
 
@@ -234,7 +234,7 @@ _Grouping: graph communities collapsed to packages/directories. Areas shown: 24 
 - Area id: `m` (MCP: `wavefoundry://area/m`)
 - Responsibility: m
 - Size: 36 graph nodes
-- Key entry points (by cross-file fan-in): `summarize` (function), `build_pack` (function), `main` (function), `dashboard` (function), `identity_probe` (function)
+- Key entry points (by cross-file fan-in): `summarize` (function), `build_pack` (function), `main` (function), `identity_probe` (function), `stdio_server_info` (function)
 - Key files: `docs/waves/1yzd0 server-package-boundary/evidence/m/old_runner.py`, `docs/waves/1yzd0 server-package-boundary/evidence/m/equivalence.py`, `docs/waves/1yzd0 server-package-boundary/evidence/m/mutants.py`, `docs/waves/1yzd0 server-package-boundary/evidence/m/graph_ownership.py`
 - Drill in: `code_graph_community(hub_node_id="docs/waves/1yzd0 server-package-boundary/evidence/m/old_runner.py::build_pack")` or `code_outline` on the key files above.
 
