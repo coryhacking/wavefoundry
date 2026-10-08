@@ -40,9 +40,10 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "52"
+GRAPH_BUILDER_VERSION = "53"
 # 52 (1xtnq): callable identity, receiver provenance and lexical Java scope.
 # 52 (1xtns): structural callee leaves and malformed-external refusal.
+# 53 (201wg): unowned member calls stay external (`unowned_member_call`).
 # Bump on emitted-graph changes; prior history is recorded in CHANGELOG.md.
 GRAPH_DIRNAME = "graph"
 
@@ -536,6 +537,12 @@ def _is_malformed_external_call_target(target: str) -> bool:
     )
 
 
+# Wave 203pu (201wg): edge attribute marking a member call whose receiver
+# cannot own a name-only binding (see `_ts_call_receiver_unowned`). Such an
+# edge keeps its `external::` target through every resolution stage.
+_UNOWNED_MEMBER_KEY = "unowned_member_call"
+
+
 def _merge_call_evidence(
     edge_map: dict[tuple[str, str, str, str], dict[str, Any]],
     key: tuple[str, str, str, str], edge: dict[str, Any],
@@ -544,11 +551,17 @@ def _merge_call_evidence(
 
     An unknown receiver cannot erase a genuine known witness, and an unknown
     witness alone cannot become known merely because it was deduplicated.
+    Wave 203pu (201wg): between two unknown witnesses the one WITHOUT the
+    unowned-member flag wins in either order, so the flag survives only when
+    every witness carries it and never blocks a binding another witness allows.
     """
     previous = edge_map.get(key)
     if previous is None:
         edge_map[key] = edge
     elif previous.get("receiver_unknown") and not edge.get("receiver_unknown"):
+        edge_map[key] = edge
+    elif (previous.get(_UNOWNED_MEMBER_KEY) and edge.get("receiver_unknown")
+          and not edge.get(_UNOWNED_MEMBER_KEY)):
         edge_map[key] = edge
 
 
@@ -5168,6 +5181,13 @@ def _rust_value_type(value_node, source_bytes: bytes) -> str | None:
     never an inter-procedural return type).
     """
     vt = getattr(value_node, "type", "")
+    if vt == "identifier":
+        # Wave 203pu (201wg): a unit-struct value `let s = S;` names its type
+        # syntactically, mirroring the uppercase rule in
+        # `_resolve_rust_identifier_type`. A lowercase identifier is a value
+        # of unknown type and stays None.
+        text = source_bytes[value_node.start_byte:value_node.end_byte].decode("utf-8", errors="replace")
+        return text if text[:1].isupper() else None
     if vt == "struct_expression":
         for c in (getattr(value_node, "children", []) or []):
             ct = getattr(c, "type", "")
@@ -5197,6 +5217,20 @@ def _rust_value_type(value_node, source_bytes: bytes) -> str | None:
     return None
 
 
+def _rust_reference_inner_type(ref_node):
+    """`&S` / `&mut S` / `&'a S` -> the `S` type_identifier node, else None.
+
+    Wave 203pu (201wg): bounded reference stripping so a parameter or let
+    annotated with a reference to a named type resolves the same as the named
+    type itself. Only a direct `type_identifier` is returned; generic, slice,
+    trait-object and nested reference types stay unresolved (no inference).
+    """
+    for c in (getattr(ref_node, "children", []) or []):
+        if getattr(c, "type", "") == "type_identifier":
+            return c
+    return None
+
+
 def _search_rust_declarations_in_scope(scope_node, name: str, source_bytes: bytes) -> str | None:
     """Search Rust scope for `let name: Type = ...` or function parameter."""
     stack = [scope_node]
@@ -5213,6 +5247,8 @@ def _search_rust_declarations_in_scope(scope_node, name: str, source_bytes: byte
                     name_child = child
                 elif ct == "type_identifier":
                     type_child = child
+                elif ct == "reference_type" and type_child is None:
+                    type_child = _rust_reference_inner_type(child)
             if name_child is not None:
                 var_name = source_bytes[name_child.start_byte:name_child.end_byte].decode("utf-8", errors="replace")
                 if var_name == name:
@@ -5238,6 +5274,8 @@ def _search_rust_declarations_in_scope(scope_node, name: str, source_bytes: byte
                     name_child = child
                 elif ct == "type_identifier":
                     type_child = child
+                elif ct == "reference_type" and type_child is None:
+                    type_child = _rust_reference_inner_type(child)
             if name_child is not None and type_child is not None:
                 param_name = source_bytes[name_child.start_byte:name_child.end_byte].decode("utf-8", errors="replace")
                 if param_name == name:
@@ -10050,6 +10088,97 @@ def _ts_call_has_receiver(node) -> bool:
     return False
 
 
+# Wave 203pu (201wg): member-access callee shapes whose left operand is a
+# receiver VALUE. Static paths (`A::b`, PHP `A::stat()`) are not members and
+# keep their established binding paths.
+_TS_INSTANCE_MEMBER_TYPES = frozenset({
+    "navigation_expression", "conditional_access_expression", "member_access_expression",
+    "member_expression", "field_access", "field_expression", "field_access_expression",
+    "selector_expression",
+})
+# Receivers that name the enclosing instance or a type lexically (`this.m()`,
+# Ruby `Foo.m`), whose same-file binding stays as before.
+_TS_SELF_RECEIVER_TYPES = frozenset({
+    "this", "self", "super", "base", "constant",
+    "this_expression", "self_expression", "super_expression",  # Kotlin, Swift
+})
+
+
+def _ts_member_call_receiver(node):
+    """``(callee, receiver)`` of an instance member call, else ``(None, None)``."""
+    for field in ("object", "receiver"):
+        child = node.child_by_field_name(field)
+        if child is not None:
+            return None, child
+    if node.child_by_field_name("scope") is not None:
+        return None, None
+    callee = None
+    for field in _TS_CALLEE_FIELDS:
+        callee = node.child_by_field_name(field)
+        if callee is not None:
+            break
+    if callee is None:
+        callee = next((c for c in node.named_children if c.type not in _TS_ARGS_NODE_TYPES), None)
+    while callee is not None and callee.type == "parenthesized_expression" and len(callee.named_children) == 1:
+        callee = callee.named_children[0]
+    if callee is None or callee.type not in _TS_INSTANCE_MEMBER_TYPES or not callee.children:
+        return None, None
+    for field in ("object", "operand", "value", "argument", "expression"):
+        child = callee.child_by_field_name(field)
+        if child is not None:
+            return callee, child
+    return callee, callee.children[0]
+
+
+def _ts_call_receiver_unowned(node, lang_key: str) -> bool:
+    """True for a member call whose receiver cannot own a name-only binding.
+
+    Wave 203pu (201wg): reached only after the per-language resolver found no
+    receiver type. A computed receiver (a call result, subscript or other
+    expression, as in `items.iter().collect()`) is a value of unknown type in
+    every grammar, and Rust `.` and C/C++ `->` are value-only member syntax.
+    Neither can prove that a same-named project function is the callee, so
+    the call stays an unresolved external member. A bare identifier receiver
+    in a `.`-namespace language may be a module or type and keeps the
+    existing heuristic.
+    """
+    callee, receiver = _ts_member_call_receiver(node)
+    if receiver is None:
+        return False
+    while receiver.type == "parenthesized_expression" and len(receiver.named_children) == 1:
+        receiver = receiver.named_children[0]
+    if receiver.type in _TS_SELF_RECEIVER_TYPES:
+        return False
+    if _ts_lexical_owner_receiver(receiver):
+        return False
+    if not _ts_pure_callee_path(receiver):
+        return True
+    if callee is not None and callee.type == "field_expression":
+        if lang_key == "rust":
+            return True
+        if lang_key in ("c", "cpp") and any(c.type == "->" for c in callee.children):
+            return True
+    return False
+
+
+def _ts_lexical_owner_receiver(receiver) -> bool:
+    """A receiver that names a type or the enclosing instance lexically.
+
+    Wave 203pu (201wg): Ruby `M::K` and `::K` (a `scope_resolution` made only
+    of constants) name a module/class path like a bare `constant`, and Java
+    `Outer.this` / `Outer.super` (a `field_access` ending in `this`/`super`)
+    names an enclosing instance like a bare `this`. Both keep the existing
+    binding rather than being treated as computed values.
+    """
+    if receiver.type == "scope_resolution":
+        return bool(receiver.named_children) and all(
+            c.type == "constant" or _ts_lexical_owner_receiver(c) for c in receiver.named_children
+        ) and all(c.is_named or c.type == "::" for c in receiver.children)
+    if receiver.type == "field_access" and receiver.named_children:
+        return receiver.named_children[-1].type in ("this", "super")
+    return False
+
+
 def _ts_pure_callee_path(node) -> bool:
     """Only identifiers joined by dot/scope tokens; no text/regex surgery."""
     if node.type in (_TS_IDENTIFIER_TYPES | {"namespace_identifier"}) and node.type != "scoped_identifier":
@@ -11208,7 +11337,8 @@ def _edge_lookup_keys(raw_edge: dict[str, Any]) -> set[str]:
         if "." in bare:
             keys.add(bare.rsplit(".", 1)[-1])
         return keys
-    if rel != "calls":
+    if rel != "calls" or raw_edge.get(_UNOWNED_MEMBER_KEY):
+        # Wave 203pu (201wg): an unowned member call consults no index.
         return set()
     keys = {bare} | _head_keys
     if "." in bare:
@@ -11322,6 +11452,10 @@ def _resolve_fragment_edge(raw_edge: dict[str, Any], ctx: dict[str, Any]) -> dic
         bare.startswith(_SUPER_CALL_PREFIX)
         or bare.startswith(_STATIC_OR_INHERITED_PREFIX)
     ):
+        return raw_edge
+    # Wave 203pu (201wg): an unowned member call has no owner to match, so
+    # the unique simple-name branch would bind an unrelated project callable.
+    if rel == "calls" and raw_edge.get(_UNOWNED_MEMBER_KEY):
         return raw_edge
     if rel == "reads" and not sql_table_ref:
         target = _resolve_external_read_target(
@@ -11655,6 +11789,9 @@ def _apply_inheritance_output_passes(
     ):
         src, tgt, _rel, _conf = key
         bare = tgt[len("external::"):]
+        if edge_map[key].get(_UNOWNED_MEMBER_KEY):
+            # Wave 203pu (201wg): the head is a receiver value, not a type.
+            continue
         if bare.startswith(_STATIC_OR_INHERITED_PREFIX):
             _arbitrate_static_or_inherited(
                 key, edge_map, node_map, super_adj, resolve_ctx
@@ -13101,13 +13238,15 @@ class GraphIndexSession:
         def add_edge(
             source: str, target: str, relation: str, *, confidence: str,
             evidence: str | None = None, self_edge_kind: str | None = None,
-            receiver_unknown: bool = False,
+            receiver_unknown: bool = False, unowned_member: bool = False,
         ) -> None:
             key = (source, target, relation, confidence)
             edge = _edge(source, target, relation, confidence=confidence,
                          evidence=evidence, self_edge_kind=self_edge_kind)
             if receiver_unknown:
                 edge["receiver_unknown"] = True
+            if unowned_member:
+                edge[_UNOWNED_MEMBER_KEY] = True
             _merge_call_evidence(edge_map, key, edge)
 
         # Wave 1p2q3 (1p2td): per-overload signature accumulator. Maps qualified
@@ -13992,7 +14131,19 @@ class GraphIndexSession:
                 )
             else:
                 receiver_unknown = _ts_call_has_receiver(node)
+                unowned_member = receiver_unknown and _ts_call_receiver_unowned(node, lang_key)
                 for target in _ts_relation_candidates(node, source_bytes, "call", mode, profile):
+                    if unowned_member:
+                        # Wave 203pu (201wg): no same-file or import-alias
+                        # lookup; the flag keeps cross-file resolution off too.
+                        clean_target = _ts_clean_name(target)
+                        if clean_target:
+                            add_edge(
+                                source_symbol, f"external::{clean_target}", "calls",
+                                confidence="EXTRACTED", receiver_unknown=True,
+                                unowned_member=True,
+                            )
+                        continue
                     resolved = _ts_resolve_target(target, symbol_lookup, import_aliases)
                     if resolved in node_map and _is_non_callable_call_target(node_map[resolved]["kind"]):
                         continue

@@ -445,7 +445,7 @@ class DashboardSnapshotTests(unittest.TestCase):
             (),
             {
                 "event": "approval",
-                "actor": "wave-council",
+                "actor": "council-chair",
                 "context_id": "dashboard-approval",
                 "signoff_key": "council-delivery",
                 "approval_phase": "delivery",
@@ -3376,7 +3376,9 @@ class AgentClassificationTests(unittest.TestCase):
         self.assertEqual(self.classify("reality-checker", "specialist"), "specialist")
 
     def test_specialist_group_beats_coordinate_stem(self):
-        # "wave-council" is in _COORDINATE_STEMS but specialist group must win.
+        # "council-chair" (and its earlier name "wave-council") is in
+        # _COORDINATE_STEMS but specialist group must win.
+        self.assertEqual(self.classify("council-chair", "specialist"), "specialist")
         self.assertEqual(self.classify("wave-council", "specialist"), "specialist")
 
     def test_specialist_group_beats_build_suffix(self):

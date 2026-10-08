@@ -237,7 +237,7 @@ def _approval_evidence_diagnostics(
             "missing_executable_approval_evidence",
             "Marked wave approval signoffs require executed delivery Evidence Records with "
             "claim_kind `approval`, claim_id `approval:<signoff-key>`, and a matching actor "
-            "(`operator` for operator-signoff, `wave-council` for council signoffs, or the exact "
+            f"(`operator` for operator-signoff, `{review_evidence.COUNCIL_ACTOR}` for council signoffs, or the exact "
             "specialist lane); specialist/council evidence must be fresh and independent, and its "
             f"chronology must follow every affected repair; {details}.",
             recovery_tools=["wf_review_wave", "wf_current_wave"],
@@ -994,7 +994,7 @@ def council_signoff_gate(ctx: GateContext) -> GateResult:
                 lifecycle_gate_support._diagnostic(
                     "missing_wave_council_signoff",
                     (
-                        "Required Wave Council signoff missing for prepare: "
+                        f"Required {_vocab.COUNCIL_DISPLAY_NAME} signoff missing for prepare: "
                         f"{', '.join(missing_council)}. {_council_remedy}"
                     ),
                     recovery_tools=_council_recovery_tools,

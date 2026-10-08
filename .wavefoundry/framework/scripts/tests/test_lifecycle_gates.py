@@ -81,7 +81,7 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
                            ('approval', 'operator-signoff')]:
             kwargs = {'run_kind': 'initial_delivery'} if key is None else {
                 'signoff_key': key, 'approval_phase': 'delivery'}
-            actor = ('wave-council' if key is None or key.startswith('wave-council')
+            actor = ('council-chair' if key is None or key.startswith('wave-council')
                      else 'operator' if key == 'operator-signoff' else key)
             with patch.object(self.srv, '_run_post_write_lint', return_value={'mode': 'stubbed'}):
                 response = self.srv.wf_review_event_response(
@@ -649,6 +649,15 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
         rejected = gates.council_signoff_gate(self.context('missing_lane'))
         self.assertEqual(self.codes(rejected), ['missing_wave_council_signoff'])
         self.assertIn('typed approval', rejected.diagnostics[0]['message'])
+
+    def test_council_signoff_gate_names_the_profile_display_name(self):
+        # Wave 200ey (change 200ew, AC-13): the missing-signoff message follows
+        # COUNCIL_DISPLAY_NAME; the diagnostic code is fixed.
+        with patch.object(vocabulary_profile, 'COUNCIL_DISPLAY_NAME', 'Review Board'):
+            rejected = gates.council_signoff_gate(self.context('missing_lane'))
+        self.assertEqual(self.codes(rejected), ['missing_wave_council_signoff'])
+        self.assertIn('Required Review Board signoff missing', rejected.diagnostics[0]['message'])
+        self.assertNotIn('Wave Council', rejected.diagnostics[0]['message'])
 
     @polarity('single_open_gate')
     def test_single_open_gate_pass_fail(self):

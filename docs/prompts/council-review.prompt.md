@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-07
+Last verified: 2026-10-08
 
 **Shortcut phrases:** `Council review` · `Run council` · `Wave Council review`
 
@@ -22,7 +22,7 @@ Lifecycle approval currency is phase-scoped through `approval_phase`: readiness 
 
 Run `red-team` in `council-adversarial-primer` mode in isolation before any other seat. See `docs/agents/specialists/red-team.md`.
 
-The wave-council declares a **primer depth tier** before Phase 1 runs:
+The council-chair declares a **primer depth tier** before Phase 1 runs:
 
 | Tier | Stances | `primer_questions` | When |
 |---|---|---|---|
@@ -67,7 +67,7 @@ Trigger at most one targeted challenge round when the `seat_agreement_aggregate`
 
 ### Synthesis
 
-`wave-council` synthesizes across primer + all seat outputs. See `docs/agents/specialists/wave-council.md`.
+`council-chair` synthesizes across primer + all seat outputs. See `docs/agents/specialists/council-chair.md`.
 
 The first synthesis pass runs on **anonymized** seat outputs (seat/role identity stripped, labeled `Seat 1..N` in randomized order) so findings are weighed on merit before identity is re-attached. **Non-waiver guard:** anonymization governs only the convergence/agreement assessment — a finding carrying blocking authority from a required specialist lane keeps its lane attribution and blocking status at all times and is never merit-weighted below blocking.
 
@@ -83,7 +83,7 @@ Synthesis must include:
 
 When the review is used for `Prepare wave`, a declared wave records the machine authority as a typed `council-readiness` approval event. Its `## Review Checkpoints` verdict may retain the structured `prepare-council` fields as narrative, but that prose never changes a declared wave's lifecycle outcome. A legacy wave still uses the structured verdict line as its compatibility gate.
 
-**Roster honesty:** the `seats:` field lists the seats *actually run*, each at most once — never paste the template's example roster verbatim. A rotating pick that is also a fixed seat appears once in `seats:` and is identified by the `rotating-seat:` field. Every listed seat (other than the `red-team` primer and the `wave-council` moderator) must have recorded evidence in the wave record — a finding or an explicit no-findings note in `## Prepare Review Evidence`, `## Review Evidence`, or a `## Review Checkpoints` entry other than the verdict line itself. docs-lint flags rostered seats with no recorded evidence: a seat named only inside its own verdict line does not self-certify.
+**Roster honesty:** the `seats:` field lists the seats *actually run*, each at most once — never paste the template's example roster verbatim. A rotating pick that is also a fixed seat appears once in `seats:` and is identified by the `rotating-seat:` field. Every listed seat (other than the `red-team` primer and the `council-chair` moderator) must have recorded evidence in the wave record — a finding or an explicit no-findings note in `## Prepare Review Evidence`, `## Review Evidence`, or a `## Review Checkpoints` entry other than the verdict line itself. docs-lint flags rostered seats with no recorded evidence: a seat named only inside its own verdict line does not self-certify.
 
 ---
 

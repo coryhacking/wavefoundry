@@ -1312,11 +1312,12 @@ class GraphParityBaselineFixtureTests(unittest.TestCase):
             self.fail("the parity build did not run; see the corpus-identity test")
         # 1xtnr keeps the archived 1xny6 fixture byte-for-byte. On this
         # unchanged corpus, builder52 changes only two version labels and
-        # adds the explicitly empty integrity snapshot below. Assert those
-        # new values before adapting metadata to the archived digest; never
-        # normalize nodes, edges, evidence, coverage or community membership.
-        self.assertEqual(sections["graph"]["builder_version"], "52")
-        self.assertEqual(sections["communities"]["graph_builder_version"], "52")
+        # adds the explicitly empty integrity snapshot below; builder53
+        # (201wg) changes the same two labels. Assert those new values
+        # before adapting metadata to the archived digest; never normalize
+        # nodes, edges, evidence, coverage or community membership.
+        self.assertEqual(sections["graph"]["builder_version"], "53")
+        self.assertEqual(sections["communities"]["graph_builder_version"], "53")
         self.assertEqual(sections["graph"]["call_integrity"], {
             "non_callable_call_targets": 0,
             "callable_wins_collisions": 0,

@@ -1696,7 +1696,7 @@ class DocsLintFixtureTests(unittest.TestCase):
         # lint subprocess); the actual self-host repo root is one level deeper.
         self_host_root = SCRIPTS_ROOT.parents[1].parent  # .wavefoundry/framework → repo root
         import re as _re
-        for slug in ("red-team", "wave-council", "archetype-council"):
+        for slug in ("red-team", "council-chair", "archetype-council"):
             path = self_host_root / "docs" / "agents" / "specialists" / f"{slug}.md"
             self.assertTrue(path.is_file(), f"missing council doc: {path}")
             text = path.read_text(encoding="utf-8")
@@ -2859,7 +2859,7 @@ class PrepareCouncilVerdictLintTests(DocsLintFixtureTests):
         wave_md = root / self.ACTIVE_WAVE
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
-            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (moderator: wave-council; primer-depth: standard; seats: red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker; rotating-seat: none; strongest-challenge: red-team identified the remaining unknowns; strongest-alternative: keep the verdict structured and machine-readable)\n"
+            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (moderator: council-chair; primer-depth: standard; seats: red-team, architecture-reviewer, security-reviewer, qa-reviewer, reality-checker; rotating-seat: none; strongest-challenge: red-team identified the remaining unknowns; strongest-alternative: keep the verdict structured and machine-readable)\n"
             + "\n## Prepare Review Evidence\n\n- architecture-reviewer: approved 2026-05-21 — boundaries coherent.\n- security-reviewer: approved 2026-05-21 — no trust boundary crossed.\n- qa-reviewer: approved 2026-05-21 — ACs testable.\n- reality-checker: approved 2026-05-21 — cited sites verified.\n",
             encoding="utf-8",
         )
@@ -3006,7 +3006,7 @@ class PrepareCouncilRosterEvidenceTests(unittest.TestCase):
     ## Prepare Review Evidence + ## Review Evidence + ## Review Checkpoints MINUS every
     structured verdict line (review-fix hardening: excluding only the matched line's own text
     let two pasted thin PASS lines mutually certify each other); ## Participants / ## Changes
-    excluded by construction; tolerance set {red-team, wave-council}.
+    excluded by construction; tolerance set {red-team, council-chair, wave-council}.
     """
 
     FROZEN_FIXTURE = TESTS_ROOT / "fixtures" / "prepare_council" / "1p9pe-wave-pre-corrective.md"
@@ -3031,7 +3031,7 @@ class PrepareCouncilRosterEvidenceTests(unittest.TestCase):
     def _verdict(seats: str, rotating: str = "none") -> str:
         return (
             "- **Prepare-phase Wave Council [prepare-council] — 2026-07-01: PASS** "
-            f"(moderator: wave-council; primer-depth: standard; seats: {seats}; "
+            f"(moderator: council-chair; primer-depth: standard; seats: {seats}; "
             f"rotating-seat: {rotating}; strongest-challenge: the usual; "
             "strongest-alternative: none stronger)"
         )
@@ -3124,17 +3124,20 @@ class PrepareCouncilRosterEvidenceTests(unittest.TestCase):
         self.assertEqual(self._check(self._root), ([], []))
 
     def test_wave_council_tolerated_without_dedicated_evidence(self) -> None:
-        """wave-council is the moderator; synthesis is the verdict line itself."""
-        checkpoints = self._verdict("wave-council, qa-reviewer")
-        self._write_wave(self._wave_text(checkpoints, prepare_evidence="- qa-reviewer: approved — checked.\n"))
-        self.assertEqual(self._check(self._root), ([], []))
+        """The council chair is the moderator; synthesis is the verdict line itself.
+        Its earlier name ``wave-council`` stays tolerated (wave 200ey, change 200ew)."""
+        for moderator in ("council-chair", "wave-council"):
+            with self.subTest(moderator=moderator):
+                checkpoints = self._verdict(f"{moderator}, qa-reviewer")
+                self._write_wave(self._wave_text(checkpoints, prepare_evidence="- qa-reviewer: approved — checked.\n"))
+                self.assertEqual(self._check(self._root), ([], []))
 
     def test_seat_named_only_in_own_verdict_line_does_not_self_certify(self) -> None:
         """AC-4/pinned rule: the matched verdict line's own text is excluded from the corpus —
         a strongest-challenge mention inside the same line is not evidence."""
         checkpoints = (
             "- **Prepare-phase Wave Council [prepare-council] — 2026-07-01: PASS** "
-            "(moderator: wave-council; primer-depth: standard; seats: red-team, performance-reviewer; "
+            "(moderator: council-chair; primer-depth: standard; seats: red-team, performance-reviewer; "
             "rotating-seat: none; strongest-challenge: performance-reviewer raised the hot-path concern; "
             "strongest-alternative: none stronger)"
         )
@@ -4191,7 +4194,7 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
             "180-implement-change.prompt.md",
             "211-guru.prompt.md",
             "237-council-review.prompt.md",
-            "215-wave-council.prompt.md",
+            "215-council-chair.prompt.md",
         ):
             text = (self.SEEDS_DIR / name).read_text(encoding="utf-8")
             self.assertNotIn(canonical, text, f"{name} duplicates the canonical definition sentence")
@@ -4289,7 +4292,7 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
         self.assertIn("does not self-certify", text)
 
     def test_seed_215_cross_references_recording_contract(self) -> None:
-        text = (self.SEEDS_DIR / "215-wave-council.prompt.md").read_text(encoding="utf-8")
+        text = (self.SEEDS_DIR / "215-council-chair.prompt.md").read_text(encoding="utf-8")
         self.assertIn("typed `council-readiness` approval", text)
         self.assertIn("legacy waves retain the structured verdict contract", text)
 

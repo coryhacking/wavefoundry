@@ -280,10 +280,14 @@ _RETIRED_CHANGE_PROMPT_PATTERNS: tuple[
                 rf"(?<![\w.-])docs/prompts/{agents}{verb}\-feature\.prompt\.md(?![\w.-])"
             ),
             f"docs/prompts/{agents}{verb}-feature.prompt.md",
-            f"docs/prompts/{agents}{vocabulary_profile.prompt_slug(verb + '-change')}.prompt.md",
+            f"docs/prompts/{agents}{slug}.prompt.md",
         )
         for agents in ("", "agents/")
-        for verb in ("plan", "implement")
+        # Literal keys (200ew): a distribution's literal-key census sees both.
+        for verb, slug in (
+            ("plan", vocabulary_profile.prompt_slug("plan-change")),
+            ("implement", vocabulary_profile.prompt_slug("implement-change")),
+        )
     ),
     (
         re.compile(

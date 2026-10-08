@@ -210,7 +210,7 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
     def test_live_markdown_outside_registered_carriers_is_reported_not_rewritten(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self._root(tmp)
-            live = root / "docs/agents/wave-council.md"
+            live = root / "docs/agents/council-chair.md"
             live.parent.mkdir(parents=True, exist_ok=True)
             live.write_text(
                 "# Council\n\nRun the pre-implementation review gate.\n",
@@ -262,7 +262,7 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
             with self.assertRaises(ValueError) as caught:
                 review_policy_reconcile.plan_reconciliation(root)
             message = str(caught.exception)
-            self.assertIn("docs/agents/wave-council.md", message)
+            self.assertIn("docs/agents/council-chair.md", message)
             self.assertIn("docs/contributing/review-notes.md", message)
             self.assertIn("outside a registered carrier", message)
             self.assertNotIn(f"{WAVES_REL}/1old closed/{RECORD}", message)

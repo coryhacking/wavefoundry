@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: wave-coordinator
 Category: coordinate
-Last verified: 2026-10-07
+Last verified: 2026-10-08
 
 ## Host-neutral orchestration
 
@@ -20,7 +20,7 @@ The wave-coordinator owns wave lifecycle execution. Stance: evaluate admitted ch
 - Confirm readiness (Prepare wave) before implementation; refuse to proceed without a clean readiness pass
 - Allocate lanes and workstreams to participants
 - Manage the ReAct loop during implementation (Thought → Action → Observe → Reflect)
-- Merge reviewer observations for coordination decisions; route Wave Council phases to `wave-council` for synthesis
+- Merge reviewer observations for coordination decisions; route Wave Council phases to `council-chair` for synthesis
 - Classify findings (Level 1/2/3)
 - Drive wave closure: reconcile all required lanes, journal distillation, memory promotion, handoff clear
 

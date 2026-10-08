@@ -1,6 +1,6 @@
 {
   "captured_at": "f4063a85",
-  "description": "SHA-256 of each @mcp.tool handler's exact source (decorators through last line, dedented) inside register_mcp_surface, captured before wave 1y0h1 edited server_impl.py. Wave 1ypxw updates only wf_review_wave and wf_review_event for approved receipt-currency docstrings; all other captured hashes are retained. Wave 1z8tz updates only docs_search and code_search for the restored tag vocabulary (memory) and the rechunk remedy in their docstrings. Wave 1zlu1 adds wf_close_change and updates only wf_create_wave for its new optional parent parameter. Wave 1zyc3 updates only wf_review_event for its new optional attested_by parameter. Wave 1zyc5 updates only seed_get, wf_get_prompt and wf_help for the renamed planning help goal and prompt examples in their docstrings. Wave 1zyb4 (change 1zxnx) updates only wf_review_event for the council-delivery signoff key example in its docstring.",
+  "description": "SHA-256 of each @mcp.tool handler's exact source (decorators through last line, dedented) inside register_mcp_surface, captured before wave 1y0h1 edited server_impl.py. Wave 1ypxw updates only wf_review_wave and wf_review_event for approved receipt-currency docstrings; all other captured hashes are retained. Wave 1z8tz updates only docs_search and code_search for the restored tag vocabulary (memory) and the rechunk remedy in their docstrings. Wave 1zlu1 adds wf_close_change and updates only wf_create_wave for its new optional parent parameter. Wave 1zyc3 updates only wf_review_event for its new optional attested_by parameter. Wave 1zyc5 updates only seed_get, wf_get_prompt and wf_help for the renamed planning help goal and prompt examples in their docstrings. Wave 1zyb4 (change 1zxnx) updates only wf_review_event for the council-delivery signoff key example in its docstring. Wave 203pu updates only wf_graph_report for the call_edge_counts docstring.",
   "handlers": {
     "code_ask": "d893cd2791ad0ade83b0a5d07997aa5afe049b7d5fd19a5b74cc890a31ae0ad9",
     "code_callgraph": "5fc05322e7ac0234ee2d14eb298175dd112fab1c21f66f032cba1db9928fa958",
@@ -52,9 +52,9 @@
     "wf_get_handoff": "b6a7022e68e8376630ff76426500eae15ef3f6e3cf5665ede4df3ea03075d10e",
     "wf_get_prompt": "962ee986549d9c965fc1a6524d4ed91d13baf1badf9e77c174ffc5e394bd54dc",
     "wf_gpu_doctor": "1372ee210467ca88e89d318626984b3d4a3de22a655de9b9d4dae2f997c1b690",
-    "wf_graph_report": "981c9b74d1742e55dc36f6fe2ddfce634ca5ea38c24ef0e6707efff8c4df8b29",
+    "wf_graph_report": "d1ec1ddb9548fff9387042b1250f0633b82a7a0df1a6618e922c6faab5edfb9a",
     "wf_help": "96a69c5900ace564a3b935524925339f36c48f40bcaa13d2d6f4e837d66341f5",
-    "wf_implement_wave": "7dff19d286b2e3362d7c5a7961ceb7b450af7406728a47d59775dab3f358dd1d",
+    "wf_implement_wave": "029bd28b5be7f610bc2e38ffb71260c515fad3ead3096e8d9fefe22e3891149b",
     "wf_list_plans": "758d3ab98da352de1ebfa368a3946a4d051c2086e0c88adac1f8ad038c9d7402",
     "wf_list_waves": "f3a5ff288b620de114a996d9048e208455cfa851ceffbc8b319ad897ce162d45",
     "wf_map": "936a249fcd3872fd04e5e64123cd35e692b7172276a39d0d1eddb6fff3c55355",

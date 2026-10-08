@@ -40,6 +40,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from server_tools_support import _make_repo, load_server
+from review_evidence import COUNCIL_ACTOR
 
 TESTS_DIR = Path(__file__).resolve().parent
 GOLDEN_PATH = TESTS_DIR / "fixtures" / "lifecycle-gate-golden.json"
@@ -153,17 +154,17 @@ def seed_state(srv, root: Path, wave_id: str, approvals: tuple[str, ...]) -> Non
                 root,
                 wave_id,
                 "run",
-                "wave-council",
+                COUNCIL_ACTOR,
                 "lifecycle-golden-readiness-run",
                 mode="create",
                 run_kind="readiness",
                 fresh_context=True,
                 independent=True,
-                evidence=_approval_evidence("wave-council"),
+                evidence=_approval_evidence(COUNCIL_ACTOR),
                 integrity_checks=dict(_APPROVAL_INTEGRITY),
             )
         for signoff_key in approvals:
-            actor = "wave-council" if signoff_key.startswith(("wave-council", "council-")) else signoff_key
+            actor = COUNCIL_ACTOR if signoff_key.startswith(("wave-council", "council-")) else signoff_key
             srv.wf_review_event_response(
                 root,
                 wave_id,

@@ -40,7 +40,7 @@ After every step, call `wf_audit_install` — it reports expected missing artifa
 - [ ] 2.2 — Capture legacy baseline wave if applicable (seed-110 / conditional) — artifact: `docs/waves/00000 wave-zero-plans-and-specs/wave.md` (or mark `[~]` if no legacy corpora detected)
 - [ ] 2.3 — Bootstrap evidence base (seed-030) — artifact: `docs/repo-profile.json`
 - [ ] 2.4 — Create canonical docs structure and topical artifact homes (seed-040) — artifact: `docs/README.md`
-- [ ] 2.5 — Generate per-role agent docs INCLUDING the three councils as specialists (seed-050) — artifact: `docs/agents/specialists/wave-council.md`
+- [ ] 2.5 — Generate per-role agent docs INCLUDING the three councils as specialists (seed-050) — artifact: `docs/agents/specialists/council-chair.md`
 - [ ] 2.6 — Map architecture, boundaries, and integration contracts (seed-060) — artifact: `docs/ARCHITECTURE.md`
 - [ ] 2.7 — Establish quality, reliability, security, performance posture (seed-070) — artifact: `docs/QUALITY_SCORE.md`
 - [ ] 2.8 — Wire docs gate mechanics (seed-080 + seed-090) — artifact: `docs/contributing/build-and-verification.md`

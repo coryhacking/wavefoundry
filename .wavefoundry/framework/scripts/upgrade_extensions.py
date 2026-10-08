@@ -72,6 +72,8 @@ disk writes occur.
 """
 from __future__ import annotations
 
+import ast
+import contextlib
 import errno
 import json
 import hashlib
@@ -89,6 +91,30 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
+
+
+
+@contextlib.contextmanager
+def _scripts_on_sys_path(scripts):
+    """Hold ``scripts`` on ``sys.path`` for the ``with`` body (wave 200ey,
+    change 200ev).
+
+    The entry is inserted only when absent and removed on exit only when this
+    call inserted it, so a target's framework scripts directory never stays on
+    the module search path after the helper that needed it returns. Modules
+    imported meanwhile stay cached in ``sys.modules``."""
+    entry = str(scripts)
+    inserted = entry not in sys.path
+    if inserted:
+        sys.path.insert(0, entry)
+    try:
+        yield
+    finally:
+        if inserted:
+            try:
+                sys.path.remove(entry)
+            except ValueError:
+                pass
 
 
 _LEGACY_RUNTIME_LOCKS = (
@@ -333,26 +359,25 @@ def _stop_dashboard_for_lock_cutover(root: Path) -> tuple[bool, int | None]:
     port = meta.get("port")
     restart_port = port if isinstance(port, int) and port > 0 else None
     scripts = root / ".wavefoundry" / "framework" / "scripts"
-    if str(scripts) not in sys.path:
-        sys.path.insert(0, str(scripts))
     try:
-        try:
-            import dashboard_handlers
-        except ImportError:
-            # The new archive hook runs before extraction against an old tree.
-            import server_impl
+        with _scripts_on_sys_path(scripts):
+            try:
+                import dashboard_handlers
+            except ImportError:
+                # The new archive hook runs before extraction against an old tree.
+                import server_impl
 
-            stop_dashboard = getattr(
-                server_impl, "wf_stop_dashboard_response", None
-            ) or getattr(server_impl, "wave_dashboard_stop_response", None)
-            if stop_dashboard is None:
-                raise RuntimeError(
-                    "installed server implementation exposes neither "
-                    "wf_stop_dashboard_response nor wave_dashboard_stop_response"
-                )
-        else:
-            stop_dashboard = dashboard_handlers.wf_stop_dashboard_response
-        response = stop_dashboard(root)
+                stop_dashboard = getattr(
+                    server_impl, "wf_stop_dashboard_response", None
+                ) or getattr(server_impl, "wave_dashboard_stop_response", None)
+                if stop_dashboard is None:
+                    raise RuntimeError(
+                        "installed server implementation exposes neither "
+                        "wf_stop_dashboard_response nor wave_dashboard_stop_response"
+                    )
+            else:
+                stop_dashboard = dashboard_handlers.wf_stop_dashboard_response
+            response = stop_dashboard(root)
     except Exception as exc:
         raise RuntimeError(f"unable to stop dashboard before lock cutover: {exc}") from exc
     if response.get("status") != "ok":
@@ -1075,19 +1100,22 @@ def _reload_in_place(module) -> None:
 
 
 def _installed_memory_backfill(root: Path):
-    """Load the just-extracted coordinator, even under a pre-upgrade runner."""
+    """Load the just-extracted coordinator, even under a pre-upgrade runner.
+
+    The scripts directory is held on ``sys.path`` only for the load; a hook
+    that then calls the coordinator holds it across those calls itself (wave
+    200ey, change 200ev)."""
 
     scripts = root / ".wavefoundry" / "framework" / "scripts"
-    if str(scripts) not in sys.path:
-        sys.path.insert(0, str(scripts))
-    # Same cross-extraction seam as ``_reload_cached_review_evidence``: a
-    # pre-upgrade runner's cached modules would shadow the extracted ones.
-    for name in _MEMORY_BOOTSTRAP_MODULES:
-        cached = sys.modules.get(name)
-        if cached is not None:
-            _reload_in_place(cached)
-        else:
-            importlib.import_module(name)
+    with _scripts_on_sys_path(scripts):
+        # Same cross-extraction seam as ``_reload_cached_review_evidence``: a
+        # pre-upgrade runner's cached modules would shadow the extracted ones.
+        for name in _MEMORY_BOOTSTRAP_MODULES:
+            cached = sys.modules.get(name)
+            if cached is not None:
+                _reload_in_place(cached)
+            else:
+                importlib.import_module(name)
     return sys.modules["memory_backfill"]
 
 
@@ -1098,8 +1126,6 @@ def _installed_upgrade_module(root: Path):
     path = scripts / "upgrade_wavefoundry.py"
     if not path.is_file():
         raise RuntimeError(f"newly extracted upgrader is missing: {path}")
-    if str(scripts) not in sys.path:
-        sys.path.insert(0, str(scripts))
     spec = importlib.util.spec_from_file_location(
         "_wavefoundry_installed_upgrade_projection",
         path,
@@ -1107,7 +1133,8 @@ def _installed_upgrade_module(root: Path):
     if spec is None or spec.loader is None:
         raise RuntimeError(f"cannot load newly extracted upgrader: {path}")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    with _scripts_on_sys_path(scripts):
+        spec.loader.exec_module(module)
     return module
 
 
@@ -1158,25 +1185,24 @@ def _refresh_record_layout_modules_at_extraction(root: Path) -> None:
     """
 
     scripts = Path(root) / ".wavefoundry" / "framework" / "scripts"
-    if str(scripts) not in sys.path:
-        sys.path.insert(0, str(scripts))
-    for name in _RECORD_LAYOUT_MODULES:
-        cached = sys.modules.get(name)
-        if cached is None:
-            continue
-        try:
-            _reload_in_place(cached)
-        except Exception as exc:
-            reason = type(exc).__name__
-            print(
-                f"upgrade: refreshing the cached {name} module failed ({reason}); "
-                "no later module was refreshed",
-                flush=True,
-            )
-            raise RuntimeError(
-                f"could not refresh the cached {name} module after extraction "
-                f"({reason}); rerun the same upgrade command"
-            ) from exc
+    with _scripts_on_sys_path(scripts):
+        for name in _RECORD_LAYOUT_MODULES:
+            cached = sys.modules.get(name)
+            if cached is None:
+                continue
+            try:
+                _reload_in_place(cached)
+            except Exception as exc:
+                reason = type(exc).__name__
+                print(
+                    f"upgrade: refreshing the cached {name} module failed ({reason}); "
+                    "no later module was refreshed",
+                    flush=True,
+                )
+                raise RuntimeError(
+                    f"could not refresh the cached {name} module after extraction "
+                    f"({reason}); rerun the same upgrade command"
+                ) from exc
 
 
 def _fresh_installed_module(name: str):
@@ -1206,11 +1232,10 @@ def _migrate_memory_naming(root: Path) -> None:
     """
 
     scripts = root / ".wavefoundry" / "framework" / "scripts"
-    if str(scripts) not in sys.path:
-        sys.path.insert(0, str(scripts))
-    memory_records = _fresh_installed_module("memory_records")
-    _fresh_installed_module("lifecycle_id")
-    result = memory_records.migrate_memory_ids_to_lifecycle_naming(root)
+    with _scripts_on_sys_path(scripts):
+        memory_records = _fresh_installed_module("memory_records")
+        _fresh_installed_module("lifecycle_id")
+        result = memory_records.migrate_memory_ids_to_lifecycle_naming(root)
     if result.get("renamed"):
         print(
             f"memory-naming migration: renamed {result['renamed']} record(s) "
@@ -1689,11 +1714,12 @@ def _load_journal_hook(scripts: Path, hook: str):
         raise JournalDeclarationError(
             [f"{label}: module {module_name!r} has no {file_name} file directly in the framework scripts directory"]
         )
-    # A helper may import helpers declared before it, as on the server.
-    if str(scripts) not in sys.path:
-        sys.path.insert(0, str(scripts))
+    # A helper may import helpers declared before it, as on the server. The
+    # directory is on the path only for the load here; ``pre_docs_gate``
+    # holds it across the load and the call (wave 200ey, change 200ev).
     try:
-        module = _exec_module_from_file(_JOURNAL_HOOK_MODULE_PREFIX + module_name, resolved)
+        with _scripts_on_sys_path(scripts):
+            module = _exec_module_from_file(_JOURNAL_HOOK_MODULE_PREFIX + module_name, resolved)
     except Exception as exc:  # noqa: BLE001 - refused, never raised raw
         raise JournalDeclarationError(
             [f"{label}: module {module_name!r} could not be imported ({type(exc).__name__})"]
@@ -1775,7 +1801,89 @@ def _journal_template_max_length(template: str) -> int:
     )
 
 
-def migrate_journals(root, *, apply: bool = False, templates=_UNSET) -> dict:
+# Wave 200ey (200ev): the journal preview reads the declaration module's
+# source, never executes it. The cap is far above any real declaration module.
+_JOURNAL_DECLARATION_REL = ".wavefoundry/framework/scripts/mcp_tool_extensions.py"
+_JOURNAL_DECLARATION_MAX_BYTES = 2 * 1024 * 1024
+_JOURNAL_TEMPLATES_NAME = "EXTENSION_JOURNAL_TEMPLATES"
+_JOURNAL_TEMPLATES_UNREADABLE_WARNING = (
+    "journal migration preview: the declared journal templates are not "
+    "statically readable; journals a declared template might delete are "
+    "listed as left"
+)
+
+
+def _static_module_literal(tree: "ast.Module", name: str):
+    """The value of ``name`` bound by a module-level assignment in ``tree``,
+    evaluated with ``ast.literal_eval`` (the ``index_compatibility``
+    ``_read_literals`` pattern); ``()`` when the module never binds it.
+
+    Raises ``ValueError`` when the binding is not a plain module-level
+    assignment of a literal: a binding inside a statement block, an import,
+    an augmented or tuple assignment, a ``global`` rebinding or a non-literal
+    value is not statically readable."""
+    value_node = None
+    owned: set[int] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            names = [t for t in node.targets if isinstance(t, ast.Name) and t.id == name]
+            if names:
+                if len(names) != len(node.targets):
+                    raise ValueError(name)
+                value_node = node.value
+                owned.update(id(t) for t in names)
+        elif (isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+              and node.target.id == name):
+            owned.add(id(node.target))
+            if node.value is not None:
+                value_node = node.value
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id == name and not isinstance(node.ctx, ast.Load):
+            if id(node) not in owned:
+                raise ValueError(name)
+        elif isinstance(node, ast.alias) and (node.asname or node.name) == name:
+            raise ValueError(name)
+        elif isinstance(node, (ast.Global, ast.Nonlocal)) and name in node.names:
+            raise ValueError(name)
+    if value_node is None:
+        return ()
+    return ast.literal_eval(value_node)
+
+
+def _static_journal_templates(root: Path, zip_path=None) -> "tuple[tuple[str, ...], bool]":
+    """``(templates, readable)`` for the journal preview (wave 200ey, change
+    200ev), read without executing any repository code.
+
+    The declaration module's source is read through the incoming
+    ``contained_files`` (loaded privately, see :func:`_incoming_framework_module`)
+    with a cap, parsed with ``ast``, and only the module-level
+    ``EXTENSION_JOURNAL_TEMPLATES`` literal is evaluated. It is accepted when it
+    is a tuple or list of non-empty strings that :func:`_compile_journal_template`
+    accepts; validating the declaration as a whole stays with the module's own
+    ``journal_declaration_problems``, which the applying path calls. A missing
+    module reads as the empty declaration. Any other failure (an unavailable
+    ``contained_files``, a refused read, a parse, evaluation or acceptance
+    failure) returns ``((), False)``."""
+    if not os.path.lexists(Path(root) / _JOURNAL_DECLARATION_REL):
+        return (), True
+    try:
+        contained_files = _incoming_framework_module("contained_files", zip_path)
+        source = contained_files.read_contained_bytes(
+            root, _JOURNAL_DECLARATION_REL, max_bytes=_JOURNAL_DECLARATION_MAX_BYTES
+        )
+        value = _static_module_literal(ast.parse(source), _JOURNAL_TEMPLATES_NAME)
+        if not isinstance(value, (tuple, list)):
+            return (), False
+        for template in value:
+            if not isinstance(template, str) or not template:
+                return (), False
+            _compile_journal_template(template)
+    except Exception:  # noqa: BLE001 - incl. RecursionError, MemoryError
+        return (), False
+    return tuple(value), True
+
+
+def migrate_journals(root, *, apply: bool = False, templates=_UNSET, zip_path=None) -> dict:
     """Mechanically migrate the retired journal directory (wave 1t9w9).
 
     Fail-safe by construction: (a) a journal that provably equals the pristine
@@ -1811,29 +1919,52 @@ def migrate_journals(root, *, apply: bool = False, templates=_UNSET) -> dict:
     report entries carry no absolute path.
 
     Wave 1zyb3 (1zxnv): a journal that fully matches a declared template
-    (``EXTENSION_JOURNAL_TEMPLATES``) is deleted too. ``templates`` defaults to
-    the declaration loaded from the extracted tree, so a preview sees the same
-    oracle; an invalid declaration raises :class:`JournalDeclarationError`.
-    The pre-migration hook is never called here.
+    (``EXTENSION_JOURNAL_TEMPLATES``) is deleted too. With ``apply`` True,
+    ``templates`` defaults to the declaration loaded from the extracted tree;
+    an invalid declaration raises :class:`JournalDeclarationError`. The
+    pre-migration hook is never called here.
+
+    Wave 200ey (200ev): with ``apply`` False the preview executes no repository
+    code. ``templates`` then defaults to the declared templates read statically
+    (:func:`_static_journal_templates`; ``zip_path`` names the incoming pack
+    when this module was loaded from it); when they cannot be read, the report
+    carries one path-free warning and every journal a declared template might
+    delete is listed under ``left``.
     """
 
     root = Path(root)
+    report: dict = {"deleted": [], "moved": [], "left": [], "warnings": []}
+    templates_unknown = False
     if templates is _UNSET:
-        templates = _load_journal_declaration(root, load_hook=False)[0]
+        if apply:
+            templates = _load_journal_declaration(root, load_hook=False)[0]
+        else:
+            # Wave 200ey (200ev): the preview executes no repository code; it
+            # reads the declared templates statically.
+            templates, readable = _static_journal_templates(root, zip_path)
+            if not readable:
+                templates_unknown = True
+                report["warnings"].append(_JOURNAL_TEMPLATES_UNREADABLE_WARNING)
     patterns = tuple(
         (_compile_journal_template(template), _journal_template_max_length(template))
         for template in templates
     )
-    report: dict = {"deleted": [], "moved": [], "left": [], "warnings": []}
     try:
         os.lstat(root / _JOURNALS_REL)
     except OSError:
         return report
     # Wave 1y0gz: the record layout comes from the resolver in the EXTRACTED
-    # tree, guarded like the other sibling imports in this module.
+    # tree, guarded like the other sibling imports in this module. Wave 200ey
+    # (200ev): held on the path only for the migration itself.
     scripts = root / ".wavefoundry" / "framework" / "scripts"
-    if str(scripts) not in sys.path:
-        sys.path.insert(0, str(scripts))
+    with _scripts_on_sys_path(scripts):
+        return _migrate_journals_on_path(root, apply, report, patterns, templates_unknown)
+
+
+def _migrate_journals_on_path(root: Path, apply: bool, report: dict, patterns,
+                              templates_unknown: bool) -> dict:
+    """The body of :func:`migrate_journals`, run while the extracted scripts
+    directory is on ``sys.path``."""
     journals_rel = _JOURNALS_REL.as_posix()
     try:
         import path_containment  # noqa: PLC0415
@@ -1876,7 +2007,7 @@ def migrate_journals(root, *, apply: bool = False, templates=_UNSET) -> dict:
     try:
         _migrate_journal_entries(
             root, resolved_root, journals_dir, journals_fd, path_containment,
-            apply, report, _rel, patterns,
+            apply, report, _rel, patterns, templates_unknown=templates_unknown,
         )
     finally:
         if journals_fd is not None:
@@ -1913,11 +2044,15 @@ def _move_journal_at(root: Path, resolved_root: Path, journals_fd: int, name: st
 
 def _migrate_journal_entries(root: Path, resolved_root: Path, journals_dir: Path,
                              journals_fd: "int | None", path_containment, apply: bool,
-                             report: dict, _rel, patterns=()) -> None:
+                             report: dict, _rel, patterns=(), *,
+                             templates_unknown: bool = False) -> None:
     """The per-journal loop of :func:`migrate_journals`. With ``journals_fd``
     (wave 1zxo0, 1zxns) journals are enumerated, inspected, read and removed
     relative to that handle, so no source path is reopened by name; without it
-    the path branch (Windows) runs as before."""
+    the path branch (Windows) runs as before. ``templates_unknown`` (wave
+    200ey, change 200ev) marks a preview whose declared templates could not be
+    read statically: a journal it would move is listed under ``left``, since a
+    declared template might delete it instead."""
     journals_rel = _JOURNALS_REL.as_posix()
     by_token, profile_re, skipped = _journal_wave_dirs(root)
     if skipped is not None:
@@ -2006,7 +2141,9 @@ def _migrate_journal_entries(root: Path, resolved_root: Path, journals_dir: Path
             continue
         entry = {"source": source_rel, "destination": _rel(destination)}
         if not apply:
-            if _journal_lstat(destination) is None:
+            if templates_unknown:
+                report["left"].append(source_rel)
+            elif _journal_lstat(destination) is None:
                 report["moved"].append(entry)
             else:
                 report["left"].append(source_rel)
@@ -2059,7 +2196,11 @@ def _run_journal_pre_migration_hook(root: Path, hook_name: str, hook) -> bool:
     (wave 1zyb3, 1zxnv). True when the migration may run: no hook, or the
     hook returned. A hook that raises skips the migration for this upgrade
     with one warning naming the hook and the exception class, never the
-    exception text, which may carry an absolute path."""
+    exception text, which may carry an absolute path.
+
+    Wave 200ey (200ev): the hook runs only on an upgrade from a release before
+    1.15.0, so the warning says that later upgrades never retry the migration
+    or the hook and names the Migrate journals prompt as the way to finish."""
     if hook is None:
         return True
     try:
@@ -2067,8 +2208,9 @@ def _run_journal_pre_migration_hook(root: Path, hook_name: str, hook) -> bool:
     except Exception as exc:  # noqa: BLE001 - never fatal to an upgrade
         print(
             f"journal migration WARNING: skipped; the pre-migration hook {hook_name} "
-            f"raised {type(exc).__name__}. Journals were left in place; a later "
-            "upgrade or the Migrate journals prompt finishes the work.",
+            f"raised {type(exc).__name__}. Journals were left in place; later "
+            "upgrades do not retry the migration or call the hook again. Run "
+            "the Migrate journals prompt to finish the work.",
             flush=True,
         )
         return False
@@ -2102,8 +2244,14 @@ def repair_declaring_scaffold(root) -> list[str]:
 
     root = _Path(root)
     scripts = root / ".wavefoundry" / "framework" / "scripts"
-    if str(scripts) not in sys.path:
-        sys.path.insert(0, str(scripts))
+    # Wave 200ey (200ev): held on the path only for the repair.
+    with _scripts_on_sys_path(scripts):
+        return _repair_declaring_scaffold_on_path(root)
+
+
+def _repair_declaring_scaffold_on_path(root: Path) -> list[str]:
+    """The body of :func:`repair_declaring_scaffold`, run while the extracted
+    scripts directory is on ``sys.path``."""
     try:
         # Resolve against the EXTRACTED tree: a pre-upgrade runner's cached
         # module would be the old parser, which is the version that did not
@@ -2343,11 +2491,14 @@ def pre_docs_gate(ctx):
         # before the memory-naming or journal migration changes anything. The
         # loaded templates are always passed on, so the declaration module is
         # executed once; the hook runs right before the journal migration, and
-        # a hook that raises skips it.
-        templates, hook_name, hook = _load_journal_declaration(ctx.root)
-        _migrate_memory_naming(ctx.root)
-        if _run_journal_pre_migration_hook(ctx.root, hook_name, hook):
-            _migrate_journals(ctx.root, templates)
+        # a hook that raises skips it. Wave 200ey (200ev): the extracted
+        # scripts directory is held on sys.path across the hook's load and its
+        # call (a hook may import helpers declared before it), then removed.
+        with _scripts_on_sys_path(_journal_scripts_dir(ctx.root)):
+            templates, hook_name, hook = _load_journal_declaration(ctx.root)
+            _migrate_memory_naming(ctx.root)
+            if _run_journal_pre_migration_hook(ctx.root, hook_name, hook):
+                _migrate_journals(ctx.root, templates)
 
     lock = _read_json_object(
         ctx.root / ".wavefoundry" / "upgrade-in-progress.json"
@@ -2355,19 +2506,30 @@ def pre_docs_gate(ctx):
     if "review_sidecar_cleanup" in lock:
         return
     _reload_cached_review_evidence()
-    installed = _installed_upgrade_module(ctx.root)
-    # Thread the pre-upgrade installed version into the cutover so the
-    # installed cleanup can scope restart_required; a non-string
-    # ctx.from_version falls to the cleanup's fail-safe pre-1.15 default.
-    counts = installed.phase_review_evidence_sidecar_cleanup(
-        ctx.root,
-        from_version=from_version or None,
-    )
+    with _scripts_on_sys_path(_journal_scripts_dir(ctx.root)):
+        installed = _installed_upgrade_module(ctx.root)
+        # Thread the pre-upgrade installed version into the cutover so the
+        # installed cleanup can scope restart_required; a non-string
+        # ctx.from_version falls to the cleanup's fail-safe pre-1.15 default.
+        counts = installed.phase_review_evidence_sidecar_cleanup(
+            ctx.root,
+            from_version=from_version or None,
+        )
     _update_upgrade_state(ctx.root, review_sidecar_cleanup=counts)
 
 
 def post_docs_gate(ctx):
-    """Bootstrap the memory pause under both old and new upgrade runners."""
+    """Bootstrap the memory pause under both old and new upgrade runners.
+
+    Wave 200ey (200ev): the extracted scripts directory is held on
+    ``sys.path`` across the coordinator's load and calls, then removed."""
+
+    with _scripts_on_sys_path(_journal_scripts_dir(ctx.root)):
+        return _post_docs_gate_on_path(ctx)
+
+
+def _post_docs_gate_on_path(ctx):
+    """The body of :func:`post_docs_gate`."""
 
     backfill = _installed_memory_backfill(ctx.root)
     run_id = backfill.ensure_run(ctx.root, "upgrade")
@@ -2515,8 +2677,10 @@ def pre_index_update(ctx):
     run_id = str(lock.get("memory_backfill_run_id") or "").strip()
     if not run_id:
         return
-    backfill = _installed_memory_backfill(ctx.root)
-    summary = backfill.reconcile_index_publication(ctx.root, run_id)
+    # Wave 200ey (200ev): held on sys.path across the coordinator's calls.
+    with _scripts_on_sys_path(_journal_scripts_dir(ctx.root)):
+        backfill = _installed_memory_backfill(ctx.root)
+        summary = backfill.reconcile_index_publication(ctx.root, run_id)
     if summary["state"] == "awaiting_validation":
         _pause_for_memory_action(
             ctx, state="awaiting_memory_validation", run_id=run_id,
@@ -2550,14 +2714,16 @@ def post_index_update(ctx):
     run_id = str(lock.get("memory_backfill_run_id") or "").strip()
     if not run_id:
         return
-    backfill = _installed_memory_backfill(ctx.root)
-    summary = backfill.reconcile_index_publication(ctx.root, run_id)
-    if (
-        summary["state"] == "ready_for_index"
-        and int(summary.get("candidates_drafted") or 0) == 0
-    ):
-        backfill.mark_indexed(ctx.root, run_id)
-        summary = backfill.run_summary(ctx.root, run_id)
+    # Wave 200ey (200ev): held on sys.path across the coordinator's calls.
+    with _scripts_on_sys_path(_journal_scripts_dir(ctx.root)):
+        backfill = _installed_memory_backfill(ctx.root)
+        summary = backfill.reconcile_index_publication(ctx.root, run_id)
+        if (
+            summary["state"] == "ready_for_index"
+            and int(summary.get("candidates_drafted") or 0) == 0
+        ):
+            backfill.mark_indexed(ctx.root, run_id)
+            summary = backfill.run_summary(ctx.root, run_id)
     if summary["state"] != "indexed":
         raise RuntimeError(
             "candidate-bearing historical-memory publication requires the "
@@ -2659,10 +2825,16 @@ def _backfill_role_field_on_agent_docs(root: Path) -> list[str]:
     # Wave 1zyb2 (1zxnt): the shared history predicate is imported here, after
     # the target's scripts directory is on sys.path, and tests the
     # root-relative path so an ancestor of the checkout never decides it.
+    # Wave 200ey (200ev): the insertion is undone once the import is done.
     scripts = root / ".wavefoundry" / "framework" / "scripts"
-    if str(scripts) not in sys.path:
+    inserted = str(scripts) not in sys.path
+    if inserted:
         sys.path.insert(0, str(scripts))
-    from history_paths import is_history_path
+    try:
+        from history_paths import is_history_path
+    finally:
+        if inserted and str(scripts) in sys.path:
+            sys.path.remove(str(scripts))
 
     try:
         candidates = sorted(agents_root.rglob("*.md"))
@@ -2928,6 +3100,41 @@ def _incoming_history_paths(zip_path=None):
         raise _IncomingModuleUnavailable(type(exc).__name__) from None
 
 
+def _incoming_framework_module(name: str, zip_path=None):
+    """Return the INCOMING framework's stdlib-only module ``name`` (wave 200ey,
+    change 200ev, for ``contained_files``), loaded privately exactly as
+    :func:`_incoming_history_paths` loads ``history_paths``: beside this module
+    when it was loaded by absolute path, else the member beside it in
+    ``zip_path``. Never registered in ``sys.modules``; ``sys.path`` is not
+    touched. Raises `_IncomingModuleUnavailable` naming the cause's class.
+    (``_incoming_history_paths`` keeps its own body, which
+    ``tests/test_history_paths.py`` pins.)"""
+    from types import ModuleType
+    try:
+        here = Path(__file__)
+        file_name = f"{name}.py"
+        private_name = f"_incoming_{name}"
+        if here.is_absolute():
+            location = here.with_name(file_name)
+            spec = importlib.util.spec_from_file_location(private_name, location)
+            if spec is None or spec.loader is None:
+                raise ImportError(name)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+        if zip_path is None:
+            raise FileNotFoundError(name)
+        member = here.with_name(file_name).as_posix()
+        with zipfile.ZipFile(zip_path, "r") as archive:
+            source = archive.read(member).decode("utf-8")
+        module = ModuleType(private_name)
+        module.__file__ = member
+        exec(compile(source, member, "exec"), module.__dict__)
+        return module
+    except Exception as exc:  # noqa: BLE001 -- reported as one line by class
+        raise _IncomingModuleUnavailable(type(exc).__name__) from None
+
+
 def _preview_role_field_backfill(root: Path, *, zip_path=None) -> list[str]:
     """Preview variant of `_backfill_role_field_on_agent_docs`. Returns the
     list of repository-relative paths that WOULD have `Role: <slug>` inserted,
@@ -3033,17 +3240,37 @@ def _preview_settings_pycache_strip(root: Path) -> dict | None:
     return None
 
 
+_MIGRATION_PREVIEW_LOG_REL = ".wavefoundry/logs/upgrade-migration-1.5.0.preview.log"
+_CONVERGENCE_PREVIEW_LOG_REL = ".wavefoundry/logs/upgrade-convergence-migration.preview.log"
+
+
+def _write_preview_log(root, rel: str, text: str, zip_path=None) -> "Path | None":
+    """Write a dry-run preview log under the contained write rule (wave 200ey,
+    change 200ev): through the incoming ``contained_files``, loaded privately
+    (see :func:`_incoming_framework_module`), so a ``.wavefoundry/logs`` folder
+    or log path that leaves the repository through a link is refused and
+    nothing outside is written. ``.wavefoundry/logs/`` is created only where
+    absent, after each existing ancestor is confirmed inside the repository.
+    Returns the written path, or ``None`` when the module cannot be loaded or
+    the write is refused."""
+    try:
+        contained_files = _incoming_framework_module("contained_files", zip_path)
+        contained_files.write_contained_bytes(root, rel, text.encode("utf-8"))
+    except Exception:  # noqa: BLE001 - _IncomingModuleUnavailable or a refusal
+        return None
+    return Path(root) / rel
+
+
 def _write_migration_preview_report(
-    root: Path, sections: list[tuple[str, list[str]]],
+    root: Path, sections: list[tuple[str, list[str]]], *, zip_path=None,
 ) -> Path | None:
     """Wave 1p3b9 (1p3b6): write the preview-log to a DISTINCT filename so a
     dry-run report doesn't shadow a subsequent real-run report. Mirrors
-    `_write_migration_report` shape but lands at `.preview.log`."""
+    `_write_migration_report` shape but lands at `.preview.log`. Wave 200ey
+    (200ev): written through :func:`_write_preview_log`; ``zip_path`` is the
+    incoming pack."""
     if not any(records for _name, records in sections):
         return None
-    logs_dir = root / ".wavefoundry" / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    report_path = logs_dir / "upgrade-migration-1.5.0.preview.log"
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     lines = [
         "# Upgrade migration 1.4.x → 1.5.0 — PREVIEW (--dry-run; zero mutations performed)",
@@ -3057,11 +3284,7 @@ def _write_migration_preview_report(
         for rec in records:
             lines.append(f"- {rec}")
         lines.append("")
-    try:
-        report_path.write_text("\n".join(lines), encoding="utf-8")
-    except OSError:
-        return None
-    return report_path
+    return _write_preview_log(root, _MIGRATION_PREVIEW_LOG_REL, "\n".join(lines), zip_path)
 
 
 # --- Convergence migration (wave 1p3iv / 1p3j7; self-contained as of 1p5b4) -------
@@ -3173,19 +3396,14 @@ def _rewrite_legacy_config_keys(repo_root):
     return performed
 
 
-def _write_convergence_preview_report(root, planned):
+def _write_convergence_preview_report(root, planned, *, zip_path=None):
     """Wave 1p3iv (1p3j7): write the convergence dry-run preview to a
     distinct log file for parity with `_write_migration_preview_report`.
     Operators running `--dry-run` get a written record to review before
-    committing to the real upgrade."""
+    committing to the real upgrade. Wave 200ey (200ev): written through
+    :func:`_write_preview_log`; ``zip_path`` is the incoming pack."""
     if not planned:
         return None
-    logs_dir = root / ".wavefoundry" / "logs"
-    try:
-        logs_dir.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        return None
-    report_path = logs_dir / "upgrade-convergence-migration.preview.log"
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     lines = [
         "# Upgrade convergence migration — PREVIEW (--dry-run; zero mutations performed)",
@@ -3196,11 +3414,7 @@ def _write_convergence_preview_report(root, planned):
     for record in planned:
         lines.append(f"- {record}")
     lines.append("")
-    try:
-        report_path.write_text("\n".join(lines), encoding="utf-8")
-    except OSError:
-        return None
-    return report_path
+    return _write_preview_log(root, _CONVERGENCE_PREVIEW_LOG_REL, "\n".join(lines), zip_path)
 
 
 def _write_convergence_report(root, performed):
@@ -3251,8 +3465,15 @@ def _run_convergence_migration(ctx):
         if getattr(ctx, "dry_run", False):
             planned = _preview_legacy_config_key_rewrite(ctx.root)
             if planned:
-                report_path = _write_convergence_preview_report(ctx.root, planned)
-                tail = f" — see {report_path}" if report_path else ""
+                # Wave 200ey (200ev): the log is named repository-relative,
+                # and a log that was not written is said to be so.
+                report_path = _write_convergence_preview_report(
+                    ctx.root, planned, zip_path=getattr(ctx, "zip_path", None)
+                )
+                tail = (
+                    f"; wrote preview log {_CONVERGENCE_PREVIEW_LOG_REL}"
+                    if report_path else "; no preview log was written"
+                )
                 print(
                     f"upgrade-convergence preview: {len(planned)} legacy "
                     f"config-key rewrite(s) planned in docs/workflow-config.json{tail}",
@@ -3315,7 +3536,19 @@ def post_extract(ctx):
     canonical in ``docs/workflow-config.json``. Idempotent — no-op when no legacy
     keys are present. (Wave 1p5b4: the rename map is now a self-contained hardcoded
     table — the canonical-names manifest was retired; this convergence is removed at 2.0.0.)
+
+    Wave 200ey (200ev): a real run holds the extracted scripts directory on
+    ``sys.path`` for this hook and removes it on return; a dry run never puts
+    it there.
     """
+    if getattr(ctx, "dry_run", False):
+        return _post_extract(ctx)
+    with _scripts_on_sys_path(_journal_scripts_dir(ctx.root)):
+        return _post_extract(ctx)
+
+
+def _post_extract(ctx):
+    """The body of :func:`post_extract`."""
     # Storage conversion must stop the old installing coordinator before it
     # can call an old indexer or cleanup. Load the newly extracted, stdlib-only
     # helper explicitly; never hide this safety failure in migration reports.
@@ -3387,12 +3620,20 @@ def post_extract(ctx):
                 "Claude Code settings.json pycache row removal",
                 [f"ERROR (preview): {traceback.format_exc()}"],
             ))
-        report_path = _write_migration_preview_report(ctx.root, preview_sections)
+        report_path = _write_migration_preview_report(
+            ctx.root, preview_sections, zip_path=getattr(ctx, "zip_path", None)
+        )
         total = sum(len(recs) for _name, recs in preview_sections)
         if total > 0:
+            # Wave 200ey (200ev): the preview names the log it wrote,
+            # repository-relative, instead of claiming nothing was written.
+            written = (
+                f"wrote preview log {_MIGRATION_PREVIEW_LOG_REL} (no upgrade changes were made)"
+                if report_path is not None
+                else "no preview log was written (no upgrade changes were made)"
+            )
             print(
-                f"upgrade-migration preview: {total} planned action(s); "
-                f"see {report_path} for details (no files modified)",
+                f"upgrade-migration preview: {total} planned action(s); {written}",
                 file=sys.stderr,
                 flush=True,
             )

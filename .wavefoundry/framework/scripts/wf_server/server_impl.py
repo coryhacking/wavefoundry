@@ -84,11 +84,16 @@ for _wll_key in list(sys.modules):
             "record_paths",
             "marker_namespaces",
             "vocabulary_profile",  # wave 1z8mm: record vocabulary
+            # Wave 200ey (change 200ew): the public module secrets_validators,
+            # memory_records, upgrade_wavefoundry and build_pack import binds
+            # the vocabulary profile at import, so it is purged with it.
+            "lifecycle_id",
             "lifecycle_gate_support",
             "lifecycle_gates",
             "sensor_runner",
             "index_source_guard",
             "path_containment",
+            "contained_files",  # wave 200ey: contained repository reads and writes
             "mcp_tool_extensions",
             # Wave 1zls8: the roster validates through the declaration module
             # it imported, so it is purged with it and never validates an
@@ -161,6 +166,7 @@ from operator_identity import resolve_operator
 import setup_readiness
 import index_source_guard
 import path_containment
+import contained_files  # contained repository reads and writes (wave 200ey, change 1zyv2)
 import marker_namespaces
 import record_paths  # configured wave/plan roots, stdlib-only (wave 1y0gz)
 from history_paths import is_history_path  # shared history components (wave 1zyb2, 1zxnt)
@@ -563,6 +569,9 @@ from review_evidence import (
     COUNCIL_READINESS_SIGNOFF_KEY,
     canonical_signoff_key,
     legacy_signoff_key_spellings,
+    COUNCIL_ACTOR,
+    LEGACY_COUNCIL_ACTORS,
+    legacy_council_actor_spellings,
     EVENT_IDENTITY_FIELD,
     INDEPENDENCE_DIAGNOSTIC_CODES,
     PROTOCOL_VERSION,
@@ -4229,7 +4238,9 @@ def get_prompt(root: Path, shortcut: str, refused: Optional[list[str]] = None) -
     Wave 1zxnz (1zx02): a candidate that resolves to a runtime lock is skipped,
     never opened, and the search continues, so a lock target cannot hide a
     legitimate prompt. Each skipped candidate's repository-relative path is
-    appended to ``refused`` when a list is passed.
+    appended to ``refused`` when a list is passed. Wave 200ey (change 1zyv2):
+    a candidate the contained read refuses (a link leaving the repository, a
+    special or oversized file) is skipped and recorded the same way.
     """
     shortcut_lower = shortcut.lower().strip()
     prompts_dir = root / "docs" / "prompts"
@@ -4242,6 +4253,11 @@ def get_prompt(root: Path, shortcut: str, refused: Optional[list[str]] = None) -
         except RuntimeLockTargetRefused as exc:
             if refused is not None and exc.rel_path not in refused:
                 refused.append(exc.rel_path)
+            return None
+        except contained_files.ContainedFileRefused:
+            rel = _runtime_lock_target_rel(root, p)
+            if refused is not None and rel not in refused:
+                refused.append(rel)
             return None
 
     # Slug-match the shortcut against prompt filenames and content
@@ -4384,6 +4400,9 @@ EXTENSION_PUBLIC_HELPERS: tuple[str, ...] = (
     "ensure_no_extra_args", "make_response", "make_diagnostic", "change_doc_response",
     "find_wave_record", "refuse_if_archived", "fail_closed_on_record_layout", "attach_lint",
     "refresh_index_for_paths", "list_waves", "wf_review_wave_response",
+    # Wave 200ey (change 200ew): the member-doc reader a lifecycle extension
+    # tool needs, the change-id shape test and the reader's refusal type.
+    "read_member_doc_bytes", "is_change_id", "MemberDocRefused",
 )
 
 
@@ -4467,6 +4486,29 @@ def attach_lint(envelope, root, mode):
 def refresh_index_for_paths(root, paths):
     """Request a background index refresh for written paths; returns ``{"project": bool}``."""
     return _trigger_background_index_refresh_for_paths(root, paths)
+
+
+def read_member_doc_bytes(folder, path, *, root) -> bytes:
+    """Read a member change doc under the member-doc read rule (change 200ew).
+
+    ``path.parent`` must be ``folder``, the file a regular file inside the
+    resolved ``folder`` and repository ``root`` and not a runtime lock, and at
+    most the member-doc size cap. A refusal raises ``MemberDocRefused`` (an
+    ``OSError`` whose message is a cause class, never a path); a missing file
+    raises ``FileNotFoundError``. Looks up
+    ``lifecycle_gate_support._read_member_doc_bytes`` at call time.
+    """
+    return lifecycle_gate_support._read_member_doc_bytes(folder, path, root=root)
+
+
+def is_change_id(value) -> bool:
+    """True only for a ``str`` that fully matches the change-id shape (change 200ew)."""
+    return lifecycle_gate_support.is_change_id(value)
+
+
+# The refusal type ``read_member_doc_bytes`` raises (change 200ew). A class
+# cannot be a call-time wrapper; a reload re-executes this module and rebinds it.
+MemberDocRefused = lifecycle_gate_support.MemberDocRefused
 
 
 def _normalize_first_party_tool_argument_models(mcp: Any) -> None:
@@ -9194,7 +9236,22 @@ def wf_audit_response(
     try:
         import install_log_lib as _install_log_lib  # local import — module always present in this pack
 
-        _install_log_text = _install_log_lib.read_install_log(root)
+        try:
+            _install_log_text = _install_log_lib.read_install_log(root)
+        except contained_files.ContainedFileRefused as _install_log_exc:
+            # Wave 200ey (1zyv2): a refused log is reported, path-free, rather
+            # than passing silently through the broad handler below.
+            _install_log_text = None
+            diagnostics.append(_diagnostic(
+                "install_log_unreadable",
+                (
+                    "The install log .wavefoundry/install-log.md was refused and not read "
+                    f"({_install_log_exc.cause}). Replace it with an ordinary file inside the "
+                    "repository and re-run wf_audit_install."
+                ),
+                recovery_tools=["wf_audit_install"],
+                recovery_usage="wf_audit_install()",
+            ))
         if _install_log_text is not None:
             _install_rows = _install_log_lib.parse_log(_install_log_text)
             if _install_log_lib.is_unparseable(_install_log_text, _install_rows):
@@ -10861,27 +10918,42 @@ def _review_event_recovery_phase(
 
 
 def _canonical_council_signoff_input(fn):
-    """Write the current council key for an approval given an earlier spelling.
+    """Write the current council key and actor for an approval given an earlier spelling.
 
     Wave 1zyb4 (1zxnx): ``wave-council-readiness`` / ``wave-council-delivery``
     stay accepted as tool input during the alias period. The key is
     canonicalized before validation and event identity, so the recorded
     approval carries ``council-*`` (in dry run and create alike), and the
     response names the current key in an informational diagnostic.
+
+    Wave 200ey (change 200ew): likewise an approval given an earlier council
+    actor name (``wave-council``) is recorded with ``COUNCIL_ACTOR``
+    (``council-chair``) and the response carries an ``actor_alias`` notice.
     """
 
     @functools.wraps(fn)
     def wrapped(*args: Any, **kwargs: Any) -> Any:
         event = kwargs.get("event", args[2] if len(args) > 2 else None)
+        is_approval = str(event or "").strip().lower() == "approval"
         given = kwargs.get("signoff_key")
         alias: tuple[str, str] | None = None
         if (
             isinstance(given, str)
-            and str(event or "").strip().lower() == "approval"
+            and is_approval
             and canonical_signoff_key(given) != given
         ):
             alias = (given, canonical_signoff_key(given))
             kwargs["signoff_key"] = alias[1]
+        actor_alias: tuple[str, str] | None = None
+        if is_approval:
+            positional_actor = len(args) > 3 and "actor" not in kwargs
+            given_actor = args[3] if positional_actor else kwargs.get("actor")
+            if isinstance(given_actor, str) and given_actor in LEGACY_COUNCIL_ACTORS:
+                actor_alias = (given_actor, COUNCIL_ACTOR)
+                if positional_actor:
+                    args = (*args[:3], COUNCIL_ACTOR, *args[4:])
+                else:
+                    kwargs["actor"] = COUNCIL_ACTOR
         result = fn(*args, **kwargs)
         if alias is not None and isinstance(result, dict):
             notice = _diagnostic(
@@ -10891,9 +10963,29 @@ def _canonical_council_signoff_input(fn):
             )
             notice["severity"] = "info"
             result.setdefault("diagnostics", []).append(notice)
+        if actor_alias is not None and isinstance(result, dict):
+            notice = _diagnostic(
+                "actor_alias",
+                f"actor `{actor_alias[0]}` is the earlier name of `{actor_alias[1]}`; "
+                f"the approval is recorded with actor `{actor_alias[1]}`. "
+                f"Use `{actor_alias[1]}` in new calls.",
+            )
+            notice["severity"] = "info"
+            result.setdefault("diagnostics", []).append(notice)
         return result
 
     return wrapped
+
+
+def _council_named_description(fn):
+    """Name the council protocol in a tool description by the vocabulary
+    profile's ``COUNCIL_DISPLAY_NAME`` (wave 200ey, change 200ew). Applied
+    beneath ``mcp.tool`` so the registered description is the localized one;
+    the identity under the default profile."""
+
+    if fn.__doc__:
+        fn.__doc__ = _vocab.localize_council_name(fn.__doc__)
+    return fn
 
 
 @_fail_closed_on_record_layout("wf_review_event")
@@ -11170,14 +11262,31 @@ def wf_review_event_response(
             # key spelling stored an identity and digest that hashed that
             # spelling. A retry (now canonicalized) replays it instead of
             # appending a second record; new records keep canonical identities.
-            for legacy_key in legacy_signoff_key_spellings(identity.get("signoff_key")):
-                existing_bundle = _identified_review_event_bundle(
-                    current.records, {**identity, "signoff_key": legacy_key}
-                )
+            # Wave 200ey (change 200ew): likewise an approval first recorded
+            # under an earlier council actor name; every combination of the
+            # current or earlier key with the current or earlier actor is tried.
+            key_spellings = (
+                identity.get("signoff_key"),
+                *legacy_signoff_key_spellings(identity.get("signoff_key")),
+            )
+            actor_spellings = (
+                identity.get("actor"),
+                *legacy_council_actor_spellings(identity.get("actor")),
+            )
+            for legacy_actor in actor_spellings:
+                for legacy_key in key_spellings:
+                    if legacy_actor == identity.get("actor") and legacy_key == identity.get("signoff_key"):
+                        continue
+                    existing_bundle = _identified_review_event_bundle(
+                        current.records,
+                        {**identity, "signoff_key": legacy_key, "actor": legacy_actor},
+                    )
+                    if existing_bundle is not None:
+                        replay_digests.add(review_event_request_digest(
+                            {**semantic_event, "signoff_key": legacy_key, "actor": legacy_actor}
+                        ))
+                        break
                 if existing_bundle is not None:
-                    replay_digests.add(review_event_request_digest(
-                        {**semantic_event, "signoff_key": legacy_key}
-                    ))
                     break
         replayed = existing_bundle is not None
         if readiness_approval and existing_bundle is None:
@@ -11968,7 +12077,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         pass  # Readiness evidence is checked once after the verdict branches.
     elif not verdict_present:
         council_usage = (
-            "Run the prepare-phase Wave Council review now (seats and scope in council_brief), "
+            f"Run the prepare-phase {_vocab.COUNCIL_DISPLAY_NAME} review now (seats and scope in council_brief), "
             "record the verdict in ## Review Checkpoints with a structured 'prepare-council' line, "
             "then call wf_prepare_wave(mode='create') to complete prepare."
         )
@@ -11976,7 +12085,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
             diagnostics.append(
                 _diagnostic(
                     "prepare_council_verdict_missing",
-                    "Technical checks passed. Ready to run prepare-phase Wave Council review. "
+                    f"Technical checks passed. Ready to run prepare-phase {_vocab.COUNCIL_DISPLAY_NAME} review. "
                     "Run each council seat in isolation against the admitted change docs, "
                     "record the verdict in ## Review Checkpoints with a structured 'prepare-council' line, "
                     f"then call wf_prepare_wave(mode={mode_s!r}) again to complete this step.",
@@ -11994,7 +12103,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         # dry_run: include brief as advisory, don't block
         diagnostics.append(_diagnostic(
             "prepare_council_verdict_missing",
-            "Technical checks passed. Ready to run prepare-phase Wave Council review. "
+            f"Technical checks passed. Ready to run prepare-phase {_vocab.COUNCIL_DISPLAY_NAME} review. "
             "Run the council review and record the verdict before calling wf_prepare_wave(mode='create').",
             recovery_tools=["wf_prepare_wave"],
             recovery_usage="wf_prepare_wave(mode='create')",
@@ -12018,7 +12127,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
             diagnostics.append(
                 _diagnostic(
                     "prepare_council_verdict_invalid",
-                    "A prepare-phase Wave Council verdict exists, but it is not structurally valid: "
+                    f"A prepare-phase {_vocab.COUNCIL_DISPLAY_NAME} verdict exists, but it is not structurally valid: "
                     f"{verdict_info.get('parse_error') or 'check its required metadata fields'}. "
                     "Use the council_brief verdict_format template; wrapped continuation lines are allowed, and semicolons inside values are preserved before calling wf_prepare_wave(mode='create').",
                     recovery_tools=["wf_prepare_wave"],
@@ -12175,12 +12284,15 @@ def wf_pause_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
         # never opened; the write is skipped and the transition above stands.
         try:
             _refuse_runtime_lock_target(root, handoff)
-            handoff.parent.mkdir(parents=True, exist_ok=True)
-            prior = _read_repo_text_checked(root, handoff) if handoff.exists() else ""
-            handoff.write_text(_update_handoff_wave_ref(prior, wave_id), encoding="utf-8")
+            # Wave 200ey (1zyv2): contained read and write; a handoff linked
+            # outside the repository or a special file is refused path-free.
+            prior = _read_handoff_prior(root, handoff)
+            _write_handoff_text(root, handoff, _update_handoff_wave_ref(prior, wave_id))
             handoff_written = True
         except RuntimeLockTargetRefused as exc:
             diagnostics.append(_runtime_lock_target_refused_diagnostic(exc.rel_path))
+        except contained_files.ContainedFileRefused as exc:
+            diagnostics.append(_contained_refused_diagnostic(exc))
         if cache:
             cache.invalidate()
         _trigger_background_index_refresh_for_paths(root, [handoff, wave_md])
@@ -12829,7 +12941,7 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
         if not verdict_info.get("present"):
             diagnostics.append(_diagnostic(
                 "prepare_council_verdict_missing",
-                "No prepare-phase Wave Council verdict found in `## Review Checkpoints`. "
+                f"No prepare-phase {_vocab.COUNCIL_DISPLAY_NAME} verdict found in `## Review Checkpoints`. "
                 "Run the council review (red-team fixed seat + rotating seat) and record the verdict "
                 "with a structured 'prepare-council' line before calling wf_implement_wave.",
                 recovery_tools=["wf_prepare_wave", "wf_current_wave"],
@@ -12843,7 +12955,7 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
         elif not verdict_info.get("valid"):
             diagnostics.append(_diagnostic(
                 "prepare_council_verdict_invalid",
-                "A prepare-phase Wave Council verdict was found, but it is not structurally valid. "
+                f"A prepare-phase {_vocab.COUNCIL_DISPLAY_NAME} verdict was found, but it is not structurally valid. "
                 "Record a structured verdict with moderator, primer-depth, seats, rotating-seat, strongest-challenge, and strongest-alternative before calling wf_implement_wave.",
                 recovery_tools=["wf_prepare_wave", "wf_current_wave"],
                 recovery_usage=f"wf_prepare_wave(wave_id={wave_id!r}, mode='dry_run')",
@@ -13642,13 +13754,15 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
         # never opened; the write is skipped and the close above stands.
         try:
             _refuse_runtime_lock_target(root, handoff)
-            handoff.parent.mkdir(parents=True, exist_ok=True)
-            prior = _read_repo_text_checked(root, handoff) if handoff.exists() else ""
+            # Wave 200ey (1zyv2): contained read and write, as in pause.
+            prior = _read_handoff_prior(root, handoff)
             converged = _update_handoff_wave_ref(prior, None)
             if converged != prior:
-                handoff.write_text(converged, encoding="utf-8")
+                _write_handoff_text(root, handoff, converged)
         except RuntimeLockTargetRefused as exc:
             gate_diagnostics = [*gate_diagnostics, _runtime_lock_target_refused_diagnostic(exc.rel_path)]
+        except contained_files.ContainedFileRefused as exc:
+            gate_diagnostics = [*gate_diagnostics, _contained_refused_diagnostic(exc)]
         handoff_rel = str(handoff.relative_to(root)).replace("\\", "/")
         _trigger_background_index_refresh_for_paths(root, [wave_md, handoff])
     # Wave 1p601: only create-mode close refreshes the codebase map; dry-run does
@@ -14435,10 +14549,79 @@ def _read_repo_text_checked(root: Path, path: Path) -> str:
 
     Wave 1zxnz (1zx02): the one checked reader for the handoff, prompt and
     resource readers. A lock target raises ``RuntimeLockTargetRefused``
-    without being opened; anything else reads exactly as ``read_text`` does.
+    without being opened. Since wave 200ey (change 1zyv2) the read is the
+    contained read (``contained_files.read_contained_bytes``, capped at
+    ``contained_files.DEFAULT_MAX_BYTES``): a link leaving the repository, a
+    special file or an oversized file raises ``ContainedFileRefused`` (an
+    ``OSError`` with a path-free cause), and a missing file raises
+    ``FileNotFoundError``. Text decodes as ``read_text`` did (strict UTF-8,
+    universal newlines).
     """
+    return _read_repo_text_and_stat(root, path)[0]
+
+
+def _read_repo_text_and_stat(root: Path, path: Path) -> "tuple[str, os.stat_result]":
+    """``_read_repo_text_checked`` plus the ``fstat`` of the descriptor read
+    (the handoff's mtime comes from the file read, not a following ``stat``)."""
     _refuse_runtime_lock_target(root, path)
-    return Path(path).read_text(encoding="utf-8")
+    data, opened = contained_files.read_contained(
+        root, path, max_bytes=contained_files.DEFAULT_MAX_BYTES
+    )
+    return _decode_repo_text(data), opened
+
+
+def _decode_repo_text(data: bytes) -> str:
+    """Bytes as ``Path.read_text(encoding="utf-8")`` returns them."""
+    return data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _write_handoff_text(root: Path, path: Path, text: str) -> None:
+    """Write the session handoff through the contained write (wave 200ey).
+
+    Encoded as ``Path.write_text(encoding="utf-8")`` did (``\n`` becomes the
+    platform line separator); content over ``contained_files.DEFAULT_MAX_BYTES``
+    is refused before anything is written. Missing parent directories are
+    created only after each existing ancestor is shown to stay inside the
+    repository."""
+    data = (text if os.linesep == "\n" else text.replace("\n", os.linesep)).encode("utf-8")
+    if len(data) > contained_files.DEFAULT_MAX_BYTES:
+        raise contained_files.ContainedFileRefused(contained_files.CAUSE_SIZE)
+    contained_files.write_contained_bytes(root, path, data)
+
+
+def _read_handoff_prior(root: Path, path: Path) -> str:
+    """The existing handoff text for a rewrite, or ``""`` when absent."""
+    try:
+        return _read_repo_text_checked(root, path)
+    except FileNotFoundError:
+        return ""
+
+
+def _contained_refused_diagnostic(exc: OSError, *, warning: bool = False) -> dict[str, Any]:
+    """The path-free ``repo_file_refused`` diagnostic for a contained read or
+    write refusal; ``warning`` marks it ``severity: warning``."""
+    cause = getattr(exc, "cause", "") or "refused"
+    payload = _diagnostic(
+        "repo_file_refused",
+        f"Refused ({cause}); nothing was read or written. Replace any link that "
+        "leaves the repository, or any special or oversized file, with an "
+        "ordinary file inside the repository.",
+    )
+    if warning:
+        payload["severity"] = "warning"
+    return payload
+
+
+def _contained_refused_markdown(exc: OSError) -> str:
+    """The resource page for a contained read refusal: ``# Unavailable`` with
+    the path-free cause class (wave 200ey)."""
+    cause = getattr(exc, "cause", "") or "refused"
+    return (
+        "# Unavailable\n\n"
+        f"The document was refused and not read ({cause}). Replace any link "
+        "that leaves the repository, or any special or oversized file, with an "
+        "ordinary file inside the repository.\n"
+    )
 
 
 def _runtime_lock_target_refused_diagnostic(rel_path: str, *, warning: bool = False) -> dict[str, Any]:
@@ -22417,6 +22600,21 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           orthogonal), the community ids stay queryable through `code_graph_community`, and
           cross-boundary edges are never discarded.
 
+        Each fan_in, fan_out, chokepoints and file_hubs entry, including its ``evidence_*`` counterpart,
+        also carries ``call_edge_counts`` (wave 203pu): ``{total, resolved, extracted, unclassified,
+        receiver_unknown}``, nonnegative integers over ``calls`` edges only, in the row's direction
+        (incoming for fan_in; outgoing for fan_out, chokepoints and file_hubs) and in the effective
+        (filtered or collapsed) graph view. ``resolved`` counts ``RECEIVER_RESOLVED`` /
+        ``CONSTRUCTION_RESOLVED`` edges without unknown-receiver provenance; ``extracted`` counts
+        ``EXTRACTED`` (heuristic, name-based) edges; ``unclassified`` counts every other call edge,
+        including an absent or unrecognized confidence and a resolved confidence that also carries
+        unknown-receiver provenance. ``total = resolved + extracted + unclassified``;
+        ``receiver_unknown`` is an overlapping subset of ``total``, not a fourth summand. These are
+        static edge counts, not distinct callers or callees and not proof of runtime dispatch; a
+        collapsed view counts each retained edge once with its first representative's metadata. The
+        legacy ``count`` / ``fan_out`` value, which also counts SQL data-layer relations, still drives
+        every ranking, limit and threshold.
+
         Each ranking entry (fan_in, fan_out, chokepoints, file_hubs, betweenness) also carries collision
         diagnostic fields (wave 13129):
         - ``same_name_node_count`` (int): count of project nodes sharing the entry's simple name.
@@ -23454,6 +23652,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         )
 
     @mcp.tool(annotations=_MUTATING_TOOL)
+    @_council_named_description
     def wf_implement_wave(wave_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
         """Gate and context builder for starting wave implementation.
 
@@ -25555,6 +25754,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 return _read_repo_text_checked(get_handler().root, path)
             except RuntimeLockTargetRefused as exc:
                 return _runtime_lock_refused_markdown(exc.rel_path)
+            except contained_files.ContainedFileRefused as exc:
+                return _contained_refused_markdown(exc)
         return f"# Not Found\n\n`{label}` does not exist at `{_repo_rel(get_handler().root, path)}`.\n"
 
     def _validated_wave_markdown(path: Path) -> str:
@@ -25565,8 +25766,17 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             _refuse_runtime_lock_target(get_handler().root, path)
         except RuntimeLockTargetRefused as exc:
             return _runtime_lock_refused_markdown(exc.rel_path)
+        # Wave 200ey (1zyv2): the record is read once, through the contained
+        # read, before the review-evidence check; a refusal serves the
+        # path-free ``# Unavailable`` page.
+        try:
+            raw = _read_repo_text_checked(get_handler().root, path)
+        except RuntimeLockTargetRefused as exc:
+            return _runtime_lock_refused_markdown(exc.rel_path)
+        except contained_files.ContainedFileRefused as exc:
+            return _contained_refused_markdown(exc)
         if not _wave_uses_external_review_evidence(get_handler().root, path):
-            return _read_repo_text_checked(get_handler().root, path)
+            return raw
         validation = validate_external_review_evidence(path)
         if validation.authority_errors:
             details = [*validation.authority_errors]
@@ -25577,7 +25787,6 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 + "\n".join(f"- {detail}" for detail in details)
                 + "\n"
             )
-        raw = _read_repo_text_checked(get_handler().root, path)
         projection_status = "current"
         try:
             rendered = _project_current_review_status(
@@ -25639,6 +25848,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                     return _read_repo_text_checked(_root, c)
                 except RuntimeLockTargetRefused as exc:
                     return _runtime_lock_refused_markdown(exc.rel_path)
+                except contained_files.ContainedFileRefused as exc:
+                    return _contained_refused_markdown(exc)
         return "# Not Found\n\nNo project overview document found in docs/references/project-overview.md or docs/README.md.\n"
 
     @mcp.resource(
@@ -25798,7 +26009,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         text = get_prompt(get_handler().root, slug, refused=refused)
         if text is None:
             refused_note = "".join(
-                f"\n`{rel}` resolves to a framework runtime lock and was not opened.\n"
+                f"\n`{rel}` was refused and not opened (it resolves to a framework runtime "
+                "lock, a link leaving the repository, or a special or oversized file).\n"
                 for rel in refused
             )
             return f"# Not Found\n\nNo prompt found matching `{slug}`. Use `wf_get_prompt(shortcut=...)` for structured lookup.\n" + refused_note
@@ -25829,12 +26041,16 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                         return _read_repo_text_checked(get_handler().root, p)
                     except RuntimeLockTargetRefused as exc:
                         return _runtime_lock_refused_markdown(exc.rel_path)
+                    except contained_files.ContainedFileRefused as exc:
+                        return _contained_refused_markdown(exc)
             for p in candidates:
                 if slug_lower in p.stem.lower():
                     try:
                         return _read_repo_text_checked(get_handler().root, p)
                     except RuntimeLockTargetRefused as exc:
                         return _runtime_lock_refused_markdown(exc.rel_path)
+                    except contained_files.ContainedFileRefused as exc:
+                        return _contained_refused_markdown(exc)
         return f"# Not Found\n\nNo seed found matching `{slug}`. Use `seed_get(name=...)` for structured lookup.\n"
 
     @mcp.resource(
@@ -25854,6 +26070,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                         return _read_repo_text_checked(get_handler().root, p)
                     except RuntimeLockTargetRefused as exc:
                         return _runtime_lock_refused_markdown(exc.rel_path)
+                    except contained_files.ContainedFileRefused as exc:
+                        return _contained_refused_markdown(exc)
         return f"# Not Found\n\nNo architecture doc found matching `{slug}` in docs/architecture/.\n"
 
     @mcp.resource(
@@ -26036,6 +26254,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 return _read_repo_text_checked(_root, out)
             except RuntimeLockTargetRefused as exc:
                 return _runtime_lock_refused_markdown(exc.rel_path)
+            except contained_files.ContainedFileRefused as exc:
+                return _contained_refused_markdown(exc)
             except Exception as exc:
                 return f"# Codebase Map\n\nFailed to read map: {exc}\n"
         return (
@@ -26098,6 +26318,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             return _read_repo_text_checked(_root, path)
         except RuntimeLockTargetRefused as exc:
             return _runtime_lock_refused_markdown(exc.rel_path)
+        except contained_files.ContainedFileRefused as exc:
+            return _contained_refused_markdown(exc)
         except OSError as exc:
             return f"# Not Found\n\nCould not read `{rel}`: {exc}\n"
 

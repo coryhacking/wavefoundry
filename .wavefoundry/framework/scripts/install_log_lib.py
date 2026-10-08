@@ -384,13 +384,27 @@ def read_install_log(project_root: Path) -> Optional[str]:
     Returns None when the file does not exist; the caller can use that to
     surface an actionable error pointing at ``install-wavefoundry.md`` for
     bootstrap instructions.
+
+    Wave 200ey (change 1zyv2): the read is the contained read
+    (``contained_files.read_contained_bytes``, capped at
+    ``contained_files.DEFAULT_MAX_BYTES``). A log that is a link leaving the
+    repository, a special file or larger than the cap raises
+    ``contained_files.ContainedFileRefused`` (an ``OSError`` whose text is a
+    path-free cause class); each caller maps it.
     """
+    import contained_files  # stdlib-only leaf; local so this parser stays import-light
+
     log_path = project_root / INSTALL_LOG_REL_PATH
-    if not log_path.exists():
+    try:
+        data = contained_files.read_contained_bytes(
+            project_root, log_path, max_bytes=contained_files.DEFAULT_MAX_BYTES
+        )
+    except FileNotFoundError:
         return None
     # Wave 1p9hj: errors="replace" so a non-UTF-8 log (UTF-16 BOM / cp1252 from a bare PowerShell
     # Set-Content/Out-File on Windows) decodes without raising UnicodeDecodeError. Without this the
     # strict read raised BEFORE is_unparseable() (the 1p9bh safety net) could classify it, crashing
     # wf_audit_install on Windows. The replacement chars this produces are what is_unparseable keys
     # on to surface an actionable "install log unparseable" error rather than vacuous success.
-    return log_path.read_text(encoding="utf-8", errors="replace")
+    # Universal newlines, as the ``read_text`` this replaced.
+    return data.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")

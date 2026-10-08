@@ -2137,15 +2137,14 @@ class TestSecretFindingIdCollision(unittest.TestCase):
             tmp = Path(tmp_str)
             (tmp / "docs").mkdir(parents=True, exist_ok=True)
             captured: list[dict] = []
-            real = _lifecycle_id.next_available_prefix
+            real = _sv.lifecycle_id.next_available_prefix
 
             def spy(*args, **kwargs):
                 captured.append(kwargs)
                 return real(*args, **kwargs)
 
             from unittest.mock import patch as _patch
-            import wave_lint_lib.secrets_validators as sv
-            with _patch.object(sv.lifecycle_id, "next_available_prefix", side_effect=spy):
+            with _patch.object(_sv.lifecycle_id, "next_available_prefix", side_effect=spy):
                 _next_secret_finding_id(tmp, [], timestamp=_MINT_TS,
                                         entropy_slug="src/a.py:rule-a:abc123")
             self.assertEqual(captured[0].get("kind"), "sec")

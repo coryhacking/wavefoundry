@@ -20,6 +20,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace as _dataclass_replace
 from pathlib import Path
 from textwrap import dedent
+from typing import NamedTuple
 
 # Change 1zyv1: bytecode goes only to the project cache (``bytecode_cache``),
 # never beside the sources; writes stay off until configure() enables the cache.
@@ -30,6 +31,7 @@ import bytecode_cache  # noqa: E402
 if __name__ == "__main__":
     bytecode_cache.configure()
 
+import contained_files  # contained repository reads and writes (wave 200ey, change 1zyv2)
 from history_paths import is_history_path  # shared history components (wave 1zyb2)
 import marker_namespaces
 import mcp_tool_extensions  # declared distribution skills, read at call time (wave 1zv8c)
@@ -82,6 +84,156 @@ _LEGACY_THIN_POINTER_RE = re.compile(
 )
 
 GURU_ROLE_REL = "docs/agents/guru.md"
+
+
+# ---------------------------------------------------------------------------
+# Contained reads and writes (wave 200ey, change 1zyv2)
+#
+# Every repository read and write in this module goes through
+# ``contained_files``, rooted at the repository being rendered; framework
+# templates, seeds and install assets are read through it rooted at the
+# resolved framework directory. The exclusive writers
+# (``_write_text_exclusive`` and ``_write_bytes_atomic_exclusive``) keep their
+# own exclusive no-follow ``os.open`` relative to an ``open_contained_dir``
+# descriptor. A census test (tests/test_contained_files.py) fails when this
+# module gains a direct read, write, open or chmod outside these helpers.
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Message hygiene (wave 200ey, change 200eu)
+#
+# Every RuntimeError, ValueError, NOTICE and WARNING this module raises or
+# prints names repository-relative paths (or a fixed label such as "the
+# packaged fallback") and exception class names only: never an absolute path
+# and never the text of an OSError or of an exception from another module.
+# A repository file name is rendered through :func:`_display_name`, which
+# escapes the characters that can rewrite or split a terminal line.
+# ---------------------------------------------------------------------------
+
+_UNSAFE_DISPLAY_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
+
+
+def _display_name(name: object) -> str:
+    """``name`` for terminal output: every character of Unicode category
+    ``Cc``, ``Cf``, ``Cs``, ``Zl`` or ``Zp`` becomes its ``\\uXXXX`` escape
+    (``\\UXXXXXXXX`` above the Basic Multilingual Plane). An ordinary name is
+    returned unchanged. Display only: returned values keep raw names."""
+    import unicodedata
+
+    text = str(name)
+    if all(unicodedata.category(char) not in _UNSAFE_DISPLAY_CATEGORIES for char in text):
+        return text
+    return "".join(
+        (f"\\u{ord(char):04x}" if ord(char) <= 0xFFFF else f"\\U{ord(char):08x}")
+        if unicodedata.category(char) in _UNSAFE_DISPLAY_CATEGORIES
+        else char
+        for char in text
+    )
+
+
+_CONTAINED_CAUSES: "tuple[str, ...]" = tuple(
+    value for key, value in vars(contained_files).items()
+    if key.startswith("CAUSE_") and isinstance(value, str)
+)
+
+
+def _failure_class(exc: BaseException) -> str:
+    """The class of a failure for a message: a contained-read refusal's fixed
+    cause class (a ``contained_files.CAUSE_*`` string, never a path), else the
+    exception's class name. Never the exception's text."""
+    if isinstance(exc, contained_files.ContainedFileRefused):
+        cause = exc.cause
+        for known in _CONTAINED_CAUSES:
+            if cause == known or cause.endswith(f" {known}"):
+                return known
+    return type(exc).__name__
+
+
+def _rel_label(root: Path, path: Path) -> str:
+    """``path`` relative to ``root`` (as given or resolved), else its name: the
+    only spelling a refusal message carries (never an absolute path), rendered
+    through :func:`_display_name`."""
+    for base in (Path(root), Path(root).resolve()):
+        try:
+            return _display_name(Path(path).relative_to(base).as_posix())
+        except ValueError:
+            continue
+    return _display_name(Path(path).name)
+
+
+def _read_repo_bytes(root: Path, path: Path) -> bytes:
+    """A repository file through the contained read, capped at
+    ``contained_files.DEFAULT_MAX_BYTES``. A refusal raises
+    ``ContainedFileRefused`` (an ``OSError``, so each caller's unreadable-file
+    handling applies) naming the repository-relative path and the cause."""
+    try:
+        return contained_files.read_contained_bytes(
+            root, path, max_bytes=contained_files.DEFAULT_MAX_BYTES
+        )
+    except contained_files.ContainedFileRefused as exc:
+        raise contained_files.ContainedFileRefused(f"{_rel_label(root, path)} {exc.cause}") from None
+
+
+def _universal_newlines(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _read_repo_text(root: Path, path: Path, *, translate_newlines: bool = True) -> str:
+    """:func:`_read_repo_bytes` decoded as strict UTF-8; ``translate_newlines``
+    applies ``read_text``'s universal newlines, otherwise the text is verbatim
+    (``open(newline="")``)."""
+    text = _read_repo_bytes(root, path).decode("utf-8")
+    return _universal_newlines(text) if translate_newlines else text
+
+
+def _write_repo_bytes(root: Path, path: Path, data: bytes, *, mode: "int | None" = None) -> bool:
+    """Write through the contained write; returns whether the bytes changed. A
+    refusal raises ``RuntimeError`` naming the repository-relative path."""
+    try:
+        return contained_files.write_contained_bytes(root, path, data, mode=mode)
+    except contained_files.ContainedFileRefused as exc:
+        raise RuntimeError(f"refused to write {_rel_label(root, path)} ({exc.cause})") from None
+
+
+def _write_repo_text_platform_newlines(root: Path, path: Path, text: str) -> bool:
+    """Write ``text`` with the bytes ``Path.write_text(encoding="utf-8")`` wrote:
+    each ``\n`` becomes the platform line separator."""
+    if os.linesep != "\n":
+        text = text.replace("\n", os.linesep)
+    return _write_repo_bytes(root, path, text.encode("utf-8"))
+
+
+def _framework_read_text(path: Path, *, translate_newlines: bool = False) -> str:
+    """Read framework source (a template, seed or install asset) through the
+    contained read rooted at the framework directory that holds it: the nearest
+    ``.wavefoundry/framework`` ancestor, else the packaged framework beside this
+    module. A linked framework directory keeps working (it is resolved as the
+    root); a link inside it that leaves it is refused."""
+    path = Path(path)
+    module_framework = Path(__file__).resolve().parent.parent
+    root: "Path | None" = None
+    for ancestor in path.parents:
+        if ancestor.name == "framework" and ancestor.parent.name == ".wavefoundry":
+            root = ancestor
+            break
+    if root is None:
+        try:
+            path.relative_to(module_framework)
+            root = module_framework
+        except ValueError:
+            root = path.parent
+    relative = path.relative_to(root)
+    try:
+        data = contained_files.read_contained_bytes(
+            root.resolve(), relative, max_bytes=contained_files.DEFAULT_MAX_BYTES
+        )
+    except contained_files.ContainedFileRefused as exc:
+        raise contained_files.ContainedFileRefused(
+            f"framework file {_display_name(relative.as_posix())} {exc.cause}"
+        ) from None
+    text = data.decode("utf-8")
+    return _universal_newlines(text) if translate_newlines else text
 
 
 @dataclass(frozen=True)
@@ -728,7 +880,8 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
     ),
     Skill(
         name="wf-council",
-        description="Convene an on-demand review on one artifact, choosing among the role-based Wave Council, the stance-based Archetype Council, and standalone Red-team review. "
+        # Wave 200ey (change 200ew): the protocol's display name is a profile constant.
+        description=f"Convene an on-demand review on one artifact, choosing among the role-based {vocabulary_profile.COUNCIL_DISPLAY_NAME}, the stance-based Archetype Council, and standalone Red-team review. "
         f"Not the open wave's required lanes ({_vp_shortcut('review-wave')}) and not Review plan, the optional change-doc or current-wave stress test whose aliases are Interrogate this plan and Stress-test this plan.",
         body=WF_COUNCIL_SKILL_BODY,
     ),
@@ -909,9 +1062,13 @@ def _declared_prompt_doc_creations(repo_root: Path) -> "dict[str, Path]":
         try:
             creations[skill.requires_doc] = _resolve_install_asset(repo_root, template_name)
         except RuntimeError as exc:
+            # Wave 200ey (200eu): the wrapped error is not echoed; the asset's
+            # two locations are named as labels, never as absolute paths.
             raise RuntimeError(
                 f"declared skill {skill.name!r}: missing prompt_doc_template "
-                f"{template_name}; nothing was rendered: {exc}"
+                f"{_display_name(template_name)}: neither "
+                f"{_install_asset_rel(template_name)} nor the packaged fallback "
+                f"install/{_display_name(template_name)} exists; nothing was rendered"
             ) from exc
     return creations
 
@@ -987,11 +1144,12 @@ def _refused_declared_skill_paths(
             if not target.is_file():
                 continue
             try:
-                existing = target.read_bytes()
+                existing = _read_repo_bytes(root, target)
             except OSError as exc:
                 raise RuntimeError(
-                    f"cannot read the existing skill {skills_dir}/{skill.name}/SKILL.md: {exc}"
-                ) from exc
+                    "cannot read the existing skill "
+                    f"{_display_name(f'{skills_dir}/{skill.name}/SKILL.md')} ({_failure_class(exc)})"
+                ) from None
             if has_declared_skill_marker(existing.decode("utf-8", errors="replace")):
                 continue
             if existing.replace(b"\r\n", b"\n") == legacy:
@@ -1015,8 +1173,24 @@ def _is_link_or_reparse(path: Path, info: os.stat_result) -> bool:
         return True
 
 
-def _declared_skill_orphans(active_skill_roots: "Mapping[str, Path]") -> "list[tuple[str, Path, Path]]":
-    """``(rel, SKILL.md, folder)`` for every marked skill folder on an active
+class _SkillOrphan(NamedTuple):
+    """One judged undeclared skill folder (wave 1zyb3; identities wave 200ey,
+    change 200eu): the ``lstat`` identities ``(st_dev, st_ino)`` of the folder
+    and its ``SKILL.md`` at the decision, which the removal re-checks."""
+
+    rel: str
+    skill_file: Path
+    folder: Path
+    folder_id: "tuple[int, int]"
+    file_id: "tuple[int, int]"
+
+
+def _identity(info: os.stat_result) -> "tuple[int, int]":
+    return (info.st_dev, info.st_ino)
+
+
+def _declared_skill_orphans(active_skill_roots: "Mapping[str, Path]") -> "list[_SkillOrphan]":
+    """A :class:`_SkillOrphan` for every marked skill folder on an active
     host whose name no declared skill uses (wave 1zyb3, change 1zxnu).
 
     ``wf-`` folders are the framework's. A linked child (symlink, junction or
@@ -1026,19 +1200,24 @@ def _declared_skill_orphans(active_skill_roots: "Mapping[str, Path]") -> "list[t
     reported. Names compare casefolded, so a folder that differs from a
     declared name only in case is kept on every filesystem. Each root is
     already resolved and link-free, so a child's lexical path is its real one.
+    The folder's and SKILL.md's ``lstat`` identities are recorded, and the
+    marker is read through the contained read, whose descriptor must be the
+    file judged (wave 200ey, change 200eu).
     """
 
     declared = {
         str(name).casefold() for name in getattr(mcp_tool_extensions, "EXTENSION_SKILLS", {}) or {}
     }
-    orphans: list[tuple[str, Path, Path]] = []
+    orphans: list[_SkillOrphan] = []
     for skills_dir, declared_root in active_skill_roots.items():
         try:
             children = sorted(declared_root.iterdir(), key=lambda child: child.name)
         except FileNotFoundError:
             continue
         except OSError as exc:
-            raise RuntimeError(f"cannot list the host skill root {skills_dir}: {exc}") from exc
+            raise RuntimeError(
+                f"cannot list the host skill root {_display_name(skills_dir)} ({type(exc).__name__})"
+            ) from exc
         for child in children:
             if child.name.startswith("wf-") or child.name.casefold() in declared:
                 continue
@@ -1056,10 +1235,16 @@ def _declared_skill_orphans(active_skill_roots: "Mapping[str, Path]") -> "list[t
             if _is_link_or_reparse(skill_file, file_info) or not stat.S_ISREG(file_info.st_mode):
                 continue
             try:
-                text = skill_file.read_bytes().decode("utf-8", errors="replace")
+                # Each skill root is resolved and link-free, so the root is its
+                # own containment boundary here.
+                data, opened = contained_files.read_contained(
+                    declared_root, skill_file, max_bytes=contained_files.DEFAULT_MAX_BYTES
+                )
             except OSError:
                 continue
-            if not has_declared_skill_marker(text):
+            if _identity(opened) != _identity(file_info):
+                continue
+            if not has_declared_skill_marker(data.decode("utf-8", errors="replace")):
                 continue
             rel = f"{skills_dir}/{child.name}/SKILL.md"
             try:
@@ -1069,13 +1254,142 @@ def _declared_skill_orphans(active_skill_roots: "Mapping[str, Path]") -> "list[t
             if entries != ["SKILL.md"]:
                 print(
                     "render_agent_surfaces: NOTICE - undeclared skill folder left in place: "
-                    f"{skills_dir}/{child.name} holds files besides its marked SKILL.md; "
+                    f"{_display_name(f'{skills_dir}/{child.name}')} holds files besides its marked SKILL.md; "
                     "remove the folder by hand if it is no longer wanted",
                     file=sys.stderr,
                 )
                 continue
-            orphans.append((rel, skill_file, child))
+            orphans.append(
+                _SkillOrphan(rel, skill_file, child, _identity(child_info), _identity(file_info))
+            )
     return orphans
+
+
+# ---------------------------------------------------------------------------
+# Removal of judged entries (wave 200ey, change 200eu)
+#
+# A removal acts only on the entry that was judged: its identity
+# ``(st_dev, st_ino)`` is recorded at the decision and re-checked right before
+# the removal. Where ``dir_fd`` is supported (Linux, macOS, WSL2) the parent is
+# opened with ``contained_files.open_contained_dir`` (an ``O_NOFOLLOW`` walk),
+# the entry is checked with ``os.stat(..., dir_fd=..., follow_symlinks=False)``
+# and removed relative to that descriptor, so the window narrows to an entry
+# swapped inside the verified, descriptor-held directory, which is removed as
+# a directory entry and never followed. Windows has no ``dir_fd``: the same
+# re-check runs by path immediately before each removal, and a junction or
+# link swapped in between is the documented remaining window.
+# ---------------------------------------------------------------------------
+
+_CAUSE_ENTRY_CHANGED = "the entry changed after it was judged"
+
+
+def _descriptor_removal() -> bool:
+    """Whether removals run relative to a directory descriptor."""
+    return contained_files._dir_fd_supported() and os.rmdir in os.supports_dir_fd
+
+
+def _remove_judged_entry(
+    root: Path,
+    parent_parts: "tuple[str, ...]",
+    name: str,
+    identity: "tuple[int, int]",
+    *,
+    directory: bool,
+    parent_identity: "tuple[int, int] | None" = None,
+) -> "str | None":
+    """Remove ``name`` in ``root/parent_parts`` when it is still the judged
+    entry: a regular file (``directory=False``) or a directory, not a link, with
+    ``identity``; and, when ``parent_identity`` is given, inside the judged
+    parent. Returns ``None`` once removed, else the cause class of the skip.
+    The unlink or rmdir's own ``OSError`` propagates to the caller."""
+
+    wanted = stat.S_ISDIR if directory else stat.S_ISREG
+    if _descriptor_removal():
+        try:
+            fd = contained_files.open_contained_dir(root, parent_parts)
+        except OSError as exc:
+            return _failure_class(exc)
+        try:
+            if parent_identity is not None and _identity(os.fstat(fd)) != parent_identity:
+                return _CAUSE_ENTRY_CHANGED
+            try:
+                entry = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            except OSError as exc:
+                return _failure_class(exc)
+            if not wanted(entry.st_mode) or _identity(entry) != identity:
+                return _CAUSE_ENTRY_CHANGED
+            if directory:
+                os.rmdir(name, dir_fd=fd)
+            else:
+                os.unlink(name, dir_fd=fd)
+        finally:
+            os.close(fd)
+        return None
+    # Windows: by path, immediately before the removal (the documented window).
+    try:
+        contained_files.open_contained_dir(root, parent_parts)
+    except OSError as exc:
+        return _failure_class(exc)
+    parent = Path(root).joinpath(*parent_parts)
+    path = parent / name
+    try:
+        if parent_identity is not None:
+            parent_info = os.lstat(parent)
+            if _is_link_or_reparse(parent, parent_info) or _identity(parent_info) != parent_identity:
+                return _CAUSE_ENTRY_CHANGED
+        entry = os.lstat(path)
+    except OSError as exc:
+        return _failure_class(exc)
+    if _is_link_or_reparse(path, entry) or not wanted(entry.st_mode) or _identity(entry) != identity:
+        return _CAUSE_ENTRY_CHANGED
+    if directory:
+        os.rmdir(path)
+    else:
+        os.unlink(path)
+    return None
+
+
+def _judge_stale_skill_paths(
+    root: Path, stale_paths: "tuple[str, ...]"
+) -> "list[tuple[str, tuple[int, int] | None, tuple[int, int] | None]]":
+    """``(rel, file identity, folder identity)`` for every present stale skill
+    path (wave 200ey, change 200eu), judged by ``lstat``: a regular file's
+    identity, or ``None`` for a link or reparse point, which the removal skips
+    with a NOTICE; and the identity of its folder (``None`` when that is a link
+    or not a directory). Absent paths and other entry kinds (a directory) are
+    not listed, as before."""
+
+    judged: "list[tuple[str, tuple[int, int] | None, tuple[int, int] | None]]" = []
+    for rel in stale_paths:
+        stale = root / rel
+        try:
+            info = os.lstat(stale)
+        except OSError:
+            continue
+        folder_id: "tuple[int, int] | None" = None
+        try:
+            folder_info = os.lstat(stale.parent)
+        except OSError:
+            folder_info = None
+        if (
+            folder_info is not None
+            and stat.S_ISDIR(folder_info.st_mode)
+            and not _is_link_or_reparse(stale.parent, folder_info)
+        ):
+            folder_id = _identity(folder_info)
+        if _is_link_or_reparse(stale, info):
+            judged.append((rel, None, folder_id))
+        elif stat.S_ISREG(info.st_mode):
+            judged.append((rel, _identity(info), folder_id))
+    return judged
+
+
+def _removal_skipped_notice(what: str, rel: str, cause: str) -> None:
+    print(
+        f"render_agent_surfaces: NOTICE - {what} left in place: {_display_name(rel)} "
+        f"was not removed ({cause}); remove it by hand if it is no longer wanted",
+        file=sys.stderr,
+    )
 
 
 def render_skills(repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()) -> list[str]:
@@ -1106,7 +1420,8 @@ def render_skills(repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()
             resolved_root = declared_root.resolve(strict=False)
         except OSError as exc:
             raise RuntimeError(
-                f"declared host skill root cannot be resolved safely: {skills_dir}: {exc}"
+                "declared host skill root cannot be resolved safely: "
+                f"{_display_name(skills_dir)} ({type(exc).__name__})"
             ) from exc
         if (
             _skill_path_has_symlink_component(root, declared_root)
@@ -1150,6 +1465,12 @@ def render_skills(repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()
     # orphan before the first write.
     refused = _refused_declared_skill_paths(root, skills, creations, active_skill_roots)
     orphans = _declared_skill_orphans(active_skill_roots)
+    # Wave 200ey (200eu): each present stale path is judged (and its identity
+    # recorded) before the first removal too.
+    stale_judged = {
+        rel: (file_id, folder_id)
+        for rel, file_id, folder_id in _judge_stale_skill_paths(root, stale_paths)
+    }
 
     written: list[str] = []
     for rel in stale_paths:
@@ -1169,54 +1490,91 @@ def render_skills(repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()
             resolved_parent = stale.parent.resolve(strict=False)
         except OSError as exc:
             raise RuntimeError(
-                f"stale skill path cannot be resolved safely: {rel}: {exc}"
+                "stale skill path cannot be resolved safely: "
+                f"{_display_name(rel)} ({type(exc).__name__})"
             ) from exc
         if not declared_root.is_relative_to(root) or not resolved_parent.is_relative_to(
             declared_root
         ):
             raise RuntimeError(
                 "stale skill path escapes its declared host skill root through a symlink: "
-                f"{rel}"
+                f"{_display_name(rel)}"
             )
-        if stale.is_file():
-            stale.unlink()
-            written.append(rel)
-            parent = stale.parent
-            # Remove the emptied per-skill directory (never the shared
-            # skills/ root, which other skills may populate).
-            if parent.name != "skills":
-                try:
-                    parent.rmdir()
-                except OSError:
-                    pass
-    for rel, skill_file, folder in orphans:
+        if rel not in stale_judged:
+            continue
+        file_id, folder_id = stale_judged[rel]
+        if file_id is None:
+            _removal_skipped_notice("stale skill path", rel, "the entry is a link")
+            continue
+        parent_parts = Path(rel).parent.parts
         try:
-            skill_file.unlink()
+            cause = _remove_judged_entry(
+                root, parent_parts, Path(rel).name, file_id,
+                directory=False, parent_identity=folder_id,
+            )
+        except OSError as exc:
+            raise RuntimeError(
+                f"cannot remove the stale skill path {_display_name(rel)} ({type(exc).__name__})"
+            ) from exc
+        if cause is not None:
+            _removal_skipped_notice("stale skill path", rel, cause)
+            continue
+        written.append(rel)
+        # Remove the emptied per-skill directory (never the shared skills/
+        # root, which other skills may populate), relative to the host skill
+        # root and only while it is still the folder judged.
+        if parent_parts[-1] != "skills" and folder_id is not None:
+            try:
+                cause = _remove_judged_entry(
+                    root, parent_parts[:-1], parent_parts[-1], folder_id, directory=True
+                )
+            except OSError:
+                cause = None
+            if cause is not None:
+                _removal_skipped_notice("stale skill folder", "/".join(parent_parts), cause)
+    for orphan in orphans:
+        rel = orphan.rel
+        folder_rel = rel.rsplit("/", 1)[0]
+        folder_parts = tuple(folder_rel.split("/"))
+        try:
+            cause = _remove_judged_entry(
+                root, folder_parts, "SKILL.md", orphan.file_id,
+                directory=False, parent_identity=orphan.folder_id,
+            )
         except OSError as exc:
             # Wave 200xy (200v2): relative path and exception class only,
             # like the rmdir NOTICE below; the OSError text names the
             # absolute file path.
             raise RuntimeError(
-                f"cannot remove the undeclared skill {rel} ({type(exc).__name__})"
+                f"cannot remove the undeclared skill {_display_name(rel)} ({type(exc).__name__})"
             ) from exc
+        if cause is not None:
+            # Wave 200ey (200eu): the folder or SKILL.md is no longer the
+            # entry judged, so neither is removed.
+            _removal_skipped_notice("undeclared skill", rel, cause)
+            continue
         written.append(rel)
         # unlink + rmdir, never rmtree: an entry that appeared in the folder
         # after the orphan decision survives, and the folder is reported.
         try:
-            folder.rmdir()
+            cause = _remove_judged_entry(
+                root, folder_parts[:-1], folder_parts[-1], orphan.folder_id, directory=True
+            )
         except OSError as exc:
             print(
                 "render_agent_surfaces: NOTICE - undeclared skill folder left in place: "
-                f"{rel.rsplit('/', 1)[0]} could not be removed after its marked SKILL.md "
+                f"{_display_name(folder_rel)} could not be removed after its marked SKILL.md "
                 f"was ({type(exc).__name__}); remove the folder by hand if it is no longer wanted",
                 file=sys.stderr,
             )
+            continue
+        if cause is not None:
+            _removal_skipped_notice("undeclared skill folder", folder_rel, cause)
     if creations:
         today = time.strftime("%Y-%m-%d")
         for prompt_doc, template in creations.items():
-            with template.open("r", encoding="utf-8", newline="") as handle:
-                content = handle.read().replace("{{generated_at}}", today)
-            _write_review_carrier_text(creation_paths[prompt_doc], content, exclusive=True)
+            content = _framework_read_text(template).replace("{{generated_at}}", today)
+            _write_review_carrier_text(creation_paths[prompt_doc], content, exclusive=True, root=root)
             written.append(prompt_doc)
     for rel in refused:
         print(
@@ -1243,7 +1601,7 @@ def render_skills(repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()
             # byte-identical and the changed-only manifest stays quiet.
             if target.is_file():
                 try:
-                    existing = target.read_text(encoding="utf-8")
+                    existing = _read_repo_text(root, target)
                 except OSError:
                     existing = ""
                 protocol_block = _extract_marked_block(
@@ -1264,7 +1622,7 @@ def render_skills(repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()
                         _upsert_review_policy_region(document, policy_block)
                         or document
                     )
-            if write_text(target, document):
+            if write_text(target, document, root=root):
                 written.append(rel)
     return written
 
@@ -1673,10 +2031,11 @@ def patch_thin_pointer(
     inner: str,
     *,
     after_heading: str | None = None,
+    root: Path,
 ) -> bool:
     if not path.is_file():
         return False
-    disk_text = path.read_text(encoding="utf-8")
+    disk_text = _read_repo_text(root, path)
     original = strip_legacy_auto_guru_section(
         strip_legacy_auto_guru_lines(_canonicalize_owned_markers(disk_text))
     )
@@ -1685,12 +2044,12 @@ def patch_thin_pointer(
     else:
         updated = upsert_marked_region(original, inner)
     if updated != disk_text:
-        path.write_text(updated, encoding="utf-8")
+        _write_repo_text_platform_newlines(root, path, updated)
         return True
     return False
 
 
-def patch_root_bridge(path: Path) -> bool:
+def patch_root_bridge(path: Path, *, root: Path) -> bool:
     """Ensure the root CLAUDE.md is a real ``@AGENTS.md`` import (1p5xc).
 
     Replaces the legacy prose pointer ("Thin pointer. Read `AGENTS.md` first…")
@@ -1700,7 +2059,7 @@ def patch_root_bridge(path: Path) -> bool:
     """
     if not path.is_file():
         return False
-    original = path.read_text(encoding="utf-8")
+    original = _read_repo_text(root, path)
     text = _canonicalize_owned_markers(original)
 
     # Refresh an existing bridge block in place.
@@ -1711,7 +2070,7 @@ def patch_root_bridge(path: Path) -> bool:
     if bridge_re.search(text):
         text = bridge_re.sub(ROOT_BRIDGE_BLOCK, text, count=1)
         if text != original:
-            path.write_text(text, encoding="utf-8")
+            _write_repo_text_platform_newlines(root, path, text)
             return True
         return False
 
@@ -1732,33 +2091,24 @@ def patch_root_bridge(path: Path) -> bool:
         text = "".join(new_lines)
 
     if text != original:
-        path.write_text(text, encoding="utf-8")
+        _write_repo_text_platform_newlines(root, path, text)
         return True
     return False
 
 
-def write_text(path: Path, content: str) -> bool:
+def write_text(path: Path, content: str, *, root: Path) -> bool:
     """Write ``content`` and report whether the on-disk bytes changed.
 
     Wave 1t72b (1t727-adjacent live find): callers report written paths into
     the sync manifest, so a byte-identical rewrite must return False — the
-    same changed-only semantics as this module's marker-block writers.
+    same changed-only semantics as this module's marker-block writers. Wave
+    200ey (change 1zyv2): the contained write rooted at ``root``.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        if path.exists() and path.read_bytes() == content.encode("utf-8"):
-            return False
-    except OSError:
-        pass
-    # newline="" disables newline translation so the embedded line terminators are written
-    # VERBATIM, byte-identical on every rendering host (mirrors render_platform_surfaces.write_text,
-    # wave 1p7tz). With the default newline=None, a re-render on native Windows translates every
-    # "\n" → os.linesep ("\r\n"), so the freshly generated agent surfaces (auto-guru.mdc, guru.md,
-    # SKILL.md, config.toml) would gain CRLF and diff full-file on re-render. The source strings
-    # already carry LF terminators, so newline="" is right for all hosts.
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        handle.write(content)
-    return True
+    # Encoded verbatim, no newline translation, so the embedded line terminators are
+    # byte-identical on every rendering host (mirrors render_platform_surfaces.write_text,
+    # wave 1p7tz): a re-render on native Windows must not turn the generated agent
+    # surfaces (auto-guru.mdc, guru.md, SKILL.md) into CRLF.
+    return _write_repo_bytes(root, path, content.encode("utf-8"))
 
 
 def _carrier_protocol_block(carrier: ReviewProtocolCarrier) -> str:
@@ -1935,7 +2285,12 @@ def _initial_review_carrier_text(repo_root: Path, carrier: ReviewProtocolCarrier
         "100-project-prompt-surface-bootstrap.prompt.md",
         "209-agent-harness-core.prompt.md",
     } and seed_path.is_file():
-        return seed_path.read_text(encoding="utf-8")
+        # Wave 200ey (change 200ew): a fresh carrier names the council protocol
+        # by the profile's display name; existing carriers are never rewritten
+        # outside their managed region, and no managed region carries the name.
+        return vocabulary_profile.localize_council_name(
+            _framework_read_text(seed_path, translate_newlines=True)
+        )
     title = Path(carrier.destination).stem.replace(".prompt", "").replace("-", " ").title()
     # Wave 1viyu (CODE-DEL-1): a fresh pointer carrier is a `docs/**/*.md`
     # file that `check_metadata` requires Owner/Status/Last verified on, so
@@ -2019,125 +2374,224 @@ def _contained_review_carrier_path(repo_root: Path, destination: str) -> Path:
         resolved = candidate.resolve(strict=False)
     except OSError as exc:
         raise RuntimeError(
-            f"review carrier path cannot be resolved safely: {destination}: {exc}"
+            "review carrier path cannot be resolved safely: "
+            f"{_display_name(destination)} ({type(exc).__name__})"
         ) from exc
     if contained_resolved_path(root, resolved) is None:
         raise RuntimeError(
             "review carrier path escapes the repository root through a symlink: "
-            f"{destination}"
+            f"{_display_name(destination)}"
         )
     return resolved
 
 
-def _write_review_carrier_text(path: Path, content: "str | bytes", *, exclusive: bool = False) -> None:
-    """Write a checked carrier without following a raced final symlink.
+def _write_review_carrier_text(
+    path: Path,
+    content: "str | bytes",
+    *,
+    exclusive: bool = False,
+    mode: "int | None" = None,
+    root: Path,
+) -> None:
+    """Write a checked carrier without following a link out of ``root``.
 
-    ``exclusive=True`` (wave 1vj4e, the Backstage/TechDocs trio) opens with
-    ``O_EXCL`` instead of ``O_TRUNC``, so a missing-only write can never
-    truncate a member that appeared between the presence check and the open;
-    the sibling baseline families keep the default check-then-truncate.
-    ``bytes`` content (wave 1zyc5, the change prompt move) is written verbatim
-    in binary mode, so the copy never depends on the file's encoding. Exclusive
+    The default branch is the contained write (wave 200ey, change 1zyv2):
+    ``contained_files.write_contained_bytes`` rooted at ``root``, publishing
+    through an exclusive temporary file and ``os.replace``, so a link leaving
+    the repository is refused and nothing is written through a link.
+    ``exclusive=True`` (wave 1vj4e, the Backstage/TechDocs trio) creates with
+    ``O_EXCL`` instead (:func:`_write_text_exclusive`), so a missing-only write
+    can never truncate a member that appeared between the presence check and
+    the open. ``bytes`` content (wave 1zyc5, the change prompt move) is written
+    verbatim, so the copy never depends on the file's encoding. Exclusive
     ``bytes`` writes (the prompt moves of waves 1zyc5 and 1zyb4) are atomic:
-    see :func:`_write_bytes_atomic_exclusive`.
+    see :func:`_write_bytes_atomic_exclusive`. ``mode`` (wave 200ey) sets the
+    new file's permission bits on its descriptor; the prompt moves pass the
+    source's bits. A refusal raises ``RuntimeError``.
     """
 
-    path.parent.mkdir(parents=True, exist_ok=True)
     if exclusive and isinstance(content, bytes):
-        _write_bytes_atomic_exclusive(path, content)
+        _write_bytes_atomic_exclusive(path, content, root=root, mode=mode)
         return
-    flags = os.O_WRONLY | os.O_CREAT | (os.O_EXCL if exclusive else os.O_TRUNC)
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
+    if exclusive:
+        _write_text_exclusive(path, content, root=root, mode=mode)
+        return
+    data = content if isinstance(content, bytes) else content.encode("utf-8")
+    _write_repo_bytes(root, path, data, mode=mode)
+
+
+def _exclusive_parent(root: Path, path: Path) -> "tuple[Path, int | None, str]":
+    """``(resolved parent, descriptor or None, final name)`` for an exclusive
+    create at ``path``: missing parents are created under the contained rule
+    and, where ``dir_fd`` is supported, the parent is opened without following
+    links (``contained_files.open_contained_dir``). The caller closes the
+    descriptor. A refusal raises ``RuntimeError`` naming the relative path."""
     try:
-        fd = os.open(path, flags, 0o666)
-    except OSError as exc:
-        raise RuntimeError(f"review carrier write refused for {path}: {exc}") from exc
-    if isinstance(content, bytes):
-        with os.fdopen(fd, "wb") as handle:
+        parts = contained_files.relative_parts(root, path)
+        if not parts:
+            raise contained_files.ContainedFileRefused(contained_files.CAUSE_NOT_REGULAR)
+        parent = contained_files.ensure_contained_dir(root, parts[:-1])
+        resolved_root = Path(root).resolve()
+        dir_fd = contained_files.open_contained_dir(resolved_root, parent.relative_to(resolved_root).parts)
+    except contained_files.ContainedFileRefused as exc:
+        raise RuntimeError(
+            f"review carrier write refused for {_rel_label(root, path)}: {exc.cause}"
+        ) from None
+    return parent, dir_fd, parts[-1]
+
+
+def _exclusive_open(parent: Path, dir_fd: "int | None", name: str, flags: int) -> int:
+    if dir_fd is not None:
+        return os.open(name, flags, 0o666, dir_fd=dir_fd)
+    return os.open(parent / name, flags, 0o666)
+
+
+def _write_text_exclusive(path: Path, content: str, *, root: Path, mode: "int | None" = None) -> None:
+    """Create ``path`` with ``O_EXCL|O_NOFOLLOW`` (relative to the contained
+    parent's descriptor where supported) and write ``content`` verbatim; an
+    existing entry of any kind refuses the write."""
+
+    parent, dir_fd, name = _exclusive_parent(root, path)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        try:
+            fd = _exclusive_open(parent, dir_fd, name, flags)
+        except OSError as exc:
+            raise RuntimeError(
+                f"review carrier write refused for {_rel_label(root, path)}: {type(exc).__name__}"
+            ) from None
+        if mode is not None and hasattr(os, "fchmod"):
+            os.fchmod(fd, mode)
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
             handle.write(content)
-        return
-    with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
-        handle.write(content)
+    finally:
+        if dir_fd is not None:
+            os.close(dir_fd)
 
 
-def _write_bytes_atomic_exclusive(path: Path, content: bytes) -> None:
+def _write_bytes_atomic_exclusive(path: Path, content: bytes, *, root: Path, mode: "int | None" = None) -> None:
     """Publish ``content`` at ``path`` whole or not at all, refusing an existing path.
 
     The bytes go to a temporary file in the destination folder first, so an
     interruption never leaves a truncated file at ``path``. The temporary file
-    is then hard-linked to ``path``, which fails when anything (a file, a
-    directory or a symlink) already exists there, so the "refuse if the target
-    exists" rule holds without a check-then-write race. Where the filesystem
-    has no hard links, Windows renames (its rename refuses an existing target)
-    and other platforms fall back to the exclusive create of the default path;
-    if writing that direct copy fails, the target file this call created (and
-    only that file, never one that was already there) is removed before the
-    error is raised. Removing the temporary file is best-effort: after a
-    successful link, a failed unlink leaves the hidden temporary name behind as
-    a second link to the published file, and the write result still stands.
+    gets ``mode`` (when given) on its descriptor, and is then hard-linked to
+    ``path``, which fails when anything (a file, a directory or a symlink)
+    already exists there, so the "refuse if the target exists" rule holds
+    without a check-then-write race. Where ``dir_fd`` is supported every step
+    is relative to the contained parent's descriptor (wave 200ey). Where the
+    filesystem has no hard links, Windows renames (its rename refuses an
+    existing target) and other platforms fall back to an exclusive create of
+    the target; if writing that direct copy fails, the target file this call
+    created (and only that file, never one that was already there) is removed
+    before the error is raised. Removing the temporary file is best-effort:
+    after a successful link, a failed unlink leaves the hidden temporary name
+    behind as a second link to the published file, and the write result still
+    stands.
     """
 
     import secrets
 
+    label = _rel_label(root, path)
+    parent, dir_fd, name = _exclusive_parent(root, path)
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
-    temp: "Path | None" = None
-    for _attempt in range(8):
-        candidate = path.parent / f".{path.name}.{secrets.token_hex(6)}.tmp"
-        try:
-            fd = os.open(candidate, flags, 0o666)
-        except FileExistsError:
-            continue
-        except OSError as exc:
-            raise RuntimeError(f"review carrier write refused for {path}: {exc}") from exc
-        temp = candidate
-        break
-    if temp is None:
-        raise RuntimeError(f"review carrier write refused for {path}: no temporary name was free")
+    temp: "str | None" = None
     try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
+        for _attempt in range(8):
+            candidate = f".{name}.{secrets.token_hex(6)}.tmp"
+            try:
+                fd = _exclusive_open(parent, dir_fd, candidate, flags)
+            except FileExistsError:
+                continue
+            except OSError as exc:
+                raise RuntimeError(f"review carrier write refused for {label}: {type(exc).__name__}") from None
+            temp = candidate
+            break
+        if temp is None:
+            raise RuntimeError(f"review carrier write refused for {label}: no temporary name was free")
         try:
-            os.link(temp, path)
-        except FileExistsError as exc:
-            raise RuntimeError(f"review carrier write refused for {path}: {exc}") from exc
-        except OSError:
-            if os.name == "nt":
-                try:
-                    os.rename(temp, path)
-                except OSError as exc:
-                    raise RuntimeError(f"review carrier write refused for {path}: {exc}") from exc
-            else:
-                exclusive_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-                if hasattr(os, "O_NOFOLLOW"):
-                    exclusive_flags |= os.O_NOFOLLOW
-                try:
-                    out = os.open(path, exclusive_flags, 0o666)
-                except OSError as exc:
-                    raise RuntimeError(f"review carrier write refused for {path}: {exc}") from exc
-                created = os.fstat(out)
-                try:
-                    with os.fdopen(out, "wb") as handle:
-                        handle.write(content)
-                except BaseException:
-                    # Remove only the file this call created (the exclusive
-                    # open proved nothing was there): a partial copy left at
-                    # the target would block every later migration run.
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(content)
+                handle.flush()
+                if mode is not None and hasattr(os, "fchmod"):
+                    os.fchmod(handle.fileno(), mode)
+                os.fsync(handle.fileno())
+            try:
+                if dir_fd is not None:
+                    os.link(temp, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd, follow_symlinks=False)
+                else:
+                    os.link(parent / temp, parent / name)
+            except FileExistsError:
+                raise RuntimeError(f"review carrier write refused for {label}: the target exists") from None
+            except OSError:
+                if os.name == "nt":
                     try:
-                        if os.path.samestat(os.lstat(path), created):
-                            os.unlink(path)
-                    except OSError:
-                        pass
-                    raise
+                        os.rename(parent / temp, parent / name)
+                    except OSError as exc:
+                        raise RuntimeError(f"review carrier write refused for {label}: {type(exc).__name__}") from None
+                else:
+                    exclusive_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                    if hasattr(os, "O_NOFOLLOW"):
+                        exclusive_flags |= os.O_NOFOLLOW
+                    try:
+                        out = _exclusive_open(parent, dir_fd, name, exclusive_flags)
+                    except OSError as exc:
+                        raise RuntimeError(f"review carrier write refused for {label}: {type(exc).__name__}") from None
+                    created = os.fstat(out)
+                    try:
+                        if mode is not None and hasattr(os, "fchmod"):
+                            os.fchmod(out, mode)
+                        with os.fdopen(out, "wb") as handle:
+                            handle.write(content)
+                    except BaseException:
+                        # Remove only the file this call created (the exclusive
+                        # open proved nothing was there): a partial copy left at
+                        # the target would block every later migration run.
+                        try:
+                            if dir_fd is not None:
+                                if os.path.samestat(os.stat(name, dir_fd=dir_fd, follow_symlinks=False), created):
+                                    os.unlink(name, dir_fd=dir_fd)
+                            elif os.path.samestat(os.lstat(parent / name), created):
+                                os.unlink(parent / name)
+                        except OSError:
+                            pass
+                        raise
+        finally:
+            try:
+                if dir_fd is not None:
+                    os.unlink(temp, dir_fd=dir_fd)
+                else:
+                    os.unlink(parent / temp)
+            except OSError:  # already renamed away, or not removable: the write result stands
+                pass
     finally:
-        try:
-            os.unlink(temp)
-        except OSError:  # already renamed away, or not removable: the write result stands
-            pass
+        if dir_fd is not None:
+            os.close(dir_fd)
+
+
+def _read_move_source(repo_root: Path, rel: str) -> "tuple[bytes, int]":
+    """``(bytes, permission bits)`` of a prompt-move source (wave 200ey, change
+    1zyv2): read through the contained read, never through a path resolved in
+    an earlier step. The source must still be the regular file (not a link)
+    that ``lstat`` shows at its lexical path, and the descriptor read must be
+    that same file, so a source swapped for a link after the preflight is
+    refused. The bits come from the matched identity. A refusal raises
+    ``ContainedFileRefused`` (an ``OSError``)."""
+
+    lexical = repo_root / rel
+    entry = os.lstat(lexical)
+    if not stat.S_ISREG(entry.st_mode) or contained_files._is_windows_link(str(lexical)):
+        raise contained_files.ContainedFileRefused(f"{_display_name(rel)} {contained_files.CAUSE_NOT_REGULAR}")
+    try:
+        data, opened = contained_files.read_contained(
+            repo_root, lexical, max_bytes=contained_files.DEFAULT_MAX_BYTES
+        )
+    except contained_files.ContainedFileRefused as exc:
+        raise contained_files.ContainedFileRefused(f"{_display_name(rel)} {exc.cause}") from None
+    if (opened.st_dev, opened.st_ino) != (entry.st_dev, entry.st_ino):
+        raise contained_files.ContainedFileRefused(f"{_display_name(rel)} {contained_files.CAUSE_CHANGED}")
+    return data, stat.S_IMODE(opened.st_mode)
 
 
 def migrate_review_plan_prompt(repo_root: Path) -> list[str]:
@@ -2177,13 +2631,13 @@ def migrate_review_plan_prompt(repo_root: Path) -> list[str]:
             f"preserve and resolve {REVIEW_PLAN_OLD_PROMPT} before retrying."
         )
     try:
-        with old_path.open("r", encoding="utf-8", newline="") as handle:
-            original = handle.read()
+        raw, source_mode = _read_move_source(repo_root, REVIEW_PLAN_OLD_PROMPT)
+        original = raw.decode("utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise RuntimeError(
             "review-plan prompt migration blocked: the legacy prompt could not be read as "
-            f"UTF-8: {REVIEW_PLAN_OLD_PROMPT}: {exc}"
-        ) from exc
+            f"UTF-8: {REVIEW_PLAN_OLD_PROMPT} ({_failure_class(exc)})"
+        ) from None
 
     physical_lines = original.splitlines(keepends=True)
 
@@ -2244,7 +2698,7 @@ def migrate_review_plan_prompt(repo_root: Path) -> list[str]:
         migrate_physical_line(content, ending)
         for content, ending in map(line_content_and_ending, physical_lines)
     )
-    _write_review_carrier_text(new_path, migrated, exclusive=True)
+    _write_review_carrier_text(new_path, migrated, exclusive=True, mode=source_mode, root=repo_root)
     try:
         old_path.unlink()
     except OSError as exc:
@@ -2254,7 +2708,7 @@ def migrate_review_plan_prompt(repo_root: Path) -> list[str]:
             pass
         raise RuntimeError(
             "review-plan prompt migration blocked while removing the legacy prompt; "
-            f"{REVIEW_PLAN_OLD_PROMPT} was preserved: {exc}"
+            f"{REVIEW_PLAN_OLD_PROMPT} was preserved ({type(exc).__name__})"
         ) from exc
     return [REVIEW_PLAN_OLD_PROMPT, REVIEW_PLAN_NEW_PROMPT]
 
@@ -2299,24 +2753,28 @@ class ChangePromptMigration:
     link_report: "tuple[str, ...]"
 
 
-def _change_prompt_pair_conflict(repo_root: Path, old_rel: str, new_rel: str) -> "str | None":
+def _change_prompt_pair_conflict(
+    repo_root: Path, old_rel: str, new_rel: str, noun: str = "prompt"
+) -> "str | None":
     old_lexical = repo_root / old_rel
     new_lexical = repo_root / new_rel
     old_present = old_lexical.exists() or old_lexical.is_symlink()
     new_present = new_lexical.exists() or new_lexical.is_symlink()
     if not old_present:
         return None
+    label = f"{_display_name(old_rel)} -> {_display_name(new_rel)}"
     if new_present:
-        return f"{old_rel} -> {new_rel}: both exist"
+        return f"{label}: both exist"
     if old_lexical.is_symlink():
-        return f"{old_rel} -> {new_rel}: the old prompt is a symlink"
+        return f"{label}: the old {noun} is a symlink"
     try:
         old_path = _contained_review_carrier_path(repo_root, old_rel)
         _contained_review_carrier_path(repo_root, new_rel)
     except RuntimeError as exc:
-        return f"{old_rel} -> {new_rel}: {exc}"
+        # This module's own message (repository-relative, class-only).
+        return f"{label}: {exc}"
     if not old_path.is_file():
-        return f"{old_rel} -> {new_rel}: the old prompt is not a regular file"
+        return f"{label}: the old {noun} is not a regular file"
     return None
 
 
@@ -2344,7 +2802,7 @@ def _moved_prompt_link_report(
     for path in iter_linkable_docs(repo_root):
         rel = relative_to_root(repo_root, path)
         try:
-            text = path.read_text(encoding="utf-8")
+            text = _read_repo_text(repo_root, path)
         except (OSError, UnicodeDecodeError):
             continue
         if not any(name in text for name in old_names):
@@ -2397,10 +2855,11 @@ def _repair_change_prompt_manifest(repo_root: Path) -> "list[str]":
         return []
     path = _contained_review_carrier_path(repo_root, PROMPT_SURFACE_MANIFEST)
     try:
-        with path.open("r", encoding="utf-8", newline="") as handle:
-            original = handle.read()
+        original = _read_repo_text(repo_root, path, translate_newlines=False)
         data = json.loads(original)
-    except (OSError, UnicodeDecodeError, ValueError):
+    except (OSError, UnicodeDecodeError, ValueError, RecursionError):
+        # Wave 200ey (200eu): a manifest nested past the recursion limit is
+        # unreadable like any other malformed manifest.
         return []
     if not isinstance(data, dict) or not isinstance(data.get("public_prompt_surface"), list):
         return []
@@ -2450,7 +2909,7 @@ def _repair_change_prompt_manifest(repo_root: Path) -> "list[str]":
         content = content.replace("\n", newline)
     if content == original:
         return []
-    _write_review_carrier_text(path, content)
+    _write_review_carrier_text(path, content, root=repo_root)
     return [PROMPT_SURFACE_MANIFEST]
 
 
@@ -2488,24 +2947,24 @@ def migrate_change_prompt_renames(repo_root: Path) -> ChangePromptMigration:
         old_path = _contained_review_carrier_path(repo_root, old_rel)
         new_path = _contained_review_carrier_path(repo_root, new_rel)
         try:
-            original = old_path.read_bytes()
+            original, source_mode = _read_move_source(repo_root, old_rel)
         except OSError as exc:
             raise RuntimeError(
-                f"change prompt migration blocked: {old_rel} could not be read; "
-                f"it was preserved: {exc}"
-            ) from exc
-        _write_review_carrier_text(new_path, original, exclusive=True)
+                f"change prompt migration blocked: {_display_name(old_rel)} could not be read; "
+                f"it was preserved ({_failure_class(exc)})"
+            ) from None
+        _write_review_carrier_text(new_path, original, exclusive=True, mode=source_mode, root=repo_root)
         try:
             old_path.unlink()
         except OSError as exc:
             try:
                 new_path.unlink()
-                new_outcome = f"{new_rel} was removed"
+                new_outcome = f"{_display_name(new_rel)} was removed"
             except OSError:
-                new_outcome = f"{new_rel} could not be removed and must be deleted by hand"
+                new_outcome = f"{_display_name(new_rel)} could not be removed and must be deleted by hand"
             raise RuntimeError(
-                f"change prompt migration blocked while removing {old_rel}; "
-                f"it was preserved and {new_outcome}: {exc}"
+                f"change prompt migration blocked while removing {_display_name(old_rel)}; "
+                f"it was preserved and {new_outcome} ({type(exc).__name__})"
             ) from exc
         written.extend([old_rel, new_rel])
 
@@ -2513,6 +2972,88 @@ def migrate_change_prompt_renames(repo_root: Path) -> ChangePromptMigration:
     link_report = _moved_prompt_link_report(repo_root) if any(
         rel for rel in written if rel != PROMPT_SURFACE_MANIFEST
     ) else ()
+    return ChangePromptMigration(written=tuple(written), link_report=link_report)
+
+
+# Wave 200ey (change 200ew): the council moderator role was renamed from
+# ``wave-council`` to ``council-chair``. The role doc and the native wrappers
+# ``review_protocol_carriers`` adopts when present move byte-for-byte (content
+# is never rewritten; the review-protocol pass then reconciles the moved doc's
+# managed region). Both paths present is a conflict that changes neither, and
+# markdown links to a moved doc are reported, never rewritten.
+COUNCIL_ROLE_RENAMES: "tuple[tuple[str, str], ...]" = (
+    ("docs/agents/specialists/wave-council.md", "docs/agents/specialists/council-chair.md"),
+    (".claude/agents/wave-council.md", ".claude/agents/council-chair.md"),
+    (
+        ".codex/skills/agent-role-wave-council/SKILL.md",
+        ".codex/skills/agent-role-council-chair/SKILL.md",
+    ),
+)
+
+
+def migrate_council_role_renames(repo_root: Path) -> ChangePromptMigration:
+    """Move the council role doc and native wrappers to the ``council-chair`` names.
+
+    Every pair is preflighted before any write: when any pair conflicts (both
+    paths exist, or the old path is a symlink, not a regular file, or resolves
+    outside the repository) one error names every conflicting pair and nothing
+    is written. Otherwise each present old file is copied byte-for-byte to its
+    new path through the exclusive publish (permission bits kept) and then
+    removed; an old wrapper folder left empty is removed too. A second render
+    finds nothing to move and writes nothing.
+    """
+
+    conflicts = [
+        conflict
+        for old_rel, new_rel in COUNCIL_ROLE_RENAMES
+        if (conflict := _change_prompt_pair_conflict(repo_root, old_rel, new_rel, "file")) is not None
+    ]
+    if conflicts:
+        raise RuntimeError(
+            "council role migration blocked: "
+            + "; ".join(conflicts)
+            + ". All files were preserved and nothing was written. Merge any "
+            "project-authored prose from each old file into its new file, remove "
+            "the old file, and rerun the upgrade."
+        )
+
+    written: list[str] = []
+    for old_rel, new_rel in COUNCIL_ROLE_RENAMES:
+        old_lexical = repo_root / old_rel
+        if not (old_lexical.exists() or old_lexical.is_symlink()):
+            continue
+        old_path = _contained_review_carrier_path(repo_root, old_rel)
+        new_path = _contained_review_carrier_path(repo_root, new_rel)
+        try:
+            original, source_mode = _read_move_source(repo_root, old_rel)
+        except OSError as exc:
+            raise RuntimeError(
+                f"council role migration blocked: {_display_name(old_rel)} could not be read; "
+                f"it was preserved ({_failure_class(exc)})"
+            ) from None
+        _write_review_carrier_text(new_path, original, exclusive=True, mode=source_mode, root=repo_root)
+        try:
+            old_path.unlink()
+        except OSError as exc:
+            try:
+                new_path.unlink()
+                new_outcome = f"{_display_name(new_rel)} was removed"
+            except OSError:
+                new_outcome = f"{_display_name(new_rel)} could not be removed and must be deleted by hand"
+            raise RuntimeError(
+                f"council role migration blocked while removing {_display_name(old_rel)}; "
+                f"it was preserved and {new_outcome} ({type(exc).__name__})"
+            ) from exc
+        if old_rel.startswith(".codex/skills/"):
+            # The wrapper's own folder; removed only when the move left it empty.
+            try:
+                old_path.parent.rmdir()
+            except OSError:
+                pass
+        written.extend([old_rel, new_rel])
+
+    moved = tuple(old_rel for old_rel, _new_rel in COUNCIL_ROLE_RENAMES if old_rel in written)
+    link_report = _moved_prompt_link_report(repo_root, moved) if moved else ()
     return ChangePromptMigration(written=tuple(written), link_report=link_report)
 
 
@@ -2580,7 +3121,7 @@ def _prompt_pair_paths(slug: str) -> "tuple[str, str]":
     return f"docs/prompts/{slug}.prompt.md", f"docs/prompts/agents/{slug}.prompt.md"
 
 
-def _write_prompt_manifest(path: Path, original: str, data: dict) -> bool:
+def _write_prompt_manifest(path: Path, original: str, data: dict, *, root: Path) -> bool:
     """Write ``data`` in the manifest's newline style; returns whether it changed."""
     newline = "\r\n" if "\r\n" in original else "\n"
     content = json.dumps(data, indent=2, ensure_ascii=False)
@@ -2590,7 +3131,7 @@ def _write_prompt_manifest(path: Path, original: str, data: dict) -> bool:
         content = content.replace("\n", newline)
     if content == original:
         return False
-    _write_review_carrier_text(path, content)
+    _write_review_carrier_text(path, content, root=root)
     return True
 
 
@@ -2602,11 +3143,15 @@ def _read_prompt_manifest(repo_root: Path) -> "tuple[Path, str, dict]":
         raise ValueError(f"{PROMPT_SURFACE_MANIFEST} is absent")
     path = _contained_review_carrier_path(repo_root, PROMPT_SURFACE_MANIFEST)
     try:
-        with path.open("r", encoding="utf-8", newline="") as handle:
-            original = handle.read()
+        original = _read_repo_text(repo_root, path, translate_newlines=False)
         data = json.loads(original)
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise ValueError(f"{PROMPT_SURFACE_MANIFEST} is unreadable or not valid JSON ({exc})") from exc
+    except (OSError, UnicodeDecodeError, ValueError, RecursionError) as exc:
+        # Wave 200ey (200eu): the reason is a class only (a contained-read
+        # refusal's cause class, else the exception's class name), and a
+        # manifest nested past the recursion limit is unreadable, not a crash.
+        raise ValueError(
+            f"{PROMPT_SURFACE_MANIFEST} is unreadable or not valid JSON ({_failure_class(exc)})"
+        ) from None
     if not isinstance(data, dict):
         raise ValueError(f"{PROMPT_SURFACE_MANIFEST} is not a JSON object")
     return path, original, data
@@ -2631,7 +3176,7 @@ def _profile_prompt_plan(
         for pair in pairs[key]:
             if pair.source in source_owner:
                 conflicts.append(
-                    f"{pair.source}: applied names of {source_owner[pair.source]!r} and {key!r} collide"
+                    f"{_display_name(pair.source)}: applied names of {source_owner[pair.source]!r} and {key!r} collide"
                 )
             source_owner[pair.source] = key
     for key in pending:
@@ -2640,7 +3185,7 @@ def _profile_prompt_plan(
             target_lexical = repo_root / pair.target
             if not os.path.lexists(source_lexical):
                 continue
-            label = f"{pair.source} -> {pair.target}"
+            label = f"{_display_name(pair.source)} -> {_display_name(pair.target)}"
             if source_lexical.is_symlink():
                 conflicts.append(f"{label}: the source is a symlink")
                 continue
@@ -2648,6 +3193,7 @@ def _profile_prompt_plan(
                 source_path = _contained_review_carrier_path(repo_root, pair.source)
                 target_path = _contained_review_carrier_path(repo_root, pair.target)
             except RuntimeError as exc:
+                # This module's own message (repository-relative, class-only).
                 conflicts.append(f"{label}: {exc}")
                 continue
             if not stat.S_ISREG(os.lstat(source_lexical).st_mode) or not source_path.is_file():
@@ -2661,7 +3207,7 @@ def _profile_prompt_plan(
                 identical = (
                     not target_lexical.is_symlink()
                     and target_path.is_file()
-                    and source_path.read_bytes() == target_path.read_bytes()
+                    and _read_repo_bytes(repo_root, source_path) == _read_repo_bytes(repo_root, target_path)
                 )
             except OSError:
                 identical = False
@@ -2683,7 +3229,7 @@ def _profile_prompt_plan(
             cycle = trail[trail.index(key):] + [key]
             conflicts.append(
                 "rename cycle between applied and target names: "
-                + " -> ".join(_prompt_pair_paths(applied[item])[0] for item in cycle)
+                + " -> ".join(_display_name(_prompt_pair_paths(applied[item])[0]) for item in cycle)
             )
             return
         state[key] = 1
@@ -2706,39 +3252,43 @@ def _move_prompt_pair(repo_root: Path, pair: _PromptMovePair) -> "list[str]":
     source_path = _contained_review_carrier_path(repo_root, pair.source)
     target_path = _contained_review_carrier_path(repo_root, pair.target)
     try:
-        original = source_path.read_bytes()
+        original, source_mode = _read_move_source(repo_root, pair.source)
     except OSError as exc:
         raise RuntimeError(
-            f"prompt name migration blocked: {pair.source} could not be read; it was preserved: {exc}"
-        ) from exc
+            f"prompt name migration blocked: {_display_name(pair.source)} could not be read; "
+            f"it was preserved ({_failure_class(exc)})"
+        ) from None
     copied = False
     if os.path.lexists(repo_root / pair.target):
         # A copy completed before an interruption: only the unlink remains.
         try:
-            same = not (repo_root / pair.target).is_symlink() and target_path.read_bytes() == original
+            same = (
+                not (repo_root / pair.target).is_symlink()
+                and _read_repo_bytes(repo_root, target_path) == original
+            )
         except OSError:
             same = False
         if not same:
             raise RuntimeError(
-                f"prompt name migration blocked: {pair.target} appeared during the migration; "
-                f"{pair.source} was preserved"
+                f"prompt name migration blocked: {_display_name(pair.target)} appeared during the migration; "
+                f"{_display_name(pair.source)} was preserved"
             )
     else:
-        _write_review_carrier_text(target_path, original, exclusive=True)
+        _write_review_carrier_text(target_path, original, exclusive=True, mode=source_mode, root=repo_root)
         copied = True
     try:
         source_path.unlink()
     except OSError as exc:
-        outcome = f"{pair.target} was kept"
+        outcome = f"{_display_name(pair.target)} was kept"
         if copied:
             try:
                 target_path.unlink()
-                outcome = f"{pair.target} was removed"
+                outcome = f"{_display_name(pair.target)} was removed"
             except OSError:
-                outcome = f"{pair.target} could not be removed and must be deleted by hand"
+                outcome = f"{_display_name(pair.target)} could not be removed and must be deleted by hand"
         raise RuntimeError(
-            f"prompt name migration blocked while removing {pair.source}; "
-            f"it was preserved and {outcome}: {exc}"
+            f"prompt name migration blocked while removing {_display_name(pair.source)}; "
+            f"it was preserved and {outcome} ({type(exc).__name__})"
         ) from exc
     return [pair.source, pair.target]
 
@@ -2773,7 +3323,7 @@ def _record_applied_prompt_name(repo_root: Path, key: str, applied_slug: str) ->
         data["prompt_names"] = record
     else:
         data.pop("prompt_names", None)
-    return _write_prompt_manifest(path, original, data)
+    return _write_prompt_manifest(path, original, data, root=repo_root)
 
 
 def migrate_profile_prompt_names(repo_root: Path) -> ProfilePromptMigration:
@@ -2812,7 +3362,7 @@ def migrate_profile_prompt_names(repo_root: Path) -> ProfilePromptMigration:
                 else ""
             )
             diagnostics = (
-                f"prompt name migration skipped, nothing was moved: {exc}. The renderer records "
+                f"prompt name migration skipped, nothing was moved: {_display_name(exc)}. The renderer records "
                 f"renamed lifecycle prompts under `prompt_names` in {PROMPT_SURFACE_MANIFEST}; "
                 f"repair or create it, then rerun `wf render-surfaces`.{skipped}",
             )
@@ -2947,7 +3497,7 @@ def _claude_agent_frontmatter(text: str, path: Path) -> str | None:
         return "".join(lines[:closing + 1])
     print(
         "render_agent_surfaces: WARNING — left "
-        f"{path} unchanged (malformed or ambiguous Claude agent frontmatter)",
+        f"{_display_name(Path(path).as_posix())} unchanged (malformed or ambiguous Claude agent frontmatter)",
         file=sys.stderr,
     )
     return None
@@ -2993,22 +3543,21 @@ def reconcile_review_protocol_surfaces(
             # frontmatter the pack's own docs-lint requires, even if the seed omits it.
             original = _ensure_agent_frontmatter(original, carrier.destination)
         else:
-            with path.open("r", encoding="utf-8", newline="") as handle:
-                original = handle.read()
+            original = _read_repo_text(repo_root, path, translate_newlines=False)
         # Reconciliation runs before AND after tier 3, including without Guru.
         # Refusing only the template write would still alter malformed files.
-        if carrier.destination.startswith(".claude/agents/") and _claude_agent_frontmatter(original, path) is None:
+        if carrier.destination.startswith(".claude/agents/") and _claude_agent_frontmatter(original, Path(carrier.destination)) is None:
             continue
         updated = _upsert_review_protocol_region(original, _carrier_protocol_block(carrier))
         if updated is None:
             print(
                 "render_agent_surfaces: WARNING — left "
-                f"{path} unchanged (malformed executable-review-evidence markers)",
+                f"{_display_name(carrier.destination)} unchanged (malformed executable-review-evidence markers)",
                 file=sys.stderr,
             )
             continue
         if updated != original:
-            _write_review_carrier_text(path, updated)
+            _write_review_carrier_text(path, updated, root=repo_root)
             written.append(carrier.destination)
     return written
 
@@ -3037,8 +3586,7 @@ def review_protocol_carriers_skipped_by_render(repo_root: Path) -> list[str]:
         if not path.is_file():
             continue
         try:
-            with path.open("r", encoding="utf-8", newline="") as handle:
-                text = handle.read()
+            text = _read_repo_text(repo_root, path, translate_newlines=False)
         except (OSError, UnicodeError):
             continue
         if (
@@ -3067,6 +3615,7 @@ def reconcile_lifecycle_prompt_baselines(
         / "install"
         / "lifecycle-prompts"
     )
+    template_label = ".wavefoundry/framework/install/lifecycle-prompts"
     if not template_root.is_dir():
         # Public setup may execute the framework checkout's renderer against a
         # different target root. The templates are packaged beside this module,
@@ -3077,6 +3626,7 @@ def reconcile_lifecycle_prompt_baselines(
             / "install"
             / "lifecycle-prompts"
         )
+        template_label = "the packaged fallback install/lifecycle-prompts"
     today = time.strftime("%Y-%m-%d")
     for destination, template_name in LIFECYCLE_PROMPT_BASELINES:
         if destination in skip_paths:
@@ -3088,20 +3638,19 @@ def reconcile_lifecycle_prompt_baselines(
         if not template.is_file():
             raise RuntimeError(
                 "missing lifecycle prompt baseline: "
-                f"{template.as_posix()}"
+                f"{template_label}/{_display_name(template_name)}"
             )
-        with template.open("r", encoding="utf-8", newline="") as handle:
-            # Wave 1viyu (CODE-DEL-1): the shipped baselines carry a
-            # `Last verified: {{generated_at}}` placeholder so a freshly
-            # materialized carrier satisfies `check_metadata` on the first
-            # docs-lint pass; stamp it exactly as the scaffold baselines do.
-            content = handle.read().replace("{{generated_at}}", today)
+        # Wave 1viyu (CODE-DEL-1): the shipped baselines carry a
+        # `Last verified: {{generated_at}}` placeholder so a freshly
+        # materialized carrier satisfies `check_metadata` on the first
+        # docs-lint pass; stamp it exactly as the scaffold baselines do.
+        content = _framework_read_text(template).replace("{{generated_at}}", today)
         # Wave 1zyb4 (1zxnw): a mapped prompt's heading and Shortcut line take
         # the profile's names; the identity under the default profile.
         key = template_name.removesuffix(".prompt.md")
         if key in vocabulary_profile.DEFAULT_PROMPT_NAMES:
             content = vocabulary_profile.localize_prompt_template(key, content)
-        _write_review_carrier_text(path, content)
+        _write_review_carrier_text(path, content, root=repo_root)
         written.append(destination)
     return written
 
@@ -3115,10 +3664,16 @@ def _resolve_install_asset(repo_root: Path, template_name: str) -> Path:
     packaged = Path(__file__).resolve().parent.parent / "install" / template_name
     if packaged.is_file():
         return packaged
+    # Wave 200ey (200eu): repository-relative and labelled, never absolute.
     raise RuntimeError(
-        f"missing install scaffold baseline: expected {target.as_posix()} "
-        f"or packaged fallback {packaged.as_posix()}"
+        f"missing install scaffold baseline: expected {_install_asset_rel(template_name)} "
+        f"or the packaged fallback install/{_display_name(template_name)}"
     )
+
+
+def _install_asset_rel(template_name: str) -> str:
+    """The repository-relative spelling of a target install asset, for messages."""
+    return _display_name(f".wavefoundry/framework/install/{template_name}")
 
 
 def reconcile_scaffold_baselines(repo_root: Path) -> list[str]:
@@ -3131,12 +3686,11 @@ def reconcile_scaffold_baselines(repo_root: Path) -> list[str]:
         if path.is_file():
             continue
         template = _resolve_install_asset(repo_root, template_name)
-        with template.open("r", encoding="utf-8", newline="") as handle:
-            content = handle.read().replace("{{generated_at}}", today)
+        content = _framework_read_text(template).replace("{{generated_at}}", today)
         # Wave 1z8mm: the header labels follow the vocabulary profile; the
         # identity under the default profile, so the baseline stays byte-identical.
         content = vocabulary_profile.localize_template(content)
-        _write_review_carrier_text(path, content)
+        _write_review_carrier_text(path, content, root=repo_root)
         written.append(destination)
     return written
 
@@ -3259,7 +3813,7 @@ def techdocs_entity_name(basename: str) -> str:
     return f"{stem}{_TECHDOCS_ENTITY_SUFFIX}"
 
 
-def techdocs_member_is_generated(path: Path, marker_line: str) -> bool:
+def techdocs_member_is_generated(path: Path, marker_line: str, *, root: "Path | None" = None) -> bool:
     """True when a regular file carries its destination's generated-by line.
 
     Read as ``utf-8-sig`` and compare per line after stripping line endings
@@ -3267,19 +3821,22 @@ def techdocs_member_is_generated(path: Path, marker_line: str) -> bool:
     never reclassifies a generated file. Undecodable bytes or a non-regular
     path classify as NOT generated (project-owned): the classifier never
     raises. The marker form is per destination (YAML ``#`` line vs the
-    landing page's HTML comment).
+    landing page's HTML comment). Wave 200ey (change 1zyv2): the read is the
+    contained read rooted at ``root`` (the repository); with no ``root`` the
+    file's own folder bounds it.
     """
 
     try:
         if not path.is_file():
             return False
-        with path.open("r", encoding="utf-8-sig", errors="strict", newline="") as handle:
-            for line in handle:
-                if line.strip() == marker_line:
-                    return True
+        data = _read_repo_bytes(path.parent if root is None else root, path)
+        text = data.decode("utf-8-sig", errors="strict")
     except (OSError, UnicodeDecodeError):
         return False
-    return False
+    import io
+
+    # ``newline=""`` splits lines exactly as the file iteration this replaced.
+    return any(line.strip() == marker_line for line in io.StringIO(text, newline=""))
 
 
 def techdocs_member_states(
@@ -3311,7 +3868,7 @@ def techdocs_member_states(
         # A non-regular object at the destination (directory, FIFO, dangling
         # symlink) is not absent: it is project-owned. A regular file (or an
         # in-root symlink to one) is classified by its marker line.
-        if resolved.is_file() and techdocs_member_is_generated(resolved, marker_line):
+        if resolved.is_file() and techdocs_member_is_generated(resolved, marker_line, root=repo_root):
             generated.append(destination)
         else:
             preserved.append(destination)
@@ -3379,7 +3936,8 @@ def _classify_techdocs_destination(repo_root: Path, destination: str) -> "tuple[
         return False, resolved
     except OSError as exc:
         raise TechdocsDestinationRefused(
-            f"techdocs baseline destination cannot be classified: {destination}: {exc}"
+            "techdocs baseline destination cannot be classified: "
+            f"{_display_name(destination)} ({type(exc).__name__})"
         ) from exc
     if stat.S_ISLNK(st.st_mode):
         if resolved.is_file():
@@ -3445,7 +4003,7 @@ def render_techdocs_baseline(repo_root: Path, *, dry_run: bool = False) -> Techd
             generated_paths=tuple(
                 destination
                 for destination, marker_line, present, path in classified
-                if present and techdocs_member_is_generated(path, marker_line)
+                if present and techdocs_member_is_generated(path, marker_line, root=repo_root)
             ),
             missing_targets=(),
             partial=classify_techdocs_baseline(repo_root),
@@ -3460,13 +4018,12 @@ def render_techdocs_baseline(repo_root: Path, *, dry_run: bool = False) -> Techd
             preserved.append(destination)
             continue
         try:
-            with templates[destination].open("r", encoding="utf-8", newline="") as handle:
-                content = (
-                    handle.read()
-                    .replace("{{generated_at}}", today)
-                    .replace("{{entity_name}}", entity_name)
-                )
-            _write_review_carrier_text(path, content, exclusive=True)
+            content = (
+                _framework_read_text(templates[destination])
+                .replace("{{generated_at}}", today)
+                .replace("{{entity_name}}", entity_name)
+            )
+            _write_review_carrier_text(path, content, exclusive=True, root=repo_root)
         except (RuntimeError, OSError, UnicodeDecodeError) as exc:
             # Preflight already passed, so earlier members may be on disk. Carry
             # them on the exception rather than let a caller report "nothing
@@ -3476,15 +4033,19 @@ def render_techdocs_baseline(repo_root: Path, *, dry_run: bool = False) -> Techd
             # techdocs_member_is_generated already treats it as a read failure.
             # Normalizing every post-preflight failure here is what lets both
             # entry points keep one typed channel.
+            # Wave 200ey (200eu): this module's own RuntimeError text is kept
+            # (repository-relative, class-only); any other failure is named by
+            # its class (a contained-read refusal by its cause class).
+            detail = str(exc) if isinstance(exc, RuntimeError) else _failure_class(exc)
             raise TechdocsWriteFailed(
-                f"techdocs baseline write failed at {destination}: {exc}",
+                f"techdocs baseline write failed at {_display_name(destination)}: {detail}",
                 written_paths=tuple(written),
             ) from exc
         written.append(destination)
     generated = [
         destination
         for destination, marker_line, _present, path in classified
-        if techdocs_member_is_generated(path, marker_line)
+        if techdocs_member_is_generated(path, marker_line, root=repo_root)
     ]
     return TechdocsBaselineResult(
         written_paths=tuple(written),
@@ -3516,18 +4077,17 @@ def reconcile_review_policy_surfaces(
             raise RuntimeError(
                 f"missing review-policy lifecycle carrier: {carrier.destination}"
             )
-        with path.open("r", encoding="utf-8", newline="") as handle:
-            original = handle.read()
+        original = _read_repo_text(repo_root, path, translate_newlines=False)
         updated = _upsert_review_policy_region(original, block)
         if updated is None:
             print(
                 "render_agent_surfaces: WARNING — left "
-                f"{path} unchanged (malformed review-policy markers)",
+                f"{_display_name(carrier.destination)} unchanged (malformed review-policy markers)",
                 file=sys.stderr,
             )
             continue
         if updated != original:
-            _write_review_carrier_text(path, updated)
+            _write_review_carrier_text(path, updated, root=repo_root)
             written.append(carrier.destination)
     return written
 
@@ -3551,21 +4111,20 @@ def reconcile_context_efficiency_surface(
         )
         original = _initial_review_carrier_text(repo_root, carrier)
     else:
-        with path.open("r", encoding="utf-8", newline="") as handle:
-            original = handle.read()
+        original = _read_repo_text(repo_root, path, translate_newlines=False)
     _context_efficiency_carrier_block()
     try:
         updated = _replace_context_efficiency_carrier_block(original)
     except ValueError:
         print(
             "render_agent_surfaces: WARNING — left "
-            f"{path} unchanged (malformed context-efficiency markers)",
+            f"{CONTEXT_EFFICIENCY_DESTINATION} unchanged (malformed context-efficiency markers)",
             file=sys.stderr,
         )
         return []
     if updated == original:
         return []
-    _write_review_carrier_text(path, updated)
+    _write_review_carrier_text(path, updated, root=repo_root)
     return [CONTEXT_EFFICIENCY_DESTINATION]
 
 
@@ -3587,18 +4146,29 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     for location in change_migration.link_report:
         print(
             "render_agent_surfaces: NOTICE - markdown link targets a moved prompt "
-            f"(edit it to the -change path, then rerun the docs gate): {location}",
+            f"(edit it to the -change path, then rerun the docs gate): {_display_name(location)}",
             file=sys.stderr,
         )
     # Wave 1zyb4 (1zxnw): right after the 1zyc5 move and before skills and
     # baselines render, move prompts to the profile's names. Preflights the
     # whole plan and raises before any write on conflict.
+    # Wave 200ey (change 200ew): the council role doc and native wrappers move
+    # to the ``council-chair`` names before the review-protocol pass reconciles
+    # (or would otherwise create) them.
+    council_migration = migrate_council_role_renames(repo_root)
+    migration_written = [*migration_written, *council_migration.written]
+    for location in council_migration.link_report:
+        print(
+            "render_agent_surfaces: NOTICE - markdown link targets the moved council role doc "
+            f"(edit it to the council-chair path, then rerun the docs gate): {_display_name(location)}",
+            file=sys.stderr,
+        )
     profile_migration = migrate_profile_prompt_names(repo_root)
     migration_written = [*migration_written, *profile_migration.written]
     for location in profile_migration.link_report:
         print(
             "render_agent_surfaces: NOTICE - markdown link targets a prompt the profile renamed "
-            f"(edit it to the prompt's new path, then rerun the docs gate): {location}",
+            f"(edit it to the prompt's new path, then rerun the docs gate): {_display_name(location)}",
             file=sys.stderr,
         )
     for diagnostic in profile_migration.diagnostics:
@@ -3662,11 +4232,11 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
 
     def _tier3_write(path: Path, content: str) -> None:
         try:
-            tier3_pre_bytes[path] = path.read_bytes() if path.exists() else None
+            tier3_pre_bytes[path] = _read_repo_bytes(repo_root, path) if path.exists() else None
         except OSError:
             tier3_pre_bytes[path] = None
         tier3_candidates.append(path)
-        write_text(path, content)
+        write_text(path, content, root=repo_root)
 
     # Tier 3 — optional native surfaces
     if (repo_root / ".cursor").exists():
@@ -3677,8 +4247,11 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
         claude_agent = repo_root / ".claude" / "agents" / "guru.md"
         claude_content = CLAUDE_GURU_AGENT
         if claude_agent.is_file():
-            with claude_agent.open("r", encoding="utf-8", newline="") as handle:
-                claude_content = _merge_claude_agent(handle.read(), claude_content, claude_agent)
+            claude_content = _merge_claude_agent(
+                _read_repo_text(repo_root, claude_agent, translate_newlines=False),
+                claude_content,
+                Path(".claude/agents/guru.md"),
+            )
         if claude_content is not None:
             _tier3_write(claude_agent, claude_content)
 
@@ -3688,7 +4261,7 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     # Root @import bridge — make CLAUDE.md a real @AGENTS.md import (1p5xc).
     # The single, contained @import; replaces the prose "read AGENTS.md first"
     # pointer so AGENTS.md is the deterministic single source of truth.
-    if patch_root_bridge(repo_root / "CLAUDE.md"):
+    if patch_root_bridge(repo_root / "CLAUDE.md", root=repo_root):
         written.append("CLAUDE.md")
 
     # Tier 2 — thin pointers (marker blocks)
@@ -3696,7 +4269,8 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     if claude_path.is_file():
         claude_body = CLAUDE_AUTO_GURU_SECTION.strip()
         claude_block = f"{MARKER_BEGIN}\n{claude_body}\n{MARKER_END}"
-        text = strip_legacy_auto_guru_lines(claude_path.read_text(encoding="utf-8"))
+        disk_text = _read_repo_text(repo_root, claude_path)
+        text = strip_legacy_auto_guru_lines(disk_text)
         if MARKER_BEGIN in text:
             text = re.sub(
                 re.escape(MARKER_BEGIN) + r".*?" + re.escape(MARKER_END),
@@ -3715,8 +4289,8 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
                 text = legacy.sub("\n" + claude_block + "\n", text, count=1)
             else:
                 text = insert_after_heading(text, "## Startup Order", claude_block)
-        if text != claude_path.read_text(encoding="utf-8"):
-            claude_path.write_text(text, encoding="utf-8")
+        if text != disk_text:
+            _write_repo_text_platform_newlines(repo_root, claude_path, text)
             written.append("CLAUDE.md")
 
     pointer_specs: list[tuple[Path, str]] = [
@@ -3725,17 +4299,16 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
         (repo_root / ".github" / "copilot-instructions.md", "## Key Guardrails"),
     ]
     for path, heading in pointer_specs:
-        if patch_thin_pointer(path, AUTO_GURU_BULLET, after_heading=heading):
+        if patch_thin_pointer(path, AUTO_GURU_BULLET, after_heading=heading, root=repo_root):
             written.append(path.relative_to(repo_root).as_posix())  # Wave 1p6dx: forward-slash
 
     cursor_ctx = repo_root / ".cursor" / "rules" / "project-context.mdc"
     if cursor_ctx.is_file():
-        text = strip_legacy_auto_guru_section(
-            strip_legacy_auto_guru_lines(cursor_ctx.read_text(encoding="utf-8"))
-        )
+        disk_text = _read_repo_text(repo_root, cursor_ctx)
+        text = strip_legacy_auto_guru_section(strip_legacy_auto_guru_lines(disk_text))
         updated = upsert_marked_region(text, CURSOR_PROJECT_CONTEXT_BLOCK.strip())
-        if updated != cursor_ctx.read_text(encoding="utf-8"):
-            cursor_ctx.write_text(updated, encoding="utf-8")
+        if updated != disk_text:
+            _write_repo_text_platform_newlines(repo_root, cursor_ctx, updated)
             written.append(cursor_ctx.relative_to(repo_root).as_posix())  # Wave 1p6dx: forward-slash
 
     # Native Guru wrappers are materialized above, after the initial carrier
@@ -3748,7 +4321,7 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     # sense the manifest should report.
     for path in tier3_candidates:
         try:
-            post = path.read_bytes() if path.exists() else None
+            post = _read_repo_bytes(repo_root, path) if path.exists() else None
         except OSError:
             continue
         if post != tier3_pre_bytes.get(path):
@@ -3785,8 +4358,9 @@ def main() -> int:
     repo_root = Path(args.repo_root).resolve() if args.repo_root else discover_repo_root()
     try:
         paths = render_agent_surfaces(repo_root)
-    except RuntimeError as exc:
-        print(f"render_agent_surfaces: ERROR — {exc}", file=sys.stderr)
+    except (RuntimeError, contained_files.ContainedFileRefused) as exc:
+        detail = exc.strerror if isinstance(exc, OSError) else exc
+        print(f"render_agent_surfaces: ERROR — {detail}", file=sys.stderr)
         return 1
     if not paths:
         if not guru_available(repo_root):

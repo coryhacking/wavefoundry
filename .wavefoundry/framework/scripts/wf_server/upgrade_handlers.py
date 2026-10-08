@@ -161,7 +161,30 @@ def wf_audit_install_response(root: Path, phase: Optional[int] = None) -> dict[s
     # from server_impl (it currently doesn't, but defensive).
     import install_log_lib
 
-    log_text = install_log_lib.read_install_log(root)
+    import contained_files
+
+    try:
+        log_text = install_log_lib.read_install_log(root)
+    except contained_files.ContainedFileRefused as exc:
+        # Wave 200ey (1zyv2): a linked, special or oversized log is refused,
+        # never read; the diagnostic names the cause class, not a path.
+        return server_impl._response(
+            "error",
+            {"status": "unreadable_log"},
+            diagnostics=[
+                _diagnostic(
+                    "install_log_unreadable",
+                    (
+                        f"The install log .wavefoundry/install-log.md was refused and not read "
+                        f"({exc.cause}). Replace it with an ordinary file inside the repository, "
+                        "then re-call wf_audit_install."
+                    ),
+                    recovery_tools=[],
+                )
+            ],
+            next_tools=[],
+            usage="wf_audit_install()",
+        )
     if log_text is None:
         return server_impl._response(
             "error",

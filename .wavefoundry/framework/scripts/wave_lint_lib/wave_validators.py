@@ -164,6 +164,9 @@ _AGENT_ROLE_REQUIRED_PATHS = frozenset(
     {
         "docs/agents/architecture-reviewer.md",
         "docs/agents/code-reviewer.md",
+        # Wave 200ey (change 200ew): the council role doc, at its current
+        # path or at the earlier one until the render migrates it.
+        "docs/agents/specialists/council-chair.md",
         "docs/agents/specialists/wave-council.md",
         "docs/agents/docs-contract-reviewer.md",
         # NOTE: factor canonical docs (factor-<nn>-<name>.md) are NOT listed here.
@@ -188,9 +191,12 @@ _AGENT_ROLE_REQUIRED_PATHS = frozenset(
         "docs/agents/specialists/senior-engineering-challenger.md",
     }
 )
+# Wave 200ey (change 200ew): a role doc moved byte-for-byte to its new name
+# keeps its earlier ``Role:`` value, which stays accepted.
+_LEGACY_ROLE_NAMES = {"council-chair": frozenset({"wave-council"})}
 _REVIEW_SUFFIXES = ("-reviewer", "-auditor", "-tester")
 _REVIEW_STEMS = frozenset({"reality-checker"})
-_COORDINATE_STEMS = frozenset({"planner", "wave-coordinator", "wave-council"})
+_COORDINATE_STEMS = frozenset({"planner", "wave-coordinator", "council-chair", "wave-council"})
 _COORDINATE_SUFFIXES = ("-coordinator", "-moderator")
 _BUILD_SUFFIXES = ("-engineer", "-developer", "-builder", "-automator", "-programmer", "-coder")
 _BUILD_STEMS = frozenset({"implementer"})
@@ -795,7 +801,7 @@ def _check_agent_role_metadata(root: Path, only: set[Path] | None = None, skip: 
             seen.add(path)
             continue
         role = role_match.group(1).strip()
-        if role != path.stem:
+        if role != path.stem and role not in _LEGACY_ROLE_NAMES.get(path.stem, ()):
             failures.append(f"{rel}: `Role:` must match filename slug `{path.stem}`")
         seen.add(path)
     for path in sorted(agents_root.rglob("*.md")):
@@ -821,7 +827,7 @@ def _check_agent_role_metadata(root: Path, only: set[Path] | None = None, skip: 
             )
             continue
         role = role_match.group(1).strip()
-        if role != path.stem:
+        if role != path.stem and role not in _LEGACY_ROLE_NAMES.get(path.stem, ()):
             failures.append(f"{rel}: `Role:` must match filename slug `{path.stem}`")
     return failures
 
@@ -2666,7 +2672,7 @@ def check_prepare_council_verdict(root: Path) -> tuple[list[str], list[str]]:
         if "prepare-council" in checkpoints.casefold():
             continue
         rel = relative_to_root(root, path)
-        msg = f"{rel}: wave status is `{status}` but no `prepare-council` verdict found in `## Review Checkpoints`; run the prepare-phase Wave Council review before implementation"
+        msg = f"{rel}: wave status is `{status}` but no `prepare-council` verdict found in `## Review Checkpoints`; run the prepare-phase {_vocab.COUNCIL_DISPLAY_NAME} review before implementation"
         if status == "implementing":
             errors.append(msg)
         else:
@@ -2684,9 +2690,10 @@ _PREPARE_COUNCIL_VERDICT_LINE_RE = re.compile(
 )
 
 # Seats that legitimately appear in a roster without a dedicated evidence bullet:
-# wave-council is the moderator (synthesis is the verdict line itself) and red-team is the
-# adversarial primer, whose output is conventionally folded into `strongest-challenge`.
-PREPARE_COUNCIL_ROSTER_TOLERANCE = frozenset({"red-team", "wave-council"})
+# the council chair is the moderator (synthesis is the verdict line itself; ``council-chair``
+# and its earlier name ``wave-council``, wave 200ey) and red-team is the adversarial primer,
+# whose output is conventionally folded into `strongest-challenge`.
+PREPARE_COUNCIL_ROSTER_TOLERANCE = frozenset({"red-team", "council-chair", "wave-council"})
 
 # A roster claim is a hyphenated role token (architecture-reviewer, qa-reviewer, reality-checker,
 # docs-contract-reviewer, ...). Requiring the hyphen is the fail-safe filter: prose fragments,
@@ -2746,7 +2753,7 @@ def check_prepare_council_roster_evidence(root: Path) -> tuple[list[str], list[s
     Matching rule (pinned; deliberately non-vacuous):
 
     - Roster = tokens parsed from the verdict line's ``seats:`` and ``rotating-seat:`` fields,
-      excluding the tolerance set ``{red-team, wave-council}`` (moderator synthesis and the
+      excluding the tolerance set ``{red-team, council-chair, wave-council}`` (moderator synthesis and the
       adversarial primer legitimately have no dedicated evidence bullet).
     - Evidence corpus = ``## Prepare Review Evidence`` + ``## Review Evidence`` +
       ``## Review Checkpoints``, with EVERY structured verdict line removed — not just the

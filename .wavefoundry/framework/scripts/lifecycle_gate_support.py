@@ -17,6 +17,7 @@ from typing import (
     Optional,
     Sequence,
 )
+import contained_files  # the contained read rule's owner (wave 200ey, change 1zyv2)
 import path_containment
 import record_paths
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
@@ -104,11 +105,11 @@ def _read_wave_council_policy(root: Path) -> dict[str, Any]:
             "phases": {
                 "prepare": {
                     "signoff_key": review_evidence.COUNCIL_READINESS_SIGNOFF_KEY,
-                    "moderator_role": "wave-council",
+                    "moderator_role": review_evidence.COUNCIL_ACTOR,
                 },
                 "review": {
                     "signoff_key": review_evidence.COUNCIL_DELIVERY_SIGNOFF_KEY,
-                    "moderator_role": "wave-council",
+                    "moderator_role": review_evidence.COUNCIL_ACTOR,
                 },
             },
         }
@@ -135,11 +136,13 @@ def _read_wave_council_policy(root: Path) -> dict[str, Any]:
         if not isinstance(phase_raw, dict):
             phase_raw = {}
         signoff_key = str(phase_raw.get("signoff_key", default_key)).strip()
-        moderator_role = str(phase_raw.get("moderator_role", "wave-council")).strip()
+        # Wave 200ey (change 200ew): the default is ``council-chair``; a
+        # config naming the earlier ``wave-council`` is read as written.
+        moderator_role = str(phase_raw.get("moderator_role", review_evidence.COUNCIL_ACTOR)).strip()
         if signoff_key:
             phases[phase] = {
                 "signoff_key": signoff_key,
-                "moderator_role": moderator_role or "wave-council",
+                "moderator_role": moderator_role or review_evidence.COUNCIL_ACTOR,
             }
 
     return {
@@ -424,23 +427,12 @@ def _member_doc_lstat(path: Path) -> Optional[os.stat_result]:
     return entry if stat.S_ISREG(entry.st_mode) else None
 
 
-def runtime_lock_identities(root: Path) -> set[tuple[int, int]]:
-    """``(st_dev, st_ino)`` of every ``*.lock`` file under ``<root>/.wavefoundry/``
-    (wave 1zv87, 1zuq7): the identities a hard link to a runtime lock shares.
-    Only ``stat`` is used; no lock file is opened. The single owner of this
-    rule: the member-doc read below and the server's runtime-lock refusal
-    (``server_impl._runtime_lock_identities``) both call it."""
-    identities: set[tuple[int, int]] = set()
-    for dirpath, _dirnames, filenames in os.walk(Path(root) / ".wavefoundry"):
-        for name in filenames:
-            if not os.path.normcase(name).casefold().endswith(".lock"):
-                continue
-            try:
-                lock_stat = os.stat(os.path.join(dirpath, name))
-            except OSError:
-                continue
-            identities.add((lock_stat.st_dev, lock_stat.st_ino))
-    return identities
+# Wave 1zv87 (1zuq7): ``(st_dev, st_ino)`` of every ``*.lock`` file under
+# ``<root>/.wavefoundry/``. Since wave 200ey (change 1zyv2) the rule lives in
+# ``contained_files.runtime_lock_identities``; this re-export keeps the name for
+# the member-doc read below and the server's runtime-lock refusal
+# (``server_impl._runtime_lock_identities``).
+runtime_lock_identities = contained_files.runtime_lock_identities
 
 
 def _runtime_lock_identity_match(resolved_root: Path, entry: os.stat_result) -> bool:
@@ -459,13 +451,14 @@ def _read_member_doc_bytes(folder: Path, path: Path, *, root: Path) -> bytes:
     the resolved repository ``root`` (so a folder link leaving the repository
     serves nothing, while one inside it still works); the file is not a hard
     link to a runtime lock (the wave 1zxnz rule, so the read cannot release a
-    held record lock); and, on POSIX, an ``O_NOFOLLOW|O_NONBLOCK`` open whose
-    ``fstat`` matches the ``lstat`` identity. At most ``MEMBER_DOC_MAX_BYTES``
-    + 1 bytes are read and more than the cap is refused; the ``lstat`` size is
-    not trusted. A refusal raises ``MemberDocRefused``; a missing file raises
-    the ordinary ``FileNotFoundError``. Windows has no ``O_NOFOLLOW``: the
-    ``lstat`` check plus resolved containment stands alone there, and the
-    window between check and open is a documented limit, as in
+    held record lock); and the read through ``contained_files.read_contained``
+    (wave 200ey), whose open descriptor must be the file ``lstat`` saw. At most
+    ``MEMBER_DOC_MAX_BYTES`` + 1 bytes are read and more than the cap is
+    refused; the ``lstat`` size is not trusted. A refusal raises
+    ``MemberDocRefused``; a missing file raises the ordinary
+    ``FileNotFoundError``. Windows has no ``O_NOFOLLOW`` or ``dir_fd``: the
+    checks plus the handle identity comparison stand alone there, and the
+    window between a directory check and the open is a documented limit, as in
     ``runtime_lock``.
     """
     folder = Path(folder)
@@ -487,38 +480,31 @@ def _read_member_doc_bytes(folder: Path, path: Path, *, root: Path) -> bytes:
         raise MemberDocRefused("resolves outside the repository")
     if entry.st_nlink > 1 and _runtime_lock_identity_match(resolved_root, entry):
         raise MemberDocRefused("resolves to a framework runtime lock")
-    limit = MEMBER_DOC_MAX_BYTES + 1
-    nofollow = getattr(os, "O_NOFOLLOW", 0)
-    if nofollow:
-        flags = os.O_RDONLY | nofollow | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
-        try:
-            fd = os.open(path, flags)
-        except OSError as exc:
-            if exc.errno in (errno.ELOOP, errno.EMLINK):
-                raise MemberDocRefused("not a regular file") from exc
-            raise
-        try:
-            opened = os.fstat(fd)
-            if (not stat.S_ISREG(opened.st_mode)
-                    or (opened.st_dev, opened.st_ino) != (entry.st_dev, entry.st_ino)):
-                raise MemberDocRefused("changed while being opened")
-            chunks: list[bytes] = []
-            remaining = limit
-            while remaining > 0:
-                chunk = os.read(fd, min(remaining, 1024 * 1024))
-                if not chunk:
-                    break
-                chunks.append(chunk)
-                remaining -= len(chunk)
-            data = b"".join(chunks)
-        finally:
-            os.close(fd)
-    else:
-        with open(path, "rb") as handle:
-            data = handle.read(limit)
-    if len(data) > MEMBER_DOC_MAX_BYTES:
-        raise MemberDocRefused("exceeds the member document size cap")
+    # Wave 200ey (change 1zyv2): the read itself is the shared contained read
+    # (resolved parent walked without following links, non-blocking no-follow
+    # open whose identity must match, capped). Its refusal is re-raised with
+    # this rule's cause text, which ``wave_lint_lib.helpers._refusal_cause``
+    # maps; a test pins every string.
+    try:
+        data, opened = contained_files.read_contained(
+            resolved_root, resolved, max_bytes=MEMBER_DOC_MAX_BYTES
+        )
+    except contained_files.ContainedFileRefused as exc:
+        raise MemberDocRefused(_MEMBER_DOC_CAUSES.get(exc.cause, exc.cause)) from None
+    if (opened.st_dev, opened.st_ino) != (entry.st_dev, entry.st_ino):
+        raise MemberDocRefused("changed while being opened")
     return data
+
+
+# The contained read's cause classes as the member-doc rule names them. A cause
+# not listed keeps its text (every other primitive cause is already one of this
+# rule's strings).
+_MEMBER_DOC_CAUSES = {
+    contained_files.CAUSE_SIZE: "exceeds the member document size cap",
+    contained_files.CAUSE_NOT_UNDER_ROOT: "resolves outside the repository",
+    contained_files.CAUSE_LINK_COMPONENT: "changed while being opened",
+    contained_files.CAUSE_NOT_DIRECTORY: "changed while being opened",
+}
 
 
 def _read_member_doc_text(folder: Path, path: Path, *, root: Path) -> str:
@@ -1309,7 +1295,7 @@ def _prepare_council_instructions(rotating_seat: str | None, *, typed: bool = Fa
         "correct for a module-level constant block, data file, specific line in a generated "
         "artifact, prose in a hand-authored markdown document, or deliberately historical "
         "citation; name that case inline so a reviewer can tell a deliberate line anchor from a "
-        "lapsed one. Have wave-council synthesize findings. "
+        f"lapsed one. Have {review_evidence.COUNCIL_ACTOR} synthesize findings. "
     )
     if typed:
         return grounding + (
@@ -1348,8 +1334,9 @@ def _prepare_council_verdict_template(rotating_seat: str | None, *, typed: bool 
         return (
             "wf_review_event(wave_id=<wave id>, event='approval', "
             "signoff_key='council-readiness', approval_phase='readiness', "
-            "actor='wave-council', context_id=<fresh context id>, mode='create', "
-            "evidence={'observed': 'Prepare-phase Wave Council PASS (moderator: wave-council; "
+            f"actor='{review_evidence.COUNCIL_ACTOR}', context_id=<fresh context id>, mode='create', "
+            f"evidence={{'observed': 'Prepare-phase {_vocab.COUNCIL_DISPLAY_NAME} PASS "
+            f"(moderator: {review_evidence.COUNCIL_ACTOR}; "
             "primer-depth: standard; "
             f"seats: <replace with the seats actually run, each at most once, e.g. {seats}>; "
             f"rotating-seat: {rotating_part}; "
@@ -1358,7 +1345,7 @@ def _prepare_council_verdict_template(rotating_seat: str | None, *, typed: bool 
         )
     return (
         "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** "
-        "(moderator: wave-council; primer-depth: standard; "
+        f"(moderator: {review_evidence.COUNCIL_ACTOR}; primer-depth: standard; "
         f"seats: <replace with the seats actually run, each at most once, e.g. {seats}>; "
         f"rotating-seat: {rotating_part}; "
         "strongest-challenge: <summary>; strongest-alternative: <summary>)"

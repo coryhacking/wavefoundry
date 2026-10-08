@@ -413,17 +413,36 @@ class DemotionSiteTests(unittest.TestCase):
                 self.assertEqual(self._weight(f"/x/{ancestor}/repo/docs/guide.md"), 1.0)
 
 
+def _framework_script_files() -> list[Path]:
+    """The framework-owned script files: flat ``*.py`` whose stem is a
+    ``FRAMEWORK_SCRIPT_MODULE_NAMES`` entry, plus every ``*.py`` of the
+    framework subpackages ``wf_server`` and ``wave_lint_lib``. Never derived
+    from the live extension declaration."""
+    from framework_files import PACKAGE_DIR, framework_source_files
+    from mcp_tool_extensions import FRAMEWORK_SCRIPT_MODULE_NAMES
+
+    files = [path for path in framework_source_files(include_aliases=True)
+             if path.parent == PACKAGE_DIR or path.stem in FRAMEWORK_SCRIPT_MODULE_NAMES]
+    files.extend((SCRIPTS_ROOT / "wave_lint_lib").rglob("*.py"))
+    return sorted(files)
+
+
 class CensusTests(unittest.TestCase):
     """AC-3: the history literals appear only in the definition."""
 
     def test_no_other_history_literal_exclusion(self):
+        """Scans only the framework's own scripts (change 200ex): each flat
+        script whose stem is in ``FRAMEWORK_SCRIPT_MODULE_NAMES`` plus the
+        ``wave_lint_lib`` and ``wf_server`` subpackages. A distribution's
+        extension, helper or hook module is outside the census by construction,
+        and ``benchmarks/`` is source-only (never shipped)."""
         allowed = {"history_paths.py", "model_bundle.py", "accel_embedder.py", "setup_index.py",
                    "upgrade_wavefoundry.py", "upgrade_extensions.py"}
         pattern = re.compile(r'"journals"|"snapshots"')
         offenders = []
-        for path in sorted(SCRIPTS_ROOT.rglob("*.py")):
+        for path in _framework_script_files():
             rel = path.relative_to(SCRIPTS_ROOT)
-            if rel.parts[0] == "tests" or path.name in allowed:
+            if path.name in allowed:
                 continue
             for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
                 if pattern.search(line):

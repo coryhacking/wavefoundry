@@ -7003,6 +7003,35 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         )
         self.assertEqual(summary["summary_schema_version"], 1)
 
+    def test_dry_run_preview_logs_field_is_additive(self):
+        # Wave 200ey (200ev) AC-9: the dry-run sentinel's `preview_logs` list
+        # reaches data['summary'] under schema 1, and an older producer's
+        # sentinel without the field is still accepted, the field absent
+        # (unknown), not an empty list.
+        logs = [
+            ".wavefoundry/logs/upgrade-convergence-migration.preview.log",
+            ".wavefoundry/logs/upgrade-migration-1.5.0.preview.log",
+        ]
+        for label, overrides, expected in (
+            ("new producer", {"summary_schema_version": 1, "preview_logs": logs}, logs),
+            ("new producer, none written", {"summary_schema_version": 1, "preview_logs": []}, []),
+            ("old producer", {"summary_schema_version": 1}, None),
+        ):
+            with self.subTest(label):
+                stdout = self._summary_output(**overrides)
+                parsed = self.srv._parse_upgrade_summary(stdout)
+                self.assertIsNotNone(parsed)
+                mock_proc = MagicMock(returncode=0, stdout=stdout, stderr="")
+                with patch("subprocess.run", return_value=mock_proc):
+                    result = self.srv.wf_upgrade_response(self.root, mode="dry_run")
+                summary = result["data"]["summary"]
+                self.assertEqual(summary["summary_schema_version"], 1)
+                self.assertNotIn("summary_source_degraded", summary)
+                if expected is None:
+                    self.assertNotIn("preview_logs", summary)
+                else:
+                    self.assertEqual(summary["preview_logs"], expected)
+
     def test_degradation_marker_is_terminal_and_survives_budget_pressure(self):
         # Wave 1u44o AC-2: the marker is registered as a terminal key, so
         # bounding can never silently drop the very field that discloses
@@ -8180,11 +8209,11 @@ class TechdocsBaselineToolTests(unittest.TestCase):
         real = ras._write_review_carrier_text
         calls = []
 
-        def flaky(path, content, *, exclusive=False):
+        def flaky(path, content, *, exclusive=False, **kwargs):
             calls.append(path.name)
             if path.name == "mkdocs.yml":
                 raise RuntimeError(f"review carrier write refused for {path}: simulated EACCES")
-            return real(path, content, exclusive=exclusive)
+            return real(path, content, exclusive=exclusive, **kwargs)
 
         cache = MagicMock()
         with patch.object(ras, "_write_review_carrier_text", side_effect=flaky):
@@ -8217,17 +8246,19 @@ class TechdocsBaselineToolTests(unittest.TestCase):
         import render_agent_surfaces as ras
         real = ras._write_review_carrier_text
 
-        def flaky(path, content, *, exclusive=False):
+        def flaky(path, content, *, exclusive=False, **kwargs):
             if path.name == "mkdocs.yml":
                 raise PermissionError(13, "Permission denied", str(path))
-            return real(path, content, exclusive=exclusive)
+            return real(path, content, exclusive=exclusive, **kwargs)
 
         cache = MagicMock()
         with patch.object(ras, "_write_review_carrier_text", side_effect=flaky):
             resp = self._call(mode="run", cache=cache)
         self.assertEqual(resp["status"], "error")
         self.assertEqual([d["code"] for d in resp["diagnostics"]], ["techdocs_write_failed"])
-        self.assertIn("Permission denied", resp["data"]["refusal"])
+        # Wave 200ey (200eu): the refusal names the exception class, never its text.
+        self.assertIn("PermissionError", resp["data"]["refusal"])
+        self.assertNotIn("Permission denied", resp["data"]["refusal"])
         self.assertEqual(resp["data"]["written_paths"], ["catalog-info.yaml"])
         self.assertEqual(resp["data"]["generated_paths"], ["catalog-info.yaml"])
         cache.invalidate.assert_called_once()

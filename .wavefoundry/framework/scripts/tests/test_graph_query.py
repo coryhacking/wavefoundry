@@ -1661,5 +1661,270 @@ class ExternalSupertypeVisibilityTests(unittest.TestCase):
         self.assertNotIn("external::TypeInstrumentation", blob)
 
 
+
+# Wave 203pu (201wg): call_edge_counts on degree-based report rows.
+_COUNT_FIELDS = ("total", "resolved", "extracted", "unclassified", "receiver_unknown")
+
+
+def _fn(nid, kind="function", **extra):
+    src = nid.split("::", 1)[0]
+    return {"id": nid, "label": nid.rsplit("::", 1)[-1], "kind": kind, "source_file": src, **extra}
+
+
+def _call(src, tgt, confidence="EXTRACTED", **extra):
+    edge = {"source": src, "target": tgt, "relation": "calls", **extra}
+    if confidence is not None:
+        edge["confidence"] = confidence
+    return edge
+
+
+_HUB = "src/hub.py::hub"
+_ATTRIBUTION_FIXTURE = {
+    "present": True,
+    "layer": "project",
+    "nodes": [
+        _fn("src/hub.py", "module"), _fn(_HUB), _fn("src/c.py", "module"),
+        *[_fn(f"src/c.py::{n}") for n in ("r1", "r2", "x1", "x2", "u1", "u2", "u3", "driver")],
+        _fn("db/schema.sql", "module"), _fn("db/schema.sql::orders", "class", sql_kind="table"),
+        _fn("ev/run.json", "module", evidence_data=True, classification_reasons=["declares producer"]),
+        _fn("ev/run.json::emit"), _fn("ev/run.json::sink"),
+    ],
+    "edges": [
+        _call("src/c.py::r1", _HUB, "RECEIVER_RESOLVED"),
+        _call("src/c.py::r2", _HUB, "CONSTRUCTION_RESOLVED"),
+        _call("src/c.py::x1", _HUB, "EXTRACTED", receiver_unknown=True),
+        _call("src/c.py::x2", _HUB, "EXTRACTED"),
+        # Contradictory, absent and unrecognized confidence are unclassified.
+        _call("src/c.py::u1", _HUB, "RECEIVER_RESOLVED", receiver_unknown=True),
+        _call("src/c.py::u2", _HUB, ""),
+        _call("src/c.py::u3", _HUB, "WEIRD"),
+        _call("src/c.py::driver", _HUB, "EXTRACTED"),
+        _call("ev/run.json::emit", _HUB, "RECEIVER_RESOLVED"),
+        _call("src/c.py", _HUB, "EXTRACTED"),
+        _call("src/c.py", "src/c.py::r1", "RECEIVER_RESOLVED"),
+        _call("src/c.py::driver", "src/c.py::r1", "RECEIVER_RESOLVED"),
+        _call("src/c.py::driver", "src/c.py::r2", "EXTRACTED", receiver_unknown=True),
+        _call("src/c.py::driver", "external::thing", "EXTRACTED", receiver_unknown=True, unowned_member_call=True),
+        _call("src/c.py::r1", "ev/run.json::sink", "RECEIVER_RESOLVED"),
+        # SQL data-layer relations stay in the legacy count, never in calls.
+        {"source": "src/c.py::driver", "target": "db/schema.sql::orders", "relation": "writes", "confidence": "EXTRACTED"},
+        {"source": _HUB, "target": "db/schema.sql::orders", "relation": "reads", "confidence": "EXTRACTED"},
+    ],
+}
+
+
+def _oracle_call_counts(edges, direction):
+    """Independent restatement of the specified arithmetic (Requirement 5)."""
+    out = {}
+    for edge in edges:
+        if edge.get("relation") != "calls":
+            continue
+        nid = edge["target"] if direction == "in" else edge["source"]
+        row = out.setdefault(nid, dict.fromkeys(_COUNT_FIELDS, 0))
+        row["total"] += 1
+        conf = edge.get("confidence") or ""
+        unknown = bool(edge.get("receiver_unknown"))
+        if conf in ("RECEIVER_RESOLVED", "CONSTRUCTION_RESOLVED") and not unknown:
+            row["resolved"] += 1
+        elif conf == "EXTRACTED":
+            row["extracted"] += 1
+        else:
+            row["unclassified"] += 1
+        row["receiver_unknown"] += int(unknown)
+    return out
+
+
+def _oracle_legacy_counts(payload, direction):
+    sql = {n["id"] for n in payload["nodes"] if n.get("sql_kind")}
+    out = {}
+    for edge in payload["edges"]:
+        rel = edge.get("relation")
+        if rel != "calls" and not (rel in ("reads", "writes", "maps_to")
+                                   and (edge["source"] in sql or edge["target"] in sql)):
+            continue
+        nid = edge["target"] if direction == "in" else edge["source"]
+        out[nid] = out.get(nid, 0) + 1
+    return out
+
+
+_SECTION_DIRECTION = {"fan_in": "in", "fan_out": "out", "chokepoints": "out", "file_hubs": "out"}
+
+
+class CallEdgeCountsReportTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = load_graph_query()
+
+    def _report(self, payload=_ATTRIBUTION_FIXTURE, **kwargs):
+        index = self.mod.GraphQueryIndex(json.loads(json.dumps(payload)))
+        kwargs.setdefault("is_evidence", index.is_evidence_node)
+        return index.report(limit=kwargs.pop("limit", 50), chokepoint_threshold=kwargs.pop("threshold", 2), **kwargs)
+
+    def assert_rows_match_oracle(self, report, payload):
+        calls = {d: _oracle_call_counts(payload["edges"], d) for d in ("in", "out")}
+        seen = 0
+        for section, direction in _SECTION_DIRECTION.items():
+            for name in (section, f"evidence_{section}"):
+                for row in report.get(name, []):
+                    seen += 1
+                    counts = row["call_edge_counts"]
+                    expected = calls[direction].get(row["node_id"], dict.fromkeys(_COUNT_FIELDS, 0))
+                    self.assertEqual(counts, expected, (name, row["node_id"]))
+                    self.assertEqual(set(counts), set(_COUNT_FIELDS))
+                    self.assertTrue(all(isinstance(v, int) and v >= 0 for v in counts.values()))
+                    self.assertEqual(counts["total"], counts["resolved"] + counts["extracted"] + counts["unclassified"])
+                    self.assertLessEqual(counts["receiver_unknown"], counts["total"])
+        self.assertTrue(seen)
+
+    def test_known_counts_direction_and_partitions(self):
+        report = self._report()
+        hub = next(r for r in report["fan_in"] if r["node_id"] == _HUB)
+        self.assertEqual(hub["count"], 10)
+        self.assertEqual(hub["call_edge_counts"], {"total": 10, "resolved": 3, "extracted": 4,
+                                                   "unclassified": 3, "receiver_unknown": 2})
+        # Mixed SQL/call: legacy count keeps the write, calls exclude it.
+        driver = next(r for r in report["fan_out"] if r["node_id"] == "src/c.py::driver")
+        self.assertEqual(driver["count"], 5)
+        self.assertEqual(driver["call_edge_counts"], {"total": 4, "resolved": 1, "extracted": 3,
+                                                      "unclassified": 0, "receiver_unknown": 2})
+        hub_out = next(r for r in report["fan_out"] if r["node_id"] == _HUB)
+        self.assertEqual((hub_out["count"], hub_out["call_edge_counts"]["total"]), (1, 0))
+        orders = next(r for r in report["fan_in"] if r["node_id"] == "db/schema.sql::orders")
+        self.assertEqual(orders["call_edge_counts"], dict.fromkeys(_COUNT_FIELDS, 0))
+        choke = next(r for r in report["chokepoints"] if r["node_id"] == "src/c.py::driver")
+        self.assertEqual(choke["call_edge_counts"], driver["call_edge_counts"])
+        self.assertEqual(report["file_hubs"][0]["node_id"], "src/c.py")
+        self.assertEqual(report["file_hubs"][0]["call_edge_counts"],
+                         {"total": 2, "resolved": 1, "extracted": 1, "unclassified": 0, "receiver_unknown": 0})
+        # Evidence/Data rows carry the counts too.
+        self.assertEqual([r["node_id"] for r in report["evidence_fan_out"]], ["ev/run.json::emit"])
+        self.assertEqual(report["evidence_fan_out"][0]["call_edge_counts"]["resolved"], 1)
+        self.assertEqual(report["evidence_fan_in"][0]["call_edge_counts"]["total"], 1)
+        self.assert_rows_match_oracle(report, _ATTRIBUTION_FIXTURE)
+
+    def test_legacy_count_order_limit_and_threshold_are_preserved(self):
+        legacy_keys = {"fan_in": {"node_id", "count", "label", "kind"}, "fan_out": {"node_id", "count", "label", "kind"},
+                       "chokepoints": {"node_id", "fan_out", "label"}, "file_hubs": {"node_id", "fan_out", "label", "kind"}}
+        for limit in (1, 3, 50):
+            report = self._report(limit=limit, is_evidence=None)
+            for section, direction in _SECTION_DIRECTION.items():
+                legacy = _oracle_legacy_counts(_ATTRIBUTION_FIXTURE, direction)
+                kind = lambda nid: next((n["kind"] for n in _ATTRIBUTION_FIXTURE["nodes"] if n["id"] == nid), None)
+                ranked = sorted(legacy.items(), key=lambda item: (-item[1], item[0]))
+                if section == "chokepoints":
+                    ranked = [i for i in ranked if i[1] >= 2 and kind(i[0]) != "module"]
+                if section == "file_hubs":
+                    ranked = [i for i in ranked if i[1] >= 2 and kind(i[0]) == "module"]
+                field = "count" if section.startswith("fan") else "fan_out"
+                rows = report[section]
+                self.assertEqual([(r["node_id"], r[field]) for r in rows], ranked[:limit], (section, limit))
+                for row in rows:
+                    extra = {"sql_kind"} if row.get("sql_kind") else set()
+                    self.assertEqual(set(row), legacy_keys[section] | extra | {"call_edge_counts"})
+        report = self._report(threshold=99)
+        self.assertEqual(report["chokepoints"], [])
+        self.assertGreater(report["chokepoints_candidates_total"], 0)
+
+    def test_eligibility_filter_keeps_counts_on_surviving_rows(self):
+        report = self._report(eligible=lambda nid: not nid.startswith("src/c.py::driver"))
+        self.assertNotIn("src/c.py::driver", [r["node_id"] for r in report["fan_out"]])
+        self.assert_rows_match_oracle(report, _ATTRIBUTION_FIXTURE)
+
+    def test_generated_collapse_counts_effective_edges_with_first_representative(self):
+        nodes = [_fn("src/user.py::user"), _fn("src/gen.py", "module", generated=True),
+                 _fn("src/gen.py::a", generated=True), _fn("src/gen.py::b", generated=True)]
+        unknown = _call("src/user.py::user", "src/gen.py::a", "EXTRACTED", receiver_unknown=True)
+        known = _call("src/user.py::user", "src/gen.py::b", "EXTRACTED")
+        for order, expected_unknown in (((unknown, known), 1), ((known, unknown), 0)):
+            with self.subTest(first=order[0]["target"]):
+                raw = {"present": True, "layer": "project", "nodes": nodes, "edges": list(order)}
+                raw_report = self._report(raw)
+                self.assertEqual(sum(r["call_edge_counts"]["total"] for r in raw_report["fan_in"]), 2)
+                self.assertEqual(sum(r["call_edge_counts"]["receiver_unknown"] for r in raw_report["fan_in"]), 1)
+                collapsed = self.mod.collapse_generated_view(json.loads(json.dumps(raw)))
+                report = self._report(collapsed)
+                row = next(r for r in report["fan_in"] if r["node_id"] == "src/gen.py")
+                # One retained effective edge; its metadata is the first
+                # representative's, not a union of the raw call sites.
+                self.assertEqual(row["call_edge_counts"], {"total": 1, "resolved": 0, "extracted": 1,
+                                                           "unclassified": 0, "receiver_unknown": expected_unknown})
+                self.assert_rows_match_oracle(report, collapsed)
+
+
+class CallEdgeCountsRegisteredSurfaceTests(unittest.TestCase):
+    """The public wf_graph_report response carries call_edge_counts."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name).resolve()
+        (self.root / ".wavefoundry" / "index").mkdir(parents=True, exist_ok=True)
+        self.addCleanup(self.tmp.cleanup)
+        self.addCleanup(graph_snapshot.invalidate, self.root)
+        spec = importlib.util.spec_from_file_location("server_impl", source_path("server_impl.py"))
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["server_impl"] = mod
+        spec.loader.exec_module(mod)
+        self.srv = sys.modules["server_impl"]
+        self.gq = load_graph_query()
+        payload = json.loads(json.dumps(_ATTRIBUTION_FIXTURE))
+        payload["nodes"].extend([_fn("src/gen.py", "module", generated=True), _fn("src/gen.py::g", generated=True),
+                                 _fn("src/gen.py::h", generated=True)])
+        payload["edges"].extend([_call("src/c.py::x1", "src/gen.py::g", "EXTRACTED", receiver_unknown=True),
+                                 _call("src/c.py::x1", "src/gen.py::h", "EXTRACTED")])
+        self.payload = payload
+        _write_graph(self.root, "project", {**payload, "schema_version": FIXTURE_GRAPH["schema_version"],
+                                            "builder_version": FIXTURE_GRAPH["builder_version"]})
+
+    def _data(self, **kwargs):
+        result = self.srv.wf_graph_report_response(self.root, layer="project", **kwargs)
+        self.assertEqual(result["status"], "ok", result)
+        return result["data"]
+
+    def test_public_rows_carry_counts_and_keep_contract_fields(self):
+        data = self._data(limit=50)
+        published = self.gq.load_graph(self.root)
+        calls = {d: _oracle_call_counts(published["edges"], d) for d in ("in", "out")}
+        for section, direction in _SECTION_DIRECTION.items():
+            for name in (section, f"evidence_{section}"):
+                self.assertIn(name, data)
+                for row in data[name]:
+                    self.assertEqual(row["call_edge_counts"],
+                                     calls[direction].get(row["node_id"], dict.fromkeys(_COUNT_FIELDS, 0)))
+                    if name == section:  # collision fields decorate production rows only
+                        self.assertIn("same_name_node_count", row)
+        hub = next(r for r in data["fan_in"] if r["node_id"] == _HUB)
+        self.assertEqual((hub["count"], hub["call_edge_counts"]["unclassified"]), (10, 3))
+        self.assertEqual(data["evidence_fan_out"][0]["evidence_type"], "evidence_data")
+        self.assertIn("call_edge_counts", data["evidence_fan_out"][0])
+
+    def test_filters_and_collapsed_views_keep_effective_edge_counts(self):
+        variants = [
+            ({"exclude_external": True}, None),
+            ({"exclude_generated": True}, None),
+            ({"collapse_generated_files": True}, self.gq.collapse_generated_view),
+            ({"collapse_class_module_pairs": True}, self.gq.collapse_class_module_view),
+            ({"collapse_package_to_directory": True},
+             lambda p: self.gq.collapse_package_to_directory_view(p, root=self.root)),
+        ]
+        for flags, view in variants:
+            with self.subTest(**flags):
+                data = self._data(limit=50, **flags)
+                payload = dict(self.gq.load_graph(self.root))
+                if view is not None:
+                    payload = view({**payload, "nodes": list(payload["nodes"]), "edges": list(payload["edges"])})
+                calls = {d: _oracle_call_counts(payload["edges"], d) for d in ("in", "out")}
+                rows = 0
+                for section, direction in _SECTION_DIRECTION.items():
+                    for row in data[section] + data[f"evidence_{section}"]:
+                        rows += 1
+                        self.assertEqual(row["call_edge_counts"],
+                                         calls[direction].get(row["node_id"], dict.fromkeys(_COUNT_FIELDS, 0)))
+                        if flags.get("exclude_external"):
+                            self.assertFalse(row["node_id"].startswith("external::"))
+                self.assertTrue(rows)
+        collapsed = self._data(limit=50, collapse_generated_files=True)
+        gen = next(r for r in collapsed["fan_in"] if r["node_id"] == "src/gen.py")
+        self.assertEqual(gen["call_edge_counts"]["total"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

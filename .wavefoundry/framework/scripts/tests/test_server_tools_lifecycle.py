@@ -112,7 +112,7 @@ def _prepare_council_verdict_line(
         seats = f"{seats}, {rotating_seat}"
     return (
         f"- **Prepare-phase Wave Council [prepare-council] — {date}: {verdict}** "
-        f"(moderator: wave-council; primer-depth: standard; seats: {seats}; rotating-seat: {rotating_seat}; "
+        f"(moderator: council-chair; primer-depth: standard; seats: {seats}; rotating-seat: {rotating_seat}; "
         f"strongest-challenge: {strongest_challenge}; strongest-alternative: {strongest_alternative})"
     )
 
@@ -488,9 +488,29 @@ class GetPromptTests(unittest.TestCase):
 
 
 class ChangePromptLookupTests(unittest.TestCase):
-    """1zyc4 AC-3: the real prompt surface resolves the change names and no retired alias."""
+    """1zyc4 AC-3: the prompt lookup resolves the change names and no retired alias.
 
-    REPO = Path(__file__).resolve().parents[4]
+    Change 200ex: the lookup runs against a fixture repository the test builds,
+    with the change prompts' shortcuts and file names taken from the vocabulary
+    profile, and the retired-token scan reads framework-owned sources (the
+    lifecycle prompt templates and the seeds that render the change prompts),
+    so a distribution's own prompt docs and prompt names never decide either."""
+
+    FRAMEWORK = Path(__file__).resolve().parents[2]
+    CHANGE_PROMPT_KEYS = ("plan-change", "implement-change", "close-change")
+    # Fixed framework names, not profile names.
+    INSTALL_PROMPT_DOC = "docs/prompts/install-wavefoundry.prompt.md"
+    INSTALL_ALIAS = "Init wave framework"
+    # Seed 160 is left out on purpose: its upgrade note names the retired
+    # names as removal targets, and it renders no lifecycle prompt.
+    RETIRED_TOKEN_SEEDS = (
+        "100-project-prompt-surface-bootstrap.prompt.md",
+        "170-plan-change.prompt.md",
+        "175-review-plan.prompt.md",
+        "180-implement-change.prompt.md",
+        "190-close-wave.prompt.md",
+        "240-memory-review.prompt.md",
+    )
     RETIRED_TOKENS = re.compile(
         r"plan-feature|implement-feature|finalize-feature|plan_feature|wf-plan-feature"
         r"|plan feature|implement feature|finalize feature",
@@ -501,31 +521,56 @@ class ChangePromptLookupTests(unittest.TestCase):
     def setUpClass(cls):
         cls.srv = load_server()
 
+    def _fixture_repo(self) -> "tuple[Path, list[tuple[str, str]]]":
+        """A repository whose ``docs/prompts`` holds the four prompt docs, and
+        the ``(shortcut, repo-relative doc)`` pairs that must resolve."""
+        import vocabulary_profile
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        cases = [(vocabulary_profile.shortcut(key), vocabulary_profile.prompt_doc(key))
+                 for key in self.CHANGE_PROMPT_KEYS]
+        docs = {rel: (f"# {vocabulary_profile.shortcut_title(key)}\n\n"
+                      f"{vocabulary_profile.shortcut_line(key)}\n\nFixture body for {key}.\n")
+                for key, (_, rel) in zip(self.CHANGE_PROMPT_KEYS, cases)}
+        docs[self.INSTALL_PROMPT_DOC] = (
+            "# Install Wavefoundry\n\n"
+            f"Shortcut: **`Init Wavefoundry`** | Alias: **`{self.INSTALL_ALIAS}`**\n\nFixture body.\n")
+        cases.append((self.INSTALL_ALIAS, self.INSTALL_PROMPT_DOC))
+        for rel, text in docs.items():
+            path = root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+        return root, cases
+
     def test_new_names_resolve_and_retired_names_do_not(self):
-        prompts = self.REPO / "docs" / "prompts"
-        for shortcut, filename in (
-            ("Plan change", "plan-change.prompt.md"),
-            ("Implement change", "implement-change.prompt.md"),
-            ("Close change", "close-change.prompt.md"),
-            ("Init wave framework", "install-wavefoundry.prompt.md"),
-        ):
+        root, cases = self._fixture_repo()
+        for shortcut, rel in cases:
             with self.subTest(shortcut=shortcut):
-                expected = (prompts / filename).read_text(encoding="utf-8")
-                self.assertEqual(self.srv.get_prompt(self.REPO, shortcut), expected)
-                response = self.srv.wf_get_prompt_response(self.REPO, shortcut)
+                expected = (root / rel).read_text(encoding="utf-8")
+                self.assertEqual(self.srv.get_prompt(root, shortcut), expected)
+                response = self.srv.wf_get_prompt_response(root, shortcut)
                 self.assertEqual(response["data"]["prompt"]["content"], expected)
         for retired in ("plan-" "feature", "implement-" "feature", "finalize-" "feature",
                         "Plan " "feature", "Implement " "feature", "Finalize " "feature"):
             with self.subTest(retired=retired):
-                self.assertIsNone(self.srv.get_prompt(self.REPO, retired))
-                response = self.srv.wf_get_prompt_response(self.REPO, retired)
+                self.assertIsNone(self.srv.get_prompt(root, retired))
+                response = self.srv.wf_get_prompt_response(root, retired)
                 self.assertIsNone(response["data"]["prompt"])
                 self.assertEqual(response["diagnostics"][0]["code"], "prompt_not_found")
 
+    def _retired_token_sources(self) -> "list[Path]":
+        templates = sorted((self.FRAMEWORK / "install" / "lifecycle-prompts").glob("*.md"))
+        seeds = [self.FRAMEWORK / "seeds" / name for name in self.RETIRED_TOKEN_SEEDS]
+        return templates + seeds
+
     def test_no_prompt_doc_carries_a_retired_token(self):
+        sources = self._retired_token_sources()
+        self.assertTrue(any(path.parent.name == "lifecycle-prompts" for path in sources))
         offenders = [
-            f"{path.relative_to(self.REPO).as_posix()}: {match.group(0)}"
-            for path in sorted((self.REPO / "docs" / "prompts").rglob("*.md"))
+            f"{path.relative_to(self.FRAMEWORK).as_posix()}: {match.group(0)}"
+            for path in sources
             for match in self.RETIRED_TOKENS.finditer(path.read_text(encoding="utf-8"))
         ]
         self.assertEqual(offenders, [])
@@ -1283,7 +1328,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             "operator-signoff", actor="operator", fresh=False, independent=False
         )
         council = self._approval_record(
-            "council-delivery", actor="wave-council", fresh=True, independent=True
+            "council-delivery", actor="council-chair", fresh=True, independent=True
         )
         full_repair = {
             "record_type": "finding_synthesis",
@@ -1308,7 +1353,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
     def test_prepare_readiness_approval_is_not_staled_by_delivery_repairs(self):
         readiness = self._approval_record(
             "council-readiness",
-            actor="wave-council",
+            actor="council-chair",
             fresh=True,
             independent=True,
         )
@@ -1343,7 +1388,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         }
         delivery = self._approval_record(
             "council-delivery",
-            actor="wave-council",
+            actor="council-chair",
             fresh=True,
             independent=True,
         )
@@ -1376,7 +1421,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             self.root,
             wave_id,
             "run",
-            "wave-council",
+            "council-chair",
             "legacy-form-diag-ctx",
             mode="create",
             run_kind="initial_delivery",
@@ -1439,7 +1484,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             self.root,
             wave_id,
             "run",
-            "wave-council",
+            "council-chair",
             "lightweight-delivery",
             run_kind="initial_delivery",
             cycle=0,
@@ -1452,7 +1497,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 self.root,
                 wave_id,
                 "run",
-                "wave-council",
+                "council-chair",
                 "lightweight-delivery",
                 mode="create",
                 run_kind="initial_delivery",
@@ -1537,7 +1582,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 self.root,
                 wave_id,
                 "run",
-                "wave-council",
+                "council-chair",
                 "reserved-metadata",
                 mode="create",
                 run_kind="initial_delivery",
@@ -1554,7 +1599,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             self.root,
             wave_id,
             "run",
-            "wave-council",
+            "council-chair",
             "reserved-metadata",
             mode="create",
             run_kind="initial_delivery",
@@ -1585,7 +1630,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 self.root,
                 wave_id,
                 "run",
-                "wave-council",
+                "council-chair",
                 "symlink-escape",
                 mode="create",
                 run_kind="initial_delivery",
@@ -1607,7 +1652,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             self.root,
             wave_id,
             "run",
-            "wave-council",
+            "council-chair",
             "delivery-run",
             mode="create",
             run_kind="initial_delivery",
@@ -1667,7 +1712,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 self.root,
                 wave_id,
                 "run",
-                "wave-council",
+                "council-chair",
                 "rollback-run",
                 mode="create",
                 run_kind="initial_delivery",
@@ -1689,7 +1734,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 self.root,
                 wave_id,
                 "run",
-                "wave-council",
+                "council-chair",
                 "rollback-run",
                 mode="create",
                 run_kind="initial_delivery",
@@ -2299,7 +2344,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
 
         with patch.object(self.srv, "_atomic_replace_bytes", side_effect=fail_event):
             failed = self.srv.wf_review_event_response(
-                self.root, wave_id, "run", "wave-council", "event-fail",
+                self.root, wave_id, "run", "council-chair", "event-fail",
                 mode="create", run_kind="initial_delivery",
             )
         self.assertEqual(failed["status"], "error", failed)
@@ -2310,7 +2355,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             self.srv, "_atomic_replace_text", side_effect=OSError("forced projection failure")
         ):
             partial = self.srv.wf_review_event_response(
-                self.root, wave_id, "run", "wave-council", "projection-fail",
+                self.root, wave_id, "run", "council-chair", "projection-fail",
                 mode="create", run_kind="initial_delivery",
             )
         self.assertEqual(partial["status"], "partial", partial)
@@ -2319,7 +2364,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         committed = events_path.read_bytes()
         self.assertEqual(wave_md.read_text(encoding="utf-8"), original_projection)
         repaired = self.srv.wf_review_event_response(
-            self.root, wave_id, "run", "wave-council", "projection-fail",
+            self.root, wave_id, "run", "council-chair", "projection-fail",
             mode="create", run_kind="initial_delivery",
         )
         self.assertEqual(repaired["status"], "ok", repaired)
@@ -4345,7 +4390,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
 
     def _seed_finding_chain(self, *, complete=True):
         self.srv.wf_review_event_response(
-            self.root, self.wave_id, "run", "wave-council", "delivery-run",
+            self.root, self.wave_id, "run", "council-chair", "delivery-run",
             mode="create", run_kind="initial_delivery", cycle=0,
         )
         judgment, evidence = self._finding_payloads()
@@ -4529,7 +4574,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         )
 
         recorded = self.srv.wf_review_event_response(
-            self.root, self.wave_id, "run", "wave-council", "delivery-run",
+            self.root, self.wave_id, "run", "council-chair", "delivery-run",
             mode="create", run_kind="initial_delivery", cycle=0,
         )
         self.assertEqual(recorded["status"], "ok", recorded)
@@ -4553,10 +4598,10 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
             projection = json.loads(json.dumps(original_projection(*args, **kwargs)))
             for action in projection["next_actions"]:
                 if action["action_id"] == "approval:operator-signoff":
-                    action["actor_role"] = "wave-council"
+                    action["actor_role"] = "council-chair"
             recommended = projection.get("recommended_next_action")
             if recommended and recommended["action_id"] == "approval:operator-signoff":
-                recommended["actor_role"] = "wave-council"
+                recommended["actor_role"] = "council-chair"
             return projection
 
         with patch.object(self.srv, "run_validate", return_value=validate_ok), \
@@ -4791,7 +4836,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         without an exploratory rejection or forensic-list navigation step.
         """
         run = self.srv.wf_review_event_response(
-            self.root, self.wave_id, "run", "wave-council", "shape-run",
+            self.root, self.wave_id, "run", "council-chair", "shape-run",
             mode="create", run_kind="initial_delivery", cycle=0,
         )
         self.assertEqual(run["status"], "ok", run)
@@ -4888,6 +4933,8 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         )
 
         run = self.srv.wf_review_event_response(
+            # Frozen shape: the run keeps the actor name it was fingerprinted
+            # with (the council actor's earlier name, wave 200ey change 200ew).
             self.root, self.wave_id, "run", "wave-council", "frozen-shape-run",
             mode="create", run_kind="initial_delivery", cycle=0,
         )
@@ -5123,7 +5170,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         assert_rejected_twins(
             "actor-swap",
             lambda root: self.srv.wf_review_event_response(
-                root, self.wave_id, "approval", "wave-council", "matrix-actor",
+                root, self.wave_id, "approval", "council-chair", "matrix-actor",
                 mode="create", signoff_key="operator-signoff",
                 approval_phase="delivery", integrity_checks=integrity_checks(),
                 evidence={"observed": "wrong", "artifact_or_test_id": "matrix"},
@@ -5280,7 +5327,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         """AC-8: invalid caller fields cannot redirect corrective guidance."""
         for supplied_phase in (None, "delivery", "bogus"):
             rejected = self.srv.wf_review_event_response(
-                self.root, self.wave_id, "approval", "wave-council",
+                self.root, self.wave_id, "approval", "council-chair",
                 f"bad-readiness-{supplied_phase}", mode="create",
                 signoff_key="council-readiness",
                 approval_phase=supplied_phase, fresh_context=True, independent=True,
@@ -5652,13 +5699,13 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         rel_events = str(self.events_path.resolve().relative_to(self.root.resolve())).replace("\\", "/")
         self.assertEqual(credited, [rel_events])
         preview = self.srv.wf_review_event_response(
-            self.root, self.wave_id, "run", "wave-council", "credit-preview",
+            self.root, self.wave_id, "run", "council-chair", "credit-preview",
             run_kind="initial_delivery", cycle=0,
         )
         self.assertEqual(preview["status"], "dry_run")
         self.assertEqual(self.srv._state_sources_review_evidence(self.root, preview), [])
         written = self.srv.wf_review_event_response(
-            self.root, self.wave_id, "run", "wave-council", "credit-write",
+            self.root, self.wave_id, "run", "council-chair", "credit-write",
             mode="create", run_kind="initial_delivery", cycle=0,
         )
         self.assertEqual(written["status"], "ok")
@@ -5676,7 +5723,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         self._seed_finding_chain()
         listed = self._list()
         dry = self.srv.wf_review_event_response(
-            self.root, self.wave_id, "run", "wave-council", "extractor-preview",
+            self.root, self.wave_id, "run", "council-chair", "extractor-preview",
             run_kind="initial_delivery", cycle=0,
         )
         error = self.srv.wf_review_event_response(
@@ -5684,7 +5731,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
             mode="create", finding_id="extractor-error", run_kind="initial_delivery",
         )
         written = self.srv.wf_review_event_response(
-            self.root, self.wave_id, "run", "wave-council", "extractor-write",
+            self.root, self.wave_id, "run", "council-chair", "extractor-write",
             mode="create", run_kind="initial_delivery", cycle=0,
         )
         for label, envelope in (("list", listed), ("dry_run", dry),
@@ -5713,7 +5760,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         _, id_filtered = self.srv._artifact_from_review_evidence(self.root, filtered)
         self.assertNotEqual(id_first, id_filtered)
         self.srv.wf_review_event_response(
-            self.root, self.wave_id, "run", "wave-council", "neutral-version-bump",
+            self.root, self.wave_id, "run", "council-chair", "neutral-version-bump",
             mode="create", run_kind="initial_delivery", cycle=0,
         )
         after_write = self._list()
@@ -6142,7 +6189,7 @@ class PrepareCouncilVerdictParserTests(unittest.TestCase):
         text = (
             "## Review Checkpoints\n\n"
             "- **Prepare-phase Wave Council [prepare-council] — 2026-08-06: PASS**\n"
-            "  (moderator: wave-council; primer-depth: standard; seats: red-team, code-reviewer;\n"
+            "  (moderator: council-chair; primer-depth: standard; seats: red-team, code-reviewer;\n"
             "  rotating-seat: code-reviewer; strongest-challenge: first concern; second concern;\n"
             "  strongest-alternative: retain the old parser; add diagnostics)\n"
         )
@@ -6224,7 +6271,7 @@ class MarkAcReceiptRefreshTests(unittest.TestCase):
             self.root,
             self.wave_id,
             "approval",
-            "wave-council",
+            "council-chair",
             "receipt-refresh-before-deferral",
             mode="create",
             signoff_key="council-readiness",
@@ -8615,7 +8662,7 @@ class WavePrepareSingleActiveGuardTests(unittest.TestCase):
             self.root,
             wave_id,
             "council-readiness",
-            actor="wave-council",
+            actor="council-chair",
         )
         wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
@@ -9262,8 +9309,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 "delivery_mode": "universal" if enabled else "disabled",
                 "transition_policy": transition_policy,
                 "phases": {
-                    "prepare": {"signoff_key": "council-readiness", "moderator_role": "wave-council"},
-                    "review": {"signoff_key": "council-delivery", "moderator_role": "wave-council"},
+                    "prepare": {"signoff_key": "council-readiness", "moderator_role": "council-chair"},
+                    "review": {"signoff_key": "council-delivery", "moderator_role": "council-chair"},
                 },
             },
         }
@@ -9426,7 +9473,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                     self.root,
                     wave_id,
                     "approval",
-                    "wave-council",
+                    "council-chair",
                     f"transition-{state}-approval",
                     mode="create",
                     signoff_key="council-readiness",
@@ -9565,7 +9612,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             wave_id=wave_id,
             event="run",
             mode="create",
-            actor="wave-council",
+            actor="council-chair",
             context_id="close-exit-b-delivery",
             approval_phase="delivery",
             run_kind="initial_delivery",
@@ -9579,7 +9626,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             mode="create",
             signoff_key="council-delivery",
             approval_phase="delivery",
-            actor="wave-council",
+            actor="council-chair",
             context_id="close-exit-b-delivery",
             fresh_context=True,
             independent=True,
@@ -9648,8 +9695,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
 
     def _record_readiness_approval(self, wave_id, signoff_key, context_id):
         # A specialist lane must be recorded BY that lane; only the council key
-        # is recorded by `wave-council`.
-        actor = "wave-council" if signoff_key.startswith(("wave-council", "council-")) else signoff_key
+        # is recorded by `council-chair`.
+        actor = "council-chair" if signoff_key.startswith(("wave-council", "council-")) else signoff_key
         self.srv.wf_review_event_response(
             self.root, wave_id=wave_id, event="run", mode="create",
             actor=actor, context_id=context_id,
@@ -9682,7 +9729,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             context = f"ephemeral-{index}"
             run = self.srv.wf_review_event_response(
                 self.root, wave_id=wave_id, event="run", mode="create",
-                actor="wave-council", context_id=context,
+                actor="council-chair", context_id=context,
                 approval_phase="readiness", run_kind="readiness", cycle=0,
             )
             self.assertEqual(run["status"], "ok", run)
@@ -9691,7 +9738,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 result = self.srv.wf_review_event_response(
                     self.root, wave_id=wave_id, event="approval", mode=mode,
                     signoff_key="council-readiness", approval_phase="readiness",
-                    actor="wave-council", context_id=context,
+                    actor="council-chair", context_id=context,
                     fresh_context=True, independent=True,
                     evidence={"observed": "reviewed scope", "artifact_or_test_id": artifact},
                     integrity_checks=integrity_checks(),
@@ -9741,7 +9788,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         wave_id, wave_md, change_path = self._prepared_wave_with_change("delivery-only-repeat", ready=False)
         self._run_prepare(wave_id=wave_id, mode="ready")
         result = self.srv.wf_review_event_response(
-            self.root, wave_id, "approval", "wave-council", "delivery-only",
+            self.root, wave_id, "approval", "council-chair", "delivery-only",
             mode="create", signoff_key="council-delivery", approval_phase="delivery",
             fresh_context=True, independent=True,
             evidence={"observed": "delivery reviewed", "artifact_or_test_id": "test:delivery-only"},
@@ -9766,14 +9813,14 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             "council-readiness", approval_phase="readiness"))
         run = self.srv.wf_review_event_response(
             self.root, wave_id=wave_id, event="run", mode="create",
-            actor="wave-council", context_id="metadata-delivery",
+            actor="council-chair", context_id="metadata-delivery",
             approval_phase="delivery", run_kind="initial_delivery", cycle=0,
         )
         self.assertEqual(run["status"], "ok", run)
         approval = self.srv.wf_review_event_response(
             self.root, wave_id=wave_id, event="approval", mode="create",
             signoff_key="council-delivery", approval_phase="delivery",
-            actor="wave-council", context_id="metadata-delivery",
+            actor="council-chair", context_id="metadata-delivery",
             fresh_context=True, independent=True,
             evidence={"observed": "delivery reviewed", "artifact_or_test_id": "test:metadata"},
             integrity_checks=integrity_checks(),
@@ -9891,7 +9938,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         # alone rather than the run event that legitimately appends.
         self.srv.wf_review_event_response(
             self.root, wave_id=wave_id, event="run", mode="create",
-            actor="wave-council", context_id="c1",
+            actor="council-chair", context_id="c1",
             approval_phase="readiness", run_kind="readiness", cycle=0,
         )
         ledger_before = (wave_md.parent / "events.jsonl").read_bytes()
@@ -9899,7 +9946,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         refused = self.srv.wf_review_event_response(
             self.root, wave_id=wave_id, event="approval", mode="create",
             signoff_key="council-readiness", approval_phase="readiness",
-            actor="wave-council", context_id="c1",
+            actor="council-chair", context_id="c1",
             fresh_context=True, independent=True,
             evidence={
                 "observed": "reviewed the admitted scope",
@@ -9954,13 +10001,13 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         )
         self.srv.wf_review_event_response(
             self.root, wave_id=wave_id, event="run", mode="create",
-            actor="wave-council", context_id="dv",
+            actor="council-chair", context_id="dv",
             approval_phase="delivery", run_kind="initial_delivery", cycle=0,
         )
         delivery = self.srv.wf_review_event_response(
             self.root, wave_id=wave_id, event="approval", mode="create",
             signoff_key="council-delivery", approval_phase="delivery",
-            actor="wave-council", context_id="dv",
+            actor="council-chair", context_id="dv",
             fresh_context=True, independent=True,
             evidence={
                 "observed": "delivery reviewed",
@@ -10801,13 +10848,13 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             with self.subTest(signoff_key=key):
                 self.srv.wf_review_event_response(
                     self.root, wave_id=wave_id, event="run", mode="create",
-                    actor="wave-council", context_id=f"neg-{key}",
+                    actor="council-chair", context_id=f"neg-{key}",
                     approval_phase="readiness", run_kind="readiness", cycle=0,
                 )
                 resp = self.srv.wf_review_event_response(
                     self.root, wave_id=wave_id, event="approval", mode="create",
                     signoff_key=key, approval_phase="readiness",
-                    actor="wave-council", context_id=f"neg-{key}",
+                    actor="council-chair", context_id=f"neg-{key}",
                     fresh_context=True, independent=True,
                     evidence={
                         "observed": "negative boundary probe",
@@ -10938,13 +10985,13 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         change_path.write_bytes(b"\xff\xfe not valid utf-8 \xff")
         self.srv.wf_review_event_response(
             self.root, wave_id=wave_id, event="run", mode="create",
-            actor="wave-council", context_id="drywarn",
+            actor="council-chair", context_id="drywarn",
             approval_phase="readiness", run_kind="readiness", cycle=0,
         )
         preview = self.srv.wf_review_event_response(
             self.root, wave_id=wave_id, event="approval", mode="dry_run",
             signoff_key="council-readiness", approval_phase="readiness",
-            actor="wave-council", context_id="drywarn",
+            actor="council-chair", context_id="drywarn",
             fresh_context=True, independent=True,
             evidence={"observed": "preview", "artifact_or_test_id": "test:dry-warn"},
             integrity_checks=integrity_checks(),
@@ -11412,8 +11459,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 "delivery_mode": "universal" if enabled else "disabled",
                 "transition_policy": transition_policy,
                 "phases": {
-                    "prepare": {"signoff_key": "council-readiness", "moderator_role": "wave-council"},
-                    "review": {"signoff_key": "council-delivery", "moderator_role": "wave-council"},
+                    "prepare": {"signoff_key": "council-readiness", "moderator_role": "council-chair"},
+                    "review": {"signoff_key": "council-delivery", "moderator_role": "council-chair"},
                 },
             },
         }
@@ -11449,8 +11496,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             "wave_review": {
                 "enabled": True,
                 "phases": {
-                    "prepare": {"signoff_key": "council-readiness", "moderator_role": "wave-council"},
-                    "review": {"signoff_key": "council-delivery", "moderator_role": "wave-council"},
+                    "prepare": {"signoff_key": "council-readiness", "moderator_role": "council-chair"},
+                    "review": {"signoff_key": "council-delivery", "moderator_role": "council-chair"},
                 },
             },
             # Legacy key: disabled → would return {} if it won; precedence test
@@ -11543,7 +11590,7 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
             self.root,
             wave_id,
             "council-readiness",
-            actor="wave-council",
+            actor="council-chair",
         )
         wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
@@ -11556,7 +11603,7 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
         wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         wave_md.write_text(
             wave_md.read_text(encoding="utf-8")
-            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (moderator: wave-council; seats: red-team; rotating-seat: none)\n",
+            + "\n## Review Checkpoints\n\n- **Prepare-phase Wave Council [prepare-council] — 2026-05-21: PASS** (moderator: council-chair; seats: red-team; rotating-seat: none)\n",
             encoding="utf-8",
         )
 
@@ -11593,7 +11640,7 @@ class WavePrepareCouncilGateTests(unittest.TestCase):
             self.root,
             wave_id,
             "council-readiness",
-            actor="wave-council",
+            actor="council-chair",
         )
         self._add_invalid_verdict(wave_id)
         with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}):
@@ -12095,7 +12142,7 @@ class WaveImplementTests(unittest.TestCase):
                 {
                     **WaveLifecycleMutationTests._approval_record(
                         lane,
-                        actor="wave-council" if lane == "council-readiness" else lane,
+                        actor="council-chair" if lane == "council-readiness" else lane,
                     ),
                     "approval_phase": "readiness",
                     "policy_receipt_id": receipt_id,
@@ -12698,8 +12745,8 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
                     "enabled": True,
                     "delivery_mode": "universal",
                     "phases": {
-                        "prepare": {"signoff_key": "council-readiness", "moderator_role": "wave-council"},
-                        "review": {"signoff_key": "council-delivery", "moderator_role": "wave-council"},
+                        "prepare": {"signoff_key": "council-readiness", "moderator_role": "council-chair"},
+                        "review": {"signoff_key": "council-delivery", "moderator_role": "council-chair"},
                     },
                 },
             }),
@@ -12761,7 +12808,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         # specialist-lane approvals through the registered public producer.
         _append_review_run(self.root, self.wave_id, kind="readiness")
         for signoff_key, actor in (
-            ("council-readiness", "wave-council"),
+            ("council-readiness", "council-chair"),
             ("code-reviewer", "code-reviewer"),
         ):
             approval = self.srv.wf_review_event_response(
@@ -12816,7 +12863,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         _append_review_run(self.root, self.wave_id, kind="initial_delivery")
         for signoff_key, actor in (
             ("operator-signoff", "operator"),
-            ("council-delivery", "wave-council"),
+            ("council-delivery", "council-chair"),
             ("code-reviewer", "code-reviewer"),
         ):
             approval = self.srv.wf_review_event_response(
@@ -12945,7 +12992,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         self.assertNotIn("missing_wave_council_signoff", self._codes(refreshed))
         self.assertNotIn("review_policy_receipt_stale", self._codes(refreshed))
         for signoff_key, actor in (
-            ("council-readiness", "wave-council"),
+            ("council-readiness", "council-chair"),
             ("code-reviewer", "code-reviewer"),
         ):
             approval = self.srv.wf_review_event_response(
@@ -13306,7 +13353,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         self.assertEqual(refreshed["status"], "ok", refreshed)
         self.assertNotIn("review_policy_receipt_stale", self._codes(refreshed))
         for signoff_key, actor in (
-            ("council-readiness", "wave-council"),
+            ("council-readiness", "council-chair"),
             ("code-reviewer", "code-reviewer"),
         ):
             approved = self.srv.wf_review_event_response(
@@ -13399,7 +13446,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         self.assertEqual(superseded["status"], "error", superseded)
         self.assertIn("missing_wave_council_signoff", self._codes(superseded))
         for signoff_key, actor in (
-            ("council-readiness", "wave-council"),
+            ("council-readiness", "council-chair"),
             ("code-reviewer", "code-reviewer"),
         ):
             approved = self.srv.wf_review_event_response(
@@ -14057,6 +14104,45 @@ class LegacyProseGateParityTests(unittest.TestCase):
         )
         self.assertEqual(implement_missing["status"], "error", implement_missing)
         self.assertIn("prepare_council_verdict_missing", self._codes(implement_missing))
+
+    def test_council_display_name_reaches_the_legacy_verdict_messages(self):
+        """Wave 200ey (change 200ew, AC-13): the prepare and activation verdict
+        messages name the council by the profile's display name, while a legacy
+        checkpoint line (the fixed ``Prepare-phase Wave Council`` format) still
+        parses under a renamed council."""
+        import contextlib
+        with contextlib.ExitStack() as stack:
+            # The server may hold a re-imported profile module (reload eviction).
+            for module in {id(m): m for m in (vocabulary_profile, self.srv._vocab,
+                                               sys.modules["vocabulary_profile"])}.values():
+                stack.enter_context(patch.object(module, "COUNCIL_DISPLAY_NAME", "Review Board"))
+            self._write_wave(
+                evidence_lines=["- operator-signoff: approved", "- code-reviewer: approved"],
+                prepare_lines=["- code-reviewer: approved"],
+            )
+            prepare = self._run(
+                self.srv.wf_prepare_wave_response, self.root, "1200a legacy-wave", mode="create"
+            )
+            implement = self._run(
+                self.srv.wf_implement_wave_response, self.root, "1200a legacy-wave", mode="dry_run"
+            )
+            for label, response in (("prepare", prepare), ("implement", implement)):
+                with self.subTest(call=label):
+                    [missing] = [d for d in response["diagnostics"]
+                                 if d["code"] == "prepare_council_verdict_missing"]
+                    self.assertIn("prepare-phase Review Board", missing["message"])
+                    self.assertNotIn("Wave Council", missing["message"])
+            self.assertIn("prepare-phase Review Board review", prepare.get("usage", ""))
+            self._write_wave(
+                evidence_lines=["- operator-signoff: approved", "- code-reviewer: approved"],
+                prepare_lines=["- code-reviewer: approved"],
+                checkpoint_lines=[_prepare_council_verdict_line()],
+            )
+            self.assertIn("Prepare-phase Wave Council [prepare-council]", _prepare_council_verdict_line())
+            parsed = self._run(
+                self.srv.wf_prepare_wave_response, self.root, "1200a legacy-wave", mode="create"
+            )
+            self.assertEqual(parsed["status"], "ok", parsed)
 
     def test_legacy_malformed_verdict_blocks_prepare_and_activation(self):
         """1tsyx AC-1: both legacy surfaces retain the invalid-verdict branch."""
@@ -16191,7 +16277,7 @@ def _true_termination_crash_cut_worker(scripts_root, root, wave_id, cut):
         _Path(root),
         wave_id,
         "run",
-        "wave-council",
+        "council-chair",
         "true-kill-context",
         mode="create",
         run_kind="initial_delivery",
@@ -16249,7 +16335,7 @@ class TrueTerminationCrashCutTests(unittest.TestCase):
             self.root,
             self.wave_id,
             "run",
-            "wave-council",
+            "council-chair",
             "true-kill-context",
             mode="create",
             run_kind="initial_delivery",
@@ -16404,7 +16490,7 @@ class ImplementDependencyProducerTests(unittest.TestCase):
             self.srv, self.root, "dependency-producer", change_ids=self.ids,
             doc_gate_stubs=self.stubs)
         response = self.srv.wf_review_event_response(
-            self.root, self.wave_id, event="run", actor="wave-council",
+            self.root, self.wave_id, event="run", actor="council-chair",
             context_id="dependency-readiness", run_kind="readiness", cycle=0, mode="create")
         self.assertEqual(response["status"], "ok", response)
 
@@ -16413,7 +16499,7 @@ class ImplementDependencyProducerTests(unittest.TestCase):
         keys = [*prepared["data"]["review_policy"]["required_lanes"], "council-readiness"]
         for key in dict.fromkeys(keys):
             result = self.srv.wf_review_event_response(
-                self.root, self.wave_id, event="approval", actor="wave-council" if key.startswith(("wave-council", "council-")) else key,
+                self.root, self.wave_id, event="approval", actor="council-chair" if key.startswith(("wave-council", "council-")) else key,
                 context_id="dependency-approval-" + key, signoff_key=key,
                 approval_phase="readiness", fresh_context=True, independent=True,
                 evidence={"observed": "producer fixture reviewed", "artifact_or_test_id": self.id()},
@@ -16807,7 +16893,7 @@ class LifecycleHintGapTests(unittest.TestCase):
         root, wave_md, wave_id = self._wave(("council-readiness", "code-reviewer"), status="active")
         wave_md.write_text(wave_md.read_text(encoding="utf-8").replace(
             "Change Status: `planned`", "Change Status: `done`"), encoding="utf-8")
-        self._event(root, wave_id, "run", "wave-council", "hint-delivery-run", run_kind="initial_delivery")
+        self._event(root, wave_id, "run", "council-chair", "hint-delivery-run", run_kind="initial_delivery")
         self._event(root, wave_id, "approval", "operator", "hint-delivery-operator",
                     signoff_key="operator-signoff", approval_phase="delivery")
         with self._patched():
@@ -16841,7 +16927,7 @@ class LifecycleHintGapTests(unittest.TestCase):
         self.assertNotIn("Re-review the repaired packet", advisory["message"])
         self.assertEqual(advisory["recovery_usage"], f"wf_review_wave(wave_id={wave_id!r}, phase='prepare')")
         # One lane approves: it leaves the list.
-        self._event(root, wave_id, "run", "wave-council", "hint-readiness-run", run_kind="readiness")
+        self._event(root, wave_id, "run", "council-chair", "hint-readiness-run", run_kind="readiness")
         self._event(root, wave_id, "approval", "code-reviewer", "hint-code-approval",
                     signoff_key="code-reviewer", approval_phase="readiness")
         resp = self._prepare(root, wave_id, "dry_run")
@@ -16993,10 +17079,24 @@ class LifecycleHintGapTests(unittest.TestCase):
     def test_council_brief_points_at_the_record_that_counts(self):
         support = self.srv.lifecycle_gate_support
         digest = lambda text: hashlib.sha256(text.encode("utf-8")).hexdigest()
+        actor = support.review_evidence.COUNCIL_ACTOR
+        legacy_actor = support.review_evidence.LEGACY_COUNCIL_ACTORS[0]
+
+        def historical_text(text):
+            # The pinned bytes predate the actor rename. Normalize only its
+            # two intentional prose sites; every other byte remains pinned.
+            return text.replace(f"Have {actor} synthesize findings.",
+                                f"Have {legacy_actor} synthesize findings.").replace(
+                f"(moderator: {actor};", f"(moderator: {legacy_actor};")
+
         for seat, (instructions, template) in self.LEGACY_DIGESTS.items():
             with self.subTest(seat=seat):
-                self.assertEqual(digest(support._prepare_council_instructions(seat)), instructions)
-                self.assertEqual(digest(support._prepare_council_verdict_template(seat)), template)
+                rendered_instructions = support._prepare_council_instructions(seat)
+                rendered_template = support._prepare_council_verdict_template(seat)
+                self.assertIn(f"Have {actor} synthesize findings.", rendered_instructions)
+                self.assertIn(f"(moderator: {actor};", rendered_template)
+                self.assertEqual(digest(historical_text(rendered_instructions)), instructions)
+                self.assertEqual(digest(historical_text(rendered_template)), template)
                 self.assertEqual(support._prepare_council_instructions(seat, typed=False),
                                  support._prepare_council_instructions(seat))
                 typed_instructions = support._prepare_council_instructions(seat, typed=True)

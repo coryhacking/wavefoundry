@@ -246,8 +246,8 @@ class ReadinessProtocolPins(unittest.TestCase):
     """Presence only: scenario evaluations establish agent behavior separately."""
     ROOT = Path(__file__).resolve().parents[4]
     SURFACES = (
-        '.wavefoundry/framework/seeds/215-wave-council.prompt.md',
-        'docs/agents/specialists/wave-council.md',
+        '.wavefoundry/framework/seeds/215-council-chair.prompt.md',
+        'docs/agents/specialists/council-chair.md',
         '.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md',
         'docs/contributing/review-and-evals.md',
         '.wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md',

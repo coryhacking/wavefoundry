@@ -137,7 +137,7 @@ With the MCP server reachable, the agent walks through `.wavefoundry/install-log
 - **Audits Phase 1 artifacts** (`wf_audit_install(phase=1)`) — expects `phase_complete` and recovers if any checked artifact is missing.
 - **Profiles your repo** — `docs/repo-profile.json` (archetype, traits, applicable factors), `docs/repo-index.md`.
 - **Bootstraps the canonical `docs/` structure** — `architecture/`, `contributing/`, `plans/`, `references/`, `prompts/`, `waves/`, `agents/`.
-- **Generates per-role agent docs** — `docs/agents/<role>.md` per enabled role, including the three council specialists (`wave-council`, `red-team`, `archetype-council`) loaded from their authoritative seeds.
+- **Generates per-role agent docs** — `docs/agents/<role>.md` per enabled role, including the three council specialists (`council-chair`, `red-team`, `archetype-council`) loaded from their authoritative seeds.
 - **Maps your architecture** — `docs/ARCHITECTURE.md` plus `current-state.md`, `domain-map.md`, `layering-rules.md`, `cross-cutting-concerns.md`, `data-and-control-flow.md`, `testing-architecture.md`.
 - **Establishes posture** — `QUALITY_SCORE.md`, `RELIABILITY.md`, `SECURITY.md`, `PERFORMANCE.md` (when applicable).
 - **Wires the docs gate**, **generates the prompt surface**, **bootstraps wave artifacts**, **synthesizes personas**, and **registers drift expectations**.

@@ -253,17 +253,55 @@ APPROVAL_PHASES = EVIDENCE_PHASES
 # carry ``council-readiness`` / ``council-delivery``; the earlier spellings stay
 # readable forever because ledgers and wave records are never rewritten, so
 # every comparison of a signoff key goes through ``canonical_signoff_key``.
-# Recorded history is rendered as recorded, never canonicalized. The approving
-# actor and role keep the name ``wave-council``.
+# Recorded history is rendered as recorded, never canonicalized.
 COUNCIL_READINESS_SIGNOFF_KEY = "council-readiness"
 COUNCIL_DELIVERY_SIGNOFF_KEY = "council-delivery"
 COUNCIL_SIGNOFF_KEYS = (COUNCIL_READINESS_SIGNOFF_KEY, COUNCIL_DELIVERY_SIGNOFF_KEY)
-LEGACY_COUNCIL_SIGNOFF_KEYS = {
+# The framework's own earlier spellings. ``review_policy`` maps only these in
+# its digest copy, so a distribution's extra spellings never change a digest.
+BUILTIN_LEGACY_COUNCIL_SIGNOFF_KEYS = {
     "wave-council-readiness": COUNCIL_READINESS_SIGNOFF_KEY,
     "wave-council-delivery": COUNCIL_DELIVERY_SIGNOFF_KEY,
 }
-COUNCIL_ACTOR = "wave-council"
-_LEGACY_COUNCIL_KEY_PREFIX = COUNCIL_ACTOR + "-"
+# Wave 200ey (change 200ew): plus a distribution's own earlier spellings from
+# the vocabulary profile (validated there at import).
+LEGACY_COUNCIL_SIGNOFF_KEYS = {
+    **BUILTIN_LEGACY_COUNCIL_SIGNOFF_KEYS,
+    **_vocab.EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS,
+}
+# Wave 200ey (change 200ew): the council moderator actor and role are
+# ``council-chair``. Approvals recorded under an earlier actor name stay valid
+# forever (ledgers are never rewritten), so every council actor comparison
+# accepts ``COUNCIL_ACTORS``; new records carry ``COUNCIL_ACTOR`` only.
+COUNCIL_ACTOR = "council-chair"
+LEGACY_COUNCIL_ACTORS: tuple[str, ...] = ("wave-council",)
+COUNCIL_ACTORS: tuple[str, ...] = (COUNCIL_ACTOR, *LEGACY_COUNCIL_ACTORS)
+# Frozen literal, not derived from the actor: it keeps the earlier keys and a
+# distribution's own ``wave-council-<x>`` key council keys forever. No prefix
+# is derived from ``COUNCIL_ACTOR``.
+_LEGACY_COUNCIL_KEY_PREFIX = "wave-council-"
+
+
+def is_council_actor(actor: Any) -> bool:
+    """True for the council actor under its current or any earlier name."""
+
+    return isinstance(actor, str) and actor in COUNCIL_ACTORS
+
+
+def canonical_council_actor(actor: Any) -> Any:
+    """``COUNCIL_ACTOR`` for any council actor name; ``actor`` unchanged otherwise."""
+
+    return COUNCIL_ACTOR if is_council_actor(actor) else actor
+
+
+def legacy_council_actor_spellings(actor: Any) -> tuple[str, ...]:
+    """Earlier council actor names when ``actor`` is the council actor; else empty.
+
+    Used only to recognize a replay of an event first recorded under an
+    earlier actor name (its stored identity hashed that name).
+    """
+
+    return LEGACY_COUNCIL_ACTORS if is_council_actor(actor) else ()
 
 
 def canonical_signoff_key(key: Any) -> str:
@@ -289,14 +327,19 @@ def legacy_signoff_key_spellings(key: Any) -> tuple[str, ...]:
 
 
 def is_council_signoff_key(key: Any) -> bool:
-    """True for a council key in either spelling, or a custom ``wave-council-*`` key.
+    """True for a council key in any spelling, or a custom ``wave-council-*`` key.
 
-    The prefix rule is kept for distributions that configured their own
-    ``wave-council-<x>`` key, so its expected actor stays ``wave-council``.
+    The frozen prefix rule is kept for distributions that configured their own
+    ``wave-council-<x>`` key, so its expected actor is the council actor. A
+    distribution's ``EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS`` spellings count too.
     """
 
     text = str(key) if key is not None else ""
-    return text in COUNCIL_SIGNOFF_KEYS or text.startswith(_LEGACY_COUNCIL_KEY_PREFIX)
+    return (
+        text in COUNCIL_SIGNOFF_KEYS
+        or text in LEGACY_COUNCIL_SIGNOFF_KEYS
+        or text.startswith(_LEGACY_COUNCIL_KEY_PREFIX)
+    )
 
 
 def canonical_approval_claim_id(claim_id: Any) -> str:
@@ -629,6 +672,20 @@ def normalize_attested_by(value: Any) -> tuple[str | None, str | None]:
     if problem is not None:
         return None, problem
     return name, None
+
+
+def _display_attested_by(name: str) -> str:
+    """A self-attested name as the review status shows it (wave 200ey, change
+    200ev): every character of Unicode category ``Ps`` or ``Pe`` (any opening
+    or closing bracket, including fullwidth, small, superscript and ornamental
+    parentheses) is replaced by U+FFFD, so a name can never show a bracketed
+    handle. Display only: the stored name, its validation and replay are
+    unchanged."""
+
+    return "".join(
+        "�" if unicodedata.category(char) in ("Ps", "Pe") else char
+        for char in name
+    )
 
 
 def _identity_context(
@@ -1528,7 +1585,7 @@ def _finding_affects_signoff(
     if council_key:
         return (
             signoff_key in affected
-            or COUNCIL_ACTOR in affected
+            or any(actor in affected for actor in COUNCIL_ACTORS)
             or head.get("review_depth") == "full"
         )
     return signoff_key in affected
@@ -1756,7 +1813,13 @@ def review_authority_projection(
         # invalid-approval reason (1v0lz): one derivation, no drift between
         # what fails and what the operator is told failed.
         context_valid = isinstance(context, Mapping)
-        actor_valid = context_valid and context.get("actor") == expected_actor
+        # Wave 200ey (change 200ew): a council approval recorded under an
+        # earlier actor name stays valid forever.
+        actor_valid = context_valid and (
+            is_council_actor(context.get("actor"))
+            if expected_actor == COUNCIL_ACTOR
+            else context.get("actor") == expected_actor
+        )
         independence_valid = context_valid and (
             key == "operator-signoff"
             or (
@@ -1835,7 +1898,7 @@ def review_authority_projection(
                 else None
             )
             attested = context.get("attested_by")
-            attested = attested if _nonempty_string(attested) else None
+            attested = _display_attested_by(attested) if _nonempty_string(attested) else None
             if attested and handle:
                 attribution = f" by {attested} ({handle})"
             elif attested or handle:
@@ -2344,7 +2407,7 @@ def lane_has_signoff_in_evidence(evidence_text: str, lane: str, *, authorization
       ``rescinded``, placeholders, unknown wording — is unapproved, and a
       positive word appearing ELSEWHERE in the value never authorizes
       ("blocked because previous checks passed" is blocked).
-    - AUTHORIZATION lanes (operator and wave-council signoffs — auto-detected
+    - AUTHORIZATION lanes (operator and council signoffs — auto-detected
       unless ``authorization`` is passed explicitly) require a state line:
       prose evidence never authorizes lifecycle closure. Reviewer-seat lanes
       keep prose-line compatibility for their per-seat evidence.
@@ -2358,7 +2421,7 @@ def lane_has_signoff_in_evidence(evidence_text: str, lane: str, *, authorization
     if authorization is None:
         authorization = (
             lane_l in ("operator", "operator-signoff")
-            or lane_l.startswith(COUNCIL_ACTOR)
+            or any(lane_l.startswith(actor) for actor in COUNCIL_ACTORS)
             or is_council_signoff_key(lane_l)
         )
     # The bounded current-state projection is authoritative for keys it
@@ -3058,7 +3121,7 @@ def _reverification_independence_defect(
         return REVERIFICATION_ANCHOR_UNRESOLVED
     if start_context.get("context_id") == context_id and fresh_context is True:
         return REVERIFICATION_CONTEXT_NOT_FRESH
-    if start_context.get("actor") == actor:
+    if canonical_council_actor(start_context.get("actor")) == canonical_council_actor(actor):
         return REVERIFICATION_ACTOR_NOT_DISTINCT
     return None
 
@@ -4537,7 +4600,8 @@ def _validate_relationships(records: list[dict[str, Any]], *, closure: bool) -> 
                         and reassessment.get("execution_status") == "executed"
                         and phase_is_valid
                         and isinstance(context, dict)
-                        and cleared == {context.get("actor")}
+                        and {canonical_council_actor(lane) for lane in cleared}
+                        == {canonical_council_actor(context.get("actor"))}
                         and context.get("fresh_context") is True
                         and context.get("independent") is True
                     )

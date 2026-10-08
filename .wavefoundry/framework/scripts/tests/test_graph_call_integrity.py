@@ -5,7 +5,8 @@ import json
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from test_graph_incremental_merge import _RepoDriver, _edge_keys, load_graph_indexer
+from test_graph_incremental_merge import _RepoDriver, _edge_keys, load_graph_indexer, load_index_state_store
+import sqlite3
 import tempfile
 
 
@@ -203,6 +204,9 @@ class CallIntegrityTests(unittest.TestCase):
                 self.assertEqual(len(edges),1,edges)
                 self.assertEqual(edges[0]['confidence'],'EXTRACTED')
                 self.assertTrue(edges[0]['receiver_unknown'])
+                # 201wg: confidence alone is not enough; the computed receiver
+                # never takes the same-file `getValue` (java, php, scala).
+                self.assertEqual(edges[0]['target'],'external::getValue')
                 if lang != 'java':  # Java fixture deliberately has a colliding data field.
                     outer=[e for e in payload['edges'] if e['relation']=='calls' and e['target'].endswith('authenticatedUser')]
                     self.assertEqual(len(outer),1,outer)
@@ -326,10 +330,14 @@ class Caller {
         caller='class Caller { void run(Object b) { b.subject().authenticatedUser(); helper(); } }'
         payload=self.build({'Caller.java':caller,'Other.java':'class Other { String authenticatedUser() { return ""; } }', 'helper.java':'class Helpers { void helper() {} }'})
         def check(p):
-            edges=[e for e in p['edges'] if e['source'].endswith('Caller.run') and e['target'].endswith('Other.authenticatedUser')]
+            # 201wg: the computed receiver owns no binding; the unique
+            # cross-file name never becomes its target.
+            self.assertFalse([e for e in p['edges'] if e['source'].endswith('Caller.run') and e['target'].endswith('Other.authenticatedUser')])
+            edges=[e for e in p['edges'] if e['source'].endswith('Caller.run') and e['target']=='external::authenticatedUser']
             self.assertEqual(len(edges),1)
             self.assertEqual(edges[0]['confidence'],'EXTRACTED')
             self.assertTrue(edges[0]['receiver_unknown'])
+            self.assertTrue(edges[0]['unowned_member_call'])
         check(payload)
         self.driver.write('Other.java','class Other { String authenticatedUser() { return "new"; } void changed() {} }')
         increment=self.driver.build_incremental({'Other.java'});check(increment)
@@ -418,7 +426,7 @@ class Caller {
         with patch.object(self.g.GraphIndexSession,'_extract_tree_sitter_artifact',record):
             payload=self.driver.build_incremental(set())
         self.assertEqual(seen,['Fixture.java'])
-        self.assertEqual(payload['builder_version'],'52')
+        self.assertEqual(payload['builder_version'],self.g.GRAPH_BUILDER_VERSION)
         self.assertEqual(payload['merge_stats']['callable_wins_collisions'],1)
 
 
@@ -446,6 +454,316 @@ class Caller {
         surviving=[e for e in p['edges'] if e['relation']=='calls' and e['target']=='Fixture.java::A.data']
         self.assertEqual(len(surviving),1)
         self.assertNotIn('receiver_unknown',surviving[0])
+
+
+UNOWNED = 'unowned_member_call'
+
+# 201wg: a computed receiver (call result) collides with a same-file
+# function of the method's name. Bare `render()` is the genuine control.
+COLLISION_MATRIX = {
+    'rust': ('m.rs', 'fn render() {}\nfn run(b: Thing, e: Vec<u8>) { render(); b.subject().render(); e.render(); }\n'),
+    'typescript': ('m.ts', 'function render() {} function run(b: any) { render(); b.subject().render(); }'),
+    'javascript': ('m.js', 'function render() {} function run(b) { render(); b.subject().render(); }'),
+    'go': ('m.go', 'package p\nfunc render() {}\nfunc run(b Thing) { render(); b.subject().render() }\n'),
+    'java': ('M.java', 'class P { void render() {} void run(Object b) { render(); b.subject().render(); } }'),
+    'kotlin': ('m.kt', 'fun render() {}\nfun run(b: Thing) { render(); b.subject().render() }\n'),
+    'swift': ('m.swift', 'func render() {}\nfunc run(b: AnyObject) { render(); b.subject().render() }\n'),
+    'scala': ('m.scala', 'class P { def render() = 1; def run(b: P) = { render(); b.subject().render() } }'),
+    'csharp': ('m.cs', 'class P { void render() {} void run(dynamic b) { render(); b.subject().render(); } }'),
+    'php': ('m.php', '<?php function render() {} function run($b) { render(); $b->subject()->render(); }'),
+    'ruby': ('m.rb', 'def render; end\ndef run(b)\n render()\n b.subject().render()\nend\n'),
+    'c': ('m.c', 'void render(void) {} void run(Thing *e) { render(); e->render(); }'),
+    'cpp': ('m.cpp', 'void render() {} void run(Thing *e, Thing b) { render(); e->render(); b.sub().render(); }'),
+    'objc': ('m.m', 'void render(void) {} void run(id b) { render(); [[b sub] render]; }'),
+}
+
+RUST_FREE_COLLECT = 'pub fn collect(running: Vec<u32>, started: u64) -> u32 { 0 }\n'
+RUST_ITERATOR_CALLER = ('pub fn capture(ids: Vec<u32>) -> Vec<i64> {\n'
+                        '    ids.iter().map(|&x| i64::from(x)).collect()\n}\n')
+RUST_BARE_CALLER = 'pub fn tally() -> u32 { collect(Vec::new(), 0) }\n'
+
+RUST_CONTROLS = ('struct Thing;\n'
+                 'impl Thing {\n'
+                 '    fn new() -> Thing { Thing }\n'
+                 '    fn make() -> Thing { Thing }\n'
+                 '    fn render(&self) {}\n'
+                 '    fn run(&self) { self.render(); }\n'
+                 '}\n'
+                 'fn render() {}\n'
+                 'fn drive() { let t: Thing = Thing::make(); t.render(); let u = Thing::new(); render(); a::b::c(); }\n')
+TS_CONTROLS = ('class C { static m() {} render() {} run() { this.render(); } }\n'
+               'function render() {}\n'
+               'function drive() { C.m(); render(); const c = new C(); }\n')
+
+
+def calls_from(payload, source):
+    return sorted((e['target'], e['confidence'], bool(e.get('receiver_unknown')), bool(e.get(UNOWNED)))
+                  for e in payload['edges'] if e['relation'] == 'calls' and e['source'] == source)
+
+
+class UnownedMemberCallTests(unittest.TestCase):
+    """201wg: an unowned member call never binds a project callable by name."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.g = load_graph_indexer()
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.driver = _RepoDriver(self.g, self.root)
+
+    def build(self, files, driver=None):
+        driver = driver or self.driver
+        for path, src in files.items():
+            driver.write(path, src)
+        return driver.build_incremental(set(files))
+
+    def artifact(self, lang, src, path):
+        session = object.__new__(self.g.GraphIndexSession)
+        session.layer = 'project'
+        session.root = self.root
+        return session._extract_tree_sitter_artifact(path, src, lang)
+
+    def published_edges(self):
+        conn = sqlite3.connect(load_index_state_store().state_store_path(self.driver.index_dir))
+        try:
+            return self.g.read_graph_payload_rows(conn)['edges']
+        finally:
+            conn.close()
+
+    def assert_unowned(self, edges, source, target='external::collect'):
+        hits = [e for e in edges if e['relation'] == 'calls' and e['source'] == source and e['target'] == target]
+        self.assertEqual(len(hits), 1, hits)
+        self.assertEqual(hits[0]['confidence'], 'EXTRACTED')
+        self.assertTrue(hits[0]['receiver_unknown'])
+        self.assertTrue(hits[0][UNOWNED])
+
+    def test_rust_same_file_iterator_collect_keeps_unresolved_identity(self):
+        src = RUST_FREE_COLLECT + RUST_ITERATOR_CALLER + RUST_BARE_CALLER
+        art = self.artifact('rust', src, 'lib.rs')
+        self.assertFalse(any(e['source'] == 'lib.rs::capture' and e['target'] == 'lib.rs::collect' for e in art['edges']))
+        self.assert_unowned(art['edges'], 'lib.rs::capture')
+        payload = self.build({'lib.rs': src})
+        for edges in (payload['edges'], self.published_edges()):
+            self.assertFalse(any(e['source'] == 'lib.rs::capture' and e['target'] == 'lib.rs::collect' for e in edges))
+            self.assert_unowned(edges, 'lib.rs::capture')
+            bare = [e for e in edges if e['source'] == 'lib.rs::tally' and e['target'] == 'lib.rs::collect']
+            self.assertEqual([(e['confidence'], bool(e.get('receiver_unknown'))) for e in bare], [('RECEIVER_RESOLVED', False)])
+
+    def test_rust_cross_file_iterator_collect_keeps_unresolved_identity(self):
+        files = {'src/qualification.rs': RUST_FREE_COLLECT,
+                 'src/preprocess.rs': RUST_ITERATOR_CALLER + RUST_BARE_CALLER}
+        art = self.artifact('rust', files['src/preprocess.rs'], 'src/preprocess.rs')
+        self.assert_unowned(art['edges'], 'src/preprocess.rs::capture')
+        payload = self.build(files)
+        target = 'src/qualification.rs::collect'
+        for edges in (payload['edges'], self.published_edges()):
+            self.assertFalse(any(e['source'] == 'src/preprocess.rs::capture' and e['target'] == target for e in edges))
+            self.assert_unowned(edges, 'src/preprocess.rs::capture')
+            bare = [e for e in edges if e['source'] == 'src/preprocess.rs::tally' and e['target'] == target]
+            self.assertEqual([e['confidence'] for e in bare], ['RECEIVER_RESOLVED'])
+
+    def test_member_collision_matrix_is_structural(self):
+        for lang, (path, src) in COLLISION_MATRIX.items():
+            with self.subTest(lang=lang):
+                driver = _RepoDriver(self.g, self.root / lang)
+                payload = self.build({path: src}, driver)
+                run = next(e['source'] for e in payload['edges']
+                           if e['relation'] == 'calls' and e['source'].endswith('run'))
+                project = [e for e in payload['edges'] if e['relation'] == 'calls' and e['source'] == run
+                           and e['target'].endswith('render') and not e['target'].startswith('external::')]
+                # The only project-bound render edge is the genuine bare call.
+                self.assertTrue(all(e['confidence'] == 'RECEIVER_RESOLVED' and not e.get('receiver_unknown')
+                                    for e in project), project)
+                if lang != 'objc':  # this grammar emits no bare-call edge before or after 201wg
+                    self.assertEqual(len(project), 1, project)
+                self.assert_unowned(payload['edges'], run, 'external::render')
+
+    def test_rust_identifier_receiver_and_cpp_arrow_are_value_syntax(self):
+        payload = self.build({'v.rs': 'fn collect() {}\nfn run(items: Vec<u8>) { items.collect(); }\n',
+                              'v.cpp': 'void collect() {}\nvoid run(Thing *items) { items->collect(); this->collect(); }\n'})
+        self.assert_unowned(payload['edges'], 'v.rs::run', 'external::items.collect')
+        self.assert_unowned(payload['edges'], 'v.cpp::run', 'external::collect')
+        self.assertFalse(any(e['relation'] == 'calls' and e['target'] == 'v.rs::collect' for e in payload['edges']))
+        # `this->` names the enclosing instance and keeps the established bind.
+        self.assertTrue(any(e['relation'] == 'calls' and e['source'] == 'v.cpp::run' and e['target'] == 'v.cpp::collect'
+                            for e in payload['edges']))
+
+    def assert_owned(self, files, source, target, confidence='EXTRACTED'):
+        driver = _RepoDriver(self.g, Path(tempfile.mkdtemp(dir=self.root)))
+        payload = self.build(files, driver)
+        hits = [e for e in payload['edges'] if e['relation'] == 'calls' and e['source'] == source]
+        self.assertEqual([(e['target'], e['confidence'], bool(e.get(UNOWNED))) for e in hits],
+                         [(target, confidence, False)], hits)
+
+    def test_ruby_constant_and_scope_receivers_keep_existing_binding(self):
+        # DEL-1/DEL-2: a constant path names a module/class, never a value.
+        mk = 'module M\n  class K\n    def self.baz; end\n  end\nend\n'
+        k = 'class K\n  def self.baz; end\nend\n'
+        cases = [('M::K.baz()', {'a.rb': mk}, 'a.rb::M.K.baz'),
+                 ('::K.baz()', {'a.rb': k}, 'a.rb::K.baz'),
+                 ('K.baz()', {'a.rb': k}, 'a.rb::K.baz'),
+                 ('M::K.baz()', {'k.rb': mk}, 'k.rb::M.K.baz'),
+                 ('::K.baz()', {'k.rb': k}, 'k.rb::K.baz'),
+                 ('K.baz()', {'k.rb': k}, 'k.rb::K.baz')]
+        for call, files, target in cases:
+            with self.subTest(call=call, files=sorted(files)):
+                files = dict(files)
+                files['a.rb'] = files.get('a.rb', '') + f'def run\n  {call}\nend\n'
+                self.assert_owned(files, 'a.rb::run', target)
+
+    def test_java_qualified_this_keeps_existing_binding(self):
+        src = 'class Outer { void foo() {} class Inner { void run() { Outer.this.foo(); } } }'
+        self.assert_owned({'Outer.java': src}, 'Outer.java::Outer.Inner.run', 'Outer.java::Outer.foo')
+
+    def test_rust_reference_receivers_resolve_the_named_type(self):
+        # DEL-1: `&S` / `&mut S` are stripped to `S`; `let s = S;` names a
+        # unit struct. Bounded: a generic reference stays unowned.
+        impl = 'pub struct S;\nimpl S { pub fn foo(&self) {} }\n'
+        runs = ['fn run(s: &S) { s.foo(); }\n', 'fn run(s: &mut S) { s.foo(); }\n',
+                'fn run() { let s = S; s.foo(); }\n', 'fn run(t: S) { let s: &S = &t; s.foo(); }\n']
+        for run in runs:
+            with self.subTest(run=run, layout='same-file'):
+                self.assert_owned({'a.rs': impl + run}, 'a.rs::run', 'a.rs::S.foo', 'RECEIVER_RESOLVED')
+            with self.subTest(run=run, layout='cross-file'):
+                self.assert_owned({'s.rs': impl, 'a.rs': run}, 'a.rs::run', 's.rs::S.foo', 'RECEIVER_RESOLVED')
+        payload = self.build({'g.rs': 'fn collect() {}\nfn run(v: &Vec<u8>, w: &mut u8) { v.collect(); w.collect(); }\n'})
+        self.assert_unowned(payload['edges'], 'g.rs::run', 'external::v.collect')
+        self.assert_unowned(payload['edges'], 'g.rs::run', 'external::w.collect')
+
+    def test_self_super_and_parenthesized_receivers_keep_existing_binding(self):
+        # DEL-2: `super`, `(this)` and `(self)` name the enclosing instance.
+        self.assert_owned({'s.ts': 'class B { foo() {} }\nclass A extends B { run() { super.foo(); } }\n'},
+                          's.ts::A.run', 's.ts::B.foo')
+        self.assert_owned({'p.ts': 'class C { foo() {} run() { (this).foo(); } }\n'}, 'p.ts::C.run', 'p.ts::C.foo')
+        self.assert_owned({'p.rs': 'struct S;\nimpl S { fn foo(&self) {} fn run(&self) { (self).foo(); } }\n'},
+                          'p.rs::S.run', 'p.rs::S.foo')
+
+    def test_parenthesized_callee_keeps_its_computed_receiver_unowned(self):
+        # Delivery reverification: the callee-side paren unwrap must reach the
+        # member expression, or the computed receiver binds a same-name function.
+        payload = self.build({'m.js': 'function render() {}\nfunction run(b) { (b.subject().render)(); }\n'})
+        hits = calls_from(payload, 'm.js::run')
+        self.assertIn(('external::render', 'EXTRACTED', True, True), hits)
+        self.assertNotIn('m.js::render', [target for target, *_ in hits])
+
+    def test_established_controls_are_unchanged(self):
+        for path, src in (('ctl.rs', RUST_CONTROLS), ('ctl.ts', TS_CONTROLS)):
+            with self.subTest(path=path):
+                fixed = _RepoDriver(self.g, self.root / 'fixed')
+                fixed_payload = self.build({path: src}, fixed)
+                with patch.object(self.g, '_ts_call_receiver_unowned', lambda node, lang: False):
+                    prior = _RepoDriver(self.g, self.root / 'prior')
+                    prior_payload = self.build({path: src}, prior)
+                self.assertEqual(_edge_keys(fixed_payload), _edge_keys(prior_payload))
+                self.assertFalse(any(e.get(UNOWNED) for e in fixed_payload['edges']))
+        rust = self.build({'ctl.rs': RUST_CONTROLS})
+        drive = calls_from(rust, 'ctl.rs::drive')
+        self.assertIn(('ctl.rs::Thing.render', 'RECEIVER_RESOLVED', False, False), drive)
+        self.assertIn(('ctl.rs::Thing.make', 'RECEIVER_RESOLVED', False, False), drive)
+        self.assertIn(('ctl.rs::render', 'RECEIVER_RESOLVED', False, False), drive)
+        self.assertIn(('ctl.rs::Thing', 'CONSTRUCTION_RESOLVED', False, False), drive)
+        self.assertIn(('ctl.rs::Thing.render', 'RECEIVER_RESOLVED', False, False), calls_from(rust, 'ctl.rs::Thing.run'))
+        ts = self.build({'ctl.ts': TS_CONTROLS})
+        self.assertIn(('ctl.ts::C.render', 'RECEIVER_RESOLVED', False, False), calls_from(ts, 'ctl.ts::C.run'))
+        drive = calls_from(ts, 'ctl.ts::drive')
+        # `C.m()` and `new C()` emit no edge before or after 201wg; the
+        # paired prior/fixed comparison above covers them.
+        self.assertEqual(drive, [('ctl.ts::render', 'RECEIVER_RESOLVED', False, False)])
+
+    def test_incremental_symbol_transitions_keep_unowned_caller(self):
+        caller = 'src/preprocess.rs'
+        self.driver.write(caller, RUST_ITERATOR_CALLER)
+        self.driver.write('src/bare.rs', RUST_BARE_CALLER)
+        steps = [
+            ('add', {'src/qualification.rs': RUST_FREE_COLLECT}, set()),
+            ('edit', {'src/qualification.rs': RUST_FREE_COLLECT + 'pub fn changed() {}\n'}, set()),
+            ('rename', {'src/qualification.rs': RUST_FREE_COLLECT.replace('fn collect', 'fn gather')}, set()),
+            ('restore', {'src/qualification.rs': RUST_FREE_COLLECT}, set()),
+            ('remove', {}, {'src/qualification.rs'}),
+            ('readd', {'src/other.rs': RUST_FREE_COLLECT}, set()),
+        ]
+        self.driver.build_incremental({caller, 'src/bare.rs'})
+        for name, writes, removed in steps:
+            with self.subTest(step=name):
+                for path, src in writes.items():
+                    self.driver.write(path, src)
+                for path in removed:
+                    self.driver.delete(path)
+                increment = self.driver.build_incremental(set(writes), removed)
+                oracle = self.driver.build_oracle()
+                self.assertEqual(_edge_keys(increment), _edge_keys(oracle))
+                for payload in (increment, oracle):
+                    self.assert_unowned(payload['edges'], 'src/preprocess.rs::capture')
+                    self.assertFalse(any(e['source'] == 'src/preprocess.rs::capture'
+                                         and not e['target'].startswith('external::') for e in payload['edges']))
+                    bare = [e['target'] for e in payload['edges'] if e['source'] == 'src/bare.rs::tally'
+                            and e['relation'] == 'calls' and e['target'].endswith('collect')]
+                    expected = {'add': 'src/qualification.rs::collect', 'edit': 'src/qualification.rs::collect',
+                                'restore': 'src/qualification.rs::collect', 'readd': 'src/other.rs::collect'}
+                    self.assertEqual(bare, [expected.get(name, 'external::collect')])
+
+    def test_fragment_resolution_and_lookup_keys_skip_unowned_edges(self):
+        target = 'q.rs::collect'
+        ctx = {'simple_name_index': {'collect': [target]}, 'qualified_index': {'items.collect': [target]},
+               'imports_by_file': {}, 'cs_file_ns': {}, 'node_map': {target: {'kind': 'function'}}}
+        for bare in ('collect', 'items.collect'):
+            raw = {'source': 'p.rs::capture', 'target': f'external::{bare}', 'relation': 'calls',
+                   'confidence': 'EXTRACTED', 'receiver_unknown': True, UNOWNED: True}
+            self.assertEqual(self.g._resolve_fragment_edge(dict(raw), ctx), raw)
+            self.assertEqual(self.g._edge_lookup_keys(raw), set())
+            unflagged = {k: v for k, v in raw.items() if k != UNOWNED}
+            self.assertEqual(self.g._resolve_fragment_edge(unflagged, ctx)['target'], target)
+            self.assertTrue(self.g._edge_lookup_keys(unflagged))
+
+    def test_dedup_flag_survives_only_when_every_witness_is_unowned(self):
+        key = ('p.java::A.run', 'external::render', 'calls', 'EXTRACTED')
+        base = dict(zip(('source', 'target', 'relation', 'confidence'), key))
+        unowned = {**base, 'receiver_unknown': True, UNOWNED: True}
+        unknown = {**base, 'receiver_unknown': True}
+        for pair, flag, receiver in [((unowned, base), False, False), ((base, unowned), False, False),
+                                     ((unowned, unknown), False, True), ((unknown, unowned), False, True),
+                                     ((unowned, unowned), True, True)]:
+            edges = {}
+            for edge in pair:
+                self.g._merge_call_evidence(edges, key, dict(edge))
+            raw = self.g._raw_fragment_edge(json.loads(json.dumps(edges[key])))
+            self.assertEqual((bool(raw.get(UNOWNED)), bool(raw.get('receiver_unknown'))), (flag, receiver), pair)
+
+    def test_inheritance_output_pass_skips_unowned_receiver_head(self):
+        nodes = {'q.java::items': {'kind': 'class', 'label': 'items'},
+                 'q.java::Base': {'kind': 'class', 'label': 'Base'},
+                 'q.java::Base.render': {'kind': 'function'}}
+        edges_in = {('q.java::items', 'q.java::Base', 'extends', 'RECEIVER_RESOLVED'):
+                    {'source': 'q.java::items', 'target': 'q.java::Base', 'relation': 'extends', 'confidence': 'RECEIVER_RESOLVED'}}
+        key = ('p.rs::run', 'external::items.render', 'calls', 'EXTRACTED')
+        for flagged in (True, False):
+            edges = dict(edges_in)
+            edge = {**dict(zip(('source', 'target', 'relation', 'confidence'), key)), 'receiver_unknown': True}
+            if flagged:
+                edge[UNOWNED] = True
+            edges[key] = edge
+            self.g._apply_inheritance_output_passes(edges, nodes, {'items': ['q.java::items']}, {})
+            bound = any(k[0] == 'p.rs::run' and k[1] == 'q.java::Base.render' for k in edges)
+            self.assertEqual(bound, not flagged)
+
+    def test_builder_version_transition_replaces_stored_collision(self):
+        files = {'src/qualification.rs': RUST_FREE_COLLECT, 'src/preprocess.rs': RUST_ITERATOR_CALLER}
+        with patch.object(self.g, 'GRAPH_BUILDER_VERSION', '52'), \
+                patch.object(self.g, '_ts_call_receiver_unowned', lambda node, lang: False):
+            stale = self.build(files)
+        wrong = ('src/preprocess.rs::capture', 'src/qualification.rs::collect')
+        self.assertTrue(any((e['source'], e['target']) == wrong for e in stale['edges']))
+        self.assertEqual(self.g.read_state_builder_version(self.driver.index_dir), '52')
+        payload = self.driver.build_incremental(set())
+        self.assertEqual(payload['builder_version'], self.g.GRAPH_BUILDER_VERSION)
+        self.assertNotEqual(self.g.GRAPH_BUILDER_VERSION, '52')
+        for edges in (payload['edges'], self.published_edges()):
+            self.assertFalse(any((e['source'], e['target']) == wrong for e in edges))
+            self.assert_unowned(edges, 'src/preprocess.rs::capture')
+        self.assertEqual(self.g.read_state_builder_version(self.driver.index_dir), self.g.GRAPH_BUILDER_VERSION)
 
 
 if __name__=='__main__':unittest.main()

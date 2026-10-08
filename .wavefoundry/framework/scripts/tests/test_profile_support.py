@@ -58,7 +58,8 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 # The shipped vocabulary as an archive profile: equal in value to the live
 # names, but still a difference from the shipped ``ARCHIVE_PROFILE = None``.
 SHIPPED_VOCABULARY = {k: v for k, v in SHIPPED_DEFAULTS["vocabulary_profile"].items()
-                      if k not in ("ARCHIVE_PROFILE", "EXTRA_CHANGE_KINDS", "PROMPT_NAME_OVERRIDES")}
+                      if k not in ("ARCHIVE_PROFILE", "EXTRA_CHANGE_KINDS", "PROMPT_NAME_OVERRIDES",
+                                   "EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS", "COUNCIL_DISPLAY_NAME")}
 
 _spec = importlib.util.spec_from_file_location("run_tests", SCRIPTS_DIR / "run_tests.py")
 run_tests = importlib.util.module_from_spec(_spec)
@@ -433,7 +434,8 @@ class DefaultProfileOnlyMarkerTests(unittest.TestCase):
         # Names are not edited by a fork, so this pin holds under any profile.
         self.assertEqual(set(SHIPPED_DEFAULTS["vocabulary_profile"]),
                          set(vocabulary_profile.FIELD_NAMES)
-                         | {"ARCHIVE_PROFILE", "EXTRA_CHANGE_KINDS", "PROMPT_NAME_OVERRIDES"})
+                         | {"ARCHIVE_PROFILE", "EXTRA_CHANGE_KINDS", "PROMPT_NAME_OVERRIDES",
+                            "EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS", "COUNCIL_DISPLAY_NAME"})
         self.assertEqual(set(SHIPPED_DEFAULTS["record_paths"]),
                          set(record_paths.CONSTANT_NAMES) | {"ARCHIVE_ROOT"})
 

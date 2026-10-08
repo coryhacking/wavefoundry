@@ -608,7 +608,8 @@ class CheckedReaderCensusTests(unittest.TestCase):
             name for name, node in found.items()
             if any(isinstance(n, (ast.Name, ast.Attribute))
                    and (getattr(n, "id", None) or getattr(n, "attr", None)) in {
-                       "_read_repo_text_checked", "_refuse_runtime_lock_target"}
+                       "_read_repo_text_checked", "_read_repo_text_and_stat",
+                       "_refuse_runtime_lock_target"}
                    for n in ast.walk(node))
         }
         self.assertTrue({
@@ -624,6 +625,61 @@ class CheckedReaderCensusTests(unittest.TestCase):
             with self.subTest(function=name):
                 self.assertIn("_refuse_runtime_lock_target(root, handoff)", text)
                 self.assertNotIn("handoff.read_text", text)
+
+    def test_census_sites_read_and_write_through_the_contained_primitive(self) -> None:
+        """Wave 200ey (1zyv2) AC-10: the checked reader is the contained read, the
+        handoff writers are the contained write, and no census site opens,
+        reads, writes or creates a directory by path itself."""
+        import ast
+
+        from framework_files import source_path
+
+        server = ast.parse(source_path("server_impl").read_text(encoding="utf-8"))
+        handoff = ast.parse(source_path("wf_server.edit_gate_handlers").read_text(encoding="utf-8"))
+        functions = {
+            node.name: node
+            for tree in (server, handoff)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef)
+        }
+
+        def text(name: str) -> str:
+            return ast.unparse(functions[name])
+
+        self.assertIn("contained_files.read_contained(", text("_read_repo_text_and_stat"))
+        self.assertIn("_read_repo_text_and_stat(", text("_read_repo_text_checked"))
+        self.assertIn("contained_files.write_contained_bytes(", text("_write_handoff_text"))
+        for name in ("wf_set_handoff_response", "wf_pause_wave_response", "wf_close_wave_response"):
+            with self.subTest(writer=name):
+                self.assertIn("_write_handoff_text(", text(name))
+        self.assertIn("_read_repo_text_and_stat(", text("wf_get_handoff_response"))
+        census = {
+            "get_prompt", "_read_doc_or_not_found", "_validated_wave_markdown",
+            "resource_project_overview", "resource_seed", "resource_architecture",
+            "resource_area_context", "resource_codebase_map", "resource_prompt",
+            "resource_current_wave", "resource_wave", "resource_session_handoff",
+            "resource_agents", "resource_prompt_index", "resource_architecture_current_state",
+            "wf_get_handoff_response", "wf_set_handoff_response", "_read_handoff_prior",
+            "_write_handoff_text", "_read_repo_text_checked", "_read_repo_text_and_stat",
+        }
+        forbidden = {"read_text", "read_bytes", "write_text", "write_bytes", "open", "mkdir", "chmod"}
+        for name in sorted(census):
+            node = functions[name]
+            calls = set()
+            for call in ast.walk(node):
+                if not isinstance(call, ast.Call):
+                    continue
+                if isinstance(call.func, ast.Attribute):
+                    calls.add(call.func.attr)
+                elif isinstance(call.func, ast.Name):
+                    calls.add(call.func.id)
+            with self.subTest(function=name):
+                self.assertFalse(calls & forbidden, sorted(calls & forbidden))
+        # The pause and close handoff blocks create no directory by path either.
+        for name in ("wf_pause_wave_response", "wf_close_wave_response"):
+            with self.subTest(function=name):
+                self.assertNotIn("handoff.parent.mkdir", text(name))
+                self.assertNotIn("handoff.write_text", text(name))
 
 
 if __name__ == "__main__":

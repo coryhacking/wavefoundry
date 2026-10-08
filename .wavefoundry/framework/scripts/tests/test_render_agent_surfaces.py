@@ -899,9 +899,12 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
         change = next((repo_root / "docs" / "waves").glob("1skt1*/1siu0*.md")).read_text(
             encoding="utf-8"
         )
+        # The closed 1skt1 change doc is history and names a destination as it
+        # was then (wave 200ey, change 200ew: the council role doc's earlier path).
+        historical = {"docs/agents/specialists/council-chair.md": "docs/agents/specialists/wave-council.md"}
         for carrier in ras.REVIEW_PROTOCOL_CARRIER_REGISTRY:
             self.assertIn(carrier.destination, ownership, carrier.destination)
-            self.assertIn(carrier.destination, change, carrier.destination)
+            self.assertIn(historical.get(carrier.destination, carrier.destination), change, carrier.destination)
 
     def test_reconciles_before_guru_guard_preserves_extensions_and_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1730,6 +1733,137 @@ class ChangePromptRenameMigrationTests(unittest.TestCase):
             self.assertFalse((root / self.NEW_PLAN).exists())
             self.assertEqual((root / self.MANIFEST).read_bytes(), manifest_before)
 
+    # ---- Wave 200ey (change 200eu) -------------------------------------------
+
+    def _assert_path_free(self, message: str, root: Path) -> None:
+        self.assertNotIn(SENTINEL, message)
+        self.assertNotIn(str(root), message)
+        self.assertNotIn(str(root.resolve()), message)
+        self.assertNotIn(root.name, message)
+
+    def test_read_and_unlink_failures_name_relative_paths_and_classes(self) -> None:
+        """AC-2: the move's read and unlink failures."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._pre_rename_repo(root)
+            with patch.object(ras, "_read_move_source",
+                              side_effect=_sentinel_error(OSError, 5, str(root / self.OLD_PLAN))), \
+                    self.assertRaises(RuntimeError) as raised:
+                ras.migrate_change_prompt_renames(root)
+            message = str(raised.exception)
+            self._assert_path_free(message, root)
+            self.assertIn(self.OLD_PLAN, message)
+            self.assertIn("(OSError)", message)
+            real_unlink = Path.unlink
+
+            def failing_unlink(path_self, *args, **kwargs):
+                if path_self.name == Path(self.OLD_PLAN).name:
+                    raise _sentinel_error(path=str(path_self))
+                return real_unlink(path_self, *args, **kwargs)
+
+            with patch.object(Path, "unlink", failing_unlink), self.assertRaises(RuntimeError) as raised:
+                ras.migrate_change_prompt_renames(root)
+            message = str(raised.exception)
+            self._assert_path_free(message, root)
+            self.assertIn(self.OLD_PLAN, message)
+            self.assertIn("(PermissionError)", message)
+
+    def test_a_manifest_nested_past_the_recursion_limit_is_unreadable(self) -> None:
+        """AC-3: both manifest readers treat a ``RecursionError`` as an
+        unreadable manifest, and the render does not crash."""
+        import json
+
+        deep = "[" * 1_000_000 + "]" * 1_000_000
+        try:
+            json.loads(deep)
+        except RecursionError:
+            pass
+        else:  # pragma: no cover - an interpreter without a nesting limit
+            self.skipTest("json.loads parsed the nesting without a RecursionError")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._pre_rename_repo(root)
+            (root / self.MANIFEST).write_text(deep, encoding="utf-8")
+            self.assertEqual(ras._repair_change_prompt_manifest(root), [])
+            with self.assertRaises(ValueError) as raised:
+                ras._read_prompt_manifest(root)
+            self.assertIn("is unreadable or not valid JSON (RecursionError)", str(raised.exception))
+            self._assert_path_free(str(raised.exception), root)
+            migration = ras.migrate_change_prompt_renames(root)
+            self.assertIn(self.NEW_PLAN, migration.written)
+            self.assertNotIn(self.MANIFEST, migration.written)
+            self.assertEqual((root / self.MANIFEST).read_text(encoding="utf-8"), deep)
+            profile = ras.migrate_profile_prompt_names(root)
+            self.assertFalse(profile.record_readable)
+
+    def test_read_prompt_manifest_reason_is_a_class_only(self) -> None:
+        """AC-2: the manifest reader's reason never carries the error text."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._pre_rename_repo(root)
+            for error, cls in ((_sentinel_error(OSError, 5, str(root / self.MANIFEST)), "OSError"),
+                               (ValueError(SENTINEL), "ValueError")):
+                with self.subTest(cls=cls), patch.object(ras, "_read_repo_text", side_effect=error), \
+                        self.assertRaises(ValueError) as raised:
+                    ras._read_prompt_manifest(root)
+                self._assert_path_free(str(raised.exception), root)
+                self.assertIn(f"({cls})", str(raised.exception))
+
+    UNSAFE_NAME = "docs/a\x1b[31m‮b​c.md"
+    UNSAFE_SHOWN = "docs/a\\u001b[31m\\u202eb\\u200bc.md"
+
+    def test_link_report_notices_escape_names_and_the_report_keeps_them_raw(self) -> None:
+        """AC-4: the link-report NOTICE lines escape control, bidirectional,
+        zero-width and lone-surrogate characters; ``link_report`` keeps raw
+        names; an ordinary name prints unchanged."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._pre_rename_repo(root)
+            try:
+                (root / self.UNSAFE_NAME).write_text("[p](prompts/plan-feature.prompt.md)\n", encoding="utf-8")
+            except OSError:
+                self.skipTest("this filesystem refuses the unsafe file name")
+            real = ras.migrate_change_prompt_renames
+            captured = []
+
+            def _migrate(repo_root):
+                result = real(repo_root)
+                captured.append(result)
+                # A lone surrogate cannot name a file on every filesystem, so
+                # it is appended to the real report.
+                return ras.ChangePromptMigration(
+                    written=result.written, link_report=(*result.link_report, "docs/x\ud800y.md:2")
+                )
+
+            stderr = io.StringIO()
+            with patch.object(ras, "migrate_change_prompt_renames", _migrate), patch("sys.stderr", stderr):
+                ras.render_agent_surfaces(root)
+            self.assertIn(f"{self.UNSAFE_NAME}:1", captured[0].link_report)
+            self.assertIn("docs/guide.md:3", captured[0].link_report)
+            notices = [line for line in stderr.getvalue().splitlines() if "moved prompt" in line]
+            self.assertEqual(len(notices), 3, stderr.getvalue())
+            shown = "\n".join(notices)
+            self.assertIn(f"{self.UNSAFE_SHOWN}:1", shown)
+            self.assertIn("docs/x\\ud800y.md:2", shown)
+            self.assertIn("docs/guide.md:3", shown)
+            for char in ("\x1b", "‮", "​", "\ud800"):
+                self.assertNotIn(char, shown)
+
+    def test_a_raised_message_escapes_a_repository_file_name(self) -> None:
+        """AC-4: a raised message naming a repository file escapes it."""
+        with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as outside_dir:
+            root = Path(temp_dir)
+            try:
+                (root / "docs").symlink_to(outside_dir, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("directory links are unavailable here")
+            with self.assertRaises(RuntimeError) as raised:
+                ras._contained_review_carrier_path(root, self.UNSAFE_NAME)
+            message = str(raised.exception)
+            self.assertIn(self.UNSAFE_SHOWN, message)
+            for char in ("\x1b", "‮", "​"):
+                self.assertNotIn(char, message)
+
     def test_conflict_in_any_pair_writes_nothing(self) -> None:
         for kind in ("both-exist", "symlink"):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temp_dir:
@@ -2369,25 +2503,26 @@ class AgentSurfaceNewlineTests(unittest.TestCase):
         (repo_root / ".codex").mkdir()
 
     def test_write_text_uses_newline_empty_and_writes_verbatim(self) -> None:
-        # Durable, host-independent guard: capture the newline kwarg passed to
-        # Path.open. The old `path.write_text(content, encoding="utf-8")` never
-        # passes newline="" (it uses the default newline=None, which translates
-        # every "\n" -> os.linesep on native Windows), so this fails on a revert
-        # on ANY host, not only on Windows.
-        real_open = Path.open
+        # Durable, host-independent guard: capture the bytes handed to the
+        # contained write. A text-mode write (`path.write_text(content)`, the
+        # default newline=None) translates every "\n" -> os.linesep on native
+        # Windows; since wave 200ey (1zyv2) the content is encoded verbatim and
+        # written as bytes, so a revert to any translating form fails on ANY host.
+        real_write = ras.contained_files.write_contained_bytes
         captured: dict[str, object] = {}
 
-        def spy_open(self, *args, **kwargs):  # noqa: ANN001
-            captured["newline"] = kwargs.get("newline", "<absent>")
-            return real_open(self, *args, **kwargs)
+        def spy_write(root, path, data, **kwargs):  # noqa: ANN001
+            captured["data"] = data
+            return real_write(root, path, data, **kwargs)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             target = Path(temp_dir) / "nested" / "surface.txt"
-            with patch.object(Path, "open", spy_open):
-                ras.write_text(target, "line-1\nline-2\nline-3\n")
+            with patch.object(ras.contained_files, "write_contained_bytes", spy_write), \
+                    patch.object(ras.os, "linesep", "\r\n"):
+                ras.write_text(target, "line-1\nline-2\nline-3\n", root=Path(temp_dir))
             self.assertEqual(
-                captured.get("newline"), "",
-                "write_text must open with newline='' so embedded \\n are written verbatim",
+                captured.get("data"), b"line-1\nline-2\nline-3\n",
+                "write_text must hand the content to the contained write verbatim",
             )
             raw = target.read_bytes()
             self.assertNotIn(b"\r\n", raw, "written bytes must be LF-only")
@@ -3109,10 +3244,10 @@ class GuruWrapperModelPolicyTests(unittest.TestCase):
         # chokepoint, leaving both reconciliation passes running normally.
         original_write = ras.write_text
 
-        def overwrite(path, content):
+        def overwrite(path, content, **kwargs):
             if path.as_posix().endswith("/.claude/agents/guru.md"):
                 content = ras.CLAUDE_GURU_AGENT
-            return original_write(path, content)
+            return original_write(path, content, **kwargs)
 
         with patch.object(ras, "write_text", side_effect=overwrite):
             with self.assertRaises(AssertionError):
@@ -3812,10 +3947,10 @@ class TechdocsBaselinePreconditionAndPathTests(unittest.TestCase):
             path = Path(temp_dir) / "catalog-info.yaml"
             path.write_text("mine\n", encoding="utf-8")
             with self.assertRaises(RuntimeError):
-                ras._write_review_carrier_text(path, "generated\n", exclusive=True)
+                ras._write_review_carrier_text(path, "generated\n", exclusive=True, root=Path(temp_dir))
             self.assertEqual(path.read_text(encoding="utf-8"), "mine\n")
-            # The default (sibling families) still truncates in place.
-            ras._write_review_carrier_text(path, "generated\n")
+            # The default (sibling families) still replaces the content.
+            ras._write_review_carrier_text(path, "generated\n", root=Path(temp_dir))
             self.assertEqual(path.read_text(encoding="utf-8"), "generated\n")
 
 
@@ -4316,6 +4451,193 @@ class TechdocsCarrierLiteralPinTests(unittest.TestCase):
         self.assertIn("## Operator follow-up checklist (canonical)", prompt)
         for rel in ("docs/prompts/install-wavefoundry.prompt.md", "docs/prompts/upgrade-wavefoundry.prompt.md", "docs/references/install-assets.md"):
             self.assertIn("techdocs-baseline", self._read(rel), rel)
+
+
+# ---- Wave 200ey (change 200eu): render message hygiene -------------------------
+
+SENTINEL = "zq-sentinel-oserror-text"
+
+
+def _sentinel_error(cls=PermissionError, errno_value: int = 13, path: "str | None" = None) -> OSError:
+    """An ``OSError`` whose text is the sentinel and whose filename is ``path``."""
+    return cls(errno_value, SENTINEL, path) if path is not None else cls(errno_value, SENTINEL)
+
+
+class RenderMessageHygieneTests(unittest.TestCase):
+    """AC-2: every census site's message names repository-relative paths (or a
+    fixed label) and exception classes only: no absolute path, no part of the
+    temporary directory path and no ``OSError`` text."""
+
+    def assert_hygienic(self, message: str, root: Path, label: str, cls: "str | None") -> None:
+        import os
+
+        self.assertNotIn(SENTINEL, message)
+        for part in {str(root), str(root.resolve()), root.name, tempfile.gettempdir(),
+                     os.path.realpath(tempfile.gettempdir()),
+                     str(Path(ras.__file__).resolve().parent.parent)}:
+            self.assertNotIn(part, message)
+        self.assertIsNone(re.search(r"(?:^|[\s(:'\"])(?:/|[A-Za-z]:\\)\w", message), message)
+        self.assertIn(label, message)
+        if cls is not None:
+            self.assertIn(cls, message)
+
+    def _fake_package(self, base: Path) -> Path:
+        """A module location whose packaged ``install`` directory is empty."""
+        scripts = base / "pkg" / "framework" / "scripts"
+        scripts.mkdir(parents=True)
+        (base / "pkg" / "framework" / "install" / "lifecycle-prompts").mkdir(parents=True)
+        return scripts / "render_agent_surfaces.py"
+
+    def test_missing_install_asset_names_labels_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as pkg_dir:
+            root = Path(temp_dir)
+            with patch.object(ras, "__file__", str(self._fake_package(Path(pkg_dir)))), \
+                    self.assertRaises(RuntimeError) as caught:
+                ras._resolve_install_asset(root, "plan-template.md")
+            message = str(caught.exception)
+            self.assert_hygienic(message, root, ".wavefoundry/framework/install/plan-template.md", None)
+            self.assertIn("the packaged fallback install/plan-template.md", message)
+            self.assertNotIn(pkg_dir, message)
+
+    def test_missing_lifecycle_baseline_names_labels_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as pkg_dir:
+            root = Path(temp_dir)
+            with patch.object(ras, "__file__", str(self._fake_package(Path(pkg_dir)))), \
+                    self.assertRaises(RuntimeError) as caught:
+                ras.reconcile_lifecycle_prompt_baselines(root)
+            message = str(caught.exception)
+            self.assert_hygienic(message, root, "the packaged fallback install/lifecycle-prompts/", None)
+            self.assertNotIn(pkg_dir, message)
+
+    def test_carrier_path_resolution_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real = Path.resolve
+
+            def _resolve(path, *args, **kwargs):
+                if path.name == "carrier.md":
+                    raise _sentinel_error(OSError, 5, str(path))
+                return real(path, *args, **kwargs)
+
+            with patch.object(Path, "resolve", _resolve), self.assertRaises(RuntimeError) as caught:
+                ras._contained_review_carrier_path(root, "docs/carrier.md")
+            self.assert_hygienic(str(caught.exception), root, "docs/carrier.md", "OSError")
+
+    def test_every_review_carrier_write_refusal(self) -> None:
+        import contextlib
+        import os
+
+        cases = {
+            "text-open": (False, "text", lambda name: True),
+            "bytes-temporary-open": (False, "bytes", lambda name: True),
+            "bytes-direct-copy-open": (True, "bytes", lambda name: not name.endswith(".tmp")),
+        }
+        for case, (no_links, kind, fails) in cases.items():
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                target = root / "docs" / "prompts" / "x.prompt.md"
+                real_open = ras._exclusive_open
+
+                def _open(parent, dir_fd, name, flags, _fails=fails):
+                    if _fails(name):
+                        raise _sentinel_error(path=str(parent / name))
+                    return real_open(parent, dir_fd, name, flags)
+
+                content = "text\n" if kind == "text" else b"bytes\n"
+                link_patch = (patch.object(os, "link", side_effect=_sentinel_error(OSError, 1))
+                              if no_links else contextlib.nullcontext())
+                with patch.object(ras, "_exclusive_open", _open), link_patch, \
+                        patch.object(os, "name", "posix"), self.assertRaises(RuntimeError) as caught:
+                    ras._write_review_carrier_text(target, content, exclusive=True, root=root)
+                self.assert_hygienic(str(caught.exception), root, "docs/prompts/x.prompt.md", "PermissionError")
+
+    def test_review_plan_migration_read_and_unlink_failures(self) -> None:
+        legacy = "\n".join(
+            [old_line for _label, old_line, _new in ras.REVIEW_PLAN_LEGACY_CONTRACT_LINES] + ["", "prose", ""]
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            old = root / ras.REVIEW_PLAN_OLD_PROMPT
+            old.parent.mkdir(parents=True)
+            old.write_text(legacy, encoding="utf-8")
+            with patch.object(ras, "_read_move_source", side_effect=_sentinel_error(OSError, 5, str(old))), \
+                    self.assertRaises(RuntimeError) as caught:
+                ras.migrate_review_plan_prompt(root)
+            self.assert_hygienic(str(caught.exception), root, ras.REVIEW_PLAN_OLD_PROMPT, "OSError")
+            real_unlink = Path.unlink
+
+            def _unlink(path, *args, **kwargs):
+                if path.name == Path(ras.REVIEW_PLAN_OLD_PROMPT).name:
+                    raise _sentinel_error(path=str(path))
+                return real_unlink(path, *args, **kwargs)
+
+            with patch.object(Path, "unlink", _unlink), self.assertRaises(RuntimeError) as caught:
+                ras.migrate_review_plan_prompt(root)
+            self.assert_hygienic(str(caught.exception), root, ras.REVIEW_PLAN_OLD_PROMPT, "PermissionError")
+
+    def test_techdocs_classification_and_write_failures(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            real_lstat = Path.lstat
+
+            def _lstat(path, *args, **kwargs):
+                if path.name == "mkdocs.yml":
+                    raise _sentinel_error(path=str(path))
+                return real_lstat(path, *args, **kwargs)
+
+            with patch.object(Path, "lstat", _lstat), self.assertRaises(ras.TechdocsDestinationRefused) as caught:
+                ras._classify_techdocs_destination(root, "mkdocs.yml")
+            self.assert_hygienic(str(caught.exception), root, "mkdocs.yml", "PermissionError")
+            for target in ras.TECHDOCS_PRECONDITION_TARGETS:
+                (root / target).parent.mkdir(parents=True, exist_ok=True)
+                (root / target).write_text("# t\n", encoding="utf-8")
+            with patch.object(ras, "_write_review_carrier_text",
+                              side_effect=_sentinel_error(OSError, 28, str(root / "catalog-info.yaml"))), \
+                    self.assertRaises(ras.TechdocsWriteFailed) as caught:
+                ras.render_techdocs_baseline(root)
+            self.assert_hygienic(str(caught.exception), root, "catalog-info.yaml", "OSError")
+
+    def test_malformed_marker_warnings_name_the_relative_destination(self) -> None:
+        import io as _io
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for rel in ras.REVIEW_POLICY_SURFACE_BLOCKS:
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / rel).write_text("project prose\n", encoding="utf-8")
+            destination = next(iter(ras.REVIEW_POLICY_SURFACE_BLOCKS))
+            (root / destination).write_text(
+                f"prose\n{ras.REVIEW_POLICY_SURFACE_MARKER_BEGIN}\nunclosed\n", encoding="utf-8"
+            )
+            err = _io.StringIO()
+            with patch("sys.stderr", err):
+                ras.reconcile_review_policy_surfaces(root)
+            warning = next(line for line in err.getvalue().splitlines() if destination in line)
+            self.assert_hygienic(warning, root, destination, None)
+
+
+class DisplayNameTests(unittest.TestCase):
+    """Requirement 4: the display helper escapes control, format, surrogate and
+    line/paragraph separator characters and leaves ordinary names unchanged."""
+
+    def test_ordinary_names_are_unchanged(self) -> None:
+        for name in ("docs/guide.md", "docs/café notes.md", "docs/日本.md", "a b-c_d.md:7"):
+            with self.subTest(name=name):
+                self.assertEqual(ras._display_name(name), name)
+
+    def test_unsafe_characters_are_escaped(self) -> None:
+        cases = {
+            "a\x1b[31mb": "a\\u001b[31mb",
+            "a‮b": "a\\u202eb",
+            "a​b": "a\\u200bb",
+            "a\ud800b": "a\\ud800b",
+            "a b c": "a\\u2028b\\u2029c",
+            "a\x85b\x7fc": "a\\u0085b\\u007fc",
+            "a\U000e0001b": "a\\U000e0001b",
+        }
+        for raw, shown in cases.items():
+            with self.subTest(raw=repr(raw)):
+                self.assertEqual(ras._display_name(raw), shown)
 
 
 if __name__ == "__main__":

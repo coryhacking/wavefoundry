@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-01
+Last verified: 2026-10-08
 
 Hub index for Wavefoundry architecture documentation. Child docs provide detail; this file provides scope, update triggers, and cross-links.
 
@@ -63,4 +63,5 @@ Update this hub and relevant child docs when:
 
 - [Configured phase gates ADR](architecture/decisions/1yb53-adr%20config-declared-phase-gates.md) — accepted: typed project sensor requirements, bounded execution and read-only previews
 - [Tool registry ADR](architecture/decisions/1ye5y-adr%20flat-sibling-tool-registry.md) — superseded for placement by 1yx4m: the MCP tool registry and wrapper-chain applier are a stateless module; the chain is declared in `server_impl` beside the wrappers
+- [Council chair ADR](architecture/decisions/20355-adr%20council-chair-actor-rename.md) — accepted: the council moderator actor and role are `council-chair`; the earlier name is accepted on read forever and aliased on write; recorded history is never rewritten
 - [Server package ADR](architecture/decisions/1yx4m-adr%20wf-server-package.md) — accepted: the MCP server implementation lives in `scripts/wf_server/`; `server_impl` and `dashboard_handlers` keep flat `sys.modules` aliases and the other ten are reached as `wf_server.<name>` (amended by wave `1yxyw`)

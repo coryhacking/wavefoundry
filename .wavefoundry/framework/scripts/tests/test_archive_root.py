@@ -225,7 +225,7 @@ class ArchiveWriterRefusalTests(_ArchiveCase):
             "wf_mark_task": lambda: srv._mark_change_item_response(
                 root, wave, change, "Do it.", "x", target_section="Tasks", mode="create"),
             "wf_review_event": lambda: srv.wf_review_event_response(
-                root, wave, "run", "wave-council", "ctx", mode="create", run_kind="readiness"),
+                root, wave, "run", "council-chair", "ctx", mode="create", run_kind="readiness"),
             "wf_prepare_wave": lambda: srv.wf_prepare_wave_response(root, wave, mode="create"),
             "wf_pause_wave": lambda: srv.wf_pause_wave_response(root, wave, mode="create"),
             "wf_review_wave": lambda: srv.wf_review_wave_response(root, wave),
@@ -323,11 +323,11 @@ class ArchiveUntouchedByLiveLifecycleTests(_ArchiveCase):
             plan.write_text(text, encoding="utf-8")
             ok("admit", srv.wf_add_change_response(root, wave_id, change_id, mode="create"))
             lanes = srv.wf_prepare_wave_response(root, wave_id, mode="ready")["data"]["review_policy"]["required_lanes"]
-            event("readiness run", wave_id, "run", "wave-council", "r-run", run_kind="readiness", cycle=0)
+            event("readiness run", wave_id, "run", "council-chair", "r-run", run_kind="readiness", cycle=0)
             for lane in lanes:
                 event("readiness " + lane, wave_id, "approval", lane, "r-" + lane,
                       signoff_key=lane, approval_phase="readiness")
-            event("readiness council", wave_id, "approval", "wave-council", "r-council",
+            event("readiness council", wave_id, "approval", "council-chair", "r-council",
                   signoff_key="wave-council-readiness", approval_phase="readiness")
             ok("prepare create", srv.wf_prepare_wave_response(root, wave_id, mode="create"))
             status_label = srv._vocab.MEMBER_STATUS_LABEL
@@ -336,11 +336,11 @@ class ArchiveUntouchedByLiveLifecycleTests(_ArchiveCase):
                 path.write_text(path.read_text(encoding="utf-8").replace(
                     f"{status_label}: `planned`", f"{status_label}: `complete`"), encoding="utf-8")
             reviewed = srv.wf_review_wave_response(root, wave_id)
-            event("delivery run", wave_id, "run", "wave-council", "d-run", run_kind="initial_delivery", cycle=0)
+            event("delivery run", wave_id, "run", "council-chair", "d-run", run_kind="initial_delivery", cycle=0)
             for lane in [lane for lane in reviewed["data"]["required_lanes"] if lane != "operator"]:
                 event("delivery " + lane, wave_id, "approval", lane, "d-" + lane,
                       signoff_key=lane, approval_phase="delivery")
-            event("delivery council", wave_id, "approval", "wave-council", "d-council",
+            event("delivery council", wave_id, "approval", "council-chair", "d-council",
                   signoff_key="wave-council-delivery", approval_phase="delivery")
             event("operator", wave_id, "approval", "operator", "op", signoff_key="operator-signoff",
                   approval_phase="delivery")

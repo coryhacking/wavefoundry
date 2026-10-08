@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 from typing import Optional
 import datetime
+import os
 import re
 
 
@@ -204,7 +205,9 @@ def wf_get_handoff_response(root: Path) -> dict[str, Any]:
     """Read docs/agents/session-handoff.md and return its content and mtime."""
     from wf_server import server_impl
     handoff_path = root / "docs" / "agents" / "session-handoff.md"
-    if not handoff_path.exists():
+    # ``lexists``: a dangling link reaches the contained read and is refused,
+    # rather than reported as an absent handoff (wave 200ey, change 1zyv2).
+    if not os.path.lexists(handoff_path):
         return server_impl._response(
             "ok",
             {"path": "docs/agents/session-handoff.md", "content": None, "mtime": None},
@@ -221,13 +224,22 @@ def wf_get_handoff_response(root: Path) -> dict[str, Any]:
         )
     try:
         # Wave 1zxnz (1zx02): a handoff resolving to a runtime lock is never opened.
-        content = server_impl._read_repo_text_checked(root, handoff_path)
-        mtime = handoff_path.stat().st_mtime
+        # Wave 200ey (1zyv2): the contained read; the mtime is the descriptor's.
+        content, opened = server_impl._read_repo_text_and_stat(root, handoff_path)
+        mtime = opened.st_mtime
     except server_impl.RuntimeLockTargetRefused as exc:
         return server_impl._response(
             "error",
             {"path": "docs/agents/session-handoff.md"},
             diagnostics=[server_impl._runtime_lock_target_refused_diagnostic(exc.rel_path)],
+            next_tools=["wf_current_wave"],
+            usage="wf_current_wave()",
+        )
+    except server_impl.contained_files.ContainedFileRefused as exc:
+        return server_impl._response(
+            "error",
+            {"path": "docs/agents/session-handoff.md"},
+            diagnostics=[server_impl._contained_refused_diagnostic(exc)],
             next_tools=["wf_current_wave"],
             usage="wf_current_wave()",
         )
@@ -248,13 +260,22 @@ def wf_set_handoff_response(root: Path, content: str, cache: Optional[server_imp
     try:
         # Wave 1zxnz (1zx02): a handoff resolving to a runtime lock is never opened.
         server_impl._refuse_runtime_lock_target(root, handoff_path)
-        handoff_path.parent.mkdir(parents=True, exist_ok=True)
-        handoff_path.write_text(content, encoding="utf-8")
+        # Wave 200ey (1zyv2): the contained write (no link leaving the
+        # repository is followed; oversized content is refused first).
+        server_impl._write_handoff_text(root, handoff_path, content)
     except server_impl.RuntimeLockTargetRefused as exc:
         return server_impl._response(
             "error",
             {"path": "docs/agents/session-handoff.md"},
             diagnostics=[server_impl._runtime_lock_target_refused_diagnostic(exc.rel_path)],
+            next_tools=["wf_current_wave"],
+            usage="wf_current_wave()",
+        )
+    except server_impl.contained_files.ContainedFileRefused as exc:
+        return server_impl._response(
+            "error",
+            {"path": "docs/agents/session-handoff.md"},
+            diagnostics=[server_impl._contained_refused_diagnostic(exc)],
             next_tools=["wf_current_wave"],
             usage="wf_current_wave()",
         )

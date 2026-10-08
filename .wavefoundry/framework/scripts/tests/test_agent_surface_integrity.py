@@ -45,7 +45,7 @@ class AgentSurfaceIntegrityTests(unittest.TestCase):
     def test_registry_paths_are_the_only_canonical_authority(self):
         paths = subject.canonical_role_paths()
         self.assertEqual(paths["red-team"], "docs/agents/specialists/red-team.md")
-        self.assertEqual(paths["wave-council"], "docs/agents/specialists/wave-council.md")
+        self.assertEqual(paths["council-chair"], "docs/agents/specialists/council-chair.md")
 
     def test_audit_follows_a_registry_destination_change(self):
         # AC-2: no parallel role-path list. Move one carrier's destination in the registry

@@ -483,6 +483,16 @@ with base_declaration(**declaration):
     emit(surface=serialize_surface(mcp, tiers))
 """
 
+def _reset_to_shipped_declaration(scripts: Path) -> None:
+    """Reset a copied scripts tree to the shipped vocabulary, layout and tool
+    declaration (the ``test_profile_support`` idiom; ``shipped_default_profile``
+    does not cover the declaration module, so it is reset on its own)."""
+    from record_layout_support import apply_profile, shipped_default_profile
+
+    apply_profile(scripts, shipped_default_profile())
+    apply_profile(scripts, {"modules": {"mcp_tool_extensions": json.loads(json.dumps(SHIPPED_DECLARATION))}})
+
+
 # The subprocess boot copies the scripts tree and starts the server; a loaded
 # machine must not fail it, so the timeout is generous.
 SCRATCH_BOOT_TIMEOUT_SECONDS = 300
@@ -540,11 +550,23 @@ class ProfileToolSurfaceGoldenTests(unittest.TestCase):
                          module_sources=None) -> "tuple[dict | None, list[str]]":
         """The surface a module-declaring asset serves, booted from a scratch
         copy with the asset applied; ``module_sources`` replaces a copied
-        module's source after the asset is applied."""
+        module's source after the asset is applied.
+
+        The copy is first reset to the shipped defaults and the shipped
+        declaration (change 200ex), so the boot depends only on the shipped
+        declaration plus ``asset``: a distribution's live declaration (its own
+        extension, helper or lifecycle entries the asset does not name) never
+        leaks into the copied module. ``apply_profile`` edits single-line
+        assignments only, so a live constant assigned across several lines
+        fails the reset with ``ProfileInvalid`` naming it."""
         from record_layout_support import ProfileInvalid, apply_profile, copy_scripts_tree
 
         scratch = Path(tempfile.mkdtemp(dir=self.tmp.name))
         scripts = copy_scripts_tree(scratch / "framework")
+        try:
+            _reset_to_shipped_declaration(scripts)
+        except ProfileInvalid as exc:
+            self.fail(f"could not reset the copied tree to the shipped declaration: {exc}")
         try:
             apply_profile(scripts, asset)
         except ProfileInvalid as exc:

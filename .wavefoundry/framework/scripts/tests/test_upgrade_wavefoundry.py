@@ -957,6 +957,89 @@ class DryRunTests(unittest.TestCase):
         output = self._run_dry()
         self.assertIn("none", output.lower())
 
+    # Wave 200ey (200ev) AC-7 and AC-9: the dry run names the preview logs it
+    # wrote. The pack's extension stands in for any writer, old or new.
+
+    MIGRATION_LOG = ".wavefoundry/logs/upgrade-migration-1.5.0.preview.log"
+    CONVERGENCE_LOG = ".wavefoundry/logs/upgrade-convergence-migration.preview.log"
+    STALE_LOG = ".wavefoundry/logs/upgrade-earlier.preview.log"
+
+    def _pack_writing(self, *rels):
+        body = "".join(
+            f"    (Path(ctx.root) / {rel!r}).parent.mkdir(parents=True, exist_ok=True)\n"
+            f"    (Path(ctx.root) / {rel!r}).write_text('PREVIEW BODY {rel}\\n', encoding='utf-8')\n"
+            for rel in rels
+        ) or "    pass\n"
+        source = "from pathlib import Path\n\n\ndef post_extract(ctx):\n" + body
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr(".wavefoundry/framework/scripts/upgrade_extensions.py", source)
+        (self.root / "wavefoundry-1.0.0.2abc.zip").write_bytes(buf.getvalue())
+
+    def _dry_lines(self):
+        lines = []
+        orig_log = self.mod._log
+        self.mod._log = lambda msg: lines.append(msg)
+        try:
+            self.mod.phase_dry_run(self.root)
+        finally:
+            self.mod._log = orig_log
+        self.assertTrue(lines[-1].startswith(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL))
+        summary = json.loads(lines[-1][len(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL):])
+        return lines, summary
+
+    def test_final_line_names_each_preview_log_written_this_run(self):
+        logs = self.root / ".wavefoundry" / "logs"
+        logs.mkdir(parents=True)
+        (self.root / self.STALE_LOG).write_text("from an earlier run\n", encoding="utf-8")
+        # A log left by an earlier run and rewritten by this one counts.
+        (self.root / self.MIGRATION_LOG).write_text("old\n", encoding="utf-8")
+        self._pack_writing(self.MIGRATION_LOG, self.CONVERGENCE_LOG)
+        lines, summary = self._dry_lines()
+        expected = sorted([self.MIGRATION_LOG, self.CONVERGENCE_LOG])
+        self.assertEqual(
+            lines[-2],
+            "No upgrade changes were made; wrote preview log(s) "
+            f"{', '.join(expected)}. Run without --dry-run to execute the upgrade.",
+        )
+        output = "\n".join(lines)
+        self.assertNotIn("upgrade-earlier.preview.log", output)
+        self.assertNotIn(str(self.root), output)
+        self.assertNotIn(str(self.root.resolve()), output)
+        for rel in expected:
+            self.assertIn(f"  preview log: {rel}", lines)
+            self.assertIn(f"PREVIEW BODY {rel}", output)
+        self.assertEqual(summary["preview_logs"], expected)
+        self.assertEqual(summary["summary_schema_version"], 1)
+
+    def test_final_line_unchanged_when_no_preview_log_is_written(self):
+        logs = self.root / ".wavefoundry" / "logs"
+        logs.mkdir(parents=True)
+        (self.root / self.STALE_LOG).write_text("from an earlier run\n", encoding="utf-8")
+        (self.root / self.MIGRATION_LOG).write_text("from an earlier run\n", encoding="utf-8")
+        self._pack_writing()
+        lines, summary = self._dry_lines()
+        self.assertEqual(
+            lines[-2], "No changes were made. Run without --dry-run to execute the upgrade."
+        )
+        self.assertIn("  no planned actions (dry-run produced no preview log)", lines)
+        output = "\n".join(lines)
+        self.assertNotIn("preview log:", output)
+        self.assertNotIn(str(self.root), output)
+        self.assertEqual(summary["preview_logs"], [])
+        self.assertEqual(summary["summary_schema_version"], 1)
+
+    def test_preview_logs_is_absent_from_the_shared_summary_builder(self):
+        """AC-9: the field is set by the dry run only, so the primary-phase and
+        cleanup summaries keep their shared key set."""
+        summary = self.mod._build_upgrade_summary(
+            from_version="1.28.0", to_version="1.29.0", zip_path=None, pruned_count=0,
+            ran_index_rebuild=False, failed_phase=None, reconciliation=[],
+        )
+        self.assertNotIn("preview_logs", summary)
+        self.assertEqual(self.mod.SUMMARY_SCHEMA_VERSION, 1)
+        self.assertEqual(self.mod._RECOGNIZED_SUMMARY_SCHEMAS, frozenset({1}))
+
 
 # ---------------------------------------------------------------------------
 # update_upgrade_lock (upgrade_lib)
@@ -6083,6 +6166,99 @@ class PostExtractDryRunBranchTests(unittest.TestCase):
         self.ext.post_extract(self._ctx(from_version="1.5.0", dry_run=True))
         self.assertFalse(self._preview_log().exists())
 
+    # Wave 200ey (200ev) AC-8 and AC-10: truthful, repository-relative preview
+    # messages and contained preview writes.
+
+    def _plan_both_previews(self):
+        (self.root / "docs" / "agents").mkdir(parents=True)
+        (self.root / "docs" / "agents" / "code-reviewer.md").write_text(
+            "Owner: x\nStatus: active\nCategory: review\n", encoding="utf-8",
+        )
+        (self.root / "docs" / "workflow-config.json").write_text(
+            json.dumps({"wave_council_policy": {"enabled": True}}), encoding="utf-8",
+        )
+
+    def _post_extract_stderr(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.ext.post_extract(self._ctx(dry_run=True))
+        return err.getvalue()
+
+    def _assert_path_free(self, text):
+        for absolute in (str(self.root), str(Path(self.tmp.name))):
+            self.assertNotIn(absolute, text)
+
+    def test_preview_messages_name_the_written_logs_repository_relative(self):
+        self._plan_both_previews()
+        printed = self._post_extract_stderr()
+        self.assertNotIn("(no files modified)", printed)
+        self.assertIn(
+            "planned action(s); wrote preview log "
+            ".wavefoundry/logs/upgrade-migration-1.5.0.preview.log", printed,
+        )
+        self.assertIn(
+            "planned in docs/workflow-config.json; wrote preview log "
+            ".wavefoundry/logs/upgrade-convergence-migration.preview.log", printed,
+        )
+        self._assert_path_free(printed)
+        self.assertTrue(self._preview_log().is_file())
+
+    def test_preview_messages_say_when_no_log_was_written(self):
+        self._plan_both_previews()
+        unavailable = self.ext._IncomingModuleUnavailable("KeyError")
+        with patch.object(self.ext, "_incoming_framework_module", side_effect=unavailable):
+            printed = self._post_extract_stderr()
+        self.assertNotIn("(no files modified)", printed)
+        self.assertNotIn("wrote preview log", printed)
+        self.assertEqual(printed.count("no preview log was written"), 2, printed)
+        self._assert_path_free(printed)
+        self.assertFalse(self._preview_log().exists())
+
+    def _outside(self):
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        return Path(outside.name).resolve()
+
+    def _snapshot(self, base):
+        return sorted(
+            (p.relative_to(base).as_posix(), p.read_bytes() if p.is_file() else None)
+            for p in base.rglob("*")
+        )
+
+    def _symlink(self, link, target, *, directory=False):
+        try:
+            os.symlink(target, link, target_is_directory=directory)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+
+    def test_linked_logs_folder_outside_the_repository_is_not_written(self):
+        outside = self._outside()
+        (outside / "keep.txt").write_text("outside\n", encoding="utf-8")
+        before = self._snapshot(outside)
+        (self.root / ".wavefoundry").mkdir()
+        self._symlink(self.root / ".wavefoundry" / "logs", outside, directory=True)
+        self._plan_both_previews()
+        printed = self._post_extract_stderr()
+        self.assertEqual(self._snapshot(outside), before)
+        self.assertEqual(printed.count("no preview log was written"), 2, printed)
+        self.assertNotIn("wrote preview log", printed)
+        self._assert_path_free(printed)
+
+    def test_linked_preview_log_outside_the_repository_is_not_written(self):
+        outside = self._outside()
+        for name in ("migration.txt", "convergence.txt"):
+            (outside / name).write_text("outside\n", encoding="utf-8")
+        before = self._snapshot(outside)
+        logs = self.root / ".wavefoundry" / "logs"
+        logs.mkdir(parents=True)
+        self._symlink(logs / "upgrade-migration-1.5.0.preview.log", outside / "migration.txt")
+        self._symlink(logs / "upgrade-convergence-migration.preview.log", outside / "convergence.txt")
+        self._plan_both_previews()
+        printed = self._post_extract_stderr()
+        self.assertEqual(self._snapshot(outside), before)
+        self.assertEqual(printed.count("no preview log was written"), 2, printed)
+        self._assert_path_free(printed)
+
 
 class RoleBackfillPreviewIncomingModuleTests(unittest.TestCase):
     """Wave 200xy (200v2) AC-1 and AC-2: the dry-run role-backfill preview
@@ -6115,6 +6291,9 @@ class RoleBackfillPreviewIncomingModuleTests(unittest.TestCase):
     def _pack(self, *, with_history_paths=True):
         with zipfile.ZipFile(self.zip_path, "w") as archive:
             archive.write(source_path("upgrade_extensions.py"), f"{self.MEMBER_DIR}/upgrade_extensions.py")
+            # Wave 200ey (200ev): the preview log is written through the
+            # incoming contained_files, which every pack carries.
+            archive.write(source_path("contained_files.py"), f"{self.MEMBER_DIR}/contained_files.py")
             if with_history_paths:
                 archive.write(source_path("history_paths.py"), f"{self.MEMBER_DIR}/history_paths.py")
 
@@ -7678,6 +7857,7 @@ _DELEGATE_CHILD_MODULES = (
     "render_platform_surfaces.py",
     "check_version.py",
     "bytecode_cache.py",  # change 1zyv1: every entry script imports it
+    "contained_files.py",  # change 1zyv2: render_platform_surfaces reads and writes through it
 )
 
 
@@ -9123,7 +9303,7 @@ class ReviewEvidenceSidecarCleanupTests(unittest.TestCase):
             self.root,
             "1v13a external",
             "run",
-            "wave-council",
+            "council-chair",
             "post-cutover-mutation-context",
             mode="create",
             run_kind="initial_delivery",
@@ -11876,16 +12056,27 @@ class JournalMigrationProfileTests(_JournalMigrationFixture, unittest.TestCase):
         archive-named record is still the archived wave, so its journal is left
         with the archived report line and the archive tree is untouched."""
         import vocabulary_profile
+        from record_layout_support import PROFILES_DIR
 
+        # Change 200ex: a name no profile plausibly holds, checked against the
+        # live module and every fixture asset, so a distribution whose own
+        # record file name is a common one still runs the assertions below.
+        archive_record = "zq-archive-only-record.md"
+        self.assertNotEqual(archive_record, vocabulary_profile.RECORD_FILENAME,
+                            "the live vocabulary uses the archive-only record file name")
+        for asset_path in sorted(PROFILES_DIR.glob("*.json")):
+            asset = json.loads(asset_path.read_text(encoding="utf-8"))
+            asset_record = asset.get("modules", {}).get("vocabulary_profile", {}).get("RECORD_FILENAME")
+            self.assertNotEqual(archive_record, asset_record,
+                                f"profile asset {asset_path.name} uses the archive-only record file name")
         archive_fields = {name: getattr(vocabulary_profile, name) for name in vocabulary_profile.FIELD_NAMES}
-        archive_fields["RECORD_FILENAME"] = "set.md"
-        self.assertNotEqual(archive_fields["RECORD_FILENAME"], vocabulary_profile.RECORD_FILENAME)
+        archive_fields["RECORD_FILENAME"] = archive_record
         self.assertEqual(vocabulary_profile.validation_errors(archive_fields), [])
         patcher = patch.object(vocabulary_profile, "ARCHIVE_PROFILE", archive_fields)
         patcher.start()
         self.addCleanup(patcher.stop)
         folder = self._make_wave(self.archive_rel, "1zbah archived-divergent")
-        self.assertEqual(sorted(p.name for p in folder.iterdir()), ["set.md"])
+        self.assertEqual(sorted(p.name for p in folder.iterdir()), [archive_record])
         archived_name, archived_content = self._set_journal("1zbah archived-divergent")
         archive = self.root / self.archive_rel
         archive_before = sorted(
@@ -12246,6 +12437,36 @@ class JournalDeclarationMigrationTests(_JournalDeclarationFixture, unittest.Test
         for fragment in (str(self.root), str(self.root.resolve()), "private-detail", "denied"):
             self.assertNotIn(fragment, printed)
 
+    def test_hook_failure_warning_names_the_prompt_and_promises_no_retry(self):
+        """Wave 200ey (200ev) AC-4: the journal steps run only on an upgrade
+        from before 1.15.0, so the warning never promises a later upgrade."""
+        body = "raise RuntimeError(str(root))"
+        self._declare(hook="acme_journal_hooks:prepare", helpers=("acme_journal_hooks",),
+                      helper_source=self._hook_source(body))
+        self._write_pristine("1zdc5 kept", "kept", "2026-01-05")
+        printed = self._gate("1.14.0")
+        warning = next(line for line in printed.splitlines() if "WARNING" in line)
+        self.assertIn("pre-migration hook acme_journal_hooks:prepare raised RuntimeError", warning)
+        self.assertIn("Migrate journals prompt", warning)
+        self.assertIn("later upgrades do not retry", warning)
+        self.assertNotIn("a later upgrade", warning)
+        for fragment in (str(self.root), str(self.root.resolve()), "/", "\\"):
+            self.assertNotIn(fragment, warning)
+
+    def test_hook_contract_documents_the_1_15_0_limit(self):
+        """Wave 200ey (200ev) AC-4: seed 210 and, where present, the MCP tool
+        surface spec state that the hook runs only on an upgrade from before
+        1.15.0, is never retried and is never called by the prompt."""
+        seed = SCRIPTS_ROOT.parent / "seeds" / "210-migrate-journals.prompt.md"
+        spec = SCRIPTS_ROOT.parents[2] / "docs" / "specs" / "mcp-tool-surface.md"
+        documents = [seed] + ([spec] if spec.is_file() else [])
+        for document in documents:
+            with self.subTest(document.name):
+                text = " ".join(document.read_text(encoding="utf-8").split())
+                self.assertIn("only on an upgrade from a release before 1.15.0", text)
+                self.assertIn("never retried", text)
+                self.assertIn("never called by the Migrate journals prompt", text)
+
     def test_old_or_missing_declaration_module_migrates_as_before(self):
         """AC-7: no extracted module, then one that predates the constants."""
         for label in ("missing", "old"):
@@ -12355,6 +12576,185 @@ class JournalDeclarationMigrationTests(_JournalDeclarationFixture, unittest.Test
         with patch.object(self.ext, "_exec_module_from_file", side_effect=_counting):
             self._gate()
         self.assertEqual(names.count(self.ext._JOURNAL_DECLARATION_MODULE), 1)
+
+
+class JournalStaticPreviewTests(_JournalDeclarationFixture, unittest.TestCase):
+    """Wave 200ey (200ev) AC-1: the journal preview reads the declared
+    templates statically and executes no repository code."""
+
+    SIDE_EFFECT = (
+        "\nfrom pathlib import Path as _SideEffectPath\n"
+        "_SideEffectPath(__file__).with_name('declaration-executed.txt')"
+        ".write_text('executed', encoding='utf-8')\n"
+    )
+
+    def _tree_bytes(self):
+        return sorted(
+            (p.relative_to(self.root).as_posix(), p.read_bytes() if p.is_file() else None)
+            for p in self.root.rglob("*")
+        )
+
+    def test_preview_applies_a_literal_template_without_executing_the_module(self):
+        self._declare(templates=(_DIST_TEMPLATE,), extra=self.SIDE_EFFECT)
+        dist = self._write_journal("1zde0-dist.md", _render_dist_template("1zde0 dist", "d", "2026-01-05"))
+        before = self._tree_bytes()
+        with patch.object(self.ext, "_exec_module_from_file",
+                          side_effect=AssertionError("the preview executed a module")):
+            preview = self.ext.migrate_journals(self.root, apply=False)
+        self.assertEqual(preview["deleted"], [dist])
+        self.assertEqual(preview["warnings"], [])
+        self.assertFalse((self.scripts / "declaration-executed.txt").exists())
+        self.assertEqual(self._tree_bytes(), before)
+
+    def test_unreadable_declaration_warns_once_and_leaves_template_journals(self):
+        unavailable = self.ext._IncomingModuleUnavailable("KeyError")
+        cases = {
+            "non-literal value": (dict(templates=(_DIST_TEMPLATE,),
+                                       extra=f"\nEXTENSION_JOURNAL_TEMPLATES = tuple([{_DIST_TEMPLATE!r}])\n"), None),
+            "augmented": (dict(templates=(_DIST_TEMPLATE,),
+                               extra="\nEXTENSION_JOURNAL_TEMPLATES += ()\n"), None),
+            "conditional rebinding": (dict(templates=(_DIST_TEMPLATE,),
+                                           extra="\nif True:\n    EXTENSION_JOURNAL_TEMPLATES = ()\n"), None),
+            "not a sequence": (dict(templates=_DIST_TEMPLATE), None),
+            "not a string": (dict(templates=(7,)), None),
+            "empty template": (dict(templates=("",)), None),
+            "syntax error": (dict(templates=(_DIST_TEMPLATE,), extra="\ndef broken(:\n"), None),
+            "recursion error": (dict(templates=(_DIST_TEMPLATE,)),
+                                patch.object(self.ext.ast, "parse", side_effect=RecursionError)),
+            "memory error": (dict(templates=(_DIST_TEMPLATE,)),
+                             patch.object(self.ext.ast, "parse", side_effect=MemoryError)),
+            "value error": (dict(templates=(_DIST_TEMPLATE,)),
+                            patch.object(self.ext.ast, "literal_eval", side_effect=ValueError)),
+            "contained_files unavailable": (dict(templates=(_DIST_TEMPLATE,)),
+                                            patch.object(self.ext, "_incoming_framework_module",
+                                                         side_effect=unavailable)),
+        }
+        wave_id = "1zde1 dist"
+        self._make_wave(_live_waves_rel(), wave_id)
+        for label, (kwargs, patcher) in cases.items():
+            with self.subTest(label):
+                for leftover in self.scripts.iterdir():
+                    leftover.unlink()
+                for leftover in self.journals.iterdir():
+                    leftover.unlink()
+                self._declare(**kwargs)
+                pristine, _ = self._write_pristine("1zde2 builtin", "builtin", "2026-01-05")
+                dist = self._write_journal(
+                    "1zde1-dist.md", _render_dist_template(wave_id, "d", "2026-01-05")
+                )
+                before = self._tree_bytes()
+                with patcher if patcher is not None else contextlib.nullcontext():
+                    preview = self.ext.migrate_journals(self.root, apply=False)
+                self.assertEqual(preview["warnings"], [self.ext._JOURNAL_TEMPLATES_UNREADABLE_WARNING])
+                self.assertIn(dist, preview["left"])
+                self.assertEqual(preview["moved"], [])
+                self.assertEqual(preview["deleted"], [f"docs/agents/journals/{pristine}"])
+                for fragment in (str(self.root), str(self.root.resolve())):
+                    self.assertNotIn(fragment, preview["warnings"][0])
+                self.assertEqual(self._tree_bytes(), before)
+
+    def test_refused_declaration_read_is_the_same_warning(self):
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        self._declare(templates=(_DIST_TEMPLATE,), extra=self.SIDE_EFFECT)
+        target = Path(outside.name) / "mcp_tool_extensions.py"
+        (self.scripts / "mcp_tool_extensions.py").replace(target)
+        try:
+            os.symlink(target, self.scripts / "mcp_tool_extensions.py")
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+        dist = self._write_journal("1zde3-dist.md", _render_dist_template("1zde3 dist", "d", "2026-01-05"))
+        preview = self.ext.migrate_journals(self.root, apply=False)
+        self.assertEqual(preview["warnings"], [self.ext._JOURNAL_TEMPLATES_UNREADABLE_WARNING])
+        self.assertEqual(preview["left"], [dist])
+        self.assertFalse((Path(outside.name) / "declaration-executed.txt").exists())
+
+    def test_missing_or_old_declaration_module_previews_without_a_warning(self):
+        dist = self._write_journal("1zde4-dist.md", _render_dist_template("1zde4 dist", "d", "2026-01-05"))
+        self.assertEqual(self.ext.migrate_journals(self.root)["warnings"], [])
+        (self.scripts / "mcp_tool_extensions.py").write_text(
+            "EXTENSION_MODULES = ()\nEXTENSION_HELPER_MODULES = ()\n", encoding="utf-8"
+        )
+        preview = self.ext.migrate_journals(self.root)
+        self.assertEqual(preview["warnings"], [])
+        self.assertEqual(preview["left"], [dist])
+
+    def test_apply_keeps_executing_the_declaration(self):
+        self._declare(templates=(_DIST_TEMPLATE,), extra=self.SIDE_EFFECT)
+        self._write_journal("1zde5-dist.md", _render_dist_template("1zde5 dist", "d", "2026-01-05"))
+        applied = self.ext.migrate_journals(self.root, apply=True)
+        self.assertEqual(len(applied["deleted"]), 1)
+        self.assertTrue((self.scripts / "declaration-executed.txt").exists())
+
+
+class UpgradeExtensionSearchPathTests(_JournalDeclarationFixture, unittest.TestCase):
+    """Wave 200ey (200ev) AC-2: starting from a ``sys.path`` without the
+    target's scripts directory (a runner whose own scripts directory is not
+    the target's, calling the extension in-process), each hook and the
+    journal migration leave ``sys.path`` as they found it."""
+
+    def setUp(self):
+        super().setUp()
+        self.target = str(self.root / ".wavefoundry" / "framework" / "scripts")
+        self.assertNotIn(self.target, sys.path)
+        saved = list(sys.path)
+        self.addCleanup(sys.path.__setitem__, slice(None), saved)
+
+    def _call(self, function, *args, **kwargs):
+        before = list(sys.path)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            result = function(*args, **kwargs)
+        self.assertEqual(sys.path, before, function.__name__)
+        return result
+
+    def test_migrate_journals_preview_and_apply(self):
+        self._declare(templates=(_DIST_TEMPLATE,))
+        self._write_journal("1zdf0-dist.md", _render_dist_template("1zdf0 dist", "d", "2026-01-05"))
+        self._call(self.ext.migrate_journals, self.root, apply=False)
+        self._call(self.ext.migrate_journals, self.root, apply=True)
+        self.assertEqual(list(self.journals.iterdir()), [])
+
+    def test_pre_docs_gate_holds_the_path_across_the_hook_load_and_call(self):
+        hook = (
+            "import sys\nfrom pathlib import Path\n\n\n"
+            "def prepare(root):\n"
+            "    scripts = str(Path(root) / '.wavefoundry' / 'framework' / 'scripts')\n"
+            "    (Path(root) / 'hook-saw-path.txt').write_text(str(scripts in sys.path), encoding='utf-8')\n"
+        )
+        self._declare(hook="acme_journal_hooks:prepare", helpers=("acme_journal_hooks",), helper_source=hook)
+        self._write_pristine("1zdf1 kept", "kept", "2026-01-05")
+        seen = []
+        with patch.object(self.ext, "_migrate_memory_naming",
+                          side_effect=lambda root: seen.append(self.target in sys.path)):
+            self._call(self.ext.pre_docs_gate, MagicMock(root=self.root, from_version="1.14.0"))
+        self.assertEqual((self.root / "hook-saw-path.txt").read_text(encoding="utf-8"), "True")
+        self.assertEqual(seen, [True])
+        self.assertEqual(list(self.journals.iterdir()), [])
+
+    def test_post_extract_real_run_and_dry_run(self):
+        with patch.object(self.ext, "_reload_in_place"):
+            self._call(self.ext.post_extract, types.SimpleNamespace(
+                root=self.root, from_version="1.5.0", to_version="1.29.0",
+                zip_path=None, yes=True, dry_run=False,
+            ))
+        self._call(self.ext.post_extract, types.SimpleNamespace(
+            root=self.root, from_version="1.4.1", to_version="1.29.0",
+            zip_path=None, yes=True, dry_run=True,
+        ))
+
+    def test_post_docs_gate(self):
+        backfill = types.SimpleNamespace(
+            ensure_run=lambda root, kind: "run-1",
+            sync_inventory=lambda root, run_id: {
+                "state": "indexed", "remaining_waves": 0, "candidates_pending": 0,
+                "failures": 0, "last_failure": None,
+            },
+        )
+        with patch.object(self.ext, "_reload_in_place"), \
+                patch.dict(sys.modules, {"memory_backfill": backfill}):
+            self._call(self.ext.post_docs_gate, types.SimpleNamespace(
+                root=self.root, from_version="1.28.0", runner_protocol=2,
+            ))
 
 
 # Arabic-Indic digits: each is a Unicode decimal digit that ``\d`` in a str

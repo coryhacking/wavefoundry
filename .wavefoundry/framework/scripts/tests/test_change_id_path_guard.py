@@ -485,6 +485,13 @@ def _can_symlink(base: Path) -> bool:
     return True
 
 
+# The known-good ``wave_review`` shape (the ``test_lifecycle_golden``
+# ``_WAVE_REVIEW_CONFIG`` block): enabled with a delivery mode, so
+# ``normalize_wave_review_policy`` accepts it and every reader reaches its
+# member-doc read.
+_MEMBER_DOC_WAVE_REVIEW = {"enabled": True, "delivery_mode": "targeted"}
+
+
 class MemberDocContainmentTests(_GuardCase):
     """AC-7: a member doc that is a link or not a regular file is never read."""
 
@@ -497,11 +504,12 @@ class MemberDocContainmentTests(_GuardCase):
         validate = patch.object(srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""})
         validate.start()
         self.addCleanup(validate.stop)
-        repo_config = json.loads((Path(__file__).resolve().parents[4] / "docs" / "workflow-config.json")
-                                 .read_text(encoding="utf-8"))
         config_path = self.root / "docs" / "workflow-config.json"
         config = json.loads(config_path.read_text(encoding="utf-8"))
-        config["wave_review"] = repo_config["wave_review"]
+        # Change 200ex: a known-good literal, never the running checkout's
+        # config, whose review policy a repository owns (and may not yet pass
+        # validation before its upgrade writes one).
+        config["wave_review"] = json.loads(json.dumps(_MEMBER_DOC_WAVE_REVIEW))
         config_path.write_text(json.dumps(config), encoding="utf-8")
         self.inside_target = self.root / "docs" / "inside-target.md"
         self.inside_target.write_text(self._INSIDE_TEXT, encoding="utf-8")

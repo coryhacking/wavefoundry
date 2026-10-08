@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-07
+Last verified: 2026-10-08
 
 ## Allowed Dependencies
 
@@ -159,6 +159,22 @@ valid. The renderer migrates already-rendered prompts: it records the names it
 applied under `prompt_names` in the prompt-surface manifest, moves prompts
 byte-for-byte in dependency order before skills and baselines render, and
 docs-lint reports a pending migration while that record differs from the profile.
+
+It also names the role-based council review protocol (wave 200ey, change
+200ew): `COUNCIL_DISPLAY_NAME` (default "Wave Council", validated at import like
+a shortcut, never `Archetype Council`, and never a name whose `<name> review`
+phrase is an existing shortcut). The renderer's own strings (the `wf-council`
+skill description), role and prompt docs it creates fresh from a seed, the
+server's prepare and activation guidance and verdict messages, the
+`wf_implement_wave` tool description, the lifecycle gate's missing-signoff
+message, docs-lint's missing-verdict message and the typed verdict template's
+hint follow it. Seed prose read raw by agents, docs already rendered, the parsed
+legacy checkpoint format `Prepare-phase Wave Council [prepare-council]`,
+diagnostic codes, ledgers, projections and closed records keep the default name.
+A distribution's own earlier council signoff key spellings are declared in
+`EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS`, each mapped to `council-readiness` or
+`council-delivery`; the review-policy digest maps only the framework's built-in
+spellings, so declaring one never changes a receipt digest.
 
 `history_paths` (wave 1zyb2) is a stdlib-only leaf module that imports no framework module: it owns `HISTORY_PATH_COMPONENTS` and `is_history_path`, the one record-history test, and is imported by the docs-lint validators, the agent-surface renderer and integrity scan, the reconcile scanner, the upgrade role backfill (inside the function, after the target's scripts directory is on `sys.path`) and the server's retrieval demotion. Its contract is stated in the project overview.
 

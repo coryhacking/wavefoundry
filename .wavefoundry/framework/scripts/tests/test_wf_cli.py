@@ -634,10 +634,10 @@ class TechdocsBaselineSubcommandTests(unittest.TestCase):
 
         real = ras._write_review_carrier_text
 
-        def flaky(path, content, *, exclusive=False):
+        def flaky(path, content, *, exclusive=False, **kwargs):
             if path.name == "mkdocs.yml":
                 raise PermissionError(13, "Permission denied", str(path))
-            return real(path, content, exclusive=exclusive)
+            return real(path, content, exclusive=exclusive, **kwargs)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = self._target(temp_dir)
@@ -649,7 +649,9 @@ class TechdocsBaselineSubcommandTests(unittest.TestCase):
             envelope = json.loads(out)
             self.assertEqual(envelope["written_paths"], ["catalog-info.yaml"])
             self.assertEqual(envelope["generated_paths"], ["catalog-info.yaml"])
-            self.assertIn("Permission denied", envelope["refusal"])
+            # Wave 200ey (200eu): the refusal names the exception class, never its text.
+            self.assertIn("PermissionError", envelope["refusal"])
+            self.assertNotIn("Permission denied", envelope["refusal"])
             self.assertIn("wrote catalog-info.yaml before failing", envelope["refusal"])
             self.assertEqual(err.count("techdocs-baseline: ERROR"), 1)
             self.assertNotIn("(nothing written)", err)

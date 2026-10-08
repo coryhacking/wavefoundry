@@ -322,7 +322,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
             [],
             {
                 "event": "run",
-                "actor": "wave-council",
+                "actor": "council-chair",
                 "context_id": "lightweight-review",
                 "run_kind": "initial_delivery",
                 "cycle": 0,
@@ -331,7 +331,7 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
         self.assertEqual(errors, ())
         self.assertEqual(len(rows), 1)
         self.assertIsNone(rows[0]["dedup_evidence_id"])
-        self.assertEqual(rows[0]["verification_context"]["actor"], "wave-council")
+        self.assertEqual(rows[0]["verification_context"]["actor"], "council-chair")
         self.assertEqual(
             rows[0]["verification_context"]["context_id"], "lightweight-review"
         )
@@ -2486,7 +2486,7 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
     def test_new_bundles_have_leading_identity_but_migrated_rows_need_none(self) -> None:
         event = {
             "event": "run",
-            "actor": "wave-council",
+            "actor": "council-chair",
             "context_id": "retry-context",
             "run_kind": "initial_delivery",
             "cycle": 0,
@@ -2545,7 +2545,7 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
             root = Path(temp_dir)
             event = {
                 "event": "run",
-                "actor": "wave-council",
+                "actor": "council-chair",
                 "context_id": "ctx",
                 "run_kind": "initial_delivery",
                 "cycle": 0,
@@ -2644,7 +2644,7 @@ class ReviewStatusProjectionTests(unittest.TestCase):
             f"approval-{key}",
             f"approval:{key}",
             claim_kind="approval",
-            actor=actor or ("wave-council" if key.startswith("wave-council-") else key),
+            actor=actor or ("council-chair" if key.startswith("wave-council-") else key),
             required_for_approval=True,
         )
 
@@ -2887,7 +2887,7 @@ class LapsedApprovalReasonTests(unittest.TestCase):
             "approval-wave-council-readiness",
             "approval:wave-council-readiness",
             claim_kind="approval",
-            actor="wave-council",
+            actor="council-chair",
             required_for_approval=True,
             approval_phase="readiness",
             policy_receipt_id=receipt_id,
@@ -3731,7 +3731,7 @@ class RepairReverificationIndependenceTests(unittest.TestCase):
     @staticmethod
     def _retained_approval(context_id, *, key="qa-reviewer", phase="delivery", receipt=None):
         return {
-            "event": "approval", "actor": "wave-council" if key.startswith("wave-council") else key,
+            "event": "approval", "actor": "council-chair" if key.startswith("wave-council") else key,
             "context_id": context_id, "signoff_key": key, "approval_phase": phase,
             "policy_receipt_id": receipt, "fresh_context": True, "independent": True,
             "observed": "reviewed current boundary", "artifact_or_test_id": "test:retained",
@@ -5204,6 +5204,34 @@ class AttestedByReviewEvidenceTests(unittest.TestCase):
                 row = subject.review_status_rows(variant, ["qa-reviewer"])[0]
                 self.assertEqual(row["state"], "approved")
                 self.assertEqual(row["why"], expected)
+
+    def test_brackets_in_an_attested_name_are_replaced_on_display_only(self) -> None:
+        """Wave 200ey (200ev) AC-3: every Ps/Pe character of a stored name is
+        shown as U+FFFD, so the status cannot show a bracketed handle; the
+        name is still accepted, stored and validated as before."""
+        name = "Ada (mallory) （eve） ❨x❩ ﹙y﹚ ⁽z⁾ {w}"
+        self.assertEqual(subject.normalize_attested_by(name), (name, None))
+        self.assertIsNone(subject.attested_by_problem(name))
+        rows, errors = subject.build_compact_review_event(
+            [], self.event("approval"), attested_by=name,
+            operator={"handle": "alice", "source": "explicit"},
+        )
+        self.assertEqual(errors, ())
+        self.assertFalse(subject.validate_review_evidence_records(rows))
+        self.assertEqual(rows[0]["verification_context"]["attested_by"], name)
+        shown = ("Ada �mallory� �eve� �x� "
+                 "�y� �z� �w�")
+        suffix = ", not receipt-bound, follows every affected repair"
+        row = subject.review_status_rows(rows, ["qa-reviewer"])[0]
+        self.assertEqual(row["why"], f"current executed approval by {shown} (alice){suffix}")
+        self.assertEqual(rows[0]["verification_context"]["attested_by"], name)
+        name_only = copy.deepcopy(rows)
+        del name_only[0]["verification_context"]["operator"]
+        self.assertFalse(subject.validate_review_evidence_records(name_only))
+        row = subject.review_status_rows(name_only, ["qa-reviewer"])[0]
+        self.assertEqual(row["why"], f"current executed approval by {shown}{suffix}")
+        for char in "()（）❨❩{}":
+            self.assertNotIn(char, row["why"].removesuffix(suffix).removeprefix("current executed approval by "))
 
 
 class EphemeralArtifactTokensTests(unittest.TestCase):

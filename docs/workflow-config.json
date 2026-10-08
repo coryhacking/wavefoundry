@@ -155,7 +155,7 @@
     "phases": {
       "prepare": {
         "signoff_key": "council-readiness",
-        "moderator_role": "wave-council",
+        "moderator_role": "council-chair",
         "fixed_seats": [
           "architecture-reviewer",
           "security-reviewer",
@@ -166,7 +166,7 @@
       },
       "review": {
         "signoff_key": "council-delivery",
-        "moderator_role": "wave-council",
+        "moderator_role": "council-chair",
         "fixed_seats": [
           "architecture-reviewer",
           "security-reviewer",

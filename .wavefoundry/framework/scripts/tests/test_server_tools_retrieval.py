@@ -17349,6 +17349,9 @@ class TestGraphReportFanSectionsFilterBeforeTruncation(_GraphReport1wpajMixin, u
         gq = self.srv._load_graph_query()
         index = gq.get_query_index(self.root, layer="project")
         rows = index.report(limit=4, sections=["fan_in", "fan_out"])
+        # Wave 203pu (201wg): `call_edge_counts` is additive. The legacy
+        # fields stay byte-for-byte; the new object is checked on its own.
+        rows = _strip_call_edge_counts(self, rows, ("fan_in", "fan_out"))
         expected_fan_in = [
             {"node_id": "external::ext_hot", "count": 12, "label": "ext_hot", "kind": "function"},
             {"node_id": "external::ext_warm", "count": 11, "label": "ext_warm", "kind": "function"},
@@ -17454,6 +17457,7 @@ class TestGraphReportHubSectionsFilterBeforeTruncation(_GraphReport1wpajMixin, u
         gq = self.srv._load_graph_query()
         index = gq.get_query_index(self.root, layer="project")
         rows = index.report(limit=4, sections=["chokepoints", "file_hubs"])
+        rows = _strip_call_edge_counts(self, rows, ("chokepoints", "file_hubs"))
         expected_chokepoints = [
             {"node_id": "src/gen.py::gen_choke", "fan_out": 25, "label": "gen_choke"},
             {"node_id": "src/app.py::choke_a", "fan_out": 24, "label": "choke_a"},
@@ -17483,6 +17487,21 @@ class TestGraphReportHubSectionsFilterBeforeTruncation(_GraphReport1wpajMixin, u
             self._ids(served, "file_hubs"),
             [row["node_id"] for row in expected_file_hubs],
         )
+
+
+def _strip_call_edge_counts(case, report, sections):
+    """Legacy row projection; every row's call-only counts must reconcile."""
+    out = dict(report)
+    for name in sections:
+        legacy = []
+        for row in report[name]:
+            counts = row["call_edge_counts"]
+            case.assertEqual(counts["total"],
+                             counts["resolved"] + counts["extracted"] + counts["unclassified"])
+            case.assertEqual(counts["total"], row.get("count", row.get("fan_out")))
+            legacy.append({k: v for k, v in row.items() if k != "call_edge_counts"})
+        out[name] = legacy
+    return out
 
 
 class _BetweennessArtifact1wpajMixin(_GraphReport1wpajMixin):

@@ -357,12 +357,28 @@ def register(mcp, get_handler):
                     recovery_usage="acme_public(text='x')")],
                 next_tools=["acme_public"], usage="acme_public(text='x')")
         return server_impl.make_response("ok", {"echo": text})
+
+    # Wave 200ey (change 200ew): the published member-doc reader.
+    @mcp.tool()
+    def acme_member(name: str = "", **kwargs):
+        bad = server_impl.ensure_no_extra_args("acme_member", kwargs)
+        if bad is not None:
+            return bad
+        if not server_impl.is_change_id(name):
+            return server_impl.make_response("ok", {"change_id": False})
+        root = get_handler().root
+        folder = root / "docs" / "plans"
+        try:
+            data = server_impl.read_member_doc_bytes(folder, folder / (name + ".md"), root=root)
+        except server_impl.MemberDocRefused as exc:
+            return server_impl.make_response("ok", {"change_id": True, "refused": exc.strerror})
+        return server_impl.make_response("ok", {"change_id": True, "bytes": len(data)})
 """
 
 PUBLIC_DECL = """
 EXTENSION_MODULES = ("acme_public_tools",)
 EXTENSION_TOOL_PREFIXES = ("acme_",)
-EXTENSION_TOOL_TIERS = {"acme_public": "read"}
+EXTENSION_TOOL_TIERS = {"acme_public": "read", "acme_member": "read"}
 """
 
 # Wave 1zimf (1zimo): a declared lifecycle tool, an undeclared write tool, a
@@ -1057,6 +1073,22 @@ with tempfile.TemporaryDirectory() as tmp:
         out["fail_call"] = ccall(mcp, "acme_public", {"text": "fail"})
         out["unknown_call"] = ccall(mcp, "acme_public", {"text": "hi", "bogus": 1})
         out["empty_kwargs_call"] = ccall(mcp, "acme_public", {"text": "hi", "kwargs": {}})
+        # Wave 200ey (change 200ew): a regular member doc reads, a linked one
+        # is refused through the published refusal type, a non-id is not read.
+        import os as _os
+        plans = root / "docs" / "plans"
+        plans.mkdir(parents=True, exist_ok=True)
+        (plans / "1aaaa-enh member-probe.md").write_text("# Probe\n", encoding="utf-8")
+        outside = Path(tempfile.mkdtemp()) / "outside.md"
+        outside.write_text("# Outside\n", encoding="utf-8")
+        try:
+            _os.symlink(outside, plans / "1aaab-enh linked-probe.md")
+            linked = True
+        except (OSError, NotImplementedError):
+            linked = False
+        out["member_read"] = ccall(mcp, "acme_member", {"name": "1aaaa-enh member-probe"})
+        out["member_linked"] = ccall(mcp, "acme_member", {"name": "1aaab-enh linked-probe"}) if linked else None
+        out["member_not_id"] = ccall(mcp, "acme_member", {"name": "../escape"})
         before = runner.server_impl
         result = runner.perform_mcp_reload()
         out["reload_status"] = result["status"]
@@ -1073,6 +1105,7 @@ with tempfile.TemporaryDirectory() as tmp:
             out["reload_late_bound"] = impl.make_response("ok")
         out["reload_unknown_call"] = ccall(mcp, "acme_public", {"bogus": 1})
         out["reload_ok_call"] = ccall(mcp, "acme_public", {"text": "again"})
+        out["reload_member_linked"] = ccall(mcp, "acme_member", {"name": "1aaab-enh linked-probe"}) if linked else None
         runner._get_handler().close()
 
     elif MODE == "lifecycle":
@@ -3232,7 +3265,7 @@ class PublicHelperServingTests(unittest.TestCase):
             self.assertIn(f"server_impl.{name}(", source)
 
     def test_registers_and_serves_through_call_tool(self):
-        self.assertEqual(self.out["names"], ["acme_public"])
+        self.assertEqual(self.out["names"], ["acme_member", "acme_public"])
         self.assertEqual(self.out["ok_call"]["status"], "ok")
         self.assertEqual(self.out["ok_call"]["data"], {"echo": "hi"})
         failed = self.out["fail_call"]
@@ -3242,6 +3275,20 @@ class PublicHelperServingTests(unittest.TestCase):
             "code": "acme_failed", "message": "asked to fail",
             "recovery_tools": ["acme_public"], "recovery_usage": "acme_public(text='x')",
         }])
+
+    def test_the_member_doc_reader_is_published(self):
+        # Wave 200ey (change 200ew, AC-2): the declared module reads a member
+        # doc, catches the published refusal type for a linked one, before and
+        # after a reload, and checks the change-id shape.
+        self.assertEqual(self.out["member_read"]["data"], {"change_id": True, "bytes": len("# Probe\n")})
+        self.assertEqual(self.out["member_not_id"]["data"], {"change_id": False})
+        if self.out["member_linked"] is None:
+            self.skipTest("symbolic links are unavailable on this host")
+        for key in ("member_linked", "reload_member_linked"):
+            with self.subTest(call=key):
+                self.assertEqual(self.out[key]["status"], "ok", self.out[key])
+                self.assertTrue(self.out[key]["data"]["change_id"])
+                self.assertEqual(self.out[key]["data"]["refused"], "not a regular file")
 
     def test_an_undeclared_argument_gets_the_unknown_arguments_envelope(self):
         refused = self.out["unknown_call"]
@@ -3324,7 +3371,9 @@ class HelperModuleTests(unittest.TestCase):
 
     def test_the_wrappers_resolve_and_stay_late_bound_after_reload(self):
         self.assertTrue(all(self.out["reload_helpers"].values()), self.out["reload_helpers"])
-        self.assertEqual(len(self.out["reload_helpers"]), 11)
+        # Eleven helpers, plus wave 200ey's (change 200ew) member-doc reader,
+        # change-id test and refusal type.
+        self.assertEqual(len(self.out["reload_helpers"]), 14)
         self.assertEqual(self.out["reload_late_bound"], "patched")
 
     def test_a_dropped_helper_and_an_emptied_declaration_are_evicted(self):

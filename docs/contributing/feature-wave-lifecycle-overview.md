@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-07
+Last verified: 2026-10-08
 
 Adapted from `.wavefoundry/framework/seeds/001-feature-wave-framework-overview.md` for Wavefoundry's specific reviewer roles, personas, and artifact paths.
 
@@ -71,7 +71,7 @@ The framework ships `wave_review.enabled: true` and `delivery_mode: targeted` by
 - `council-readiness` before implementation
 - `council-delivery` before closure
 
-The `wave-council` owns council synthesis. The `wave-coordinator` still owns lifecycle state and gates.
+The `council-chair` owns council synthesis. The `wave-coordinator` still owns lifecycle state and gates.
 
 ## Factor-Review Agents (applicable)
 

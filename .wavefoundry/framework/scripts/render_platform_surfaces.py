@@ -21,6 +21,7 @@ import bytecode_cache  # noqa: E402
 if __name__ == "__main__":
     bytecode_cache.configure()
 
+import contained_files  # contained repository reads and writes (wave 200ey, change 1zyv2)
 import subprocess_util
 
 
@@ -98,30 +99,62 @@ def _manifest_record(path: Path, changed: bool) -> None:
         _MANIFEST_WRITTEN.append(path)
 
 
-def write_text(path: Path, content: str, executable: bool = False) -> None:
-    ensure_parent(path)
+def _rel_label(repo_root: Path, path: Path) -> str:
+    """``path`` relative to ``repo_root`` (as given or resolved), else its name:
+    the only spelling a refusal message carries (never an absolute path)."""
+    for base in (Path(repo_root), Path(repo_root).resolve()):
+        try:
+            return Path(path).relative_to(base).as_posix()
+        except ValueError:
+            continue
+    return Path(path).name
+
+
+def read_repo_text(repo_root: Path, path: Path, *, translate_newlines: bool = True) -> str:
+    """Read a repository file through the contained read (wave 200ey, change 1zyv2).
+
+    A link leaving the repository, a special file or a file over
+    ``contained_files.DEFAULT_MAX_BYTES`` raises ``ContainedFileRefused`` (an
+    ``OSError``, so each caller's existing unreadable-file handling applies)
+    whose text names the repository-relative path and the cause class. Decodes
+    as strict UTF-8; ``translate_newlines`` applies ``read_text``'s universal
+    newlines, otherwise the text is verbatim (``open(newline="")``)."""
     try:
-        changed = not path.exists() or path.read_bytes() != content.encode("utf-8")
-    except OSError:
-        changed = True
+        data = contained_files.read_contained_bytes(
+            repo_root, path, max_bytes=contained_files.DEFAULT_MAX_BYTES
+        )
+    except contained_files.ContainedFileRefused as exc:
+        raise contained_files.ContainedFileRefused(
+            f"{_rel_label(repo_root, path)} {exc.cause}"
+        ) from None
+    text = data.decode("utf-8")
+    if translate_newlines:
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return text
+
+
+def write_text(path: Path, content: str, executable: bool = False, *, root: Path) -> None:
+    """Write ``content`` verbatim through the contained write rooted at ``root``.
+
+    Wave 200ey (change 1zyv2): ``contained_files.write_contained_bytes`` refuses a
+    link leaving the repository (final or directory component) and a special
+    file, publishes through an exclusive temporary file and ``os.replace``, and
+    sets the mode on the descriptor (``executable`` adds ``0o111``), so nothing
+    is written or re-moded through a link. A refusal raises ``RuntimeError``
+    naming the repository-relative path and the cause class.
+    """
+    # The content is encoded verbatim (no newline translation), so the embedded line
+    # terminators are byte-identical on every rendering host (wave 1p7tz): the `wf.cmd`
+    # source carries CRLF and the `wf` bash shim and rendered `.py` hooks carry LF.
+    try:
+        changed = contained_files.write_contained_bytes(
+            root, path, content.encode("utf-8"), executable=executable
+        )
+    except contained_files.ContainedFileRefused as exc:
+        raise RuntimeError(f"refused to write {_rel_label(root, path)} ({exc.cause})") from None
+    # Wave 1zuq3: a byte-identical rewrite writes nothing (only a differing mode is set),
+    # so the modification time does not churn; the manifest records changed content only.
     _manifest_record(path, changed)
-    if not changed:
-        # Wave 1zuq3: a byte-identical rewrite only churns the modification time, which
-        # re-queues zero-chunk files in the index and changes readiness inputs on every
-        # setup. render_agent_surfaces.write_text already skips (wave 1t72b).
-        if executable:
-            path.chmod(path.stat().st_mode | 0o111)
-        return
-    # newline="" disables newline translation so the embedded line terminators are written VERBATIM,
-    # byte-identical on every rendering host (wave 1p7tz). With the default newline=None, a re-render
-    # on native Windows translates every "\n" → os.linesep ("\r\n"): the `wf.cmd` source (which
-    # embeds "\r\n") would become "\r\r\n" (doubled CR, breaks %REPO_ROOT%), and the `wf` bash shim +
-    # rendered `.py` hooks would gain CRLF shebangs (break git-bash/WSL2). The source strings already
-    # carry the correct terminators per file (cmd=CRLF, bash/.py=LF), so newline="" is right for all.
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        handle.write(content)
-    if executable:
-        path.chmod(path.stat().st_mode | 0o111)
 
 
 def remove_files(paths: list[Path]) -> None:
@@ -297,7 +330,7 @@ CLAUDE_HOOKS: tuple[dict[str, object], ...] = (
 )
 
 
-def write_hook_bundle(base_path: Path, python_source: str) -> None:
+def write_hook_bundle(base_path: Path, python_source: str, *, root: Path) -> None:
     """Render only the ``.py`` hook body — the host launches it via ``python3 <body>.py`` directly.
 
     Wave 1p7pm/1p88t: the ``.sh``/``.cmd`` trampolines are retired. ``launcher_command`` names
@@ -305,7 +338,7 @@ def write_hook_bundle(base_path: Path, python_source: str) -> None:
     venv (first-line ``venv_bootstrap`` import via ``compose_script``), so no shell wrapper is
     needed and the committed launcher is byte-identical across render hosts. Any stale trampolines
     left by an older render are removed here so a re-render cleans up the cutover."""
-    write_text(base_path.with_suffix(".py"), python_source, executable=True)
+    write_text(base_path.with_suffix(".py"), python_source, executable=True, root=root)
     remove_files([base_path, base_path.with_suffix(".cmd"), base_path.with_suffix(".sh")])
 
 
@@ -1778,7 +1811,7 @@ def render_claude_settings(repo_root: Path) -> None:
     existing: dict[str, object] = {}
     if settings_path.exists():
         try:
-            loaded = json.loads(settings_path.read_text(encoding="utf-8"))
+            loaded = json.loads(read_repo_text(repo_root, settings_path))
             if isinstance(loaded, dict):
                 existing = loaded
         except json.JSONDecodeError:
@@ -1842,7 +1875,7 @@ def render_claude_settings(repo_root: Path) -> None:
             entry = {"matcher": hook["matcher"], **entry}
         hooks.setdefault(str(hook["event"]), []).append(entry)
     existing["hooks"] = hooks
-    write_text(settings_path, json.dumps(existing, indent=2) + "\n")
+    write_text(settings_path, json.dumps(existing, indent=2) + "\n", root=repo_root)
 
 
 # ── Renderer-owned MCP permission allowlist (wave 1u2b0 / 1u2az) ──────────────
@@ -1924,7 +1957,7 @@ def render_claude_permissions(repo_root: Path) -> None:
     existing: dict[str, object] = {}
     if settings_path.exists():
         try:
-            loaded = json.loads(settings_path.read_text(encoding="utf-8"))
+            loaded = json.loads(read_repo_text(repo_root, settings_path))
         except json.JSONDecodeError:
             # Never rebuild a corrupt operator settings file from scratch here:
             # writing permissions into a fresh dict would DELETE operator
@@ -1940,8 +1973,10 @@ def render_claude_permissions(repo_root: Path) -> None:
             # tree (the agent host may hold it open; it may be read-only). An
             # unreadable settings file must never abort the upgrade at the
             # caller's sys.exit(2) — warn and leave permissions alone.
+            # Wave 200ey (1zyv2): repository-relative, so a refusal names no
+            # absolute path.
             print(
-                f"render_platform_surfaces: WARNING, left {settings_path} "
+                "render_platform_surfaces: WARNING, left .claude/settings.json "
                 f"permissions unchanged (unreadable: {exc}).",
                 file=sys.stderr,
             )
@@ -2006,10 +2041,10 @@ def render_claude_permissions(repo_root: Path) -> None:
     permissions["allow"] = kept
     existing["permissions"] = permissions
     existing[PERMISSIONS_PROVENANCE_KEY] = sorted(new_claims)
-    write_text(settings_path, json.dumps(existing, indent=2) + "\n")
+    write_text(settings_path, json.dumps(existing, indent=2) + "\n", root=repo_root)
 
 
-def _merge_mcp_server(target: Path, stanza: dict) -> None:
+def _merge_mcp_server(target: Path, stanza: dict, *, root: Path) -> None:
     """Read-modify-write an MCP JSON config file, setting only ``mcpServers["wavefoundry"]``.
 
     Preserves all other top-level keys and all unrelated ``mcpServers`` entries.
@@ -2019,15 +2054,14 @@ def _merge_mcp_server(target: Path, stanza: dict) -> None:
     existing: dict[str, object] = {}
     if target.exists():
         try:
-            loaded = json.loads(target.read_text(encoding="utf-8"))
+            loaded = json.loads(read_repo_text(root, target))
             if isinstance(loaded, dict):
                 existing = loaded
         except json.JSONDecodeError:
             existing = {}
     existing.setdefault("mcpServers", {})
     existing["mcpServers"]["wavefoundry"] = stanza
-    target.parent.mkdir(parents=True, exist_ok=True)
-    write_text(target, json.dumps(existing, indent=2) + "\n")
+    write_text(target, json.dumps(existing, indent=2) + "\n", root=root)
 
 
 def render_mcp_json(repo_root: Path) -> None:
@@ -2063,6 +2097,7 @@ def render_mcp_json(repo_root: Path) -> None:
             "command": "python3",
             "args": [".wavefoundry/framework/scripts/server.py"],
         },
+        root=repo_root,
     )
 
 
@@ -2080,6 +2115,7 @@ def render_junie_mcp_json(repo_root: Path) -> None:
             # containing `.junie/mcp/` directory, not from an arbitrary agent cwd.
             "args": ["../../.wavefoundry/framework/scripts/server.py"],
         },
+        root=repo_root,
     )
 
 
@@ -2098,6 +2134,7 @@ def render_cursor_mcp_json(repo_root: Path) -> None:
             "args": [".wavefoundry/framework/scripts/server.py"],
             "cwd": "${workspaceFolder}",
         },
+        root=repo_root,
     )
 
 
@@ -2114,6 +2151,7 @@ def render_antigravity_mcp_json(repo_root: Path) -> None:
             "command": "python3",
             "args": [".wavefoundry/framework/scripts/server.py"],
         },
+        root=repo_root,
     )
 
 
@@ -2128,8 +2166,7 @@ def render_codex_mcp_config(repo_root: Path) -> None:
     target = repo_root / ".codex" / "config.toml"
     existing: str | None = None
     if target.is_file():
-        with target.open("r", encoding="utf-8", newline="") as handle:
-            existing = handle.read()
+        existing = read_repo_text(repo_root, target, translate_newlines=False)
     fail_safe_reasons: list[str] = []
     merged = upsert_codex_mcp_config(
         existing, on_fail_safe=fail_safe_reasons.append
@@ -2142,7 +2179,7 @@ def render_codex_mcp_config(repo_root: Path) -> None:
             file=sys.stderr,
         )
         return
-    write_text(target, merged)
+    write_text(target, merged, root=repo_root)
 
 
 def render_cursor_hooks(repo_root: Path) -> None:
@@ -2156,7 +2193,7 @@ def render_cursor_hooks(repo_root: Path) -> None:
             ]
         },
     }
-    write_text(repo_root / ".cursor" / "hooks.json", json.dumps(config, indent=2) + "\n")
+    write_text(repo_root / ".cursor" / "hooks.json", json.dumps(config, indent=2) + "\n", root=repo_root)
 
 
 def render_copilot_hooks(repo_root: Path) -> None:
@@ -2181,7 +2218,7 @@ def render_copilot_hooks(repo_root: Path) -> None:
             ],
         },
     }
-    write_text(repo_root / ".github" / "hooks" / "hooks.json", json.dumps(config, indent=2) + "\n")
+    write_text(repo_root / ".github" / "hooks" / "hooks.json", json.dumps(config, indent=2) + "\n", root=repo_root)
 
 
 # Wave 1p88t: git hooks were dropped — the in-session staleness monitor (wave 1p5xu) detects and
@@ -2349,7 +2386,6 @@ def render_bin_launchers(repo_root: Path) -> None:
     (`wf_validate_docs`, `wf_garden_docs`, …) over invoking `wf` directly.
     """
     bin_dir = repo_root / ".wavefoundry" / "bin"
-    bin_dir.mkdir(parents=True, exist_ok=True)
 
     # `wf` (bash): resolve REPO_ROOT from this shim's own location, cd, then run the dispatcher with
     # the standardized `python3` command.
@@ -2395,8 +2431,8 @@ def render_bin_launchers(repo_root: Path) -> None:
         'exit /b 2\r\n'
     )
 
-    write_text(bin_dir / "wf", wf_src, executable=True)
-    write_text(bin_dir / "wf.cmd", wf_cmd_src)
+    write_text(bin_dir / "wf", wf_src, executable=True, root=repo_root)
+    write_text(bin_dir / "wf.cmd", wf_cmd_src, root=repo_root)
 
     # Hard cutover: remove the nine retired wrappers' committed files + older stale launchers.
     for stale in (
@@ -2438,7 +2474,7 @@ def render_windsurf_hooks(repo_root: Path) -> None:
             ],
         }
     }
-    write_text(repo_root / ".windsurf" / "hooks.json", json.dumps(config, indent=2) + "\n")
+    write_text(repo_root / ".windsurf" / "hooks.json", json.dumps(config, indent=2) + "\n", root=repo_root)
 
 
 def render_aiignore(repo_root: Path) -> None:
@@ -2460,7 +2496,7 @@ def render_aiignore(repo_root: Path) -> None:
     ]
     lines: list[str] = []
     if aiignore.exists():
-        for line in aiignore.read_text(encoding="utf-8").splitlines():
+        for line in read_repo_text(repo_root, aiignore).splitlines():
             if ".wavefoundry/framework/seeds/*.prompt.md" in line:
                 continue
             if "Protect seed prompts" in line:
@@ -2504,7 +2540,7 @@ def render_aiignore(repo_root: Path) -> None:
     if rest:
         lines_out.append("")
         lines_out.extend(rest)
-    write_text(aiignore, "\n".join(lines_out).rstrip() + "\n")
+    write_text(aiignore, "\n".join(lines_out).rstrip() + "\n", root=repo_root)
 
 
 _GITIGNORE_BEGIN = "# >>> wavefoundry runtime (managed by render_platform_surfaces.py — edits here are overwritten) >>>"
@@ -2626,7 +2662,7 @@ def render_gitignore_block(repo_root: Path) -> None:
     gitignore = repo_root / ".gitignore"
     existing: list[str] = []
     if gitignore.exists():
-        existing = gitignore.read_text(encoding="utf-8").splitlines()
+        existing = read_repo_text(repo_root, gitignore).splitlines()
 
     preserved: list[str] = []
     in_block = False
@@ -2652,7 +2688,7 @@ def render_gitignore_block(repo_root: Path) -> None:
     if out:
         out.append("")
     out.extend(managed)
-    write_text(gitignore, "\n".join(out).rstrip() + "\n")
+    write_text(gitignore, "\n".join(out).rstrip() + "\n", root=repo_root)
 
 
 _GITATTRIBUTES_BEGIN = "# >>> wavefoundry line-endings (managed by render_platform_surfaces.py — edits here are overwritten) >>>"
@@ -2694,7 +2730,7 @@ def render_gitattributes_block(repo_root: Path) -> None:
     gitattributes = repo_root / ".gitattributes"
     existing: list[str] = []
     if gitattributes.exists():
-        existing = gitattributes.read_text(encoding="utf-8").splitlines()
+        existing = read_repo_text(repo_root, gitattributes).splitlines()
 
     preserved: list[str] = []
     in_block = False
@@ -2720,7 +2756,7 @@ def render_gitattributes_block(repo_root: Path) -> None:
     if out:
         out.append("")
     out.extend(managed)
-    write_text(gitattributes, "\n".join(out).rstrip() + "\n")
+    write_text(gitattributes, "\n".join(out).rstrip() + "\n", root=repo_root)
 
 
 # Wave 1p6lp: render_upgrade_skill retired. The upgrade skill is a registry
@@ -2748,14 +2784,15 @@ def render_platform_entrypoints(repo_root: Path, platform: str) -> None:
                 repo_root / ".claude" / "hooks" / "simulate-hooks.cmd",
             ]
         )
-        write_hook_bundle(repo_root / ".claude" / "hooks" / "pre-edit", claude_pre_edit_source())
-        write_hook_bundle(repo_root / ".claude" / "hooks" / "post-edit", claude_post_edit_source())
-        write_hook_bundle(repo_root / ".claude" / "hooks" / "simulate-hooks", claude_simulate_hooks_source())
-        write_hook_bundle(repo_root / ".claude" / "hooks" / "session-capture", claude_stop_source())
-        write_hook_bundle(repo_root / ".claude" / "hooks" / "wf-session-start", claude_session_start_source())
+        write_hook_bundle(repo_root / ".claude" / "hooks" / "pre-edit", claude_pre_edit_source(), root=repo_root)
+        write_hook_bundle(repo_root / ".claude" / "hooks" / "post-edit", claude_post_edit_source(), root=repo_root)
+        write_hook_bundle(repo_root / ".claude" / "hooks" / "simulate-hooks", claude_simulate_hooks_source(), root=repo_root)
+        write_hook_bundle(repo_root / ".claude" / "hooks" / "session-capture", claude_stop_source(), root=repo_root)
+        write_hook_bundle(repo_root / ".claude" / "hooks" / "wf-session-start", claude_session_start_source(), root=repo_root)
         write_hook_bundle(
             repo_root / ".claude" / "hooks" / "context-efficiency-project",
             claude_context_efficiency_source(),
+            root=repo_root,
         )
         render_claude_settings(repo_root)
         render_mcp_json(repo_root)
@@ -2779,10 +2816,10 @@ def render_platform_entrypoints(repo_root: Path, platform: str) -> None:
                 repo_root / ".cursor" / "hooks" / "reformat.cmd",
             ]
         )
-        write_hook_bundle(repo_root / ".cursor" / "hooks" / "after-file-edit", cursor_after_file_edit_source())
-        write_hook_bundle(repo_root / ".cursor" / "hooks" / "seed-warn", cursor_seed_warn_source())
-        write_hook_bundle(repo_root / ".cursor" / "hooks" / "framework-plan-warn", cursor_framework_warn_source())
-        write_hook_bundle(repo_root / ".cursor" / "hooks" / "docs-lint", cursor_docs_lint_source())
+        write_hook_bundle(repo_root / ".cursor" / "hooks" / "after-file-edit", cursor_after_file_edit_source(), root=repo_root)
+        write_hook_bundle(repo_root / ".cursor" / "hooks" / "seed-warn", cursor_seed_warn_source(), root=repo_root)
+        write_hook_bundle(repo_root / ".cursor" / "hooks" / "framework-plan-warn", cursor_framework_warn_source(), root=repo_root)
+        write_hook_bundle(repo_root / ".cursor" / "hooks" / "docs-lint", cursor_docs_lint_source(), root=repo_root)
         render_cursor_hooks(repo_root)
         render_cursor_mcp_json(repo_root)
     elif platform == "copilot":
@@ -2796,12 +2833,12 @@ def render_platform_entrypoints(repo_root: Path, platform: str) -> None:
                 repo_root / ".github" / "hooks" / "post-tool-use.cmd",
             ]
         )
-        write_hook_bundle(repo_root / ".github" / "hooks" / "pre-tool-use", copilot_pre_tool_use_source())
-        write_hook_bundle(repo_root / ".github" / "hooks" / "post-tool-use", copilot_post_tool_use_source())
+        write_hook_bundle(repo_root / ".github" / "hooks" / "pre-tool-use", copilot_pre_tool_use_source(), root=repo_root)
+        write_hook_bundle(repo_root / ".github" / "hooks" / "post-tool-use", copilot_post_tool_use_source(), root=repo_root)
         render_copilot_hooks(repo_root)
     elif platform == "windsurf":
-        write_hook_bundle(repo_root / ".windsurf" / "hooks" / "seed-protect", windsurf_seed_protect_source())
-        write_hook_bundle(repo_root / ".windsurf" / "hooks" / "docs-lint", windsurf_docs_lint_source())
+        write_hook_bundle(repo_root / ".windsurf" / "hooks" / "seed-protect", windsurf_seed_protect_source(), root=repo_root)
+        write_hook_bundle(repo_root / ".windsurf" / "hooks" / "docs-lint", windsurf_docs_lint_source(), root=repo_root)
         render_windsurf_hooks(repo_root)
     elif platform == "junie":
         render_aiignore(repo_root)
@@ -2872,7 +2909,11 @@ def main(argv: list[str] | None = None) -> int:
     # render scope without adding a second way to widen permissions.
     if args.permissions_only:
         if args.include_permissions and "claude" in platforms:
-            render_claude_permissions(repo_root)
+            try:
+                render_claude_permissions(repo_root)
+            except (RuntimeError, contained_files.ContainedFileRefused) as exc:
+                print(f"render_platform_surfaces: ERROR — {exc.strerror if isinstance(exc, OSError) else exc}", file=sys.stderr)
+                return 1
         return 0
     from render_agent_surfaces import preflight_agent_surface_paths, render_agent_surfaces
 
@@ -2894,28 +2935,32 @@ def main(argv: list[str] | None = None) -> int:
         remove_copilot_artifacts(repo_root)
     if args.manifest:
         _manifest_start()
-    # Codex MCP wiring is a baseline connection surface. It must not depend on
-    # filesystem detection or an explicit platform selection; direct dispatch
-    # remains available for discoverability and focused tests.
-    render_codex_mcp_config(repo_root)
-    for platform in sorted(platforms - {"codex"}):
-        render_platform_entrypoints(repo_root, platform)
-    # Wave 1u2b0 (1u2az): permissions rendering is upgrade/install-only:
-    # default OFF, gated on the explicit CLI switch that the agent-invocable
-    # wf_sync_surfaces path never passes. Runs AFTER render_claude_settings so
-    # both merges compose on the same file.
-    if args.include_permissions and "claude" in platforms:
-        render_claude_permissions(repo_root)
+    # Wave 200ey (1zyv2): a contained read or write refusal (a link leaving the
+    # repository, a special or oversized file) stops the render with a message
+    # naming only the repository-relative path and the cause class.
     try:
+        # Codex MCP wiring is a baseline connection surface. It must not depend on
+        # filesystem detection or an explicit platform selection; direct dispatch
+        # remains available for discoverability and focused tests.
+        render_codex_mcp_config(repo_root)
+        for platform in sorted(platforms - {"codex"}):
+            render_platform_entrypoints(repo_root, platform)
+        # Wave 1u2b0 (1u2az): permissions rendering is upgrade/install-only:
+        # default OFF, gated on the explicit CLI switch that the agent-invocable
+        # wf_sync_surfaces path never passes. Runs AFTER render_claude_settings so
+        # both merges compose on the same file.
+        if args.include_permissions and "claude" in platforms:
+            render_claude_permissions(repo_root)
         agent_written = render_agent_surfaces(repo_root)
-    except RuntimeError as exc:
-        print(f"render_platform_surfaces: ERROR — {exc}", file=sys.stderr)
+        render_bin_launchers(repo_root)
+        render_gitignore_block(repo_root)  # wave 1p8vj: enforce the runtime ignore block on every render/upgrade (self-heals)
+        for warning in tracked_runtime_diagnostics(repo_root):
+            print("render_platform_surfaces: WARNING — " + warning["detail"], file=sys.stderr)
+        render_gitattributes_block(repo_root)  # wave 1p9hm: propagate the LF line-ending policy to target repos (self-heals)
+    except (RuntimeError, contained_files.ContainedFileRefused) as exc:
+        detail = exc.strerror if isinstance(exc, OSError) else exc
+        print(f"render_platform_surfaces: ERROR — {detail}", file=sys.stderr)
         return 1
-    render_bin_launchers(repo_root)
-    render_gitignore_block(repo_root)  # wave 1p8vj: enforce the runtime ignore block on every render/upgrade (self-heals)
-    for warning in tracked_runtime_diagnostics(repo_root):
-        print("render_platform_surfaces: WARNING — " + warning["detail"], file=sys.stderr)
-    render_gitattributes_block(repo_root)  # wave 1p9hm: propagate the LF line-ending policy to target repos (self-heals)
     remove_git_hooks(repo_root)  # wave 1p88t: git hooks dropped; clean up any prior renders
     for ds in repo_root.rglob(".DS_Store"):
         try:

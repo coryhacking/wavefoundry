@@ -96,11 +96,11 @@ with patch.multiple(srv, **stubs):
     change_doc = record.parent / f"{change_id}.md"
     ready = srv.wf_prepare_wave_response(root, wave_id, mode="ready")
     readiness_lanes = list(ready["data"]["review_policy"]["required_lanes"])
-    event("readiness run", wave_id, "run", "wave-council", "ready-run", run_kind="readiness", cycle=0)
+    event("readiness run", wave_id, "run", "council-chair", "ready-run", run_kind="readiness", cycle=0)
     for lane in readiness_lanes:
         event("readiness " + lane, wave_id, "approval", lane, "ready-" + lane,
               signoff_key=lane, approval_phase="readiness")
-    event("readiness council", wave_id, "approval", "wave-council", "ready-council",
+    event("readiness council", wave_id, "approval", "council-chair", "ready-council",
           signoff_key="wave-council-readiness", approval_phase="readiness")
     ok("prepare create", srv.wf_prepare_wave_response(root, wave_id, mode="create"))
     for path in (change_doc, record):
@@ -111,11 +111,11 @@ with patch.multiple(srv, **stubs):
                           .replace("- [ ] Do the thing.", "- [x] Do the thing."), encoding="utf-8")
     reviewed = srv.wf_review_wave_response(root, wave_id)
     delivery_lanes = [lane for lane in reviewed["data"]["required_lanes"] if lane != "operator"]
-    event("delivery run", wave_id, "run", "wave-council", "delivery-run", run_kind="initial_delivery", cycle=0)
+    event("delivery run", wave_id, "run", "council-chair", "delivery-run", run_kind="initial_delivery", cycle=0)
     for lane in delivery_lanes:
         event("delivery " + lane, wave_id, "approval", lane, "delivery-" + lane,
               signoff_key=lane, approval_phase="delivery")
-    event("delivery council", wave_id, "approval", "wave-council", "delivery-council",
+    event("delivery council", wave_id, "approval", "council-chair", "delivery-council",
           signoff_key="wave-council-delivery", approval_phase="delivery")
     # The member status advances after the approvals; they must survive it.
     for path in (change_doc, record):

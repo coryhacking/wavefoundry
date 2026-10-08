@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: implementer
 Category: build
-Last verified: 2026-09-22
+Last verified: 2026-10-08
 
 ## Operating Identity
 
@@ -28,7 +28,7 @@ When the Wavefoundry MCP server is available, use these tools as the first explo
 - `code_keyword(pattern)` — find similar implementations or exact token matches
 - `code_outline(path)` — structural symbol map before a broad `code_read`
 
-`rg`, `grep`, and broad file reads are **fallback only** — use them when MCP is not attached, the relevant tool is unavailable, index health is unreliable, or MCP results are genuinely insufficient. Record a `Gapfill:` note in Progress Log when fallback was required.
+`rg`, `grep`, and broad file reads are **retrieval fallback only** — use them only when the tools are not exposed at all, the schema load fails, or a tool call errors, and record a `Gapfill:` note naming which of those three happened. A deferred tool whose schema is not yet loaded is not unavailable: load it and confirm it is callable first, per seed 020. For stale indexed data or insufficient results, use current-file MCP reads or report the unresolved retrieval limit. Literal-byte checks and git inspection remain separate from retrieval fallback.
 
 See `docs/agents/guru.md` for the full retrieval loop. These tools apply at implementation time even outside a Guru Q&A session.
 

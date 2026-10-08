@@ -171,7 +171,11 @@ _SHIPPED_VOCABULARY = {
 SHIPPED_DEFAULTS: "dict[str, dict[str, Any]]" = {
     "vocabulary_profile": {**_SHIPPED_VOCABULARY, "ARCHIVE_PROFILE": None, "EXTRA_CHANGE_KINDS": (),
                            # Wave 1zyb4 (1zxnw): the lifecycle prompt-name override.
-                           "PROMPT_NAME_OVERRIDES": {}},
+                           "PROMPT_NAME_OVERRIDES": {},
+                           # Wave 200ey (200ew): a distribution's earlier council
+                           # keys and the council protocol's display name.
+                           "EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS": {},
+                           "COUNCIL_DISPLAY_NAME": "Wave Council"},
     "record_paths": {
         "WAVES_ROOT": "docs/waves",
         "PLANS_ROOT": "docs/plans",

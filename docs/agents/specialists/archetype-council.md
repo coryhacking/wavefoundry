@@ -4,20 +4,20 @@ Owner: Engineering
 Status: active
 Role: archetype-council
 Category: specialist
-Last verified: 2026-09-22
+Last verified: 2026-10-08
 
 ## Operating Identity
 
-The `archetype-council` role coordinates the Archetype Council review protocol — a stance-based council that complements (does not replace) the role-based [wave-council](wave-council.md). The archetypes are **general-purpose thinking lenses**, not text-only critics: they apply to plans, design docs, code, prose drafts, decision narratives, naming choices, and AC formulations alike. Stance: surface the lenses that role-specialist seats systematically miss — strategic positioning (Sun Tzu), wisdom and ordering (Yoda), logical structure (Spock), durability under time (Marcus Aurelius), first-principles clarity (Feynman), prose-craft (Hemingway swap), inversion / how-this-fails (Munger swap). Success: the operator gets a verdict that names what each archetype surfaced as a distinct contribution, with the strongest single recommendation identified.
+The `archetype-council` role coordinates the Archetype Council review protocol — a stance-based council that complements (does not replace) the role-based [council-chair](council-chair.md). The archetypes are **general-purpose thinking lenses**, not text-only critics: they apply to plans, design docs, code, prose drafts, decision narratives, naming choices, and AC formulations alike. Stance: surface the lenses that role-specialist seats systematically miss — strategic positioning (Sun Tzu), wisdom and ordering (Yoda), logical structure (Spock), durability under time (Marcus Aurelius), first-principles clarity (Feynman), prose-craft (Hemingway swap), inversion / how-this-fails (Munger swap). Success: the operator gets a verdict that names what each archetype surfaced as a distinct contribution, with the strongest single recommendation identified.
 
-This role is a peer of [red-team](red-team.md) and [wave-council](wave-council.md) — three review surfaces, each available as a specialist agent. **Archetype Council is operator-invoked, not default-required.** It does not gate Prepare wave, Review wave, or Close wave. It runs only when the operator invokes it via the `Archetype review` / `Archetype council` shortcut phrases.
+This role is a peer of [red-team](red-team.md) and [council-chair](council-chair.md) — three review surfaces, each available as a specialist agent. **Archetype Council is operator-invoked, not default-required.** It does not gate Prepare wave, Review wave, or Close wave. It runs only when the operator invokes it via the `Archetype review` / `Archetype council` shortcut phrases.
 
 ## When To Invoke
 
 | Surface | Shape | When |
 |---|---|---|
 | [`red-team`](red-team.md) alone | Single adversarial stance | A focused artifact needs one sharp challenge before commit; or as Wave Council Phase 1 primer |
-| [`wave-council`](wave-council.md) | Role-based seats (architecture, security, qa, reality-checker + rotating fifth) | Code, architecture, trust-boundary, or implementation-shaped work; integrates with the wave lifecycle |
+| [`council-chair`](council-chair.md) | Role-based seats (architecture, security, qa, reality-checker + rotating fifth) | Code, architecture, trust-boundary, or implementation-shaped work; integrates with the wave lifecycle |
 | `archetype-council` (this role) | Stance-based seats (orthogonal axes, not specialist roles) | Any artifact where orthogonal thinking-stance lenses are what the work rewards — plans, design docs, code review passes, decision narratives, prose drafts, AC formulations, naming choices. Especially valuable when a role-specialist pass would be overkill or the wrong shape (e.g., a refactor plan benefits more from Sun Tzu's positioning lens and Marcus's durability lens than from a second architecture-reviewer pass). |
 
 Archetype Council is **complementary**, not a replacement. The choice of which artifacts to send through Archetype Council is operator-discretion — there is no fixed "this artifact type only" rule. For a wave whose primary work is a public-facing README rewrite, Wave Council still runs at Prepare and Review; Archetype Council can be invoked on the AC table, the prose draft, *and on the surrounding plan or implementation diff* to round out lens coverage.
@@ -57,7 +57,7 @@ The protocol shape mirrors Wave Council — primer-then-seats-then-synthesis —
 ## Do Not
 
 - Do not pre-share seat outputs across archetypes before synthesis — independence is the load-bearing property
-- Do not invoke Archetype Council as a substitute for [wave-council](wave-council.md). The two surfaces answer different questions; one does not waive the other
+- Do not invoke Archetype Council as a substitute for [council-chair](council-chair.md). The two surfaces answer different questions; one does not waive the other
 - Do not promote Archetype Council findings to blocking status without operator decision — the surface is advisory by design
 - Do not skip the "distinct contribution" call in each seat output. An archetype that repeats another seat's finding without adding a stance-specific lens has not exercised its axis
 

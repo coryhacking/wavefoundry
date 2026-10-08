@@ -1,10 +1,16 @@
 """Wave 1zyb4 (1zxnx): tier-neutral council signoff keys.
 
 New approvals carry ``council-readiness`` / ``council-delivery``. The earlier
-spellings ``wave-council-readiness`` / ``wave-council-delivery`` are history:
-they stay readable forever (ledgers and wave records are never rewritten), and
-they stay accepted as tool input and config values during the alias period.
-The fixtures below that write the earlier spelling model those legacy ledgers.
+spellings (``review_evidence.LEGACY_COUNCIL_SIGNOFF_KEYS``) are history: they
+stay readable forever (ledgers and wave records are never rewritten), and they
+stay accepted as tool input and config values during the alias period. The
+fixtures below that write the earlier spelling model those legacy ledgers.
+
+Change 200ex: every earlier spelling is derived from ``review_evidence`` (the
+framework's single source of the legacy map), never written here, so a
+distribution that declares other or additional earlier spellings runs these
+tests unchanged. Only the pinned pre-change digest keeps its literal input,
+because it records a fixed historical computation.
 """
 from __future__ import annotations
 
@@ -13,6 +19,7 @@ import json
 import re
 import shutil
 import tempfile
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -35,26 +42,59 @@ from test_lifecycle_golden import (
 )
 from test_review_evidence import derive, executable_evidence, synthesis
 
-OLD_READINESS = "wave-council-readiness"
-OLD_DELIVERY = "wave-council-delivery"
-NEW_READINESS = "council-readiness"
-NEW_DELIVERY = "council-delivery"
+NEW_READINESS = subject.COUNCIL_READINESS_SIGNOFF_KEY
+NEW_DELIVERY = subject.COUNCIL_DELIVERY_SIGNOFF_KEY
+# Every earlier spelling per current key, from the framework's legacy map; the
+# first one is the spelling the fixtures write.
+OLD_SPELLINGS = {key: subject.legacy_signoff_key_spellings(key) for key in (NEW_READINESS, NEW_DELIVERY)}
+OLD_READINESS = OLD_SPELLINGS[NEW_READINESS][0]
+OLD_DELIVERY = OLD_SPELLINGS[NEW_DELIVERY][0]
+# A custom key a distribution may configure under the legacy council prefix.
+CUSTOM_COUNCIL_KEY = subject._LEGACY_COUNCIL_KEY_PREFIX + "x"
+# Wave 200ey (change 200ew): the council actor and its earlier name, which
+# ledgers written before the rename carry.
+ACTOR = subject.COUNCIL_ACTOR
+LEGACY_ACTOR = subject.LEGACY_COUNCIL_ACTORS[0]
+
+
+def _as_earlier_release(srv):
+    """Write events as the release before the actor rename did: the builder's
+    expected council actor is the earlier name (in the module the server's
+    builder reads)."""
+    module = sys.modules[srv.build_identified_review_event.__module__]
+    return patch.object(module, "COUNCIL_ACTOR", LEGACY_ACTOR)
+
+
+def _builtin_legacy_keys() -> dict[str, str]:
+    """The built-in legacy mapping: the legacy map less any distribution-declared
+    extra spellings (``EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS``, when the vocabulary
+    profile declares it)."""
+    extra = getattr(vocabulary_profile, "EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS", {}) or {}
+    return {old: new for old, new in subject.LEGACY_COUNCIL_SIGNOFF_KEYS.items() if old not in extra}
+
+
+def _token(key: str) -> str:
+    """``key`` as a whole token: not preceded or followed by a word character or ``-``."""
+    return rf"(?<![\w-]){re.escape(key)}(?![\w-])"
 
 
 def _legacy(text: str, *, keys: tuple[str, ...] = (NEW_READINESS, NEW_DELIVERY)) -> str:
     """Spell the named current keys the earlier way (models a legacy ledger)."""
     for key in keys:
-        text = re.sub(rf"(?<!wave-){re.escape(key)}", f"wave-{key}", text)
+        text = re.sub(_token(key), OLD_SPELLINGS[key][0], text)
     return text
 
 
 def _current(text: str) -> str:
-    return text.replace(OLD_READINESS, NEW_READINESS).replace(OLD_DELIVERY, NEW_DELIVERY)
+    """Spell every earlier council key the current way."""
+    for old in sorted(subject.LEGACY_COUNCIL_SIGNOFF_KEYS, key=len, reverse=True):
+        text = re.sub(_token(old), subject.LEGACY_COUNCIL_SIGNOFF_KEYS[old], text)
+    return text
 
 
 def _approval(key: str, evidence_id: str | None = None, **overrides: object) -> dict[str, object]:
     actor = overrides.pop("actor", None) or (
-        "wave-council" if subject.is_council_signoff_key(key) else key)
+        ACTOR if subject.is_council_signoff_key(key) else key)
     return executable_evidence(
         evidence_id or f"approval-{key}",
         f"approval:{key}",
@@ -69,18 +109,23 @@ class CanonicalKeyTests(unittest.TestCase):
     """AC-1: one mapping every reader uses."""
 
     def test_canonical_signoff_key(self) -> None:
-        self.assertEqual(subject.canonical_signoff_key(OLD_READINESS), NEW_READINESS)
-        self.assertEqual(subject.canonical_signoff_key(OLD_DELIVERY), NEW_DELIVERY)
+        for new, spellings in OLD_SPELLINGS.items():
+            self.assertTrue(spellings, new)
+            for old in spellings:
+                with self.subTest(old=old):
+                    self.assertEqual(subject.canonical_signoff_key(old), new)
         for unchanged in (NEW_READINESS, NEW_DELIVERY, "operator-signoff",
-                          "code-reviewer", "qa-reviewer", "wave-council-x", "wave-council"):
+                          "code-reviewer", "qa-reviewer", CUSTOM_COUNCIL_KEY, ACTOR, LEGACY_ACTOR):
             with self.subTest(key=unchanged):
                 self.assertEqual(subject.canonical_signoff_key(unchanged), unchanged)
 
     def test_is_council_signoff_key(self) -> None:
-        for key in (OLD_READINESS, OLD_DELIVERY, NEW_READINESS, NEW_DELIVERY, "wave-council-x"):
+        legacy = tuple(old for spellings in OLD_SPELLINGS.values() for old in spellings)
+        for key in (*legacy, NEW_READINESS, NEW_DELIVERY, CUSTOM_COUNCIL_KEY):
             with self.subTest(key=key):
                 self.assertTrue(subject.is_council_signoff_key(key))
-        for key in ("council-review", "code-reviewer", "operator-signoff", "wave-council", ""):
+        for key in ("council-review", "code-reviewer", "operator-signoff", ACTOR, LEGACY_ACTOR,
+                    ACTOR + "-x", ""):
             with self.subTest(key=key):
                 self.assertFalse(subject.is_council_signoff_key(key))
 
@@ -92,18 +137,30 @@ class CanonicalKeyTests(unittest.TestCase):
         self.assertEqual(subject.canonical_approval_claim_id("finding:x"), "finding:x")
 
     def test_digest_spelling_mirrors_the_alias_map(self) -> None:
+        # The digest map equals the reverse of the built-in pair only, never
+        # the map merged with a distribution's extra spellings.
         self.assertEqual(
             review_policy._DIGEST_COUNCIL_SIGNOFF_SPELLING,
-            {new: old for old, new in subject.LEGACY_COUNCIL_SIGNOFF_KEYS.items()},
+            {new: old for old, new in _builtin_legacy_keys().items()},
         )
+
+
+def _phases_config(readiness: str, delivery: str, moderator: str = ACTOR) -> dict:
+    return {"enabled": True, "delivery_mode": "universal", "phases": {
+        "prepare": {"signoff_key": readiness, "moderator_role": moderator},
+        "review": {"signoff_key": delivery, "moderator_role": moderator}}}
 
 
 class DigestInputTests(unittest.TestCase):
     """AC-11: a key spelling never rotates a receipt."""
 
-    OLD = {"enabled": True, "delivery_mode": "universal", "phases": {
-        "prepare": {"signoff_key": OLD_READINESS, "moderator_role": "wave-council"},
-        "review": {"signoff_key": OLD_DELIVERY, "moderator_role": "wave-council"}}}
+    # A config naming the built-in earlier spellings (the ones the digest map
+    # writes), derived, never a literal.
+    OLD = _phases_config(*(next(old for old, new in _builtin_legacy_keys().items() if new == key)
+                           for key in (NEW_READINESS, NEW_DELIVERY)))
+    # Historical input: exactly what the pre-change ``policy_input_snapshot``
+    # hashed for ``PINNED["old"]``. Kept literal on purpose (change 200ex).
+    PINNED_OLD_INPUT = _phases_config("wave-council-readiness", "wave-council-delivery", "wave-council")
     NO_PHASES = {"enabled": True, "delivery_mode": "targeted"}
     KWARGS = dict(
         project_lanes=["code-reviewer"],
@@ -121,12 +178,26 @@ class DigestInputTests(unittest.TestCase):
     def digest(self, wave_review) -> str:
         return review_policy.policy_input_snapshot(wave_review=wave_review, **self.KWARGS)[0]
 
-    def test_old_and_new_spellings_hash_alike_and_match_the_pre_change_digest(self) -> None:
+    def test_old_and_new_spellings_hash_alike(self) -> None:
         new = json.loads(_current(json.dumps(self.OLD)))
         self.assertEqual(new["phases"]["prepare"]["signoff_key"], NEW_READINESS)
-        self.assertEqual(self.digest(self.OLD), self.PINNED["old"])
-        self.assertEqual(self.digest(new), self.PINNED["old"])
+        self.assertEqual(new["phases"]["review"]["signoff_key"], NEW_DELIVERY)
+        self.assertEqual(self.digest(new), self.digest(self.OLD))
         self.assertEqual(self.digest(self.NO_PHASES), self.PINNED["no_phases"])
+
+    def test_the_pre_change_digest_is_unchanged(self) -> None:
+        historical = {phase: block["signoff_key"] for phase, block in self.PINNED_OLD_INPUT["phases"].items()}
+        spelling = review_policy._DIGEST_COUNCIL_SIGNOFF_SPELLING
+        if (spelling.get(NEW_READINESS), spelling.get(NEW_DELIVERY)) != (historical["prepare"], historical["review"]):
+            self.skipTest("the digest map does not write the historical earlier spelling, "
+                          "so the pinned pre-change digest does not apply to this tree")
+        new = json.loads(_current(json.dumps(self.PINNED_OLD_INPUT)))
+        self.assertEqual(self.digest(self.PINNED_OLD_INPUT), self.PINNED["old"])
+        self.assertEqual(self.digest(new), self.PINNED["old"])
+        # Wave 200ey (change 200ew): the renamed moderator role hashes like
+        # the earlier one, so the config rename rotates no receipt.
+        renamed = _phases_config(NEW_READINESS, NEW_DELIVERY, ACTOR)
+        self.assertEqual(self.digest(renamed), self.PINNED["old"])
 
     def test_the_callers_policy_object_is_not_mutated(self) -> None:
         new = json.loads(_current(json.dumps(self.OLD)))
@@ -143,8 +214,8 @@ class ReadCompatibilityTests(unittest.TestCase):
     """AC-3 (record level): either spelling satisfies the same canonical key."""
 
     def test_either_spelling_satisfies_either_required_spelling(self) -> None:
-        for recorded in (OLD_DELIVERY, NEW_DELIVERY):
-            for required in (OLD_DELIVERY, NEW_DELIVERY):
+        for recorded in (*OLD_SPELLINGS[NEW_DELIVERY], NEW_DELIVERY):
+            for required in (*OLD_SPELLINGS[NEW_DELIVERY], NEW_DELIVERY):
                 with self.subTest(recorded=recorded, required=required):
                     [row] = subject.review_status_rows([_approval(recorded)], [required])
                     self.assertEqual(row["state"], "approved")
@@ -178,7 +249,7 @@ class ReadCompatibilityTests(unittest.TestCase):
 
         withdrawn = f"- {OLD_DELIVERY}: approved\n- {NEW_DELIVERY}: withdrawn\n"
         approved = f"- {NEW_DELIVERY}: withdrawn\n- {OLD_DELIVERY}: approved\n"
-        for lane in (OLD_DELIVERY, NEW_DELIVERY):
+        for lane in (*OLD_SPELLINGS[NEW_DELIVERY], NEW_DELIVERY):
             with self.subTest(lane=lane):
                 self.assertFalse(current(withdrawn, lane))
                 self.assertTrue(current(approved, lane))
@@ -205,29 +276,29 @@ class ReadCompatibilityTests(unittest.TestCase):
         self.assertEqual(row["state"], "withheld")
 
     def test_expected_actor_and_phase_rules_hold_for_both_spellings(self) -> None:
-        for key in (OLD_READINESS, NEW_READINESS):
+        for key in (*OLD_SPELLINGS[NEW_READINESS], NEW_READINESS):
             with self.subTest(key=key):
                 [row] = subject.review_status_rows(
                     [_approval(key, actor="council-readiness")], [NEW_READINESS])
                 self.assertEqual(row["state"], "pending")
-                self.assertIn("expected `wave-council`", row["why"])
+                self.assertIn(f"expected `{ACTOR}`", row["why"])
         base = {
             "event": "approval", "context_id": "c", "fresh_context": True,
             "independent": True, "integrity_checks": dict(_APPROVAL_INTEGRITY),
             "observed": "o", "artifact_or_test_id": "a",
         }
-        for key in (OLD_READINESS, NEW_READINESS):
+        for key in (*OLD_SPELLINGS[NEW_READINESS], NEW_READINESS):
             with self.subTest(key=key):
                 _rows, errors = subject.build_compact_review_event(
                     (), {**base, "actor": "council-readiness", "signoff_key": key,
                          "approval_phase": "delivery"})
                 joined = "\n".join(errors)
-                self.assertIn("approval actor must be `wave-council`", joined)
+                self.assertIn(f"approval actor must be `{ACTOR}`", joined)
                 self.assertIn("requires approval_phase=readiness", joined)
-        for key in (OLD_DELIVERY, NEW_DELIVERY):
+        for key in (*OLD_SPELLINGS[NEW_DELIVERY], NEW_DELIVERY):
             with self.subTest(key=key):
                 _rows, errors = subject.build_compact_review_event(
-                    (), {**base, "actor": "wave-council", "signoff_key": key,
+                    (), {**base, "actor": ACTOR, "signoff_key": key,
                          "approval_phase": "readiness", "policy_receipt_id": "r"})
                 self.assertIn(f"{key} approval requires approval_phase=delivery", errors)
 
@@ -361,9 +432,9 @@ class LifecycleCompatibilityTests(unittest.TestCase):
         return root, wave_md, wave_id
 
     def _deliver(self, root, wave_md, wave_id):
-        self.assertEqual(self._event(root, wave_id, "run", "wave-council", "delivery-run",
+        self.assertEqual(self._event(root, wave_id, "run", ACTOR, "delivery-run",
                                      mode="create", run_kind="initial_delivery")["status"], "ok")
-        for key, actor in (("code-reviewer", "code-reviewer"), (NEW_DELIVERY, "wave-council"),
+        for key, actor in (("code-reviewer", "code-reviewer"), (NEW_DELIVERY, ACTOR),
                            ("operator-signoff", "operator")):
             response = self._event(root, wave_id, "approval", actor, f"delivery-{key}", mode="create",
                                    signoff_key=key, approval_phase="delivery")
@@ -398,12 +469,12 @@ class LifecycleCompatibilityTests(unittest.TestCase):
     def test_old_key_input_writes_the_new_key(self) -> None:
         """AC-2."""
         root, wave_md, wave_id = self._readied("alias-input", approvals=())
-        self._event(root, wave_id, "run", "wave-council", "readiness-run", mode="create",
+        self._event(root, wave_id, "run", ACTOR, "readiness-run", mode="create",
                     run_kind="readiness")
         for mode in ("dry_run", "create"):
             for given in (OLD_READINESS, NEW_READINESS):
                 with self.subTest(mode=mode, given=given):
-                    response = self._event(root, wave_id, "approval", "wave-council",
+                    response = self._event(root, wave_id, "approval", ACTOR,
                                            f"alias-{mode}-{given}", mode=mode,
                                            signoff_key=given, approval_phase="readiness")
                     self.assertIn(response["status"], {"ok", "dry_run"}, response)
@@ -427,14 +498,65 @@ class LifecycleCompatibilityTests(unittest.TestCase):
                                           f"actor-{given}", mode="dry_run",
                                           signoff_key=given, approval_phase="readiness")
                 self.assertEqual(wrong_actor["status"], "error")
-                self.assertIn("approval actor must be `wave-council`",
+                self.assertIn(f"approval actor must be `{ACTOR}`",
                               json.dumps(wrong_actor["diagnostics"]))
-                wrong_phase = self._event(root, wave_id, "approval", "wave-council",
+                wrong_phase = self._event(root, wave_id, "approval", ACTOR,
                                           f"phase-{given}", mode="dry_run",
                                           signoff_key=given, approval_phase="delivery")
                 self.assertEqual(wrong_phase["status"], "error")
                 self.assertIn("requires approval_phase=readiness",
                               json.dumps(wrong_phase["diagnostics"]))
+
+    def test_old_actor_input_writes_the_new_actor(self) -> None:
+        """Wave 200ey (change 200ew, AC-4): an approval given the earlier
+        council actor name is recorded with the current one and the response
+        carries an ``actor_alias`` notice; the current name carries none."""
+        root, wave_md, wave_id = self._readied("actor-alias", approvals=())
+        self._event(root, wave_id, "run", ACTOR, "readiness-run", mode="create",
+                    run_kind="readiness")
+        for mode in ("dry_run", "create"):
+            for given in (LEGACY_ACTOR, ACTOR):
+                with self.subTest(mode=mode, given=given):
+                    response = self._event(root, wave_id, "approval", given,
+                                           f"actor-{mode}-{given}", mode=mode,
+                                           signoff_key=NEW_READINESS, approval_phase="readiness")
+                    self.assertIn(response["status"], {"ok", "dry_run"}, response)
+                    notices = [d for d in response["diagnostics"] if d["code"] == "actor_alias"]
+                    if given == LEGACY_ACTOR:
+                        self.assertEqual(len(notices), 1, response["diagnostics"])
+                        self.assertEqual(notices[0]["severity"], "info")
+                        self.assertIn(f"`{ACTOR}`", notices[0]["message"])
+                    else:
+                        self.assertEqual(notices, [])
+        records, errors = subject.read_review_event_ledger(wave_md)
+        self.assertEqual(errors, ())
+        approvals = [r for r in records if r.get("claim_kind") == "approval"]
+        self.assertEqual(len(approvals), 2)
+        for record in approvals:
+            self.assertEqual(record["verification_context"]["actor"], ACTOR)
+            self.assertEqual(record[subject.EVENT_IDENTITY_FIELD]["actor"], ACTOR)
+
+    def test_declared_spaced_legacy_key_writes_a_canonical_approval(self) -> None:
+        root, wave_md, wave_id = self._readied("declared-key", approvals=())
+        self._event(root, wave_id, "run", ACTOR, "readiness-run", mode="create",
+                    run_kind="readiness")
+        earlier = "Review Board Readiness"
+        mapping = self.srv.canonical_signoff_key.__globals__["LEGACY_COUNCIL_SIGNOFF_KEYS"]
+        with patch.dict(mapping, {earlier: NEW_READINESS}):
+            for mode in ("dry_run", "create"):
+                response = self._event(root, wave_id, "approval", LEGACY_ACTOR,
+                                       f"declared-{mode}", mode=mode,
+                                       signoff_key=earlier, approval_phase="readiness")
+                self.assertIn(response["status"], {"ok", "dry_run"}, response)
+                notices = {d["code"] for d in response["diagnostics"]}
+                self.assertTrue({"actor_alias", "signoff_key_alias"} <= notices, response)
+        records, errors = subject.read_review_event_ledger(wave_md)
+        self.assertEqual(errors, ())
+        approvals = [r for r in records if r.get("claim_kind") == "approval"]
+        self.assertEqual(len(approvals), 1)
+        self.assertEqual(approvals[0]["verification_context"]["actor"], ACTOR)
+        self.assertEqual(approvals[0]["claim_id"], f"approval:{NEW_READINESS}")
+        self.assertEqual(approvals[0][subject.EVENT_IDENTITY_FIELD]["signoff_key"], NEW_READINESS)
 
     def test_activation_and_implement_pass_alike_on_legacy_new_and_mixed_ledgers(self) -> None:
         """AC-3: the prepare activation gate and wf_implement_wave."""
@@ -496,8 +618,8 @@ class LifecycleCompatibilityTests(unittest.TestCase):
         support = self.srv.lifecycle_gate_support
         root, wave_md, wave_id = self._readied("config-keys", status="active")
         config_path = root / "docs" / "workflow-config.json"
-        phases = {"prepare": {"signoff_key": OLD_READINESS, "moderator_role": "wave-council"},
-                  "review": {"signoff_key": OLD_DELIVERY, "moderator_role": "wave-council"}}
+        phases = {"prepare": {"signoff_key": OLD_READINESS, "moderator_role": LEGACY_ACTOR},
+                  "review": {"signoff_key": OLD_DELIVERY, "moderator_role": LEGACY_ACTOR}}
         configs = {
             "old": {**self.CONFIG, "wave_review": {**self.CONFIG["wave_review"], "phases": phases}},
             "new": {**self.CONFIG, "wave_review": {**self.CONFIG["wave_review"],
@@ -530,7 +652,7 @@ class LifecycleCompatibilityTests(unittest.TestCase):
         text = wave_md.read_text(encoding="utf-8")
         self.assertIn(f"| {OLD_READINESS} | pending |", text)
         self.assertEqual(check_wave_docs(root), [])
-        response = self._event(root, wave_id, "approval", "wave-council", "sticky-readiness",
+        response = self._event(root, wave_id, "approval", ACTOR, "sticky-readiness",
                                mode="create", signoff_key=NEW_READINESS, approval_phase="readiness")
         self.assertEqual(response["status"], "ok", response)
         text = wave_md.read_text(encoding="utf-8")
@@ -551,7 +673,7 @@ class LifecycleCompatibilityTests(unittest.TestCase):
                                                approvals=("code-reviewer",))
         self._respell(root, wave_md, (NEW_READINESS, NEW_DELIVERY))
         self.assertIn(f"| {OLD_READINESS} | pending |", wave_md.read_text(encoding="utf-8"))
-        response = self._event(root, wave_id, "approval", "wave-council", "dashboard-readiness",
+        response = self._event(root, wave_id, "approval", ACTOR, "dashboard-readiness",
                                mode="create", signoff_key=NEW_READINESS, approval_phase="readiness")
         self.assertEqual(response["status"], "ok", response)
         text = wave_md.read_text(encoding="utf-8")
@@ -569,16 +691,17 @@ class LifecycleCompatibilityTests(unittest.TestCase):
         context_id after the rename, in either spelling; nothing is appended
         and the ledger is not rewritten."""
         root, wave_md, wave_id = self._readied("legacy-replay", approvals=())
-        self._event(root, wave_id, "run", "wave-council", "readiness-run", mode="create",
+        self._event(root, wave_id, "run", ACTOR, "readiness-run", mode="create",
                     run_kind="readiness")
         # The earlier release recorded the key as given: call below the
         # canonicalizing input wrapper.
         unwrapped = self.srv.wf_review_event_response.__wrapped__.__wrapped__
-        legacy = unwrapped(root, wave_id, "approval", "wave-council", "legacy-ctx",
-                           fresh_context=True, independent=True,
-                           evidence=_approval_evidence("wave-council"),
-                           integrity_checks=dict(_APPROVAL_INTEGRITY), mode="create",
-                           signoff_key=OLD_READINESS, approval_phase="readiness")
+        with _as_earlier_release(self.srv):
+            legacy = unwrapped(root, wave_id, "approval", LEGACY_ACTOR, "legacy-ctx",
+                               fresh_context=True, independent=True,
+                               evidence=_approval_evidence(LEGACY_ACTOR),
+                               integrity_checks=dict(_APPROVAL_INTEGRITY), mode="create",
+                               signoff_key=OLD_READINESS, approval_phase="readiness")
         self.assertEqual(legacy["status"], "ok", legacy)
         ledger_path = subject.review_event_path(wave_md)
         ledger = ledger_path.read_bytes()
@@ -587,16 +710,22 @@ class LifecycleCompatibilityTests(unittest.TestCase):
         approvals = [r for r in records if r.get("claim_kind") == "approval"]
         self.assertEqual(len(approvals), 1)
         self.assertEqual(approvals[0][subject.EVENT_IDENTITY_FIELD]["signoff_key"], OLD_READINESS)
-        for given in (OLD_READINESS, NEW_READINESS):
+        for given, actor in ((OLD_READINESS, LEGACY_ACTOR), (NEW_READINESS, LEGACY_ACTOR),
+                             (NEW_READINESS, ACTOR)):
             for mode in ("dry_run", "create"):
-                with self.subTest(given=given, mode=mode):
-                    retry = self._event(root, wave_id, "approval", "wave-council", "legacy-ctx",
-                                        mode=mode, signoff_key=given, approval_phase="readiness")
+                with self.subTest(given=given, actor=actor, mode=mode):
+                    # The evidence names the earlier actor, as the first request did.
+                    retry = self.srv.wf_review_event_response(
+                        root, wave_id, "approval", actor, "legacy-ctx",
+                        fresh_context=True, independent=True,
+                        evidence=_approval_evidence(LEGACY_ACTOR),
+                        integrity_checks=dict(_APPROVAL_INTEGRITY),
+                        mode=mode, signoff_key=given, approval_phase="readiness")
                     self.assertIn(retry["status"], {"ok", "dry_run"}, retry)
                     self.assertNotIn("review_event_identity_conflict", json.dumps(retry))
                     self.assertEqual(ledger_path.read_bytes(), ledger)
         # A new context still appends, with the canonical identity.
-        fresh = self._event(root, wave_id, "approval", "wave-council", "fresh-ctx",
+        fresh = self._event(root, wave_id, "approval", ACTOR, "fresh-ctx",
                             mode="create", signoff_key=OLD_READINESS, approval_phase="readiness")
         self.assertEqual(fresh["status"], "ok", fresh)
         records, _errors = subject.read_review_event_ledger(wave_md)
@@ -609,24 +738,25 @@ class LifecycleCompatibilityTests(unittest.TestCase):
         recorded: the same context_id with different evidence is an identity
         conflict in either spelling and either mode, and nothing is written."""
         root, wave_md, wave_id = self._readied("legacy-conflict", approvals=())
-        self._event(root, wave_id, "run", "wave-council", "readiness-run", mode="create",
+        self._event(root, wave_id, "run", ACTOR, "readiness-run", mode="create",
                     run_kind="readiness")
         unwrapped = self.srv.wf_review_event_response.__wrapped__.__wrapped__
-        legacy = unwrapped(root, wave_id, "approval", "wave-council", "legacy-ctx",
-                           fresh_context=True, independent=True,
-                           evidence=_approval_evidence("wave-council"),
-                           integrity_checks=dict(_APPROVAL_INTEGRITY), mode="create",
-                           signoff_key=OLD_READINESS, approval_phase="readiness")
+        with _as_earlier_release(self.srv):
+            legacy = unwrapped(root, wave_id, "approval", LEGACY_ACTOR, "legacy-ctx",
+                               fresh_context=True, independent=True,
+                               evidence=_approval_evidence(LEGACY_ACTOR),
+                               integrity_checks=dict(_APPROVAL_INTEGRITY), mode="create",
+                               signoff_key=OLD_READINESS, approval_phase="readiness")
         self.assertEqual(legacy["status"], "ok", legacy)
         ledger_path = subject.review_event_path(wave_md)
         ledger = ledger_path.read_bytes()
-        changed = _approval_evidence("wave-council")
+        changed = _approval_evidence(LEGACY_ACTOR)
         changed["observed"] = "wave-council verified a different fixture scope"
         for given in (OLD_READINESS, NEW_READINESS):
             for mode in ("dry_run", "create"):
                 with self.subTest(given=given, mode=mode):
                     retry = self.srv.wf_review_event_response(
-                        root, wave_id, "approval", "wave-council", "legacy-ctx",
+                        root, wave_id, "approval", LEGACY_ACTOR, "legacy-ctx",
                         fresh_context=True, independent=True, evidence=dict(changed),
                         integrity_checks=dict(_APPROVAL_INTEGRITY), mode=mode,
                         signoff_key=given, approval_phase="readiness")

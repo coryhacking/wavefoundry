@@ -236,6 +236,33 @@ class AttestedByIntegrationTests(unittest.TestCase):
         self.assertNotIn('attested_by_replay_mismatch',
                          [d['code'] for d in same['diagnostics'] or []])
 
+    def test_bracketed_name_is_recorded_as_today_and_shown_without_brackets(self):
+        """Wave 200ey (200ev) AC-3: an ASCII, a fullwidth and an ornamental
+        bracket are recorded and replayed as stated; the review row shows
+        U+FFFD for each, then the real handle in parentheses."""
+        name = 'Ada (bob) （carol） ❨dave❩'
+        first = self.call(context='bracketed', operator_handle='alice', attested_by=name)
+        self.assertEqual(first['status'], 'ok', first)
+        self.assertEqual(self.contexts(first)[0]['attested_by'], name)
+        stored = [
+            json.loads(line).get('verification_context', {}).get('attested_by')
+            for line in self.ledger.read_text(encoding='utf-8').splitlines() if line.strip()
+        ]
+        self.assertIn(name, stored)
+        shown = 'Ada �bob� �carol� �dave�'
+        row = self.review_row()
+        self.assertIn(f'by {shown} (alice)', row)
+        for char in '（）❨❩':
+            self.assertNotIn(char, row)
+        self.assertNotIn('(bob)', row)
+        before = self.ledger.read_bytes()
+        replay = self.call(context='bracketed', operator_handle='alice', attested_by=name)
+        self.assertEqual(replay['status'], 'ok', replay)
+        self.assertTrue(replay['data']['replayed'])
+        self.assertEqual(self.ledger.read_bytes(), before)
+        self.assertNotIn('attested_by_replay_mismatch',
+                         [d['code'] for d in replay['diagnostics'] or []])
+
     def test_name_without_handle_renders_name_only(self):
         self.map.unlink()
         result = self.call(context='name-only', attested_by='Ada Lovelace')

@@ -45,6 +45,12 @@ EXPECTED_SIGNATURES = {
     "refresh_index_for_paths": "(root, paths)",
     "list_waves": "(root: 'Path', wave_dirs: 'Optional[list[Path]]' = None) -> 'list[dict]'",
     "wf_review_wave_response": "(root: 'Path', wave_id: 'str', phase: 'str' = 'implementation') -> 'dict[str, Any]'",
+    # Wave 200ey (change 200ew): the member-doc reader, the change-id shape
+    # test and the reader's refusal type (a class: its signature is the
+    # constructor's).
+    "read_member_doc_bytes": "(folder, path, *, root) -> 'bytes'",
+    "is_change_id": "(value) -> 'bool'",
+    "MemberDocRefused": "(cause: 'str') -> 'None'",
 }
 
 # Change 1zltx: each new wrapper and the private function it calls at call time.
@@ -69,7 +75,8 @@ class PublicHelperContractTests(unittest.TestCase):
             self.impl.EXTENSION_PUBLIC_HELPERS,
             ("ensure_no_extra_args", "make_response", "make_diagnostic", "change_doc_response",
              "find_wave_record", "refuse_if_archived", "fail_closed_on_record_layout", "attach_lint",
-             "refresh_index_for_paths", "list_waves", "wf_review_wave_response"),
+             "refresh_index_for_paths", "list_waves", "wf_review_wave_response",
+             "read_member_doc_bytes", "is_change_id", "MemberDocRefused"),
         )
         self.assertIsInstance(self.impl.EXTENSION_PUBLIC_HELPERS, tuple)
 

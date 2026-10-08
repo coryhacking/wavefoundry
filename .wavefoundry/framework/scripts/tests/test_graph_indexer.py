@@ -9242,7 +9242,9 @@ class GraphBuilderVersionTests(unittest.TestCase):
         # a fragment's re-emitted edge into a deleted doc or a renamed symbol
         # must re-extract.
         # Wave 1x5tq (1x8e1): unresolved doc targets persist for selective retries.
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "52")
+        # Wave 203pu (201wg) bumped 52->53: an unowned member call keeps its
+        # external target and carries `unowned_member_call`.
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "53")
 
 
 class OversizedTreeSitterGuardTests(unittest.TestCase):

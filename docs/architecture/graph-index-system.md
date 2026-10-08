@@ -2,11 +2,11 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-01
+Last verified: 2026-10-08
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
-> **Line citations** in older sections reference the `GRAPH_BUILDER_VERSION="29"`-era source (waves 1p4ls/1p4q4/1p4up); the current constant is `"52"` (wave `1xtnr`). Line numbers shift on builder version bumps — use function names as stable anchors when citing across versions.
+> **Line citations** in older sections reference the `GRAPH_BUILDER_VERSION="29"`-era source (waves 1p4ls/1p4q4/1p4up); the current constant is `"53"` (wave `203pu`). Line numbers shift on builder version bumps — use function names as stable anchors when citing across versions.
 
 ---
 
@@ -194,7 +194,7 @@ Four constants gate incremental reuse (`graph_indexer.py:27-37`):
 
 ```
 GRAPH_SCHEMA_VERSION  = "1"
-GRAPH_BUILDER_VERSION = "52"   # 52: call-target identity, receiver confidence and callee-leaf extraction; prior changes are recorded in CHANGELOG.md
+GRAPH_BUILDER_VERSION = "53"   # 53: unowned member calls stay external; 52: call-target identity, receiver confidence and callee-leaf extraction; prior changes are recorded in CHANGELOG.md
 ```
 
 The community-clustering layer (`graph_cluster.py`) carries its own `CLUSTER_BUILDER_VERSION = "12"` (10: seeded-RNG determinism + grab-bag split; 11: build-time betweenness section + `input_fingerprint` key, wave `1p9q3`).
@@ -218,6 +218,19 @@ Code extensions: approximately 50 suffixes including `.py`, `.js`/`.jsx`/`.mjs`/
 **Call-target integrity (builder 52, wave `1xtnr`).** Tree-sitter node registration gives a callable declaration precedence when a field or constant shares its id, keeping the method location and clearing displaced constant membership/value. The extraction fallback and cross-file name resolver reject guessed `calls` targets whose node kind is `variable` or `constant`; exact Python callable-valued constants remain supported. Other relations retain their own binding rules.
 
 Calls never emit a separate receiver expression as a candidate. Complex receivers use the called member leaf; pure qualified paths preserve their existing candidate form. An unresolved receiver carries `receiver_unknown` provenance through stored fragments, deduplication and incremental re-resolution, so a later unique-name match cannot turn it into `RECEIVER_RESOLVED`. Bare and genuinely typed calls retain their established promotion rules. Java declaration lookup is relative to the reference's lexical scope: enhanced-for, catch, resource and typed-lambda declarations participate, sibling declarations cannot capture the receiver, and an uncertain nearer shadow blocks an outer type.
+
+**Unowned member calls (builder 53, wave `203pu`).** Provenance alone did not stop the binding itself: `receiver_unknown` capped the confidence at `EXTRACTED`, but the extraction fallback's same-file simple-name lookup (`_ts_resolve_target`) and the cross-file unique simple-name branch (`_resolve_external_call_target`) still assigned the target, so a Rust iterator `ids.iter().map(...).collect()` became a call to an unrelated free function `collect`. `_ts_call_receiver_unowned` now classifies, from syntax, a member call whose receiver cannot own a name-only binding: a computed receiver (a call result, subscript or other expression) in every tree-sitter grammar, and in addition any non-`self` receiver of Rust `.` and C/C++ `->`, which are value-only member syntax. It runs only after the per-language receiver resolver returned nothing. Such a call emits `external::<candidate>` at `EXTRACTED` with `receiver_unknown` and `unowned_member_call`; the same-file and import-alias lookups are skipped, `_resolve_fragment_edge` returns the edge unresolved, `_edge_lookup_keys` declares no keys (so symbol additions, edits, renames and removals elsewhere never re-resolve it), and the inheritance output pass does not read its head as a type name. `_merge_call_evidence` stays order-independent: a witness without the flag wins, so the flag survives only when every witness of that edge key carries it, and a genuine known witness is never downgraded.
+
+Unchanged by design: bare calls, `this`/`self`/`super`/`base` receivers (including Kotlin and Swift self expressions, and a parenthesized `(this)` or `(self)`), Java qualified `Outer.this` and `Outer.super` receivers, Ruby constant receivers including constant-only scope paths (`K.baz()`, `M::K.baz()`, `::K.baz()`), receiver- or type-resolved calls, construction, qualified paths (`a::b::c()`, `Type::assoc()`, PHP `A::stat()`), and bare identifier receivers in `.`-namespace languages (`pkg.Fn()`, `C.m()`, `b.go()`), whose head may name a module or type and so keeps the existing heuristic. There is no Rust type inference, trait or `dyn` dispatch, and no method-name list; an unresolved call stays as evidence rather than being dropped.
+
+**Rust reference receivers.** Because a non-`self` Rust identifier receiver is now unowned unless its type is established, the Rust declaration search (`_search_rust_declarations_in_scope`) strips one reference layer: a parameter or `let` annotated `&S`, `&mut S` or `&'a S` resolves to `S` exactly as `S` does (`_rust_reference_inner_type`), and a `let s = S;` whose value is an uppercase identifier names that unit-struct type (`_rust_value_type`, mirroring the existing uppercase receiver rule). Such calls bind `S.foo` at `RECEIVER_RESOLVED`, same-file and cross-file; before builder 53 they bound the same target only through the name heuristic at `EXTRACTED` with `receiver_unknown`. Only a direct named type is stripped: a reference to a generic, slice, primitive or trait-object type (`&Vec<u8>`, `&str`, `&dyn T`) stays unresolved and its member calls stay unowned.
+
+**Known residual gaps.** The rule is bounded to the syntax above, so these keep the old name-based heuristic and can still bind an unrelated project callable of the same simple name:
+
+- PHP `$x->m()` on a non-`$this` variable receiver;
+- C/C++ `obj.m()` with `.` (only `->` on a non-`this` receiver is classified);
+- Ruby lowercase identifier receivers (`b.go()`);
+- JavaScript `super.foo()` whose parent class is external to the project (pre-existing behavior, not introduced here).
 
 For chained, indexed and arrow receivers, `_ts_relation_candidates` derives the outer member from the AST rather than cleaning the whole expression into a name. Inner calls are visited separately. Pure qualified-path candidate behavior remains unchanged. Tests count candidate emissions before edge deduplication as well as persisted graph edges; a SQL edge count cannot expose duplicate inner candidates.
 
@@ -446,7 +459,7 @@ Resolves `symbol` → `node_id`, calls `traverse(relations=("calls",), max_hops=
 
 ### `report()` (`graph_query.py:337-425`)
 
-Iterates `self.edges` once, counting only `relation == "calls"` edges, then computes the requested sections:
+Iterates `self.edges` once. The legacy degree counts (`count` on `fan_in`/`fan_out`, `fan_out` on `chokepoints`/`file_hubs`) include `calls` edges plus the SQL data-layer relations (`reads`, `writes`, `maps_to`) whose endpoint carries `sql_kind` (wave `1p9qi`); they drive every ranking, limit and threshold. It then computes the requested sections:
 
 | Section | What it computes |
 |---|---|
@@ -454,6 +467,8 @@ Iterates `self.edges` once, counting only `relation == "calls"` edges, then comp
 | `fan_out` | Top-`limit` nodes by outgoing call count |
 | `orphan_docs` | Doc/seed nodes (`_DOC_KINDS = {"doc","seed"}`) with no `doc_references_code` outgoing edge, or zero edges total |
 | `chokepoints` | Nodes with `fan_out >= chokepoint_threshold` (default `_CHOKEPOINT_FAN_OUT = 20`) |
+
+**Call-edge attribution counts (wave `203pu`).** Every `fan_in`, `fan_out`, `chokepoints` and `file_hubs` row, and its `evidence_*` counterpart, carries `call_edge_counts = {total, resolved, extracted, unclassified, receiver_unknown}`. The same pass classifies each effective `calls` edge once (`_call_edge_category`) and tallies it for both endpoints; `fan_in` rows read the incoming tally and the other three sections the outgoing one. `resolved` is `RECEIVER_RESOLVED` or `CONSTRUCTION_RESOLVED` without unknown-receiver provenance; `extracted` is `EXTRACTED`; `unclassified` is everything else, including an absent or unrecognized confidence and the contradictory resolved-plus-unknown combination. `total = resolved + extracted + unclassified`, and `receiver_unknown` is an overlapping subset of `total`. SQL data-layer relations are never in these counts, so `total` can be below the legacy count. The counts are static edge counts, not distinct callers or callees and not proof of runtime dispatch; an `EXTRACTED` edge is name-based evidence, not a resolved caller. Under a collapse view the counts describe the view's retained effective edges, whose metadata is the first representative's (the collapse transforms deduplicate by source, target, relation and confidence), not raw call-site multiplicities or a union of provenance. The counts are additive: ranking, limits, thresholds, partitions and filters are unchanged.
 
 > Wave `1p4ww` removed the `cross_layer` section (project×framework boundary edges) and the
 > `load_union()` merge along with the framework graph layer. There is one project graph.

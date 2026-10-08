@@ -22,6 +22,15 @@ The module exports strings and regex-escaped fragments, not whole patterns:
 each consuming site keeps its own grammar (anchoring, backticks, case, legacy
 aliases) around the fragment.
 
+The profile also names the role-based council review protocol,
+``COUNCIL_DISPLAY_NAME`` (wave 200ey, default "Wave Council"): the renderer's
+own strings, role and prompt docs it creates fresh from a seed, and server and
+lint messages follow it, while seed prose read raw by agents, docs already
+rendered, the legacy ``Prepare-phase Wave Council [prepare-council]`` checkpoint
+format, diagnostic codes and recorded history keep the default name. A
+distribution's earlier council signoff key spellings are declared in
+``EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS``.
+
 Which labels and headings a profile may use, and how readers must match them,
 is stated once in ``docs/architecture/layering-rules.md`` (vocabulary profile
 paragraph); ``validation_errors`` enforces the profile half of it.
@@ -75,9 +84,40 @@ EXTRA_CHANGE_KINDS: tuple[str, ...] = ()
 # records the names it applied in the prompt-surface manifest.
 PROMPT_NAME_OVERRIDES: "dict[str, dict[str, object]]" = {}
 
+# A distribution's own earlier council signoff key spellings (wave 200ey,
+# change 200ew): a mapping of the earlier key to ``council-readiness`` or
+# ``council-delivery``. Approvals recorded under the earlier key stay council
+# approvals and new input naming it is recorded under the current key. The
+# framework's own earlier spellings (``wave-council-readiness`` and
+# ``wave-council-delivery``) are built in and need no entry.
+EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS: "dict[str, str]" = {}
+
+# The display name of the role-based council review protocol (wave 200ey,
+# change 200ew). The renderer's own strings (the ``wf-council`` skill
+# description), role and prompt docs it creates fresh from a seed, and server
+# and lint messages follow it. Seed prose read raw by agents, docs already
+# rendered, the legacy checkpoint line format, diagnostic codes and recorded
+# history do not.
+COUNCIL_DISPLAY_NAME: str = "Wave Council"
+
 # ---------------------------------------------------------------------------
 # Derived forms (not edited)
 # ---------------------------------------------------------------------------
+
+# The council display name the seeds and shipped docs are written with (fixed,
+# not edited): ``localize_council_name`` rewrites it to ``COUNCIL_DISPLAY_NAME``.
+SHIPPED_COUNCIL_DISPLAY_NAME = "Wave Council"
+
+
+def localize_council_name(text: str) -> str:
+    """``text`` with each exact ``SHIPPED_COUNCIL_DISPLAY_NAME`` replaced by
+    ``COUNCIL_DISPLAY_NAME`` (wave 200ey, change 200ew). The identity under the
+    default profile. Apply it to framework-owned text only: a seed body being
+    materialized fresh, or a tool description."""
+    if COUNCIL_DISPLAY_NAME == SHIPPED_COUNCIL_DISPLAY_NAME:
+        return text
+    return text.replace(SHIPPED_COUNCIL_DISPLAY_NAME, COUNCIL_DISPLAY_NAME)
+
 
 PREVIOUS_STATUS_LABEL = f"Previous {MEMBER_STATUS_LABEL}"
 
@@ -465,6 +505,61 @@ def change_kind_errors(extra: object = None) -> list[str]:
     return errors
 
 
+# The current council signoff keys (``review_evidence`` owns them; this module
+# cannot import it, and a test pins the copies together) and the framework's
+# built-in earlier spellings.
+_CURRENT_COUNCIL_SIGNOFF_KEYS = ("council-readiness", "council-delivery")
+_BUILTIN_LEGACY_COUNCIL_SIGNOFF_KEYS = ("wave-council-readiness", "wave-council-delivery")
+
+
+def legacy_council_key_errors(extra: object = None) -> list[str]:
+    """Every problem with ``EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS`` (default: the
+    live constant); empty when valid. Earlier spellings are historical data,
+    with no new key grammar. Each message names the constant."""
+    extra = EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS if extra is None else extra
+    label = "EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS"
+    if not isinstance(extra, dict):
+        return [f"{label} must be a dict of earlier key to current key, not {type(extra).__name__}"]
+    builtin = dict(zip(_BUILTIN_LEGACY_COUNCIL_SIGNOFF_KEYS, _CURRENT_COUNCIL_SIGNOFF_KEYS))
+    errors: list[str] = []
+    for key, value in extra.items():
+        if not isinstance(key, str):
+            errors.append(f"{label} key {key!r} must be a string")
+            continue
+        if key in _CURRENT_COUNCIL_SIGNOFF_KEYS:
+            errors.append(f"{label} key {key!r} is a current council signoff key")
+        elif key in builtin and value != builtin[key]:
+            errors.append(f"{label} key {key!r} cannot remap a built-in earlier spelling")
+        if not isinstance(value, str):
+            errors.append(f"{label}[{key!r}] value {value!r} must be a string")
+        elif value not in _CURRENT_COUNCIL_SIGNOFF_KEYS:
+            errors.append(f"{label}[{key!r}] value {value!r} must be one of "
+                          f"{', '.join(_CURRENT_COUNCIL_SIGNOFF_KEYS)}")
+    return errors
+
+
+def council_display_name_errors(value: object = None) -> list[str]:
+    """Every problem with ``COUNCIL_DISPLAY_NAME`` (default: the live
+    constant); empty when valid. Each message names the constant."""
+    value = COUNCIL_DISPLAY_NAME if value is None else value
+    label = "COUNCIL_DISPLAY_NAME"
+    problem = _shortcut_problem(value)
+    if problem:
+        return [f"{label} {value!r} {problem}"]
+    errors: list[str] = []
+    if value.casefold() == "Archetype Council".casefold():
+        errors.append(f"{label} {value!r} is the name of the stance-based Archetype Council")
+    phrase = f"{value} review"
+    taken = list(FIXED_PROMPT_SHORTCUTS)
+    for entry in derive_prompt_names().values():
+        taken.extend([entry["shortcut"], *entry["aliases"]])
+    for other in taken:
+        if isinstance(other, str) and phrase.casefold() == other.casefold():
+            errors.append(f"{label} {value!r}: its phrase {phrase!r} is the shortcut "
+                          f"{other!r} (compared case-insensitively)")
+    return errors
+
+
 def validation_errors(fields: "dict[str, str] | None" = None) -> list[str]:
     """Every problem with a profile; empty when valid.
 
@@ -597,7 +692,8 @@ def archive_profile() -> _Profile:
 
 def validate() -> None:
     """Raise :class:`VocabularyProfileInvalid` when the constants are unusable."""
-    errors = validation_errors() + prompt_name_errors()
+    errors = (validation_errors() + prompt_name_errors() + legacy_council_key_errors()
+              + council_display_name_errors())
     if ARCHIVE_PROFILE is not None:
         errors += [f"ARCHIVE_PROFILE: {e}" for e in validation_errors(ARCHIVE_PROFILE)]
     if errors:

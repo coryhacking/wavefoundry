@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-07
+Last verified: 2026-10-08
 
 ## Test Tiers
 
@@ -280,6 +280,17 @@ four pieces, all test infrastructure in
   the receipt (no `--file`, `--profile` or `--schedule-control`) refuses with exit 2, naming
   `WAVEFOUNDRY_TEST_PROFILE`, while that variable is set, before anything is
   hashed or run, so a stray value in a shell never produces a green receipt.
+- **Distribution-owned state (change 200ex).** A framework test does not read
+  what a distribution owns as framework state: the live declaration modules,
+  the live record file name, live prompt docs or the running checkout's
+  workflow config. Nor does it hard-code names a distribution may own, such as
+  the earlier council key spellings or example prompt names. The history-literal
+  census scans only `FRAMEWORK_SCRIPT_MODULE_NAMES` stems and the framework
+  subpackages, the per-profile golden boot resets the copied tree to the
+  shipped declaration first, the prompt lookup runs on a fixture repository,
+  the member-doc containment test uses a literal review config, and the
+  council key test derives the earlier spellings from `review_evidence`.
+  These tests are the pattern for new ones.
 
 **Declared-alias run (change 1zim4).** A distribution also edits the tool
 declarations in `mcp_tool_extensions.py`, so a profile asset may name that

@@ -313,7 +313,7 @@ REVIEW_POLICY_CARRIER_REGISTRY = (
     ReviewPolicyCarrier("050-agent-entry-surface-bootstrap.prompt.md", "docs/agents/release-reviewer.md", "renderer", ("executable_review",), True, False),
     ReviewPolicyCarrier("225-red-team.prompt.md", "docs/agents/specialists/red-team.md", "renderer", ("executable_review",)),
     ReviewPolicyCarrier("216-reality-checker.prompt.md", "docs/agents/specialists/reality-checker.md", "renderer", ("executable_review",)),
-    ReviewPolicyCarrier("215-wave-council.prompt.md", "docs/agents/specialists/wave-council.md", "renderer", ("executable_review",)),
+    ReviewPolicyCarrier("215-council-chair.prompt.md", "docs/agents/specialists/council-chair.md", "renderer", ("executable_review",)),
     ReviewPolicyCarrier("236-archetype-council.prompt.md", "docs/agents/specialists/archetype-council.md", "renderer", ("executable_review",)),
     ReviewPolicyCarrier("217-senior-engineering-challenger.prompt.md", "docs/agents/specialists/senior-engineering-challenger.md", "renderer", ("executable_review",)),
     ReviewPolicyCarrier("236-archetype-council.prompt.md", "docs/prompts/archetype-council.prompt.md", "renderer", ("executable_review",)),
@@ -1005,16 +1005,23 @@ def select_required_review_lanes(
 # Wave 1zyb4 (1zxnx): the digest input names council signoff keys in their
 # earlier spelling, so a config naming the current keys hashes exactly like one
 # naming the earlier keys and every existing receipt digest is unchanged. This
-# is the reverse of ``review_evidence.LEGACY_COUNCIL_SIGNOFF_KEYS`` (a test pins
-# the two together); ``review_evidence`` imports this module, not the reverse.
+# is the reverse of ``review_evidence.BUILTIN_LEGACY_COUNCIL_SIGNOFF_KEYS`` (a
+# test pins the two together); ``review_evidence`` imports this module, not the
+# reverse. Only the built-in spellings are mapped (wave 200ey, change 200ew): a
+# config naming a distribution's own earlier key hashes that literal key, so
+# declaring ``EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS`` never changes a digest.
 _DIGEST_COUNCIL_SIGNOFF_SPELLING = {
     "council-readiness": "wave-council-readiness",
     "council-delivery": "wave-council-delivery",
 }
+# Wave 200ey (change 200ew): the council moderator role is ``council-chair``;
+# the digest copy names it ``wave-council`` so the config rename rotates no
+# receipt.
+_DIGEST_COUNCIL_MODERATOR_SPELLING = {"council-chair": "wave-council"}
 
 
 def _digest_wave_review(wave_review: Mapping[str, Any]) -> dict[str, Any]:
-    """Copy of ``wave_review`` whose council keys use the digest spelling.
+    """Copy of ``wave_review`` whose council keys and moderator role use the digest spelling.
 
     The nested ``phases`` mapping and each phase mapping are copied before a
     key is rewritten, so the caller's policy object is never mutated.
@@ -1031,6 +1038,9 @@ def _digest_wave_review(wave_review: Mapping[str, Any]) -> dict[str, Any]:
             key = block.get("signoff_key")
             if isinstance(key, str) and key in _DIGEST_COUNCIL_SIGNOFF_SPELLING:
                 block["signoff_key"] = _DIGEST_COUNCIL_SIGNOFF_SPELLING[key]
+            role = block.get("moderator_role")
+            if isinstance(role, str) and role in _DIGEST_COUNCIL_MODERATOR_SPELLING:
+                block["moderator_role"] = _DIGEST_COUNCIL_MODERATOR_SPELLING[role]
         digest_phases[phase] = block
     copied["phases"] = digest_phases
     return copied

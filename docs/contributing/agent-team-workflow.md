@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-07
+Last verified: 2026-10-08
 
 ## Host-neutral orchestration
 
@@ -18,7 +18,7 @@ Wavefoundry uses the standard Wave Framework generic roles. The wave-coordinator
 |------|------------|
 | `planner` | Drafting a consolidated change doc; discovery; planning a wave shape |
 | `wave-coordinator` | Admitting changes; managing execution order; closing waves |
-| `wave-council` | Synthesizing Wave Council readiness and delivery passes when `wave_review.enabled` |
+| `council-chair` | Synthesizing Wave Council readiness and delivery passes when `wave_review.enabled` |
 | `implementer` | Executing code changes per admitted change doc |
 | `code-reviewer` | Any implementation change (mandatory for non-trivial code changes) |
 | `architecture-reviewer` | Changes touching module boundaries, integration contracts, or data flow |
@@ -38,10 +38,10 @@ When `docs/workflow-config.json` `wave_review.enabled` is true:
 
 - `council-readiness` is required at **Prepare wave**
 - `council-delivery` is required at **Review wave** / before **Close wave**
-- `wave-council` owns the synthesis output for both phases
+- `council-chair` owns the synthesis output for both phases
 - `wave-coordinator` gathers evidence, routes lanes, and enforces the gate, but does not author the council verdict
 
-Council runs a red-team adversarial primer (Phase 1) before fixed seats (Phase 2), then synthesizes. Full protocol is in `docs/agents/specialists/wave-council.md`.
+Council runs a red-team adversarial primer (Phase 1) before fixed seats (Phase 2), then synthesizes. Full protocol is in `docs/agents/specialists/council-chair.md`.
 
 Default fixed Phase 2 seats: `architecture-reviewer`, `security-reviewer`, `qa-reviewer`, `reality-checker`. The fifth seat rotates from wave evidence (`docs-contract-reviewer`, `performance-reviewer`, `release-reviewer`, or an applicable persona).
 
@@ -102,11 +102,11 @@ Enable these from repo evidence rather than by default:
 
 Carries the **Retrieval Rules** from the framework run contract (seed-020) for every lane — reviewer, builder, and coordinator subagents alike:
 
-- **When the Wavefoundry MCP is attached, its retrieval tools are the default for understanding and locating code.** Load deferred tool schemas once via the host's tool loader (in Claude Code: `ToolSearch("select:mcp__wavefoundry__code_ask,...")`) rather than defaulting to the zero-setup shell path.
+- **When the Wavefoundry MCP is attached, its retrieval tools are the default for understanding and locating code.** **Load, then verify, before the first code or doc retrieval.** On a host that exposes the tools as deferred or on-demand (e.g. a Claude Code subagent calls `ToolSearch("select:mcp__wavefoundry__code_ask,...")` with the tool names), load the schemas once as the first action, then confirm the tools are callable (the load returns the schemas, or one cheap retrieval call returns `status: ok`). A deferred tool whose schema has not been loaded is not unavailable. Fall back to the shell path only when the tools are not exposed at all, the load fails, or a call errors, and name which of the three happened in the `Gapfill:` note.
 - Choose by question shape: `code_ask` is the **spearhead** when you don't know where to look (it opens the investigation and hands precise targets to the follow-through tools); `code_references`/`code_callhierarchy` enumerate callers, implementations, and blast radius; `code_keyword`/`code_search` run identifier and cross-surface sweeps; `code_read` fetches targeted line ranges instead of whole-file reads. The mix follows task shape — verification lanes with named targets lean on `code_read` and the counting tools; broad no-map reviews lead with `code_ask`.
 - **Claim-backing rule:** any "how many callers / how many implementations / what's the blast radius" claim must be backed by `code_references`/`code_callhierarchy`, not a sampled grep. Only enumeration is evidence for a completeness claim.
 - Static orientation surfaces complement the tools: `docs/repo-index.md`, the codebase map, and per-area `AGENTS.md` are one targeted read with no setup — the fallback spearhead when MCP is absent, cold-start orientation only when it's attached.
-- Reserve `grep`/raw reads for literal-byte checks, git inspection, and the MCP-absent/insufficient fallback; record a `Gapfill:` note when falling back.
+- Reserve `grep` / raw file reads for literal-byte checks, git inspection, and retrieval fallback only when the tools are not exposed at all, the load fails, or a call errors. Record a `Gapfill:` note naming which of those three happened. Stale indexed data or insufficient results alone do not authorize shell retrieval: use current-file MCP reads or report the unresolved retrieval limit, without treating stale results as reliable.
 - The canonical exploration order lives in seed `180-implement-change.prompt.md` (MCP-first code exploration) and `docs/agents/guru.md` (retrieval loop) — point to them; do not restate. (The previously named `docs/prompts/implement-change.prompt.md` is a thin shortcut file and carries no exploration order.)
 
 ## Concurrency

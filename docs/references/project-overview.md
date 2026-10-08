@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-07
+Last verified: 2026-10-08
 
 **For readers of the TechDocs site.** This page is Wavefoundry's orientation document: what the project is, where the code and the docs live, how development moves through the wave lifecycle, and which files configure it. It is written first for the AI agents that read it at session start (it is an agent startup-order surface and the `wavefoundry://overview` MCP resource; [Data and control flow](../architecture/data-and-control-flow.md), Path 6b step 2), so the sections below keep their agent-orientation content in place, and the short reader summaries at the top of some sections translate them for people. Backticked paths such as `AGENTS.md`, `docs/agents/`, and `docs/contributing/` name repository files that sit outside the published site. Start from the [site home](../index.md) for the landing narrative, or read the fuller conceptual overview in [wavefoundry-overview.md](wavefoundry-overview.md).
 
@@ -102,7 +102,7 @@ Wavefoundry uses the standard Wave Framework generic roles:
 |------|------------------------|
 | `planner` | Authors change docs; performs discovery; plans waves |
 | `wave-coordinator` | Admits work into waves; manages execution order; declares closure |
-| `wave-council` | Synthesizes Wave Council readiness and delivery verdicts |
+| `council-chair` | Synthesizes Wave Council readiness and delivery verdicts |
 | `implementer` | Executes code changes per admitted change doc |
 | `code-reviewer` | Reviews implementation correctness and pattern compliance |
 | `architecture-reviewer` | Reviews boundary and layering impact |
@@ -113,7 +113,7 @@ Wavefoundry uses the standard Wave Framework generic roles:
 
 Role docs live under `docs/agents/`. Factor-review agents for applicable factors live under `.claude/agents/`.
 
-The framework ships `wave_review.enabled: true` and `delivery_mode: targeted` by default. Enabled review always requires readiness Council before implementation. Delivery Council is mode-specific: every wave in `universal`, risk/receipt-selected waves in `targeted`, and none in the valid `enabled: false` / `disabled` pair. The wave-council owns those verdicts; the wave-coordinator still owns lifecycle routing.
+The framework ships `wave_review.enabled: true` and `delivery_mode: targeted` by default. Enabled review always requires readiness Council before implementation. Delivery Council is mode-specific: every wave in `universal`, risk/receipt-selected waves in `targeted`, and none in the valid `enabled: false` / `disabled` pair. The council-chair owns those verdicts; the wave-coordinator still owns lifecycle routing.
 
 ## Project Personas
 

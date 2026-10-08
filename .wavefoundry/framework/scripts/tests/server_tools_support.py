@@ -221,10 +221,10 @@ def make_declared_wave(srv, root, slug, *, status="planned", change_ids=(),
                 raise AssertionError(f"prepare did not publish a receipt: {errors!r}; {prepared!r}")
         if readiness_run:
             successful("readiness run", srv.wf_review_event_response(
-                root, wave_id, event="run", actor="wave-council", context_id="fixture-readiness",
+                root, wave_id, event="run", actor="council-chair", context_id="fixture-readiness",
                 mode="create", run_kind="readiness", cycle=0))
         for key in approvals:
-            actor = "wave-council" if key.startswith(("wave-council", "council-")) else key
+            actor = "council-chair" if key.startswith(("wave-council", "council-")) else key
             successful("readiness approval", srv.wf_review_event_response(
                 root, wave_id, event="approval", actor=actor, context_id="fixture-approval-" + key,
                 mode="create", signoff_key=key, approval_phase="readiness",

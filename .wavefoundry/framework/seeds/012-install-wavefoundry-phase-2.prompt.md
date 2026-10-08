@@ -121,13 +121,13 @@ Use the **full** entrypoint (`scan_all=True`), NOT the incremental docs-lint hoo
 **The three councils are always surfaced as specialist agents, regardless of project archetype.** Canonical fresh-install location is `docs/agents/specialists/` (shown in the examples below). Established repos with a flat `docs/agents/` layout may keep their existing location — `docs-lint` accepts either, and `platform-mapping.md` records the actual paths in either case. The presence of the three role docs is load-bearing for council invocation; their location is a convention, not an enforced contract:
 
 - `docs/agents/specialists/red-team.md` — multi-perspective adversarial challenge surface; read **seed-225** in full to incorporate its modes, stances, and operating identity (do not generate a thin generic version).
-- `docs/agents/specialists/wave-council.md` — Wave Council protocol coordinator (framework-default council); read **seed-215** in full to incorporate the protocol, fixed seats, rotating-seat policy, synthesis rubric.
+- `docs/agents/specialists/council-chair.md` — Wave Council protocol coordinator (framework-default council); read **seed-215** in full to incorporate the protocol, fixed seats, rotating-seat policy, synthesis rubric.
 - `docs/agents/specialists/archetype-council.md` — Archetype Council protocol coordinator (operator-invoked, NOT default-required, but the role doc must exist so the surface is discoverable). Read **seed-236** in full to incorporate the **broader scope** (general-purpose thinking lenses applicable to plans, design docs, code, prose, decision narratives, naming, AC formulation — not text-only), the protocol shape, and the documented seat composition + swap-ins.
 
 For richer per-role content on the other roles, consult the authoritative per-role seeds:
 
 - `seed-214` — architecture-reviewer
-- `seed-215` — wave-council (always surfaced; see above)
+- `seed-215` — council-chair (always surfaced; see above)
 - `seed-216` — reality-checker
 - `seed-221` — code-reviewer
 - `seed-222` — software-engineer

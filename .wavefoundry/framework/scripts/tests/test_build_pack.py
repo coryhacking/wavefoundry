@@ -257,7 +257,7 @@ class BuildPackTests(unittest.TestCase):
             any(n.endswith("render_platform_surfaces.py") for n in names), names[:5]
         )
         self.assertIn(
-            ".wavefoundry/framework/seeds/215-wave-council.prompt.md",
+            ".wavefoundry/framework/seeds/215-council-chair.prompt.md",
             names,
         )
         self.assertIn(

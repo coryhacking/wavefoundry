@@ -715,14 +715,14 @@ class WriteTextNewlineFidelityTests(unittest.TestCase):
         rps = self._load_rps()
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "cmd.txt"
-            rps.write_text(path, "a\r\nb\r\n")
+            rps.write_text(path, "a\r\nb\r\n", root=Path(tmp))
             self.assertEqual(path.read_bytes(), b"a\r\nb\r\n")  # no doubling, no translation
 
     def test_lf_string_written_verbatim(self):
         rps = self._load_rps()
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "bash.sh"
-            rps.write_text(path, "a\nb\n")
+            rps.write_text(path, "a\nb\n", root=Path(tmp))
             self.assertEqual(path.read_bytes(), b"a\nb\n")  # stays LF even if os.linesep is \r\n
 
     def test_write_text_survives_patched_linesep(self):
@@ -731,8 +731,8 @@ class WriteTextNewlineFidelityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, patch.object(rps.os, "linesep", "\r\n"):
             lf = Path(tmp) / "lf"
             crlf = Path(tmp) / "crlf"
-            rps.write_text(lf, "x\ny\n")
-            rps.write_text(crlf, "x\r\ny\r\n")
+            rps.write_text(lf, "x\ny\n", root=Path(tmp))
+            rps.write_text(crlf, "x\r\ny\r\n", root=Path(tmp))
             self.assertEqual(lf.read_bytes(), b"x\ny\n")
             self.assertEqual(crlf.read_bytes(), b"x\r\ny\r\n")
 
@@ -959,9 +959,9 @@ class MergeMcpServerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             target = root / ".mcp.json"
-            rps._merge_mcp_server(target, stanza)
+            rps._merge_mcp_server(target, stanza, root=root)
             first = target.read_text(encoding="utf-8")
-            rps._merge_mcp_server(target, stanza)
+            rps._merge_mcp_server(target, stanza, root=root)
             second = target.read_text(encoding="utf-8")
         self.assertEqual(first, second)
 
@@ -2453,17 +2453,17 @@ class RenderGitattributesBlockTests(unittest.TestCase):
             path = Path(d).resolve() / "bin" / "wf"
             manifest = []
             with patch.object(self.mod, "_MANIFEST_WRITTEN", manifest):
-                self.mod.write_text(path, "#!/bin/sh\necho one\n", executable=True)
+                self.mod.write_text(path, "#!/bin/sh\necho one\n", executable=True, root=Path(d).resolve())
                 before = self._age(path)
-                self.mod.write_text(path, "#!/bin/sh\necho one\n", executable=True)
+                self.mod.write_text(path, "#!/bin/sh\necho one\n", executable=True, root=Path(d).resolve())
                 self.assertEqual(path.stat().st_mtime_ns, before, "identical bytes must not be rewritten")
                 self.assertEqual(manifest, [path], "an unchanged write is not a manifest entry")
                 if os.name != "nt":
                     path.chmod(0o644)
-                    self.mod.write_text(path, "#!/bin/sh\necho one\n", executable=True)
+                    self.mod.write_text(path, "#!/bin/sh\necho one\n", executable=True, root=Path(d).resolve())
                     self.assertTrue(path.stat().st_mode & 0o111, "the exec bit is still repaired")
                     self.assertEqual(path.stat().st_mtime_ns, before)
-                self.mod.write_text(path, "#!/bin/sh\necho two\n", executable=True)
+                self.mod.write_text(path, "#!/bin/sh\necho two\n", executable=True, root=Path(d).resolve())
                 self.assertEqual(path.read_text(encoding="utf-8"), "#!/bin/sh\necho two\n")
                 self.assertNotEqual(path.stat().st_mtime_ns, before)
                 self.assertEqual(manifest, [path, path])
@@ -3054,14 +3054,15 @@ class ClaudePermissionsRenderTests(unittest.TestCase):
             settings = self._settings_path(root)
             settings.parent.mkdir(parents=True)
             settings.write_text("{}\n", encoding="utf-8")
-            real_read_text = Path.read_text
+            # Wave 200ey (1zyv2): the renderer reads through the contained read.
+            real_read = self.mod.contained_files.read_contained_bytes
 
-            def boom(self_path, *args, **kwargs):
-                if self_path == settings:
+            def boom(read_root, path, *args, **kwargs):
+                if Path(path) == settings:
                     raise OSError(13, "locked by the host")
-                return real_read_text(self_path, *args, **kwargs)
+                return real_read(read_root, path, *args, **kwargs)
 
-            with patch.object(Path, "read_text", boom):
+            with patch.object(self.mod.contained_files, "read_contained_bytes", boom):
                 self.mod.render_claude_permissions(root)  # must not raise
             self.assertEqual(settings.read_text(encoding="utf-8"), "{}\n")
 

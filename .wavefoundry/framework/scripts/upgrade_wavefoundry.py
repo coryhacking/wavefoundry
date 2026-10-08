@@ -1339,6 +1339,11 @@ def phase_dry_run(root: Path) -> int:
     the agent can inspect seed diffs, the extension module source, and every
     convention hook script, then decide whether to proceed.
 
+    Wave 200ey (200ev): the incoming pack's migration preview may write
+    ``*.preview.log`` files under ``.wavefoundry/logs/``; the final
+    human-readable line and the summary's ``preview_logs`` name each one this
+    run wrote, repository-relative.
+
     Exit codes: always 0 (dry-run never fails the upgrade).
     """
     _ensure_scripts_on_path()
@@ -1448,6 +1453,9 @@ def phase_dry_run(root: Path) -> int:
     else:
         os.environ.pop("WAVEFOUNDRY_MODEL_BUNDLE", None)
         os.environ.pop("WAVEFOUNDRY_MODEL_BUNDLE_MODEL_SET_VERSION", None)
+    # Wave 200ey (200ev): the preview logs this run wrote, found by an identity
+    # snapshot around the incoming post_extract (any writer, old or new pack).
+    preview_logs: list[str] = []
     if zip_path is not None:
         ext_module = _load_extension_module(zip_path)
         if ext_module is not None and hasattr(ext_module, "post_extract"):
@@ -1460,23 +1468,30 @@ def phase_dry_run(root: Path) -> int:
                 dry_run=True,
             )
             _log("\n── Migration preview (post_extract, dry_run=True) ──")
+            identities_before = _preview_log_identities(root)
             try:
                 ext_module.post_extract(preview_ctx)
             except Exception as exc:
                 _log(f"  (preview failed: {exc})")
-            preview_log = root / ".wavefoundry" / "logs" / "upgrade-migration-1.5.0.preview.log"
-            if preview_log.is_file():
-                _log(f"  preview log: {preview_log}")
+            preview_logs = _preview_logs_written(identities_before, _preview_log_identities(root))
+            for rel in preview_logs:
+                _log(f"  preview log: {rel}")
                 try:
-                    _log(preview_log.read_text(encoding="utf-8").rstrip())
+                    _log((root / rel).read_text(encoding="utf-8").rstrip())
                 except OSError as exc:
-                    _log(f"  (could not read preview log: {exc})")
-            else:
+                    _log(f"  (could not read preview log: {type(exc).__name__})")
+            if not preview_logs:
                 _log("  no planned actions (dry-run produced no preview log)")
             _log("── End migration preview ──")
 
     _log("\n── End Dry Run ──────────────────────────────────────────────────────────")
-    _log("No changes were made. Run without --dry-run to execute the upgrade.")
+    if preview_logs:
+        _log(
+            "No upgrade changes were made; wrote preview log(s) "
+            f"{', '.join(preview_logs)}. Run without --dry-run to execute the upgrade."
+        )
+    else:
+        _log("No changes were made. Run without --dry-run to execute the upgrade.")
     dry_summary = _build_upgrade_summary(
         from_version=from_version,
         to_version=to_version,
@@ -1488,8 +1503,46 @@ def phase_dry_run(root: Path) -> int:
         retired_model_cleanup=_retired_model_cleanup_result("dry_run"),
     )
     dry_summary[SUMMARY_SCHEMA_KEY] = SUMMARY_SCHEMA_VERSION
+    # Wave 200ey (200ev): additive, dry-run only; the schema version stays 1.
+    dry_summary["preview_logs"] = list(preview_logs)
     _emit_summary_line(dry_summary)
     return 0
+
+
+_PREVIEW_LOG_SUFFIX = ".preview.log"
+
+
+def _preview_log_identities(root: Path) -> dict[str, tuple[int, int]]:
+    """``{name: (st_mtime_ns, st_size)}`` of each ``*.preview.log`` under
+    ``.wavefoundry/logs/``, from ``lstat`` (wave 200ey, change 200ev). An
+    absent or unreadable folder is empty."""
+    identities: dict[str, tuple[int, int]] = {}
+    try:
+        with os.scandir(root / ".wavefoundry" / "logs") as entries:
+            for entry in entries:
+                if not entry.name.endswith(_PREVIEW_LOG_SUFFIX):
+                    continue
+                try:
+                    st = entry.stat(follow_symlinks=False)
+                except OSError:
+                    continue
+                identities[entry.name] = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        pass
+    return identities
+
+
+def _preview_logs_written(
+    before: dict[str, tuple[int, int]], after: dict[str, tuple[int, int]]
+) -> list[str]:
+    """Repository-relative POSIX paths, sorted, of the preview logs that are
+    new or whose identity changed between the two snapshots. A rewrite within
+    one timestamp tick that keeps the size is the documented miss."""
+    return sorted(
+        f".wavefoundry/logs/{name}"
+        for name, identity in after.items()
+        if before.get(name) != identity
+    )
 
 
 # ── Phase 0 — Pre-flight ──────────────────────────────────────────────────────

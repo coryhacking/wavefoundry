@@ -658,8 +658,8 @@ class DeclaredSkillOrphanTests(unittest.TestCase):
 
             def _decide_then_add(active_skill_roots):
                 orphans = real(active_skill_roots)
-                for _rel, _skill_file, folder in orphans:
-                    (folder / ".DS_Store").write_bytes(b"late")
+                for orphan in orphans:
+                    (orphan.folder / ".DS_Store").write_bytes(b"late")
                 return orphans
 
             with base_declaration(), mock.patch.object(ras, "_declared_skill_orphans", _decide_then_add):
@@ -692,15 +692,18 @@ class DeclaredSkillOrphanTests(unittest.TestCase):
             with base_declaration(EXTENSION_SKILLS=VALID):
                 ras.render_skills(root)
             before = _snapshot(root)
-            real_unlink = Path.unlink
+            real_unlink = os.unlink
 
             def _locked_unlink(path, *args, **kwargs):
-                if path.name == "SKILL.md" and "acme-deploy" in path.parts:
-                    raise PermissionError(13, "Permission denied", str(path))
+                # Wave 200ey (200eu): the removal is descriptor-relative on
+                # POSIX (``os.unlink("SKILL.md", dir_fd=...)``) and by path on
+                # Windows; both spellings end in SKILL.md.
+                if os.fspath(path).endswith("SKILL.md"):
+                    raise PermissionError(13, "Permission denied", str(root / "x" / "SKILL.md"))
                 return real_unlink(path, *args, **kwargs)
 
             with base_declaration(EXTENSION_SKILLS=other), \
-                    mock.patch.object(Path, "unlink", _locked_unlink), \
+                    mock.patch.object(ras.os, "unlink", _locked_unlink), \
                     self.assertRaises(RuntimeError) as caught:
                 ras.render_skills(root)
             message = str(caught.exception)
@@ -716,6 +719,310 @@ class DeclaredSkillOrphanTests(unittest.TestCase):
             for host in HOSTS:
                 self.assertFalse((root / host / "skills" / "other-skill").exists(), host)
             self.assertEqual(_snapshot(root), before)
+
+
+class JudgedRemovalTests(unittest.TestCase):
+    """Wave 200ey (change 200eu), AC-1 and AC-8: an orphan or stale skill path
+    is removed only while it is still the entry judged. Each case runs the
+    descriptor-relative branch (Linux, macOS, WSL2) and the by-path branch
+    native Windows takes (simulated here by turning ``dir_fd`` off). On real
+    Windows the by-path re-check leaves the documented window between the
+    re-check and the removal, which an injection at the decision boundary
+    cannot reach."""
+
+    BRANCHES = ("descriptor", "by-path")
+
+    @staticmethod
+    def _branch(name: str):
+        from unittest import mock
+
+        if name == "descriptor":
+            # ``getattr``: the same test runs against the unfixed module.
+            if not getattr(ras, "_descriptor_removal", lambda: True)():
+                raise unittest.SkipTest("dir_fd removal is unavailable on this platform")
+            return contextlib.nullcontext()
+        return mock.patch.object(ras.contained_files, "_dir_fd_supported", return_value=False)
+
+    def _orphaned_repo(self, root: Path) -> None:
+        _repo(root, hosts=(".claude",))
+        with base_declaration(EXTENSION_SKILLS=VALID):
+            ras.render_skills(root)
+
+    def _render_with_swap(self, root: Path, swap, branch: str) -> "tuple[list[str], str]":
+        from unittest import mock
+
+        real = ras._declared_skill_orphans
+
+        def _decide_then_swap(active_skill_roots):
+            orphans = real(active_skill_roots)
+            for orphan in orphans:
+                swap(orphan[2])  # the folder (index: the unfixed module returns tuples)
+            return orphans
+
+        with base_declaration(), self._branch(branch), \
+                mock.patch.object(ras, "_declared_skill_orphans", _decide_then_swap):
+            return _render_capturing(ras.render_skills, root)
+
+    def _assert_skipped_notice(self, err: str, rel: str, root: Path) -> None:
+        notices = [line for line in err.splitlines() if "NOTICE" in line]
+        self.assertEqual(len(notices), 1, err)
+        self.assertIn(rel, notices[0])
+        self.assertIn("the entry changed after it was judged", notices[0])
+        self.assertNotIn(str(root), err)
+        self.assertNotIn(str(root.resolve()), err)
+
+    def test_an_unchanged_orphan_is_removed_on_both_branches(self) -> None:
+        for branch in self.BRANCHES:
+            with self.subTest(branch=branch), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                self._orphaned_repo(root)
+                written, err = self._render_with_swap(root, lambda folder: None, branch)
+                self.assertIn(".claude/skills/acme-deploy/SKILL.md", written)
+                self.assertFalse(os.path.lexists(root / ".claude/skills/acme-deploy"))
+                self.assertNotIn("NOTICE", err)
+
+    def test_a_folder_replaced_after_the_decision_is_left_in_place(self) -> None:
+        def swap(folder: Path) -> None:
+            folder.rename(folder.with_name("moved-away"))
+            _write(folder / "SKILL.md", EXPECTED_DOCUMENT)
+
+        for branch in self.BRANCHES:
+            with self.subTest(branch=branch), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                self._orphaned_repo(root)
+                written, err = self._render_with_swap(root, swap, branch)
+                folder = root / ".claude/skills/acme-deploy"
+                self.assertEqual((folder / "SKILL.md").read_bytes(), EXPECTED_DOCUMENT.encode("utf-8"))
+                self.assertNotIn(".claude/skills/acme-deploy/SKILL.md", written)
+                self._assert_skipped_notice(err, ".claude/skills/acme-deploy/SKILL.md", root)
+
+    def test_a_skill_file_replaced_after_the_decision_is_left_in_place(self) -> None:
+        def swap(folder: Path) -> None:
+            _write(folder / "replacement.tmp", EXPECTED_DOCUMENT)
+            os.replace(folder / "replacement.tmp", folder / "SKILL.md")
+
+        for branch in self.BRANCHES:
+            with self.subTest(branch=branch), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                self._orphaned_repo(root)
+                written, err = self._render_with_swap(root, swap, branch)
+                self.assertTrue((root / ".claude/skills/acme-deploy/SKILL.md").is_file())
+                self.assertNotIn(".claude/skills/acme-deploy/SKILL.md", written)
+                self._assert_skipped_notice(err, ".claude/skills/acme-deploy/SKILL.md", root)
+
+    def test_a_skill_file_swapped_for_a_link_is_left_and_its_target_untouched(self) -> None:
+        with tempfile.TemporaryDirectory() as outside_dir:
+            outside = Path(outside_dir) / "SKILL.md"
+            _write(outside, EXPECTED_DOCUMENT)
+
+            def swap(folder: Path) -> None:
+                (folder / "SKILL.md").unlink()
+                try:
+                    (folder / "SKILL.md").symlink_to(outside)
+                except (OSError, NotImplementedError):
+                    raise unittest.SkipTest("file links are unavailable here")
+
+            for branch in self.BRANCHES:
+                with self.subTest(branch=branch), tempfile.TemporaryDirectory() as temp_dir:
+                    root = Path(temp_dir)
+                    self._orphaned_repo(root)
+                    written, err = self._render_with_swap(root, swap, branch)
+                    self.assertTrue((root / ".claude/skills/acme-deploy/SKILL.md").is_symlink())
+                    self.assertEqual(outside.read_bytes(), EXPECTED_DOCUMENT.encode("utf-8"))
+                    self.assertNotIn(".claude/skills/acme-deploy/SKILL.md", written)
+                    self._assert_skipped_notice(err, ".claude/skills/acme-deploy/SKILL.md", root)
+
+    def test_a_folder_replaced_by_one_holding_a_hard_link_to_the_judged_file_is_left(self) -> None:
+        """The judged file's identity alone is not enough: the folder holding
+        it must still be the judged folder (a hard link keeps the file's
+        identity in a different folder)."""
+
+        def swap(folder: Path) -> None:
+            moved = folder.with_name("moved-away")
+            folder.rename(moved)
+            folder.mkdir()
+            try:
+                os.link(moved / "SKILL.md", folder / "SKILL.md")
+            except (OSError, NotImplementedError):
+                raise unittest.SkipTest("hard links are unavailable here")
+
+        for branch in self.BRANCHES:
+            with self.subTest(branch=branch), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                self._orphaned_repo(root)
+                written, err = self._render_with_swap(root, swap, branch)
+                self.assertTrue((root / ".claude/skills/acme-deploy/SKILL.md").is_file())
+                self.assertNotIn(".claude/skills/acme-deploy/SKILL.md", written)
+                self._assert_skipped_notice(err, ".claude/skills/acme-deploy/SKILL.md", root)
+
+    def test_a_skill_file_swapped_while_its_marker_is_read_is_not_judged(self) -> None:
+        """The marker is read from the file whose identity is recorded: a
+        SKILL.md swapped between the ``lstat`` and the read is not an orphan."""
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._orphaned_repo(root)
+            skill = root / ".claude/skills/acme-deploy/SKILL.md"
+            real = ras.contained_files.read_contained
+            swapped = []
+
+            def _swap_then_read(read_root, path, **kwargs):
+                # Between the orphan judgment's ``lstat`` and the contained read.
+                if Path(path).name == "SKILL.md" and not swapped:
+                    swapped.append(True)
+                    _write(skill.with_name("replacement.tmp"), EXPECTED_DOCUMENT)
+                    os.replace(skill.with_name("replacement.tmp"), skill)
+                return real(read_root, path, **kwargs)
+
+            with base_declaration(), mock.patch.object(ras.contained_files, "read_contained", _swap_then_read):
+                written, err = _render_capturing(ras.render_skills, root)
+            self.assertTrue(swapped)
+            self.assertTrue(skill.is_file())
+            self.assertNotIn(".claude/skills/acme-deploy/SKILL.md", written)
+            self.assertNotIn("NOTICE", err)
+
+    # ---- AC-2: render_skills messages ----------------------------------------
+
+    SENTINEL = "zq-sentinel-oserror-text"
+
+    def _assert_path_free(self, message: str, root: Path, label: str, cls: str) -> None:
+        self.assertNotIn(self.SENTINEL, message)
+        for part in (str(root), str(root.resolve()), root.name):
+            self.assertNotIn(part, message)
+        self.assertIn(label, message)
+        self.assertIn(cls, message)
+
+    def _failing_resolve(self, name: str):
+        real = Path.resolve
+
+        def _resolve(path, *args, **kwargs):
+            if path.name == name and ".claude" in path.parts:
+                raise PermissionError(13, self.SENTINEL, str(path))
+            return real(path, *args, **kwargs)
+
+        return _resolve
+
+    def test_render_skills_failure_messages_are_path_free(self) -> None:
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._stale_repo(root)
+            with base_declaration(), mock.patch.object(Path, "resolve", self._failing_resolve("skills")), \
+                    self.assertRaises(RuntimeError) as caught:
+                ras.render_skills(root)
+            self._assert_path_free(str(caught.exception), root, ".claude/skills", "PermissionError")
+            with base_declaration(), mock.patch.object(Path, "resolve", self._failing_resolve("wf-plan-feature")), \
+                    self.assertRaises(RuntimeError) as caught:
+                ras.render_skills(root)
+            self._assert_path_free(str(caught.exception), root, self.STALE, "PermissionError")
+            real_unlink = os.unlink
+
+            def _unlink(path, *args, **kwargs):
+                if os.fspath(path).endswith("SKILL.md"):
+                    raise PermissionError(13, self.SENTINEL, str(root / self.STALE))
+                return real_unlink(path, *args, **kwargs)
+
+            for branch in self.BRANCHES:
+                with self.subTest(branch=branch), base_declaration(), self._branch(branch), \
+                        mock.patch.object(ras.os, "unlink", _unlink), self.assertRaises(RuntimeError) as caught:
+                    ras.render_skills(root)
+                self._assert_path_free(str(caught.exception), root, self.STALE, "PermissionError")
+            self.assertTrue((root / self.STALE).is_file())
+
+    def test_orphan_listing_and_skill_read_failures_are_path_free(self) -> None:
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._orphaned_repo(root)
+            real_iterdir = Path.iterdir
+
+            def _iterdir(path):
+                if path.name == "skills":
+                    raise PermissionError(13, self.SENTINEL, str(path))
+                return real_iterdir(path)
+
+            with base_declaration(), mock.patch.object(Path, "iterdir", _iterdir), \
+                    self.assertRaises(RuntimeError) as caught:
+                ras.render_skills(root)
+            self._assert_path_free(str(caught.exception), root, ".claude/skills", "PermissionError")
+            with base_declaration(EXTENSION_SKILLS=VALID), \
+                    mock.patch.object(ras, "_read_repo_bytes",
+                                      side_effect=PermissionError(13, self.SENTINEL, str(root))), \
+                    self.assertRaises(RuntimeError) as caught:
+                ras.render_skills(root)
+            self._assert_path_free(str(caught.exception), root, ".claude/skills/acme-deploy/SKILL.md",
+                                   "PermissionError")
+
+    # ---- AC-8: stale skill paths ---------------------------------------------
+
+    STALE = ".claude/skills/wf-plan-feature/SKILL.md"
+
+    def _stale_repo(self, root: Path) -> None:
+        _repo(root, hosts=(".claude",))
+        _write(root / self.STALE, "# retired skill\n")
+
+    def _render_stale_with_swap(self, root: Path, swap, branch: str) -> "tuple[list[str], str]":
+        from unittest import mock
+
+        real = ras._judge_stale_skill_paths
+
+        def _judge_then_swap(judge_root, stale_paths):
+            judged = real(judge_root, stale_paths)
+            swap(root / self.STALE)
+            return judged
+
+        with base_declaration(), self._branch(branch), \
+                mock.patch.object(ras, "_judge_stale_skill_paths", _judge_then_swap):
+            return _render_capturing(ras.render_skills, root)
+
+    def test_an_unchanged_stale_file_and_its_folder_are_removed(self) -> None:
+        for branch in self.BRANCHES:
+            with self.subTest(branch=branch), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                self._stale_repo(root)
+                written, err = self._render_stale_with_swap(root, lambda path: None, branch)
+                self.assertIn(self.STALE, written)
+                self.assertFalse(os.path.lexists(root / ".claude/skills/wf-plan-feature"))
+                self.assertNotIn("NOTICE", err)
+
+    def test_a_stale_file_replaced_after_the_decision_is_left_in_place(self) -> None:
+        def swap(path: Path) -> None:
+            _write(path.with_name("replacement.tmp"), "# operator file\n")
+            os.replace(path.with_name("replacement.tmp"), path)
+
+        for branch in self.BRANCHES:
+            with self.subTest(branch=branch), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                self._stale_repo(root)
+                written, err = self._render_stale_with_swap(root, swap, branch)
+                self.assertEqual((root / self.STALE).read_bytes(), b"# operator file\n")
+                self.assertNotIn(self.STALE, written)
+                self._assert_skipped_notice(err, self.STALE, root)
+
+    def test_a_stale_file_swapped_for_a_link_is_left_and_its_target_untouched(self) -> None:
+        with tempfile.TemporaryDirectory() as outside_dir:
+            outside = Path(outside_dir) / "target.md"
+            _write(outside, "# outside\n")
+
+            def swap(path: Path) -> None:
+                path.unlink()
+                try:
+                    path.symlink_to(outside)
+                except (OSError, NotImplementedError):
+                    raise unittest.SkipTest("file links are unavailable here")
+
+            for branch in self.BRANCHES:
+                with self.subTest(branch=branch), tempfile.TemporaryDirectory() as temp_dir:
+                    root = Path(temp_dir)
+                    self._stale_repo(root)
+                    written, err = self._render_stale_with_swap(root, swap, branch)
+                    self.assertTrue((root / self.STALE).is_symlink())
+                    self.assertEqual(outside.read_bytes(), b"# outside\n")
+                    self.assertNotIn(self.STALE, written)
+                    self._assert_skipped_notice(err, self.STALE, root)
 
 
 class PromptDocTemplateTests(unittest.TestCase):
@@ -803,6 +1110,11 @@ class PromptDocTemplateTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError) as caught:
                     render(root)
                 self.assertIn("acme/none.prompt.md", str(caught.exception))
+                # Wave 200ey (200eu): labels only, never an absolute path.
+                self.assertIn(".wavefoundry/framework/install/acme/none.prompt.md", str(caught.exception))
+                self.assertIn("the packaged fallback install/acme/none.prompt.md", str(caught.exception))
+                for absolute in (str(root), str(root.resolve()), str(PACKAGED_TEMPLATE.parents[1])):
+                    self.assertNotIn(absolute, str(caught.exception))
                 self.assertEqual(_snapshot(root), before)
         # With the doc present the template is never needed.
         with tempfile.TemporaryDirectory() as temp_dir, base_declaration(EXTENSION_SKILLS=declaration):

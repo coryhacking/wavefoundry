@@ -291,7 +291,6 @@ _RELOAD_RETAINED_FLAT_MODULES = {
     "index_compatibility": "pins the loaded index runtime; a reload deliberately does not replace it",
     "index_state_store": "index store bound to the loaded index runtime, read lazily",
     "install_log_lib": "stable install-log reader API, imported lazily",
-    "lifecycle_id": "stable lifecycle id helpers; tool paths reach it through the script cache",
     "machine_authority": "stable scanner path predicate used by the secrets validators",
     "process_info": "process-wide psutil loader, deliberately left loaded",
     "provider_policy": "stable execution-provider selection, imported lazily",
@@ -805,7 +804,8 @@ class ReloadClosureGuardTests(unittest.TestCase):
         self.assertEqual(_in_place_reloaded(self.source), {"runtime_lock"})
         self.assertEqual(_reload_closure_problems(self.source, _RELOAD_RETAINED_FLAT_MODULES), [])
         self.assertEqual(_runtime_lock_binding_problems(self.source, _RUNTIME_LOCK_STALE_BINDINGS), [])
-        self.assertEqual(len(_RELOAD_RETAINED_FLAT_MODULES), 24)  # 1zyv1 adds bytecode_cache (runner bootstrap)
+        # 1zyv1 adds bytecode_cache (runner bootstrap); 200ew evicts lifecycle_id.
+        self.assertEqual(len(_RELOAD_RETAINED_FLAT_MODULES), 23)
         self.assertNotIn("runtime_lock", _RELOAD_RETAINED_FLAT_MODULES)
         self.assertTrue(_RELOAD_BOOTSTRAP_EXCLUSIONS <= set(_RELOAD_RETAINED_FLAT_MODULES))
         self.assertTrue(all(reason.strip() for reason in _RELOAD_RETAINED_FLAT_MODULES.values()))

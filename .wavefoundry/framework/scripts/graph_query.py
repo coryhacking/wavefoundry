@@ -84,6 +84,26 @@ _NEIGHBOR_OPT_IN_RELATIONS = frozenset({"reads"})
 _SQL_DATA_LAYER_RELATIONS = frozenset({"reads", "writes", "maps_to"})
 _DOC_KINDS = frozenset({"doc", "seed"})
 _CHOKEPOINT_FAN_OUT = 20
+# Wave 203pu (201wg): report rows carry `call_edge_counts`, which counts
+# `calls` edges only. total = resolved + extracted + unclassified, and
+# receiver_unknown is an overlapping subset of total, not a summand.
+_CALL_EDGE_COUNT_FIELDS = ("total", "resolved", "extracted", "unclassified", "receiver_unknown")
+_RESOLVED_CALL_CONFIDENCES = frozenset({"RECEIVER_RESOLVED", "CONSTRUCTION_RESOLVED"})
+
+
+def _call_edge_category(edge: dict[str, Any]) -> str:
+    """Attribution bucket of one `calls` edge for ``call_edge_counts``.
+
+    A resolved confidence that also carries unknown-receiver provenance is
+    contradictory metadata and lands in ``unclassified``, like an absent or
+    unrecognized confidence.
+    """
+    confidence = str(edge.get("confidence") or "")
+    if confidence in _RESOLVED_CALL_CONFIDENCES and not edge.get("receiver_unknown"):
+        return "resolved"
+    if confidence == "EXTRACTED":
+        return "extracted"
+    return "unclassified"
 
 
 def _scope_matches(scope: str, source_file: str) -> bool:
@@ -2109,8 +2129,30 @@ class GraphQueryIndex:
         }
         fan_in_counts: dict[str, int] = {}
         fan_out_counts: dict[str, int] = {}
+        # Wave 203pu (201wg): call-only attribution tallies, one classification
+        # per effective edge shared by both directions. The legacy counts above
+        # keep their SQL data-layer relations and drive every ranking.
+        call_in: dict[str, dict[str, int]] = {}
+        call_out: dict[str, dict[str, int]] = {}
+
+        def _tally(bucket: dict[str, dict[str, int]], nid: str, category: str, unknown: bool) -> None:
+            counts = bucket.get(nid)
+            if counts is None:
+                counts = bucket[nid] = dict.fromkeys(_CALL_EDGE_COUNT_FIELDS, 0)
+            counts["total"] += 1
+            counts[category] += 1
+            if unknown:
+                counts["receiver_unknown"] += 1
+
         for edge in self.edges:
             rel = edge.get("relation")
+            if rel == "calls":
+                category = _call_edge_category(edge)
+                unknown = bool(edge.get("receiver_unknown"))
+                if isinstance(edge.get("target"), str):
+                    _tally(call_in, edge["target"], category, unknown)
+                if isinstance(edge.get("source"), str):
+                    _tally(call_out, edge["source"], category, unknown)
             if rel != "calls":
                 # Wave 1p9qi (1p9qd): SQL table references moved from `calls`
                 # to direction-aware `reads`/`writes`; count the data-layer
@@ -2131,7 +2173,10 @@ class GraphQueryIndex:
             if isinstance(src, str):
                 fan_out_counts[src] = fan_out_counts.get(src, 0) + 1
 
-        def _ranked(counts: dict[str, int],
+        def _call_counts(bucket: dict[str, dict[str, int]], nid: str) -> dict[str, int]:
+            return dict(bucket.get(nid) or dict.fromkeys(_CALL_EDGE_COUNT_FIELDS, 0))
+
+        def _ranked(counts: dict[str, int], calls: dict[str, dict[str, int]],
                     keep: "Callable[[str], bool] | None" = None) -> list[dict[str, Any]]:
             # Wave 1wpaj: eligibility BEFORE the slice (truncation site 1 of 3).
             # Wave 1wpie: `keep` additionally splits the universe into the
@@ -2152,6 +2197,7 @@ class GraphQueryIndex:
                     "count": count,
                     "label": node.get("label", nid),
                     "kind": node.get("kind"),
+                    "call_edge_counts": _call_counts(calls, nid),
                 }
                 # Wave 1p9qi (1p9qd): distinguish SQL tables from views in
                 # report labels (AC-4) — both normalize to kind "class".
@@ -2169,7 +2215,8 @@ class GraphQueryIndex:
                 row["classification_reasons"] = self.evidence_reasons(str(row["node_id"]))
             return rows
 
-        def _emit_pair(name: str, counts: dict[str, int]) -> None:
+        def _emit_pair(name: str, counts: dict[str, int],
+                       calls: dict[str, dict[str, int]]) -> None:
             """One production array and its exact parallel evidence array.
 
             Wave 1wpie requirement 7: the evidence array is emitted whenever its
@@ -2178,17 +2225,17 @@ class GraphQueryIndex:
             "no evidence rows" from "this build predates the partition".
             """
             if is_evidence is None:
-                result[name] = _ranked(counts)
+                result[name] = _ranked(counts, calls)
                 result[f"evidence_{name}"] = []
                 return
-            result[name] = _ranked(counts, keep=lambda nid: not is_evidence(nid))
+            result[name] = _ranked(counts, calls, keep=lambda nid: not is_evidence(nid))
             result[f"evidence_{name}"] = _decorate_evidence(
-                _ranked(counts, keep=is_evidence))
+                _ranked(counts, calls, keep=is_evidence))
 
         if "fan_in" in wanted:
-            _emit_pair("fan_in", fan_in_counts)
+            _emit_pair("fan_in", fan_in_counts, call_in)
         if "fan_out" in wanted:
-            _emit_pair("fan_out", fan_out_counts)
+            _emit_pair("fan_out", fan_out_counts, call_out)
         if "orphan_docs" in wanted:
             # Wave 13129 (1316t): track candidate total so an empty list can be
             # distinguished from "no doc nodes existed at all".
@@ -2234,6 +2281,7 @@ class GraphQueryIndex:
                         "node_id": nid,
                         "fan_out": count,
                         "label": (self._node_by_id.get(nid) or {}).get("label", nid),
+                        "call_edge_counts": _call_counts(call_out, nid),
                     }
                     for nid, count in sorted(fan_out_counts.items(), key=lambda item: (-item[1], item[0]))
                     if count >= chokepoint_threshold
@@ -2274,6 +2322,7 @@ class GraphQueryIndex:
                     "fan_out": count,
                     "label": (self._node_by_id.get(nid) or {}).get("label", nid),
                     "kind": "module",
+                    "call_edge_counts": _call_counts(call_out, nid),
                 }
                 for nid, count in sorted(fan_out_counts.items(), key=lambda item: (-item[1], item[0]))
                 if count >= chokepoint_threshold

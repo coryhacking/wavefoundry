@@ -34,7 +34,7 @@ The phase shape mirrors the Wave Council: a primer-then-seats-then-synthesis str
 
 ### Phase 0 — Moderator Declaration
 
-`wave-council` chairs the Archetype Council (same role as for the Wave Council) and declares the seat composition before Phase 1:
+`council-chair` chairs the Archetype Council (same role as for the Wave Council) and declares the seat composition before Phase 1:
 
 - **Default five seats:** Sun Tzu, Yoda, Spock, Marcus Aurelius, Feynman.
 - **Swap protocol:** the fifth seat (Feynman) may be swapped for an alternative archetype when the artifact rewards a different stance. Declare the swap up front (e.g., *"Archetype review with Hemingway swapped in for Feynman"*) so the recorded verdict reflects the actual axes exercised.
@@ -68,7 +68,7 @@ Each archetype runs in isolation, applying its stance against the artifact, in t
 
 ### Phase 3 — Synthesis
 
-`wave-council` synthesizes across the seats. Synthesis must include:
+`council-chair` synthesizes across the seats. Synthesis must include:
 
 - Seat roster with declared swap (if any) and stance each seat owned
 - **Axes-covered** — which orthogonal axes were actually exercised; flag any axis-overlap between seats (if two seats clustered on the same axis, the protocol operated on fewer effective axes than seats)
@@ -173,13 +173,13 @@ Operators may invoke other archetypes ad hoc (Da Vinci, Hemingway, Munger, Ricko
 Record the verdict in the reviewed artifact's review section (`## Review Evidence` for change docs, `## Review Checkpoints` for wave docs). The verdict line is structurally consistent with the existing `prepare-council` verdict shape so future validator integration is straightforward — but no validator consumes the line in v1.
 
 ```
-- **Archetype Council [archetype-review] — <date>: PASS** (moderator: wave-council; seats: sun-tzu, yoda, spock, marcus-aurelius, feynman; rotating-seat: feynman; strongest-axis: <which seat's findings bound the most must-fixes>; must-fix-count: <n>; advisory-count: <n>)
+- **Archetype Council [archetype-review] — <date>: PASS** (moderator: council-chair; seats: sun-tzu, yoda, spock, marcus-aurelius, feynman; rotating-seat: feynman; strongest-axis: <which seat's findings bound the most must-fixes>; must-fix-count: <n>; advisory-count: <n>)
 ```
 
 When the fifth seat is swapped, name the swap-in:
 
 ```
-- **Archetype Council [archetype-review] — <date>: PASS** (moderator: wave-council; seats: sun-tzu, yoda, spock, marcus-aurelius, hemingway; rotating-seat: hemingway; strongest-axis: spock; must-fix-count: 3; advisory-count: 2)
+- **Archetype Council [archetype-review] — <date>: PASS** (moderator: council-chair; seats: sun-tzu, yoda, spock, marcus-aurelius, hemingway; rotating-seat: hemingway; strongest-axis: spock; must-fix-count: 3; advisory-count: 2)
 ```
 
 Verdict values: **PASS**, **PASS WITH IN-SESSION FIXES**, **NOT READY**.
