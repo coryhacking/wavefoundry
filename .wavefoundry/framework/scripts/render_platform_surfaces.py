@@ -157,10 +157,13 @@ def write_text(path: Path, content: str, executable: bool = False, *, root: Path
     _manifest_record(path, changed)
 
 
-def remove_files(paths: list[Path]) -> None:
+def remove_files(paths: list[Path], *, root: Path) -> None:
     for path in paths:
-        if path.exists():
-            path.unlink()
+        try:
+            judged, identity = contained_files.judge_contained_file(root, path)
+        except FileNotFoundError:
+            continue
+        contained_files.unlink_contained(root, judged, expected_identity=identity)
 
 
 def remove_copilot_artifacts(repo_root: Path) -> None:
@@ -175,7 +178,7 @@ def remove_copilot_artifacts(repo_root: Path) -> None:
             repo_root / ".github" / "hooks" / "post-tool-use.cmd",
             repo_root / ".github" / "hooks" / "pre-tool-use.sh",
             repo_root / ".github" / "hooks" / "post-tool-use.sh",
-        ]
+        ], root=repo_root
     )
 
 
@@ -339,7 +342,7 @@ def write_hook_bundle(base_path: Path, python_source: str, *, root: Path) -> Non
     needed and the committed launcher is byte-identical across render hosts. Any stale trampolines
     left by an older render are removed here so a re-render cleans up the cutover."""
     write_text(base_path.with_suffix(".py"), python_source, executable=True, root=root)
-    remove_files([base_path, base_path.with_suffix(".cmd"), base_path.with_suffix(".sh")])
+    remove_files([base_path, base_path.with_suffix(".cmd"), base_path.with_suffix(".sh")], root=root)
 
 
 def hook_helpers() -> str:
@@ -2444,8 +2447,7 @@ def render_bin_launchers(repo_root: Path) -> None:
         "register-antigravity-mcp",
     ):
         stale_path = bin_dir / stale
-        if stale_path.exists():
-            stale_path.unlink()
+        remove_files([stale_path], root=repo_root)
 
 
 def remove_git_hooks(repo_root: Path) -> None:
@@ -2455,7 +2457,7 @@ def remove_git_hooks(repo_root: Path) -> None:
     so a re-render cleans up the cutover for repos that received the old opt-in hooks.
     """
     hooks_dir = repo_root / ".wavefoundry" / "git-hooks"
-    remove_files([hooks_dir / n for n in ("post-commit", "post-merge", "post-rewrite", "post-checkout")])
+    remove_files([hooks_dir / n for n in ("post-commit", "post-merge", "post-rewrite", "post-checkout")], root=repo_root)
     try:
         if hooks_dir.is_dir() and not any(hooks_dir.iterdir()):
             hooks_dir.rmdir()
@@ -2782,7 +2784,7 @@ def render_platform_entrypoints(repo_root: Path, platform: str) -> None:
                 repo_root / ".claude" / "hooks" / "simulate-hooks",
                 repo_root / ".claude" / "hooks" / "simulate-hooks.sh",
                 repo_root / ".claude" / "hooks" / "simulate-hooks.cmd",
-            ]
+            ], root=repo_root
         )
         write_hook_bundle(repo_root / ".claude" / "hooks" / "pre-edit", claude_pre_edit_source(), root=repo_root)
         write_hook_bundle(repo_root / ".claude" / "hooks" / "post-edit", claude_post_edit_source(), root=repo_root)
@@ -2814,7 +2816,7 @@ def render_platform_entrypoints(repo_root: Path, platform: str) -> None:
                 repo_root / ".cursor" / "hooks" / "reformat.sh",
                 repo_root / ".cursor" / "hooks" / "reformat.py",
                 repo_root / ".cursor" / "hooks" / "reformat.cmd",
-            ]
+            ], root=repo_root
         )
         write_hook_bundle(repo_root / ".cursor" / "hooks" / "after-file-edit", cursor_after_file_edit_source(), root=repo_root)
         write_hook_bundle(repo_root / ".cursor" / "hooks" / "seed-warn", cursor_seed_warn_source(), root=repo_root)
@@ -2831,7 +2833,7 @@ def render_platform_entrypoints(repo_root: Path, platform: str) -> None:
                 repo_root / ".github" / "hooks" / "post-tool-use",
                 repo_root / ".github" / "hooks" / "post-tool-use.sh",
                 repo_root / ".github" / "hooks" / "post-tool-use.cmd",
-            ]
+            ], root=repo_root
         )
         write_hook_bundle(repo_root / ".github" / "hooks" / "pre-tool-use", copilot_pre_tool_use_source(), root=repo_root)
         write_hook_bundle(repo_root / ".github" / "hooks" / "post-tool-use", copilot_post_tool_use_source(), root=repo_root)

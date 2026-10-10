@@ -1,0 +1,156 @@
+{
+  "created_at": "2026-10-09T20:52:10.908310+00:00",
+  "packet_integrity_before_after": {
+    "checked": 8,
+    "changed": []
+  },
+  "reviews": [
+    {
+      "phase": "readiness",
+      "wave_id": "2071n",
+      "change_id": "205jp",
+      "tree_fingerprint": "02bfe86fd4c8045b262dbcf7d2f9841fd5284666858077efea69812ade795cd0",
+      "execution_status": "executed",
+      "universal_claim": false,
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "command_or_fixture": "WAVEFOUNDRY_DISABLE_BYTECODE_CACHE=1 python3 -B -m unittest test_server_tools_retrieval.ControlledCommunityPublicationResponseTests; live MCP code_read; read-only Git-ref and packet byte probes",
+      "public_path": "Existing wf_graph_report_response via ControlledCommunityPublicationResponseTests; live plan/source feasibility and packet validation boundary",
+      "expected": "Test-owned published graph retains literal production/evidence ranking controls without operator index; exact current packet accepted and deliberately omitted/corrupted review inputs rejected; historical/current source digests differ",
+      "observed": "Existing controlled-publication class ran 3 tests in0.992s, OK, zero skips. Actual reset/reuse/missing-member repair reached stored public graph report response. All8 packet blobs matched before/after. Omitted record_layout_support and wrong first blob rejected by readiness packet comparison. Historical code for v1.22.0 and5e798daa was nonempty; current source substitution and one-byte corruption differ from independently read Git SHA256.",
+      "artifact_or_test_id": "ControlledCommunityPublicationResponseTests; evidence/readiness/arch-security.json; packet.json; test_review_policy historical carrier tests; StorageUpgradeProcessResumeTests.setUp; SchemaEightKindTests.test_version_one_code_refuses_a_version_two_receipt_and_creates_nothing",
+      "adjacent_controls": [
+        "Exact8-entry packet accepted beside omitted-entry and incorrect-blob controls",
+        "Known legitimate production/evidence communities independently fill limits1and2 in existing publication class",
+        "Historical original bytes distinct from current implementation and one-byte corruption"
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "known_bad_detection_method": "Readiness-safe incomplete census/source-identity controls rejected; historical current-code fallback and corruption refuted by independently read trusted-Git bytes. Existing feasibility class also exercises genuine missing persisted member repair.",
+      "safety_and_authorization": "Read-only live source/Git and in-memory controls; existing tests create scratch publication stores only. Operator requested Prepare/Implement/Review. No framework edits, lifecycle writes, full suite, network, credential or publication probe.",
+      "limitations": [
+        "Readiness approval authorizes feasibility of plan, not unimplemented fixture behavior or eventual delivery. Full three-profile execution, exact skip enumeration and final fixture mutation probes remain delivery obligations.",
+        "Live MCP callable; setup/index unready. Only live source tools used; no semantic freshness claim or setup run.",
+        "The full historical v1.14 required/optional carrier byte inventory was inspected at its current consumer source; source bytes of each carrier were not individually captured in this architecture/security seat. Release/QA independent capture/ref checks remain required.",
+        "Fingerprint is exact packet-path identity, not proof of all unrelated repository bytes. No universal whole-tree or cryptographic caller-authentication claim."
+      ],
+      "primer_response": {
+        "strongest_challenge": "Accepted as load-bearing design constraint: handwritten evidence tags or response-derived identities are circular. Reuse actual JSON extraction and gfs publication, then assert literal independent source identities/reasons and both ranked halves; do not claim clustering coverage from curated membership.",
+        "question1": "Source inspection confirms presence guards, explicit provenance plus machine-run signature, child owning-file inheritance, ordinary controls and canonical ignored-path absence. Existing controlled fixture demonstrates real publication/response feasibility and retained independent ranking. Delivery must independently mutate evidence tagging, missing indexed child/control, crossed edge, missing community membership and pre-partition top-N selection; empty graph/evidence must fail, not skip.",
+        "question2": "v1.14 first consumer requires every lifecycle carrier; second deliberately omits unavailable direct-doc carriers. Pin the required/optional inventory separately. v1.22 consumer substitutes only entry script into current siblings and current pack;5e798daa child uses historical reader with current sibling path. Encoded JSON source bundle preserves bytes and avoids ownership census/entry imports. Resolve refs, independently compare bytes at capture/review, pin hashes, refuse missing/corrupt/substituted artifacts; do not transform historical source text to current vocabulary.",
+        "question3": "Same frozen source is required for default/second/declared profile logs plus exact skip identities and reasons. Loaded-profile default_profile_only controls intentional corpus applicability; env presence is insufficient. Aggregate success/counts cannot establish equivalence. No readiness assertion claims those future runs completed."
+      },
+      "role": "architecture-reviewer",
+      "verdict": "approved",
+      "readiness_blockers": [],
+      "proposition": "Plan205jp can restore copied-checkout qualification using test-owned fixture publication and pinned historical inputs while preserving current graph storage/query/module ownership.",
+      "counterexample_or_failure_condition": "Plan requires production extractor/ranking/storage changes, bypasses actual publication/query assertions, changes old-entry/current-sibling seam, or substitutes current source for historical bytes.",
+      "verification_context": {
+        "actor": "architecture-reviewer",
+        "context_id": "2071n-ready-arch-security-seat-architecture-20261009",
+        "fresh_context": true,
+        "independent": true
+      },
+      "boundaries_touched": [
+        "Test fixtures -> GraphIndexSession actual JSON extraction -> graph fixture publication -> public graph report and community lookup",
+        "Test snapshot loader -> trusted historical bytes -> original scratch process and current sibling-module seam",
+        "Corpus test -> loaded vocabulary/layout marker"
+      ],
+      "invariants": [
+        "index.sqlite stays durable graph authority; no legacy project-graph.json fixture reintroduced",
+        "Shared graph_fixture_support owns publication schema; tests do not add a competing persisted representation",
+        "Historical fixtures are test-only encoded data; no executable old Python module under shipped scripts",
+        "No production dependency direction or MCP/tool/cache/hook behavior change"
+      ],
+      "evidence_sources": [
+        "domain-map Domains/Dependency Direction Rules",
+        "layering-rules Shared index storage",
+        "LiveGraphEvidenceControlTests._nodes_for and classification controls",
+        "EvidencePartitionResponseTests public report assertions",
+        "ControlledCommunityPublicationResponseTests.setUp/_assert_rankings/_publish_update",
+        "record_layout_support.profile_differences/default_profile_only",
+        "Historical consumers in test_review_policy/test_storage_upgrade_resume/test_sqlite_storage_migration"
+      ],
+      "required_docs": "Update testing-architecture and build-and-verification with isolated fixtures, historical provenance, same-source exact skip accounting and curated-clustering limitation. No new product ADR or domain edge required."
+    },
+    {
+      "phase": "readiness",
+      "wave_id": "2071n",
+      "change_id": "205jp",
+      "tree_fingerprint": "02bfe86fd4c8045b262dbcf7d2f9841fd5284666858077efea69812ade795cd0",
+      "execution_status": "executed",
+      "universal_claim": false,
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "command_or_fixture": "WAVEFOUNDRY_DISABLE_BYTECODE_CACHE=1 python3 -B -m unittest test_server_tools_retrieval.ControlledCommunityPublicationResponseTests; live MCP code_read; read-only Git-ref and packet byte probes",
+      "public_path": "Existing wf_graph_report_response via ControlledCommunityPublicationResponseTests; live plan/source feasibility and packet validation boundary",
+      "expected": "Test-owned published graph retains literal production/evidence ranking controls without operator index; exact current packet accepted and deliberately omitted/corrupted review inputs rejected; historical/current source digests differ",
+      "observed": "Existing controlled-publication class ran 3 tests in0.992s, OK, zero skips. Actual reset/reuse/missing-member repair reached stored public graph report response. All8 packet blobs matched before/after. Omitted record_layout_support and wrong first blob rejected by readiness packet comparison. Historical code for v1.22.0 and5e798daa was nonempty; current source substitution and one-byte corruption differ from independently read Git SHA256.",
+      "artifact_or_test_id": "ControlledCommunityPublicationResponseTests; evidence/readiness/arch-security.json; packet.json; test_review_policy historical carrier tests; StorageUpgradeProcessResumeTests.setUp; SchemaEightKindTests.test_version_one_code_refuses_a_version_two_receipt_and_creates_nothing",
+      "adjacent_controls": [
+        "Exact8-entry packet accepted beside omitted-entry and incorrect-blob controls",
+        "Known legitimate production/evidence communities independently fill limits1and2 in existing publication class",
+        "Historical original bytes distinct from current implementation and one-byte corruption"
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "known_bad_detection_method": "Readiness-safe incomplete census/source-identity controls rejected; historical current-code fallback and corruption refuted by independently read trusted-Git bytes. Existing feasibility class also exercises genuine missing persisted member repair.",
+      "safety_and_authorization": "Read-only live source/Git and in-memory controls; existing tests create scratch publication stores only. Operator requested Prepare/Implement/Review. No framework edits, lifecycle writes, full suite, network, credential or publication probe.",
+      "limitations": [
+        "Readiness approval authorizes feasibility of plan, not unimplemented fixture behavior or eventual delivery. Full three-profile execution, exact skip enumeration and final fixture mutation probes remain delivery obligations.",
+        "Live MCP callable; setup/index unready. Only live source tools used; no semantic freshness claim or setup run.",
+        "The full historical v1.14 required/optional carrier byte inventory was inspected at its current consumer source; source bytes of each carrier were not individually captured in this architecture/security seat. Release/QA independent capture/ref checks remain required.",
+        "Fingerprint is exact packet-path identity, not proof of all unrelated repository bytes. No universal whole-tree or cryptographic caller-authentication claim."
+      ],
+      "primer_response": {
+        "strongest_challenge": "Accepted as load-bearing design constraint: handwritten evidence tags or response-derived identities are circular. Reuse actual JSON extraction and gfs publication, then assert literal independent source identities/reasons and both ranked halves; do not claim clustering coverage from curated membership.",
+        "question1": "Source inspection confirms presence guards, explicit provenance plus machine-run signature, child owning-file inheritance, ordinary controls and canonical ignored-path absence. Existing controlled fixture demonstrates real publication/response feasibility and retained independent ranking. Delivery must independently mutate evidence tagging, missing indexed child/control, crossed edge, missing community membership and pre-partition top-N selection; empty graph/evidence must fail, not skip.",
+        "question2": "v1.14 first consumer requires every lifecycle carrier; second deliberately omits unavailable direct-doc carriers. Pin the required/optional inventory separately. v1.22 consumer substitutes only entry script into current siblings and current pack;5e798daa child uses historical reader with current sibling path. Encoded JSON source bundle preserves bytes and avoids ownership census/entry imports. Resolve refs, independently compare bytes at capture/review, pin hashes, refuse missing/corrupt/substituted artifacts; do not transform historical source text to current vocabulary.",
+        "question3": "Same frozen source is required for default/second/declared profile logs plus exact skip identities and reasons. Loaded-profile default_profile_only controls intentional corpus applicability; env presence is insufficient. Aggregate success/counts cannot establish equivalence. No readiness assertion claims those future runs completed."
+      },
+      "role": "security-reviewer",
+      "verdict": "approved",
+      "overall_severity": "none",
+      "readiness_blockers": [],
+      "findings": [],
+      "exploit_chains": [],
+      "proposition": "Plan205jp adds bounded trusted test fixtures and historical-code execution in existing scratch test processes without adding less-trusted input acceptance or production authority.",
+      "counterexample_or_failure_condition": "Loader executes uncontrolled archive paths or dynamically acquired historical code, writes outside test scratch roots, imports fixture modules as live production entries, or treats same-file hashes as authenticated external provenance.",
+      "verification_context": {
+        "actor": "security-reviewer",
+        "context_id": "2071n-ready-arch-security-seat-security-20261009",
+        "fresh_context": true,
+        "independent": true
+      },
+      "trust_assessment": {
+        "actor": "Operator-maintained committed framework test fixtures",
+        "controlled_surface": "Encoded historical source snapshots and isolated synthetic repository contents",
+        "supported_path": "Existing local test runner and original scratch subprocesses/public response probes",
+        "authority_delta": "None established: no new product acceptance path, remote caller, credential-bearing process or privileges unavailable to source maintainer",
+        "impact": "Fixture corruption could invalidate verification; this is a required-contract correctness failure, not demonstrated attacker escalation under current single-user trusted-repository posture"
+      },
+      "security_obligations": [
+        "Keep snapshots test-only, bounded and encoded; destination/source paths fixed or contained in temporary root, no unrestricted fixture-controlled traversal",
+        "No subprocess shell interpolation; original fixed argv/importlib -B entry and current-sibling paths preserved",
+        "Provenance refs resolved and byte comparison independently checked at capture/review; pinned SHA validates fixture integrity, not caller authentication or substitute trust for ref verification",
+        "Missing/corrupt/unexpected fixture fails before historical execution; no current-source/network fallback",
+        "Keep intended v1.14 absent direct carriers distinct from missing required fixture corruption"
+      ],
+      "approval_confirmation": "Existing feasibility fixture writes only its TemporaryDirectory store and uses controlled extraction/public response. No new symbol regex/search path is proposed, so re.escape requirements unchanged. No exploit chain identified. Product confinement and mutation policy remain unchanged; new loader confinement must be checked against implementation at delivery."
+    }
+  ]
+}

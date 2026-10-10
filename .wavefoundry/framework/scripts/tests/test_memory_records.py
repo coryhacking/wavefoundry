@@ -96,6 +96,16 @@ def load_independent_server():
 
 
 class _MemoryCase(unittest.TestCase):
+    def _selected_sources(self, wave_id):
+        supply = getattr(self, "supply", None) or self.srv._load_script("memory_supply")
+        drafts = supply.draft_candidates(self.root, wave_id, limit=None)
+        wave_dir, _ = supply.resolve_wave_dir(self.root, wave_id)
+        changes = set(supply._admitted_change_ids(wave_dir, supply.wave_profile(self.root, wave_dir)))
+        sources = [d["source_event"] for d in drafts]
+        sources.extend(r["source_event"] for r in self.mem.load_memory_records(self.root)
+                       if supply.memory_record_belongs_to_wave(r, wave_dir.name, changes))
+        return list(dict.fromkeys(sources))[:20]
+
     def setUp(self):
         self.mem = _load("memory_records")
         self._tmp = tempfile.TemporaryDirectory()
@@ -3043,6 +3053,12 @@ class MemoryProposeTests(_MemoryCase):
         change_id = f"{wave_id[:5]}k-feat {slug}"
         with declared_wave_doc_gates(self.srv, stubs):
             made = self.srv.new_change(self.root, "feat", slug, change_id=change_id)
+        for decision, reason in decision_rows:
+            for ref in self.supply._code_targets(self.supply._backtick_refs(decision + reason)):
+                if not Path(ref).is_absolute() and not ref.startswith(("symbol:", "community:")):
+                    target = self.root / ref
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text("fixture = 1\n", encoding="utf-8")
         rows = "\n".join(f"| 2026-01-0{i + 1} | {dec} | {reason} | alt |"
                          for i, (dec, reason) in enumerate(decision_rows))
         change = (
@@ -3068,6 +3084,11 @@ class MemoryProposeTests(_MemoryCase):
         review = _load("review_evidence")
         records = ()
         for finding_id, artifact_or_test_id, public_path in findings:
+            for ref in self.supply._code_targets(self.supply._text_refs(artifact_or_test_id, public_path)):
+                if not Path(ref).is_absolute() and not ref.startswith(("symbol:", "community:")):
+                    target = self.root / ref
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text("fixture = 1\n", encoding="utf-8")
             base = {
                 "event": "finding", "actor": "qa-reviewer",
                 "context_id": f"{finding_id}-initial",
@@ -3129,6 +3150,105 @@ class MemoryProposeTests(_MemoryCase):
             encoding="utf-8",
         )
 
+    def test_selection_required_empty_invalid_and_single_source(self):
+        self._wave("1aaaa", "selection", decision_rows=[("Use `src/a.py`", "first"), ("Use `src/b.py`", "second")])
+        drafts = self.srv.memory_propose_response(self.root, "1aaaa")["data"]["proposed"]
+        self.assertEqual(len(drafts), 2)
+        no_selection = self.srv.memory_propose_response(self.root, "1aaaa", "create")
+        self.assertTrue(no_selection["data"].get("selection_required", False))
+        for selection in ([], [drafts[0]["source_event"], "finding:unknown:fake"], [drafts[0]["source_event"]] * 2):
+            response = self.srv.memory_propose_response(self.root, "1aaaa", "create", source_events=selection)
+            self.assertEqual(response["data"]["records_written"], 0)
+        self.assertEqual(self.mem.load_memory_records(self.root), [])
+        selected = [drafts[0]["source_event"]]
+        response = self.srv.memory_propose_response(self.root, "1aaaa", "create", source_events=selected)
+        self.assertEqual(response["data"]["records_written"], 1)
+        self.assertEqual(response["data"]["written"][0]["source_event"], selected[0])
+        (self.root / "src" / "a.py").unlink()
+        self.assertEqual(self.srv._memory_validation_diagnostics(self.root, "1aaaa")[0]["code"], "memory_validation_required")
+        retry = self.srv.memory_propose_response(self.root, "1aaaa", "create", source_events=selected)
+        self.assertEqual(retry["data"]["records_written"], 0)
+
+    def test_target_movement_after_drafting_refuses_before_writes(self):
+        self._wave("1aaaa", "moving", decision_rows=[("Use `src/a.py`", "good")])
+        drafts = self.srv.memory_propose_response(self.root, "1aaaa")["data"]["proposed"]
+        supply = self.srv._load_script("memory_supply")
+        original = supply.draft_candidates
+        def moving(*args, **kwargs):
+            result = original(*args, **kwargs)
+            (self.root / "src" / "a.py").unlink()
+            return result
+        with patch.object(supply, "draft_candidates", side_effect=moving):
+            response = self.srv.memory_propose_response(self.root, "1aaaa", "create", source_events=[drafts[0]["source_event"]])
+        self.assertEqual(response["status"], "error")
+        self.assertEqual(response["data"]["records_written"], 0)
+        self.assertIn("memory_target_changed", json.dumps(response))
+        self.assertEqual(self.mem.load_memory_records(self.root), [])
+
+    def test_registered_manual_pending_candidate_blocks_close_without_source_event(self):
+        import asyncio
+        from server_tools_support import load_server as load_registered_server, load_thin_runner
+
+        self._wave("1aaaa", "manual", decision_rows=[("Use `src/a.py`", "current source")])
+        self.srv = load_registered_server()
+        with patch.object(self.srv, "_trigger_background_index_refresh_for_paths"), \
+             patch.object(self.srv, "_attach_lint_to_response", side_effect=lambda response, *args: response):
+            server = load_thin_runner().build_server(self.root)
+            add = server._tool_manager._tools["memory_add"]
+            for memory_id, status, evidence in (
+                ("mem-active", "active", "1aaaa"),
+                ("mem-unrelated", "candidate", "1aaaax"),
+                ("mem-manual", "candidate", "1aaaa"),
+            ):
+                response = asyncio.run(add.run({
+                    "kind": "fragile_file", "summary": f"Preserve source identity for {memory_id}.",
+                    "evidence": [evidence], "targets": ["src/a.py"],
+                    "status": status, "memory_id": memory_id,
+                }))
+                self.assertEqual(response["status"], "ok", response)
+            active_path = self.root / self.mem.MEMORY_DIR / "mem-active.md"
+            original_active = active_path.read_bytes()
+            manual = next(record for record in self.mem.load_memory_records(self.root)
+                          if record["memory_id"] == "mem-manual")
+            self.assertIsNone(manual["source_event"])
+            self.assertIsNone(manual["validation"])
+            close = server._tool_manager._tools["wf_close_wave"]
+            with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": []}):
+                for disappeared in (False, True):
+                    if disappeared:
+                        (self.root / "src/a.py").unlink()
+                    result = asyncio.run(close.run({"wave_id": "1aaaa", "mode": "dry_run"}))
+                    pending = [item for item in result["diagnostics"]
+                               if item["code"] == "memory_validation_required"]
+                    self.assertEqual(len(pending), 1, result)
+                    self.assertIn("mem-manual", pending[0]["message"])
+                    self.assertNotIn("mem-active", pending[0]["message"])
+                    self.assertNotIn("mem-unrelated", pending[0]["message"])
+                (self.root / "src/a.py").write_text("fixture = 1\n", encoding="utf-8")
+                # Manual candidates use the existing reviewed status transition;
+                # agent validation remains reserved for evidence-derived records.
+                self.assertIn("memory_reconcile", pending[0]["recovery_tools"])
+                validated = asyncio.run(server._tool_manager._tools["memory_reconcile"].run({
+                    "memory_id": "mem-manual", "status": "rejected",
+                }))
+                self.assertEqual(validated["status"], "ok", validated)
+                result = asyncio.run(close.run({"wave_id": "1aaaa", "mode": "dry_run"}))
+                self.assertNotIn("memory_validation_required", [item["code"] for item in result["diagnostics"]])
+            self.assertEqual(active_path.read_bytes(), original_active)
+
+    def test_current_target_filter_and_omission_diagnostics(self):
+        self._wave("1aaaa", "targets", decision_rows=[("Use `src/a.py`", "good"), ("Use `src/missing.py`", "missing"), ("Use `src/linked.py`", "escape")])
+        (self.root / "src" / "missing.py").unlink()
+        (self.root / "src" / "linked.py").unlink()
+        outside = Path(self._tmp.name) / "outside.py"
+        outside.write_text("outside = 1\n")
+        (self.root / "src" / "linked.py").symlink_to(outside)
+        response = self.srv.memory_propose_response(self.root, "1aaaa")
+        self.assertEqual([d["targets"] for d in response["data"]["proposed"]], [["src/a.py"]])
+        self.assertEqual(len(response["data"]["omitted_sources"]), 2)
+        self.assertEqual(self.srv._memory_validation_diagnostics(self.root, "1aaaa"), [])
+        self.assertEqual(self.supply.eligible_repository_targets(self.root, [str(outside), "../outside.py", "src/missing.py"]), [])
+
     def test_drafts_only_code_anchored_decisions(self):
         self._wave("1aaaa", "demo",
                    decision_rows=[("Use `src/foo.py` for X", "because Y"),
@@ -3150,7 +3270,7 @@ class MemoryProposeTests(_MemoryCase):
         dry = self.srv.memory_propose_response(self.root, "1aaab", "dry_run")
         self.assertEqual(dry["data"]["records_proposed"], 1)
         self.assertIsNone(dry["data"]["proposed"][0]["source_exploration_cost"])
-        created = self.srv.memory_propose_response(self.root, "1aaab", "create")
+        created = self.srv.memory_propose_response(self.root, "1aaab", "create", source_events=self._selected_sources("1aaab"))
         mid = created["data"]["written"][0]["memory_id"]
         path = self.root / self.mem.MEMORY_DIR / f"{mid}.md"
         self.assertNotIn("Source exploration cost", path.read_text(encoding="utf-8"))
@@ -3187,7 +3307,7 @@ class MemoryProposeTests(_MemoryCase):
         cid = self._wave("1aaaa", "demo",
                          decision_rows=[("Fix `src/foo.py`", "reason")],
                          ce_totals={"request_debit": 10, "response_debit": 40})
-        r = self.srv.memory_propose_response(self.root, "1aaaa", "create")
+        r = self.srv.memory_propose_response(self.root, "1aaaa", "create", source_events=self._selected_sources("1aaaa"))
         self.assertEqual(r["data"]["records_written"], 1)
         self.assertEqual(r["data"]["records_promoted"], 0)
         rec = self.mem.parse_memory_record(self.root / r["data"]["written"][0]["path"])
@@ -3241,10 +3361,10 @@ class MemoryProposeTests(_MemoryCase):
 
     def test_create_is_idempotent(self):
         self._wave("1aaaa", "demo", decision_rows=[("Fix `src/foo.py`", "reason")])
-        first = self.srv.memory_propose_response(self.root, "1aaaa", "create")
+        first = self.srv.memory_propose_response(self.root, "1aaaa", "create", source_events=self._selected_sources("1aaaa"))
         self.assertEqual(first["data"]["records_written"], 1)
         self.assertEqual(first["data"]["records_promoted"], 0)
-        second = self.srv.memory_propose_response(self.root, "1aaaa", "create")
+        second = self.srv.memory_propose_response(self.root, "1aaaa", "create", source_events=self._selected_sources("1aaaa"))
         self.assertEqual(second["data"]["records_promoted"], 0)
         self.assertEqual(second["data"]["skipped_dispositions"], 1)
         files = list((self.root / self.mem.MEMORY_DIR).glob("*.md"))
@@ -3261,7 +3381,7 @@ class MemoryProposeTests(_MemoryCase):
         )
         first = self.srv.memory_propose_response(
             self.root, "1many", "create", limit=20
-        )
+        , source_events=self._selected_sources("1many"))
         self.assertEqual(first["data"]["records_written"], 20)
         second = self.srv.memory_propose_response(
             self.root, "1many", "dry_run", limit=20
@@ -3272,7 +3392,7 @@ class MemoryProposeTests(_MemoryCase):
             item["code"]
             for item in self.srv._memory_validation_diagnostics(self.root, "1many")
         ]
-        self.assertIn("memory_validation_candidates_missing", codes)
+        self.assertNotIn("memory_validation_candidates_missing", codes)
         self.assertIn("memory_validation_required", codes)
 
     def test_concurrent_public_create_serializes_dedup_and_write(self):
@@ -3285,7 +3405,7 @@ class MemoryProposeTests(_MemoryCase):
             results.append(
                 self.srv.memory_propose_response(
                     self.root, "1aaaa", "create"
-                )
+                , source_events=self._selected_sources("1aaaa"))
             )
 
         threads = [threading.Thread(target=run) for _ in range(2)]
@@ -3350,6 +3470,10 @@ class MemoryProposeTests(_MemoryCase):
         )
 
     def test_finding_path_fragile_and_failed_attempt(self):
+        for filename in ['bug', 'frag', 'x']:
+            target = self.root / "src" / (filename + ".py")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("fixture = 1\n")
         self._wave("1aaaa", "demo", decision_rows=[])
         heads = (
             {"record_type": "executable_evidence", "evidence_record_id": "ev-1",
@@ -3395,6 +3519,10 @@ class MemoryProposeTests(_MemoryCase):
                          "maybe_later finding is ephemeral and skipped")
 
     def test_real_event_ledger_repair_chain_supplies_executable_anchor(self):
+        for filename in ['real_bug']:
+            target = self.root / "src" / (filename + ".py")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("fixture = 1\n")
         self._wave("1aaaa", "demo", decision_rows=[])
         review = _load("review_evidence")
         base = {
@@ -3473,6 +3601,10 @@ class MemoryProposeTests(_MemoryCase):
         verified; its file tokens (the verification harness) must never become
         draft targets. Mirrors the real 1t3ek misattribution shape through the
         canonical ledger producer."""
+        for filename in ['server_impl']:
+            target = self.root / "src" / (filename + ".py")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("fixture = 1\n")
         self._wave("1aaaa", "demo", decision_rows=[])
         review = _load("review_evidence")
         base = {
@@ -3655,7 +3787,7 @@ class MemoryProposeTests(_MemoryCase):
 
     def _propose_and_lint(self, wave_id):
         from wave_lint_lib import wave_validators
-        r = self.srv.memory_propose_response(self.root, wave_id, "create")
+        r = self.srv.memory_propose_response(self.root, wave_id, "create", source_events=self._selected_sources(wave_id))
         self.assertEqual(r["status"], "ok", r)
         paths = [self.root / w["path"] for w in r["data"]["written"]]
         self.assertTrue(paths, r)
@@ -3702,7 +3834,7 @@ class MemoryProposeTests(_MemoryCase):
         self._write_completed_findings("1aabh", "leaky-finding", [
             ("leaked-token:hunter2", "src/bug.py; test_a", "token handling"),
         ])
-        r = self.srv.memory_propose_response(self.root, "1aabh", "create")
+        r = self.srv.memory_propose_response(self.root, "1aabh", "create", source_events=self._selected_sources("1aabh"))
         self.assertEqual(r["data"]["records_written"], 0, r)
         self.assertIn("memory_draft_skipped_forbidden", [d["code"] for d in r["diagnostics"]])
         event = r["data"]["proposed"][0]["source_event"]
@@ -4568,28 +4700,17 @@ class MemoryAutoPopulateTests(_MemoryCase):
             encoding="utf-8",
         )
 
-    def test_close_drafts_candidates_without_promotion(self):
-        self._wave("1aaaa", "demo", [
-            ("Use `src/foo.py` for X", "because Y"),   # rationale -> active
-            ("Bare choice on `src/bar.py`", ""),        # no rationale -> candidate
-        ])
+    def test_close_never_creates_unselected_candidates(self):
+        self._wave("1aaaa", "demo", [("Use `src/foo.py` for X", "because Y")])
         summary = self.srv._auto_populate_memory_for_wave(self.root, "1aaaa")
-        self.assertEqual(summary["drafted"], 2)
-        self.assertEqual(summary["promoted"], 0)
-        self.assertEqual(summary["candidate"], 2)
-        self.assertEqual(summary["validation_required"], 2)
-        recs = self.mem.load_memory_records(self.root, statuses=("active", "candidate"))
-        self.assertEqual([r["status"] for r in recs], ["candidate", "candidate"])
-        self.assertTrue(all(r["validation"] == "pending" for r in recs))
-        self.assertEqual(len({r["source_event"] for r in recs}), 2)
+        self.assertEqual(summary, {})
+        self.assertEqual(self.mem.load_memory_records(self.root), [])
 
     def test_close_is_idempotent(self):
         self._wave("1aaaa", "demo", [("Use `src/foo.py`", "because")])
-        first = self.srv._auto_populate_memory_for_wave(self.root, "1aaaa")
-        self.assertEqual(first["drafted"], 1)
-        second = self.srv._auto_populate_memory_for_wave(self.root, "1aaaa")
-        self.assertEqual(second, {}, "re-close must not re-draft")
-        self.assertEqual(len(list((self.root / self.mem.MEMORY_DIR).glob("*.md"))), 1)
+        self.assertEqual(self.srv._auto_populate_memory_for_wave(self.root, "1aaaa"), {})
+        self.assertEqual(self.srv._auto_populate_memory_for_wave(self.root, "1aaaa"), {})
+        self.assertEqual(self.mem.load_memory_records(self.root), [])
 
     def test_never_auto_supersedes_existing(self):
         self._add("mem-existing", "decision", status="active", targets=("src/existing.py",))
@@ -4826,6 +4947,8 @@ class MemoryAgentValidationTests(_MemoryCase):
         )
 
     def test_rejected_source_is_not_regenerated(self):
+        (self.root / "src").mkdir(exist_ok=True)
+        (self.root / "src" / "a.py").write_text("fixture = 1\n")
         wave = waves_dir(self.root) / "1aaaa demo"
         wave.mkdir(parents=True)
         change_id = "1aaaak-feat demo"
@@ -4843,7 +4966,7 @@ class MemoryAgentValidationTests(_MemoryCase):
         )
         created = self.srv.memory_propose_response(
             self.root, "1aaaa", "create"
-        )
+        , source_events=self._selected_sources("1aaaa"))
         mid = created["data"]["written"][0]["memory_id"]
         rejected = self._validate(
             mid, "reject", evidence_verified=False,
@@ -4858,6 +4981,8 @@ class MemoryAgentValidationTests(_MemoryCase):
         self.assertEqual(rerun["data"]["skipped_dispositions"], 1)
 
     def test_purged_source_disposition_is_not_regenerated(self):
+        (self.root / "src").mkdir(exist_ok=True)
+        (self.root / "src" / "a.py").write_text("fixture = 1\n")
         wave = waves_dir(self.root) / "1aaaa demo"
         wave.mkdir(parents=True)
         change_id = "1aaaak-feat demo"
@@ -4875,7 +5000,7 @@ class MemoryAgentValidationTests(_MemoryCase):
         )
         created = self.srv.memory_propose_response(
             self.root, "1aaaa", "create"
-        )
+        , source_events=self._selected_sources("1aaaa"))
         mid = created["data"]["written"][0]["memory_id"]
         source_event = self.mem.parse_memory_record(
             self.root / self.mem.MEMORY_DIR / f"{mid}.md"
@@ -4967,6 +5092,8 @@ class MemoryAgentValidationTests(_MemoryCase):
                 )
 
     def test_archived_source_disposition_is_not_regenerated(self):
+        (self.root / "src").mkdir(exist_ok=True)
+        (self.root / "src" / "a.py").write_text("fixture = 1\n")
         wave = waves_dir(self.root) / "1aaaa demo"
         wave.mkdir(parents=True)
         change_id = "1aaaak-feat demo"
@@ -4984,7 +5111,7 @@ class MemoryAgentValidationTests(_MemoryCase):
         )
         created = self.srv.memory_propose_response(
             self.root, "1aaaa", "create"
-        )
+        , source_events=self._selected_sources("1aaaa"))
         mid = created["data"]["written"][0]["memory_id"]
         rejected = self._validate(
             mid,
@@ -5011,6 +5138,8 @@ class MemoryAgentValidationTests(_MemoryCase):
         self.assertEqual(rerun["data"]["skipped_dispositions"], 1)
 
     def test_pending_archive_source_disposition_remains_history_and_is_not_regenerated(self):
+        (self.root / "src").mkdir(exist_ok=True)
+        (self.root / "src" / "a.py").write_text("fixture = 1\n")
         wave = waves_dir(self.root) / "1aaaa demo"
         wave.mkdir(parents=True)
         change_id = "1aaaak-feat demo"
@@ -5028,7 +5157,7 @@ class MemoryAgentValidationTests(_MemoryCase):
         )
         created = self.srv.memory_propose_response(
             self.root, "1aaaa", "create"
-        )
+        , source_events=self._selected_sources("1aaaa"))
         mid = created["data"]["written"][0]["memory_id"]
         rejected = self._validate(
             mid,
@@ -5095,11 +5224,11 @@ class MemoryAgentValidationTests(_MemoryCase):
         missing = self.srv._memory_validation_diagnostics(self.root, "1valid")
         self.assertEqual(
             [item["code"] for item in missing],
-            ["memory_validation_candidates_missing"],
+            [],
         )
         created = self.srv.memory_propose_response(
             self.root, wave_id="1valid", mode="create"
-        )
+        , source_events=self._selected_sources("1valid"))
         memory_id = created["data"]["written"][0]["memory_id"]
         pending = self.srv._memory_validation_diagnostics(self.root, "1valid")
         self.assertEqual([item["code"] for item in pending], ["memory_validation_required"])

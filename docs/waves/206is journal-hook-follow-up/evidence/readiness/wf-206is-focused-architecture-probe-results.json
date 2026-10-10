@@ -1,0 +1,100 @@
+{
+  "plan_checks": {
+    "five_explicit_status_rows": true,
+    "noexec_default_and_unknown": true,
+    "single_literal_grammar": true,
+    "builtin_independent": true,
+    "layering_admitted": true,
+    "incoming_context_load_and_call": true,
+    "nonvacuous_delivery_controls": true
+  },
+  "known_bad_control": {
+    "method": "readiness-safe-control",
+    "case": "scratch plan copy deliberately omits the required static decision table",
+    "expected": "reject incomplete plan contract",
+    "observed": "two required table rows absent; rejected",
+    "detected": true
+  },
+  "replayed_baselines": [
+    {
+      "case": "cached_both_import_and_call",
+      "expected_current": "OLD:OLD_CALL",
+      "observed": "OLD:OLD_CALL",
+      "expected_required_ac4": "PACK:PACK_CALL",
+      "known_bad_detected": true,
+      "sys_path_restored": true
+    },
+    {
+      "case": "uncached_control",
+      "expected_current": "PACK:PACK_CALL",
+      "observed": "PACK:PACK_CALL",
+      "expected_required_ac4": "PACK:PACK_CALL",
+      "known_bad_detected": false,
+      "sys_path_restored": true
+    },
+    {
+      "case": "current_failure_restoration_boundary",
+      "hook_return": false,
+      "sys_path_restored": true,
+      "imported_module_remains_cached": true
+    },
+    {
+      "case": "current_pre_docs_gate_baseline",
+      "from_version": "1.14.9",
+      "observed": {
+        "declaration": true,
+        "hook": true,
+        "builtin": true
+      },
+      "journal_bytes_preserved": true,
+      "future_optin_not_claimed": true
+    },
+    {
+      "case": "current_pre_docs_gate_baseline",
+      "from_version": "1.15.0",
+      "observed": {
+        "declaration": false,
+        "hook": false,
+        "builtin": false
+      },
+      "journal_bytes_preserved": true,
+      "future_optin_not_claimed": true
+    },
+    {
+      "case": "current_pre_docs_gate_baseline",
+      "from_version": "1.29.0",
+      "observed": {
+        "declaration": false,
+        "hook": false,
+        "builtin": false
+      },
+      "journal_bytes_preserved": true,
+      "future_optin_not_claimed": true
+    },
+    {
+      "case": "static_selection_feasibility",
+      "input": "absent",
+      "observed": "()"
+    },
+    {
+      "case": "static_selection_feasibility",
+      "input": "literal",
+      "observed": "'journals_present'"
+    },
+    {
+      "case": "static_selection_feasibility",
+      "input": "invalid_literal",
+      "observed": "'invalid'"
+    },
+    {
+      "case": "static_selection_feasibility",
+      "input": "dynamic",
+      "observed": "ValueError"
+    },
+    {
+      "case": "static_selection_feasibility",
+      "input": "conditional",
+      "observed": "ValueError"
+    }
+  ]
+}

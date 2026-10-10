@@ -1,0 +1,26 @@
+{
+  "source_packets": {
+    "2071o graph-query-provenance": {
+      "matched": 14,
+      "packet_sha256": "ca50a1883f9e3f8118d949626a5b9d69e27e3f6b48cc5ea0e20d58bb377d70ff"
+    },
+    "2071p bounded-reconciliation-reporting": {
+      "matched": 14,
+      "packet_sha256": "ca50a1883f9e3f8118d949626a5b9d69e27e3f6b48cc5ea0e20d58bb377d70ff"
+    }
+  },
+  "plan_hashes": {
+    "docs/waves/2071o graph-query-provenance/2073s-bug hierarchy-call-site-provenance.md": "4a312b1801d9e16128837c589afa5e77b46946cb7e116a8e699702aa1c34afb8",
+    "docs/waves/2071o graph-query-provenance/2073t-bug rust-symbol-lookup-name-error.md": "9204be1e18b50656f43dc4c33634d2f619e699ef3a0b373255efecfe6edc89b5",
+    "docs/waves/2071p bounded-reconciliation-reporting/2073u-bug bounded-reconciliation-scan.md": "e532da27bf003ae9365b42daa81c50e39f199dbd38594afae3616ded2f00546b",
+    "docs/waves/2071p bounded-reconciliation-reporting/2073v-bug bounded-upgrade-reporting.md": "68a45b6e78fc26ac6a1042c31d9ecf25f116125e15317659292ccb074e97c90d"
+  },
+  "manifests": {
+    "2071o graph-query-provenance": {
+      "matched": 38
+    },
+    "2071p bounded-reconciliation-reporting": {
+      "matched": 38
+    }
+  }
+}

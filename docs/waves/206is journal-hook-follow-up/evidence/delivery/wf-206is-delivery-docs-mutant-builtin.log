@@ -1,0 +1,26 @@
+test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) ... 
+  test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) (version='1.15.0') ... FAIL
+  test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) (version='1.29.0') ... FAIL
+
+======================================================================
+FAIL: test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) (version='1.15.0')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-delivery-docs-scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14831, in test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion
+    self.assertEqual(builtin.call_count, int(version == "1.14.9"))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) (version='1.29.0')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-delivery-docs-scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14831, in test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion
+    self.assertEqual(builtin.call_count, int(version == "1.14.9"))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 1 != 0
+
+----------------------------------------------------------------------
+Ran 1 test in 0.229s
+
+FAILED (failures=2)

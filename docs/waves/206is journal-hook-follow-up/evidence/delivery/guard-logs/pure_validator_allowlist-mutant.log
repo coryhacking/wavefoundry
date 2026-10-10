@@ -1,0 +1,16 @@
+RESULT_JSON {"run": 1, "failures": 1, "errors": 0, "skips": 0}
+test_registry_base_profiles_positional_validator_and_activation_are_compatible (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_registry_base_profiles_positional_validator_and_activation_are_compatible) ... FAIL
+
+======================================================================
+FAIL: test_registry_base_profiles_positional_validator_and_activation_are_compatible (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_registry_base_profiles_positional_validator_and_activation_are_compatible)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 15143, in test_registry_base_profiles_positional_validator_and_activation_are_compatible
+    self.assertTrue(declaration.journal_declaration_problems((), "", (), trigger="bad"))
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: [] is not true
+
+----------------------------------------------------------------------
+Ran 1 test in 0.078s
+
+FAILED (failures=1)

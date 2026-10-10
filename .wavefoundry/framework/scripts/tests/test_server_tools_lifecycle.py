@@ -709,6 +709,97 @@ class WaveMapTests(unittest.TestCase):
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["diagnostics"][0]["code"], "path_outside_allowed_roots")
 
+    def _map_fixture(self, path):
+        index = MagicMock()
+        index._ensure_loaded = MagicMock()
+        index._docs_chunks = []
+        index._code_chunks = []
+        return self.srv.wf_map_response(self.root, "doc:" + path, index)
+
+    def test_map_bounds_input_bytes_before_excerpt_truncation(self):
+        path = self.root / "docs" / "excerpt.md"
+        path.write_bytes(b"a" * (8 * 1024 * 1024))
+        result = self._map_fixture("docs/excerpt.md")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["data"]["excerpt"], "a" * 1600)
+        with path.open("ab") as stream:
+            stream.write(b"a")
+        self.assertEqual(self._map_fixture("docs/excerpt.md")["data"]["excerpt"], "")
+
+    def test_map_preserves_replacement_decoding_newlines_and_line_slice(self):
+        path = self.root / "docs" / "excerpt.md"
+        path.write_bytes(b"one\r\ntwo\rthree\xff\n")
+        self.assertEqual(self._map_fixture("docs/excerpt.md")["data"]["excerpt"], "one\ntwo\nthree\ufffd\n")
+        excerpt = self.srv._read_map_excerpt(self.root, path, 2, 3, max_chars=6)
+        self.assertEqual(excerpt, "two\nth")
+        self.assertEqual(self._map_fixture("docs/missing.md")["data"]["excerpt"], "")
+
+    def test_map_supports_contained_links_and_refuses_special_or_lock_files(self):
+        path = self.root / "docs" / "excerpt.md"
+        target = self.root / "docs" / "inside.md"
+        target.write_text("inside excerpt")
+        path.symlink_to(target)
+        self.assertEqual(self._map_fixture("docs/excerpt.md")["data"]["excerpt"], "inside excerpt")
+        path.unlink()
+        if hasattr(os, "mkfifo"):
+            os.mkfifo(path)
+            original_read = Path.read_text
+            def guarded_read(candidate, *args, **kwargs):
+                if candidate == path:
+                    raise AssertionError("following special-file read")
+                return original_read(candidate, *args, **kwargs)
+            with patch.object(Path, "read_text", guarded_read):
+                self.assertEqual(self._map_fixture("docs/excerpt.md")["data"]["excerpt"], "")
+            path.unlink()
+        lock = self.root / ".wavefoundry" / "lifecycle-mutation.lock"
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.write_text("lock contents must not become an excerpt")
+        os.link(lock, path)
+        self.assertEqual(self._map_fixture("docs/excerpt.md")["data"]["excerpt"], "")
+
+    def test_map_refuses_external_link_and_check_open_replacement(self):
+        path = self.root / "docs" / "excerpt.md"
+        original_open = self.srv.contained_files._open_verified
+        with tempfile.TemporaryDirectory() as outside:
+            external = Path(outside) / "outside.md"
+            external.write_text("outside must stay outside")
+            path.symlink_to(external)
+            self.assertEqual(self._map_fixture("docs/excerpt.md")["status"], "error")
+            path.unlink()
+            path.write_text("original")
+            def replace_then_open(*args):
+                path.unlink()
+                path.symlink_to(external)
+                return original_open(*args)
+            with patch.object(self.srv.contained_files, "_open_verified", side_effect=replace_then_open) as opened:
+                result = self._map_fixture("docs/excerpt.md")
+            opened.assert_called_once()
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["data"]["excerpt"], "")
+            self.assertEqual(external.read_text(), "outside must stay outside")
+
+    def test_map_retains_lexical_path_across_resolve_read_swap(self):
+        path = self.root / "docs" / "excerpt.md"
+        target = self.root / "docs" / "inside.md"
+        target.write_text("inside")
+        path.symlink_to(target)
+        resolve = self.srv.resolve_path_under_root
+        with tempfile.TemporaryDirectory() as outside:
+            external = Path(outside) / "outside.md"
+            external.write_text("outside must stay outside")
+            def resolve_then_swap(*args):
+                result = resolve(*args)
+                path.unlink()
+                path.symlink_to(external)
+                return result
+            with patch.object(self.srv, "resolve_path_under_root", side_effect=resolve_then_swap) as resolved:
+                result = self._map_fixture("docs/excerpt.md")
+            resolved.assert_called_once()
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["data"]["excerpt"], "")
+            self.assertEqual(target.read_text(), "inside")
+            self.assertEqual(external.read_text(), "outside must stay outside")
+
 
 class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
     """Newly-created waves emerge lint-clean from `wf_create_wave` without
@@ -12951,7 +13042,8 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         review_prepare = self._run(self.srv.wf_review_wave_response, self.root, self.wave_id, phase="prepare")
         self.assertEqual(review_prepare["status"], "ok", review_prepare)
         self.assertEqual(
-            review_prepare["data"]["lane_results"],
+            [{"lane": row["lane"], "recorded_signoff": row["recorded_signoff"]}
+             for row in review_prepare["data"]["lane_results"]],
             [{"lane": "code-reviewer", "recorded_signoff": True}],
         )
 
@@ -13096,7 +13188,8 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
             if d["code"] == "missing_required_lane"
         ]
         self.assertIn("wf_review_event", message)
-        self.assertIn("signoff_key", message)
+        self.assertEqual(review_prepare['data']['lane_results'][0]['signoff_key'], 'code-reviewer')
+        self.assertEqual(review_prepare['data']['lane_results'][0]['approval_state'], 'absent')
         self.assertIn("code-reviewer", message)
         self.assertNotIn("`## Prepare Review Evidence` section", message)
 
@@ -13107,7 +13200,9 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
             if d["code"] == "prepare_review_incomplete"
         ]
         self.assertIn("wf_review_event", gate2_message)
-        self.assertIn("signoff_key", gate2_message)
+        diagnostic = next(d for d in gate2['diagnostics'] if d['code'] == 'prepare_review_incomplete')
+        self.assertEqual(diagnostic['lane_results'][0]['signoff_key'], 'code-reviewer')
+        self.assertEqual(diagnostic['lane_results'][0]['approval_state'], 'absent')
         self.assertIn("code-reviewer", gate2_message)
         self.assertNotIn("missing signoffs in `## Prepare Review Evidence`", gate2_message)
 
@@ -13492,7 +13587,8 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
         self.assertEqual(review_prepare["status"], "ok", review_prepare)
         self.assertNotIn("review_policy_receipt_stale", self._codes(review_prepare))
         self.assertEqual(
-            review_prepare["data"]["lane_results"],
+            [{"lane": row["lane"], "recorded_signoff": row["recorded_signoff"]}
+             for row in review_prepare["data"]["lane_results"]],
             [{"lane": "code-reviewer", "recorded_signoff": True}],
         )
 
@@ -16923,7 +17019,10 @@ class LifecycleHintGapTests(unittest.TestCase):
         resp = self._prepare(root, wave_id, "dry_run")
         self.assertEqual(resp["data"]["pending_readiness_lanes"], ["code-reviewer"])
         advisory = self._diag(resp, "readiness_lane_approvals_missing")
-        self.assertTrue(advisory["message"].startswith("Readiness approvals still needed from: code-reviewer."))
+        row, = advisory['lane_results']
+        self.assertEqual(row['approval_state'], 'absent')
+        self.assertFalse(row['approval_recorded'])
+        self.assertIn('code-reviewer (absent; approval recorded: no)', advisory['message'])
         self.assertNotIn("Re-review the repaired packet", advisory["message"])
         self.assertEqual(advisory["recovery_usage"], f"wf_review_wave(wave_id={wave_id!r}, phase='prepare')")
         # One lane approves: it leaves the list.
@@ -16941,8 +17040,12 @@ class LifecycleHintGapTests(unittest.TestCase):
         resp = self._prepare(root, wave_id, "dry_run")
         self.assertEqual(resp["data"]["pending_readiness_lanes"], ["code-reviewer"])
         advisory = self._diag(resp, "readiness_lane_approvals_missing")
-        self.assertIn("Re-review the repaired packet and record approvals against the current receipt.",
-                      advisory["message"])
+        row, = advisory['lane_results']
+        self.assertEqual(row['approval_state'], 'stale')
+        self.assertTrue(row['approval_recorded'])
+        self.assertIn('code-reviewer (stale; approval recorded: yes)', advisory['message'])
+        self.assertIn('approval binding is stale', row['why'])
+        self.assertEqual(row['next_action'], 'record approval evidence for code-reviewer')
         self.assertNotIn("still needed from", advisory["message"])
 
     def test_unreadable_ledger_yields_null_and_no_advisory(self):

@@ -71,7 +71,7 @@ Run in this order:
 
 ### Bounded readiness review
 
-Run one full readiness review using the Council Protocol above. Collect findings before repairing, and record blocking findings as typed readiness findings with their originating `source_lanes` and applicable `blocking_required_lanes`.
+Run one readiness review using the Council Protocol above at the existing risk-selected primer depth. Narrow work uses the appropriate declared tier; this does not remove any required specialist or Council authority. Readiness verifies plan feasibility against current code and bounded safe controls, not future delivery execution that cannot exist before implementation. Collect findings before repairing, and record blocking findings as typed readiness findings with their originating `source_lanes` and applicable `blocking_required_lanes`.
 
 After the first full readiness review, focused review is the default. Settlement is optional descriptive prose in `## Review Checkpoints`; neither settlement nor its absence changes scope, the automatic budget, blocking authority or receipt currency. Reopen an accepted design decision only for a concrete defect under seed 209's readiness finding bar or an explicit operator decision.
 
@@ -147,7 +147,7 @@ A good council-chair output contains:
 
 ## Output Verbosity
 
-Present council output at summary level — seat step details stay internal; the operator sees seat summaries, the recommendations verdict table, and the falsification check. Do not narrate every step of every seat.
+Present council output at summary level — seat step details stay in task context or temporary storage outside the repository; the operator sees seat summaries, the recommendations verdict table, and the falsification check. Consolidate final outcomes, disagreements, source/profile identities, reproducible commands, limits and retained unique-proof exceptions inline in `wave.md` under seed 209's Review Artifact Discipline. Typed evidence in immutable `events.jsonl` remains machine authority. Do not create per-seat repository reports or narrate every step of every seat.
 
 **Seat summaries:** One short paragraph per seat — pre-primer read (one sentence), primer effect (one sentence), findings summary. Steps 1–5 are execution structure, not output structure.
 

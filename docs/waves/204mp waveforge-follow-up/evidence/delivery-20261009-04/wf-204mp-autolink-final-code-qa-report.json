@@ -1,0 +1,316 @@
+{
+  "wave_id": "204mp",
+  "context_id": "wf-204mp-autolink-final-independent-codeqa-20261009-5b37",
+  "roles": [
+    "code-reviewer",
+    "qa-reviewer"
+  ],
+  "fresh_context": true,
+  "independent": true,
+  "dual_role_disclosure": "One fresh reviewer context independently carried both distinct remits. No implementation/recheck context was inherited. Earlier reports were candidate leads; own live current-tree inspection and own execution decide these results.",
+  "verdicts": {
+    "code-reviewer": "APPROVE bounded C1\u2013C5 current delivery; no new finding.",
+    "qa-reviewer": "Focused AC verification APPROVE; whole-wave QA approval conditional pending fresh canonical receipt."
+  },
+  "freeze": {
+    "before24sha256match": true,
+    "after": {
+      "sha256": {
+        ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "65c9d11276eadefb0b6a5e72ae16400ec94f813006a9f3da1dc6a6f23d3f21c3",
+        ".wavefoundry/framework/scripts/render_agent_surfaces.py": "425eb17f45308e232c3c872aee67279d6a44f3ff814efcd46457b578f2f96006",
+        ".wavefoundry/framework/scripts/review_evidence.py": "7696b2ba0c4e151ed383b39c76273ea1f5fe286dcab95969562e9daaacd78cbc",
+        ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "7c766dc1385416beb80f8f6063d7dc194c281aec236569997850e4aa8236da5c",
+        ".wavefoundry/framework/scripts/tests/fixtures/profiles/prompt-names.json": "68aa7cd256da36493a8250d147685c99cb36c16056179d7cd36e9a988ad9395a",
+        ".wavefoundry/framework/scripts/tests/framework_text_ownership.py": "2d4257cd4f6a3981f8f38d978b6646cc4d059dea7f1e86c16b7cb9a75c92dc18",
+        ".wavefoundry/framework/scripts/tests/record_layout_support.py": "286c3cfa93851c18c3fe56a390fc178923aaaf1c9658542f594aa630a0fdeb49",
+        ".wavefoundry/framework/scripts/tests/test_council_signoff_keys.py": "2053e10a2734e186588d6cb28ef4ad2bdfb4d90f199c8b5eb596decfe4fdd2e5",
+        ".wavefoundry/framework/scripts/tests/test_distribution_seams.py": "b25c4d0c6c61beb2c961087d1c119d74fc9b1c39db1c3f344a209be1881c7c4c",
+        ".wavefoundry/framework/scripts/tests/test_legacy_council_actors.py": "2b52ff5294874c58fc870e1a1260e5d301615e73e5a55e2c3c50a8ef35934fb1",
+        ".wavefoundry/framework/scripts/tests/test_profile_support.py": "bca8cabaafb7d8c3b264d1577e639f6466aaa73d9c93fe13bca31bb4cbbbcb88",
+        ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py": "0da7557197c9ca7d823578789dba5417a971f9ac7ce948c5c16fdf7558f23cf6",
+        ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a",
+        ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "f852874bb308acc363973dc33919327cf8133311f73cd5731de56219971d347a",
+        ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+        ".wavefoundry/framework/scripts/vocabulary_profile.py": "5a1f4a5902eddc99137664f176cb5706ab266014b3bf9f54cb68a86dbb1e03b4",
+        "CHANGELOG.md": "f23cc3ddfde9b1198bc7a9b6b8f66b98bad4aa0d08ee1940984116bc11255a0c",
+        "docs/ARCHITECTURE.md": "599f3b205bd75c3c9b0a6766f47e0924c3a52cf7ece61052f5b30ba573d12b15",
+        "docs/architecture/cross-cutting-concerns.md": "374319b418416993f1927ae4bda814fba513bdaf6e5bc70170dd7e0030382c8f",
+        "docs/architecture/data-and-control-flow.md": "65aef7155f31ea3a65ddc72b11de52c5c2320c6d7ec2ccba41ab80bb252c420a",
+        "docs/architecture/domain-map.md": "c05f3e2226e19ca567ac7e3157dd31fa63fda6d5accb495fe92d22eed6acfba9",
+        "docs/architecture/testing-architecture.md": "c6960a2fea0a9fc021c7e07c3e113d37e6099c0c198729d395d39fdc765f7a65",
+        "docs/specs/mcp-tool-surface.md": "46abe7a4f05010e692897f90c599778a25284d48df93d19fda27abde7550337c",
+        ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "27995857defe266f2c2a237d99cd1200bdf0fd1c28121e6923a2626995375db3"
+      },
+      "git_hash_object": {
+        ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "9acc50b3cfab00c559010baf20919f203e48828f",
+        ".wavefoundry/framework/scripts/render_agent_surfaces.py": "3bfd50e3f4b67e4aa8c0c2835cd6fad43129aba6",
+        ".wavefoundry/framework/scripts/review_evidence.py": "54b806ae9a9409cb26be6a5653a1bb6adb9ac45e",
+        ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "e99355979ac908aefa5d2c4ee66dec6ab7c4c7f0",
+        ".wavefoundry/framework/scripts/tests/fixtures/profiles/prompt-names.json": "2be75d0d053b7f66c066934ebef6ab484d081c66",
+        ".wavefoundry/framework/scripts/tests/framework_text_ownership.py": "f460fdf00e3669ee04ca6d5b702b715e9d890d8c",
+        ".wavefoundry/framework/scripts/tests/record_layout_support.py": "5e2a500a063fa9423b2063b0e6d46e5bad731268",
+        ".wavefoundry/framework/scripts/tests/test_council_signoff_keys.py": "934a5d7cb982f03fd6adeb98c7cb226979502aa3",
+        ".wavefoundry/framework/scripts/tests/test_distribution_seams.py": "a53ed1662178217727f5f1d9d35f26e12e47e8e3",
+        ".wavefoundry/framework/scripts/tests/test_legacy_council_actors.py": "09c6bff158ba0e001ed344cb8ad0ca4cba62fb18",
+        ".wavefoundry/framework/scripts/tests/test_profile_support.py": "82e5060e3a85029052d1c876c28aed28eb583710",
+        ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py": "776c7c2df9d89a00be456ec597359669ca3c8168",
+        ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "29c417cb4f11fd2418249b18fe322effb3841dde",
+        ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "42f7785097f2491dd6231fc84673c54ee1df4db1",
+        ".wavefoundry/framework/scripts/upgrade_extensions.py": "e20de384cc4119f3e7146ae93406a39042b0359b",
+        ".wavefoundry/framework/scripts/vocabulary_profile.py": "f9a4d28c30b3645ebf9336853d17e7b78cd2b02d",
+        "CHANGELOG.md": "bb18586b3933d91d35730771f15d8b5116a17173",
+        "docs/ARCHITECTURE.md": "71d11346469e141def3f5cd1bb01156f2d639c28",
+        "docs/architecture/cross-cutting-concerns.md": "c25b6a1a1c691ee046364d3e53355822cba27e48",
+        "docs/architecture/data-and-control-flow.md": "5a773042c3d898191fc53f5cbeb44dc3f113ad4e",
+        "docs/architecture/domain-map.md": "887fdfe9b73cc7fdaf83d4250ec5e033401c3321",
+        "docs/architecture/testing-architecture.md": "235de8aa6603d17c866c6741c3718499a1452bb9",
+        "docs/specs/mcp-tool-surface.md": "b7e5f21b737ac76f7cb604f775bdfcc88acc45db",
+        ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "75555cdc23dde4ea112873bf72a1db5db24de16b"
+      },
+      "sha_match": true,
+      "git_match": true
+    },
+    "tree_moved_under_review": false
+  },
+  "retrieval": {
+    "callable_MCP": [
+      "code_read",
+      "code_outline",
+      "code_keyword"
+    ],
+    "posture": "Live disk MCP reads and Python AST outline for named targets. No indexed results establish setup readiness. Shell reserved for exact bytes/fingerprints, gitdiff and executed probes. Brace glob returned empty due unmatched pattern; corrected individual path MCP calls succeeded. No retrieval fallback or missing-MCP claim.",
+    "primary_reference": "https://spec.commonmark.org/0.31.2/#code-spans ; https://spec.commonmark.org/0.31.2/#autolinks ; independent installed markdown_it MarkdownIt(commonmark)."
+  },
+  "source_review": {
+    "C1_C3": "Literal reconcile key expectations, explicit ownership inventory including zero-hit source/fixtures/self path, seed210 hook source and missing-contract control, frozen test-local JSON/hashlib payload with literal fixturebody hash and independent default/no-phases goldens, neutral prompt chain fixtures examined. No production-expected-value helper used by own input/expected byte oracle.",
+    "C4": "Empty-default tuple and grammar/reserved-role validator, deterministic aliasdedup/canonical writes, untouched-history replay and canonicalized distinct-repair identity, current requested/readiness/delivery roles before receipt evaluation examined and exercised incl fresh child real MCP reload. No source caller completeness census claimed.",
+    "C5": "Block/container/ref metadata and left-to-right inline HTML/autolink/code precedence, consumption of destination/title tokens, native component replacement, current docs history exclusions, contained read/write and per-file preflight/retry examined and exercised. Product has no MarkdownIt dependency; parser used only as independent scratch reference."
+  },
+  "execution": {
+    "default_selected": {
+      "names": [
+        "test_distribution_seams.LiteralReconcileKeyTests",
+        "test_distribution_seams.ActorTokenCensusTests",
+        "test_distribution_seams.CouncilActorReadTests",
+        "test_distribution_seams.ModeratorRoleDigestTests",
+        "test_council_signoff_keys.DigestInputTests",
+        "test_legacy_council_actors.LegacyActorDeclarationTests",
+        "test_vocabulary_prompt_names.ValidationTests",
+        "test_vocabulary_prompt_names.FreshProfiledInstallTests",
+        "test_vocabulary_prompt_names.ProfileMigrationTests.test_conflicts_write_nothing",
+        "test_vocabulary_prompt_names.ProfileMigrationTests.test_every_interruption_converges",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_customized_specialist_passes_real_docs_gate",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_destinations_preserve_suffixes_encoding_titles_and_history",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_upgrade_driver_dry_run_reports_without_target_writes",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_interrupted_driver_after_move_retries_remaining_links",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_all_pairs_preflight_before_any_role_move",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_linked_peer_refusal_preserves_role_and_outside_content",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_retry_requires_new_document_role_identity"
+      ],
+      "ran": 45,
+      "failures": 0,
+      "errors": 0,
+      "skips": [],
+      "seconds": 37.62044704100117
+    },
+    "extra_hook_native_metadata": "5tests,0failures,0errors,0skips,11.551s; named JournalDeclarationMigrationTests hook_contract trio, native_skill_directory and metadata owner.",
+    "current_repaired": {
+      "names": [
+        "test_installing_upgrade_repairs_container_reference_definitions",
+        "test_installing_upgrade_preserves_html_literal_blocks",
+        "test_installing_upgrade_distinguishes_backtick_and_tilde_info",
+        "test_installing_upgrade_respects_link_and_image_escape_parity",
+        "test_installing_upgrade_preserves_inline_html_and_code_precedence",
+        "test_installing_upgrade_respects_reference_definition_context",
+        "test_installing_upgrade_preserves_autolink_atoms_and_code_precedence"
+      ],
+      "ran": 7,
+      "failures": 0,
+      "errors": 0,
+      "skips": [],
+      "seconds": 50.351536916103214
+    },
+    "renamed": {
+      "returncode": 0,
+      "names": [
+        "test_distribution_seams.LiteralReconcileKeyTests",
+        "test_distribution_seams.ActorTokenCensusTests",
+        "test_council_signoff_keys.DigestInputTests",
+        "test_vocabulary_prompt_names.ValidationTests.test_a_chain_validates",
+        "test_vocabulary_prompt_names.ValidationTests.test_each_rule_is_refused",
+        "test_vocabulary_prompt_names.ValidationTests.test_example_names_are_neutral",
+        "test_vocabulary_prompt_names.FreshProfiledInstallTests",
+        "test_vocabulary_prompt_names.ProfileMigrationTests.test_conflicts_write_nothing",
+        "test_legacy_council_actors"
+      ],
+      "tail": "cabulary_prompt_names.ValidationTests.test_a_chain_validates) ... ok\ntest_each_rule_is_refused (test_vocabulary_prompt_names.ValidationTests.test_each_rule_is_refused) ... ok\ntest_example_names_are_neutral (test_vocabulary_prompt_names.ValidationTests.test_example_names_are_neutral)\nNeutral values rename all eleven prompts and retain an alias; ... ok\ntest_a_guru_enabled_first_render_also_skips_profile_paths (test_vocabulary_prompt_names.FreshProfiledInstallTests.test_a_guru_enabled_first_render_also_skips_profile_paths) ... ok\ntest_default_profile_sequence_is_unchanged (test_vocabulary_prompt_names.FreshProfiledInstallTests.test_default_profile_sequence_is_unchanged) ... ok\ntest_first_render_skips_profile_paths_and_the_sequence_converges (test_vocabulary_prompt_names.FreshProfiledInstallTests.test_first_render_skips_profile_paths_and_the_sequence_converges) ... ok\ntest_conflicts_write_nothing (test_vocabulary_prompt_names.ProfileMigrationTests.test_conflicts_write_nothing) ... ok\ntest_declared_alias_lifecycle_replay_authority_and_runtime_role_collisions (test_legacy_council_actors.LegacyActorDeclarationTests.test_declared_alias_lifecycle_replay_authority_and_runtime_role_collisions) ... ok\ntest_invalid_declarations_and_reserved_authority_tokens (test_legacy_council_actors.LegacyActorDeclarationTests.test_invalid_declarations_and_reserved_authority_tokens) ... ok\ntest_real_mcp_reload_observes_changed_actor_declaration (test_legacy_council_actors.LegacyActorDeclarationTests.test_real_mcp_reload_observes_changed_actor_declaration) ... ok\ntest_validation_at_real_module_import (test_legacy_council_actors.LegacyActorDeclarationTests.test_validation_at_real_module_import) ... ok\n\n----------------------------------------------------------------------\nRan 28 tests in 8.794s\n\nOK\n"
+    },
+    "own_current_cases": 25,
+    "own_current_failures": 0,
+    "own_old_renderer_cases": 6,
+    "own_old_renderer_failures": 4,
+    "own_old_renderer_positive_controls": 2,
+    "root_fullupgrade": "Parent reported711tests,2existing nativeWindows skips,176.088s green; not reviewer-owned wholeowner execution.",
+    "whole_canonical": "Pending new final receipt; standing11967 pass predates final repair."
+  },
+  "mutation_table": [
+    {
+      "name": "M03-container-def-offset",
+      "method": "test_installing_upgrade_repairs_container_reference_definitions",
+      "ran": 1,
+      "failures": 6,
+      "errors": 0,
+      "skips": 0,
+      "seconds": 6.298337083077058,
+      "detected": true
+    },
+    {
+      "name": "M04-ignore-html-blocks",
+      "method": "test_installing_upgrade_preserves_html_literal_blocks",
+      "ran": 1,
+      "failures": 3,
+      "errors": 0,
+      "skips": 0,
+      "seconds": 5.378860041033477,
+      "detected": true
+    },
+    {
+      "name": "M05-invalid-backtick-info",
+      "method": "test_installing_upgrade_distinguishes_backtick_and_tilde_info",
+      "ran": 1,
+      "failures": 2,
+      "errors": 0,
+      "skips": 0,
+      "seconds": 3.247192374896258,
+      "detected": true
+    },
+    {
+      "name": "M06-ignore-escaped-opener",
+      "method": "test_installing_upgrade_respects_link_and_image_escape_parity",
+      "ran": 1,
+      "failures": 2,
+      "errors": 0,
+      "skips": 0,
+      "seconds": 9.576704666018486,
+      "detected": true
+    },
+    {
+      "name": "M07-no-native-directory",
+      "method": "test_installing_upgrade_repairs_native_skill_directory_destinations",
+      "ran": 1,
+      "failures": 1,
+      "errors": 0,
+      "skips": 0,
+      "seconds": 0.9557332920376211,
+      "detected": true
+    },
+    {
+      "name": "M09-ignore-inline-html",
+      "method": "test_installing_upgrade_preserves_inline_html_and_code_precedence",
+      "ran": 1,
+      "failures": 7,
+      "errors": 0,
+      "skips": 0,
+      "seconds": 9.600791624980047,
+      "detected": true
+    },
+    {
+      "name": "M10-paragraph-definitions",
+      "method": "test_installing_upgrade_respects_reference_definition_context",
+      "ran": 1,
+      "failures": 3,
+      "errors": 0,
+      "skips": 0,
+      "seconds": 7.2234786248300225,
+      "detected": true
+    },
+    {
+      "name": "M11-ignore-metadata",
+      "method": "test_installing_upgrade_consumes_link_metadata_before_code_ticks",
+      "ran": 1,
+      "failures": 1,
+      "errors": 0,
+      "skips": 0,
+      "seconds": 10.321291249943897,
+      "detected": true
+    },
+    {
+      "name": "M14-ignore-URI",
+      "method": "test_installing_upgrade_preserves_autolink_atoms_and_code_precedence",
+      "ran": 1,
+      "failures": 3,
+      "errors": 0,
+      "skips": 0,
+      "seconds": 6.786179665941745,
+      "detected": true
+    },
+    {
+      "name": "M14-ignore-email",
+      "method": "test_installing_upgrade_preserves_autolink_atoms_and_code_precedence",
+      "ran": 1,
+      "failures": 1,
+      "errors": 0,
+      "skips": 0,
+      "seconds": 8.07329837512225,
+      "detected": true
+    },
+    {
+      "name": "M12-unexpected-owned-native-fixture-literal",
+      "baseline": [],
+      "knownbad": [
+        "scripts/tests/test_upgrade_wavefoundry.py: 1 occurrence(s), 0 allowed"
+      ],
+      "detected": true,
+      "inventory_count": 524,
+      "errors": 0,
+      "skips": 0
+    }
+  ],
+  "ac_evidence": {
+    "204ml": {
+      "AC1": "LiteralReconcileKeyTests default/renamed; assembled-key negativecase detects.",
+      "AC2": "ActorTokenCensusTests default/renamed plus own current clean524files/copy-owned injection detects; downstream-only fixture does not expand inventory.",
+      "AC3": "Own shippedseed210/missing-limit/forbidden checkout-specread tests pass; source read confirms seed ownership.",
+      "AC4": "DigestInputTests default/renamed run frozenhistoricalencoder + unchangeddefault/no-phases golden, payload/key/body mutations; current policy input is never expected oracle.",
+      "AC5": "Neutral validation and fresh staged prompt installs default/renamed; default interruption/collision controls pass."
+    },
+    "204mm": {
+      "AC1": "LegacyActorDeclarationTests declared recognized canonicalwrites/undeclared rejects and replay actual lifecycle boundary pass.",
+      "AC2": "Alias lifecycle tests preserve ledger bytes; built-in digest moderation tests and earlier-reader compatibility pass.",
+      "AC3": "Invalid tuple/token/reserved active/requested roles and canonical repair-actor distinctness negative controls pass; deterministic dedup inspected.",
+      "AC4": "Fresh child real wf_reload_mcp sees profiledeclaration; documentedemptytuple source inspected."
+    },
+    "204mn": {
+      "AC1": "Actual incoming customized specialist survives role move and strict docs gate passes.",
+      "AC2": "Own25explicitcases+seven currentowners verify finite inline/reference/URI/email/HTML/code/escaping/container/native controls; separate exact history/encoding/title owner verifies frozenroots and mode; no general parser conformance claim.",
+      "AC3": "Every owncase snapshots preview bytes/modes; installs exact and reinstall equal; real dryrun owner passes.",
+      "AC4": "Actual partial-move/retry, all-pair preflightcollision, symlinkpeer refusal and retryroleidentity controls pass; original modes preserve. Source documents per-file publication, not multi-file atomicity."
+    }
+  },
+  "applicable_reverifications": [
+    "03",
+    "04",
+    "05",
+    "06",
+    "07",
+    "09",
+    "10",
+    "11",
+    "12",
+    "14"
+  ],
+  "new_findings": [],
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "Own ten incoming child-source mutants all produce assertion failures with0errors/0skips; pre-autolink renderer produces four exact-byte failures and two positive controls; own copied-tree census injection is rejected. Default and renamed owners execute independent historical digest/negative controls."
+  },
+  "limitations": "Finite CommonMark-informed review, not general CommonMark conformance. One fresh independent reviewer performs code and QA remits in one context, not two independent persons. No native Windows, WSL2, live downstream, private scope, C6, live host hooks, setup, pack, lifecycle writes or whole canonical run by this reviewer. Canonical receipt from11967 predates final edits; final QA approval awaits root final canonical result and current inputs hash.",
+  "pending": [
+    "Final canonical framework run and inputs-matching greenreceipt for unconditional QA finaljudgment.",
+    "Coordinator records one event per actinglane from current guided state; no ledger events written by reviewer."
+  ]
+}

@@ -1,0 +1,14 @@
+import json,sys,tempfile,time
+from pathlib import Path
+sys.path.insert(0,'/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts')
+import upgrade_wavefoundry as up
+r=Path(tempfile.mkdtemp(prefix='wf-perf-real-child-'));script=r/'.wavefoundry/framework/scripts/upgrade_wavefoundry.py';script.parent.mkdir(parents=True)
+out={'scratch_root':str(r),'cases':[],'pinned_outer_default':up._SUMMARY_DELEGATE_TIMEOUT_S};assert up._SUMMARY_DELEGATE_TIMEOUT_S==300
+cases=[('valid',"print('WAVE_UPGRADE_SUMMARY_JSON:{\"summary_schema_version\":1,\"reconciliation_status\":\"incomplete\",\"reconciliation_reason\":\"deadline\"}')",True,None),('malformed',"print('WAVE_UPGRADE_SUMMARY_JSON:bad')",False,'sentinel_missing_or_malformed'),('wrong_token',"print('WAVE_UPGRADE_SUMMARY_JSON:{\"summary_schema_version\":999}')",False,'unrecognized_schema_token_999'),('timeout','import time;time.sleep(2)',False,'timeout_after_0s')]
+for name,body,success,expected_reason in cases:
+ script.write_text(body+'\n');start=time.monotonic();payload,reason=up._delegated_summary_payload(r,timeout_s=0.1);elapsed=time.monotonic()-start
+ assert bool(payload)==success,(name,payload,reason);assert reason==expected_reason,(name,payload,reason)
+ if payload: assert json.loads(payload)['reconciliation_status']=='incomplete'
+ if name=='timeout':assert elapsed<1,elapsed
+ out['cases'].append({'name':name,'payload':payload,'reason':reason,'elapsed_seconds':elapsed,'timeout_seconds':0.1})
+p=Path('/private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-child-controls.json');p.write_text(json.dumps(out,indent=2)+'\n');print(json.dumps(out,indent=2))

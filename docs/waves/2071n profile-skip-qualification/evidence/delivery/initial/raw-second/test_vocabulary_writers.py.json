@@ -1,0 +1,23 @@
+{
+  "schema": "captured-worker-chunks-v1",
+  "original_capture_sha256": "3a20baaeb86cdeb416192a0521e5df3d93c35cc7bf5c58d5bcab6def813f2d5b",
+  "argv": [
+    "/Users/coryhacking/.wavefoundry/venv/bin/python",
+    "-B",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-profile-run-v3i_83sm/repo/.wavefoundry/framework/scripts/tests",
+    "-p",
+    "test_vocabulary_writers.py",
+    "-v"
+  ],
+  "returncode": 0,
+  "stdout_chunks": [],
+  "stderr_chunks": [
+    "test_localize_template_is_one_pass (test_vocabulary_writers.DefaultProfileWriterTests.test_localize_template_is_one_pass) ... ok\ntest_shipped_template_is_localized_under_a_second_profile (test_vocabulary_writers.DefaultProfileWriterTests.test_shipped_template_is_localized_under_a_second_profile) ... ok\ntest_shipped_template_is_unchanged_under_the_default_profile (test_vocabulary_writers.DefaultProfileWriterTests.test_shipped_template_is_unchanged_under_the_default_profile) ... skipped 'default-profile-only: pins the shipped template as the identity of localize_template under the shipped labels (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_I",
+    "D_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)'\ntest_stop_hook_reads_the_profile_at_runtime (test_vocabulary_writers.DefaultProfileWriterTests.test_stop_hook_reads_the_profile_at_runtime) ... ok\ntest_control_closes_and_the_matcher_is_live (test_vocabulary_writers.SecondProfileLifecycleTests.test_control_closes_and_the_matcher_is_live) ... ok\ntest_docs_lint_is_clean_under_the_second_profile (test_vocabulary_writers.SecondProfileLifecycleTests.test_docs_lint_is_clean_under_the_second_profile) ... ok\ntest_lifecycle_closes_under_the_second_profile (test_vocabulary_writers.SecondProfileLifecycleTests.test_lifecycle_closes_under_the_second_profile) ... ok\ntest_no_default_marker_is_written (test_vocabulary_writers.SecondProfileLifecycleTests.test_no_default_marker_is_written) ... ok\n\n----------------------------------------------------------------------\nRan 8 tests in 4.986s\n\nOK",
+    " (skipped=1)\n"
+  ]
+}

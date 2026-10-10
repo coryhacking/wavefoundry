@@ -1,0 +1,992 @@
+--- docs/waves/2071p bounded-reconciliation-reporting/evidence/implementation/reconcile_scan.py.baseline.txt
+
++++ .wavefoundry/framework/scripts/reconcile_scan.py
+
+@@ -42,7 +42,13 @@
+
+ import hashlib
+ import json
+ import re
+-from dataclasses import dataclass, replace
++import os
++import stat
++import time
++from bisect import bisect_right
++from contextlib import contextmanager
++import contained_files
++from dataclasses import dataclass, field, replace
+ from pathlib import Path, PurePosixPath
+ from typing import Iterator
+ 
+@@ -437,7 +443,7 @@
+
+ 
+ 
+ def _stale_prompt_extension_hits(
+-    root: Path, text: str
++    root: Path, text: str, *, work=None
+ ) -> Iterator[tuple[re.Match[str], str, str]]:
+     """Yield ``(match, matched_text, suggestion)`` for each stale prompt reference.
+ 
+@@ -445,19 +451,40 @@
+
+     exist under *root*. That keeps the pattern silent on prompt-adjacent docs
+     that legitimately end in ``.md`` and on a reference that is already correct.
+     """
+-    for match in _PROMPT_MD_REFERENCE.finditer(text):
++    cursor = 0
++    while True:
++        anchor = text.find("docs/prompts/", cursor)
++        if anchor < 0:
++            return
++        cursor = anchor + len("docs/prompts/")
++        if work is not None:
++            work.candidate()
++        start = anchor
++        while start > 0 and anchor - start < MAX_PROMPT_TOKEN and (text[start - 1].isalnum() or text[start - 1] in "_./-"):
++            start -= 1
++        end = cursor
++        while end < len(text) and end - start < MAX_PROMPT_TOKEN and (text[end].isalnum() or text[end] in "_.-"):
++            end += 1
++        if (start > 0 and (text[start - 1].isalnum() or text[start - 1] in "_.-")) or end - start >= MAX_PROMPT_TOKEN:
++            if work is not None:
++                work.omit("prompt_token")
++            continue
++        match = _PROMPT_MD_REFERENCE.match(text, start, end)
++        if match is None:
++            continue
+         stem = match.group(1)
+         if stem.endswith(".prompt"):
+             continue
+-        # Normalize a relative prefix (`../prompts/...`) down to the repo-rooted
+-        # form the reference resolves to.
+         index = stem.find("docs/prompts/")
+         rooted = stem[index:] if index >= 0 else stem
+-        if not (root / f"{rooted}.prompt.md").is_file():
++        twin = root / f"{rooted}.prompt.md"
++        try:
++            info = twin.lstat()
++        except OSError:
+             continue
+-        yield match, match.group(0), _PROMPT_EXTENSION_SUGGESTION.format(
+-            new=f"{rooted}.prompt.md"
+-        )
++        if not stat.S_ISREG(info.st_mode) or twin.is_symlink():
++            continue
++        yield match, match.group(0), _PROMPT_EXTENSION_SUGGESTION.format(new=f"{rooted}.prompt.md")
+ 
+ 
+ # ── Exclusion set ─────────────────────────────────────────────────────────────
+@@ -936,272 +963,547 @@
+
+     return False
+ 
+ 
+-def _iter_scannable_files(root: Path) -> Iterator[tuple[Path, str]]:
+-    """Yield ``(path, repo_relative_posix)`` for every in-scope file under ``root``."""
++DEFAULT_SCAN_ENTRIES = 100_000
++DEFAULT_SCAN_FILES = 10_000
++DEFAULT_SCAN_FILE_BYTES = 16 * 1024 * 1024
++DEFAULT_SCAN_TOTAL_BYTES = 128 * 1024 * 1024
++DEFAULT_SCAN_CANDIDATES = 100_000
++DEFAULT_SCAN_FINDINGS = 10_000
++DEFAULT_SCAN_SECONDS = 30.0
++MAX_PROMPT_TOKEN = 4096
++MAX_CONTEXT_CHARS = 4096
++
++
++@dataclass(frozen=True)
++class ScanLimits:
++    entries: int = DEFAULT_SCAN_ENTRIES
++    files: int = DEFAULT_SCAN_FILES
++    file_bytes: int = DEFAULT_SCAN_FILE_BYTES
++    total_bytes: int = DEFAULT_SCAN_TOTAL_BYTES
++    candidates: int = DEFAULT_SCAN_CANDIDATES
++    findings: int = DEFAULT_SCAN_FINDINGS
++    seconds: float = DEFAULT_SCAN_SECONDS
++
++
++@dataclass
++class ScanResult:
++    state: str = "complete"
++    reasons: list[str] = field(default_factory=list)
++    findings: list[StaleReference] = field(default_factory=list)
++    reconciliation: list[StaleReference] = field(default_factory=list)
++    host_permission_flags: list[StaleReference] = field(default_factory=list)
++    renderer_provenance_flags: list[StaleReference] = field(default_factory=list)
++    visited_entries: int = 0
++    eligible_files: int = 0
++    read_files: int = 0
++    read_bytes: int = 0
++    candidates: int = 0
++    elapsed: float = 0.0
++    last_path: str = ""
++    last_stage: str = "start"
++
++    def as_dict(self) -> dict:
++        return {**{key: value for key, value in vars(self).items()
++                   if key not in ("findings", "reconciliation", "host_permission_flags", "renderer_provenance_flags")},
++                **{key: [ref.as_dict() for ref in getattr(self, key)] for key in
++                   ("reconciliation", "host_permission_flags", "renderer_provenance_flags")}}
++
++
++class ScanIncomplete(RuntimeError):
++    """Legacy shapes cannot represent partial work; carry the truthful result."""
++    def __init__(self, result: ScanResult):
++        self.result = result
++        super().__init__("reconciliation scan " + result.state + ": " + ",".join(result.reasons))
++
++
++class _ScanStop(Exception):
++    pass
++
++
++class _ScanWork:
++    def __init__(self, limits, progress=None):
++        self.limits = limits
++        self.result = ScanResult()
++        self.started = time.monotonic()
++        self.progress = progress
++
++    def omit(self, reason, *, error=False):
++        if reason not in self.result.reasons:
++            self.result.reasons.append(reason)
++        if error or self.result.state != "error":
++            self.result.state = "error" if error else "incomplete"
++
++    def checkpoint(self, stage, rel=None):
++        if rel is not None:
++            self.result.last_path = rel[:160]
++        self.result.last_stage = stage
++        self.result.elapsed = time.monotonic() - self.started
++        if self.progress:
++            self.progress({key: getattr(self.result, key) for key in
++                           ("last_path", "last_stage", "elapsed", "visited_entries", "eligible_files", "read_files", "read_bytes", "candidates")})
++        if self.result.elapsed >= self.limits.seconds:
++            self.omit("deadline")
++            raise _ScanStop()
++
++    def candidate(self):
++        self.checkpoint("candidate")
++        if self.result.candidates >= self.limits.candidates:
++            self.omit("candidates")
++            raise _ScanStop()
++        self.result.candidates += 1
++
++    def matches(self, pattern, text):
++        self.checkpoint("pattern")
++        for match in pattern.finditer(text):
++            self.candidate()
++            yield match
++        self.checkpoint("pattern_done")
++
++    def read(self, root, path, rel):
++        self.checkpoint("read", rel)
++        # contained_files intentionally supports contained links; this scanner
++        # additionally refuses every lexical link, including Windows junctions.
++        cursor = root
++        for part in Path(rel).parts:
++            cursor = cursor / part
++            info = cursor.lstat()
++            if stat.S_ISLNK(info.st_mode) or contained_files._is_windows_link(str(cursor)):
++                self.omit("link_refused")
++                return None
++        if not stat.S_ISREG(info.st_mode) or info.st_nlink > 1:
++            self.omit("special_file_refused")
++            return None
++        if info.st_size > self.limits.file_bytes:
++            self.omit("file_bytes")
++            return None
++        remaining = self.limits.total_bytes - self.result.read_bytes
++        if info.st_size > remaining:
++            self.omit("total_bytes")
++            raise _ScanStop()
++        cap = min(self.limits.file_bytes, max(0, remaining))
++        if contained_files._dir_fd_supported():
++            parent_fd = contained_files.open_contained_dir(root, Path(rel).parts[:-1])
++            try:
++                fd = os.open(Path(rel).name, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0), dir_fd=parent_fd)
++                try:
++                    opened = os.fstat(fd)
++                    if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
++                        self.omit("read_changed")
++                        return None
++                    chunks = []
++                    size = 0
++                    allowance = min(cap + 1, remaining)
++                    while size < allowance:
++                        self.checkpoint("read_chunk")
++                        block = os.read(fd, min(65536, allowance - size))
++                        if not block:
++                            break
++                        chunks.append(block)
++                        size += len(block)
++                        self.result.read_bytes += len(block)
++                    data = b"".join(chunks)
++                    if size == allowance and os.fstat(fd).st_size > size:
++                        self.omit("total_bytes" if allowance == remaining else "file_bytes")
++                        return None
++                finally:
++                    os.close(fd)
++            finally:
++                os.close(parent_fd)
++        else:
++            # Native Windows has no dir_fd/O_NOFOLLOW; contained_files verifies
++            # the opened identity. Lexical pre/post checks retain its documented
++            # component-swap window, without accepting a known lexical link.
++            data, opened, resolved = contained_files.read_contained_identity(root, path, max_bytes=cap)
++            self.result.read_bytes += len(data)
++            if (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino) or resolved != root.resolve().joinpath(*Path(rel).parts):
++                self.omit("read_changed")
++                return None
++        if len(data) > cap:
++            self.omit("file_bytes" if cap == self.limits.file_bytes else "total_bytes")
++            if cap < self.limits.file_bytes:
++                raise _ScanStop()
++            return None
++        self.result.read_files += 1
++        self.checkpoint("read_done")
++        return data.decode("utf-8")
++
++
++
++class _FileFindings(list):
++    def __init__(self, work):
++        super().__init__()
++        self.work = work
++
++    def append(self, ref):
++        if len(self.work.result.findings) + len(self) >= self.work.limits.findings:
++            self.work.omit("findings")
++            raise _ScanStop()
++        super().append(ref)
++
++
++def _directory_excluded(rel, excluded_dirs, *, directory=False):
++    parts = rel.split("/")
++    if parts[0] in (".local", "target"):
++        return True
++    if (len(parts) >= 3 or directory) and len(parts) >= 2 and parts[0] == ".wavefoundry" and parts[1].startswith(_FRAMEWORK_ROLLBACK_DIR_PREFIX):
++        return True
++    return is_history_path(PurePosixPath(rel)) or any(
++        rel == d or rel.startswith(d + "/") or ("/" not in d and d in parts)
++        for d in excluded_dirs)
++
++
++@contextmanager
++def _scan_directory(root, directory):
++    if contained_files._dir_fd_supported():
++        fd = contained_files.open_contained_dir(root, directory.relative_to(root).parts)
++        try:
++            with os.scandir(fd) as entries:
++                yield entries
++        finally:
++            os.close(fd)
++    else:
++        # Native Windows has the documented component-swap window; reads
++        # still perform contained identity checks and refuse known links.
++        with os.scandir(directory) as entries:
++            yield entries
++
++
++def _iter_scannable_files(root: Path, work=None) -> Iterator[tuple[Path, str]]:
++    work = work or _ScanWork(ScanLimits())
+     excluded_dirs = excluded_dirs_for(root)
+-    for path in root.rglob("*"):
+-        if not path.is_file():
+-            continue
+-        rel = path.relative_to(root).as_posix()
+-        if is_excluded(rel, name=path.name, suffix=path.suffix, excluded_dirs=excluded_dirs):
+-            continue
+-        yield path, rel
+-
+-
+-def scan_repo(root: Path | str) -> list[StaleReference]:
+-    """Scan ``root`` for stale references to retired framework surfaces (ALL findings, both channels).
+-
+-    Returns a list of :class:`StaleReference` (file, line, retired_surface, matched, suggested,
+-    host_permission). REPORT-ONLY — never mutates any file. The exclusion set is baked in (see
+-    :func:`is_excluded`). Each finding's ``host_permission`` flag is set when its file is a host
+-    permission/allow-rule file (see :func:`is_host_permission_file`); :func:`scan_repo_channels`
+-    partitions on that flag. Sorted by (file, line, retired_surface) for deterministic output.
+-
+-    Catches three reference forms: the literal ``.wavefoundry/bin/<wrapper>`` path (docs/config), the
+-    dynamic ``"bin" / "<wrapper>"`` join, and the variable ``<bin-var> / "<wrapper>"`` join (scripts).
+-    The literal form is scanned in every in-scope suffix; the dynamic/variable join forms are scanned
+-    only in ``.py`` files (they are a Python-construction concern).
+-    """
+-    root = Path(root)
+-    provenance = renderer_provenance_rules(root)
+-    findings: list[StaleReference] = []
+-    file_texts: dict[str, str] = {}
+-    for path, rel in _iter_scannable_files(root):
++    stack = [root]
++    while stack:
++        directory = stack.pop()
++        work.checkpoint("directory", directory.relative_to(root).as_posix())
+         try:
+-            text = path.read_text(encoding="utf-8")
+-        except (UnicodeDecodeError, OSError):
+-            continue
+-        file_texts[rel] = text
+-        host_perm = is_host_permission_file(rel)
+-        # A project-specific agents-layer prompt is a retired carrier by its
+-        # existence, even when its body never spells its own path. It cannot be
+-        # migrated safely because its unique guidance is project-owned, so this
+-        # remains report-only and directs the operator to merge/remove it.
+-        if rel in _RETIRED_FINALIZE_PROMPTS:
++            with _scan_directory(root, directory) as entries:
++                for entry in entries:
++                    work.checkpoint("entry")
++                    if work.result.visited_entries >= work.limits.entries:
++                        work.omit("entries")
++                        raise _ScanStop()
++                    work.result.visited_entries += 1
++                    path = directory / entry.name
++                    rel = path.relative_to(root).as_posix()
++                    if _directory_excluded(rel, excluded_dirs, directory=entry.is_dir(follow_symlinks=False)):
++                        continue
++                    if entry.is_dir(follow_symlinks=False) and not contained_files._is_windows_link(str(path)):
++                        stack.append(path)
++                        continue
++                    if is_excluded(rel, name=path.name, suffix=path.suffix, excluded_dirs=excluded_dirs):
++                        continue
++                    if work.result.eligible_files >= work.limits.files:
++                        work.omit("files")
++                        raise _ScanStop()
++                    work.result.eligible_files += 1
++                    yield path, rel
++        except OSError as exc:
++            work.omit("traversal_" + type(exc).__name__, error=True)
++
++
++def _contextualize_file(findings, text, work):
++    # One pass per file, retaining only context for lines with findings. Both
++    # fence consumers use the same strict whitespace-only closing predicate.
++    wanted = {ref.line for ref in findings}
++    contexts = {}
++    heading = ""
++    fence = None
++    for number, raw in enumerate(text.splitlines(), 1):
++        try:
++            work.checkpoint("context")
++        except _ScanStop:
++            break
++        if number in wanted:
++            if len(raw) > MAX_CONTEXT_CHARS or len(heading) > MAX_CONTEXT_CHARS:
++                work.omit("context_bytes")
++            contexts[number] = (raw[:MAX_CONTEXT_CHARS], heading[:MAX_CONTEXT_CHARS])
++        match = _FENCE_RE.match(raw)
++        if match:
++            marker = match.group(1)
++            if fence is None:
++                fence = (marker[0], len(marker))
++                continue
++            if marker[0] == fence[0] and len(marker) >= fence[1] and not raw[match.end(1):].strip():
++                fence = None
++                continue
++        if fence is None and _ATX_HEADING_RE.match(raw):
++            heading = raw
++    return [replace(ref, logical_line=contexts.get(ref.line, ("", ""))[0],
++                    heading_context=contexts.get(ref.line, ("", ""))[1]) for ref in findings]
++
++
++def _scan_file(root, path, rel, text, work, findings):
++    provenance = frozenset()
++    if rel == _CLAUDE_SETTINGS_FILE:
++        try:
++            loaded = json.loads(text)
++            raw = loaded.get(PERMISSIONS_PROVENANCE_KEY) if isinstance(loaded, dict) else None
++            if isinstance(raw, list):
++                provenance = frozenset(item for item in raw if isinstance(item, str))
++        except ValueError:
++            pass
++    line_starts = [0] + [m.end() for m in re.finditer("\n", text)]
++    host_perm = is_host_permission_file(rel)
++    # A project-specific agents-layer prompt is a retired carrier by its
++    # existence, even when its body never spells its own path. It cannot be
++    # migrated safely because its unique guidance is project-owned, so this
++    # remains report-only and directs the operator to merge/remove it.
++    if rel in _RETIRED_FINALIZE_PROMPTS:
++        findings.append(
++            StaleReference(
++                file=rel,
++                line=1,
++                retired_surface=rel,
++                matched=rel,
++                suggested=_RETIRED_FINALIZE_PROMPT_SUGGESTION,
++                host_permission=host_perm,
++            )
++        )
++    if rel == _RETIRED_PLAN_REVIEW_AGENT_PROMPT:
++        findings.append(
++            StaleReference(
++                file=rel,
++                line=1,
++                retired_surface=_RETIRED_PLAN_REVIEW_AGENT_PROMPT,
++                matched=rel,
++                suggested=_RETIRED_PLAN_REVIEW_AGENT_PROMPT_SUGGESTION,
++                host_permission=host_perm,
++            )
++        )
++    # Renderer-governed regions of the committed Claude settings file (allow +
++    # provenance arrays). Computed once per file; empty for every other file, so
++    # `_is_renderer_provenance_hit` can only ever fire on a real allow/provenance entry.
++    governed_spans = (
++        provenance_governed_spans(text)
++        if provenance and rel == _CLAUDE_SETTINGS_FILE
++        else []
++    )
++
++    def _provenance_flag(m: re.Match[str]) -> bool:
++        return _is_renderer_provenance_hit(
++            rel, m.group(0), provenance, governed_spans, m.start()
++        )
++
++    # Wave 1vk4c: table rows under a framework-mandated archive heading are
++    # historical record; every producer below skips a match that starts
++    # inside one (empty for every file but the allowlisted archive carriers).
++    archive_spans = _archive_row_spans(text, rel)
++
++    def _archived(m: re.Match[str]) -> bool:
++        return any(s <= m.start() < e for s, e in archive_spans)
++
++    patterns = [_LITERAL_PATTERN]
++    if path.suffix == ".py":
++        patterns += [_DYNAMIC_PATTERN, _VAR_BINDIR_PATTERN]
++    for pat in patterns:
++        for m in work.matches(pat, text):
++            if _archived(m):
++                continue
++            retired = m.group(1)
++            line = bisect_right(line_starts, m.start())
+             findings.append(
+                 StaleReference(
+                     file=rel,
+-                    line=1,
+-                    retired_surface=rel,
+-                    matched=rel,
+-                    suggested=_RETIRED_FINALIZE_PROMPT_SUGGESTION,
++                    line=line,
++                    retired_surface=retired,
++                    matched=m.group(0),
++                    suggested=retired_surface_suggestion(retired),
++                    host_permission=host_perm,
++                    renderer_provenance=_provenance_flag(m),
++                )
++            )
++    # Retired CONTENT references (1v4mv): retired-subsystem paths and the
++    # instruction shapes that point at them. Every match is reported, not
++    # one per line — a single line legitimately carries several stale
++    # references, and per-line reporting would silently under-count.
++    for pat, retired, suggestion, exempt in _RETIRED_CONTENT_PATTERNS:
++        for m in work.matches(pat, text):
++            if _archived(m):
++                continue
++            if exempt is not None and exempt.search(_line_text(text, m.start())):
++                continue
++            findings.append(
++                StaleReference(
++                    file=rel,
++                    line=bisect_right(line_starts, m.start()),
++                    retired_surface=retired,
++                    matched=m.group(0),
++                    suggested=suggestion,
+                     host_permission=host_perm,
+                 )
+             )
+-        if rel == _RETIRED_PLAN_REVIEW_AGENT_PROMPT:
+-            findings.append(
+-                StaleReference(
+-                    file=rel,
+-                    line=1,
+-                    retired_surface=_RETIRED_PLAN_REVIEW_AGENT_PROMPT,
+-                    matched=rel,
+-                    suggested=_RETIRED_PLAN_REVIEW_AGENT_PROMPT_SUGGESTION,
+-                    host_permission=host_perm,
+-                )
+-            )
+-        # Renderer-governed regions of the committed Claude settings file (allow +
+-        # provenance arrays). Computed once per file; empty for every other file, so
+-        # `_is_renderer_provenance_hit` can only ever fire on a real allow/provenance entry.
+-        governed_spans = (
+-            provenance_governed_spans(text)
+-            if provenance and rel == _CLAUDE_SETTINGS_FILE
+-            else []
+-        )
+-
+-        def _provenance_flag(m: re.Match[str]) -> bool:
+-            return _is_renderer_provenance_hit(
+-                rel, m.group(0), provenance, governed_spans, m.start()
+-            )
+-
+-        # Wave 1vk4c: table rows under a framework-mandated archive heading are
+-        # historical record; every producer below skips a match that starts
+-        # inside one (empty for every file but the allowlisted archive carriers).
+-        archive_spans = _archive_row_spans(text, rel)
+-
+-        def _archived(m: re.Match[str]) -> bool:
+-            return any(s <= m.start() < e for s, e in archive_spans)
+-
+-        patterns = [_LITERAL_PATTERN]
+-        if path.suffix == ".py":
+-            patterns += [_DYNAMIC_PATTERN, _VAR_BINDIR_PATTERN]
+-        for pat in patterns:
+-            for m in pat.finditer(text):
+-                if _archived(m):
+-                    continue
+-                retired = m.group(1)
+-                line = text.count("\n", 0, m.start()) + 1
+-                findings.append(
+-                    StaleReference(
+-                        file=rel,
+-                        line=line,
+-                        retired_surface=retired,
+-                        matched=m.group(0),
+-                        suggested=retired_surface_suggestion(retired),
+-                        host_permission=host_perm,
+-                        renderer_provenance=_provenance_flag(m),
+-                    )
+-                )
+-        # Retired CONTENT references (1v4mv): retired-subsystem paths and the
+-        # instruction shapes that point at them. Every match is reported, not
+-        # one per line — a single line legitimately carries several stale
+-        # references, and per-line reporting would silently under-count.
+-        for pat, retired, suggestion, exempt in _RETIRED_CONTENT_PATTERNS:
+-            for m in pat.finditer(text):
+-                if _archived(m):
+-                    continue
+-                if exempt is not None and exempt.search(_line_text(text, m.start())):
+-                    continue
+-                findings.append(
+-                    StaleReference(
+-                        file=rel,
+-                        line=text.count("\n", 0, m.start()) + 1,
+-                        retired_surface=retired,
+-                        matched=m.group(0),
+-                        suggested=suggestion,
+-                        host_permission=host_perm,
+-                    )
+-                )
+-        # Retired plan-review identity (1w047): unlike the two supported
+-        # natural-language aliases, these exact skill/path forms no longer
+-        # resolve after the hard skill cutover and are repairable in-place.
+-        for pat, retired, suggestion in _RETIRED_PLAN_REVIEW_PATTERNS:
+-            for m in pat.finditer(text):
+-                if _archived(m):
+-                    continue
+-                findings.append(
+-                    StaleReference(
+-                        file=rel,
+-                        line=text.count("\n", 0, m.start()) + 1,
+-                        retired_surface=retired,
+-                        matched=m.group(0),
+-                        suggested=suggestion,
+-                        host_permission=host_perm,
+-                    )
+-                )
+-        # Retired feature-named lifecycle prompts (1zyc5): renamed prompt and
+-        # seed paths, the retired skill, shortcut-shaped phrases, and the
+-        # preserved guru agent description line.
+-        for pat, retired, suggestion in _RETIRED_CHANGE_PROMPT_PATTERNS:
+-            for m in pat.finditer(text):
+-                if _archived(m):
+-                    continue
+-                findings.append(
+-                    StaleReference(
+-                        file=rel,
+-                        line=text.count("\n", 0, m.start()) + 1,
+-                        retired_surface=retired,
+-                        matched=m.group(0),
+-                        suggested=suggestion,
+-                        host_permission=host_perm,
+-                    )
+-                )
+-        for position, matched in _guru_description_hits(rel, text):
+-            findings.append(
+-                StaleReference(
+-                    file=rel,
+-                    line=text.count("\n", 0, position) + 1,
+-                    retired_surface="Plan feature (guru agent description)",
+-                    matched=matched,
+-                    suggested=vocabulary_profile.shortcut("plan-change"),
+-                    host_permission=host_perm,
+-                )
+-            )
+-        # Profile-renamed lifecycle prompts (1zxnw): empty under the defaults.
+-        for pat, retired, suggestion in _PROFILE_PROMPT_NAME_PATTERNS:
+-            for m in pat.finditer(text):
+-                if _archived(m):
+-                    continue
+-                findings.append(
+-                    StaleReference(
+-                        file=rel,
+-                        line=text.count("\n", 0, m.start()) + 1,
+-                        retired_surface=retired,
+-                        matched=m.group(0),
+-                        suggested=suggestion,
+-                        host_permission=host_perm,
+-                    )
+-                )
+-        if _PROFILE_GURU_DESCRIPTION_PHRASES:
+-            for offset, line in _guru_description_lines(rel, text):
+-                for pat, retired, suggestion in _PROFILE_GURU_DESCRIPTION_PHRASES:
+-                    for m in pat.finditer(line):
+-                        findings.append(
+-                            StaleReference(
+-                                file=rel,
+-                                line=text.count("\n", 0, offset + m.start()) + 1,
+-                                retired_surface=f"{retired} (guru agent description)",
+-                                matched=m.group(0),
+-                                suggested=suggestion,
+-                                host_permission=host_perm,
+-                            )
+-                        )
+-        # The `.md` to `.prompt.md` rename, resolved against the tree.
+-        for m, matched, suggestion in _stale_prompt_extension_hits(root, text):
++    # Retired plan-review identity (1w047): unlike the two supported
++    # natural-language aliases, these exact skill/path forms no longer
++    # resolve after the hard skill cutover and are repairable in-place.
++    for pat, retired, suggestion in _RETIRED_PLAN_REVIEW_PATTERNS:
++        for m in work.matches(pat, text):
+             if _archived(m):
+                 continue
+             findings.append(
+                 StaleReference(
+                     file=rel,
+-                    line=text.count("\n", 0, m.start()) + 1,
+-                    retired_surface="prompt .md extension",
+-                    matched=matched,
++                    line=bisect_right(line_starts, m.start()),
++                    retired_surface=retired,
++                    matched=m.group(0),
+                     suggested=suggestion,
+                     host_permission=host_perm,
+                 )
+             )
+-        # Renamed MCP tools (1.14.0): the fully-qualified form first; its match
+-        # spans are masked so the bare pattern cannot double-report the tool
+-        # name embedded inside `mcp__wavefoundry__<old>`.
+-        qualified_spans: list[tuple[int, int]] = []
+-        for m in _TOOL_MCP_PATTERN.finditer(text):
+-            qualified_spans.append(m.span())
++    # Retired feature-named lifecycle prompts (1zyc5): renamed prompt and
++    # seed paths, the retired skill, shortcut-shaped phrases, and the
++    # preserved guru agent description line.
++    for pat, retired, suggestion in _RETIRED_CHANGE_PROMPT_PATTERNS:
++        for m in work.matches(pat, text):
+             if _archived(m):
+                 continue
+-            old_name = m.group(1)
+-            line = text.count("\n", 0, m.start()) + 1
+             findings.append(
+                 StaleReference(
+                     file=rel,
+-                    line=line,
+-                    retired_surface=old_name,
++                    line=bisect_right(line_starts, m.start()),
++                    retired_surface=retired,
+                     matched=m.group(0),
+-                    suggested=renamed_tool_suggestion(old_name),
++                    suggested=suggestion,
+                     host_permission=host_perm,
+-                    renderer_provenance=_provenance_flag(m),
+                 )
+             )
+-        for m in _TOOL_BARE_PATTERN.finditer(text):
+-            if any(s <= m.start() < e for s, e in qualified_spans):
+-                continue
++    for position, matched in _guru_description_hits(rel, text):
++        findings.append(
++            StaleReference(
++                file=rel,
++                line=bisect_right(line_starts, position),
++                retired_surface="Plan feature (guru agent description)",
++                matched=matched,
++                suggested=vocabulary_profile.shortcut("plan-change"),
++                host_permission=host_perm,
++            )
++        )
++    # Profile-renamed lifecycle prompts (1zxnw): empty under the defaults.
++    for pat, retired, suggestion in _PROFILE_PROMPT_NAME_PATTERNS:
++        for m in work.matches(pat, text):
+             if _archived(m):
+                 continue
+-            old_name = m.group(1)
+-            line = text.count("\n", 0, m.start()) + 1
+             findings.append(
+                 StaleReference(
+                     file=rel,
+-                    line=line,
+-                    retired_surface=old_name,
++                    line=bisect_right(line_starts, m.start()),
++                    retired_surface=retired,
+                     matched=m.group(0),
+-                    suggested=renamed_tool_suggestion(old_name),
++                    suggested=suggestion,
+                     host_permission=host_perm,
+-                    renderer_provenance=_provenance_flag(m),
+                 )
+             )
+-    context_cache: dict[tuple[str, int], tuple[str, str]] = {}
+-    contextualized: list[StaleReference] = []
+-    for finding in findings:
+-        cache_key = (finding.file, finding.line)
+-        context = context_cache.get(cache_key)
+-        if context is None:
+-            context = _finding_context(file_texts.get(finding.file, ""), finding.line)
+-            context_cache[cache_key] = context
+-        contextualized.append(
+-            replace(finding, logical_line=context[0], heading_context=context[1])
++    if _PROFILE_GURU_DESCRIPTION_PHRASES:
++        for offset, line in _guru_description_lines(rel, text):
++            for pat, retired, suggestion in _PROFILE_GURU_DESCRIPTION_PHRASES:
++                for m in work.matches(pat, line):
++                    findings.append(
++                        StaleReference(
++                            file=rel,
++                            line=bisect_right(line_starts, offset + m.start()),
++                            retired_surface=f"{retired} (guru agent description)",
++                            matched=m.group(0),
++                            suggested=suggestion,
++                            host_permission=host_perm,
++                        )
++                    )
++    # The `.md` to `.prompt.md` rename, resolved against the tree.
++    for m, matched, suggestion in _stale_prompt_extension_hits(root, text, work=work):
++        if _archived(m):
++            continue
++        findings.append(
++            StaleReference(
++                file=rel,
++                line=bisect_right(line_starts, m.start()),
++                retired_surface="prompt .md extension",
++                matched=matched,
++                suggested=suggestion,
++                host_permission=host_perm,
++            )
+         )
+-    findings = contextualized
+-    findings.sort(key=lambda f: (f.file, f.line, f.retired_surface))
+-    return findings
++    # Renamed MCP tools (1.14.0): the fully-qualified form first; its match
++    # spans are masked so the bare pattern cannot double-report the tool
++    # name embedded inside `mcp__wavefoundry__<old>`.
++    qualified_spans: list[tuple[int, int]] = []
++    for m in work.matches(_TOOL_MCP_PATTERN, text):
++        qualified_spans.append(m.span())
++        if _archived(m):
++            continue
++        old_name = m.group(1)
++        line = bisect_right(line_starts, m.start())
++        findings.append(
++            StaleReference(
++                file=rel,
++                line=line,
++                retired_surface=old_name,
++                matched=m.group(0),
++                suggested=renamed_tool_suggestion(old_name),
++                host_permission=host_perm,
++                renderer_provenance=_provenance_flag(m),
++            )
++        )
++    for m in work.matches(_TOOL_BARE_PATTERN, text):
++        if any(s <= m.start() < e for s, e in qualified_spans):
++            continue
++        if _archived(m):
++            continue
++        old_name = m.group(1)
++        line = bisect_right(line_starts, m.start())
++        findings.append(
++            StaleReference(
++                file=rel,
++                line=line,
++                retired_surface=old_name,
++                matched=m.group(0),
++                suggested=renamed_tool_suggestion(old_name),
++                host_permission=host_perm,
++                renderer_provenance=_provenance_flag(m),
++            )
++        )
++
++
++def scan_repo_result(root: Path | str, *, limits: ScanLimits | None = None, progress=None) -> ScanResult:
++    """Bounded report-only scan; omissions never masquerade as clean absence."""
++    root = Path(root)
++    work = _ScanWork(limits or ScanLimits(), progress)
++    try:
++        for path, rel in _iter_scannable_files(root, work):
++            file_findings = _FileFindings(work)
++            text = None
++            try:
++                text = work.read(root, path, rel)
++                if text is not None:
++                    _scan_file(root, path, rel, text, work, file_findings)
++            except (OSError, UnicodeError) as exc:
++                work.omit("read_" + type(exc).__name__)
++            finally:
++                if text is not None:
++                    work.result.findings.extend(_contextualize_file(file_findings, text, work))
++            work.checkpoint("file_done", rel)
++        dispositions = load_dispositions(root, work=work)
++        work.result.findings.sort(key=lambda ref: (ref.file, ref.line, ref.retired_surface))
++        channels = _partition_findings(work.result.findings, dispositions, work=work)
++        (work.result.reconciliation, work.result.host_permission_flags,
++         work.result.renderer_provenance_flags) = channels
++    except _ScanStop:
++        pass
++    except Exception as exc:
++        work.omit("scan_" + type(exc).__name__, error=True)
++    work.result.findings.sort(key=lambda ref: (ref.file, ref.line, ref.retired_surface))
++    # Also partition retained partial findings; failure to load dispositions
++    # keeps them visible instead of suppressing evidence.
++    if work.result.state != "complete":
++        channels = _partition_findings(work.result.findings, {})
++        (work.result.reconciliation, work.result.host_permission_flags,
++         work.result.renderer_provenance_flags) = channels
++    work.result.elapsed = time.monotonic() - work.started
++    return work.result
++
++
++def scan_repo(root: Path | str, *, limits: ScanLimits | None = None) -> list[StaleReference]:
++    result = scan_repo_result(root, limits=limits)
++    if result.state != "complete":
++        raise ScanIncomplete(result)
++    return result.findings
+ 
+ 
+ # ── Historical-record dispositions (wave 1v7a1) ──────────────────────────────
+@@ -1252,7 +1554,7 @@
+
+     return "v2:" + hashlib.sha256(payload).hexdigest()[:32]
+ 
+ 
+-def load_dispositions(root: Path | str) -> dict[str, list[str]]:
++def load_dispositions(root: Path | str, *, work=None) -> dict[str, list[str]]:
+     """Return ``{key: [statuses...]}``; ``{}`` when absent or unreadable.
+ 
+     Fail-open by design: an unreadable or malformed store must not suppress
+@@ -1263,13 +1565,23 @@
+
+ 
+     path = Path(root) / DISPOSITIONS_REL
+     try:
+-        data = json.loads(path.read_text(encoding="utf-8"))
++        if not path.exists():
++            return {}
++        if work is not None:
++            body = work.read(Path(root), path, DISPOSITIONS_REL)
++            if body is None:
++                return {}
++        else:
++            body = contained_files.read_contained_bytes(root, path, max_bytes=DEFAULT_SCAN_FILE_BYTES).decode("utf-8")
++        data = json.loads(body)
+     except (OSError, UnicodeError, json.JSONDecodeError):
+         return {}
+     if not isinstance(data, list):
+         return {}
+     out: dict[str, list[str]] = {}
+     for entry in data:
++        if work is not None:
++            work.candidate()
+         if not isinstance(entry, dict):
+             continue
+         key, status = entry.get("key"), entry.get("status")
+@@ -1285,7 +1597,7 @@
+
+     return _V2_KEY_RE.fullmatch(key) is not None and dispositions.get(key) == [HISTORICAL_RECORD]
+ 
+ 
+-def disposition_diagnostics(root: Path | str) -> list[dict[str, object]]:
++def disposition_diagnostics(root: Path | str, *, findings=None) -> list[dict[str, object]]:
+     """Return read-only store-level states that cannot live in reported findings.
+ 
+     The three finding channels remain unchanged. This separate projection makes
+@@ -1294,7 +1606,7 @@
+
+     """
+ 
+     dispositions = load_dispositions(root)
+-    raw_findings = scan_repo(root)
++    raw_findings = scan_repo(root) if findings is None else findings
+     v2_groups: dict[str, list[StaleReference]] = {}
+     v1_groups: dict[str, list[StaleReference]] = {}
+     for ref in raw_findings:
+@@ -1351,53 +1663,40 @@
+
+ def scan_repo_channels(
+     root: Path | str,
+ ) -> tuple[list[StaleReference], list[StaleReference], list[StaleReference]]:
+-    """Scan ``root`` and partition findings into the THREE channels.
+-
+-    Returns ``(reconciliation, host_permission_flags, renderer_provenance_flags)``:
+-
+-    * ``reconciliation`` — stale refs in editable repo docs/prompts/configs/scripts. The agent applies
+-      each suggested edit itself.
+-    * ``host_permission_flags`` — stale refs in host permission/allow-rule files
+-      (``HOST_PERMISSION_FILES``) OUTSIDE the permissions renderer's provenance. The agent CANNOT
+-      self-edit these under host auto-mode guards, so they are flagged for the operator to edit
+-      (seed-160 "flagged separately for the operator"). All of ``.claude/settings.local.json`` and
+-      ``.cursor/settings.json``, and every non-provenance ``.claude/settings.json`` hit, stay here.
+-    * ``renderer_provenance_flags`` (wave 1u2az): stale allow rules in ``.claude/settings.json``
+-      recorded in the permissions renderer's provenance: SELF-HEALING; the next upgrade/install
+-      permissions render prunes/replaces them; nobody hand-edits these.
+-
+-    All lists hold :class:`StaleReference` in the same deterministic (file, line, retired_surface)
+-    order produced by :func:`scan_repo`.
+-    """
+-    reconciliation: list[StaleReference] = []
+-    host_permission_flags: list[StaleReference] = []
+-    renderer_provenance_flags: list[StaleReference] = []
+-    # 1v7a1: DISPOSITION suppression happens HERE, at the reported-channel
+-    # boundary, not in `scan_repo`. `scan_repo` stays the complete view of every
+-    # in-scope hit so an audit can still see what was dispositioned away; only
+-    # the reported channels honour the operator's settled judgments. STRUCTURAL
+-    # exclusions (paths via `is_excluded`; archive table rows via
+-    # `_ARCHIVE_SECTIONS`, wave 1vk4c) are applied inside `scan_repo`, because
+-    # they define what is in scope rather than judge a hit.
+-    dispositions = load_dispositions(root)
+-    raw_findings = scan_repo(root)
++    """Compatible three-channel shape; partial/error work raises with its result."""
++    result = scan_repo_result(root)
++    if result.state != "complete":
++        raise ScanIncomplete(result)
++    return result.reconciliation, result.host_permission_flags, result.renderer_provenance_flags
++
++
++def _partition_findings(raw_findings, dispositions, *, work=None):
++    reconciliation = []
++    host_permission_flags = []
++    renderer_provenance_flags = []
+     v2_groups: dict[str, list[StaleReference]] = {}
+     v1_groups: dict[str, list[StaleReference]] = {}
++    unknown_digests = set()
++    for key in dispositions:
++        if work is not None:
++            work.checkpoint("dispositions")
++        match = _VERSIONED_KEY_RE.fullmatch(key)
++        if match is not None and match.group("version") != "v2":
++            unknown_digests.add(match.group("digest"))
+     for ref in raw_findings:
++        if work is not None:
++            work.checkpoint("dispositions")
+         v2_groups.setdefault(disposition_key(ref), []).append(ref)
+         v1_groups.setdefault(legacy_disposition_key(ref), []).append(ref)
+ 
+     for ref in raw_findings:
++        if work is not None:
++            work.checkpoint("dispositions")
+         v2_key = disposition_key(ref)
+         v1_key = legacy_disposition_key(ref)
+         v2_entries = dispositions.get(v2_key, [])
+         v2_digest = v2_key.removeprefix("v2:")
+-        has_matching_unknown_version = any(
+-            (match := _VERSIONED_KEY_RE.fullmatch(key)) is not None
+-            and match.group("version") != "v2"
+-            and match.group("digest") == v2_digest
+-            for key in dispositions
+-        )
++        has_matching_unknown_version = v2_digest in unknown_digests
+         duplicate_v2 = len(v2_groups[v2_key]) > 1 or len(v2_entries) > 1
+         if duplicate_v2:
+             ref = replace(ref, disposition_state="v2-ambiguous")

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: accepted
-Last verified: 2026-09-25
+Last verified: 2026-10-10
 
 ## Context
 
@@ -66,6 +66,22 @@ key set AND stay small enough to survive the unknown-scalar budget path on serve
 registration.
 
 ## Consequences
+
+**Bounded reporting amendment (wave 2071p):** the pinned entry point, argv,
+sentinel, schema token and 300-second outer default remain unchanged. A new
+producer bounds optional diagnostic work in an owned child with one 30-second
+reporting-work budget, including when called by an older parent. The current
+parent propagates remaining time. Its marked in-process failure fallback uses
+already observed facts and performs no second reconciliation scan or expensive
+diagnostic pass. Complete/incomplete/error reconciliation status and small
+progress/count fields are additive flat values; the three finding channels
+retain their existing meaning. An incomplete report does not convert observed
+successful installation or index publication into failure. Optional reporting
+does not prevent attempts to clean owned temporary resources or a verified pack.
+The unchanged older-parent fallback remains a disclosed residual, and the new
+reporting-work budget is not a whole-upgrade deadline. The original decision
+above records the fielded contract; this amendment narrows new-code recovery
+work without changing old-parent requirements.
 
 **Positive:**
 

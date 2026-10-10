@@ -729,7 +729,15 @@ _DOT_DIR_ALLOWLIST_PREFIX = ".wavefoundry/"
 # documented exemption had nothing to pin. Existing indexes must re-walk to
 # admit the files; the low-information prior keeps them down-weighted unless
 # the query names them.
-WALKER_VERSION = "16"
+# 16 -> 17 (20aqf): exclude only discovered record-owned operational evidence.
+# The exact prior policy may reuse unchanged source work after identity checks.
+WALKER_VERSION = "17"
+from operational_evidence import (
+    PRIOR_WALKER_VERSION as _EVIDENCE_PRIOR_WALKER_VERSION,
+    discover_operational_evidence as _discover_operational_evidence,
+    filter_operational_evidence as _filter_operational_evidence,
+    is_operational_evidence_path as _is_operational_evidence_path,
+)
 from machine_authority import (
     MEMORY_ARCHIVE_PREFIX as _MEMORY_ARCHIVE_PREFIX,
     MEMORY_LEGACY_POINTER_PREFIX as _MEMORY_LEGACY_POINTER_PREFIX,
@@ -874,6 +882,28 @@ from machine_authority import (
     is_memory_archive_body_path as _is_memory_archive_body_path,
     is_legacy_memory_pointer_path as _is_legacy_memory_pointer_path,
 )
+
+
+def _operational_evidence_root_protection(root: Path, index_dir: Path) -> set[str]:
+    """Protect unavailable record roots only where published path state exists.
+
+    Absence in a fresh repository is ordinary, not a storage-rebuild failure.
+    Canonical rows supplement bookkeeping so orphaned old rows remain protected.
+    """
+    _, protected = _discover_operational_evidence(root)
+    if not protected:
+        return set()
+    conn = _get_index_state_store().open_read_only(index_dir)
+    if conn is None:
+        return set()
+    try:
+        prior = {row[0] for row in conn.execute(
+            "SELECT path FROM build_file_meta UNION SELECT path FROM chunks_docs "
+            "UNION SELECT path FROM chunks_code UNION SELECT path FROM graph_file_state "
+            "UNION SELECT path FROM layer_path_state")}
+    finally:
+        conn.close()
+    return {rel for rel in protected if any(_shadowed_by_unreadable(p, {rel}) for p in prior)}
 
 
 def _filter_memory_archive_bodies(files: list[Path], root: Path) -> list[Path]:
@@ -1055,6 +1085,7 @@ def walk_repo(
     max_file_bytes = _resolve_max_file_bytes(root)
     reinclude_names = _resolve_walk_reinclude_filenames(root)
     result: list[Path] = []
+    evidence_prefixes, _ = _discover_operational_evidence(root)
     unreadable: set[str] = set()
     denied_files: set[str] = set()
     lock_cache: dict = {}  # wave 1zv87 (1zuq7): lock identities, filled on first need
@@ -1099,6 +1130,8 @@ def walk_repo(
             # oversized-file skip log. (Per-file ignore matching still runs as a backstop below.)
             if ignore_patterns and _matches_ignore(child_rel, ignore_patterns):
                 continue
+            if _is_operational_evidence_path(child_rel + "/", evidence_prefixes):
+                continue
             keep_dirnames.append(dirname)
         dirnames[:] = keep_dirnames
 
@@ -1115,6 +1148,9 @@ def walk_repo(
                 continue
 
             rel_str = str(rel).replace("\\", "/")
+
+            if _is_operational_evidence_path(rel_str, evidence_prefixes):
+                continue
 
             if rel_str in HARDCODED_EXCLUDE_PATHS:
                 continue
@@ -2806,6 +2842,7 @@ def _execute_orphan_store_reconcile(
                     graph_payload=payload,
                     verbose=verbose,
                     state_conn=state_conn,
+                    reset=bool(publication is not None and publication.reset),
                 )
                 cluster_publication = (
                     cluster_payload.pop("_publication", None)
@@ -2820,7 +2857,8 @@ def _execute_orphan_store_reconcile(
                         "publication": publication,
                         "graph_payload": payload,
                         "cluster_payload": cluster_payload,
-                        "cluster_recomputed": cluster_publication is not None,
+                        "cluster_recomputed": bool(cluster_publication is not None
+                                                   and cluster_publication.analysis_recomputed),
                     }
             # stats["graph"] reports the PLANNED count (the plan's graph set);
             # the walk-parity merge may prune more store-minus-walk paths.
@@ -3783,6 +3821,7 @@ def _build_graph_artifacts(
     doc_link_repair_plan: "dict | None" = None,
     state_conn=None,
     selected_paths: set[str] | None = None,
+    evidence_transition: bool = False,
 ) -> dict[str, Any]:
     """Extract, merge and cluster the graph, PREPARING its publication rows.
 
@@ -3815,6 +3854,7 @@ def _build_graph_artifacts(
         unreadable_dirs=unreadable_dirs,
         verbose=verbose,
         state_conn=state_conn,
+        **({"evidence_transition": True} if evidence_transition else {}),
         **({"selected_paths": selected_paths} if selected_paths is not None else {}),
         **({"doc_link_repair_plan": doc_link_repair_plan} if doc_link_repair_plan is not None else {}),
     )
@@ -3842,6 +3882,7 @@ def _build_graph_artifacts(
         graph_payload=graph_payload,
         verbose=verbose,
         state_conn=state_conn,
+        reset=bool(publication is not None and publication.reset),
     )
     cluster_publication = (
         cluster_payload.pop("_publication", None)
@@ -3896,10 +3937,9 @@ def _build_graph_artifacts(
         "graph_payload": graph_payload,
         "cluster_payload": cluster_payload,
         "publication": publication,
-        # False when the fingerprint gate reused the previous generation's
-        # communities: there is nothing new to write, and rewriting the
-        # derived artifact would move its mtime for no content change.
-        "cluster_recomputed": cluster_publication is not None,
+        # Reusing analysis may still require complete replacement rows on reset.
+        "cluster_recomputed": bool(cluster_publication is not None
+                                   and cluster_publication.analysis_recomputed),
     }
 
 
@@ -3946,6 +3986,7 @@ def preflight_rebuild_sources(root: Path, index_dir: Path | None = None, *,
     # Wave 1zime (1zimk): a denied file is matched by exact path, so the union
     # rides the existing directory parameter.
     unreadable |= unreadable_files
+    unreadable |= _operational_evidence_root_protection(root, index_dir)
     if unreadable:
         raise RuntimeError("storage_rebuild_source_unreadable: " + _describe_unreadable_dirs(unreadable))
     files = _filter_by_prefixes([p for p in files if not _is_relative_to(p, index_dir)], root, include_prefixes)
@@ -4494,6 +4535,32 @@ def _build_index_locked(
         chunker_changed = chunker_changed or (
             current_chunker_version and old_chunker_versions.get("code") != current_chunker_version
         )
+    # Only the immediately prior, fully identified corpus can take this removal
+    # transition. A version label alone proves neither options nor vector identity.
+    evidence_transition = bool(
+        not full and selected_paths is None and not rechunk and not storage_rebuild
+        and old_walker_version == _EVIDENCE_PRIOR_WALKER_VERSION
+        and not policy_needs_refresh and meta
+    )
+    if evidence_transition:
+        for layer in previously_built_content & {"docs", "code"}:
+            model = DOCS_MODEL if layer == "docs" else CODE_MODEL
+            precision = _predicted_precision_class(model, _onnx_providers())
+            expected = f"{model}@{precision}@{_identity_fingerprint_for_class(precision)}"
+            if (old_model_versions.get(layer) != expected
+                    or old_chunker_versions.get(layer) != current_chunker_version):
+                evidence_transition = False
+        if model_changed or chunker_changed:
+            evidence_transition = False
+    if evidence_transition:
+        # Walker currency is global. Remove rows from every extant semantic layer
+        # before stamping it current, including a normally scoped invocation.
+        build_docs = build_docs or "docs" in previously_built_content
+        build_code = build_code or "code" in previously_built_content
+        content = "all" if build_docs and build_code else ("docs" if build_docs else "code" if build_code else "graph")
+        walker_changed = False
+        print("build_index: operational evidence policy 16 → 17 — reusing unchanged source work", file=sys.stderr)
+
     # Wave 1p4n4: a CHUNKER-only version bump (model + walker unchanged) changes chunk
     # SHAPE, not the embedding MODEL — content-identical chunks keep valid vectors. Re-chunk
     # every file but reuse embeddings by content hash (the delta-write path) so only new/
@@ -4553,6 +4620,7 @@ def _build_index_locked(
         # consumer: the carry-forward, the storage-rebuild refusal, the
         # eligibility reap, the orphan reconcile and the graph merge.
         _unreadable_dirs |= _unreadable_files
+        _unreadable_dirs |= _operational_evidence_root_protection(root, index_dir)
         if storage_rebuild and _unreadable_dirs:
             raise RuntimeError("storage_rebuild_source_unreadable: " + _describe_unreadable_dirs(_unreadable_dirs))
         files = [path for path in files if not _is_relative_to(path, index_dir)]
@@ -4621,6 +4689,7 @@ def _build_index_locked(
         files = _filter_legacy_memory_pointers(files, root)
         files = _filter_secret_scan_findings(files, root)
         files = _filter_vendored_assets(files, root)
+        files = _filter_operational_evidence(files, root, _unreadable_dirs)
         if str(index_dir).replace("\\", "/").endswith("/.wavefoundry/framework/index"):
             files = _filter_framework_pack_artifacts(files, root)
         graph_layer = _graph_layer_for_index_dir(index_dir)
@@ -5076,7 +5145,7 @@ def _build_index_locked(
             return _build_failed_result(
                 files, f"no-op drift reconcile failed: {_exc}"
             )
-        if not _needs_reap and not _needs_heal and not _epoch_dirty and not _needs_orphan_reconcile and not _needs_graph_recovery and not policy_needs_refresh:
+        if not _needs_reap and not _needs_heal and not _epoch_dirty and not _needs_orphan_reconcile and not _needs_graph_recovery and not policy_needs_refresh and not evidence_transition:
             if verbose:
                 print("build_index: index is up to date", flush=True)
             # Wave 1x6ti (1x551): a deferral here opens no epoch, so the
@@ -5171,6 +5240,7 @@ def _build_index_locked(
             return _build_failed_result(files, f"could not open the index store: {exc}")
         try:
             _idle_graph_publication = None
+            _idle_artifacts = {}
             if _needs_graph_recovery:
                 try:
                     _idle_artifacts = _build_graph_artifacts(
@@ -5183,6 +5253,7 @@ def _build_index_locked(
                         chunker_version=current_chunker_version,
                         unreadable_dirs=_unreadable_dirs, verbose=verbose,
                         doc_link_repair_plan=_doc_link_plan,
+                        evidence_transition=evidence_transition,
                     )
                     _idle_graph_publication = _idle_artifacts.get("publication")
                 except index_compatibility.IndexCompatibilityError:
@@ -5250,7 +5321,7 @@ def _build_index_locked(
             _idle_heal_stats = _sync_chunk_derived_state(
                 index_dir, expected=bool(reap_idle.get("total", 0)), verbose=verbose
             )
-        if _epoch_dirty or _needs_graph_recovery:
+        if _epoch_dirty or _needs_graph_recovery or evidence_transition:
             # Refresh the walk-state bookkeeping under the recovery epoch: the
             # crashed build never wrote its own; graph-only target additions
             # also need their current walk recorded. The stat cache and
@@ -5260,7 +5331,7 @@ def _build_index_locked(
                 "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "model_versions": meta.get("model_versions", {}),
                 "chunker_versions": meta.get("chunker_versions", {}),
-                "walker_version": meta.get("walker_version", "") or WALKER_VERSION,
+                "walker_version": WALKER_VERSION if evidence_transition else (meta.get("walker_version", "") or WALKER_VERSION),
                 "content": meta.get("content", []),
                 "file_meta": current_file_meta,
             }
@@ -5295,6 +5366,12 @@ def _build_index_locked(
             "stranded_reap_preserved": _reap_preserved_summary,
             "orphan_rows_reconciled": _orphan_stats,
             "graph_recovery_attempted": _needs_graph_recovery,
+            **({"operational_evidence_transition": {
+                "from_walker": _EVIDENCE_PRIOR_WALKER_VERSION,
+                "to_walker": WALKER_VERSION,
+                "removed_paths": 0,
+                "graph_communities_recomputed": bool(_idle_artifacts.get("cluster_recomputed")),
+            }} if evidence_transition else {}),
         }
 
     if dry_run:
@@ -5343,7 +5420,7 @@ def _build_index_locked(
 
     # If no canonical chunk tables exist yet (first build or upgrade from legacy), force a full rebuild
     # so tables are created from the complete corpus.
-    if not full:
+    if not full and not (evidence_transition and not (build_docs or build_code)):
         has_vector_layers = vector_store.layer_available(index_dir, "docs") or vector_store.layer_available(index_dir, "code")
         if not has_vector_layers:
             print(
@@ -5631,6 +5708,7 @@ def _build_index_locked(
                     state_conn=store._conn,
                     **({"selected_paths": selected_paths} if selected_paths is not None else {}),
                     files=files_for_graph,
+                    evidence_transition=evidence_transition,
                     current_file_meta=current_file_meta,
                     changed=changed_for_graph,
                     removed=removed,
@@ -6082,6 +6160,13 @@ def _build_index_locked(
     # the direct change-only CLI, and the resource's missing-file fallback. Ready-only
     # and dry-run lifecycle modes and reads of an existing map do not regenerate it.
 
+    if evidence_transition:
+        summary["operational_evidence_transition"] = {
+            "from_walker": _EVIDENCE_PRIOR_WALKER_VERSION,
+            "to_walker": WALKER_VERSION,
+            "removed_paths": len(removed_broad),
+            "graph_communities_recomputed": bool(_graph_artifacts.get("cluster_recomputed")),
+        }
     return summary
 
 

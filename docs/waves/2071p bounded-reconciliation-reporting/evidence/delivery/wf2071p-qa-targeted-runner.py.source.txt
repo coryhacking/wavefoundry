@@ -1,0 +1,7 @@
+import sys,unittest
+sys.path[:0]=['/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests','/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts']
+import test_reconcile_scan as s,test_upgrade_wavefoundry as u,test_tree_kill_routing as t
+suite=unittest.TestSuite()
+for c in (s.BoundedReconciliationTests,u.BoundedUpgradeReportingTests,u.DelegatedSummaryContractTests,u.DelegatedSummaryDegradationTests,u.DelegatedSummarySchemaDivergentTests,u.ResumeAfterGateTests,u.Phase4PublisherGrantTests,u.HistoricalMemoryUpgradeGateTests):suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(c))
+suite.addTests(unittest.defaultTestLoader.loadTestsFromModule(t))
+r=unittest.TextTestRunner(verbosity=2).run(suite);sys.exit(not r.wasSuccessful())

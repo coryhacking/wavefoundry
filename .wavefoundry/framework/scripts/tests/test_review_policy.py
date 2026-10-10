@@ -27,6 +27,7 @@ from wave_lint_lib.core_validators import check_review_policy_carriers
 import record_paths
 import vocabulary_profile
 from record_layout_support import default_profile_only
+from historical_fixture_support import historical_bytes
 
 # The record filename and the live waves root the loaded profile uses.
 RECORD = vocabulary_profile.RECORD_FILENAME
@@ -324,25 +325,12 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
                 review_policy_reconcile.plan_reconciliation(root)
 
     def test_real_v114_carrier_family_reconciles_and_retries_byte_stably(self):
-        probe = subprocess.run(
-            ["git", "rev-parse", "--verify", "v1.14.0"],
-            cwd=str(SCRIPTS.parents[2]),
-            check=False,
-            capture_output=True,
-        )
-        if probe.returncode != 0:
-            self.skipTest("v1.14.0 tag unavailable in this source distribution")
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            for relative in review_policy.LIFECYCLE_RECONCILER_CARRIERS:
-                path = root / relative
+            for carrier in review_policy.review_policy_carriers("lifecycle_reconciler"):
+                path = root / carrier.destination
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(
-                    subprocess.check_output(
-                        ["git", "show", f"v1.14.0:{relative}"],
-                        cwd=str(SCRIPTS.parents[2]),
-                    )
-                )
+                path.write_bytes(historical_bytes("v114:" + carrier.source))
             self.assertEqual(
                 set(review_policy_reconcile.reconcile_lifecycle_sections(root)),
                 set(review_policy.LIFECYCLE_RECONCILER_CARRIERS),
@@ -393,41 +381,22 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), current)
 
     def test_real_v114_carriers_render_policy_and_pass_production_validator(self):
-        repo_root = SCRIPTS.parents[2]
-        probe = subprocess.run(
-            ["git", "rev-parse", "--verify", "v1.14.0"],
-            cwd=str(repo_root),
-            check=False,
-            capture_output=True,
-        )
-        if probe.returncode != 0:
-            self.skipTest("v1.14.0 tag unavailable in this source distribution")
-        direct_files = {
-            carrier.destination
-            for carrier in review_policy.REVIEW_POLICY_CARRIER_REGISTRY
-            if carrier.owner == "direct_docs" and carrier.destination != "docs/agents"
-        }
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            for relative in (
-                set(review_policy.LIFECYCLE_RECONCILER_CARRIERS) | direct_files
-            ):
-                exists = subprocess.run(
-                    ["git", "cat-file", "-e", f"v1.14.0:{relative}"],
-                    cwd=str(repo_root),
-                    check=False,
-                    capture_output=True,
-                )
-                if exists.returncode != 0:
+            for carrier in review_policy.REVIEW_POLICY_CARRIER_REGISTRY:
+                if carrier.owner not in {"lifecycle_reconciler", "direct_docs"}:
                     continue
-                path = root / relative
+                if carrier.destination == "docs/agents":
+                    continue
+                # The frozen inventory records the optional document absent in
+                # this revision; unknown or damaged entries fail rather than skip.
+                source = historical_bytes("v114:" + carrier.source,
+                                          optional=carrier.owner == "direct_docs")
+                if source is None:
+                    continue
+                path = root / carrier.destination
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(
-                    subprocess.check_output(
-                        ["git", "show", f"v1.14.0:{relative}"],
-                        cwd=str(repo_root),
-                    )
-                )
+                path.write_bytes(source)
 
             review_policy_reconcile.reconcile_lifecycle_sections(root)
             render_agent_surfaces.render_agent_surfaces(root)

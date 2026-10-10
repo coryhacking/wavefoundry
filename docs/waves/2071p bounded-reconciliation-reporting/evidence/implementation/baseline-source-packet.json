@@ -1,0 +1,38 @@
+[
+  {
+    "path": ".wavefoundry/framework/scripts/reconcile_scan.py",
+    "sha256": "1d7d297bcc938eafde9a68965c46cd40eb8072bd00832d32284132a799aae515"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+    "sha256": "e938d6f0d1ccef7ab87f4ba700188640bd07e80426a4d08ab4cd34753f012abe"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_reconcile_scan.py",
+    "sha256": "c398c454419f81bee785dccc3cda8f1040ccc70a8fdecabaa84a33ef9b93d981"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+    "sha256": "dbe0dd37a58827fafcb9bc231983fa395b8e2817997b03d0200cef6524857868"
+  },
+  {
+    "path": "docs/architecture/data-and-control-flow.md",
+    "sha256": "fde3312da48d0a8bb6c720b3d375460810f27e0c2a20bdd472fb62ffdb100bc5"
+  },
+  {
+    "path": "docs/architecture/performance-budget.md",
+    "sha256": "255c3478926590727e3b80a32900e6d7333227b7828d59ab236492e40dcaef5e"
+  },
+  {
+    "path": "docs/contributing/build-and-verification.md",
+    "sha256": "3b1ee60d04310c2f0d9f4e55a575f3f7101d62947d6afd1639f21594ce1232f5"
+  },
+  {
+    "path": "docs/architecture/decisions/1u49j-adr fresh-code-summary-producer-contract.md",
+    "sha256": "4cb9e1f25b66380061863795ce8c3e3e05b998df3158939c2bc138f05654e499"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py",
+    "sha256": "0da7557197c9ca7d823578789dba5417a971f9ac7ce948c5c16fdf7558f23cf6"
+  }
+]

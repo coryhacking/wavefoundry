@@ -1,0 +1,6 @@
+{
+  "returncode": 0,
+  "sentinels": 1,
+  "command": "tool-venv python -B -S <staged upgrade_wavefoundry.py> --emit-summary --root <old-schema scratch>",
+  "meaning": "Current producer imports/runs with site initialization disabled; not qualification under arbitrary older Python versions."
+}

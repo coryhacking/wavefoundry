@@ -1,0 +1,63 @@
+{
+  "source_packet_matches": [
+    {
+      "path": ".wavefoundry/framework/scripts/wf_server/graph_handlers.py",
+      "matches": true
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/graph_query.py",
+      "matches": true
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/reconcile_scan.py",
+      "matches": true
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+      "matches": true
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py",
+      "matches": true
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_graph_query.py",
+      "matches": true
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_reconcile_scan.py",
+      "matches": true
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+      "matches": true
+    },
+    {
+      "path": "docs/specs/mcp-tool-surface.md",
+      "matches": true
+    },
+    {
+      "path": "docs/architecture/graph-index-system.md",
+      "matches": true
+    },
+    {
+      "path": "docs/architecture/data-and-control-flow.md",
+      "matches": true
+    },
+    {
+      "path": "docs/architecture/performance-budget.md",
+      "matches": true
+    },
+    {
+      "path": "docs/contributing/build-and-verification.md",
+      "matches": true
+    },
+    {
+      "path": "docs/architecture/decisions/1u49j-adr fresh-code-summary-producer-contract.md",
+      "matches": true
+    }
+  ],
+  "archived_hashes_match": true,
+  "phase": "readiness",
+  "limitations": "No product repair or full-suite rerun claimed"
+}

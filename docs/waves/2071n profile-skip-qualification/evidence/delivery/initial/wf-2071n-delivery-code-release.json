@@ -1,0 +1,545 @@
+{
+  "phase": "delivery",
+  "wave_id": "2071n",
+  "change_id": "205jp-bug profile-skip-qualification",
+  "timestamp_utc": "2026-10-09T21:28:30.061273+00:00",
+  "source_fingerprint_before": "da24daa9327940e665629ca6029223d4dad8d413d202aee7c80e2cd4b599385e",
+  "source_fingerprint_after": "da24daa9327940e665629ca6029223d4dad8d413d202aee7c80e2cd4b599385e",
+  "source_guard": "All15on-disk SHA256 and Gitblobs independently verified before and after; compact sorted JSON row hash independently equals packet fp. Source/docs/ledger/gate untouched.",
+  "primer": "/private/tmp/wf-2071n-delivery-primer.json",
+  "primer_depth": "full",
+  "primer_answers": [
+    {
+      "question": 1,
+      "answer": "Full same-tree exact qualification is not complete. Independently parsed current raw default captures:178files12040tests13skip identities/reasons; second155files10730tests at snapshot with test_profile_support.py failing; declared0captures. Exact maps are /private/tmp/wf-2071n-release-current-inventory.json. Thus no assertion of complete second-only marker equivalence or declared parity is possible."
+    },
+    {
+      "question": 2,
+      "answer": "21 original affected graph cases execute against real extraction/publication/public response paths with0skips. Existing source controls and explicit expected top2 owner/count tuples (ordinary31/21, evidence62/52) retain classification/presence/ranking assertions. Public lookup fixes artifacts/results.json identity and62members; reviewer-only count61 mutation fails that exact assertion. Removal of only crossing edges after actual published graph construction fails original crossing-presence assertion. The crossing pin remains existential, so arbitrary topology/clustering is not qualified."
+    },
+    {
+      "question": 3,
+      "answer": "All4 historical behavior cases pass0skips against actual old-carrier/current-reconciler and old-entry/current-sibling seams. Repeat with Git commands deliberately unavailable also passes4/0/0/0;10Git calls denied, none needed historical refs. Independently13base64 bodies match raw Git revision:path bytes,size,SHA256;1absence confirmed. All8missing/corrupt/current-substitution/bound integrity cases pass; reviewer-owned source digest/size guard removal makes named corrupted-source test fail. Digests do not authenticate cache or loaded host; nativeWindows,freshhost/downstream and packagearchive execution remain unproven."
+    }
+  ],
+  "roles": [
+    {
+      "role": "code-reviewer",
+      "verification_context": {
+        "actor": "code-reviewer",
+        "context_id": "2071n-delivery-code-independent-20261009",
+        "fresh_context": true,
+        "independent": true
+      },
+      "pre_primer_prior": "This appears plausibly correct because it replaces environmental graph/Git preconditions with canonical published fixtures and immutable bytes, but ranking non-vacuity, exact historical byte provenance and old-entry/current-sibling execution need independent falsification.",
+      "primer_effect": "The primer sharpened the independent graph/source oracle checks and separated historical source identity from execution. Current supported-profile failure changes preliminary plausibility to delivery approval withheld.",
+      "verdict": "NOT READY",
+      "approval": false,
+      "finding_ids": [
+        "QA-2071N-01"
+      ],
+      "proposition": "Changed fixture tests retain original public contracts and execute under each supported qualification profile.",
+      "counterexample_or_failure_condition": "A supportedprofile fails, a graph assertpasses with corruptlookup/crossing, or a historical assert accepts corruptbytes.",
+      "execution_status": "executed",
+      "public_path": "real graph extraction/publication and wf_graph_report_response/code_graph_community_response; actual upgrade CLI child/currentsiblings and old migrationreader; run_tests.py profile copy",
+      "commands": [
+        "python3 -B /private/tmp/wf-2071n-code-probe.py",
+        "python3 -B /private/tmp/wf-2071n-history-nogit-probe.py",
+        "python3 -B .wavefoundry/framework/scripts/run_tests.py --profile second --file test_profile_support.py",
+        "One extra direct unittest run: EvidencePairDocumentationTests.test_the_pair_list_matches_what_the_report_actually_emits"
+      ],
+      "results": {
+        "graph_baseline": {
+          "tests": 20,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0,
+          "log": "test_children_of_the_evidence_control_resolve_as_evidence (test_graph_quality_eval.LiveGraphEvidenceControlTests.test_children_of_the_evidence_control_resolve_as_evidence) ... ok\ntest_retrieval_eval_remains_ordinary_framework_code (test_graph_quality_eval.LiveGraphEvidenceControlTests.test_retrieval_eval_remains_ordinary_framework_code) ... ok\ntest_the_canonically_ignored_standing_artifacts_are_absent (test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_canonically_ignored_standing_artifacts_are_absent) ... ok\ntest_the_control_directory_is_indexed_at_all (test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_control_directory_is_indexed_at_all) ... ok\ntest_the_legitimate_controls_stay_in_their_ordinary_domains (test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_legitimate_controls_stay_in_their_ordinary_domains) ... ok\ntest_the_machine_result_control_is_classified_as_evidence (test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_machine_result_control_is_classified_as_evidence) ... ok\ntest_the_live_graph_satisfies_the_frozen_expectation (test_graph_quality_eval.ClassificationControlScorerTests.test_the_live_graph_satisfies_the_frozen_expectation) ... ok\ntest_a_classified_community_keeps_its_compatibility_fields (test_server_tools_retrieval.EvidencePartitionResponseTests.test_a_classified_community_keeps_its_compatibility_fields) ... ok\ntest_every_pair_is_present_including_its_evidence_half (test_server_tools_retrieval.EvidencePartitionResponseTests.test_every_pair_is_present_including_its_evidence_half) ... ok\ntest_evidence_communities_do_not_appear_in_the_production_ranking (test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_communities_do_not_appear_in_the_production_ranking) ... ok\ntest_evidence_communities_remain_queryable_by_id (test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_communities_remain_queryable_by_id) ... ok\ntest_evidence_rows_are_not_erased_by_exclude_generated (test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_rows_are_not_erased_by_exclude_generated) ... ok\ntest_evidence_rows_carry_their_type_and_a_nonempty_reason (test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_rows_carry_their_type_and_a_nonempty_reason) ... ok\ntest_the_evidence_array_ships_even_when_the_section_was_not_requested (test_server_tools_retrieval.EvidencePartitionResponseTests.test_the_evidence_array_ships_even_when_the_section_was_not_requested) ... ok\ntest_the_limit_applies_independently_to_each_half (test_server_tools_retrieval.EvidencePartitionResponseTests.test_the_limit_applies_independently_to_each_half) ... ok\ntest_a_non_evidence_node_is_not_swept_up_by_its_neighbours (test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_a_non_evidence_node_is_not_swept_up_by_its_neighbours) ... ok\ntest_an_evidence_file_is_still_listed_among_graph_nodes (test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_an_evidence_file_is_still_listed_among_graph_nodes) ... ok\ntest_an_evidence_node_keeps_its_reasons_on_lookup (test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_an_evidence_node_keeps_its_reasons_on_lookup) ... ok\ntest_cross_boundary_edges_survive_the_partition (test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_cross_boundary_edges_survive_the_partition) ... ok\ntest_the_control_is_classified_before_anything_else_is_asserted (test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_the_control_is_classified_before_anything_else_is_asserted) ... ok\n\n----------------------------------------------------------------------\nRan 20 tests in 6.603s\n\nOK\n"
+        },
+        "lookup_count_mutant": {
+          "tests": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0,
+          "log": "test_evidence_communities_remain_queryable_by_id (test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_communities_remain_queryable_by_id) ... FAIL\n\n======================================================================\nFAIL: test_evidence_communities_remain_queryable_by_id (test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_communities_remain_queryable_by_id)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py\", line 5536, in test_evidence_communities_remain_queryable_by_id\n    self.assertEqual(62, resp[\"data\"][\"total_node_count\"])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 62 != 61\n\n----------------------------------------------------------------------\nRan 1 test in 0.309s\n\nFAILED (failures=1)\n"
+        },
+        "crossing_edge_mutant": {
+          "tests": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0,
+          "log": "test_cross_boundary_edges_survive_the_partition (test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_cross_boundary_edges_survive_the_partition) ... FAIL\n\n======================================================================\nFAIL: test_cross_boundary_edges_survive_the_partition (test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_cross_boundary_edges_survive_the_partition)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py\", line 18142, in test_cross_boundary_edges_survive_the_partition\n    self.assertTrue(crossing,\n    ~~~~~~~~~~~~~~~^^^^^^^^^^\n                    \"every cross-boundary edge was discarded\")\n                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: [] is not true : every cross-boundary edge was discarded\n\n----------------------------------------------------------------------\nRan 1 test in 0.275s\n\nFAILED (failures=1)\n"
+        },
+        "historical_behavior_baseline": {
+          "tests": 4,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0,
+          "log": "test_real_v114_carrier_family_reconciles_and_retries_byte_stably (test_review_policy.ReviewPolicyReconcilerTests.test_real_v114_carrier_family_reconciles_and_retries_byte_stably) ... ok\ntest_real_v114_carriers_render_policy_and_pass_production_validator (test_review_policy.ReviewPolicyReconcilerTests.test_real_v114_carriers_render_policy_and_pass_production_validator) ... ok\ntest_old_main_pause_then_fresh_installed_main_relocated_pack_and_retry (test_storage_upgrade_resume.StorageUpgradeProcessResumeTests.test_old_main_pause_then_fresh_installed_main_relocated_pack_and_retry) ... ok\ntest_version_one_code_refuses_a_version_two_receipt_and_creates_nothing (test_sqlite_storage_migration.SchemaEightKindTests.test_version_one_code_refuses_a_version_two_receipt_and_creates_nothing) ... ok\n\n----------------------------------------------------------------------\nRan 4 tests in 11.216s\n\nOK\n"
+        },
+        "historical_integrity_baseline": {
+          "tests": 8,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0,
+          "log": "test_a_missing_bundle_fails_without_checkout_or_current_source_fallback (test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_a_missing_bundle_fails_without_checkout_or_current_source_fallback) ... ok\ntest_an_oversized_bundle_is_refused_before_decoding (test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_an_oversized_bundle_is_refused_before_decoding) ... ok\ntest_metadata_changes_are_rejected_by_the_pinned_bundle_digest (test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_metadata_changes_are_rejected_by_the_pinned_bundle_digest) ... ok\ntest_old_python_bytes_match_the_independently_recorded_source_digests (test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_old_python_bytes_match_the_independently_recorded_source_digests) ... ok\ntest_only_recorded_historical_absence_is_optional (test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_only_recorded_historical_absence_is_optional) ... ok\ntest_source_digest_is_checked_even_if_bundle_digest_is_recomputed (test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_source_digest_is_checked_even_if_bundle_digest_is_recomputed) ... ok\ntest_source_size_is_checked_even_when_its_bytes_and_digest_match (test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_source_size_is_checked_even_when_its_bytes_and_digest_match) ... ok\ntest_substituting_current_source_does_not_make_an_old_fixture_valid (test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_substituting_current_source_does_not_make_an_old_fixture_valid) ... ok\n\n----------------------------------------------------------------------\nRan 8 tests in 0.061s\n\nOK\n"
+        },
+        "source_integrity_guard_mutant": {
+          "tests": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0,
+          "log": "test_source_digest_is_checked_even_if_bundle_digest_is_recomputed (test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_source_digest_is_checked_even_if_bundle_digest_is_recomputed) ... FAIL\n\n======================================================================\nFAIL: test_source_digest_is_checked_even_if_bundle_digest_is_recomputed (test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_source_digest_is_checked_even_if_bundle_digest_is_recomputed)\n----------------------------------------------------------------------\nAssertionError: historical fixture bundle integrity mismatch\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_historical_fixture_support.py\", line 56, in test_source_digest_is_checked_even_if_bundle_digest_is_recomputed\n    with self.assertRaisesRegex(AssertionError, \"source integrity mismatch\"):\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: \"source integrity mismatch\" does not match \"historical fixture bundle integrity mismatch\"\n\n----------------------------------------------------------------------\nRan 1 test in 0.010s\n\nFAILED (failures=1)\n"
+        },
+        "provenance": [
+          {
+            "key": "v114:seed:160",
+            "ref": "d37227197df2ef9a595b475a4c1a03b8744055c3:docs/prompts/upgrade-wavefoundry.prompt.md",
+            "result": "git raw bytes exact"
+          },
+          {
+            "key": "v114:baseline:implement",
+            "ref": "d37227197df2ef9a595b475a4c1a03b8744055c3:docs/prompts/implement-wave.prompt.md",
+            "result": "git raw bytes exact"
+          },
+          {
+            "key": "v114:baseline:review",
+            "ref": "d37227197df2ef9a595b475a4c1a03b8744055c3:docs/prompts/review-wave.prompt.md",
+            "result": "git raw bytes exact"
+          },
+          {
+            "key": "v114:baseline:agent-review",
+            "ref": "d37227197df2ef9a595b475a4c1a03b8744055c3:docs/prompts/agents/review-wave.prompt.md",
+            "result": "git raw bytes exact"
+          },
+          {
+            "key": "v114:baseline:council",
+            "ref": "d37227197df2ef9a595b475a4c1a03b8744055c3:docs/prompts/council-review.prompt.md",
+            "result": "git raw bytes exact"
+          },
+          {
+            "key": "v114:baseline:prepare",
+            "ref": "d37227197df2ef9a595b475a4c1a03b8744055c3:docs/prompts/prepare-wave.prompt.md",
+            "result": "git raw bytes exact"
+          },
+          {
+            "key": "v114:docs/references/project-overview.md",
+            "ref": "d37227197df2ef9a595b475a4c1a03b8744055c3:docs/references/project-overview.md",
+            "result": "git raw bytes exact"
+          },
+          {
+            "key": "v114:docs/contributing/build-and-verification.md",
+            "ref": "d37227197df2ef9a595b475a4c1a03b8744055c3:docs/contributing/build-and-verification.md",
+            "result": "git raw bytes exact"
+          },
+          {
+            "key": "v114:docs/contributing/review-and-evals.md",
+            "ref": "d37227197df2ef9a595b475a4c1a03b8744055c3:docs/contributing/review-and-evals.md",
+            "result": "git raw bytes exact"
+          },
+          {
+            "key": "v114:docs/contributing/lifecycle-overview.md",
+            "ref": "d37227197df2ef9a595b475a4c1a03b8744055c3:docs/contributing/lifecycle-overview.md",
+            "result": "recorded absence verified"
+          },
+          {
+            "key": "v114:docs/specs/mcp-tool-surface.md",
+            "ref": "d37227197df2ef9a595b475a4c1a03b8744055c3:docs/specs/mcp-tool-surface.md",
+            "result": "git raw bytes exact"
+          },
+          {
+            "key": "v114:docs/references/dashboard-adapter-model.md",
+            "ref": "d37227197df2ef9a595b475a4c1a03b8744055c3:docs/references/dashboard-adapter-model.md",
+            "result": "git raw bytes exact"
+          },
+          {
+            "key": "v122-upgrade",
+            "ref": "feaef9ac0e5bffe3bed46498340eaf5e7d191583:.wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+            "result": "git raw bytes exact"
+          },
+          {
+            "key": "v1-receipt-reader",
+            "ref": "5e798daa159119c6f434eaf357b82dd264bb2a48:.wavefoundry/framework/scripts/sqlite_storage_migration.py",
+            "result": "git raw bytes exact"
+          }
+        ]
+      },
+      "historical_without_git": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "git_calls_denied": [
+          [
+            "git",
+            "init",
+            "-q",
+            "/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf resume lkbyd3nv/target with spaces"
+          ],
+          [
+            "git",
+            "-C",
+            "/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf resume lkbyd3nv/target with spaces",
+            "add",
+            "install-wavefoundry.md"
+          ],
+          [
+            "git",
+            "ls-files"
+          ],
+          [
+            "git",
+            "rev-parse",
+            "--is-inside-work-tree"
+          ],
+          [
+            "git",
+            "check-ignore",
+            "--stdin"
+          ],
+          [
+            "git",
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard"
+          ],
+          [
+            "git",
+            "rev-parse",
+            "--local-env-vars"
+          ],
+          [
+            "git",
+            "-C",
+            "/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp2ett3a6p",
+            "rev-parse",
+            "HEAD"
+          ],
+          [
+            "git",
+            "-C",
+            "/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp2ett3a6p",
+            "rev-parse",
+            "HEAD"
+          ],
+          [
+            "git",
+            "-C",
+            "/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp2ett3a6p",
+            "rev-parse",
+            "--is-inside-work-tree"
+          ]
+        ],
+        "log": "test_real_v114_carrier_family_reconciles_and_retries_byte_stably (test_review_policy.ReviewPolicyReconcilerTests.test_real_v114_carrier_family_reconciles_and_retries_byte_stably) ... ok\ntest_real_v114_carriers_render_policy_and_pass_production_validator (test_review_policy.ReviewPolicyReconcilerTests.test_real_v114_carriers_render_policy_and_pass_production_validator) ... ok\ntest_old_main_pause_then_fresh_installed_main_relocated_pack_and_retry (test_storage_upgrade_resume.StorageUpgradeProcessResumeTests.test_old_main_pause_then_fresh_installed_main_relocated_pack_and_retry) ... ok\ntest_version_one_code_refuses_a_version_two_receipt_and_creates_nothing (test_sqlite_storage_migration.SchemaEightKindTests.test_version_one_code_refuses_a_version_two_receipt_and_creates_nothing) ... ok\n\n----------------------------------------------------------------------\nRan 4 tests in 10.748s\n\nOK\n"
+      },
+      "extra_graph_case": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0
+      },
+      "mutation_table": [
+        {
+          "mutant": "successful publiclookup total_node_count62\u219261 only",
+          "test": "EvidencePartitionResponseTests.test_evidence_communities_remain_queryable_by_id",
+          "observed": "1failure0errors0skips",
+          "detected": true
+        },
+        {
+          "mutant": "remove only evidence/ordinary crossingedges after reading actual publishedgraph",
+          "test": "EvidenceNodesStayQueryableTests.test_cross_boundary_edges_survive_the_partition",
+          "observed": "1failure0errors0skips",
+          "detected": true
+        },
+        {
+          "mutant": "disable source size/digest check in temporary in-memory loader",
+          "test": "HistoricalFixtureIntegrityTests.test_source_digest_is_checked_even_if_bundle_digest_is_recomputed",
+          "observed": "1failure0errors0skips",
+          "detected": true
+        }
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "known_bad_detection_method": "focused-mutation and actualpre-fixprofilefailure; targetedtestspermutant,allmutantsdetected,no whole-file survivor sweep",
+      "independent_reference": "Read admittedACs,originalbeforebytes/scopedpatch and declarative expectedsource identities/counts; historical raw Git objects independent of bundle metadata.",
+      "universal_claim": false
+    },
+    {
+      "role": "release-reviewer",
+      "verification_context": {
+        "actor": "release-reviewer",
+        "context_id": "2071n-delivery-release-independent-20261009",
+        "fresh_context": true,
+        "independent": true
+      },
+      "pre_primer_prior": "Green default counts alone cannot establish package skip equivalence; approval must wait for exact identity/reason maps from default/second/declared on the frozen15paths.",
+      "primer_effect": "The primer preserved the exact-accounting requirement. Raw profilefailure confirms approval must staywithheld; additionally the externalaudit is stricter than docs for legitimate renamed markerreplacement of an already-skipped identity.",
+      "verdict": "NOT READY",
+      "approval": false,
+      "finding_ids": [
+        "QA-2071N-01",
+        "ARCH-2071N-02"
+      ],
+      "proposition": "Fullprofilequalification has no failedworkers and compares identity/reason maps with only documented loaded-profile skips.",
+      "counterexample_or_failure_condition": "Anyfailedworker,incompletecapture,equalcountswrongidentities,unmarkedsecondextras,declaredextras or unexplainedreasonchange.",
+      "execution_status": "executed",
+      "public_path": "Actual runner per-worker subprocess output; external output-onlycapture/reconciliation adapter",
+      "commands": [
+        "python3 -B /private/tmp/wf-2071n-release-probe.py",
+        "Independent parser of actual /private/tmp/wf-2071n-qualification default/second/declared raw workerJSON"
+      ],
+      "adapter_results": {
+        "multiline_fully_qualified_baseline": {
+          "expected_rc": 0,
+          "returncode": 0,
+          "stdout": "default: 2 tests / 1 files / 1 skips / 0 extra\nsecond: 2 tests / 1 files / 1 skips / 0 extra\ndeclared: 2 tests / 1 files / 1 skips / 0 extra\nExact skip identity/reason contract passed.\n",
+          "stderr": ""
+        },
+        "second_marker_extra_accepted": {
+          "expected_rc": 0,
+          "returncode": 0,
+          "stdout": "default: 2 tests / 1 files / 1 skips / 0 extra\nsecond: 3 tests / 1 files / 2 skips / 1 extra\ndeclared: 2 tests / 1 files / 1 skips / 0 extra\nExact skip identity/reason contract passed.\n",
+          "stderr": ""
+        },
+        "equal_count_wrong_identity_rejected": {
+          "expected_rc": "nonzero",
+          "returncode": 1,
+          "stdout": "",
+          "stderr": "Traceback (most recent call last):\n  File \"/private/tmp/wf-2071n-skip-capture/audit.py\", line 51, in <module>\n    assert not extra, extra\n           ^^^^^^^^^\nAssertionError: {'test_contract.Contract.test_different': 'native platform unavailable'}\n"
+        },
+        "same_identity_changed_reason_rejected": {
+          "expected_rc": "nonzero",
+          "returncode": 1,
+          "stdout": "",
+          "stderr": "Traceback (most recent call last):\n  File \"/private/tmp/wf-2071n-skip-capture/audit.py\", line 49, in <module>\n    assert all(current[key] == value for key, value in baseline.items() if key in current), profile\n           ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: second\n"
+        },
+        "extra_unmarked_skip_rejected": {
+          "expected_rc": "nonzero",
+          "returncode": 1,
+          "stdout": "",
+          "stderr": "Traceback (most recent call last):\n  File \"/private/tmp/wf-2071n-skip-capture/audit.py\", line 54, in <module>\n    assert all(value.startswith(\"default-profile-only:\") for value in extra.values()), extra\n           ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: {'test_contract.Contract.test_different': 'copied checkout has no index'}\n"
+        },
+        "missing_capture_rejected": {
+          "expected_rc": "nonzero",
+          "returncode": 1,
+          "stdout": "",
+          "stderr": "Traceback (most recent call last):\n  File \"/private/tmp/wf-2071n-skip-capture/audit.py\", line 14, in <module>\n    raise AssertionError(f\"missing {profile} worker outputs\")\nAssertionError: missing declared worker outputs\n"
+        },
+        "failed_worker_rejected": {
+          "expected_rc": "nonzero",
+          "returncode": 1,
+          "stdout": "",
+          "stderr": "Traceback (most recent call last):\n  File \"/private/tmp/wf-2071n-skip-capture/audit.py\", line 20, in <module>\n    assert record[\"returncode\"] == 0, path\n           ^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: /var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-review-skip-8_ib103p/second/test_contract.py.json\n"
+        },
+        "second_removed_baseline_skip_permitted": {
+          "expected_rc": 0,
+          "returncode": 0,
+          "stdout": "default: 2 tests / 1 files / 1 skips / 0 extra\nsecond: 2 tests / 1 files / 0 skips / 0 extra\ndeclared: 2 tests / 1 files / 1 skips / 0 extra\nExact skip identity/reason contract passed.\n",
+          "stderr": ""
+        }
+      },
+      "mutation_table": [
+        {
+          "mutant": "equal_count_wrong_identity_rejected",
+          "observed_rc": 1,
+          "detected": true
+        },
+        {
+          "mutant": "same_identity_changed_reason_rejected",
+          "observed_rc": 1,
+          "detected": true
+        },
+        {
+          "mutant": "extra_unmarked_skip_rejected",
+          "observed_rc": 1,
+          "detected": true
+        },
+        {
+          "mutant": "missing_capture_rejected",
+          "observed_rc": 1,
+          "detected": true
+        },
+        {
+          "mutant": "failed_worker_rejected",
+          "observed_rc": 1,
+          "detected": true
+        }
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "known_bad_detection_method": "injected-old/bad-output: equalcountwrongidentity,changedreason,unmarkedextra,missingcapture,failedworker; each independently run against currentadapter. Legitimate multiline/fullyqualified and explicitmarkerextra controls pass.",
+      "independent_reference": "Hand-authored packagingprofile contract at docs/contributing/build-and-verification.md Packagingprofilequalification; full raw workeroutput/178filename manifest rather than aggregate runnerexit.",
+      "advisory_external_oracle_issue": "Root confirmed named packaging contract permits shared second-profile identity reason replacement with explicit default_profile_only marker; external /tmp auditor correction pending. Full reasons must remain disclosed, declared map remains exact. This is an output instrument issue, no source-policy change requested.",
+      "universal_claim": false
+    }
+  ],
+  "shared_findings": [
+    {
+      "finding_id": "QA-2071N-01",
+      "file": ".wavefoundry/framework/scripts/tests/test_profile_support.py",
+      "lines": "278-287",
+      "class": "profile-regression",
+      "summary": "New declared-tools corpus meta-test fails in the supported renamed second-profile copy because forcing shipped editable constants leaves the imported derived corpus label regex renamed.",
+      "reachability": "not-externally-reachable",
+      "confidence": "high",
+      "severity": "medium",
+      "recommended_fix": "In the meta-test synchronize the derived corpus match vocabulary with the forced editable constants, or run the declared assertion in a genuinely declared copied process; preserve the >100-ID corpus assertion and run full second/declared/default afterward. Re-derive exact implementation against current source.",
+      "escalation_level": 2,
+      "approval_recheck_lanes": [
+        "code-reviewer",
+        "qa-reviewer",
+        "release-reviewer"
+      ],
+      "execution_status": "executed",
+      "public_path": "run_tests.py --profile second --file test_profile_support.py",
+      "command_or_fixture": "python3 -B .wavefoundry/framework/scripts/run_tests.py --profile second --file test_profile_support.py",
+      "expected": "76 tests complete with zero failures",
+      "observed": "Exit1,76tests,1failure,0skips; nested IsChangeIdTests actual corpus finds0IDs and fails >100 pin",
+      "artifact_or_test_id": "/private/tmp/wf-2071n-code-second-repro.log",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "known_bad_detection_method": "pre-fix-failure of actual supported profile execution, plus reviewer-owned focused mutants",
+      "dedup": "Same demonstrated root cause as QA-2071N-01; merge evidence, no second defect.",
+      "source_lanes": [
+        "code-reviewer",
+        "release-reviewer"
+      ],
+      "contract_relevance": "required_ac",
+      "introduced_by_wave": true,
+      "supported_reachability": true,
+      "attacker_reachability": false,
+      "impact": "material",
+      "authority_delta": "none",
+      "containment": "none",
+      "repair_scope": "focused",
+      "repair_execution_state": "not_started",
+      "disposition": "do_now",
+      "rejection_basis": "none",
+      "blocking": true,
+      "disposition_rationale": "The new meta-test is exercised by the supported second profile and prevents the promised same-tree full packaging qualification; no external actor or privilege delta is involved. Repair the meta-test while preserving original corpus non-vacuity, then run frozen full profiles and independent reverification."
+    },
+    {
+      "finding_id": "ARCH-2071N-02",
+      "file": "docs/architecture/testing-architecture.md",
+      "lines": "900-901",
+      "class": "false-qualification-documentation",
+      "summary": "Present-tense claim that existing live partition tests remain separate qualification is false after those affected tests moved to hermetic published fixtures.",
+      "reachability": "not-externally-reachable",
+      "confidence": "high",
+      "severity": "low",
+      "recommended_fix": "Update this paragraph to describe the affected partition tests as hermetic public-response qualification and name any canonical live/setup check only as separately scoped evidence.",
+      "source_lanes": [
+        "release-reviewer"
+      ],
+      "approval_recheck_lanes": [
+        "architecture-reviewer",
+        "release-reviewer"
+      ],
+      "contract_relevance": "public_contract",
+      "introduced_by_wave": true,
+      "supported_reachability": true,
+      "attacker_reachability": false,
+      "impact": "immaterial",
+      "authority_delta": "none",
+      "containment": "none",
+      "repair_scope": "focused",
+      "repair_execution_state": "not_started",
+      "disposition": "do_now",
+      "rejection_basis": "none",
+      "blocking": true,
+      "disposition_rationale": "Technical qualification documentation in frozen packet claims an existing live lane that affected current test setup does not execute. Correct the claim and independently re-read before release approval.",
+      "dedup": "Same demonstrated false present-tense claim as ARCH-2071N-02; merge release evidence into existing architecture finding.",
+      "execution_status": "executed",
+      "public_path": "Actual affected21 graph tests executed through hermetic fixture/public response; live MCP read of docs architecture lines895-906",
+      "artifact_or_test_id": "/private/tmp/wf-2071n-code-probe.json; EvidencePairDocumentationTests.test_the_pair_list_matches_what_the_report_actually_emits",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "known_bad_detection_method": "Current docs claim falsified by executable current test fixture setup and independently reviewed scoped diff"
+    }
+  ],
+  "qualification_inventory": {
+    "default": {
+      "files": 178,
+      "tests": 12040,
+      "failed": [],
+      "skips": {
+        "test_accel_embedder.AccelEmbedderTests.test_reranker_fp16_matches_fp32_when_available": "no GPU provider",
+        "test_contained_files.SwapInjectionWindowsTests.test_documented_window": "the POSIX twin is SwapInjectionTests",
+        "test_sqlite_storage_migration.ReceiptTests.test_native_windows_junction_migration_components_are_refused": "native Windows junction execution required; simulated Python 3.11 metadata runs on every host",
+        "test_server_tools_lifecycle.GuruCitationContractRenderTests.test_block_claims_match_the_implementation": "seed not present",
+        "test_server_tools_lifecycle.GuruCitationContractRenderTests.test_seed_and_rendered_blocks_are_byte_identical": "seed/render surfaces not present",
+        "test_server_tools_lifecycle.SignoffLatestStateTests.test_live_wave_records_parse_correctly": "wave record not found: docs/waves/1seav search-freshness-degraded-retrieval",
+        "test_dashboard_server.RenderMarkdownishDocumentContractTests.test_fixed_viewport_browser_geometry_has_no_document_overflow": "set WAVEFOUNDRY_BROWSER_TESTS=1 to execute fixed-viewport Chrome tests",
+        "test_design_token_build.WrapperDispatchTest.test_style_dictionary_absent_exits_actionable": "style-dictionary/npx present \u2014 actual run is install-time",
+        "test_python_diagnostic_windows.NativePythonDiagnosticTests.test_missing_python_preserves_seeded_checkout_and_fails_launcher": "requires native Windows process semantics",
+        "test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_helper_junction_is_refused_on_windows": "directory junctions exist only on native Windows",
+        "test_upgrade_wavefoundry.RetiredModelCleanupTests.test_native_windows_junction_root_and_nested_cleanup_preserve_referent": "native Windows junction cleanup qualification; simulated metadata runs on every host",
+        "test_runtime_lock.LinuxOfdEvidenceTests.test_held_byte_reports_an_ofd_holder": "Linux x86_64 or aarch64 only (wave 200xy, 200v2)",
+        "test_runtime_lock.LinuxOfdEvidenceTests.test_ofd_tests_run_rather_than_skip": "Linux x86_64 or aarch64 only (wave 200xy, 200v2)"
+      }
+    },
+    "second": {
+      "files": 155,
+      "tests": 10730,
+      "failed": [
+        "test_profile_support.py.json"
+      ],
+      "skips": {
+        "test_accel_embedder.AccelEmbedderTests.test_reranker_fp16_matches_fp32_when_available": "no GPU provider",
+        "test_contained_files.SwapInjectionWindowsTests.test_documented_window": "the POSIX twin is SwapInjectionTests",
+        "test_review_policy.ReviewLoopFrictionPolicyTests.test_carrier_boundary_census_reports_its_own_transition_cost": "default-profile-only: a census of this repository's own documents, which are written in the default profile (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+        "test_server_tools_lifecycle.DeclaredWaveTreeSweepTests.setUpClass": "default-profile-only: census of this repository's own closed wave records (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+        "test_server_tools_lifecycle.GuruCitationContractRenderTests.test_block_claims_match_the_implementation": "seed not present",
+        "test_server_tools_lifecycle.GuruCitationContractRenderTests.test_seed_and_rendered_blocks_are_byte_identical": "seed/render surfaces not present",
+        "test_server_tools_lifecycle.SignoffLatestStateTests.test_live_wave_records_parse_correctly": "default-profile-only: reads this repository's own closed wave records (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+        "test_server_tools_lifecycle.WaveImplementTests.test_roster_extractors_agree_over_current_wave_corpus": "default-profile-only: census of this repository's own wave records (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+        "test_dashboard_server.RenderMarkdownishDocumentContractTests.test_fixed_viewport_browser_geometry_has_no_document_overflow": "set WAVEFOUNDRY_BROWSER_TESTS=1 to execute fixed-viewport Chrome tests",
+        "test_design_token_build.WrapperDispatchTest.test_style_dictionary_absent_exits_actionable": "style-dictionary/npx present \u2014 actual run is install-time",
+        "test_python_diagnostic_windows.NativePythonDiagnosticTests.test_missing_python_preserves_seeded_checkout_and_fails_launcher": "requires native Windows process semantics",
+        "test_record_layout_lifecycle.DefaultLayoutUnchangedTests.test_default_paths_are_byte_identical": "default-profile-only: pins path identity on the shipped layout (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+        "test_review_evidence.RealCorpusRegressionTests.setUpClass": "default-profile-only: a census of this repository's own closed wave records, which are written in the default profile (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+        "test_docs_lint.SerializationPointsTokenGrammarPinTests.test_the_fenced_examples_are_untouched": "default-profile-only: pins the shipped plan template's fenced example text, written for the default layout (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+        "test_context_efficiency.OpenWaveAttributionTests.test_stage_derivation_parses_real_canonical_ledger": "default-profile-only: reads this repository's own live wave ledgers under the shipped waves root (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+        "test_record_paths.NestedDiscoveryTests.test_default_max_depth_is_four_and_finds_a_depth_four_wave": "default-profile-only: pins the shipped MAX_DEPTH default of four (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+        "test_record_paths.ShippedLayoutTests.test_shipped_constants_are_the_historical_layout_byte_identical": "default-profile-only: pins the shipped layout constants and their historical joins (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+        "test_runtime_lock.LinuxOfdEvidenceTests.test_held_byte_reports_an_ofd_holder": "Linux x86_64 or aarch64 only (wave 200xy, 200v2)",
+        "test_runtime_lock.LinuxOfdEvidenceTests.test_ofd_tests_run_rather_than_skip": "Linux x86_64 or aarch64 only (wave 200xy, 200v2)",
+        "test_change_id_path_guard.IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository": "default-profile-only: this repository's admitted-ID corpus uses the shipped vocabulary and layout (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)"
+      }
+    },
+    "declared": {
+      "files": 0,
+      "tests": 0,
+      "failed": [],
+      "skips": {}
+    }
+  },
+  "limitations": [
+    "Default receipt is not all-profile release qualification. Currentsecond failure requires repair and fresh full all-profile runs.",
+    "Finite fixture/property probes do not certify arbitrary graph topology/clustering or universal compatibility.",
+    "No nativeWindows,freshhost/runtime restart,newpackage,commit,closure or publication.",
+    "Two roles share this disclosed independent context; no implementation context retained."
+  ],
+  "no_source_docs_ledger_commit_close_writes": true
+}

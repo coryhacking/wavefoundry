@@ -1644,6 +1644,8 @@ class JournalDeclarationError(RuntimeError):
 # ``sys.modules`` never answers and nothing loaded here is left registered.
 _JOURNAL_DECLARATION_MODULE = "_wf_upgrade_journal_declaration"
 _JOURNAL_HOOK_MODULE_PREFIX = "_wf_upgrade_journal_hook_"
+_JOURNAL_TRIGGER_NAME = "EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER"
+_JOURNAL_TRIGGER_POLICIES = ("legacy_cutover", "journals_present")
 # Each free-text placeholder matches 1 to _JOURNAL_PLACEHOLDER_MAX characters
 # of one line. A real wave id or title is far shorter; the bound keeps a
 # template with two free-text placeholders on one line from backtracking
@@ -1667,6 +1669,51 @@ _UNSET = object()
 
 def _journal_scripts_dir(root: Path) -> Path:
     return Path(root) / ".wavefoundry" / "framework" / "scripts"
+
+
+@contextlib.contextmanager
+def _journal_incoming_imports(scripts: Path):
+    """Use incoming siblings for this declaration/hook load and call only.
+
+    The upgrade runner is single-threaded. This is import-state isolation,
+    not a sandbox for trusted distribution code or a generic module reload.
+    Preserve old package objects and descendants rather than mutating them.
+    """
+    try:
+        with os.scandir(scripts) as entries:
+            names = {
+                entry.name[:-3] if entry.name.endswith(".py") else entry.name
+                for entry in entries
+                if ((entry.name.endswith(".py") and entry.is_file(follow_symlinks=False))
+                    or entry.is_dir(follow_symlinks=False))
+            }
+    except FileNotFoundError:
+        names = set()
+    except OSError as exc:
+        raise JournalDeclarationError(
+            [f"incoming journal modules cannot be listed ({type(exc).__name__})"]
+        ) from None
+    names = {name for name in names if name.isidentifier() and name != "__pycache__"}
+
+    def affected(name):
+        return name.partition(".")[0] in names
+
+    previous_modules = {name: module for name, module in sys.modules.copy().items() if affected(name)}
+    previous_path = list(sys.path)
+    for name in previous_modules:
+        sys.modules.pop(name, None)
+    path = str(scripts)
+    sys.path[:] = [path] + [entry for entry in previous_path if entry != path]
+    try:
+        importlib.invalidate_caches()
+        yield
+    finally:
+        for name in list(sys.modules):
+            if affected(name):
+                sys.modules.pop(name, None)
+        sys.modules.update(previous_modules)
+        sys.path[:] = previous_path
+        importlib.invalidate_caches()
 
 
 def _exec_module_from_file(name: str, path: Path):
@@ -1738,7 +1785,8 @@ def _load_journal_hook(scripts: Path, hook: str):
     return function
 
 
-def _load_journal_declaration(root, *, load_hook: bool = True) -> "tuple[tuple[str, ...], str, object]":
+def _load_journal_declaration(root, *, load_hook: bool = True,
+                              expected_trigger=None) -> "tuple[tuple[str, ...], str, object]":
     """The journal migration declaration from the EXTRACTED tree (wave 1zyb3,
     change 1zxnv): ``(templates, hook_name, hook_callable_or_None)``.
 
@@ -1751,6 +1799,11 @@ def _load_journal_declaration(root, *, load_hook: bool = True) -> "tuple[tuple[s
     path = scripts / "mcp_tool_extensions.py"
     if not path.is_file():
         return (), "", None
+    if expected_trigger is None:
+        selection = _static_journal_trigger(root)
+        if selection["status"] == "invalid":
+            raise JournalDeclarationError([selection["detail"]])
+        expected_trigger = selection["policy"] or "legacy_cutover"
     try:
         module = _exec_module_from_file(_JOURNAL_DECLARATION_MODULE, path)
     except Exception as exc:  # noqa: BLE001 - refused, never raised raw
@@ -1759,6 +1812,7 @@ def _load_journal_declaration(root, *, load_hook: bool = True) -> "tuple[tuple[s
         ) from None
     templates = getattr(module, "EXTENSION_JOURNAL_TEMPLATES", ())
     hook = getattr(module, "EXTENSION_JOURNAL_PRE_MIGRATION_HOOK", "")
+    trigger = getattr(module, _JOURNAL_TRIGGER_NAME, "legacy_cutover")
     check = getattr(module, "journal_declaration_problems", None)
     if callable(check):
         problems = list(check())
@@ -1766,6 +1820,10 @@ def _load_journal_declaration(root, *, load_hook: bool = True) -> "tuple[tuple[s
         problems = ["mcp_tool_extensions declares journal migration entries but has no journal_declaration_problems"]
     else:
         problems = []
+    if not isinstance(trigger, str) or trigger not in _JOURNAL_TRIGGER_POLICIES:
+        problems.append(f"{_JOURNAL_TRIGGER_NAME} must be 'legacy_cutover' or 'journals_present'")
+    elif trigger != expected_trigger:
+        problems.append(f"{_JOURNAL_TRIGGER_NAME} does not match the static trigger selection")
     if problems:
         raise JournalDeclarationError(problems)
     function = _load_journal_hook(scripts, hook) if hook and load_hook else None
@@ -1848,6 +1906,114 @@ def _static_module_literal(tree: "ast.Module", name: str):
     if value_node is None:
         return ()
     return ast.literal_eval(value_node)
+
+
+def _static_journal_trigger(root: Path, zip_path=None, *, extracted: bool = False) -> dict:
+    """Select the hook policy without executing a distribution declaration.
+
+    Preview uses the incoming archive when supplied; apply reads the extracted
+    file, with the incoming read helper available even to a zip-loaded runner.
+    Unknown source is distinct from an explicitly unsupported binding.
+    """
+    try:
+        if zip_path is not None and not extracted:
+            with zipfile.ZipFile(zip_path) as archive:
+                candidates = (
+                    ".wavefoundry/framework/scripts/mcp_tool_extensions.py",
+                    "framework/scripts/mcp_tool_extensions.py",
+                )
+                member = next((name for name in candidates if name in archive.namelist()), None)
+                if member is None:
+                    return {"policy": "legacy_cutover", "status": "valid"}
+                if archive.getinfo(member).file_size > _JOURNAL_DECLARATION_MAX_BYTES:
+                    raise ValueError("declaration exceeds cap")
+                source = archive.read(member)
+        else:
+            if not os.path.lexists(Path(root) / _JOURNAL_DECLARATION_REL):
+                return {"policy": "legacy_cutover", "status": "valid"}
+            reader = _incoming_framework_module("contained_files", zip_path)
+            source = reader.read_contained_bytes(
+                root, _JOURNAL_DECLARATION_REL, max_bytes=_JOURNAL_DECLARATION_MAX_BYTES
+            )
+        tree = ast.parse(source)
+    except Exception as exc:  # noqa: BLE001 -- never disclose paths or source values
+        return {"policy": None, "status": "unknown", "detail":
+                f"journal trigger source is not statically readable ({type(exc).__name__})"}
+
+    try:
+        direct = []
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and any(
+                isinstance(target, ast.Name) and target.id == _JOURNAL_TRIGGER_NAME
+                for target in node.targets
+            ):
+                direct.append(node)
+            elif (isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+                  and node.target.id == _JOURNAL_TRIGGER_NAME):
+                direct.append(node)
+        # Function/class/exception/pattern/import bindings also count as an
+        # explicit unsupported declaration; do not silently default them.
+        other_binding = any(
+            (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.ExceptHandler))
+             and node.name == _JOURNAL_TRIGGER_NAME)
+            or (isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name == _JOURNAL_TRIGGER_NAME)
+            or (isinstance(node, ast.MatchMapping) and node.rest == _JOURNAL_TRIGGER_NAME)
+            for node in ast.walk(tree)
+        )
+        value = _static_module_literal(tree, _JOURNAL_TRIGGER_NAME)
+        if not direct and value == () and not other_binding:
+            return {"policy": "legacy_cutover", "status": "valid"}
+        if len(direct) != 1 or other_binding or not isinstance(value, str) or value not in _JOURNAL_TRIGGER_POLICIES:
+            raise ValueError("unsupported trigger binding")
+    except Exception:  # noqa: BLE001 -- classification, no execution or value echo
+        return {"policy": None, "status": "invalid", "detail":
+                f"{_JOURNAL_TRIGGER_NAME} requires one direct literal string: 'legacy_cutover' or 'journals_present'"}
+    return {"policy": value, "status": "valid"}
+
+
+def _journals_present(root: Path, zip_path=None) -> bool:
+    """Inspect direct qualifying names/metadata only, never journal contents.
+
+    Reuse the migration's no-follow containment and descriptor walk on POSIX;
+    the existing Windows path branch retains its documented check/use limit.
+    """
+    root = Path(root)
+    fd = None
+    try:
+        containment = _incoming_framework_module("path_containment", zip_path)
+        folder = containment.contained_path(root, _JOURNALS_REL, refuse_symlink_components=True)
+        folder_st = _journal_lstat(folder)
+        if folder is None or folder_st is None or not stat.S_ISDIR(folder_st.st_mode):
+            return False
+        if _journal_dir_fd_supported():
+            _journal_walk_checkpoint("journals")
+            fd = _journal_open_dir(root, _JOURNALS_REL.parts)
+        with os.scandir(fd if fd is not None else folder) as entries:
+            for entry in entries:
+                if not entry.name.endswith(".md") or entry.name == "README.md":
+                    continue
+                if fd is not None:
+                    original = os.stat(entry.name, dir_fd=fd, follow_symlinks=False)
+                    if _journal_source_ok(original) and _journal_dir_unchanged(root, _JOURNALS_REL.parts, fd):
+                        return True
+                else:
+                    candidate = containment.contained_path(
+                        root, _JOURNALS_REL / entry.name, refuse_symlink_components=True
+                    )
+                    if candidate is not None and _journal_source_ok(_journal_lstat(candidate)):
+                        return True
+    except Exception:  # noqa: BLE001 -- a refused/uninspectable source never qualifies
+        return False
+    finally:
+        if fd is not None:
+            os.close(fd)
+    return False
+
+
+def _journal_hook_preview(root: Path, zip_path=None) -> dict:
+    selection = _static_journal_trigger(root, zip_path)
+    return {**selection, "qualifying_journals": _journals_present(root, zip_path),
+            "hook_executed": False, "invocation": "upgrade_apply_only"}
 
 
 def _static_journal_templates(root: Path, zip_path=None) -> "tuple[tuple[str, ...], bool]":
@@ -1934,6 +2100,8 @@ def migrate_journals(root, *, apply: bool = False, templates=_UNSET, zip_path=No
 
     root = Path(root)
     report: dict = {"deleted": [], "moved": [], "left": [], "warnings": []}
+    if not apply:
+        report["hook_preview"] = _journal_hook_preview(root, zip_path)
     templates_unknown = False
     if templates is _UNSET:
         if apply:
@@ -2191,26 +2359,33 @@ def _migrate_journals(root: Path, templates=_UNSET) -> None:
         )
 
 
-def _run_journal_pre_migration_hook(root: Path, hook_name: str, hook) -> bool:
+def _run_journal_pre_migration_hook(root: Path, hook_name: str, hook, *,
+                                   trigger: str = "legacy_cutover") -> bool:
     """Call the declared pre-migration hook once with the repository root
     (wave 1zyb3, 1zxnv). True when the migration may run: no hook, or the
     hook returned. A hook that raises skips the migration for this upgrade
     with one warning naming the hook and the exception class, never the
     exception text, which may carry an absolute path.
 
-    Wave 200ey (200ev): the hook runs only on an upgrade from a release before
-    1.15.0, so the warning says that later upgrades never retry the migration
-    or the hook and names the Migrate journals prompt as the way to finish."""
+    Default legacy hooks are not retried on later versions. An opted-in hook
+    may run on a later invocation while qualifying sources remain; its own
+    partial effects are not rolled back and it must be idempotent."""
     if hook is None:
         return True
     try:
         hook(Path(root))
     except Exception as exc:  # noqa: BLE001 - never fatal to an upgrade
+        retry = (
+            "A later invocation may call the hook again while qualifying journals remain; "
+            "the hook must be idempotent. "
+            if trigger == "journals_present" else
+            "later upgrades do not retry the migration or call the hook again. "
+        )
         print(
             f"journal migration WARNING: skipped; the pre-migration hook {hook_name} "
-            f"raised {type(exc).__name__}. Journals were left in place; later "
-            "upgrades do not retry the migration or call the hook again. Run "
-            "the Migrate journals prompt to finish the work.",
+            f"raised {type(exc).__name__}. Dependent journal migration was skipped; "
+            "hook-owned partial effects are not rolled back. " + retry +
+            "Run the Migrate journals prompt to finish the work.",
             flush=True,
         )
         return False
@@ -2467,6 +2642,12 @@ def pre_docs_gate(ctx):
     gives that runner the new one-way sidecar cleanup before docs-lint runs.
     """
 
+    if getattr(ctx, "dry_run", False) is True:
+        print("journal hook preview: " + json.dumps(
+            _journal_hook_preview(ctx.root, getattr(ctx, "zip_path", None)), sort_keys=True
+        ), flush=True)
+        return
+
     # 1.15.6's scaffold rule is class-a, so a repository whose template already
     # declares would halt at the docs gate on the very upgrade that installs
     # the rule. Repair first, from this pack-loaded module, so it clears on the
@@ -2484,21 +2665,31 @@ def pre_docs_gate(ctx):
     # is idempotent either way. Non-string from_version falls to the module's
     # unknown-means-old safe default.
     from_version = ctx.from_version if isinstance(ctx.from_version, str) else ""
-    if _from_version_predates(from_version, "1.15.0"):
-        # Wave 1zyb3 (1zxnv): the distribution's journal declaration, loaded
-        # by path from the extracted tree only when the migration runs, and
-        # FIRST, so an invalid one (or a hook that cannot be loaded) raises
-        # before the memory-naming or journal migration changes anything. The
-        # loaded templates are always passed on, so the declaration module is
-        # executed once; the hook runs right before the journal migration, and
-        # a hook that raises skips it. Wave 200ey (200ev): the extracted
-        # scripts directory is held on sys.path across the hook's load and its
-        # call (a hook may import helpers declared before it), then removed.
-        with _scripts_on_sys_path(_journal_scripts_dir(ctx.root)):
-            templates, hook_name, hook = _load_journal_declaration(ctx.root)
-            _migrate_memory_naming(ctx.root)
-            if _run_journal_pre_migration_hook(ctx.root, hook_name, hook):
-                _migrate_journals(ctx.root, templates)
+    legacy = _from_version_predates(from_version, "1.15.0")
+    zip_path = getattr(ctx, "zip_path", None)
+    selection = _static_journal_trigger(ctx.root, zip_path, extracted=True)
+    if selection["status"] == "invalid":
+        raise JournalDeclarationError([selection["detail"]])
+    if selection["status"] == "unknown" and not legacy:
+        print("journal hook WARNING: unknown trigger; " + selection["detail"] +
+              "; hook skipped without executing the declaration.", flush=True)
+    else:
+        # Unknown pre-cutover sources retain validated load/refusal. Only a
+        # statically selected opt-in can broaden scheduling beyond that gate.
+        trigger = selection["policy"] or "legacy_cutover"
+        eligible = trigger == "legacy_cutover" or _journals_present(ctx.root, zip_path)
+        if legacy or (trigger == "journals_present" and eligible):
+            with _journal_incoming_imports(_journal_scripts_dir(ctx.root)):
+                templates, hook_name, hook = _load_journal_declaration(
+                    ctx.root, load_hook=eligible, expected_trigger=trigger
+                )
+                if legacy:
+                    _migrate_memory_naming(ctx.root)
+                hook_ok = not eligible or _run_journal_pre_migration_hook(
+                    ctx.root, hook_name, hook, trigger=trigger
+                )
+                if legacy and hook_ok:
+                    _migrate_journals(ctx.root, templates)
 
     lock = _read_json_object(
         ctx.root / ".wavefoundry" / "upgrade-in-progress.json"
@@ -3517,6 +3708,78 @@ def _run_convergence_migration(ctx):
 # --- Wired hook --------------------------------------------------------------
 
 
+def _preview_council_role_links(ctx) -> None:
+    """Preview the incoming renderer in a private scripts tree, never the target.
+
+    This renderer has framework dependencies, so the stdlib-only private module
+    loader cannot supply it. A -B child imports the incoming scripts from a
+    temporary directory; no target extraction, cache warming or log write.
+    """
+    import tempfile
+    from pathlib import PurePosixPath
+    with tempfile.TemporaryDirectory(prefix="wavefoundry-role-preview-") as temp:
+        scripts = Path(temp) / "scripts"
+        scripts.mkdir()
+        archive_path = getattr(ctx, "zip_path", None)
+        if archive_path is not None:
+            here = Path(__file__)
+            prefix = (here.parent.as_posix() + "/") if not here.is_absolute() else ".wavefoundry/framework/scripts/"
+            with zipfile.ZipFile(archive_path) as archive:
+                # The normal pack prefix is discovered from its extension member.
+                prefixes = [name.rsplit("/", 1)[0] + "/" for name in archive.namelist()
+                            if name.endswith("/scripts/upgrade_extensions.py")]
+                if len(prefixes) == 1:
+                    prefix = prefixes[0]
+                for name in archive.namelist():
+                    if not name.startswith(prefix) or not name.endswith(".py"):
+                        continue
+                    relative = PurePosixPath(name[len(prefix):])
+                    if relative.is_absolute() or ".." in relative.parts:
+                        raise ValueError("incoming preview script path refused")
+                    target = scripts.joinpath(*relative.parts)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(archive.read(name))
+        else:
+            import shutil
+            shutil.copytree(Path(__file__).parent, scripts, dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns("tests", "benchmarks", "__pycache__"))
+        if not (scripts / "render_agent_surfaces.py").is_file():
+            return
+        program = (
+            "import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); "
+            "import render_agent_surfaces as r; "
+            "p=r.migrate_council_role_renames(Path(sys.argv[2]), apply=False); "
+            "print('\\n'.join(p.link_report))"
+        )
+        # Resolve the incoming stdlib-only helper privately: an old runner's
+        # cached subprocess_util must not shadow this pack's isolation contract.
+        try:
+            subprocess_util = _incoming_framework_module("subprocess_util", archive_path)
+        except _IncomingModuleUnavailable as exc:
+            # Missing incoming preview support is a diagnostic, not permission
+            # to run an unisolated child or stop the other migration previews.
+            print(
+                "council role migration preview: ERROR — incoming subprocess_util "
+                f"unavailable ({exc}); verify the pack scripts and retry preview; "
+                "no target files were written by the role-link preview",
+                file=sys.stderr, flush=True,
+            )
+            return
+        interpreter = subprocess_util.windowless_pythonw() or sys.executable
+        result = subprocess_util.run_with_tree_kill(
+            [interpreter, "-B", "-c", program, str(scripts), str(ctx.root)],
+            capture_output=True, text=True, timeout=60,
+            env=subprocess_util.utf8_child_env({
+                **{k: v for k, v in os.environ.items() if k != "PYTHONPYCACHEPREFIX"},
+                "PYTHONDONTWRITEBYTECODE": "1",
+            }),
+        )
+        if result.returncode:
+            raise RuntimeError("incoming role-link preview refused; restore contained role/docs paths and retry")
+        for line in result.stdout.splitlines():
+            print("council role migration preview: " + line, flush=True)
+
+
 def post_extract(ctx):
     """1.4.x → 1.5.0 migration hook.
 
@@ -3542,6 +3805,10 @@ def post_extract(ctx):
     it there.
     """
     if getattr(ctx, "dry_run", False):
+        print("journal hook preview: " + json.dumps(
+            _journal_hook_preview(ctx.root, getattr(ctx, "zip_path", None)), sort_keys=True
+        ), flush=True)
+        _preview_council_role_links(ctx)
         return _post_extract(ctx)
     with _scripts_on_sys_path(_journal_scripts_dir(ctx.root)):
         return _post_extract(ctx)

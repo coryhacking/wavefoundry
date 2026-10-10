@@ -293,3 +293,84 @@ def unpublish_graph(root, *, layer: str = "project") -> None:
     finally:
         store.close()
     graph_snapshot.invalidate(root, layer)
+
+
+def publish_evidence_fixture(root: Path) -> dict:
+    """Extract and publish bounded sources for evidence query qualification.
+
+    No operator index, checkout history or hand-stamped classification is used.
+    The walker sees both indexed controls and real ignored source files; the
+    graph extractor resolves the Markdown links across the evidence boundary.
+    Membership is deliberately curated by source file, since these tests pin
+    query partitioning/ranking, not the clustering algorithm. Two large
+    evidence communities outrank two production communities independently.
+    """
+    import hashlib
+    import graph_quality_eval
+    import indexer
+
+    root = Path(root)
+    control = graph_quality_eval.CONTROL_DIRECTORY
+    machine = f"{control}/machine-result-control.json"
+    sources = {
+        ".aiignore": "docs/evals/\ndocs/reports/\n.wavefoundry/index/\n",
+        machine: json.dumps({"generated_by": "graph_quality_eval.py",
+                             "captured_at": "2026-01-01T00:00:00Z",
+                             "command": "controlled qualification", "result": 1}),
+        f"{control}/design-tokens-control.json": json.dumps(
+            {"colors": {"primary": "blue"}, "spacing": 8}),
+        f"{control}/service-config-control.json": json.dumps(
+            {"service": "catalog", "port": 8080}),
+        f"{control}/user-authored-data-control.json": json.dumps(
+            {"names": ["Ada", "Lin"], "purpose": "reference"}),
+        ".wavefoundry/framework/scripts/retrieval_eval.py":
+            "def score_results(rows):\n    return len(rows)\n",
+        "docs/design/controls.md":
+            f"# Controls\n\n[Result](../../{machine})\n"
+            "[Evaluator](../../.wavefoundry/framework/scripts/retrieval_eval.py)\n",
+        "docs/evals/ignored-control.json": '{"generated_by": "probe"}',
+        "docs/reports/ignored-control.json": '{"generated_by": "probe"}',
+    }
+    for rel, fields, evidence in (
+        ("src/payments/ledger.json", 30, False),
+        ("src/search/ranking.json", 20, False),
+        ("artifacts/results.json", 60, True),
+        ("artifacts/trace.json", 50, True),
+    ):
+        payload = {f"field{i}": i for i in range(fields)}
+        if evidence:
+            payload["generated_by"] = "qa/controlled-probe.py"
+        sources[rel] = json.dumps(payload)
+    for rel, source in sources.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source, encoding="utf-8")
+
+    files = indexer.walk_repo(root)
+    meta = {path.relative_to(root).as_posix(): {
+        "hash": hashlib.sha256(path.read_bytes()).hexdigest()} for path in files}
+    payload = graph_indexer.update_graph_index(
+        root=root, index_dir=index_dir_for(root), layer="project", files=files,
+        current_file_meta=meta, changed=set(meta), removed=set(),
+        walker_version=indexer.WALKER_VERSION, chunker_version="1", verbose=False)
+    by_file = {}
+    for node in payload["nodes"]:
+        owner = str(node.get("source_file") or node.get("file") or
+                    node["id"].split("::", 1)[0])
+        by_file.setdefault(owner, []).append(node["id"])
+    communities = []
+    for owner, members in sorted(by_file.items()):
+        member_set = set(members)
+        communities.append({
+            "community_id": f"project:{owner}", "label": Path(owner).stem,
+            "seed_node_id": owner, "node_ids": members, "node_count": len(members),
+            "edge_count": sum(edge["source"] in member_set and
+                              edge["target"] in member_set for edge in payload["edges"]),
+            "boundary_node_count": 0, "generated_node_fraction": 0.0,
+        })
+    clusters = cluster_payload(
+        communities, input_fingerprint=payload["input_fingerprint"],
+        graph_schema_version=payload["schema_version"])
+    publish_graph(root, graph=payload, clusters=clusters)
+    # Read what was committed, rather than returning pre-publication rows.
+    return graph_snapshot.acquire(root, "project").graph

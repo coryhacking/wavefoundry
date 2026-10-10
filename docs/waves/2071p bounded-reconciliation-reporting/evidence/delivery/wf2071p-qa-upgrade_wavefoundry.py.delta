@@ -1,0 +1,491 @@
+--- docs/waves/2071p bounded-reconciliation-reporting/evidence/implementation/upgrade_wavefoundry.py.baseline.txt
+
++++ .wavefoundry/framework/scripts/upgrade_wavefoundry.py
+
+@@ -31,6 +31,8 @@
+
+ from __future__ import annotations
+ 
+ import argparse
++import time
++import math
+ import datetime
+ import hashlib
+ import json
+@@ -164,6 +166,9 @@
+
+ SUMMARY_SCHEMA_VERSION = 1
+ _RECOGNIZED_SUMMARY_SCHEMAS = frozenset({SUMMARY_SCHEMA_VERSION})
+ SUMMARY_DEGRADATION_MARKER_KEY = "summary_source_degraded"
++_REPORTING_WORK_SECONDS = 30.0
++_REPORTING_BUDGET_ENV = "WAVEFOUNDRY_REPORTING_SECONDS"
++_REPORTING_PROGRESS_ENV = "WAVEFOUNDRY_REPORTING_PROGRESS"
+ _SUMMARY_DELEGATE_TIMEOUT_S = 300  # 5 minutes: matches the _HOOK_TIMEOUT_S precedent
+ 
+ # Wave 1p5do: the lowest installed version this pack still carries migrations for. Migrations for
+@@ -198,6 +203,40 @@
+
+     return str(vp) if vp.exists() else sys.executable
+ 
+ 
++_VERIFIED_PACK_IDENTITIES: dict[str, dict] = {}
++
++
++def _pack_entry_identity(path: Path) -> list[int] | None:
++    try:
++        entry = path.lstat()
++    except OSError:
++        return None
++    if not stat.S_ISREG(entry.st_mode) or entry.st_nlink != 1:
++        return None
++    return [entry.st_dev, entry.st_ino, entry.st_size, entry.st_mtime_ns, entry.st_ctime_ns]
++
++
++def _cleanup_verified_pack(path: Path | None, proof: dict | None) -> None:
++    """Remove only the unchanged regular private copy verified by staging."""
++    if path is None or path.parent != Path(tempfile.gettempdir()) or not path.name.startswith("wf-verified-pack-"):
++        return
++    identity_proof = proof.get("identity") if isinstance(proof, dict) else None
++    if (not isinstance(identity_proof, list) or len(identity_proof) != 5
++            or not all(type(value) is int for value in identity_proof)
++            or proof.get("path") != str(path)
++            or identity_proof != _pack_entry_identity(path)):
++        _log("  Private pack retained — verified ownership/identity is not proven.")
++        return
++    try:
++        import contained_files
++        judged, identity = contained_files.judge_contained_file(path.parent, path)
++        if list(identity) != proof["identity"][:2]:
++            return
++        contained_files.unlink_contained(path.parent, judged, expected_identity=identity)
++    except OSError:
++        _log("  Verified private pack cleanup could not complete; retained.")
++
++
+ def _stage_pack_for_consumption(
+     path: Path, expected_sha256: str | None = None
+ ) -> Path:
+@@ -219,6 +258,10 @@
+
+         import upgrade_protocol
+ 
+         upgrade_protocol.validate_feature_pack(staged)
++        identity = _pack_entry_identity(staged)
++        if identity is None:
++            raise ValueError("verified private pack identity could not be established")
++        _VERIFIED_PACK_IDENTITIES[str(staged)] = {"path": str(staged), "identity": identity}
+         return staged
+     except BaseException:
+         staged.unlink(missing_ok=True)
+@@ -3480,6 +3523,9 @@
+
+         return
+ 
+     lock_state = upgrade_lib.read_upgrade_lock(root) or {}
++    verified_pack_identity = lock_state.get("verified_pack_identity")
++    if not isinstance(verified_pack_identity, dict):
++        verified_pack_identity = _VERIFIED_PACK_IDENTITIES.get(str(zip_path))
+     restart_pending = bool(lock_state.get("dashboard_restart_pending"))
+     restart_port = lock_state.get("dashboard_restart_port")
+     # Wave 1u2b0: cleanup usually runs in a DIFFERENT process from the render, so the
+@@ -3604,27 +3650,36 @@
+
+     if not stamp_baseline:
+         _log("  Setup baseline not recorded (index update did not complete); run `wf setup`.")
+ 
+-    _print_operator_summary(
+-        from_version=from_version,
+-        to_version=to_version,
+-        zip_path=zip_path,
+-        pruned_count=pruned_count,
+-        ran_index_rebuild=ran_index_rebuild,
+-        failed_phase=failed_phase,
+-        root=root,
+-        review_sidecar_cleanup=review_sidecar_cleanup,
+-        permissions_delta=_cl_permissions,
+-        index_update_failed=index_update_failed,
+-        retired_model_cleanup=retired_model_cleanup,
+-        setup_assessment=setup_assessment,
+-        dependency_provisioning_failed=dependency_provisioning_failed,
+-    )
+-    if (
+-        zip_path is not None
+-        and zip_path.parent == Path(tempfile.gettempdir())
+-        and zip_path.name.startswith("wf-verified-pack-")
+-    ):
+-        zip_path.unlink(missing_ok=True)
++    try:
++        _print_operator_summary(
++            from_version=from_version,
++            to_version=to_version,
++            zip_path=zip_path,
++            pruned_count=pruned_count,
++            ran_index_rebuild=ran_index_rebuild,
++            failed_phase=failed_phase,
++            root=root,
++            review_sidecar_cleanup=review_sidecar_cleanup,
++            permissions_delta=_cl_permissions,
++            index_update_failed=index_update_failed,
++            retired_model_cleanup=retired_model_cleanup,
++            setup_assessment=setup_assessment,
++            dependency_provisioning_failed=dependency_provisioning_failed,
++        )
++    except Exception as exc:
++        # Optional prose/serialization faults cannot undo observed publication
++        # or prevent owned-resource cleanup. Recovery uses already held facts.
++        summary = _build_upgrade_summary(
++            from_version, to_version, zip_path, pruned_count, ran_index_rebuild,
++            failed_phase, [], review_sidecar_cleanup=review_sidecar_cleanup,
++            permissions_delta=_cl_permissions, index_update_failed=index_update_failed,
++            retired_model_cleanup=retired_model_cleanup, setup_assessment=setup_assessment,
++            dependency_provisioning_failed=dependency_provisioning_failed)
++        summary.update(_report_fields(_empty_reporting("error", "emitter_" + type(exc).__name__)))
++        summary[SUMMARY_SCHEMA_KEY] = SUMMARY_SCHEMA_VERSION
++        _emit_summary_line(summary)
++    finally:
++        _cleanup_verified_pack(zip_path, verified_pack_identity)
+ 
+ 
+ def _ensure_lifecycle_policy_backstop(root: Path) -> None:
+@@ -3867,6 +3922,116 @@
+
+         return []
+ 
+ 
++def _reporting_budget() -> float:
++    try:
++        requested = float(os.environ.get(_REPORTING_BUDGET_ENV, _REPORTING_WORK_SECONDS))
++        return min(_REPORTING_WORK_SECONDS, max(0.0, requested))
++    except ValueError:
++        return _REPORTING_WORK_SECONDS
++
++
++def _empty_reporting(state="incomplete", reason="not_assessed") -> dict:
++    return {"reconciliation": [], "host_permission_flags": [], "renderer_provenance_flags": [],
++            "reconciliation_state": state, "reconciliation_reason": reason[:160],
++            "reconciliation_last_path": "", "reconciliation_last_stage": "start",
++            "reconciliation_elapsed": 0.0, "reconciliation_visited_entries": 0,
++            "reconciliation_eligible_files": 0, "reconciliation_read_files": 0,
++            "reconciliation_read_bytes": 0, "reconciliation_candidates": 0,
++            "disposition_diagnostics": [], "renderer_warnings": [],
++            "agent_surface_integrity": {"available": False, "finding_count": 0}}
++
++
++def _report_fields(report):
++    return {key: value for key, value in report.items() if key.startswith("reconciliation_")}
++
++
++def _produce_reconciliation_report(root: Path) -> int:
++    """Owned, non-publishing worker. Parent enforces the hard timeout."""
++    import reconcile_scan
++    budget = _reporting_budget()
++    started = time.monotonic()
++    progress_path = os.environ.get(_REPORTING_PROGRESS_ENV)
++    def progress(value):
++        # No text/matches/contents, only bounded relative coordinates and counts.
++        if progress_path and value["last_stage"] != "candidate":
++            Path(progress_path).write_text(json.dumps(value), encoding="utf-8")
++    if not hasattr(reconcile_scan, "scan_repo_result"):
++        # Compatibility fixture/older scanner: the owned parent still enforces
++        # its deadline, and malformed tuple shapes fail rather than look clean.
++        report = _empty_reporting("complete", "")
++        channels = _run_reconciliation_scan(root)
++        for key, values in zip(("reconciliation", "host_permission_flags", "renderer_provenance_flags"), channels):
++            report[key] = values
++        report["renderer_warnings"] = _run_renderer_warning_scan(root)
++        print(json.dumps(report, ensure_ascii=False), flush=True)
++        return 0
++    result = (reconcile_scan.ScanResult(state="incomplete", reasons=["upgrade_failed"])
++              if os.environ.get("WAVEFOUNDRY_REPORTING_SKIP_SCAN") == "1" else
++              reconcile_scan.scan_repo_result(
++                  root, limits=reconcile_scan.ScanLimits(seconds=budget), progress=progress))
++    report = _empty_reporting(result.state, ",".join(result.reasons))
++    for key in ("reconciliation", "host_permission_flags", "renderer_provenance_flags"):
++        report[key] = [ref.as_dict() for ref in getattr(result, key)]
++    for key in ("last_path", "last_stage", "elapsed", "visited_entries", "eligible_files", "read_files", "read_bytes", "candidates"):
++        report["reconciliation_" + key] = getattr(result, key)
++    if time.monotonic() - started < budget:
++        report["disposition_diagnostics"] = reconcile_scan.disposition_diagnostics(root, findings=result.findings)
++    if time.monotonic() - started < budget:
++        report["renderer_warnings"] = _run_renderer_warning_scan(root)
++    if time.monotonic() - started < budget:
++        report["agent_surface_integrity"] = _run_agent_surface_integrity_scan(root)
++    print(json.dumps(report, ensure_ascii=False), flush=True)
++    return 0
++
++
++def _collect_reconciliation_report(root: Path | None, *, budget_s=None, skip_scan=False) -> dict:
++    """One owned child for all optional scans/diagnostics; no fallback rescan."""
++    if root is None:
++        return _empty_reporting()
++    started = time.monotonic()
++    budget = _reporting_budget() if budget_s is None else max(0.0, min(_REPORTING_WORK_SECONDS, budget_s))
++    report = _empty_reporting()
++    with tempfile.TemporaryDirectory(prefix="wf-report-") as td:
++        progress_path = Path(td) / "progress.json"
++        env = subprocess_util.utf8_child_env()
++        env.pop("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN", None)
++        env.pop("PYTHONPYCACHEPREFIX", None)
++        env["WAVEFOUNDRY_REPORTING_SKIP_SCAN"] = "1" if skip_scan else "0"
++        env[_REPORTING_PROGRESS_ENV] = str(progress_path)
++        env[_REPORTING_BUDGET_ENV] = str(max(0.0, budget - (time.monotonic() - started)))
++        try:
++            remaining = budget - (time.monotonic() - started)
++            if remaining <= 0:
++                raise subprocess.TimeoutExpired("reporting", budget)
++            child = subprocess_util.run_with_tree_kill(
++                [_preferred_python(), "-B", str(Path(__file__).resolve()),
++                 "--reconciliation-report", "--root", str(root)],
++                cwd=str(root), env=env, capture_output=True, text=True,
++                check=False, timeout=remaining)
++            if child.returncode:
++                report = _empty_reporting("error", "worker_exit_" + str(child.returncode))
++            else:
++                parsed = json.loads(child.stdout)
++                if not isinstance(parsed, dict) or parsed.get("reconciliation_state") not in ("complete", "incomplete", "error"):
++                    raise ValueError("report protocol")
++                report = parsed
++        except subprocess.TimeoutExpired:
++            report = _empty_reporting("incomplete", "reporting_timeout")
++        except Exception as exc:
++            report = _empty_reporting("error", "reporting_" + type(exc).__name__)
++        if report["reconciliation_state"] != "complete":
++            try:
++                with progress_path.open("rb") as stream:
++                    progress = json.loads(stream.read(4096))
++                for key in ("last_path", "last_stage", "elapsed", "visited_entries", "eligible_files", "read_files", "read_bytes", "candidates"):
++                    if key in progress:
++                        report["reconciliation_" + key] = progress[key]
++            except (OSError, ValueError):
++                pass
++    report["reconciliation_elapsed"] = time.monotonic() - started
++    return report
++
++
+ def _run_reconciliation_scan(
+     root: Path | None,
+ ) -> tuple[list[dict], list[dict], list[dict]]:
+@@ -3888,17 +4053,11 @@
+
+     """
+     if root is None:
+         return [], [], []
+-    try:
+-        import reconcile_scan
+-
+-        reconciliation, host_perm, renderer_prov = reconcile_scan.scan_repo_channels(root)
+-        return (
+-            [ref.as_dict() for ref in reconciliation],
++    import reconcile_scan
++    reconciliation, host_perm, renderer_prov = reconcile_scan.scan_repo_channels(root)
++    return ([ref.as_dict() for ref in reconciliation],
+             [ref.as_dict() for ref in host_perm],
+-            [ref.as_dict() for ref in renderer_prov],
+-        )
+-    except Exception:  # noqa: BLE001 — fail-safe: a scan fault must never break the upgrade
+-        return [], [], []
++            [ref.as_dict() for ref in renderer_prov])
+ 
+ 
+ def _run_reconciliation_disposition_diagnostics(root: Path | None) -> list[dict]:
+@@ -4299,11 +4458,13 @@
+
+     delegation failure class; when set, the summary carries ``SUMMARY_DEGRADATION_MARKER_KEY`` so
+     the degradation is disclosed, and it NEVER carries ``SUMMARY_SCHEMA_KEY``: a fallback summary
+     must not present itself as new-schema output."""
+-    reconciliation, host_permission_flags, renderer_provenance_flags = (
+-        _run_reconciliation_scan(root) if root is not None else ([], [], [])
+-    )
+-    disposition_diagnostics = _run_reconciliation_disposition_diagnostics(root)
+-    renderer_warnings = _run_renderer_warning_scan(root)
++    report = (_empty_reporting("incomplete", degradation_marker)
++              if degradation_marker else _collect_reconciliation_report(root))
++    reconciliation = report["reconciliation"]
++    host_permission_flags = report["host_permission_flags"]
++    renderer_provenance_flags = report["renderer_provenance_flags"]
++    disposition_diagnostics = report["disposition_diagnostics"]
++    renderer_warnings = report["renderer_warnings"]
+     summary = _build_upgrade_summary(
+         from_version=from_version,
+         to_version=to_version,
+@@ -4324,6 +4485,7 @@
+
+         renderer_warnings=renderer_warnings,
+         index_update_failed=not index_published,
+     )
++    summary.update(_report_fields(report))
+     if degradation_marker is not None:
+         # 1u44o: disclose the degradation as a flat, small scalar so it survives
+         # the response bounder on both the terminal-key path and (for a stale
+@@ -4393,6 +4555,8 @@
+
+     # detached index children (1u44n): no publisher grant in a non-publishing
+     # child's environment.
+     summary_env.pop("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN", None)
++    summary_env.pop("PYTHONPYCACHEPREFIX", None)
++    summary_env[_REPORTING_BUDGET_ENV] = str(min(_REPORTING_WORK_SECONDS, timeout_s))
+     try:
+         # Wave 1z8tr: a timeout ends the summary child's whole process tree.
+         result = subprocess_util.run_with_tree_kill(
+@@ -4405,7 +4569,7 @@
+
+             timeout=timeout_s,
+         )
+     except subprocess.TimeoutExpired:
+-        return None, f"timeout_after_{int(timeout_s)}s"
++        return None, f"timeout_after_{math.ceil(timeout_s)}s"
+     except Exception as exc:  # noqa: BLE001 - spawn failure degrades, never raises
+         return None, f"spawn_failed: {type(exc).__name__}"
+     if result.returncode != 0:
+@@ -4457,8 +4621,25 @@
+
+     if/else at one call site; the server parser is last-sentinel-wins, so a
+     successful delegate must never be followed by a fallback emit (and vice
+     versa). Never fails the upgrade."""
++    started = time.monotonic()
+     _persist_skipped_scan_locations(root)
+-    payload, degradation = _delegated_summary_payload(root, timeout_s=timeout_s)
++    remaining = max(0.001, min(timeout_s, _reporting_budget()) - (time.monotonic() - started))
++    payload, degradation = _delegated_summary_payload(root, timeout_s=remaining)
++    if payload is not None:
++        returned = json.loads(payload)
++        # Same-schema facts may not contradict this parent's observed outcome.
++        # Missing additive fields remain legal for divergent/older producers.
++        expected_index = "docs and code layers complete" if index_published else None
++        mismatch = ("index_update" in returned and
++                    ((index_published and returned["index_update"] != expected_index) or
++                     (not index_published and returned["index_update"] == "docs and code layers complete")))
++        if _PERMISSIONS_DELTA is not None:
++            mismatch = mismatch or any(
++                key in returned and returned[key] != value for key, value in {
++                    "permissions_added": _PERMISSIONS_DELTA.get("added") or [],
++                    "permissions_removed": _PERMISSIONS_DELTA.get("removed") or []}.items())
++        if mismatch:
++            payload, degradation = None, "parent_fact_mismatch"
+     if payload is not None:
+         _log(WAVE_UPGRADE_SUMMARY_SENTINEL + payload)
+     else:
+@@ -4510,6 +4691,7 @@
+
+       a partially upgraded target; no dependence on post-upgrade state
+       (published index, completed docs gate, memory checkpoints).
+     """
++    started = time.monotonic()
+     import upgrade_lib
+ 
+     lock = upgrade_lib.read_upgrade_lock(root) or {}
+@@ -4523,11 +4705,12 @@
+
+     # The scan runs FRESH in this process: `import reconcile_scan` resolves in
+     # the extracted tree, same code version as this producer; no cross-version
+     # shape skew is possible here (requirement 2).
+-    reconciliation, host_permission_flags, renderer_provenance_flags = (
+-        _run_reconciliation_scan(root)
+-    )
+-    disposition_diagnostics = _run_reconciliation_disposition_diagnostics(root)
+-    renderer_warnings = _run_renderer_warning_scan(root)
++    report = _collect_reconciliation_report(root, budget_s=max(0.0, _reporting_budget() - (time.monotonic() - started)))
++    reconciliation = report["reconciliation"]
++    host_permission_flags = report["host_permission_flags"]
++    renderer_provenance_flags = report["renderer_provenance_flags"]
++    disposition_diagnostics = report["disposition_diagnostics"]
++    renderer_warnings = report["renderer_warnings"]
+     summary = _build_upgrade_summary(
+         from_version=from_version if isinstance(from_version, str) else None,
+         to_version=to_version if isinstance(to_version, str) else None,
+@@ -4561,6 +4744,7 @@
+
+     summary["skipped_scan_locations"] = (
+         [str(loc) for loc in skipped] if isinstance(skipped, list) else []
+     )
++    summary.update(_report_fields(report))
+     summary[SUMMARY_SCHEMA_KEY] = SUMMARY_SCHEMA_VERSION
+     print(
+         WAVE_UPGRADE_SUMMARY_SENTINEL + json.dumps(summary, ensure_ascii=False),
+@@ -4588,18 +4772,12 @@
+
+     # direction — a patch or same-version build-successor can change/retire a surface too), report-only
+     # + fail-safe. Wave 1p8eu: build the summary dict ONCE so the prose + machine-readable sentinel
+     # cannot drift.
+-    if root is not None and not failed_phase:
+-        reconciliation, host_permission_flags, renderer_provenance_flags = (
+-            _run_reconciliation_scan(root)
+-        )
+-        disposition_diagnostics = _run_reconciliation_disposition_diagnostics(root)
+-    else:
+-        reconciliation, host_permission_flags, renderer_provenance_flags = [], [], []
+-        disposition_diagnostics = []
+-    # 1v4mt: scanned even on a failed phase. The marker condition is exactly
+-    # what a half-finished render leaves behind, so suppressing it there would
+-    # withhold the finding in the run most likely to have caused it.
+-    renderer_warnings = _run_renderer_warning_scan(root)
++    report = _collect_reconciliation_report(root, skip_scan=bool(failed_phase))
++    reconciliation = report["reconciliation"]
++    host_permission_flags = report["host_permission_flags"]
++    renderer_provenance_flags = report["renderer_provenance_flags"]
++    disposition_diagnostics = report["disposition_diagnostics"]
++    renderer_warnings = report["renderer_warnings"]
+     summary = _build_upgrade_summary(
+         from_version=from_version,
+         to_version=to_version,
+@@ -4620,6 +4798,9 @@
+
+         dependency_provisioning_failed=dependency_provisioning_failed,
+     )
+ 
++    summary.update(_report_fields(report))
++    if report["reconciliation_state"] != "complete":
++        _log("  Reconciliation reporting " + report["reconciliation_state"] + ": " + report["reconciliation_reason"])
+     from_str = from_version or "(none)"
+     to_str = to_version or "(unknown)"
+     _log("")
+@@ -4730,7 +4911,7 @@
+
+     # phase_cleanup runs in the standalone --cleanup process from the freshly extracted
+     # runner (see _new_code_upgrade_backstop). It is the advisory's single owner; a
+     # zip-loaded extension hook would print it a second time.
+-    agent_surface_integrity = _run_agent_surface_integrity_scan(root)
++    agent_surface_integrity = report["agent_surface_integrity"]
+     if agent_surface_integrity.get("finding_count", 0):
+         _log("")
+         _log(
+@@ -5215,6 +5396,7 @@
+
+             "are found (prints nothing in that case)."
+         ),
+     )
++    parser.add_argument("--reconciliation-report", action="store_true", help=argparse.SUPPRESS)
+     parser.add_argument(
+         "--emit-summary",
+         action="store_true",
+@@ -5256,7 +5438,7 @@
+
+ 
+     # Storage recovery belongs to the initiating lifecycle. A setup receipt
+     # cannot become permission to extract a package or rewrite project docs.
+-    if not any((args.dry_run, args.emit_summary, args.detect_zip, args.list_zips)):
++    if not any((args.dry_run, args.emit_summary, args.reconciliation_report, args.detect_zip, args.list_zips)):
+         import upgrade_lib
+         import sqlite_storage_migration
+         checkpoint = upgrade_lib.read_upgrade_lock(root) or {}
+@@ -5277,6 +5459,8 @@
+
+             print(f"upgrade: error: {exc}", file=sys.stderr)
+             return 1
+         return 0
++    if args.reconciliation_report:
++        return _produce_reconciliation_report(root)
+     if args.emit_summary:
+         # Wave 1u44o: delegated summary producer (see _emit_delegated_summary
+         # for the pinned contract). Read-only + report-only: no lock mutation,
+@@ -6123,6 +6307,9 @@
+
+             runner_protocol=2,
+             pack_protocol=pack_protocol,
+         )
++        verified_pack_identity = _VERIFIED_PACK_IDENTITIES.get(str(zip_path))
++        if verified_pack_identity is not None:
++            upgrade_lib.update_upgrade_lock(root, verified_pack_identity=verified_pack_identity)
+         if selected_feature_zip is not None:
+             upgrade_lib.update_upgrade_lock(
+                 root,

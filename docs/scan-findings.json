@@ -38,5 +38,65 @@
         "confirmed_at": "2026-09-13T04:32:09.702513+00:00"
       }
     ]
+  },
+  {
+    "id": "206zh-sec",
+    "file": "docs/waves/2071p bounded-reconciliation-reporting/evidence/implementation/test_reconcile_scan.py.baseline.txt",
+    "line": 1452,
+    "line_hash": "e7268de342a4",
+    "context_hash": "7c8663869e7a",
+    "rule_id": "generic-api-key",
+    "matched_text": "{\"key\"****def\", \"status\": self.scan.HISTORICAL_RECORD},",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Independently verified by security-reviewer: archived baseline SHA256 matches the effort baseline-source-packet; scanner line/context hashes match. test_malformed_unknown_and_dormant_legacy_entries_fail_open_without_rewrite uses a synthetic legacy disposition key made from hexadecimal digits in order to test dormant/fail-open diagnostics. reconcile_scan.legacy_disposition_key is a truncated SHA256 identity, not a credential. This fixture value has no authentication or provider use.",
+        "confirmed_at": "2026-10-10T00:41:40.551624+00:00"
+      }
+    ]
+  },
+  {
+    "id": "206zi-sec",
+    "file": "docs/waves/2071p bounded-reconciliation-reporting/evidence/implementation/test_upgrade_wavefoundry.py.baseline.txt",
+    "line": 8187,
+    "line_hash": "fc697c8f6f40",
+    "context_hash": "5059f449b504",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"disp****def\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Independently verified by security-reviewer: archived baseline SHA256 matches the effort baseline-source-packet; scanner line/context hashes match. test_store_diagnostics_render_settled_and_dormant_states uses a synthetic legacy disposition key made from hexadecimal digits in order to test dormant/fail-open diagnostics. reconcile_scan.legacy_disposition_key is a truncated SHA256 identity, not a credential. This fixture value has no authentication or provider use.",
+        "confirmed_at": "2026-10-10T00:41:40.551624+00:00"
+      }
+    ]
+  },
+  {
+    "id": "206zj-sec",
+    "file": "docs/waves/2071p bounded-reconciliation-reporting/evidence/implementation/test_upgrade_wavefoundry.py.baseline.txt",
+    "line": 8231,
+    "line_hash": "a60ef49cac40",
+    "context_hash": "c3d01092798a",
+    "rule_id": "generic-api-key",
+    "matched_text": "{\"key\"****def\", \"status\": reconcile_scan.HISTORICAL_RECORD},",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Independently verified by security-reviewer: archived baseline SHA256 matches the effort baseline-source-packet; scanner line/context hashes match. test_store_diagnostics_reach_structured_upgrade_summary uses a synthetic legacy disposition key made from hexadecimal digits in order to test dormant/fail-open diagnostics. reconcile_scan.legacy_disposition_key is a truncated SHA256 identity, not a credential. This fixture value has no authentication or provider use.",
+        "confirmed_at": "2026-10-10T00:41:40.551624+00:00"
+      }
+    ]
   }
 ]

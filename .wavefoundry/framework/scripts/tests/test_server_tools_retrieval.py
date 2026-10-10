@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import ast
 import asyncio
-import atexit
 import contextlib
 import hashlib
 import importlib.util
@@ -58,67 +57,16 @@ import vocabulary_profile  # noqa: E402
 # The configured waves root with a trailing slash (wave 1zim5): record paths in
 # framework-behaviour tests follow the loaded profile, never a literal default.
 _WAVES_PREFIX = record_paths.WAVES_ROOT.rstrip("/") + "/"
-_REPO_INDEX_COPY: "Path | None" = None
 
 
-def _copy_index_file(src: Path, dst: Path) -> None:
-    """Copy one index file, as a copy-on-write clone where the platform offers one."""
-    if sys.platform == "darwin":
-        try:
-            done = subprocess.run(["cp", "-c", str(src), str(dst)],
-                                  capture_output=True, timeout=120, check=False)
-            if done.returncode == 0:
-                return
-        except (OSError, subprocess.SubprocessError):
-            pass
-    shutil.copyfile(src, dst)
-
-
-def _repo_index_copy_root() -> Path:
-    """A temporary root holding a copy of THIS repository's project index.
-
-    Wave 1z8ox (1z8ov): tests that assert over the live repository's published
-    graph read it through this copy. Opening the real ``index.sqlite``, even
-    read-only, creates its ``-wal`` and ``-shm`` siblings inside the
-    repository; the copy keeps every SQLite side effect under a temporary
-    root. The files are copied, never opened, so the source is untouched. The
-    storage-migration receipt is not copied: it pins the index to its original
-    path, and a copy at another path would fail closed on it. The suite runner
-    holds its lock for the whole run, which index builds yield to, so the
-    database and its WAL are copied as one consistent pair.
-    """
-    global _REPO_INDEX_COPY
-    if _REPO_INDEX_COPY is not None:
-        return _REPO_INDEX_COPY
-    tmp = Path(tempfile.mkdtemp(prefix="wf-repo-index-copy-"))
-    atexit.register(shutil.rmtree, tmp, True)
-    src = _REPO_ROOT / ".wavefoundry" / "index"
-    dst = tmp / ".wavefoundry" / "index"
-    dst.mkdir(parents=True)
-    for name in (index_paths.INDEX_DATABASE_FILENAME,
-                 index_paths.INDEX_DATABASE_FILENAME + "-wal"):
-        if (src / name).is_file():
-            _copy_index_file(src / name, dst / name)
-    _REPO_INDEX_COPY = tmp
-    return tmp
-
-
-def _require_published_repo_graph(case) -> None:
-    """Skip when THIS repository has no published graph generation.
-
-    Wave 1xny6: a handful of tests deliberately run against the live
-    repository so they assert over a realistic graph. Their input is now the
-    published graph ROWS rather than the standalone artifact, so a working copy
-    whose own index has not yet been migrated to the current resident schema
-    has nothing for them to read. That is a property of the checkout, not of
-    the behavior under test -- skip with a reason rather than fail.
-    """
-    repo = _repo_index_copy_root()
-    if not graph_snapshot.acquire(repo, "project").present:
-        case.skipTest(
-            "this repository has no published graph generation "
-            "(its index predates the current resident schema); "
-            "run the standard upgrade or a graph build")
+def _published_evidence_root(case) -> Path:
+    """A test-owned published graph; no operator index precondition."""
+    tmp = tempfile.TemporaryDirectory(prefix="wf-evidence-response-")
+    case.addCleanup(tmp.cleanup)
+    root = Path(tmp.name)
+    payload = gfs.publish_evidence_fixture(root)
+    case.assertTrue(payload.get("nodes"), "the published fixture is empty")
+    return root
 import server_tools_support
 from server_tools_support import (  # noqa: F401 — shared server-test fixtures
     SCRIPTS_ROOT,
@@ -5468,11 +5416,11 @@ class EvidencePartitionResponseTests(unittest.TestCase):
 
     def setUp(self):
         self.srv = load_server()
-        _require_published_repo_graph(self)
+        self.root = _published_evidence_root(self)
 
     def _report(self, **kwargs):
         return self.srv.wf_graph_report_response(
-            _repo_index_copy_root(), **kwargs)["data"]
+            self.root, **kwargs)["data"]
 
     def test_every_pair_is_present_including_its_evidence_half(self):
         data = self._report(limit=5)
@@ -5508,8 +5456,7 @@ class EvidencePartitionResponseTests(unittest.TestCase):
     def test_evidence_rows_carry_their_type_and_a_nonempty_reason(self):
         data = self._report(limit=10)
         rows = data.get("evidence_communities") or []
-        if not rows:
-            self.skipTest("this tree has no classified evidence communities")
+        self.assertTrue(rows, "the fixture must return classified evidence communities")
         for row in rows:
             self.assertEqual("evidence_data", row["community_type"])
             self.assertEqual("evidence_data", row["evidence_type"])
@@ -5547,21 +5494,31 @@ class EvidencePartitionResponseTests(unittest.TestCase):
         self.assertEqual(2, len(data.get("evidence_communities", [])),
                          "the evidence half did not fill independently to the "
                          "same limit; that is what 'independent' means")
+        # Independent source identities/counts, not an oracle read from the
+        # response or fixture membership. Evidence outranks both ordinary rows.
+        for section, expected in (
+            ("communities", [("src/payments/ledger.json", 31),
+                             ("src/search/ranking.json", 21)]),
+            ("evidence_communities", [("artifacts/results.json", 62),
+                                      ("artifacts/trace.json", 52)]),
+        ):
+            self.assertEqual(
+                [(f"project:{owner}", owner, count) for owner, count in expected],
+                [(row["community_id"], row["hub_node_id"], row["node_count"])
+                 for row in data[section]])
 
     def test_evidence_rows_are_not_erased_by_exclude_generated(self):
         # The two classifications are orthogonal: generated-ness is about how a
         # file was produced, evidence-ness about what it records.
         plain = self._report(limit=10)
         filtered = self._report(limit=10, exclude_generated=True)
-        if not plain.get("evidence_communities"):
-            self.skipTest("this tree has no classified evidence communities")
+        self.assertTrue(plain.get("evidence_communities"))
         self.assertTrue(filtered.get("evidence_communities"),
                         "exclude_generated must not erase Evidence/Data")
 
     def test_a_classified_community_keeps_its_compatibility_fields(self):
         rows = self._report(limit=10).get("evidence_communities") or []
-        if not rows:
-            self.skipTest("this tree has no classified evidence communities")
+        self.assertTrue(rows, "the fixture must return classified evidence communities")
         for field in ("community_id", "label", "node_count",
                       "hub_node_id", "hub_label", "generated_node_fraction"):
             self.assertIn(field, rows[0],
@@ -5569,13 +5526,168 @@ class EvidencePartitionResponseTests(unittest.TestCase):
 
     def test_evidence_communities_remain_queryable_by_id(self):
         rows = self._report(limit=10).get("evidence_communities") or []
-        if not rows:
-            self.skipTest("this tree has no classified evidence communities")
+        self.assertTrue(rows, "the fixture must return classified evidence communities")
         cid = rows[0]["community_id"]
         resp = self.srv.code_graph_community_response(
-            _repo_index_copy_root(), community_id=cid)
+            self.root, community_id=cid)
         self.assertEqual("ok", resp["status"],
                          "partitioning must not remove the community from the catalog")
+        self.assertEqual("project:artifacts/results.json", resp["data"]["community_id"])
+        self.assertEqual(62, resp["data"]["total_node_count"])
+        self.assertIn("artifacts/results.json", {node["id"] for node in resp["data"]["nodes"]})
+
+
+class ControlledCommunityPublicationResponseTests(unittest.TestCase):
+    """207t3: stored public responses after real reset and corruption repair.
+
+    The oracle is four isolated source artifacts, independent of the checkout's
+    graph. Both evidence communities outrank both production communities by
+    size, so taking a shared top-N before partitioning cannot fill both halves.
+    """
+
+    EXPECTED = {
+        "communities": (("project:c2", "src/payments/ledger.json", 31),
+                        ("project:c3", "src/search/ranking.json", 21)),
+        "evidence_communities": (("project:c0", "artifacts/results.json", 62),
+                                 ("project:c1", "artifacts/trace.json", 52)),
+    }
+
+    def setUp(self):
+        self.srv = load_server()
+        import graph_cluster
+        import graph_indexer
+        import index_state_store
+
+        self.gc, self.gi, self.iss = graph_cluster, graph_indexer, index_state_store
+        tmp = tempfile.TemporaryDirectory(prefix="wf-community-response-")
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.index_dir = gfs.index_dir_for(self.root)
+        self.index_dir.mkdir(parents=True)
+        nodes, edges, communities = [], [], []
+        session = self.gi.GraphIndexSession(
+            root=self.root, index_dir=self.index_dir, layer="project", files=[],
+            current_file_meta={}, walker_version="1", chunker_version="1",
+            state={"files": {}},
+        )
+        try:
+            # Actual JSON extraction/classification; no hand-applied evidence tag.
+            for section, expected in self.EXPECTED.items():
+                for cid, rel, count in expected:
+                    evidence = section == "evidence_communities"
+                    payload = {f"field{i}": i for i in range(count - 1 - evidence)}
+                    if evidence:
+                        payload["generated_by"] = "qa/controlled-probe.py"
+                    source = json.dumps(payload)
+                    path = self.root / rel
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(source, encoding="utf-8")
+                    artifact = session._extract_json_artifact(rel, source)
+                    members = [node["id"] for node in artifact["nodes"]]
+                    self.assertEqual(count, len(members))
+                    nodes.extend(artifact["nodes"])
+                    edges.extend(artifact["edges"])
+                    communities.append({
+                        "community_id": cid, "label": Path(rel).stem,
+                        "seed_node_id": rel, "node_ids": members,
+                        "node_count": count, "edge_count": count - 1,
+                        "boundary_node_count": 0, "generated_node_fraction": 0.0,
+                    })
+        finally:
+            if session._owned_store is not None:
+                session._owned_store.close()
+        self.graph = gfs.graph_payload(nodes, edges)
+        clusters = gfs.cluster_payload(
+            communities, input_fingerprint=self.graph["input_fingerprint"],
+            graph_schema_version=self.graph["schema_version"])
+        gfs.publish_graph(self.root, graph=self.graph, clusters=clusters)
+        self._assert_rankings()
+
+    def _assert_rankings(self):
+        # Literal identities, counts and hub anchors are independent expectations;
+        # never derive this oracle from the response or persisted analysis.
+        for limit in (1, 2):
+            with self.subTest(limit=limit):
+                response = self.srv.wf_graph_report_response(
+                    self.root, limit=limit, sections=["communities"])
+                self.assertEqual("ok", response["status"], response)
+                data = response["data"]
+                for section, expected in self.EXPECTED.items():
+                    rows = data[section]
+                    self.assertEqual(limit, len(rows), section)
+                    self.assertEqual(
+                        list(expected[:limit]),
+                        [(row["community_id"], row["hub_node_id"], row["node_count"])
+                         for row in rows], section)
+                self.assertTrue(all(row["classification_reasons"]
+                                    for row in data["evidence_communities"]))
+                self.assertTrue(all(row["community_type"] == "evidence_data"
+                                    for row in data["evidence_communities"]))
+                self.assertFalse({row["community_id"] for row in data["communities"]}
+                                 & {row["community_id"]
+                                    for row in data["evidence_communities"]})
+
+    def _publish_update(self, *, reset):
+        attempt = self.iss.begin_build_epoch(self.index_dir, "graph")
+        store = self.iss.IndexStateStore(self.index_dir)
+        try:
+            conn = store._conn
+            result = self.gc.update_graph_clusters(
+                root=self.root, index_dir=self.index_dir, layer="project",
+                graph_payload=self.graph, state_conn=conn, reset=reset)
+            self.assertIn("_publication", result)
+            publication = gfs._graph_publication(conn, self.graph, "project")
+            publication.reset = reset
+            publication.community = result["_publication"]
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                publication.apply(conn)
+                conn.execute("COMMIT")
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+        finally:
+            store.close()
+        self.assertTrue(self.iss.finalize_build_epoch(self.index_dir, attempt))
+        self._assert_rankings()
+
+    def test_reset_recomputed_clusters_preserve_both_public_rankings(self):
+        store = self.iss.IndexStateStore(self.index_dir)
+        try:
+            # Force clustering despite unchanged graph, while retaining the old
+            # catalog/member rows that an incorrect pre-reset diff would omit.
+            with store._conn:
+                store._conn.execute("DELETE FROM graph_analysis WHERE layer=?", ("project",))
+        finally:
+            store.close()
+        with patch.object(self.gc, "_run_clustering", wraps=self.gc._run_clustering) as run:
+            self._publish_update(reset=True)
+        run.assert_called_once()
+
+    def test_reset_valid_reuse_preserves_both_public_rankings_without_analysis(self):
+        with patch.object(self.gc, "_run_clustering",
+                          side_effect=AssertionError("valid reuse must not cluster")), \
+             patch.object(self.gc, "compute_betweenness_ranking",
+                          side_effect=AssertionError("valid reuse must not analyze")):
+            self._publish_update(reset=True)
+
+    def test_same_fingerprint_missing_member_repairs_both_public_rankings(self):
+        store = self.iss.IndexStateStore(self.index_dir)
+        try:
+            with store._conn:
+                self.assertEqual(1, store._conn.execute(
+                    "SELECT COUNT(*) FROM graph_community_members WHERE layer=? AND node_id=?",
+                    ("project", "artifacts/results.json")).fetchone()[0])
+                store._conn.execute(
+                    "DELETE FROM graph_community_members WHERE layer=? AND node_id=?",
+                    ("project", "artifacts/results.json"))
+        finally:
+            store.close()
+        # Counts/fingerprint in analysis are unchanged; a missing real member
+        # must defeat reuse and reach an actual repair publication.
+        with patch.object(self.gc, "_run_clustering", wraps=self.gc._run_clustering) as run:
+            self._publish_update(reset=False)
+        run.assert_called_once()
 
 
 class CrossTableFusionConsistencyTests(unittest.TestCase):
@@ -17989,9 +18101,8 @@ class EvidenceNodesStayQueryableTests(unittest.TestCase):
     CONTROL = ("docs/waves/1wpih index-quality-evaluation-and-ranking/"
                "evidence/machine-result-control.json")
 
-    @classmethod
-    def setUpClass(cls):
-        cls.root = _repo_index_copy_root()
+    def setUp(self):
+        self.root = _published_evidence_root(self)
         sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
         import graph_query
         # Read the PUBLISHED rows directly (wave 1xny6 lane L6b retired the
@@ -17999,18 +18110,10 @@ class EvidenceNodesStayQueryableTests(unittest.TestCase):
         # synchronous full rebuild on a builder-version change, which would
         # turn this class into a multi-minute suite stall.
         snapshot = graph_query._get_graph_indexer().read_published_graph_snapshot(
-            cls.root, "project")
+            self.root, "project")
         payload = (snapshot or {}).get("payload") or {}
-        cls.payload_present = bool(payload.get("nodes"))
-        cls.index = graph_query.GraphQueryIndex(dict(payload, present=True))
-
-    def setUp(self):
-        # Delivery review (QA-DEL-5): `payload_present` was computed and never
-        # read, so on a tree with no persisted graph this class hard-failed
-        # five tests while its sibling in test_graph_quality_eval skipped on
-        # the identical precondition. Wire the guard and match the sibling.
-        if not self.payload_present:
-            self.skipTest("no persisted project graph in this tree")
+        self.assertTrue(payload.get("nodes"), "the published fixture is empty")
+        self.index = graph_query.GraphQueryIndex(dict(payload, present=True))
 
     def test_the_control_is_classified_before_anything_else_is_asserted(self):
         # Presence guard: every claim below is about an INDEXED evidence node.
@@ -18047,6 +18150,8 @@ class EvidenceNodesStayQueryableTests(unittest.TestCase):
     def test_a_non_evidence_node_is_not_swept_up_by_its_neighbours(self):
         # Co-location and co-clustering are not classification signals.
         ordinary = ".wavefoundry/framework/scripts/retrieval_eval.py"
+        self.assertIn(ordinary, {node["id"] for node in self.index.nodes},
+                      "the ordinary control must be indexed before testing its verdict")
         self.assertFalse(self.index.is_evidence_node(ordinary))
         self.assertEqual([], self.index.evidence_reasons(ordinary))
 
@@ -18216,9 +18321,9 @@ class EvidencePairDocumentationTests(unittest.TestCase):
     def test_the_pair_list_matches_what_the_report_actually_emits(self):
         # Binds the prose to behaviour: documenting a sixth pair, or dropping
         # one, fails here rather than drifting silently.
-        _require_published_repo_graph(self)
+        root = _published_evidence_root(self)
         srv = load_server()
-        data = srv.wf_graph_report_response(_repo_index_copy_root(), limit=1)["data"]
+        data = srv.wf_graph_report_response(root, limit=1)["data"]
         emitted = {k[len("evidence_"):] for k in data if k.startswith("evidence_")}
         self.assertEqual(set(self.PAIRS), emitted)
 

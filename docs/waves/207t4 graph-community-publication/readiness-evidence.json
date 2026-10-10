@@ -1,0 +1,2485 @@
+{
+  "wave_id": "207t4 graph-community-publication",
+  "change_id": "207t3-bug graph-community-reset-publication",
+  "phase": "readiness",
+  "receipt": "review-policy-0cce62e074406ee233a9",
+  "scope_packet": {
+    "wave_id": "207t4",
+    "phase": "readiness",
+    "change_ids": [
+      "207t3-bug graph-community-reset-publication"
+    ],
+    "receipt": "review-policy-0cce62e074406ee233a9",
+    "trust_boundaries_touched": [
+      "SQLite atomic graph publication",
+      "derived community membership completeness before fingerprint reuse",
+      "graph-to-public retrieval evidence responses"
+    ],
+    "files_in_scope": [
+      ".wavefoundry/framework/scripts/indexer.py",
+      ".wavefoundry/framework/scripts/graph_indexer.py",
+      ".wavefoundry/framework/scripts/graph_cluster.py",
+      ".wavefoundry/framework/scripts/tests/test_graph_cluster.py",
+      ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py",
+      ".wavefoundry/framework/scripts/tests/test_indexer.py",
+      ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py",
+      "docs/architecture/data-and-control-flow.md",
+      "docs/architecture/testing-architecture.md"
+    ],
+    "tree_fingerprint": {
+      ".wavefoundry/framework/scripts/indexer.py": "a4063ec85899c50cb1fd2f279de795138d62e14b",
+      ".wavefoundry/framework/scripts/graph_indexer.py": "73f4d49254dbd8549ea4bcf77d2db53ab073970f",
+      ".wavefoundry/framework/scripts/graph_cluster.py": "dae6266d4332577b3c50f1ce3ae87d628a0913c6",
+      ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": "7f1188b4486c2e193294e686d2d11b297f1dd1cf",
+      ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": "planned-absent",
+      ".wavefoundry/framework/scripts/tests/test_indexer.py": "20b217f99dbd79823177940105b5aeb326429143",
+      ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "3650345a381ac936923914958d57be4a8cb9974c",
+      "docs/architecture/data-and-control-flow.md": "c3950ed0550ee69483a8c7d5ee0160a9f6da8455",
+      "docs/architecture/testing-architecture.md": "86c76878659b0d3293a99785c3d650b7b7410bed"
+    },
+    "sha256": {
+      ".wavefoundry/framework/scripts/indexer.py": "d32a1ea2fa7b44f7bdaff53ccfadbdee56f913ca773161f0dea81c7614b4c088",
+      ".wavefoundry/framework/scripts/graph_indexer.py": "eee580200ab9a9a0822cfae5704484b3339c0bcc5b50e2aaf8777710ba2d99f1",
+      ".wavefoundry/framework/scripts/graph_cluster.py": "cffb0cadc5e575d2d18617f70f589f46cc421912530f5cb504d878ab8399d91a",
+      ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": "19736b0bc4a031fc2605994b062f566ac4054355157befacbb49f347dbe7ccac",
+      ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": "planned-absent",
+      ".wavefoundry/framework/scripts/tests/test_indexer.py": "5d89b3ef32d48b726df97258c53330f99fc0799a9b09feaaae35e728a185e22f",
+      ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "920d23346761ed09f278ffc1261877951f7ec32a23a5a5c57aa3235f75b761c2",
+      "docs/architecture/data-and-control-flow.md": "fa73be2bfaf7190a52039779f3e0e436b36227ae89445cec20afdc2ea5cf669c",
+      "docs/architecture/testing-architecture.md": "864f051681d3d9259e7880686f161e69adb31bde18ff76e412dea3f82381a92d"
+    },
+    "time_budget_seconds": 600,
+    "sweep_rule": "Complete current affected caller census within named source files; no broad opportunistic resweep; report moved tree or unsupported scope instead of expanding. Source unchanged during readiness.",
+    "plan_path": "docs/waves/207t4 graph-community-publication/207t3-bug graph-community-reset-publication.md",
+    "wave_path": "docs/waves/207t4 graph-community-publication/wave.md",
+    "primer_depth": "standard",
+    "primer_stance_count": 3,
+    "primer_questions_per_stance": 2,
+    "fixed_seats": [
+      "architecture-reviewer",
+      "security-reviewer",
+      "qa-reviewer",
+      "reality-check"
+    ],
+    "rotating_seat": "performance-reviewer"
+  },
+  "primer": {
+    "phase": "readiness",
+    "mode": "council-adversarial-primer",
+    "depth": "standard",
+    "verdict": "none",
+    "context_id": "207t4-redteam-primer-20261009-01",
+    "strongest_challenge": "Reset loses communities through both pre-reset diffing and otherwise-valid fingerprint reuse returning no community publication. Fixing only the diff baseline is insufficient.",
+    "best_alternative": "Propagate one reset-aware preparation input through both indexer callers. Preserve previous generation for ID remapping, use an empty write-diff baseline on reset, validate persisted completeness before reuse, and always prepare a complete reset replacement even if valid clusters are reused without expensive analysis.",
+    "thinking_stances_applied": [
+      "adversarial",
+      "constructive",
+      "simplicity"
+    ],
+    "primer_questions": [
+      {
+        "stance": "adversarial",
+        "questions": [
+          "How will reset force complete publication when fingerprint, cluster version, graph version and layer all match, rather than returning from the current reuse branch?",
+          "How will both _build_graph_artifacts and _execute_orphan_store_reconcile propagate reset state without changing global GraphPublication reset semantics?"
+        ]
+      },
+      {
+        "stance": "constructive",
+        "questions": [
+          "What exact invariant compares analysis metadata, stored community rows and membership identities against the current clustering projection, including fixed categories and excluded external/constant nodes?",
+          "Which independent fixtures reject missing community rows, missing members and equal-count wrong identities while accepting valid fixed communities and historical member fingerprints?"
+        ]
+      },
+      {
+        "stance": "simplicity",
+        "questions": [
+          "Can one bounded reset-aware preparation change preserve previous-generation ID remapping, ordinary member deltas, and valid unchanged no-op reuse without introducing another writer?",
+          "Which real transaction and stored-response assertions will prove rollback, normal layer isolation, and independent production/evidence limits without depending on this checkout\u2019s live graph?"
+        ]
+      }
+    ],
+    "executed_evidence": [
+      "/tmp/wf-207t4-redteam-probe.py: reset=false preserves3 members; reset=true erases3 while analysis advertises3, stable ID preserved both. Missing member/community and equal-count ghost member all incorrectly reuse without repair.",
+      "/tmp/wf-207t4-redteam-build-probe.py: real scratch build_index numeric predecessor walker version with unchanged topology resets=true/community=None; communities2->0,members9->0,analysis1->0,nodes/edges retained; exit0 asserts defect.",
+      "Two existing UnifiedPublicationParticipantTests pass injected-publication-fault/source-read-failure preservation/recovery.",
+      "Separate real WAL reader sees old3 members during uncommitted reset and after rollback."
+    ],
+    "anchors": [
+      "graph_cluster.update_graph_clusters:1294\u20131320",
+      "graph_cluster.read_published_clusters:1119\u20131147",
+      "graph_cluster.prepare_cluster_publication:1165\u20131245",
+      "graph_cluster._project_undirected_projection:406\u2013445",
+      "graph_cluster._extract_fixed_communities:315\u2013380",
+      "graph_cluster._remap_clusters:662\u2013731",
+      "graph_indexer.GraphPublication.apply:2033\u20132147",
+      "indexer._build_graph_artifacts:3837\u20133851",
+      "indexer._execute_orphan_store_reconcile:2787\u20132818"
+    ],
+    "census": "MCP disk keyword independently corroborated by AST: two update_graph_clusters calls in indexer.py, one prepare_cluster_publication call in graph_cluster.py, none in graph_indexer.py.",
+    "scope_feasibility": "Feasible within9 paths; preserve global reset and ordinary layer-specific preparation. test_graph_transactional_state.py is planned-new currently absent.",
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "pre-fix"
+    },
+    "tree_fingerprint_status": "unchanged:8 existing paths plus planned-absent9th verified after execution",
+    "fresh_context": true,
+    "independent": true,
+    "runtime_model": "unknown",
+    "limitations": "No repair, approval, live rebuild, full suite, consumer response execution or native platform qualification. Nonnumeric old walker correctly refused; supported numeric predecessor used in successful actual build probe. MCP callable/disk-backed; no gapfill."
+  },
+  "review_reports": {
+    "architecture": {
+      "context_id": "207t4-fixed-architecture-20261009-01",
+      "actual_remits": [
+        "fixed architecture council seat",
+        "required architecture-reviewer readiness lane"
+      ],
+      "phase": "readiness",
+      "receipt": "review-policy-0cce62e074406ee233a9",
+      "runtime_model": "unknown; requested inherited capable model",
+      "fresh_context": true,
+      "independent": true,
+      "pre_primer_read": "The plan\u2019s replacement-baseline plus completeness-gated reuse approach is architecturally feasible if prior visible clusters remain available for ID stability while reset writes use an empty baseline, and both indexer callers preserve one atomic global graph publication.",
+      "pre_primer_sent_before_opening_primer": true,
+      "primer_effect": "Extended my pre-primer assessment by making the valid same-fingerprint reset branch explicit: reset must force a complete publication even when analysis reuse remains valid, rather than merely choosing an empty diff baseline after recomputation.",
+      "strongest_challenge_response": "Confirmed by current source: update_graph_clusters returns existing without _publication on valid fingerprint/version/layer reuse. Reset-aware preparation must reach both the reuse return and recompute publication path. The reused payload can supply full replacement rows, preserving skipped clustering/betweenness; the same GraphPublication transaction owns the reset and replacement. No second writer or layer-scoped redefinition of global reset is needed.",
+      "primer_answers": [
+        {
+          "stance": "adversarial",
+          "question": 1,
+          "answer": "Propagate publication.reset as an explicit preparation input. On valid persisted reuse, return existing data plus a complete replacement publication when reset is true; return no publication when reset is false. On recomputation, use old rows for ID remapping but empty stored_communities/stored_members for write diff when reset. These are distinct responsibilities."
+        },
+        {
+          "stance": "adversarial",
+          "question": 2,
+          "answer": "Both current callers pop graph _publication before calling update_graph_clusters and subsequently attach cluster _publication to publication.community. _build_graph_artifacts and _execute_orphan_store_reconcile must pass that same publication.reset, not infer reset from layer or fingerprint. GraphPublication.apply retains unqualified deletes of every graph_store.GRAPH_TABLES member. Current indexer orchestrates one scalar publication in each branch; idle graph recovery clears graph orphan plan before reconciliation, preventing a second outdated graph merge."
+        },
+        {
+          "stance": "constructive",
+          "question": 3,
+          "answer": "Validate analysis kind/layer/version/fingerprint metadata; advertised community_count equals distinct analysis community IDs and exact persisted community rows; persisted rows match compact metadata (counts, seeds, labels and attributes under existing serialization); membership references only those IDs, each projected eligible node belongs once, per-community distinct member count equals node_count, seeds belong to their members, and union of memberships equals _project_undirected_projection eligible node IDs. Fixed categories must match _extract_fixed_communities buckets, including Documentation priority. External and constant nodes are excluded. Membership input_fingerprint may be historical and is not required to match latest analysis; current DDL and incremental upsert explicitly preserve it. Counts alone cannot establish identity completeness. This structural completeness invariant does not claim to prove a different clustering algorithm or detect every semantically wrong production repartition without recomputation."
+        },
+        {
+          "stance": "constructive",
+          "question": 4,
+          "answer": "Own real SQLite fixture has13 production functions plus2 Tests,2 Documentation and2 Configuration, and excluded constant/external controls. Independent identity/count/community oracle rejects missing member, missing community and equal-count ghost identity while valid fixed rows and historical membership fingerprints are accepted. Current update API improperly reuses all three corrupt representations, establishing readiness-safe pre-fix controls. Delivery should additionally pin duplicate memberships, fixed-bucket displacement and contradictory metadata, without relying on this checkout."
+        },
+        {
+          "stance": "simplicity",
+          "question": 5,
+          "answer": "Yes. One optional reset-aware input fits the existing preparation interface and both callers; old published payload remains ID remapping input while reset baseline is empty only for row preparation. Own changed-fingerprint/unchanged-topology control retains all IDs and writes zero member/community deltas; full empty-baseline preparation supplies19 members through existing GraphPublication with no second writer."
+        },
+        {
+          "stance": "simplicity",
+          "question": 6,
+          "answer": "Own WAL control observes old19 members from separate reader during uncommitted reset, rollback restores exact old pair set, complete replacement commits19. Source stat drift refuses before deletes; unsupported schema refuses safely. Ordinary cluster publication preserves unrelated layer rows, global reset intentionally clears them. Two actual build_index tests exercise injected participant fault and source-read denial with recovery and no skips. AC5 delivery should publish fixture communities with at least two production and two evidence candidates, assert exact independent ranks/limit fill and query by ID after reset/recovery. Existing EvidencePartitionResponseTests currently depend on _repo_index_copy_root, so they are qualification only, not suitable as this change\u2019s independent fixture."
+        }
+      ],
+      "current_source_anchors": [
+        "graph_cluster.update_graph_clusters (1255\u20131422): fingerprint reuse return1320; remap1342; prepare1404",
+        "graph_cluster.prepare_cluster_publication (1165\u20131245): stored baseline1183\u20131196; member delta1239\u20131243",
+        "graph_cluster.read_published_clusters (1119\u20131147): compact analysis reconstructed with membership rows",
+        "graph_cluster._project_undirected_projection (406\u2013445); _extract_fixed_communities (315\u2013380); _remap_clusters (662\u2013731)",
+        "graph_indexer.GraphPublication.apply (2033\u20132147), recheck_sources (1992\u20132014), GraphCommunityPublication.apply (1875\u20131920)",
+        "indexer._build_graph_artifacts (3770\u20133903), update_graph_clusters call3838 and publication attachment3851",
+        "indexer._execute_orphan_store_reconcile (2734\u20132844), update_graph_clusters call2802 and attachment2818",
+        "indexer._build_index_locked: idle recovery clears graph orphan plan5192\u20135196; one apply5230; normal one apply5900",
+        "graph_store.create_schema (65\u2013188): community PK(community_id,layer), membership PK(node_id,community_id), analysis PK(kind,layer); GRAPH_TABLES (44\u201353)",
+        "index_compatibility.check_connection (134\u2013182); writer_transaction; SUPPORTED (95\u2013105)",
+        "test_indexer.UnifiedPublicationParticipantTests.test_injected_rollback_publishes_nothing_and_leaves_a_recoverable_state and test_source_read_failure_preserves_published_graph_and_retry_recovers",
+        "test_server_tools_retrieval.EvidencePartitionResponseTests (5463\u20135578)"
+      ],
+      "architecture_docs_consulted": [
+        "docs/ARCHITECTURE.md",
+        "docs/architecture/current-state.md",
+        "docs/architecture/layering-rules.md (shared index storage ownership)",
+        "docs/architecture/domain-map.md",
+        "docs/architecture/cross-cutting-concerns.md (single publication transaction and generation-bound readers)",
+        "docs/architecture/data-and-control-flow.md",
+        "docs/architecture/testing-architecture.md"
+      ],
+      "missing_architecture_docs": [],
+      "caller_census": {
+        "boundary": "Three named source files only, direct calls by terminal call name",
+        "instruments": [
+          "disk-backed MCP code_keyword(update_graph_clusters, graph=false), no truncation for caller hits",
+          "Python AST Call enumeration closes syntactic direct call sites independent of textual comments"
+        ],
+        "sites": [
+          [
+            "indexer._build_graph_artifacts",
+            3838
+          ],
+          [
+            "indexer._execute_orphan_store_reconcile",
+            2802
+          ]
+        ],
+        "prepare_cluster_publication_sites": [
+          [
+            "graph_cluster.update_graph_clusters",
+            1404
+          ]
+        ],
+        "total_direct_cluster_callers": 2,
+        "graph_indexer_cluster_calls": 0,
+        "universe_closed": true,
+        "limitations": "No claim about dynamic aliases or arbitrary repository-wide callers; known incomplete indexed graph not used as absence proof."
+      },
+      "executed_commands": [
+        {
+          "command": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/wf-207t4-architecture-probe.py",
+          "exit_code": 0,
+          "raw_log": "/tmp/wf-207t4-architecture-probe.log",
+          "results": "/tmp/wf-207t4-architecture-probe-results.json",
+          "note": "First fixture run refused missing graph metadata; corrected scratch fixture to use supported metadata and reran to completion; no compatibility guard bypass."
+        },
+        {
+          "command": "/Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest test_indexer.UnifiedPublicationParticipantTests.test_injected_rollback_publishes_nothing_and_leaves_a_recoverable_state test_indexer.UnifiedPublicationParticipantTests.test_source_read_failure_preserves_published_graph_and_retry_recovers",
+          "cwd": ".wavefoundry/framework/scripts/tests",
+          "exit_code": 0,
+          "observed": "Ran2 tests in2.674s; OK, zero skips; injected fault and denied reads were reached and old state/generation survived with recovery",
+          "raw_log": "/tmp/wf-207t4-architecture-build-controls.log"
+        }
+      ],
+      "probe_results": {
+        "valid_reuse": {
+          "members": 19,
+          "publication": false,
+          "historical_member_fingerprint_accepted": true,
+          "fixed_labels": [
+            "Configuration",
+            "Documentation",
+            "Tests"
+          ]
+        },
+        "corruption_controls": [
+          {
+            "mode": "missing_member",
+            "independent_oracle": false,
+            "current_repair_publication": false
+          },
+          {
+            "mode": "missing_community",
+            "independent_oracle": false,
+            "current_repair_publication": false
+          },
+          {
+            "mode": "equal_count_wrong_identity",
+            "independent_oracle": false,
+            "current_repair_publication": false
+          }
+        ],
+        "stable_id_and_delta_control": {
+          "stable_ids": true,
+          "unchanged_members_rewritten": 0
+        },
+        "prefixed_reset_failure": {
+          "members_before": 19,
+          "members_during_reset_with_current_diff": 0,
+          "rollback_restores": 19
+        },
+        "wal_rollback_control": {
+          "writer_new_members": 19,
+          "reader_old_members": 19,
+          "rollback_old_members": 19
+        },
+        "source_guard_control": true,
+        "layer_contract": {
+          "normal_other_layer_retained": true,
+          "global_reset_clears_other_layer": true
+        },
+        "complete_reset_feasibility": {
+          "committed_members": 19,
+          "complete": true,
+          "new_writer_introduced": false
+        },
+        "compatibility_refused": true
+      },
+      "ac_coverage": {
+        "AC-1": "Architecturally feasible: current reset loses19 unchanged rows; empty write baseline yields complete19-member replacement while prior computed IDs retained. Future integrated reset fix not executed.",
+        "AC-2": "Feasible and needed: own corruption controls demonstrate missing community/member and equal-count ghost failure; identity completeness oracle can reject without rerunning expensive analysis. Future validator/recovery not executed.",
+        "AC-3": "Current valid historical-fingerprint reuse executes without clustering/betweenness or publication; changed-fingerprint same topology preserves IDs with zero member/community deltas. Future preservation must be pinned at delivery.",
+        "AC-4": "Executed current transaction/source/schema mechanisms and separate WAL reader rollback control; one graph publication per current actual build path; normal layer isolation distinct from global reset.",
+        "AC-5": "Architectural feasible stored-response seam verified in source; fixture consumer execution deferred to delivery. Existing checkout-dependent tests cannot substitute for independent required change fixtures."
+      },
+      "candidate_findings": [],
+      "null_finding": "No findings in my lane: checked preparation/publication ownership, both callers, schema identities, old/new generation interleaving, reset-versus-normal layer behavior, compatibility and source refusals; the plan permits a bounded repair through existing interfaces and has no demonstrated build-changing architectural gap.",
+      "untyped_implementation_notes": [
+        "Always prepare complete reset replacement on valid reuse, not only on recomputation.",
+        "Keep prior-generation ID remapping separate from reset write baseline.",
+        "Use membership identity/coverage/fixed-category checks, not latest membership fingerprint equality.",
+        "No live graph report/impact query: indexed graph is known incomplete and automatic builder-current paths may mutate derived live state; disk+AST census is authoritative for selected scope."
+      ],
+      "scope_limitations": [
+        "Readiness-only, unimplemented repair; no delivery approval claimed.",
+        "No repository/source/config/lifecycle writes, live rebuild, full suite, consumer-response execution or native platform qualification.",
+        "Scratch preparation positive control proves interface feasibility rather than an implemented reset flag.",
+        "Only project is a supported public graph layer; synthetic other layer rows verify existing SQL isolation, not a new supported layer.",
+        "Wrong production-to-production repartition with identical structural metadata is not independently certified by completeness alone.",
+        "Initial incorrectly named seed paths returned file_not_found; corrected to actual180-implement-change,209-agent-harness-core and215-council-chair. No shell source fallback used."
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "pre-fix current reset/corrupt persisted representation plus actual injected-publication-fault/source-denial controls"
+      },
+      "executable_evidence": {
+        "claim_id": "approval:architecture-readiness",
+        "claim_kind": "approval",
+        "phase": "readiness",
+        "proposition": "The plan can repair complete reset publication and persisted reuse within existing single transaction ownership without changing global reset, normal incremental writes, compatibility or source guards.",
+        "counterexample_or_failure_condition": "A second writer or transaction is required; actual callers cannot propagate reset; prior IDs cannot be retained separately; replacement cannot roll back or published validity depends on rewriting all ordinary members.",
+        "execution_status": "executed",
+        "public_path": "actual indexer.build_index through UnifiedPublicationParticipantTests; closest faithful API boundary GraphPublication.apply and graph_cluster.update_graph_clusters on disposable real SQLite runtime stores",
+        "command_or_fixture": "/tmp/wf-207t4-architecture-probe.py and two named build_index controls",
+        "expected": "pre-fix defect detected, conforming full replacement feasible, valid reuse/no-delta stable, atomic rollback and refusals preserve old state",
+        "observed": "19-member reset negative and all3 corrupt controls detected;19-member full replacement succeeds; valid reuse avoids expensive functions; two build tests green without skips",
+        "artifact_or_test_id": "/tmp/wf-207t4-architecture-probe-results.json; /tmp/wf-207t4-architecture-build-controls.log",
+        "adjacent_controls": [
+          "valid historical member fingerprints with fixed categories",
+          "no-reset unchanged deltas",
+          "separate WAL reader old generation",
+          "normal unrelated layer rows retained",
+          "source drift and newer-schema refusals"
+        ],
+        "safety_and_authorization": "Read-only review authorization plus disposable scratch fixtures; no live database or repository writes.",
+        "probe_class": "local_safe",
+        "authorization_status": "authorized",
+        "safe_boundary": false,
+        "unexecuted_remainder_prohibited": false,
+        "universal_claim": false,
+        "verification_context": {
+          "actor": "architecture-reviewer",
+          "context_id": "207t4-fixed-architecture-20261009-01",
+          "fresh_context": true,
+          "independent": true
+        },
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "pre-fix current reset/corrupt persisted representation plus actual injected-publication-fault/source-denial controls",
+        "limitations": [
+          "Readiness-only, unimplemented repair; no delivery approval claimed.",
+          "No repository/source/config/lifecycle writes, live rebuild, full suite, consumer-response execution or native platform qualification.",
+          "Scratch preparation positive control proves interface feasibility rather than an implemented reset flag.",
+          "Only project is a supported public graph layer; synthetic other layer rows verify existing SQL isolation, not a new supported layer.",
+          "Wrong production-to-production repartition with identical structural metadata is not independently certified by completeness alone.",
+          "Initial incorrectly named seed paths returned file_not_found; corrected to actual180-implement-change,209-agent-harness-core and215-council-chair. No shell source fallback used."
+        ],
+        "required_for_approval": true
+      },
+      "current_nine_path_fingerprint": {
+        ".wavefoundry/framework/scripts/indexer.py": "a4063ec85899c50cb1fd2f279de795138d62e14b",
+        ".wavefoundry/framework/scripts/graph_indexer.py": "73f4d49254dbd8549ea4bcf77d2db53ab073970f",
+        ".wavefoundry/framework/scripts/graph_cluster.py": "dae6266d4332577b3c50f1ce3ae87d628a0913c6",
+        ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": "7f1188b4486c2e193294e686d2d11b297f1dd1cf",
+        ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": "planned-absent",
+        ".wavefoundry/framework/scripts/tests/test_indexer.py": "20b217f99dbd79823177940105b5aeb326429143",
+        ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "3650345a381ac936923914958d57be4a8cb9974c",
+        "docs/architecture/data-and-control-flow.md": "c3950ed0550ee69483a8c7d5ee0160a9f6da8455",
+        "docs/architecture/testing-architecture.md": "86c76878659b0d3293a99785c3d650b7b7410bed"
+      },
+      "tree_fingerprint_status": "unchanged;8 existing paths plus planned-absent ninth verified after probes",
+      "readiness_verdict": "approved-with-notes",
+      "severity": "none",
+      "required_lane_approval_recommendation": {
+        "architecture-readiness": "approve current receipt for grounded architectural feasibility only"
+      },
+      "strongest_alternate_design": "Complete replacement only when reset is true, while valid reuse supplies complete rows without recomputing expensive analyses; ordinary no-reset remains delta/no-op. Always rewriting communities is simpler mechanically but breaches AC-3. Version bump alone does not fix later reset/corruption. A membership hash manifest could certify production partition identity, but adds persisted representation/upgrade scope and is not necessary for this bounded completeness repair.",
+      "rotating_alternative_weight": {
+        "alternative": "Compact per-community digest of sorted membership identities in the analysis generation, recomputed from stored rows before reuse.",
+        "assessment": "Stronger than structural completeness for detecting count-preserving swaps of known production members. My independent report already limits its completeness oracle: it does not certify wrong production-to-production repartition with unchanged structural metadata. The rotating counterexample confirms that residual limit, rather than disproving the bounded architecture feasibility evidence.",
+        "tradeoff": "Digest requires format/backfill/provenance semantics and cannot certify an already-corrupt baseline. It still scans members. That additional persisted-contract scope is not necessary to repair reset publication and missing/contradictory representation under the existing completeness contract. Always recomputing/rewriting breaches AC-3.",
+        "preferred_path": "Admitted reset-aware complete replacement, reuse only structurally complete/catalog-consistent/fixed-category-consistent rows, ordinary no-op/delta preserved. Documentation must describe structural completeness and avoid claiming exact historical production-partition certification.",
+        "performance_evidence_weight": "Rotating10K measurements are single-run feasibility observations, not a latency guarantee; they are consistent with the distinction my own19-member zero-delta/full-replacement probe established.",
+        "readiness_judgment_changed": false,
+        "readiness_verdict": "approved-with-notes",
+        "required_architecture_readiness_recommendation": "unchanged: approve current receipt for architectural feasibility only",
+        "new_probes": false,
+        "broadened_scope": false
+      }
+    },
+    "codeqa": {
+      "context_id": "207t4-fixed-codeqa-20261009-independent-01",
+      "phase": "readiness",
+      "receipt": "review-policy-0cce62e074406ee233a9",
+      "actual_remits": [
+        "fixed council qa-reviewer",
+        "required code-reviewer",
+        "required qa-reviewer"
+      ],
+      "runtime_model": "unknown; inherited capable requested",
+      "fresh_context": true,
+      "independent": true,
+      "pre_primer_read": "The plan appears feasible if reset-aware full replacement and reuse completeness checks cover both indexer callers while keeping stable ID assignment separate from an empty reset diff baseline, with independent persisted-row and consumer oracles proving the five ACs.",
+      "pre_primer_sent_before_opening_primer": true,
+      "primer_effect": "Extended: identified otherwise-valid fingerprint reuse returning no publication as an independent reset-loss path, requiring a supported predecessor walker reset with unchanged topology control.",
+      "strongest_challenge_response": "Confirmed independently by real build_index predecessor walker15 to current16: valid fingerprint reuse attaches community=None, global reset removes both community rows and all9 memberships/analysis although9 graph nodes remain. A baseline-only preparation fix cannot reach this early-return branch; valid reuse on reset must still return full replacement publication. Forced version-recompute reset independently loses unchanged rows too. Both cases fit requirements1-3 and AC1/AC3 without a new writer.",
+      "primer_answers": [
+        {
+          "stance": "adversarial",
+          "question": 1,
+          "answer": "Carry reset to update_graph_clusters; after compatible complete reuse, retain expensive-analysis skip but prepare complete community/member replacement against empty write baseline. The unchanged graph remains usable for ID mapping. Independent public build observes the current missing-publication path."
+        },
+        {
+          "stance": "adversarial",
+          "question": 2,
+          "answer": "Both _build_graph_artifacts and _execute_orphan_store_reconcile already extract GraphPublication before invoking update_graph_clusters and attach returned community SQL. Pass its reset at both calls; do not change GraphPublication.apply global GRAPH_TABLES deletion. MCP exhaustive named-file keyword and independent AST agree on these2 calls."
+        },
+        {
+          "stance": "constructive",
+          "question": 3,
+          "answer": "Validate analysis community_count/unique community IDs and metadata versus community rows, exact member counts per community, no unknown community IDs or duplicated member assignments, exact member identity universe versus graph projection excluding external/constant nodes, and fixed-category membership consistent with current category rules. Do not equate historical member input_fingerprint with current topology fingerprint; untouched rows legitimately keep old fingerprints. Counts alone cannot detect equal-count ghost replacement."
+        },
+        {
+          "stance": "constructive",
+          "question": 4,
+          "answer": "Own canonical build fixture establishes9 members then separately deletes a member, deletes a community row, or replaces a member with ghost::nonexistent at equal count; each currently falsely reuses without repair. Adjacent valid unchanged reuse and deliberately historical membership fingerprints skip clustering/betweenness. Delivery should add category fixtures covering Documentation/Tests/Benchmarks/CI/CD/Generated/Scripts/Configuration and excluded external/constant nodes."
+        },
+        {
+          "stance": "simplicity",
+          "question": 5,
+          "answer": "Yes: retain previous readable payload for overlap-based remapping, switch only reset write-diff baseline to empty, validate reuse on build path, and prepare full reset replacement on otherwise-valid reuse. Existing GraphCommunityPublication/GraphPublication apply remain sole transaction participants. Existing threshold2 supports overlapping multi-member ID preservation, not guaranteed single-member fixed-ID stability."
+        },
+        {
+          "stance": "simplicity",
+          "question": 6,
+          "answer": "Real build_index rollback after participant apply and source-read failure/retry tests both execute and pass0skips. Own scratch normal project community apply preserves framework layer; actual reset globally wipes it as expected. Public stored wf_graph_report_response canonical JSON fixtures return production ledger31/ranking21 and larger evidence results66 with independent limits2 and1; deleting evidence memberships moves results into production and empties evidence, falsifying the oracle. Delivery must execute these assertions after fixed reset and corruption repair plus concurrent WAL old-generation visibility."
+        }
+      ],
+      "current_source_anchors": [
+        "graph_cluster.read_published_clusters: analysis-driven metadata plus stored member reconstruction,1119-1147",
+        "graph_cluster.prepare_cluster_publication: stored layer diff baseline and old historical member fingerprints,1165-1245",
+        "graph_cluster.update_graph_clusters: reuse1300-1320, projection1325, ID-remapping1338-1344, preparation1404",
+        "graph_cluster._project_undirected_projection: external/constant exclusions406-445",
+        "graph_cluster._extract_fixed_communities: ordered categories315-380",
+        "graph_cluster._remap_clusters: overlap threshold2,662-731",
+        "graph_indexer.GraphPublication.apply: global resetGRAPH_TABLES2046-2053; community participant2145",
+        "indexer._build_graph_artifacts: publication/reset available3837, cluster call3838, attachment3851",
+        "indexer._execute_orphan_store_reconcile: publication/reset available2801, cluster call2802, attachment2818",
+        "graph_cluster.read_cluster_payload: generation-bound stored response763-805",
+        "wf_server.graph_handlers.wf_graph_report_response: generation pin, stored communities, partition before independent limit1401/1553/1594-1609",
+        "UnifiedPublicationParticipantTests.test_injected_rollback_publishes_nothing_and_leaves_a_recoverable_state",
+        "UnifiedPublicationParticipantTests.test_source_read_failure_preserves_published_graph_and_retry_recovers"
+      ],
+      "executed_commands": [
+        {
+          "command": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/wf-207t4-codeqa-probe.py",
+          "result": "exit0; valid/history no-op controls; actual supported predecessor reset knownbad;3 independent corruption states falsely reuse;2 public transaction/source tests pass0skips",
+          "log": "/tmp/wf-207t4-codeqa-probe.log",
+          "raw": "/tmp/wf-207t4-codeqa-probe-results.json"
+        },
+        {
+          "command": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/wf-207t4-codeqa-consumer.py",
+          "result": "exit0 CONSUMER_ORACLE_PASS; production/evidence stored-response independent ranking/limits plus corrupt evidence knownbad",
+          "log": "/tmp/wf-207t4-codeqa-consumer.log",
+          "raw": "/tmp/wf-207t4-codeqa-consumer-results.json"
+        },
+        {
+          "command": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/wf-207t4-codeqa-reset-recompute.py",
+          "result": "see raw/log: forced-recomputation reset and layer controls",
+          "log": "/tmp/wf-207t4-codeqa-reset-recompute.log",
+          "raw": "/tmp/wf-207t4-codeqa-reset-recompute-results.json"
+        },
+        {
+          "command": "MCP disk-backed reads/keyword graph:false; Python AST independently enumerating update_graph_clusters calls; SHA2569-path recomputation",
+          "result": "2 caller sites;8 existing paths unchanged plus9th planned-absent",
+          "raw": "/tmp/wf-207t4-codeqa-tree.json"
+        }
+      ],
+      "probe_budget_cells": [
+        "valid unchanged baseline",
+        "historical member fingerprint legitimate state",
+        "supported predecessor walker reset plus otherwise-valid reuse",
+        "reset plus forced recomputation",
+        "missing community",
+        "missing membership",
+        "equal-count wrong identity",
+        "actual rollback/retry",
+        "source-read failure/recovery",
+        "normal layer apply versus global reset",
+        "stored production/evidence limits1/2 versus membership corruption"
+      ],
+      "ac_coverage": {
+        "AC-1": {
+          "readiness": "grounded feasible",
+          "executed": "fresh9-member producer plus supported walker-reset reused branch wipes9; forced-recompute reset diff drops unchanged8 while analysis9; future repair not executed",
+          "delivery_required": "assert exact expected community/member identity sets after both reset variants, stable supported IDs and metadata agreement"
+        },
+        "AC-2": {
+          "readiness": "grounded feasible",
+          "executed": "missing member8/9, missing community metadata persists, equal-count ghost9/9 all incorrectly reuse; explicit nonvacuous expected identities",
+          "delivery_required": "all3 states recompute and publish exact restored member identity partition plus fixed/excluded controls"
+        },
+        "AC-3": {
+          "readiness": "grounded feasible",
+          "executed": "valid/history reuse invokes neither expensive function and returns no publication; current member-diff source calculates set deltas",
+          "delivery_required": "fixed valid no-reset reuse unchanged membership timestamps/fingerprints and bounded ordinary changed member insert/delete counts"
+        },
+        "AC-4": {
+          "readiness": "grounded feasible",
+          "executed": "2 actual public build rollback/source-failure controls pass; normal layer preservation and global reset demonstrated in scratch",
+          "delivery_required": "concurrent reader old visible generation until commit and after actual fault; preserve compatibility refusals/source rechecks; no new independent writer"
+        },
+        "AC-5": {
+          "readiness": "grounded feasible",
+          "executed": "canonical JSON producer through actual stored wf_graph_report_response returns ledger31/ranking21 separate from evidence66 at limit2; both halveslimit1; deliberate membership deletion evicts evidence from evidence array",
+          "delivery_required": "Use at least TWO evidence candidates and TWO production candidates with independent ordering/identity oracles at limits1/2; repeat after fixed reset and incomplete-state recovery; original live qualification separately canonical setup/full suite."
+        }
+      },
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "pre-fix actual supported predecessor reset and corruption controls; consumer corruption directly changes expected production/evidence result"
+      },
+      "known_bad_method_detail": "Current unimplemented defect was asserted rather than passed as correct behavior. Positive conforming no-reset/history and public consumer baseline controls prevent vacuity.",
+      "safety_and_authorization": "Readiness-only independent review; disposable /tmp roots canonical producers and local SQL corruption; no repository writes,live-index rebuild,lifecycle writes,network,full suite or closure.",
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "findings": [],
+      "null_finding": "No findings in my lane: plan requirements cover both reset branches, completeness recovery, incremental/ID constraints, transaction and independent stored consumer tests; current known defects are admitted work, not readiness gaps.",
+      "readiness_verdict": "approved-with-notes",
+      "required_lane_recommendations": {
+        "code-reviewer": "approved-with-notes readiness only",
+        "qa-reviewer": "approved-with-notes readiness only"
+      },
+      "notes": [
+        "No delivery or future-green claim. One-member fixed community IDs may rotate under existing overlap threshold2; preserve stable IDs where supported as plan states.",
+        "Implement exact projected identity coverage/category checks without historical-fingerprint equality; ordinary member rows may be from an earlier fingerprint.",
+        "Consumer oracle production inputs are ordinary JSON graph data, independently classified legitimate production; these are representative graph response fixtures, not live product source qualification.",
+        "Document structural completeness distinctly from exact historical production partition certification; optional membership digest is additional format/provenance work, not needed to fix admitted reset/completeness defects."
+      ],
+      "limitations": [
+        "Future fix unimplemented. No canonical full suite/live original evidence queries/native-platform qualification.",
+        "No independent concurrent-WAL-reader interleaving run here; existing actual rollback and planned added transaction test support readiness feasibility only.",
+        "Orphan-reconcile reset propagation grounded current source/AST but not independently executed by this seat.",
+        "Targeted compatibility/source guard source verified; supported predecessor reset ran and initial reverse-version attempt correctly refused.",
+        "Initial scratch attempts exposed harness mismatches: missing iss.connect API corrected to scratch SQLite; capture initially patched different lazy-loaded module corrected to actual indexer module; lowered-supported version against newer persisted version correctly refused; compact Python consumer fixture did not produce required independent domains and was replaced by canonical JSON fixtures; all final selected probes must complete successfully.",
+        "test_graph_transactional_state.py is planned-new,currently absent,not evidence of existing verification.",
+        "Own consumer fixture has one evidence candidate: proves production quota2, evidence isolation, limit1 and corruption sensitivity; does not prove evidence quota-fill2. Delivery must use at least2 evidence candidates."
+      ],
+      "strongest_alternate_design": "On reset prepare full replacement publication from valid complete reused clusters rather than always rerun analysis; this is the simplest fast path preserving AC3. On incomplete persisted state recompute, keeping old readable generation only for supported ID remapping.",
+      "mcp_capabilities": {
+        "code_read": "loaded,callable,disk-backed used",
+        "code_keyword": "loaded,callable graph:false used",
+        "code_outline": "loaded,callable AST used",
+        "server_root_correct": true,
+        "server_impl_matches_disk": true,
+        "gapfill": null
+      },
+      "rotating_followup": "Context retained for explicit strongest-alternative response; did not read other fixed seat reports.",
+      "tree_fingerprint": {
+        "unchanged": true,
+        "fingerprints": {
+          ".wavefoundry/framework/scripts/indexer.py": "d32a1ea2fa7b44f7bdaff53ccfadbdee56f913ca773161f0dea81c7614b4c088",
+          ".wavefoundry/framework/scripts/graph_indexer.py": "eee580200ab9a9a0822cfae5704484b3339c0bcc5b50e2aaf8777710ba2d99f1",
+          ".wavefoundry/framework/scripts/graph_cluster.py": "cffb0cadc5e575d2d18617f70f589f46cc421912530f5cb504d878ab8399d91a",
+          ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": "19736b0bc4a031fc2605994b062f566ac4054355157befacbb49f347dbe7ccac",
+          ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": "planned-absent",
+          ".wavefoundry/framework/scripts/tests/test_indexer.py": "5d89b3ef32d48b726df97258c53330f99fc0799a9b09feaaae35e728a185e22f",
+          ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "920d23346761ed09f278ffc1261877951f7ec32a23a5a5c57aa3235f75b761c2",
+          "docs/architecture/data-and-control-flow.md": "fa73be2bfaf7190a52039779f3e0e436b36227ae89445cec20afdc2ea5cf669c",
+          "docs/architecture/testing-architecture.md": "864f051681d3d9259e7880686f161e69adb31bde18ff76e412dea3f82381a92d"
+        },
+        "ast_cluster_caller_census": [
+          {
+            "owner": "_execute_orphan_store_reconcile",
+            "line": 2802
+          },
+          {
+            "owner": "_build_graph_artifacts",
+            "line": 3838
+          }
+        ]
+      },
+      "probe_results": [
+        {
+          "case": "valid-no-reset-reuse",
+          "members": 9,
+          "no_publication": true
+        },
+        {
+          "case": "historical-fingerprints-valid",
+          "no_publication": true
+        },
+        {
+          "case": "public-supported-predecessor-reset-valid-reuse",
+          "captured": [
+            {
+              "reset": true,
+              "community": false
+            }
+          ],
+          "before_members": 9,
+          "after": {
+            "chunks_docs": 2,
+            "chunks_code": 5,
+            "graph_nodes": 9,
+            "graph_edges": 8,
+            "graph_file_state": 4,
+            "graph_merge_state": 9,
+            "graph_communities": 0,
+            "graph_community_members": 0,
+            "graph_analysis": 0,
+            "build_layer_state": 3
+          },
+          "known_bad_detected": true
+        },
+        {
+          "case": "missing-member",
+          "incorrect_reuse_without_repair": true,
+          "member_count": 8
+        },
+        {
+          "case": "missing-community",
+          "incorrect_reuse_without_repair": true,
+          "member_count": 9
+        },
+        {
+          "case": "equal-count-wrong-identity",
+          "incorrect_reuse_without_repair": true,
+          "member_count": 9
+        },
+        {
+          "case": "existing-public-transaction-controls",
+          "tests": 2,
+          "skips": [],
+          "successful": true
+        }
+      ],
+      "consumer_results": {
+        "baseline": {
+          "layer": "project",
+          "present": true,
+          "evidence_communities": [
+            {
+              "community_id": "project:c0",
+              "label": "results",
+              "node_count": 66,
+              "hub_node_id": "artifacts/results.json",
+              "hub_label": "results",
+              "generated_node_fraction": 0.0,
+              "community_type": "evidence_data",
+              "evidence_type": "evidence_data",
+              "evidence_node_share": 0.9394,
+              "classification_reasons": [
+                "declares explicit provenance: generated_by='qa/probe.py'"
+              ]
+            }
+          ],
+          "evidence_fan_in": [],
+          "evidence_fan_out": [],
+          "evidence_chokepoints": [],
+          "evidence_file_hubs": [],
+          "communities": [
+            {
+              "community_id": "project:c1",
+              "label": "ledger",
+              "node_count": 31,
+              "hub_node_id": "src/payments/ledger.json",
+              "hub_label": "ledger",
+              "generated_node_fraction": 0.0
+            },
+            {
+              "community_id": "project:c2",
+              "label": "ranking",
+              "node_count": 21,
+              "hub_node_id": "src/search/ranking.json",
+              "hub_label": "ranking",
+              "generated_node_fraction": 0.0
+            }
+          ],
+          "exclude_generated": false,
+          "exclude_external": false,
+          "collapse_generated_files": false,
+          "collapse_class_module_pairs": false,
+          "collapse_package_to_directory": false,
+          "attribution_counts_by_language": {}
+        },
+        "limit_one": {
+          "layer": "project",
+          "present": true,
+          "evidence_communities": [
+            {
+              "community_id": "project:c0",
+              "label": "results",
+              "node_count": 66,
+              "hub_node_id": "artifacts/results.json",
+              "hub_label": "results",
+              "generated_node_fraction": 0.0,
+              "community_type": "evidence_data",
+              "evidence_type": "evidence_data",
+              "evidence_node_share": 0.9394,
+              "classification_reasons": [
+                "declares explicit provenance: generated_by='qa/probe.py'"
+              ]
+            }
+          ],
+          "evidence_fan_in": [],
+          "evidence_fan_out": [],
+          "evidence_chokepoints": [],
+          "evidence_file_hubs": [],
+          "communities": [
+            {
+              "community_id": "project:c1",
+              "label": "ledger",
+              "node_count": 31,
+              "hub_node_id": "src/payments/ledger.json",
+              "hub_label": "ledger",
+              "generated_node_fraction": 0.0
+            }
+          ],
+          "exclude_generated": false,
+          "exclude_external": false,
+          "collapse_generated_files": false,
+          "collapse_class_module_pairs": false,
+          "collapse_package_to_directory": false,
+          "attribution_counts_by_language": {}
+        },
+        "corrupt": {
+          "layer": "project",
+          "present": true,
+          "evidence_communities": [],
+          "evidence_fan_in": [],
+          "evidence_fan_out": [],
+          "evidence_chokepoints": [],
+          "evidence_file_hubs": [],
+          "communities": [
+            {
+              "community_id": "project:c0",
+              "label": "results",
+              "node_count": 66,
+              "hub_node_id": "",
+              "hub_label": "",
+              "generated_node_fraction": 0.0
+            },
+            {
+              "community_id": "project:c1",
+              "label": "ledger",
+              "node_count": 31,
+              "hub_node_id": "src/payments/ledger.json",
+              "hub_label": "ledger",
+              "generated_node_fraction": 0.0
+            }
+          ],
+          "exclude_generated": false,
+          "exclude_external": false,
+          "collapse_generated_files": false,
+          "collapse_class_module_pairs": false,
+          "collapse_package_to_directory": false,
+          "attribution_counts_by_language": {}
+        },
+        "known_bad_detected": true
+      },
+      "reset_recompute_results": {
+        "case": "public-reset-forced-recomputation",
+        "captured": [
+          {
+            "reset": true,
+            "community_puts": 1,
+            "member_inserts": 1
+          }
+        ],
+        "supported_stable_ids": [
+          "project:c0"
+        ],
+        "analysis_advertised_members": 9,
+        "actual_members": 1,
+        "normal_layer_isolation": true,
+        "global_reset_wipes_other_layer": true,
+        "known_bad_detected": true,
+        "limitation": "one-member fixed Documentation ID rotates under existing overlap threshold2; stable-ID requirement exercised where current remapping supports it"
+      },
+      "rotating_alternative_response": {
+        "context_id": "207t4-fixed-codeqa-20261009-independent-01",
+        "brief": "/tmp/wf-207t4-rotating-alternative.txt",
+        "weighing": "A sorted membership-identity digest can detect count-preserving known-member swaps that exact projected identity coverage, counts and seed checks alone cannot distinguish. It also needs format/backfill/provenance handling, still scans members, and cannot establish correctness of a preexisting corrupt baseline. The admitted structural completeness repair is the smaller fit for reset loss and incomplete-state recovery while preserving valid no-op and incremental behavior. The documentation must state that structural/catalog/fixed-category completeness does not certify exact historical production partition assignments. Always recomputing or rewriting would violate AC3.",
+        "own_evidence_basis": "Own canonical producer probes establish both reset branches, missing-community/member and equal-count ghost-identity failures; valid/history no-op controls and real rollback/source retry pass. Own public consumer oracle distinguishes persisted membership loss. Known-member swap counterexample and rotating latency measurements are brief-supplied, not independently executed by this seat.",
+        "code_readiness_judgment": "unchanged approved-with-notes",
+        "qa_readiness_judgment": "unchanged approved-with-notes",
+        "delivery_guidance": "Add at least TWO evidence candidates and at least TWO production candidates, with independently stated expected ordering/identity sets at limits1 and2, after fixed reset and recovery; own current consumer fixture has one evidence candidate and does not prove evidence quota-fill at limit2.",
+        "future_green_claim": false,
+        "new_tests_run": false,
+        "other_fixed_outputs_read": false
+      }
+    },
+    "security": {
+      "context_id": "207t4-fixed-security-readiness-20261009-01",
+      "phase": "readiness",
+      "wave_id": "207t4",
+      "change_id": "207t3",
+      "receipt": "review-policy-0cce62e074406ee233a9",
+      "actual_remits": [
+        "fixed security council seat"
+      ],
+      "required_delivery_lane": false,
+      "pre_primer_read": "The plan appears security-ready because it repairs loss of derived community membership within the existing atomic publication boundary and requires incomplete same-fingerprint rows to be rejected while preserving source/compatibility refusal and global-reset semantics.",
+      "pre_primer_sent_before_primer_read": true,
+      "primer_effect": "Extended: reset must force complete replacement even when otherwise-valid fingerprint reuse returns no publication; this is distinct from diffing against the old generation.",
+      "strongest_challenge_response": "Agree that an empty reset diff baseline alone cannot solve the early-return path. The reset input must reach the reuse decision, and a valid reused payload must still produce a full replacement on reset. Existing previous-row reads must remain available for ID remapping while preparation uses the empty post-reset write baseline. The plan explicitly requires complete reset publication and completeness-gated reuse, so this is an implementation obligation rather than an unresolved substantive plan choice.",
+      "primer_answers": [
+        {
+          "question": 1,
+          "answer": "When reset is true, valid matching fingerprint/version/layer reuse may skip expensive clustering but must not return without preparing complete community/member/analysis rows. Own control reproduced current valid-reuse publication=None loss separately from unchanged old-baseline diff loss."
+        },
+        {
+          "question": 2,
+          "answer": "Propagate publication.reset through both current indexer callers _build_graph_artifacts (3837-3851) and _execute_orphan_store_reconcile (2801-2818). Keep GraphPublication.apply global GRAPH_TABLES deletion unchanged; ordinary community preparation remains layer scoped. Own real reset removed a framework fixture; ordinary project delta retained it."
+        },
+        {
+          "question": 3,
+          "answer": "Validate exact community IDs and row metadata against compact analysis, per-community unique membership/count, seed membership where required by existing semantics, no orphan memberships, and exact current eligible-node universe from _project_undirected_projection: external and constant nodes excluded. Fixed categories must remain correctly assigned under _extract_fixed_communities precedence. Equal aggregate counts are insufficient; membership identities and category consistency matter. Historical membership fingerprints are establishment stamps, not current-generation proof; rejecting them would break incremental retention."
+        },
+        {
+          "question": 4,
+          "answer": "Own fixture built clusters using the real producer with three production functions, one Tests fixed node, one excluded constant and one excluded external. Independently expected four eligible identities. Missing member, missing community, and replacement of one member with ghost.py::injected all incorrectly reused currently; same-count ghost proves count-only validation inadequate. Valid fixed representation and historical member fingerprints accepted without clustering/betweenness."
+        },
+        {
+          "question": 5,
+          "answer": "Yes: preserve previous visible payload for ID remapping, separate a reset flag from the write-diff baseline, prepare full rows on reset even after cheap valid reuse, and preserve ordinary delta/no-op behavior. No additional writer is needed. Own conforming empty-baseline preparation plus existing GraphPublication committed all four expected members; ordinary delta deleted only one membership."
+        },
+        {
+          "question": 6,
+          "answer": "Own WAL reader saw old generation throughout uncommitted actual global reset; real NOT NULL member insertion failure after reset rolled back to old project/framework memberships; conforming full replacement became visible only after commit. Source drift and future schema compatibility refused before reset. Independent stored production/evidence rankings/limits are AC-5 delivery fixtures; this security seat did not execute those response consumers or claim future consumer correctness."
+        }
+      ],
+      "current_source_anchors": [
+        ".wavefoundry/framework/scripts/graph_indexer.py::GraphPublication.apply (2033-2147)",
+        ".wavefoundry/framework/scripts/graph_indexer.py::GraphPublication.recheck_sources (1992-2014)",
+        ".wavefoundry/framework/scripts/graph_indexer.py::GraphCommunityPublication.apply (1875-1920)",
+        ".wavefoundry/framework/scripts/graph_cluster.py::read_published_clusters (1119-1147)",
+        ".wavefoundry/framework/scripts/graph_cluster.py::prepare_cluster_publication (1165-1245)",
+        ".wavefoundry/framework/scripts/graph_cluster.py::update_graph_clusters (1294-1320,1325-1345)",
+        ".wavefoundry/framework/scripts/graph_cluster.py::_project_undirected_projection (406-445)",
+        ".wavefoundry/framework/scripts/graph_cluster.py::_extract_fixed_communities (315-380)",
+        ".wavefoundry/framework/scripts/indexer.py::_build_graph_artifacts (3837-3851)",
+        ".wavefoundry/framework/scripts/indexer.py::_execute_orphan_store_reconcile (2801-2818)",
+        ".wavefoundry/framework/scripts/indexer.py::_build_index_locked (5814-5822,5890-5912)",
+        "docs/architecture/threat-model.md::Threat Actors and Trust Classification (19-41)"
+      ],
+      "commands": [
+        {
+          "command": "python3 -B /tmp/wf-207t4-security-probe.py",
+          "exit_code": 0,
+          "result": {
+            "valid_unchanged": {
+              "members": [
+                "app.py::a",
+                "app.py::b",
+                "app.py::c",
+                "tests/test_app.py::check"
+              ],
+              "expensive_analysis_skipped": true,
+              "member_inserts": 0,
+              "community_puts": 0
+            },
+            "historical_member_fingerprints": {
+              "accepted": true,
+              "correct_identities": true
+            },
+            "missing_member": {
+              "current_bad_reuse_detected": true,
+              "repair_publication": false,
+              "row_count": 3,
+              "identities": [
+                "app.py::b",
+                "app.py::c",
+                "tests/test_app.py::check"
+              ]
+            },
+            "missing_community": {
+              "current_bad_reuse_detected": true,
+              "repair_publication": false,
+              "row_count": 4,
+              "identities": [
+                "app.py::a",
+                "app.py::b",
+                "app.py::c",
+                "tests/test_app.py::check"
+              ]
+            },
+            "equal_count_wrong_identity": {
+              "current_bad_reuse_detected": true,
+              "repair_publication": false,
+              "row_count": 4,
+              "identities": [
+                "app.py::b",
+                "app.py::c",
+                "ghost.py::injected",
+                "tests/test_app.py::check"
+              ]
+            },
+            "reset_bad_diff": {
+              "current_bad_detected": true,
+              "actual_members": 0,
+              "analysis_advertises_members": 4
+            },
+            "reset_valid_reuse_no_publication": {
+              "current_bad_detected": true,
+              "actual_members": 0
+            },
+            "actual_atomic_transaction": {
+              "reader_old_until_commit": true,
+              "reset_global": true,
+              "rollback_restores_old_generation": true,
+              "real_sql_constraint_fault_refused": true,
+              "complete_replacement_commit": true
+            },
+            "source_recheck_refusal": {
+              "refused_before_reset": true,
+              "old_members_preserved": true
+            },
+            "ordinary_layer_isolation": {
+              "other_layer_retained": true,
+              "member_deletes": 1,
+              "member_inserts": 0
+            },
+            "scratch_directory": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf207t4security-ond__9c_",
+            "compatibility_refusal": {
+              "refused_before_reset": true,
+              "diagnostic": "index_version_newer: store_schema_version: persisted='9', supported='8'. Index preserved. Reload/restart the affected Wavefoundry host, then resume the ordinary setup/upgrade or index command; do not delete the index.",
+              "old_members_preserved": true
+            }
+          }
+        },
+        {
+          "command": "python3 -B /tmp/wf-207t4-security-build-probe.py",
+          "exit_code": 0,
+          "result": {
+            "actual_build_graph_artifacts": true,
+            "publication_applied": true,
+            "members": [
+              "app.py",
+              "app.py::alpha",
+              "app.py::beta"
+            ],
+            "scratch_root": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf207t4securitybuild-20ivdzru"
+          }
+        }
+      ],
+      "raw_artifacts": [
+        "/tmp/wf-207t4-security-probe.py",
+        "/tmp/wf-207t4-security-probe.log",
+        "/tmp/wf-207t4-security-probe-results.json",
+        "/tmp/wf-207t4-security-build-probe.py",
+        "/tmp/wf-207t4-security-build-probe.log",
+        "/tmp/wf-207t4-security-build-results.json"
+      ],
+      "ac_coverage": {
+        "AC-1": "Current reset failures and conforming full replacement feasibility executed, not future repair approval.",
+        "AC-2": "Current missing-row and equal-count wrong-identity failures independently detected.",
+        "AC-3": "Valid unchanged expensive-work skip, historical stamps, zero writes and bounded one-member delta executed.",
+        "AC-4": "Actual WAL visibility, SQL-fault rollback, normal layer isolation, global reset, source and compatibility refusal executed.",
+        "AC-5": "Requirement reviewed; stored public response fixtures deferred to delivery, not claimed executed."
+      },
+      "findings": [],
+      "null_finding": "No findings in my lane: plan preserves atomic/source/compatibility authority and confines recovery to derived rows; own scratch controls ground feasibility. Existing corrupt-row reuse is the admitted defect, not a new unresolved readiness blocker or demonstrated authority escalation.",
+      "scanner_prescope": "No actionable entries in scan-findings.json: two false-positive Git blob fingerprints each have a fresh Cory Hacking confirmation; docs/scan-rules.toml threshold is 1 and git email matches. No writes.",
+      "semantic_security_facts": {
+        "supported_reachability": true,
+        "attacker_reachability": false,
+        "authority_domain": "integrity",
+        "authority_delta": "none",
+        "impact": "Missing/corrupt derived graph membership and unavailable/inaccurate graph responses within existing same-user local index. No new authority demonstrated.",
+        "containment": "Atomic transaction and source/compatibility refusal are preventive for partial/stale publication; current completeness failure is not contained but explicitly admitted for repair."
+      },
+      "notes": [
+        "Identity checks must not reduce to cardinality checks or require each historical membership stamp to equal current fingerprint.",
+        "Global reset must remain global; do not silently reinterpret as layer reset.",
+        "Future delivery must cover both actual indexer cluster callers and public stored-response consumers."
+      ],
+      "retrieval": {
+        "mcp_deferred_discovery_succeeded": true,
+        "code_read_keyword_outline_callable": true,
+        "disk_backed_current_reads": true,
+        "keyword_graph_false": true,
+        "shell_source_gapfill": false,
+        "graph_limit": "Current code_impact returned no affected production rows and graph callhierarchy/references omitted the two current indexer callers confirmed on disk; therefore graph signal is incomplete and not a closed-universe oracle. No absence-based security claim made."
+      },
+      "probe_budget": {
+        "tier": "standard",
+        "parameterized_probe_count": 2,
+        "cells": [
+          "valid persisted reuse",
+          "missing member/community",
+          "equal-count wrong identity",
+          "reset old-baseline diff",
+          "reset valid reuse no-publication",
+          "uncommitted reset old reader",
+          "actual SQL fault rollback",
+          "complete replacement commit",
+          "source drift refusal",
+          "future schema refusal",
+          "ordinary other-layer retention"
+        ]
+      },
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "pre-fix; independently expected eligible-node identities reveal missing/equal-count corrupt reuse and reset loss, with conforming producer/transaction controls"
+      },
+      "public_path": "Actual indexer._build_graph_artifacts -> graph_indexer.update_graph_index -> graph_cluster.update_graph_clusters -> prepared GraphPublication.apply; additional real SQLite transaction/source-compatibility probes exercise the existing coordinator participant boundary.",
+      "safety_and_authorization": "Authorized independent readiness scratch verification; source imports are read-only, Python -B, all test stores and source files under temporary directories. No repository/source/config/lifecycle writes or live rebuild.",
+      "limitations": [
+        "Unimplemented repair not executed or approved for delivery.",
+        "No canonical suite, live setup/rebuild, external/native-platform qualification or public evidence response execution.",
+        "Current graph index known incomplete; disk-backed current caller anchors used.",
+        "No claim of no new future file-access/input interpolation paths: no implementation exists yet."
+      ],
+      "verification_context": {
+        "actor": "security-reviewer",
+        "context_id": "207t4-fixed-security-readiness-20261009-01",
+        "fresh_context": true,
+        "independent": true
+      },
+      "runtime_model": "unknown; inherited capable requested",
+      "current_9_path_fingerprint": {
+        ".wavefoundry/framework/scripts/indexer.py": "a4063ec85899c50cb1fd2f279de795138d62e14b",
+        ".wavefoundry/framework/scripts/graph_indexer.py": "73f4d49254dbd8549ea4bcf77d2db53ab073970f",
+        ".wavefoundry/framework/scripts/graph_cluster.py": "dae6266d4332577b3c50f1ce3ae87d628a0913c6",
+        ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": "7f1188b4486c2e193294e686d2d11b297f1dd1cf",
+        ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": "planned-absent",
+        ".wavefoundry/framework/scripts/tests/test_indexer.py": "20b217f99dbd79823177940105b5aeb326429143",
+        ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "3650345a381ac936923914958d57be4a8cb9974c",
+        "docs/architecture/data-and-control-flow.md": "c3950ed0550ee69483a8c7d5ee0160a9f6da8455",
+        "docs/architecture/testing-architecture.md": "86c76878659b0d3293a99785c3d650b7b7410bed"
+      },
+      "current_sha256": {
+        ".wavefoundry/framework/scripts/indexer.py": "d32a1ea2fa7b44f7bdaff53ccfadbdee56f913ca773161f0dea81c7614b4c088",
+        ".wavefoundry/framework/scripts/graph_indexer.py": "eee580200ab9a9a0822cfae5704484b3339c0bcc5b50e2aaf8777710ba2d99f1",
+        ".wavefoundry/framework/scripts/graph_cluster.py": "cffb0cadc5e575d2d18617f70f589f46cc421912530f5cb504d878ab8399d91a",
+        ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": "19736b0bc4a031fc2605994b062f566ac4054355157befacbb49f347dbe7ccac",
+        ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": "planned-absent",
+        ".wavefoundry/framework/scripts/tests/test_indexer.py": "5d89b3ef32d48b726df97258c53330f99fc0799a9b09feaaae35e728a185e22f",
+        ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "920d23346761ed09f278ffc1261877951f7ec32a23a5a5c57aa3235f75b761c2",
+        "docs/architecture/data-and-control-flow.md": "fa73be2bfaf7190a52039779f3e0e436b36227ae89445cec20afdc2ea5cf669c",
+        "docs/architecture/testing-architecture.md": "864f051681d3d9259e7880686f161e69adb31bde18ff76e412dea3f82381a92d"
+      },
+      "tree_fingerprint_status": "unchanged",
+      "moved_paths": [],
+      "readiness_verdict": "approved-with-notes",
+      "required_lane_approval_recommendation": {
+        "security-reviewer": "not-applicable: fixed council seat only; no unrelated required delivery lane approval manufactured"
+      },
+      "council_recommendation": "Ready from fixed security remit; attests current plan feasibility and existing boundary preservation, not future implemented safety.",
+      "strongest_alternate_design": "Reset-aware full replacement even on valid reused clusters, separate previous-generation ID source from empty write baseline, with identity-complete stored reuse validation; stronger than unconditional cluster rewrites, version-bump-only repair, or silently layer-local reset.",
+      "rotating_alternative_weighing": {
+        "brief": "/tmp/wf-207t4-rotating-alternative.txt",
+        "judgment": "Council security readiness remains approved-with-notes; no additional blocker.",
+        "weighing": "A membership digest can detect count-preserving production repartition relative to a trustworthy prior analysis generation. My own missing-row/ghost-identity controls prove structural/catalog integrity, not certification of the exact historical production partition. The digest cannot authenticate an already-corrupt baseline and adds generation-format/backfill/provenance requirements without removing the membership scan. Those stronger requirements are not silently added to this bounded repair. The admitted reset-aware full replacement plus structural/catalog/fixed-metadata validation preserves existing publication authority and AC-3 no-op/delta behavior, and remains the preferred security-readiness path.",
+        "authority_assessment": "No new attacker authority is demonstrated by production repartition in the existing operator-owned derived index; the rotating counterexample is a correctness/contract distinction, not a security severity promotion.",
+        "docs_note": "Document structural completeness distinctly from certification of exact historical production partitions; do not claim the former proves the latter.",
+        "new_probe_execution": false,
+        "other_fixed_outputs_read": false
+      }
+    },
+    "reality": {
+      "context_id": "207t4-fixed-reality-fresh-20261009-01",
+      "phase": "readiness",
+      "actual_remits": [
+        "reality-checker fixed council seat"
+      ],
+      "fresh_context": true,
+      "independent": true,
+      "runtime_model": "inherited capable model; runtime identity unknown",
+      "receipt": "review-policy-0cce62e074406ee233a9",
+      "pre_primer_read": "The five ACs target a causal and bounded repair, but readiness depends on proving that reset writes use an empty baseline while stable IDs still use the previous generation, and that scratch persisted consumers can distinguish corruption from valid no-op reuse.",
+      "pre_primer_sent_before_opening_primer": true,
+      "primer_effect": "Extended my initial read by identifying the valid same-fingerprint reset case, where correctness requires complete replacement publication even if expensive cluster computation is legitimately reused.",
+      "strongest_challenge_response": "Confirmed from current code: reset aware diff alone does not repair the reuse branch. A reset must force a complete publication even when valid computation is reused. The admitted requirements demand every expected row after reset and preserve valid expensive-analysis reuse, so this is a necessary implementation control rather than a demonstrated omitted requirement.",
+      "primer_answers": [
+        {
+          "question": 1,
+          "answer": "Reset should suppress the no-publication outcome, not necessarily the expensive-analysis reuse. A complete valid persisted payload can be reused for computation but must be prepared against an empty write baseline. Corrupt same-fingerprint rows need recomputation. The current branch returns no publication; own scratch detects subsequent corruption reuse."
+        },
+        {
+          "question": 2,
+          "answer": "Disk MCP census finds exactly two indexer callers: _build_graph_artifacts and _execute_orphan_store_reconcile. Each extracts the GraphPublication object before clustering and can pass its reset boolean. Leave GraphPublication.apply global reset over all eight GRAPH_TABLES unchanged. A missing GraphPublication is not authority for reset."
+        },
+        {
+          "question": 3,
+          "answer": "Validate the published representation against the current normalized clustering projection: exclude external IDs/kinds and constant nodes per _project_undirected_projection; require analysis community catalog and stored community catalog to agree, row shapes/counts/seeds to agree, every projected identity represented once in membership, no unknown identities or orphan community references, and fixed category membership/kind consistent with _extract_fixed_communities. Historical member input_fingerprint values are allowed because ordinary unchanged rows retain them; equality to current generation is not the completeness invariant. Exact implementation remains delivery work."
+        },
+        {
+          "question": 4,
+          "answer": "Own controlled 14-node fixture proves valid persisted reuse skips both _run_clustering and compute_betweenness_ranking via raise-on-call guards; committed missing-members state and equal-count ghost substitution both incorrectly reuse today. Missing-community, valid fixed buckets, excluded external/constants, and historical fingerprint controls are attainable within named test files and remain implementation verification obligations rather than claimed executed coverage here."
+        },
+        {
+          "question": 5,
+          "answer": "Yes. Keep previous generation payload for _remap_clusters ID overlap; separately choose empty stored row baseline when reset. Existing GraphCommunityPublication stays the sole participant writer. Normal unchanged preparation produces zero member/community writes in own control, while valid reuse produces no publication; maintain these outcomes off reset."
+        },
+        {
+          "question": 6,
+          "answer": "Own scratch executes GraphPublication plus GraphCommunityPublication under BEGIN IMMEDIATE with real IndexStateStore generation owners and registered public wf_graph_report_response. Limit2 returns exact production p1,p2 and evidence e1,e2 independently with nonempty hubs; known-bad reset erases14 members and evidence partition becomes empty, conforming replacement restores exact IDs. Separate SQLite reader sees14 during uncommitted deletion and14 after rollback. Full build fault injection, source-change, compatibility refusal and layer sentinel tests must additionally run after implementation; source confirms both existing transaction owners and source/compatibility checks."
+        }
+      ],
+      "source_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/graph_cluster.py",
+          "symbols": [
+            "read_published_clusters",
+            "prepare_cluster_publication",
+            "update_graph_clusters",
+            "_project_undirected_projection",
+            "_extract_fixed_communities",
+            "_remap_clusters"
+          ],
+          "lines": "315-445,662-731,1119-1245,1255-1422"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+          "symbols": [
+            "GraphCommunityPublication.apply",
+            "GraphPublication.apply",
+            "GraphPublication.recheck_sources"
+          ],
+          "lines": "1858-1919,1992-2147"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "symbols": [
+            "_execute_orphan_store_reconcile",
+            "_build_graph_artifacts",
+            "build_index"
+          ],
+          "lines": "2787-2824,3837-3851,5219-5239,5889-5912"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_store.py",
+          "symbols": [
+            "GRAPH_TABLES",
+            "create_schema"
+          ],
+          "lines": "44-188"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/tests/graph_fixture_support.py",
+          "symbols": [
+            "publish_graph",
+            "_graph_publication"
+          ],
+          "lines": "94-197"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/wf_server/graph_handlers.py",
+          "symbols": [
+            "wf_graph_report_response",
+            "_wf_graph_report_response_pinned"
+          ],
+          "lines": "1401-1465,1570-1678"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_snapshot.py",
+          "symbols": [
+            "GraphSnapshot"
+          ],
+          "lines": "130-204"
+        }
+      ],
+      "executed_commands": [
+        {
+          "command": "python3 -B /tmp/wf-207t4-reality-probe.py",
+          "exit_code": 0,
+          "result": "14 members conforming initial; actual pre-reset diff loses all14; public evidence response empty and wrong production IDs; canonical complete replacement control restores exact independent rankings; concurrent reader old generation retained and rollback restores all14"
+        },
+        {
+          "command": "python3 -B /tmp/wf-207t4-reality-controls.py",
+          "exit_code": 0,
+          "result": "Valid reuse guarded expensive methods, equal-count ghost corruption accepted without publication. Initial scratch authoring attempt used nonexistent snapshot.payload and failed before probe mutation; corrected to source-grounded GraphSnapshot.graph and reran successfully."
+        },
+        {
+          "command": "nine-path git hash-object and SHA256 comparison to packet",
+          "exit_code": 0,
+          "result": "8 existing paths unchanged and9th planned absent"
+        }
+      ],
+      "raw_artifact_paths": [
+        "/tmp/wf-207t4-reality-probe.py",
+        "/tmp/wf-207t4-reality-controls.py",
+        "/tmp/wf-207t4-reality-probe-results.json",
+        "/tmp/wf-207t4-reality-fingerprint.json"
+      ],
+      "probe_results": {
+        "root": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-207t4-reality-frpbtgob",
+        "runtime": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "stages": {
+          "conforming_initial": {
+            "communities": [
+              {
+                "community_id": "project:p1",
+                "label": "project:p1",
+                "node_count": 3,
+                "hub_node_id": "src/p1.py::f0",
+                "hub_label": "f0",
+                "generated_node_fraction": 0.0
+              },
+              {
+                "community_id": "project:p2",
+                "label": "project:p2",
+                "node_count": 2,
+                "hub_node_id": "src/p2.py::f0",
+                "hub_label": "f0",
+                "generated_node_fraction": 0.0
+              }
+            ],
+            "evidence_communities": [
+              {
+                "community_id": "project:e1",
+                "label": "project:e1",
+                "node_count": 5,
+                "hub_node_id": "src/e1.py::f0",
+                "hub_label": "f0",
+                "generated_node_fraction": 0.0,
+                "community_type": "evidence_data",
+                "evidence_type": "evidence_data",
+                "evidence_node_share": 1.0,
+                "classification_reasons": [
+                  "controlled machine-result artifact"
+                ]
+              },
+              {
+                "community_id": "project:e2",
+                "label": "project:e2",
+                "node_count": 4,
+                "hub_node_id": "src/e2.py::f0",
+                "hub_label": "f0",
+                "generated_node_fraction": 0.0,
+                "community_type": "evidence_data",
+                "evidence_type": "evidence_data",
+                "evidence_node_share": 1.0,
+                "classification_reasons": [
+                  "controlled machine-result artifact"
+                ]
+              }
+            ]
+          },
+          "known_bad_reset": {
+            "communities": [
+              {
+                "community_id": "project:e1",
+                "label": "project:e1",
+                "node_count": 5,
+                "hub_node_id": "",
+                "hub_label": "",
+                "generated_node_fraction": 0.0
+              },
+              {
+                "community_id": "project:e2",
+                "label": "project:e2",
+                "node_count": 4,
+                "hub_node_id": "",
+                "hub_label": "",
+                "generated_node_fraction": 0.0
+              }
+            ],
+            "evidence_communities": []
+          },
+          "conforming_replacement_control": {
+            "communities": [
+              {
+                "community_id": "project:p1",
+                "label": "project:p1",
+                "node_count": 3,
+                "hub_node_id": "src/p1.py::f0",
+                "hub_label": "f0",
+                "generated_node_fraction": 0.0
+              },
+              {
+                "community_id": "project:p2",
+                "label": "project:p2",
+                "node_count": 2,
+                "hub_node_id": "src/p2.py::f0",
+                "hub_label": "f0",
+                "generated_node_fraction": 0.0
+              }
+            ],
+            "evidence_communities": [
+              {
+                "community_id": "project:e1",
+                "label": "project:e1",
+                "node_count": 5,
+                "hub_node_id": "src/e1.py::f0",
+                "hub_label": "f0",
+                "generated_node_fraction": 0.0,
+                "community_type": "evidence_data",
+                "evidence_type": "evidence_data",
+                "evidence_node_share": 1.0,
+                "classification_reasons": [
+                  "controlled machine-result artifact"
+                ]
+              },
+              {
+                "community_id": "project:e2",
+                "label": "project:e2",
+                "node_count": 4,
+                "hub_node_id": "src/e2.py::f0",
+                "hub_label": "f0",
+                "generated_node_fraction": 0.0,
+                "community_type": "evidence_data",
+                "evidence_type": "evidence_data",
+                "evidence_node_share": 1.0,
+                "classification_reasons": [
+                  "controlled machine-result artifact"
+                ]
+              }
+            ]
+          }
+        },
+        "valid_reuse": {
+          "publication_absent": true,
+          "member_writes": 0,
+          "community_puts": 0,
+          "expensive_methods_guarded": true
+        },
+        "rollback": {
+          "before": 14,
+          "writer_after_apply": 0,
+          "concurrent_reader": 14,
+          "after_rollback": 14
+        },
+        "known_bad_reuse": {
+          "publication_absent": true,
+          "advertised_count": 14,
+          "actual_members": 0
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "current pre-fix reset prepared before apply compared with current conforming producer replacement; same fingerprint reuse measured after committed corruption"
+        },
+        "equal_count_wrong_identity": {
+          "count": 14,
+          "publication_absent": true,
+          "ghost_retained": true
+        }
+      },
+      "AC_coverage": {
+        "AC-1": "Causal failure executed and conforming current producer replacement available; future reset-aware orchestration not implemented.",
+        "AC-2": "Missing all members and equal-count wrong identity corruption executed; current reuse defect detected. Missing-community and fixed/excluded controls remain implementation work.",
+        "AC-3": "Actual no-diff membership writes zero; actual valid fingerprint reuse guarded expensive methods; bounded changed delta remains delivery obligation.",
+        "AC-4": "Real WAL old-reader visibility/explicit rollback participant control executed; source confirms one transaction and compatibility/source guards. Whole-build injected fault and layer sentinel are future tests.",
+        "AC-5": "Actual registered response consumer over independent scratch production/evidence fixture gives exact two-per-half IDs and nonempty hubs; known bad changes response and conforming replacement restores it."
+      },
+      "assumption_tracking": [
+        {
+          "assumption": "Public consumer oracle is achievable without live checkout graph",
+          "status": "tested",
+          "disposition": "accepted; scratch real producer and response controls executed"
+        },
+        {
+          "assumption": "Old generation can remain visible through replacement and rollback",
+          "status": "tested at actual publication participant boundary; full caller injection still pending",
+          "disposition": "accepted readiness; delivery test required"
+        },
+        {
+          "assumption": "One reset-aware input can reach both callers",
+          "status": "source verified",
+          "disposition": "accepted bounded implementation"
+        },
+        {
+          "assumption": "Completeness check can preserve valid fast path without expensive analysis",
+          "status": "feasible from normalized identity/row checks; expensive skip tested today",
+          "disposition": "delivery validate fixed semantics and measure build/reuse cost"
+        },
+        {
+          "assumption": "Live canonical setup and full suite will pass after repair",
+          "status": "unknown future state",
+          "disposition": "not claimed; remain qualification tasks"
+        }
+      ],
+      "candidate_findings": [],
+      "null_finding": "No findings in my lane: five AC feasibility, causal reset/reuse coverage, single-writer transaction and attainable independent public consumer oracle checked; no demonstrated build-changing omission in admitted plan.",
+      "implementation_notes": [
+        "A valid same-fingerprint reset must still supply complete publication.",
+        "Preserve previous-generation ID remapping separately from empty write-diff baseline.",
+        "Validate identities and row catalog as well as counts; do not require member fingerprint freshness.",
+        "Keep normal layer preparation isolated while preserving global reset semantics.",
+        "Existing fixture helper prepares after reset; do not let that control hide production pre-transaction preparation defect."
+      ],
+      "strongest_alternate_design": "Always rewrite all community/member rows on every build would avoid missing rows but violates required bounded incremental writes and valid no-op reuse; resetting only selected layer would silently change the global reset contract. Current bounded reset-aware replacement plus completeness-gated reuse is stronger.",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "current pre-fix reset prepared before apply compared with current conforming producer replacement; same fingerprint reuse measured after committed corruption"
+      },
+      "tree_fingerprint": {
+        ".wavefoundry/framework/scripts/indexer.py": {
+          "expected": "a4063ec85899c50cb1fd2f279de795138d62e14b",
+          "actual": "a4063ec85899c50cb1fd2f279de795138d62e14b",
+          "unchanged": true,
+          "sha256": "d32a1ea2fa7b44f7bdaff53ccfadbdee56f913ca773161f0dea81c7614b4c088"
+        },
+        ".wavefoundry/framework/scripts/graph_indexer.py": {
+          "expected": "73f4d49254dbd8549ea4bcf77d2db53ab073970f",
+          "actual": "73f4d49254dbd8549ea4bcf77d2db53ab073970f",
+          "unchanged": true,
+          "sha256": "eee580200ab9a9a0822cfae5704484b3339c0bcc5b50e2aaf8777710ba2d99f1"
+        },
+        ".wavefoundry/framework/scripts/graph_cluster.py": {
+          "expected": "dae6266d4332577b3c50f1ce3ae87d628a0913c6",
+          "actual": "dae6266d4332577b3c50f1ce3ae87d628a0913c6",
+          "unchanged": true,
+          "sha256": "cffb0cadc5e575d2d18617f70f589f46cc421912530f5cb504d878ab8399d91a"
+        },
+        ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": {
+          "expected": "7f1188b4486c2e193294e686d2d11b297f1dd1cf",
+          "actual": "7f1188b4486c2e193294e686d2d11b297f1dd1cf",
+          "unchanged": true,
+          "sha256": "19736b0bc4a031fc2605994b062f566ac4054355157befacbb49f347dbe7ccac"
+        },
+        ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": {
+          "expected": "planned-absent",
+          "actual": "planned-absent",
+          "unchanged": true,
+          "sha256": "planned-absent"
+        },
+        ".wavefoundry/framework/scripts/tests/test_indexer.py": {
+          "expected": "20b217f99dbd79823177940105b5aeb326429143",
+          "actual": "20b217f99dbd79823177940105b5aeb326429143",
+          "unchanged": true,
+          "sha256": "5d89b3ef32d48b726df97258c53330f99fc0799a9b09feaaae35e728a185e22f"
+        },
+        ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": {
+          "expected": "3650345a381ac936923914958d57be4a8cb9974c",
+          "actual": "3650345a381ac936923914958d57be4a8cb9974c",
+          "unchanged": true,
+          "sha256": "920d23346761ed09f278ffc1261877951f7ec32a23a5a5c57aa3235f75b761c2"
+        },
+        "docs/architecture/data-and-control-flow.md": {
+          "expected": "c3950ed0550ee69483a8c7d5ee0160a9f6da8455",
+          "actual": "c3950ed0550ee69483a8c7d5ee0160a9f6da8455",
+          "unchanged": true,
+          "sha256": "fa73be2bfaf7190a52039779f3e0e436b36227ae89445cec20afdc2ea5cf669c"
+        },
+        "docs/architecture/testing-architecture.md": {
+          "expected": "86c76878659b0d3293a99785c3d650b7b7410bed",
+          "actual": "86c76878659b0d3293a99785c3d650b7b7410bed",
+          "unchanged": true,
+          "sha256": "864f051681d3d9259e7880686f161e69adb31bde18ff76e412dea3f82381a92d"
+        }
+      },
+      "tree_fingerprint_status": "unchanged for all nine declared paths",
+      "mcp_first": {
+        "deferred_discovered": true,
+        "code_read_callable_verified": true,
+        "disk_backed_reads": true,
+        "code_keyword_graph_false": true,
+        "gapfill_used": false,
+        "stale_graph_summary_used": false
+      },
+      "scope_limitations": [
+        "Readiness only; no future-green or implementation correctness approval.",
+        "No repository/source/config/lifecycle writes, live rebuild or full suite.",
+        "Public response functions exercised through server implementation, not JSON-RPC host transport.",
+        "Conforming replacement is existing canonical fixture producer preparing after reset, not proposed future implementation.",
+        "Transaction rollback is explicit abort at participant boundary; automatic whole-build fault propagation remains delivery test.",
+        "No native-platform qualification or corpus scale measurement.",
+        "No other fixed seat outputs read.",
+        "Nine-path fingerprints checked; unrelated OPEN public C5 may change unrelated paths."
+      ],
+      "readiness_verdict": "PASS: admissible bounded plan with concrete implementation controls; no reality-seat readiness blocker",
+      "per_required_lane_approval_recommendation": {
+        "reality-checker": "fixed-seat council input only; not a separate required lane approval",
+        "unrelated_required_lanes": "no approval issued; their independent remits remain authoritative"
+      },
+      "rotating_alternative_pending": false,
+      "rotating_alternative_weighing": {
+        "alternative": "Compact per-community digest of sorted membership identities checked on reuse",
+        "judgment": "A stronger certificate of exact historical production assignment, but not a stronger bounded fix for the admitted completeness contract.",
+        "evidence_relation": "My executed ghost substitution proves equal counts alone are insufficient and projected identity checks are necessary; it does not prove structural checks detect swaps of existing production identities between otherwise valid communities. The rotating counterexample identifies that distinct limit.",
+        "tradeoff": "Digest requires format/backfill/provenance policy, still scans memberships, and cannot certify an already corrupt baseline. The admitted reset-aware replacement plus structural/catalog/fixed completeness repairs the diagnosed causal loss while preserving AC3.",
+        "documentation_constraint": "Say structurally complete representation, not certified exact historical production partition. Any claim to detect all count-preserving production assignment corruption would need the digest or equivalent proof and additional admission.",
+        "readiness_changed": false,
+        "readiness_verdict": "PASS unchanged; no additional reality-seat blocker. Implementation and future qualification remain unproven."
+      }
+    },
+    "performance-docs": {
+      "context_id": "207t4-rotating-performance-docs-readiness-20261009-01",
+      "phase": "readiness",
+      "wave_id": "207t4",
+      "change_id": "207t3-bug graph-community-reset-publication",
+      "receipt": "review-policy-0cce62e074406ee233a9",
+      "actual_remits": [
+        "performance-reviewer",
+        "docs-contract-reviewer"
+      ],
+      "rotating_primary_job": "best-alternative seat, with honestly combined required performance/docs readiness remits",
+      "fresh_context": true,
+      "independent": true,
+      "runtime_model": "inherited capable requested; runtime identity unknown",
+      "pre_primer_read": "Not applicable to rotating seat: full primer and completed fixed-seat brief intentionally available from start. No artifact-first independence claim.",
+      "primer_effect": "Confirmed causal reset/reuse risk and extended the alternative analysis to persisted membership digests and the limits of structural completeness.",
+      "strongest_challenge_response": "Both reset-sensitive branches need treatment: reset must force complete publication even when analyses are safely reused; incomplete persisted membership must invalidate no-reset reuse. Prior visible generation remains ID-remapping evidence, separate from empty replacement write baseline. Both indexer callers already possess GraphPublication before invoking clustering, so one reset-aware input can be propagated without changing global reset semantics.",
+      "strongest_alternative_brief": "Persist a compact per-community digest of sorted membership identities in trusted analysis-generation metadata, and verify it from stored rows before same-fingerprint reuse. It catches count-preserving known-production-member swaps that preserve structural identity coverage, counts and seeds. It is stronger certification, but not a stronger bounded repair: adding the analysis format requires missing-digest/backfill/provenance policy, still scans existing memberships, and cannot certify an already-corrupt baseline. Prefer reset-aware complete replacement with reusable valid analysis and an empty write-diff baseline, plus structural/catalog/fixed-metadata completeness outside the writer; preserve prior visible generation for supported ID remapping. Always rewriting or recomputing breaches AC-3. Document that completeness does not certify arbitrary semantically wrong but structurally complete production repartitions.",
+      "alternative_comparison": [
+        {
+          "option": "Always recompute clustering and rewrite every row",
+          "strength": "Simple recovery path; repairs absent rows regardless of reuse branch.",
+          "weakness": "Violates valid unchanged no-analysis/no-membership-write and bounded delta requirements; adds algorithm and writer work on every build.",
+          "judgment": "Not stronger within admitted contract."
+        },
+        {
+          "option": "Complete replacement only for reset, reusing valid analysis",
+          "strength": "Repairs reset without paying expensive clustering again; previous generation can support ID remapping independently of empty write baseline.",
+          "weakness": "Requires explicit reset propagation through both direct callers and bypass of no-publication reuse outcome.",
+          "judgment": "Strongest bounded implementation variant permitted by selected plan."
+        },
+        {
+          "option": "Compact per-community membership digests in graph_analysis payload",
+          "strength": "Detects structurally complete production-to-production repartition against trusted prior-generation digest; own control demonstrated. Can use existing analysis payload without a new SQL table.",
+          "weakness": "New persisted format/backfill/provenance policy; absent old digests require recomputation or explicit limited guarantee. Hashing still scans members and trusted baseline is essential; cannot certify clustering correctness or corrupted metadata plus rows.",
+          "judgment": "Strongest credible alternative for stronger certification, disproportionate to bounded current reset/missing-row repair; no silent semantic-certification claim."
+        }
+      ],
+      "primer_answers": [
+        {
+          "question": 1,
+          "answer": "For reset, unchanged fingerprint/version/layer may retain expensive analysis results but must return a complete GraphCommunityPublication prepared against empty community/member baseline. Current update_graph_clusters returns no publication and is unsafe on reset. Own 1k/10k valid reuse raise-on-clustering/betweenness controls and complete empty-baseline preparation prove current interfaces support the distinction, not future implementation correctness."
+        },
+        {
+          "question": 2,
+          "answer": "Disk-current keyword census finds exactly two calls in indexer.py: _execute_orphan_store_reconcile:2802 and _build_graph_artifacts:3838; both pop GraphPublication before clustering and can forward its reset boolean. Preserve GraphPublication.apply:2051 global deletion over GRAPH_TABLES. Ordinary layer-specific diff remains scoped, global reset is not redefined by layer."
+        },
+        {
+          "question": 3,
+          "answer": "Bounded build/reuse invariant compares normalized projected node identities excluding external/constant nodes with one valid membership per eligible identity; rejects unknown/missing/orphan/duplicate memberships; compares analysis catalog with stored community rows, IDs, counts, seed identity and canonical metadata, and fixed-category membership consistent with ordered _extract_fixed_communities. Historical member input_fingerprint is allowed. This structural/metadata completeness does not independently certify arbitrary count-preserving production repartition; digest alternative is stronger for that distinct guarantee."
+        },
+        {
+          "question": 4,
+          "answer": "Implementation fixtures must independently delete community/member rows, substitute equal-count ghost identities, retain valid fixed categories and historical fingerprints, and exclude external/constants. Own controls executed valid guarded reuse and non-vacuous actual reset consumer failure; known-node count-preserving swap remains structurally complete while prior digest changes. Fixed-category missing-row tests are delivery obligations, not claimed executed future repair coverage."
+        },
+        {
+          "question": 5,
+          "answer": "Yes: retain previous reconstructed payload for _remap_clusters supported ID stability; use empty baseline only for reset publication and existing membership delta otherwise; return no publication for valid unchanged no-reset reuse. One existing GraphCommunityPublication writer remains sufficient. Current read_published_clusters already scans membership, so completeness adds bounded build/reuse work, not a new query-time corpus scan. Own zero-write normal preparation and 1k/10k full insert controls support feasibility."
+        },
+        {
+          "question": 6,
+          "answer": "Use real BEGIN IMMEDIATE/COMMIT with graph/community participants, separate reader old-generation assertions and injected failure rollback, plus actual caller source/compatibility checks and layer sentinel controls. Public registered wf_graph_report_response over independent 15-member scratch fixture with limit1 returns exact prod-a and evidence-a separately with nonempty hubs; current known-bad reset empties evidence and substitutes wrong production community, conforming producer restores exact outputs. Whole caller failure/layer/source tests remain delivery work; fixed seats independently exercised some boundaries."
+        }
+      ],
+      "source_anchors": [
+        {
+          "path": ".wavefoundry/framework/scripts/graph_cluster.py",
+          "symbols": [
+            "read_published_clusters",
+            "prepare_cluster_publication",
+            "update_graph_clusters",
+            "_extract_fixed_communities",
+            "_project_undirected_projection",
+            "_remap_clusters"
+          ],
+          "lines": "315-445,662-731,1119-1245,1255-1325",
+          "id_remapping_validation": "Direct disk-current read verifies overlap-threshold prior community ID reuse and retained fixed marker, independent of publication baseline; singleton/fresh IDs are not unconditionally stable."
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "symbols": [
+            "_execute_orphan_store_reconcile",
+            "_build_graph_artifacts",
+            "build_index"
+          ],
+          "lines": "2787-2824,3827-3853,5890-5916"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_indexer.py",
+          "symbols": [
+            "GraphCommunityPublication.apply",
+            "GraphPublication.apply"
+          ],
+          "lines": "1850-1920,2028-2054"
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/tests/graph_fixture_support.py",
+          "symbols": [
+            "publish_graph",
+            "_graph_publication"
+          ],
+          "lines": "40-197",
+          "reason": "Targeted fixture-producer read to execute safe public response/publication controls; no scope expansion or source edits."
+        }
+      ],
+      "docs_contract_surfaces": [
+        {
+          "path": "docs/architecture/data-and-control-flow.md",
+          "owner": "Engineering",
+          "current_contract": "Path3 step10-12: graph, communities and analysis share single transaction; build epoch and previous visible generation. Step15 orphan reconcile keeps graph/clusters consistent.",
+          "required_update": "Explain global graph reset versus layer-scoped normal preparation; previous-generation ID-remap input versus empty reset write baseline; completeness-gated same-fingerprint reuse including valid reset analysis reuse. State membership fingerprints are historical establishment provenance; structural completeness is not exact partition certification.",
+          "applicability": "Directly applicable behavior contract, explicitly declared in admitted change; implementation/docs work not yet done."
+        },
+        {
+          "path": "docs/architecture/testing-architecture.md",
+          "owner": "Engineering",
+          "current_contract": "Standing Gate identity section543-553 identifies shared community rows and explicitly limits provenance binding detector claims.",
+          "required_update": "Add actual publication reset/missing-community/member/equal-count identities, valid reuse/delta, transaction rollback/reader visibility and independent production/evidence response oracles; document planned-new transactional test and known-bad controls without implying standing retrieval gate newly detects all graph defects.",
+          "applicability": "Directly applicable verification contract; update owned by planned verification/documentation stream."
+        }
+      ],
+      "performance_complexity": "Existing read_published_clusters is O(M) membership scan on build/reuse. Proposed projected-identity/catalog validation is O(N+M+C) plus any existing projection edge traversal O(E), bounded per build/reuse and prepared outside acquired writer. Normal publication remains change-sized, reset replacement O(N+M+C) unavoidable; no new broad query-time or per-query check authorized.",
+      "executed_commands": [
+        {
+          "command": "python3 -B /tmp/wf-207t4-performance-docs-probe.py",
+          "exit_code": 0,
+          "results": "1k/10k guarded valid reuse, zero unchanged membership writes, actual 1k/10k complete replacement participant apply; count-preserving known-production swap digest control; registered independent production/evidence limit1 response known-bad/conforming controls."
+        },
+        {
+          "command": "python3 -B /tmp/wf-207t4-writer-timing-control.py",
+          "exit_code": 0,
+          "results": "Blocked acquisition measured separately from acquired interval; artificial20ms delay before COMMIT returns included in held interval. Calibration is controlled scheduling, not production profiling."
+        },
+        {
+          "command": "nine declared SHA256 fingerprints compared with original packet",
+          "exit_code": 0,
+          "results": "All8 existing sources/docs unchanged;9th transaction test planned absent."
+        }
+      ],
+      "executed_results": {
+        "timings": [
+          {
+            "nodes": 1000,
+            "existing_membership_read_ms": 0.42379205115139484,
+            "valid_reuse_ms": 0.3979580942541361,
+            "normal_diff_prepare_ms": 0.627333065494895,
+            "projection_identity_scan_ms": 0.40954211726784706,
+            "membership_digest_ms": 0.10324991308152676,
+            "fullreplacement_prepare_ms": 0.4210828337818384,
+            "normal_acquisition_wait_ms": 0.00500003807246685,
+            "normal_acquired_writer_ms": 1.3830000534653664,
+            "full_acquisition_wait_ms": 0.006292015314102173,
+            "full_acquired_writer_ms": 3.1889579258859158,
+            "normal_member_writes": 0,
+            "full_member_inserts": 1000
+          },
+          {
+            "nodes": 10000,
+            "existing_membership_read_ms": 3.57970898039639,
+            "valid_reuse_ms": 3.5137920640408993,
+            "normal_diff_prepare_ms": 6.215166999027133,
+            "projection_identity_scan_ms": 4.069624934345484,
+            "membership_digest_ms": 0.7887091487646103,
+            "fullreplacement_prepare_ms": 6.133790826424956,
+            "normal_acquisition_wait_ms": 0.012582866474986076,
+            "normal_acquired_writer_ms": 1.5361669939011335,
+            "full_acquisition_wait_ms": 0.005041947588324547,
+            "full_acquired_writer_ms": 19.126500003039837,
+            "normal_member_writes": 0,
+            "full_member_inserts": 10000
+          }
+        ],
+        "controls": {
+          "same_count_known_node_production_swap": {
+            "structurally_complete": true,
+            "prior_partition_digest_detects": true,
+            "meaning": "Completeness cannot certify exact historical production partition; digest can only if trusted prior digest exists."
+          },
+          "public_consumer": {
+            "positive": {
+              "communities": [
+                {
+                  "community_id": "project:prod-a",
+                  "label": "prod-a",
+                  "node_count": 3,
+                  "hub_node_id": "src/prod-a.py::f0",
+                  "hub_label": "f0",
+                  "generated_node_fraction": 0.0
+                }
+              ],
+              "evidence_communities": [
+                {
+                  "community_id": "project:evidence-a",
+                  "label": "evidence-a",
+                  "node_count": 6,
+                  "hub_node_id": "src/evidence-a.py::f0",
+                  "hub_label": "f0",
+                  "generated_node_fraction": 0.0,
+                  "community_type": "evidence_data",
+                  "evidence_type": "evidence_data",
+                  "evidence_node_share": 1.0,
+                  "classification_reasons": [
+                    "independent controlled artifact"
+                  ]
+                }
+              ]
+            },
+            "known_bad": {
+              "communities": [
+                {
+                  "community_id": "project:evidence-a",
+                  "label": "evidence-a",
+                  "node_count": 6,
+                  "hub_node_id": "",
+                  "hub_label": "",
+                  "generated_node_fraction": 0.0
+                }
+              ],
+              "evidence_communities": []
+            },
+            "conforming_replacement": {
+              "communities": [
+                {
+                  "community_id": "project:prod-a",
+                  "label": "prod-a",
+                  "node_count": 3,
+                  "hub_node_id": "src/prod-a.py::f0",
+                  "hub_label": "f0",
+                  "generated_node_fraction": 0.0
+                }
+              ],
+              "evidence_communities": [
+                {
+                  "community_id": "project:evidence-a",
+                  "label": "evidence-a",
+                  "node_count": 6,
+                  "hub_node_id": "src/evidence-a.py::f0",
+                  "hub_label": "f0",
+                  "generated_node_fraction": 0.0,
+                  "community_type": "evidence_data",
+                  "evidence_type": "evidence_data",
+                  "evidence_node_share": 1.0,
+                  "classification_reasons": [
+                    "independent controlled artifact"
+                  ]
+                }
+              ]
+            },
+            "exact_oracle_detected": true,
+            "limit": 1,
+            "members": 15
+          }
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "actual current pre-reset diff known-bad publication vs conforming scratch producer; count-preserving known-node repartition falsifies structural semantic-certification claim"
+        }
+      },
+      "writer_timer_calibration": {
+        "acquisition_wait_ms": 73.50954203866422,
+        "acquired_through_delayed_commit_ms": 24.556708056479692,
+        "artificial_commit_delay_ms": 20
+      },
+      "AC_coverage": {
+        "AC-1": "Existing actual full replacement preparation/apply positive feasible; current pre-reset preparation known-bad detected.",
+        "AC-2": "Causal corruption/oracle controls executed; complete structural/fixed validator implementation remains future.",
+        "AC-3": "Actual unchanged membership writes zero; valid reuse guards expensive methods; measured replacement cost confirms why not every build.",
+        "AC-4": "Caller-owned transaction source grounded; timing calibration executed; independent fixed-seat rollback results read as brief, not claimed own execution.",
+        "AC-5": "Own exact public consumer IDs, independent limit1 and nonempty hubs positive/known-bad/restored controls."
+      },
+      "candidate_findings": [],
+      "null_finding": "No findings in either combined lane: bounded reset-only replacement/completeness feasibility, no per-query expansion, both direct callers, truthful architecture/test-contract update scope and attainable exact public consumer controls checked. No demonstrated build-changing omission in admitted plan.",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "actual current pre-reset diff known-bad publication vs conforming scratch producer; count-preserving known-node repartition falsifies structural semantic-certification claim"
+      },
+      "tree_fingerprint": {
+        ".wavefoundry/framework/scripts/indexer.py": {
+          "expected_sha256": "d32a1ea2fa7b44f7bdaff53ccfadbdee56f913ca773161f0dea81c7614b4c088",
+          "actual_sha256": "d32a1ea2fa7b44f7bdaff53ccfadbdee56f913ca773161f0dea81c7614b4c088",
+          "unchanged": true
+        },
+        ".wavefoundry/framework/scripts/graph_indexer.py": {
+          "expected_sha256": "eee580200ab9a9a0822cfae5704484b3339c0bcc5b50e2aaf8777710ba2d99f1",
+          "actual_sha256": "eee580200ab9a9a0822cfae5704484b3339c0bcc5b50e2aaf8777710ba2d99f1",
+          "unchanged": true
+        },
+        ".wavefoundry/framework/scripts/graph_cluster.py": {
+          "expected_sha256": "cffb0cadc5e575d2d18617f70f589f46cc421912530f5cb504d878ab8399d91a",
+          "actual_sha256": "cffb0cadc5e575d2d18617f70f589f46cc421912530f5cb504d878ab8399d91a",
+          "unchanged": true
+        },
+        ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": {
+          "expected_sha256": "19736b0bc4a031fc2605994b062f566ac4054355157befacbb49f347dbe7ccac",
+          "actual_sha256": "19736b0bc4a031fc2605994b062f566ac4054355157befacbb49f347dbe7ccac",
+          "unchanged": true
+        },
+        ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": {
+          "expected_sha256": "planned-absent",
+          "actual_sha256": "planned-absent",
+          "unchanged": true
+        },
+        ".wavefoundry/framework/scripts/tests/test_indexer.py": {
+          "expected_sha256": "5d89b3ef32d48b726df97258c53330f99fc0799a9b09feaaae35e728a185e22f",
+          "actual_sha256": "5d89b3ef32d48b726df97258c53330f99fc0799a9b09feaaae35e728a185e22f",
+          "unchanged": true
+        },
+        ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": {
+          "expected_sha256": "920d23346761ed09f278ffc1261877951f7ec32a23a5a5c57aa3235f75b761c2",
+          "actual_sha256": "920d23346761ed09f278ffc1261877951f7ec32a23a5a5c57aa3235f75b761c2",
+          "unchanged": true
+        },
+        "docs/architecture/data-and-control-flow.md": {
+          "expected_sha256": "fa73be2bfaf7190a52039779f3e0e436b36227ae89445cec20afdc2ea5cf669c",
+          "actual_sha256": "fa73be2bfaf7190a52039779f3e0e436b36227ae89445cec20afdc2ea5cf669c",
+          "unchanged": true
+        },
+        "docs/architecture/testing-architecture.md": {
+          "expected_sha256": "864f051681d3d9259e7880686f161e69adb31bde18ff76e412dea3f82381a92d",
+          "actual_sha256": "864f051681d3d9259e7880686f161e69adb31bde18ff76e412dea3f82381a92d",
+          "unchanged": true
+        }
+      },
+      "tree_fingerprint_status": "unchanged across all9 declared paths",
+      "mcp_first": {
+        "code_read_discovered_and_callable": true,
+        "code_keyword_discovered_and_callable": true,
+        "code_outline_discovered_and_callable": true,
+        "current_disk_reads": true,
+        "keyword_graph_false": true,
+        "gapfill_used": false,
+        "stale_index_graph_used": false,
+        "per_area_AGENTS": "Map provided no per-areaAGENTS for these script areas; bounded file inventory found none in framework/scripts."
+      },
+      "readiness_verdict": "approved-with-notes",
+      "per_required_lane_approval_recommendation": {
+        "performance-reviewer": "approved-with-notes for readiness at named receipt; normal build/reuseO(N+M+C+E), reset writeO(M+C), normal change-sized write; no future-green/timing qualification claim.",
+        "docs-contract-reviewer": "approved-with-notes for readiness at named receipt; declared two architecture docs and current owners fit required invariant/oracle updates; future wording must avoid semantic partition-certification overclaim.",
+        "unrelated_lanes": "No approval issued or impersonated."
+      },
+      "scope_limitations": [
+        "Readiness review, unimplemented repair; no repository/source/config/lifecycle writes or own typed approvals.",
+        "No live rebuild, full suite, transport/native-platform qualification or source/compatibility fault injection by this seat.",
+        "Two synthetic no-contention scales, single runs with no edges,10 communities; measurements demonstrate feasibility/write consequence, not corpus-scale latency qualification or thresholds.",
+        "Membership digest and structural oracle sketch are alternative analysis only, not deployed verifier.",
+        "Registered response called through server implementation, not JSON-RPC transport.",
+        "Conforming replacement uses canonical fixture producer/current publication primitives, not proposed future production behavior.",
+        "Shared fixed-seat brief read intentionally; my independent scratch controls are fresh, repeated fixed conclusions are not counted as new independent confirmation."
+      ],
+      "assumption_tracking": [
+        {
+          "assumption": "Completeness certifies any wrong production partition",
+          "status": "refuted by count-preserving known-node swap",
+          "disposition": "Do not claim; stronger digest needs trusted baseline and new format policy."
+        },
+        {
+          "assumption": "Reset-only full publication is feasible without expensive recomputation",
+          "status": "existing interfaces and scratch full preparation with reused old payload verified",
+          "disposition": "Accept readiness; implementation must propagate reset through both callers."
+        },
+        {
+          "assumption": "Future framework suite and live recovery green",
+          "status": "unknown",
+          "disposition": "No claim; future qualification tasks remain."
+        }
+      ]
+    }
+  },
+  "redteam_closing": {
+    "mode": "red-team-closing-reconciliation",
+    "wave_id": "207t4",
+    "phase": "readiness",
+    "receipt": "review-policy-0cce62e074406ee233a9",
+    "context_id": "207t4-redteam-closing-20261009-01",
+    "actor": "red-team",
+    "council_or_required_lane_approval": false,
+    "sealed_candidate_count": 0,
+    "candidate_findings": [],
+    "finding_synthesis": [],
+    "null_finding": "No new finding in the closing challenge: the empty sealed candidate set holds. Current reset and incomplete-reuse defects are expressly admitted work; the reports preserve the distinction between existing feasibility controls and future implementation/qualification.",
+    "reconciliation": [
+      {
+        "proposition": "No demonstrated readiness blocker was hidden by the empty candidate set",
+        "result": "held",
+        "reason": "All five actual reports have empty findings/candidate_findings. Their current pre-fix failures are the admitted AC1/AC2 work; none claims they are repaired."
+      },
+      {
+        "proposition": "Both reset execution cells and fresh computation are covered as implementation obligations",
+        "result": "held",
+        "reason": "Code/QA reports actual reset plus forced recomputation (analysis advertises9, actual members1) and otherwise-valid same-fingerprint reset (missing participant); architecture/security/reality/rotating notes explicitly require complete reset publication whether recomputation or valid analysis reuse occurs. Fresh/reset compute must publish all computed rows against empty write baseline; previous rows remain remapping input."
+      },
+      {
+        "proposition": "Both current direct callers and ordinary reuse are preserved",
+        "result": "held",
+        "reason": "Every report identifies _build_graph_artifacts and _execute_orphan_store_reconcile, forwards actual publication.reset, and preserves ordinary no-reset no-publication/zero-write reuse. Exhaustive direct-call census is bounded to named files; orphan caller is source-grounded, not falsely claimed independently executed by every seat."
+      },
+      {
+        "proposition": "Completeness boundary is structural/catalog/fixed-category validity, not exact historical production-partition certification",
+        "result": "held",
+        "reason": "Every fixed seat explicitly weighs the digest alternative and admits count-preserving known-production-member swaps can remain structurally complete. Unknown/ghost identities, missing rows, catalogs/counts/seeds and fixed-category displacement are in the bounded invariant; trusted partition digests would require additional format/backfill/provenance scope and cannot certify an already corrupt baseline."
+      },
+      {
+        "proposition": "No future-green, required-lane waiver or semantic-certification overclaim is used",
+        "result": "held",
+        "reason": "Reports limit readiness recommendations to plan feasibility/current mechanisms; leave repaired behavior, original live queries, canonical suite, delivery lane approvals and platform qualification future. Reality report says PASS admissibility rather than the approved-with-notes literal; this is its actual stated outcome, not a delivery approval. Council must still record its own judgment and required lanes remain distinct."
+      },
+      {
+        "proposition": "No hidden implementation scope expansion is needed to accept these reports",
+        "result": "held",
+        "reason": "Digest is an explicitly rejected stronger alternative, not an added mandatory mechanism. Other-layer sentinels test existing SQL isolation versus intentional global reset; they do not introduce a supported graph layer. Targeted fixture helper reads support safe probes only. Planned transaction test remains absent/new. Public response controls call registered server response implementation, not host JSON-RPC transport."
+      },
+      {
+        "proposition": "Consumer and performance limitations remain honest",
+        "result": "held",
+        "reason": "Code/QA has one evidence candidate and explicitly cannot prove evidence quota-fill2; reality independently exercises2 production and2 evidence candidates. Delivery guidance requires at least2 per side at limits1/2 after reset/recovery. Rotating single-run1K/10K synthetic/no-edge measurements show feasibility and write consequences only, not corpus latency guarantees."
+      }
+    ],
+    "evidence_reviewed": [
+      "/tmp/wf-207t4-architecture-report.json",
+      "/tmp/wf-207t4-codeqa-report.json",
+      "/tmp/wf-207t4-security-report.json",
+      "/tmp/wf-207t4-reality-report.json",
+      "/tmp/wf-207t4-performance-docs-report.json",
+      "/tmp/wf-207t4-rotating-alternative.txt",
+      "/tmp/wf-207t4-redteam-probe.log",
+      "/tmp/wf-207t4-redteam-build-probe.log"
+    ],
+    "new_broad_probes": false,
+    "source_or_repository_or_lifecycle_writes": false,
+    "tree_fingerprint_status": "unchanged: all8 existing declared paths match git hash-object; ninth test_graph_transactional_state.py matches planned-absent; rechecked during closing",
+    "limitations": [
+      "Bounded closing reconciliation only; no new full source/caller sweep, tests, live rebuild, full suite or native-platform qualification.",
+      "Seat probe claims are attributed report evidence; their probes were not rerun by this closing pass. Own earlier primer probes remain independently executed evidence.",
+      "First aggregate report display was truncated; structured targeted extraction subsequently read all5 findings, answers, alternative judgments and exact limitations relevant to closing.",
+      "Structural validity does not certify arbitrary semantically wrong but structurally complete production repartitions; no stronger guarantee is silently required or asserted.",
+      "The unchanged9-path fingerprint does not certify unrelated files in the concurrent OPEN wave.",
+      "No council verdict, required-lane approval, source repair, plan change or lifecycle mutation is produced."
+    ],
+    "closing_outcome": "held_empty_sealed_set",
+    "new_concrete_blocker": null
+  },
+  "council_report": {
+    "report_kind": "independent-council-readiness-synthesis",
+    "wave_id": "207t4",
+    "change_id": "207t3-bug graph-community-reset-publication",
+    "phase": "readiness",
+    "receipt": "review-policy-0cce62e074406ee233a9",
+    "verification_context": {
+      "actor": "council-chair",
+      "context_id": "207t4-council-chair-fresh-independent-20261009-01",
+      "fresh_context": true,
+      "independent": true
+    },
+    "runtime_model": "unknown; fresh fork-none capable reviewer context",
+    "scope": "Current plan admissibility and feasibility only; council does not perform implementation or lifecycle activation.",
+    "protocol_read": [
+      "docs/agents/specialists/council-chair.md",
+      ".wavefoundry/framework/seeds/215-council-chair.prompt.md",
+      ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md",
+      "docs/prompts/prepare-wave.prompt.md"
+    ],
+    "primer_depth": {
+      "tier": "standard",
+      "stances": [
+        "adversarial",
+        "constructive",
+        "simplicity"
+      ],
+      "questions_per_stance": 2,
+      "rationale": "A bounded repair within retained SQLite publication/source authority and existing callers. Named state/data boundaries are preserved, with no new writer or ownership/trust crossing. Standard3 stances/6 questions and finite selected current-publication/failure-recovery controls used."
+    },
+    "primer_summary": {
+      "attributed_actor": "red-team",
+      "strongest_challenge": "Reset loses communities through both pre-reset diffing and otherwise-valid fingerprint reuse returning no community publication. Fixing only the diff baseline is insufficient.",
+      "effect": "All fixed seats extend their artifact-first read to require complete reset publication even under valid expensive-analysis reuse. Constructive identity/catalog/fixed-category completeness and simplicity separation of remap input from write baseline are accepted; the independent current source/probe corroborates causal reset/reuse risk.",
+      "questions": [
+        {
+          "stance": "adversarial",
+          "questions": [
+            "How will reset force complete publication when fingerprint, cluster version, graph version and layer all match, rather than returning from the current reuse branch?",
+            "How will both _build_graph_artifacts and _execute_orphan_store_reconcile propagate reset state without changing global GraphPublication reset semantics?"
+          ]
+        },
+        {
+          "stance": "constructive",
+          "questions": [
+            "What exact invariant compares analysis metadata, stored community rows and membership identities against the current clustering projection, including fixed categories and excluded external/constant nodes?",
+            "Which independent fixtures reject missing community rows, missing members and equal-count wrong identities while accepting valid fixed communities and historical member fingerprints?"
+          ]
+        },
+        {
+          "stance": "simplicity",
+          "questions": [
+            "Can one bounded reset-aware preparation change preserve previous-generation ID remapping, ordinary member deltas, and valid unchanged no-op reuse without introducing another writer?",
+            "Which real transaction and stored-response assertions will prove rollback, normal layer isolation, and independent production/evidence limits without depending on this checkout\u2019s live graph?"
+          ]
+        }
+      ]
+    },
+    "anonymized_merit_first": {
+      "artifacts_first_read": [
+        "/tmp/wf-207t4-anonymized-seats.json",
+        "/tmp/wf-207t4-primer.json",
+        "/tmp/wf-207t4-readiness-packet.json",
+        "docs/waves/207t4 graph-community-publication/207t3-bug graph-community-reset-publication.md"
+      ],
+      "identity_roster_not_read_before_merit_message": true,
+      "coordinator_merit_message_sent": true,
+      "assessment": "Seat1 strongest ownership/identity/WAL argument; Seat2 independently attainable two-per-side consumer quota; Seat3 real SQL failure rollback and authority distinction; Seat4 stronger digest counterexample with honest scope/performance limits; Seat5 actual two reset-branch producer controls and explicitly incomplete evidence-quota fixture. No candidate or attributed blocker downgraded.",
+      "pre_primer_quality": "Four fixed reads emphasize architecture/identity stability, practical consumer feasibility, integrity/atomicity, and producer/test seams. Similar causal topics arise from common plan; no verbatim primer phrase echo or exact distinctive primer framing before engagement found. Rotating seat honestly disclaims an artifact-first prior. Claimed isolation is report-declared, not independently authenticated.",
+      "correlation_handling": "Reset/reuse/baseline claims recur after shared primer; treat as one semantic signal, not five votes of independent experimental confirmation. Closing pass and rotating fixed-brief repetitions add synthesis coverage, not new independent proof."
+    },
+    "seat_roster_and_summaries": [
+      {
+        "seat_label": "Seat 1",
+        "actual_role": "architecture-reviewer",
+        "context_id": "207t4-fixed-architecture-20261009-01",
+        "report_path": "/tmp/wf-207t4-architecture-report.json",
+        "actual_remits": [
+          "fixed architecture council seat",
+          "required architecture-reviewer readiness lane"
+        ],
+        "pre_primer_read": "The plan\u2019s replacement-baseline plus completeness-gated reuse approach is architecturally feasible if prior visible clusters remain available for ID stability while reset writes use an empty baseline, and both indexer callers preserve one atomic global graph publication.",
+        "primer_effect": "Extended my pre-primer assessment by making the valid same-fingerprint reset branch explicit: reset must force a complete publication even when analysis reuse remains valid, rather than merely choosing an empty diff baseline after recomputation.",
+        "judgment": "approved-with-notes",
+        "candidate_findings": [],
+        "null_finding": "No findings in my lane: checked preparation/publication ownership, both callers, schema identities, old/new generation interleaving, reset-versus-normal layer behavior, compatibility and source refusals; the plan permits a bounded repair through existing interfaces and has no demonstrated build-changing architectural gap.",
+        "strongest_alternative_weighing": {
+          "alternative": "Compact per-community digest of sorted membership identities in the analysis generation, recomputed from stored rows before reuse.",
+          "assessment": "Stronger than structural completeness for detecting count-preserving swaps of known production members. My independent report already limits its completeness oracle: it does not certify wrong production-to-production repartition with unchanged structural metadata. The rotating counterexample confirms that residual limit, rather than disproving the bounded architecture feasibility evidence.",
+          "tradeoff": "Digest requires format/backfill/provenance semantics and cannot certify an already-corrupt baseline. It still scans members. That additional persisted-contract scope is not necessary to repair reset publication and missing/contradictory representation under the existing completeness contract. Always recomputing/rewriting breaches AC-3.",
+          "preferred_path": "Admitted reset-aware complete replacement, reuse only structurally complete/catalog-consistent/fixed-category-consistent rows, ordinary no-op/delta preserved. Documentation must describe structural completeness and avoid claiming exact historical production-partition certification.",
+          "performance_evidence_weight": "Rotating10K measurements are single-run feasibility observations, not a latency guarantee; they are consistent with the distinction my own19-member zero-delta/full-replacement probe established.",
+          "readiness_judgment_changed": false,
+          "readiness_verdict": "approved-with-notes",
+          "required_architecture_readiness_recommendation": "unchanged: approve current receipt for architectural feasibility only",
+          "new_probes": false,
+          "broadened_scope": false
+        },
+        "required_lane_recommendations": {
+          "architecture-readiness": "approve current receipt for grounded architectural feasibility only"
+        },
+        "report_sha256": "578352c286bd7c24fce07fb4a1dd6ff0b8ae96a449bedeec88d2b016f6a6174f"
+      },
+      {
+        "seat_label": "Seat 2",
+        "actual_role": "fixed reality-checker council",
+        "context_id": "207t4-fixed-reality-fresh-20261009-01",
+        "report_path": "/tmp/wf-207t4-reality-report.json",
+        "actual_remits": [
+          "reality-checker fixed council seat"
+        ],
+        "pre_primer_read": "The five ACs target a causal and bounded repair, but readiness depends on proving that reset writes use an empty baseline while stable IDs still use the previous generation, and that scratch persisted consumers can distinguish corruption from valid no-op reuse.",
+        "primer_effect": "Extended my initial read by identifying the valid same-fingerprint reset case, where correctness requires complete replacement publication even if expensive cluster computation is legitimately reused.",
+        "judgment": "PASS: admissible bounded plan with concrete implementation controls; no reality-seat readiness blocker",
+        "candidate_findings": [],
+        "null_finding": "No findings in my lane: five AC feasibility, causal reset/reuse coverage, single-writer transaction and attainable independent public consumer oracle checked; no demonstrated build-changing omission in admitted plan.",
+        "strongest_alternative_weighing": {
+          "alternative": "Compact per-community digest of sorted membership identities checked on reuse",
+          "judgment": "A stronger certificate of exact historical production assignment, but not a stronger bounded fix for the admitted completeness contract.",
+          "evidence_relation": "My executed ghost substitution proves equal counts alone are insufficient and projected identity checks are necessary; it does not prove structural checks detect swaps of existing production identities between otherwise valid communities. The rotating counterexample identifies that distinct limit.",
+          "tradeoff": "Digest requires format/backfill/provenance policy, still scans memberships, and cannot certify an already corrupt baseline. The admitted reset-aware replacement plus structural/catalog/fixed completeness repairs the diagnosed causal loss while preserving AC3.",
+          "documentation_constraint": "Say structurally complete representation, not certified exact historical production partition. Any claim to detect all count-preserving production assignment corruption would need the digest or equivalent proof and additional admission.",
+          "readiness_changed": false,
+          "readiness_verdict": "PASS unchanged; no additional reality-seat blocker. Implementation and future qualification remain unproven."
+        },
+        "required_lane_recommendations": {
+          "reality-checker": "fixed-seat council input only; not a separate required lane approval",
+          "unrelated_required_lanes": "no approval issued; their independent remits remain authoritative"
+        },
+        "report_sha256": "2b1ddb77dddc51209dbb1add0effb2b38d47b597f0e1c9a0642b67fc745ed911"
+      },
+      {
+        "seat_label": "Seat 3",
+        "actual_role": "fixed security council",
+        "context_id": "207t4-fixed-security-readiness-20261009-01",
+        "report_path": "/tmp/wf-207t4-security-report.json",
+        "actual_remits": [
+          "fixed security council seat"
+        ],
+        "pre_primer_read": "The plan appears security-ready because it repairs loss of derived community membership within the existing atomic publication boundary and requires incomplete same-fingerprint rows to be rejected while preserving source/compatibility refusal and global-reset semantics.",
+        "primer_effect": "Extended: reset must force complete replacement even when otherwise-valid fingerprint reuse returns no publication; this is distinct from diffing against the old generation.",
+        "judgment": "approved-with-notes",
+        "candidate_findings": [],
+        "null_finding": "No findings in my lane: plan preserves atomic/source/compatibility authority and confines recovery to derived rows; own scratch controls ground feasibility. Existing corrupt-row reuse is the admitted defect, not a new unresolved readiness blocker or demonstrated authority escalation.",
+        "strongest_alternative_weighing": {
+          "brief": "/tmp/wf-207t4-rotating-alternative.txt",
+          "judgment": "Council security readiness remains approved-with-notes; no additional blocker.",
+          "weighing": "A membership digest can detect count-preserving production repartition relative to a trustworthy prior analysis generation. My own missing-row/ghost-identity controls prove structural/catalog integrity, not certification of the exact historical production partition. The digest cannot authenticate an already-corrupt baseline and adds generation-format/backfill/provenance requirements without removing the membership scan. Those stronger requirements are not silently added to this bounded repair. The admitted reset-aware full replacement plus structural/catalog/fixed-metadata validation preserves existing publication authority and AC-3 no-op/delta behavior, and remains the preferred security-readiness path.",
+          "authority_assessment": "No new attacker authority is demonstrated by production repartition in the existing operator-owned derived index; the rotating counterexample is a correctness/contract distinction, not a security severity promotion.",
+          "docs_note": "Document structural completeness distinctly from certification of exact historical production partitions; do not claim the former proves the latter.",
+          "new_probe_execution": false,
+          "other_fixed_outputs_read": false
+        },
+        "required_lane_recommendations": {
+          "security-reviewer": "not-applicable: fixed council seat only; no unrelated required delivery lane approval manufactured"
+        },
+        "report_sha256": "9367d32d839b0057e112ba9e7ee2d581844909985196b3688a5272050f4700da"
+      },
+      {
+        "seat_label": "Seat 4",
+        "actual_role": "performance-reviewer, docs-contract-reviewer; rotating performance council",
+        "context_id": "207t4-rotating-performance-docs-readiness-20261009-01",
+        "report_path": "/tmp/wf-207t4-performance-docs-report.json",
+        "actual_remits": [
+          "performance-reviewer",
+          "docs-contract-reviewer"
+        ],
+        "pre_primer_read": "Not applicable to rotating seat: full primer and completed fixed-seat brief intentionally available from start. No artifact-first independence claim.",
+        "primer_effect": "Confirmed causal reset/reuse risk and extended the alternative analysis to persisted membership digests and the limits of structural completeness.",
+        "judgment": "approved-with-notes",
+        "candidate_findings": [],
+        "null_finding": "No findings in either combined lane: bounded reset-only replacement/completeness feasibility, no per-query expansion, both direct callers, truthful architecture/test-contract update scope and attainable exact public consumer controls checked. No demonstrated build-changing omission in admitted plan.",
+        "strongest_alternative_weighing": "Persist a compact per-community digest of sorted membership identities in trusted analysis-generation metadata, and verify it from stored rows before same-fingerprint reuse. It catches count-preserving known-production-member swaps that preserve structural identity coverage, counts and seeds. It is stronger certification, but not a stronger bounded repair: adding the analysis format requires missing-digest/backfill/provenance policy, still scans existing memberships, and cannot certify an already-corrupt baseline. Prefer reset-aware complete replacement with reusable valid analysis and an empty write-diff baseline, plus structural/catalog/fixed-metadata completeness outside the writer; preserve prior visible generation for supported ID remapping. Always rewriting or recomputing breaches AC-3. Document that completeness does not certify arbitrary semantically wrong but structurally complete production repartitions.",
+        "required_lane_recommendations": {
+          "performance-reviewer": "approved-with-notes for readiness at named receipt; normal build/reuseO(N+M+C+E), reset writeO(M+C), normal change-sized write; no future-green/timing qualification claim.",
+          "docs-contract-reviewer": "approved-with-notes for readiness at named receipt; declared two architecture docs and current owners fit required invariant/oracle updates; future wording must avoid semantic partition-certification overclaim.",
+          "unrelated_lanes": "No approval issued or impersonated."
+        },
+        "report_sha256": "c3b8e90913e72715b91dad3624861f6e90f3a6709e11282dd0c9505183d578ba"
+      },
+      {
+        "seat_label": "Seat 5",
+        "actual_role": "code-reviewer, qa-reviewer; fixed QA council",
+        "context_id": "207t4-fixed-codeqa-20261009-independent-01",
+        "report_path": "/tmp/wf-207t4-codeqa-report.json",
+        "actual_remits": [
+          "fixed council qa-reviewer",
+          "required code-reviewer",
+          "required qa-reviewer"
+        ],
+        "pre_primer_read": "The plan appears feasible if reset-aware full replacement and reuse completeness checks cover both indexer callers while keeping stable ID assignment separate from an empty reset diff baseline, with independent persisted-row and consumer oracles proving the five ACs.",
+        "primer_effect": "Extended: identified otherwise-valid fingerprint reuse returning no publication as an independent reset-loss path, requiring a supported predecessor walker reset with unchanged topology control.",
+        "judgment": "approved-with-notes",
+        "candidate_findings": [],
+        "null_finding": "No findings in my lane: plan requirements cover both reset branches, completeness recovery, incremental/ID constraints, transaction and independent stored consumer tests; current known defects are admitted work, not readiness gaps.",
+        "strongest_alternative_weighing": {
+          "context_id": "207t4-fixed-codeqa-20261009-independent-01",
+          "brief": "/tmp/wf-207t4-rotating-alternative.txt",
+          "weighing": "A sorted membership-identity digest can detect count-preserving known-member swaps that exact projected identity coverage, counts and seed checks alone cannot distinguish. It also needs format/backfill/provenance handling, still scans members, and cannot establish correctness of a preexisting corrupt baseline. The admitted structural completeness repair is the smaller fit for reset loss and incomplete-state recovery while preserving valid no-op and incremental behavior. The documentation must state that structural/catalog/fixed-category completeness does not certify exact historical production partition assignments. Always recomputing or rewriting would violate AC3.",
+          "own_evidence_basis": "Own canonical producer probes establish both reset branches, missing-community/member and equal-count ghost-identity failures; valid/history no-op controls and real rollback/source retry pass. Own public consumer oracle distinguishes persisted membership loss. Known-member swap counterexample and rotating latency measurements are brief-supplied, not independently executed by this seat.",
+          "code_readiness_judgment": "unchanged approved-with-notes",
+          "qa_readiness_judgment": "unchanged approved-with-notes",
+          "delivery_guidance": "Add at least TWO evidence candidates and at least TWO production candidates, with independently stated expected ordering/identity sets at limits1 and2, after fixed reset and recovery; own current consumer fixture has one evidence candidate and does not prove evidence quota-fill at limit2.",
+          "future_green_claim": false,
+          "new_tests_run": false,
+          "other_fixed_outputs_read": false
+        },
+        "required_lane_recommendations": {
+          "code-reviewer": "approved-with-notes readiness only",
+          "qa-reviewer": "approved-with-notes readiness only"
+        },
+        "report_sha256": "93ed3cb9e5cfe03a43117bd987cadfebbb1aa5a911d559a7ffd2f627b760a3d1"
+      }
+    ],
+    "seat_agreement_aggregate": {
+      "seat_agreement": "unanimous",
+      "max_severity": "none",
+      "basis": "All five actual seat outcomes favor admissibility; all actual candidate/findings lists empty. Reality says PASS admissibility; four other reports say approved-with-notes. No evidence supports promoting admitted current defects into new readiness findings."
+    },
+    "required_lane_authority": {
+      "blocking_findings": [],
+      "preserved": true,
+      "required_lane_recommendations": "Code/QA, architecture, docs-contract and performance recommendations remain separately attributed. Security and reality are fixed council seats. Council approval never replaces current required readiness approvals or future delivery approvals.",
+      "typed_approval_events_written_by_chair": false,
+      "activation": "Coordinator/root must record this actual council judgment and check current lane approvals, receipt and single-OPEN slot before opening."
+    },
+    "current_source_anchors": [
+      "graph_cluster.read_published_clusters",
+      "graph_cluster.prepare_cluster_publication",
+      "graph_cluster.update_graph_clusters",
+      "graph_cluster._project_undirected_projection",
+      "graph_cluster._extract_fixed_communities",
+      "indexer._build_graph_artifacts",
+      "indexer._execute_orphan_store_reconcile",
+      "graph_indexer.GraphPublication.apply"
+    ],
+    "selected_mechanism_assessment": "Both disk-current indexer callers extract GraphPublication before cluster preparation and attach cluster participant afterward; neither currently passes reset. update_graph_clusters early reuse returns no participant, while preparation diffs against pre-reset stored rows. GraphPublication.apply keeps compatibility/source guards then global deletion and single community apply inside caller transaction. An explicit reset preparation input can preserve previous payload for supported remapping, choose empty write baseline on reset, and prepare full replacement even when computations reused. Ordinary valid no-reset remains no-op/delta.",
+    "source_census": {
+      "claim": "Syntactic direct calls named update_graph_clusters and prepare_cluster_publication in the three declared production source files",
+      "boundary": [
+        ".wavefoundry/framework/scripts/indexer.py",
+        ".wavefoundry/framework/scripts/graph_indexer.py",
+        ".wavefoundry/framework/scripts/graph_cluster.py"
+      ],
+      "inclusion_policy": "AST Call terminal names plus current disk substring matches; only named3 production modules, exclude definitions/comments/tests/fixture helpers.",
+      "tools_and_queries": [
+        "MCP code_keyword queries update_graph_clusters( and prepare_cluster_publication(,graph=false: enumerates occurrences, tool returns21 including excluded test/helper sites,not truncated.",
+        "Python AST Call terminal-name enumeration on named3 modules: separates actual direct calls from definitions/comments and corroborates ownership."
+      ],
+      "enumerated_sites": [
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "symbol": "_build_graph_artifacts -> update_graph_clusters",
+          "line": 3838
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/indexer.py",
+          "symbol": "_execute_orphan_store_reconcile -> update_graph_clusters",
+          "line": 2802
+        },
+        {
+          "path": ".wavefoundry/framework/scripts/graph_cluster.py",
+          "symbol": "update_graph_clusters -> prepare_cluster_publication",
+          "line": 1404
+        }
+      ],
+      "total_count": 3,
+      "registration_checks": "Current actual public build probe confirms main caller attaches through actual GraphPublication.apply; orphan path source-grounded only.",
+      "exclusions": [
+        "arbitrary dynamic aliases",
+        "repository-wide callers",
+        "test direct calls and fixture helper producer"
+      ],
+      "result_truncated": false,
+      "index_freshness": "current",
+      "tool_errors": [
+        "Initial guessed graph_builder.py outline missing; corrected graph_cluster.py outline successful. Setup freshness diagnostic means loaded/indexed graph not authority; no setup run."
+      ],
+      "residual_uncertainty": "Bounded to syntactic named direct calls; dynamic value-flow closure not claimed.",
+      "residual_uncertainty_status": "bounded",
+      "universe_closed": true
+    },
+    "strongest_alternative": {
+      "design": "Compact per-community sorted membership-identity digests persisted with trusted analysis generation.",
+      "better_because": "Detects count-preserving known-production-member swaps that structural coverage/count/seed checks can miss.",
+      "decision": "Retain selected bounded structural/catalog/fixed-category completeness plus reset-aware complete replacement. Digest needs format/backfill/trusted-baseline provenance rules, still scans rows and cannot certify an already corrupt baseline. Always recomputing or rewriting violates AC3.",
+      "docs_boundary": "Explicitly document that structural/catalog/fixed-category completeness does not certify exact historical production partition assignments or arbitrary semantically wrong structurally complete repartitions."
+    },
+    "AC_feasibility": {
+      "AC-1": "Feasible through full replacement participant on both recompute/reset and valid-analysis-reuse/reset branches. Own actual reset known-bad is non-vacuous; attributed full-baseline participant controls establish existing interface feasibility. Integrated repaired behavior future.",
+      "AC-2": "Feasible build/reuse validation of catalog/row metadata, identity union, one membership per eligible node, counts/seeds/fixed categories. Exclude external/constants and allow historical membership fingerprints. Missing member/community/equal-count ghost controls must recompute and republish at delivery. Stronger exact production partition certification not claimed.",
+      "AC-3": "Feasible separation of old payload/remap source from reset write baseline; preserve no-reset valid no-analysis/no-publication and bounded changed deltas. Rotating1K/10K single-run results establish attainable write consequence only, no latency guarantee.",
+      "AC-4": "Existing caller-owned transaction and source/compatibility guards grounded current disk. Own2 actual injected-fault/source-denial retry controls green; seat separate WAL visibility/SQL failure evidence attributed. Future implementation must pin reader old-until-commit/rollback, global reset versus ordinary layer isolation and both caller controls.",
+      "AC-5": "Attainable controlled stored-response seam demonstrated by reality2 production/2 evidence candidates and independent limits, rotating limit1 and code/QA one-evidence corruption sensitivity. Delivery must assert exact identities/order and fill independent limits1/2 after repaired reset/recovery, plus original live query qualification separately."
+    },
+    "improvements_recommended": [
+      "Carry complete-reset publication on valid analysis reuse as explicit implementation/test cell.",
+      "Keep previous-generation ID remap source separate from empty replacement baseline; preserve stable IDs only where supported by current remapping.",
+      "Use exact projected identities/catalog metadata/fixed category checks; do not require historical member fingerprint to equal current generation.",
+      "Use at least2 production and2 evidence candidates with explicit independent ordering/identity oracles at limits1/2 after reset and recovery.",
+      "Document structural completeness limitation and qualify original live evidence queries/full suite separately; no fixture waiver or timing relaxation."
+    ],
+    "finding_synthesis": {
+      "review_run": {
+        "record_type": "review_run",
+        "review_run_id": "run-207t4-council-readiness-independent-01",
+        "run_kind": "readiness",
+        "cycle": 0,
+        "candidate_finding_ids": [],
+        "source_record_ids": [],
+        "dedup_evidence_id": null,
+        "verification_context": {
+          "actor": "council-chair",
+          "context_id": "207t4-council-chair-fresh-independent-20261009-01",
+          "fresh_context": true,
+          "independent": true
+        }
+      },
+      "sealed_candidates": [],
+      "rows": [],
+      "basis": "All actual seat lists empty; current publication failures are expressly admitted AC1/AC2 work, not a omitted requirement/build-changing readiness defect. Untyped implementation recommendations do not fabricate findings or required repairs.",
+      "record_status": "Descriptive synthesis facts only; not a serialized ledger event. Coordinator authors phase-correct typed run/evidence using the guided review action projection.",
+      "source_report_artifacts": [
+        "/tmp/wf-207t4-architecture-report.json",
+        "/tmp/wf-207t4-reality-report.json",
+        "/tmp/wf-207t4-security-report.json",
+        "/tmp/wf-207t4-performance-docs-report.json",
+        "/tmp/wf-207t4-codeqa-report.json"
+      ]
+    },
+    "redteam_closing_reconciliation": {
+      "artifact": "/tmp/wf-207t4-redteam-closing.json",
+      "context_id": "207t4-redteam-closing-20261009-01",
+      "read_before_verdict": true,
+      "outcome": "held_empty_sealed_set",
+      "rows": [
+        {
+          "proposition": "No demonstrated readiness blocker was hidden by the empty candidate set",
+          "result": "held",
+          "reason": "All five actual reports have empty findings/candidate_findings. Their current pre-fix failures are the admitted AC1/AC2 work; none claims they are repaired."
+        },
+        {
+          "proposition": "Both reset execution cells and fresh computation are covered as implementation obligations",
+          "result": "held",
+          "reason": "Code/QA reports actual reset plus forced recomputation (analysis advertises9, actual members1) and otherwise-valid same-fingerprint reset (missing participant); architecture/security/reality/rotating notes explicitly require complete reset publication whether recomputation or valid analysis reuse occurs. Fresh/reset compute must publish all computed rows against empty write baseline; previous rows remain remapping input."
+        },
+        {
+          "proposition": "Both current direct callers and ordinary reuse are preserved",
+          "result": "held",
+          "reason": "Every report identifies _build_graph_artifacts and _execute_orphan_store_reconcile, forwards actual publication.reset, and preserves ordinary no-reset no-publication/zero-write reuse. Exhaustive direct-call census is bounded to named files; orphan caller is source-grounded, not falsely claimed independently executed by every seat."
+        },
+        {
+          "proposition": "Completeness boundary is structural/catalog/fixed-category validity, not exact historical production-partition certification",
+          "result": "held",
+          "reason": "Every fixed seat explicitly weighs the digest alternative and admits count-preserving known-production-member swaps can remain structurally complete. Unknown/ghost identities, missing rows, catalogs/counts/seeds and fixed-category displacement are in the bounded invariant; trusted partition digests would require additional format/backfill/provenance scope and cannot certify an already corrupt baseline."
+        },
+        {
+          "proposition": "No future-green, required-lane waiver or semantic-certification overclaim is used",
+          "result": "held",
+          "reason": "Reports limit readiness recommendations to plan feasibility/current mechanisms; leave repaired behavior, original live queries, canonical suite, delivery lane approvals and platform qualification future. Reality report says PASS admissibility rather than the approved-with-notes literal; this is its actual stated outcome, not a delivery approval. Council must still record its own judgment and required lanes remain distinct."
+        },
+        {
+          "proposition": "No hidden implementation scope expansion is needed to accept these reports",
+          "result": "held",
+          "reason": "Digest is an explicitly rejected stronger alternative, not an added mandatory mechanism. Other-layer sentinels test existing SQL isolation versus intentional global reset; they do not introduce a supported graph layer. Targeted fixture helper reads support safe probes only. Planned transaction test remains absent/new. Public response controls call registered server response implementation, not host JSON-RPC transport."
+        },
+        {
+          "proposition": "Consumer and performance limitations remain honest",
+          "result": "held",
+          "reason": "Code/QA has one evidence candidate and explicitly cannot prove evidence quota-fill2; reality independently exercises2 production and2 evidence candidates. Delivery guidance requires at least2 per side at limits1/2 after reset/recovery. Rotating single-run1K/10K synthetic/no-edge measurements show feasibility and write consequences only, not corpus latency guarantees."
+        }
+      ],
+      "new_findings": [],
+      "updated_findings": [],
+      "held": "Empty sealed candidate set held; no new concrete blocker."
+    },
+    "challenge_round": {
+      "triggered": false,
+      "reason": "No split outcome or high/critical blocking disagreement. Closing reconciliation required separately and completed."
+    },
+    "executable_evidence": {
+      "record_type": "executable_evidence",
+      "evidence_record_id": "ev-207t4-council-readiness-independent-01",
+      "claim_id": "approval:council-readiness",
+      "claim_kind": "approval",
+      "required_for_approval": true,
+      "phase": "readiness",
+      "proposition": "The current admitted bounded plan is feasible through the existing preparation and single-publication interfaces, with both reset/reuse failure modes identifiable and preservation controls executable; this is not approval of unimplemented repair behavior.",
+      "counterexample_or_failure_condition": "A selected current public build fixture cannot reach its publication, the documented reset/reuse defect is not observable, current source lacks the scoped propagation seams, or selected fault/retry controls fail or skip.",
+      "execution_status": "executed",
+      "public_path": "indexer.build_index via UnifiedPublicationParticipantTests._run_build -> actual graph preparation -> GraphPublication.apply; existing participant failure/source-denial publication and retry tests. No JSON-RPC transport claim.",
+      "command_or_fixture": [
+        "python3 -B /tmp/wf-207t4-redteam-build-probe.py",
+        "python3 -B -m unittest test_indexer.UnifiedPublicationParticipantTests.test_injected_rollback_publishes_nothing_and_leaves_a_recoverable_state test_indexer.UnifiedPublicationParticipantTests.test_source_read_failure_preserves_published_graph_and_retry_recovers"
+      ],
+      "expected": "Scratch initial whole build publishes nonzero community rows. A supported older numeric walker metadata version with unchanged topology exposes current reset=true/no-community-participant loss. Existing fault/source-denial controls preserve old publication and retry recovery, with no skip.",
+      "observed": {
+        "initial_build": {
+          "nodes": 9,
+          "edges": 8,
+          "communities": 2,
+          "members": 9,
+          "analysis": 1
+        },
+        "reset_build": {
+          "reset": true,
+          "community_attached": false,
+          "nodes": 9,
+          "edges": 8,
+          "communities": 0,
+          "members": 0,
+          "analysis": 0,
+          "old_and_new_fingerprint": "28370e33fbd71e8c1cc351aad2b13ce5b5289af43abdde49ea11caedd886db9b"
+        },
+        "probe_exit": 0,
+        "existing_fault_source_controls": {
+          "tests": 2,
+          "seconds": 2.643,
+          "result": "OK",
+          "skips": 0,
+          "exit": 0
+        }
+      },
+      "artifact_or_test_id": [
+        "/tmp/wf-207t4-council-build-probe.log",
+        "/tmp/wf-207t4-council-fault-controls.log"
+      ],
+      "adjacent_controls": [
+        "Initial fresh actual whole build publishes2 communities/9 members/1 analysis.",
+        "Graph reset retains9 graph nodes/8 edges, isolating missing community participant.",
+        "Actual injected publication fault and source-read denial preserve old generation and recover on retry."
+      ],
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "pre-fix actual build_index supported-predecessor walker reset with unchanged topology; positive initial whole build plus injected-publication-fault/source-denial recovery controls",
+      "limitations": [
+        "Current known defect intentionally remains; no proposed future implementation ran.",
+        "Own probes do not execute orphan-reconcile reset or production/evidence ranking response; those are source-grounded feasibility and attributed seat evidence, future delivery obligations.",
+        "No own concurrent WAL-reader interleaving, live index rebuild, full suite, JSON-RPC transport or native platform qualification.",
+        "Scratch build uses test embedding infrastructure while exercising actual indexer orchestration/SQLite publication."
+      ],
+      "safety_and_authorization": "Independent readiness verification explicitly assigned; all fixture repositories/databases under temporary directories. Source read only with Python -B; no live index or repository/config/lifecycle writes.",
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "universal_claim": false,
+      "verification_context": {
+        "actor": "council-chair",
+        "context_id": "207t4-council-chair-fresh-independent-20261009-01",
+        "fresh_context": true,
+        "independent": true
+      }
+    },
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true
+    },
+    "known_bad_detection_method": "pre-fix actual build_index supported-predecessor walker reset with unchanged topology; positive initial whole build plus injected-publication-fault/source-denial recovery controls",
+    "current_fingerprints": {
+      "sha256": {
+        ".wavefoundry/framework/scripts/indexer.py": "d32a1ea2fa7b44f7bdaff53ccfadbdee56f913ca773161f0dea81c7614b4c088",
+        ".wavefoundry/framework/scripts/graph_indexer.py": "eee580200ab9a9a0822cfae5704484b3339c0bcc5b50e2aaf8777710ba2d99f1",
+        ".wavefoundry/framework/scripts/graph_cluster.py": "cffb0cadc5e575d2d18617f70f589f46cc421912530f5cb504d878ab8399d91a",
+        ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": "19736b0bc4a031fc2605994b062f566ac4054355157befacbb49f347dbe7ccac",
+        ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": "planned-absent",
+        ".wavefoundry/framework/scripts/tests/test_indexer.py": "5d89b3ef32d48b726df97258c53330f99fc0799a9b09feaaae35e728a185e22f",
+        ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "920d23346761ed09f278ffc1261877951f7ec32a23a5a5c57aa3235f75b761c2",
+        "docs/architecture/data-and-control-flow.md": "fa73be2bfaf7190a52039779f3e0e436b36227ae89445cec20afdc2ea5cf669c",
+        "docs/architecture/testing-architecture.md": "864f051681d3d9259e7880686f161e69adb31bde18ff76e412dea3f82381a92d"
+      },
+      "git_blob_sha1": {
+        ".wavefoundry/framework/scripts/indexer.py": "a4063ec85899c50cb1fd2f279de795138d62e14b",
+        ".wavefoundry/framework/scripts/graph_indexer.py": "73f4d49254dbd8549ea4bcf77d2db53ab073970f",
+        ".wavefoundry/framework/scripts/graph_cluster.py": "dae6266d4332577b3c50f1ce3ae87d628a0913c6",
+        ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": "7f1188b4486c2e193294e686d2d11b297f1dd1cf",
+        ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": "planned-absent",
+        ".wavefoundry/framework/scripts/tests/test_indexer.py": "20b217f99dbd79823177940105b5aeb326429143",
+        ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "3650345a381ac936923914958d57be4a8cb9974c",
+        "docs/architecture/data-and-control-flow.md": "c3950ed0550ee69483a8c7d5ee0160a9f6da8455",
+        "docs/architecture/testing-architecture.md": "86c76878659b0d3293a99785c3d650b7b7410bed"
+      },
+      "matches_current_packet": true,
+      "plan_sha256": "1db69ad6dc820c1b21501ec2c869363f7a77edbf5867a4125fbcd31c762c94cf"
+    },
+    "limitations": [
+      "Fresh independently executed chair probes support current plan feasibility only, not future-green or every seat probe claim.",
+      "No repository/source/config/lifecycle writes; no live index setup/full suite/native qualification; setup readiness diagnostic reported to coordinator without mutation.",
+      "Initial large output truncation resolved using structured seat extracts and targeted disk-current ranges; no verdict based only on truncated output.",
+      "Receipt here is the packet identity; coordinator remains responsible for fresh machine receipt/current approvals at record/activation time."
+    ],
+    "approval_signoff_key": "council-readiness",
+    "Falsification Check": {
+      "working_verdict": "Approve readiness with implementation notes for the bounded current plan.",
+      "strongest_argument_against": "The digest counterexample shows a structurally complete count-preserving production-member swap may pass completeness, so a blanket guarantee that correct historical partitions are recovered would be unsupported; also reset-aware diff alone misses valid-reuse early return.",
+      "why_conclusion_holds": "The plan repairs reset loss and incomplete/contradictory representation under the existing cluster contract. Both reset branches are explicit obligations, and all fixed seats weigh the stronger digest guarantee without silently adopting it. Docs must name the structural guarantee and exact partition-certification boundary. No demonstrated requirement forces the expanded persisted digest contract; the current interfaces/caller census and independently executed public reset/failure controls establish feasibility. If implementation narrows to counts-only or claims semantic certification, that would require delivery finding/review, not this readiness approval."
+    },
+    "verdict": "approved-with-notes"
+  },
+  "evidence_limit": "Current-plan feasibility only; no unimplemented repair correctness, live recovery, full canonical or delivery approval. Raw scratch artifacts are referenced by reports; this durable bundle preserves executed observations and scope fingerprints.",
+  "final_readiness": {
+    "readied": true,
+    "transitioned_to_active": false,
+    "current_receipt": "review-policy-0cce62e074406ee233a9",
+    "required_lane_approvals": "all5current",
+    "council_readiness": "current actual fresh chair",
+    "scope_fingerprints": "all9unchanged afterPrepare",
+    "implementation": "pending root activation; no source edits"
+  }
+}

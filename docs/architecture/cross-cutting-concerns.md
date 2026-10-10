@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-08
+Last verified: 2026-10-10
 
 ## Configuration
 
@@ -15,6 +15,12 @@ Last verified: 2026-10-08
 
 All layers may access: `docs/workflow-config.json`.
 Only `render_platform_surfaces.py` writes to platform config files.
+
+### Distribution council actor compatibility (wave 204mp)
+
+The fork-editable `vocabulary_profile.EXTRA_LEGACY_COUNCIL_ACTORS` tuple defaults to empty. `review_evidence` keeps the built-in historical actor tuple separate, then merges and deduplicates declared aliases. Recognition, stored-identity replay and the existing approval input wrapper consume that merged identity; new approvals write `council-chair` and historical ledger bytes are never rewritten. The existing MCP reload purges the profile and evidence modules together, so an edited declaration takes effect after reload.
+
+Aliases must be lowercase ASCII tokens of letters/digits separated by single hyphens. Import-time validation refuses operator and shipped non-council reviewer identities; `_prepare_policy_state` also checks current project base/prepare/close lanes and wave-requested lanes on each call, before creating policy state. Aliases confer no specialist or operator approval authority. Repair-start and reverification under two council spellings remain the same actor and fail the distinct-actor guard. The policy digest's built-in moderator spelling stays independent of extra aliases.
 
 ### Configured phase gates
 
@@ -83,7 +89,15 @@ lock):
   filesystem that rejects OFD as unsupported) the acquire falls back to
   `lockf`, decided per acquire; a busy OFD result never falls back. A classic
   `lockf` lock is tied to the process: a second acquire in the same process
-  succeeds and closing any descriptor of the file releases it. Every hold is
+  succeeds and closing any descriptor of the file releases it. A contained
+  reader may open a replacement lock file and then discover an identity
+  mismatch through `fstat`; closing that newly opened descriptor already
+  releases the process's held classic `lockf` lock before the refusal is
+  reported. Checked opens and identity comparisons cannot restore that lock.
+  This limit applies wherever the selected record-lock mechanism falls back
+  to `lockf`, including other POSIX systems and kernels or filesystems that
+  reject OFD; it is not a claim about `flock`, OFD or Windows `msvcrt` locks.
+  Every hold is
   therefore registered in `runtime_lock`'s
   in-process hold registry (pid, `acquired_at` and the owning thread), with
   acquire and registration as one step under `process_hold_guard()`, and the
@@ -217,3 +231,11 @@ limitation is a continuity heuristic, not globally unique identity. Exact
 persisted continuation bindings, parent hashes and within-process race snapshots
 remain strict. Authorized staging-to-live rename retains its existing role
 binding. See [the decision](decisions/1yja8-adr%20persisted-storage-continuity.md).
+
+## Selective wave memory capture
+
+`memory_supply` proposes only current contained regular source anchors. `memory_propose` remains read-only by default; create requires explicit reviewed source-event selection. The server derives bodies and identities, rejects unknown/ineligible selections before writes, and preserves source dispositions across retries. Omitted selection creates nothing, and an empty list is a no-op. Close checks all actual wave-linked pending candidates independently of current proposal eligibility, so a disappeared target cannot conceal unfinished validation. A no-new-memory retrospective lives in wave.md and cannot approve an existing candidate. Ordinary upgrades retain their existing bounded historical-memory checkpoint without broad recuration or a new backfill.
+
+## Advisory lint proof
+
+`advisory_lint_identity` binds repository identity, the three full-fallback triggers, executing validation modules, scanner configuration, VERSION and installed/source seed and template assets by content. Finite contained reads and inventory limits decline reuse on linked, special, unreadable or oversized inputs. Only a stable completed green full check establishes process-local proof; entries are capped and no proof file is written. Repeated post-write feedback may exempt identical dirty triggers while checking the current changed documents and their existing dependency closure in an isolated child. Identity movement or unavailable provenance cannot yield clean cached feedback. `run_validate` remains a fresh full scan for every explicit lifecycle boundary.

@@ -1,0 +1,41 @@
+RESULT_JSON {"run": 1, "failures": 0, "errors": 1, "skips": 0}
+test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry (test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry) ... PROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {"c6_dependency": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_dependency.py", "c6_package": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_package/__init__.py", "c6_package.child": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_package/child.py", "c6_package.new_child": null}
+PROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {"c6_dependency": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_dependency.py", "c6_package": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_package/__init__.py", "c6_package.child": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_package/child.py", "c6_package.new_child": null}
+PROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {"c6_dependency": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_dependency.py", "c6_package": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_package/__init__.py", "c6_package.child": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_package/child.py", "c6_package.new_child": null}
+PROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {"c6_dependency": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_dependency.py", "c6_package": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_package/__init__.py", "c6_package.child": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_package/child.py", "c6_package.new_child": null}
+PROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {"c6_dependency": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_dependency.py", "c6_package": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_package/__init__.py", "c6_package.child": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_package/child.py", "c6_package.new_child": null}
+PROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {"c6_dependency": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_dependency.py", "c6_package": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_package/__init__.py", "c6_package.child": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_package/child.py", "c6_package.new_child": null}
+PROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {"c6_dependency": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_dependency.py", "c6_package": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_package/__init__.py", "c6_package.child": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_package/child.py", "c6_package.new_child": null}
+PROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {"c6_dependency": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_dependency.py", "c6_package": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_package/__init__.py", "c6_package.child": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_package/child.py", "c6_package.new_child": null}
+PROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {"c6_dependency": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_dependency.py", "c6_package": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_package/__init__.py", "c6_package.child": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/c6_package/child.py", "c6_package.new_child": null}
+ERROR
+
+======================================================================
+ERROR: test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry (test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/upgrade_wavefoundry.py", line 1195, in _run_hook
+    hook_fn(ctx)
+    ~~~~~~~^^^^^
+  File ".wavefoundry/framework/scripts/upgrade_extensions.py", line 2683, in pre_docs_gate
+  File ".wavefoundry/framework/scripts/upgrade_extensions.py", line 1810, in _load_journal_declaration
+upgrade_extensions.JournalDeclarationError: invalid journal migration declaration: mcp_tool_extensions could not be imported (AssertionError)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py", line 1178, in test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry
+    self._dispatch()
+    ~~~~~~~~~~~~~~^^
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py", line 1163, in _dispatch
+    self.runner._run_hook("pre_docs_gate", types.SimpleNamespace(root=self.root, from_version="1.29.0", zip_path=self.package), extension)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp0ikls4ea/old-scripts/upgrade_wavefoundry.py", line 1200, in _run_hook
+    sys.exit(3)
+    ~~~~~~~~^^^
+SystemExit: 3
+
+----------------------------------------------------------------------
+Ran 1 test in 0.351s
+
+FAILED (errors=1)

@@ -22,6 +22,7 @@ from framework_files import source_path  # wf_server-aware source locations (wav
 import index_paths
 import sqlite_storage_migration as migration
 import upgrade_lib
+from historical_fixture_support import historical_bytes
 
 
 # Wave 1z8ox (change 1z8ow): the timed sites these tests fake now call
@@ -1524,12 +1525,6 @@ if __name__ == "__main__":
     unittest.main()
 
 
-# The last commit that shipped the version-1-only receipt reader. Its
-# `read_receipt` rejects any receipt_version other than 1, which IS the
-# old-code fence a version-2 record installs.
-V1_RECEIPT_READER_COMMIT = "5e798daa159119c6f434eaf357b82dd264bb2a48"
-
-
 @unittest.skipUnless(_native_available(), "qualified APSW + sqlite-vec runtime unavailable")
 class SchemaEightKindTests(unittest.TestCase):
     """The schema-8 kind: dispatch per population, staged rebuild, cutover."""
@@ -1940,13 +1935,10 @@ class SchemaEightKindTests(unittest.TestCase):
     def test_version_one_code_refuses_a_version_two_receipt_and_creates_nothing(self):
         self._seed("7")
         self._run()
-        v1_source = subprocess.run(
-            ["git", "show", f"{V1_RECEIPT_READER_COMMIT}:.wavefoundry/framework/scripts/sqlite_storage_migration.py"],
-            cwd=str(SCRIPTS.parents[2]), capture_output=True, text=True)
-        if v1_source.returncode != 0:
-            self.skipTest("version-1 reader commit unavailable in this checkout")
+        # Execute the pinned version-one reader with current siblings, as the
+        # historical Git-based test did; fixture integrity forbids current code.
         module = self.root / "v1_storage_migration.py"
-        module.write_text(v1_source.stdout, encoding="utf-8")
+        module.write_bytes(historical_bytes("v1-receipt-reader"))
         for path in (self.legacy, *index_paths.sidecar_paths(self.legacy)):
             if path.exists():
                 path.unlink()

@@ -32,6 +32,7 @@ import vocabulary_profile
 
 sys.path.insert(0, str(SCRIPTS / "tests"))
 from record_layout_support import localize_record_text, waves_dir  # noqa: E402
+from historical_fixture_support import historical_bytes  # noqa: E402
 
 # A separate driver process imports exactly the on-disk runner named by the
 # emitted command, then gives main its emitted arguments unchanged.
@@ -79,12 +80,7 @@ class StorageUpgradeProcessResumeTests(unittest.TestCase):
         shutil.copytree(SCRIPTS, self.installed, ignore=shutil.ignore_patterns("tests", "__pycache__"))
         self.runner = self.installed / "upgrade_wavefoundry.py"
         if self._testMethodName.startswith("test_old_main"):
-            old = subprocess.run(
-                ["git", "show", "v1.22.0:.wavefoundry/framework/scripts/upgrade_wavefoundry.py"],
-                cwd=REPO, capture_output=True)
-            if old.returncode:
-                self.skipTest("v1.22.0 tag unavailable (historical-runner integration requires full history)")
-            self.runner.write_bytes(old.stdout)
+            self.runner.write_bytes(historical_bytes("v122-upgrade"))
         (self.framework / "VERSION").write_text("1.22.0\n")
         (self.framework / "MANIFEST").write_bytes(self.OLD_MANIFEST)
         (self.framework / "seeds").mkdir()

@@ -1,0 +1,73 @@
+import pathlib
+prefix=pathlib.Path('/private/tmp/wf2071p-delivery-code-probe.py').read_text().split("record('scanner-exclusion-metamorphic-partial-legacy',scanner_matrix)")[0]
+exec(compile(prefix,'/private/tmp/wf2071p-delivery-code-probe.py','exec'))
+import upgrade_lib,sqlite_storage_migration
+
+def cleanup_timeout():
+ with tempfile.TemporaryDirectory(prefix='wf-review2071p-cleanup-') as td:
+  root=pathlib.Path(td);worker=write(root,'worker.py','import time;time.sleep(5)\n')
+  upgrade_lib.write_upgrade_lock(root,'1.28.0','1.29.0')
+  fd,name=tempfile.mkstemp(prefix='wf-verified-pack-',suffix='.zip');os.close(fd);owned=pathlib.Path(name);owned.write_bytes(b'owned-disposable-staging-copy')
+  proof={'path':str(owned),'identity':upgrade._pack_entry_identity(owned)}
+  upgrade_lib.update_upgrade_lock(root,verified_pack_identity=proof)
+  operator=write(root,'operator.zip','operator owned')
+  buf=io.StringIO();started=time.monotonic()
+  try:
+   with mock.patch.object(sqlite_storage_migration,'cleanup_legacy'),mock.patch.object(upgrade,'_record_setup_baseline',return_value={}),mock.patch.object(upgrade,'_regenerate_codebase_map_on_upgrade'),mock.patch.object(upgrade,'_ensure_lifecycle_policy_backstop'),mock.patch.object(upgrade,'__file__',str(worker)),mock.patch.object(upgrade,'_preferred_python',return_value=sys.executable),mock.patch.object(upgrade,'_REPORTING_WORK_SECONDS',.18),contextlib.redirect_stdout(buf):
+    upgrade.phase_cleanup(root,'1.28.0','1.29.0',owned,3,True)
+   elapsed=time.monotonic()-started
+   assert elapsed<2,elapsed
+   lines=[l for l in buf.getvalue().splitlines() if l.startswith(upgrade.WAVE_UPGRADE_SUMMARY_SENTINEL)]
+   assert len(lines)==1,buf.getvalue()
+   summary=json.loads(lines[0].split(':',1)[1])
+   assert summary['reconciliation_state']=='incomplete' and summary['reconciliation_reason']=='reporting_timeout',summary
+   assert summary['index_update']=='docs and code layers complete' and summary['failed_phase'] is None,summary
+   assert not owned.exists() and operator.read_text()=='operator owned'
+   assert upgrade_lib.read_upgrade_lock(root) is None
+   return {'elapsed':elapsed,'state':summary['reconciliation_state'],'reason':summary['reconciliation_reason'],'index_update':summary['index_update'],'owned_deleted':not owned.exists(),'operator_retained':True,'lock_removed':True}
+  finally: owned.unlink(missing_ok=True)
+record('cleanup-real-report-timeout-owned-unowned',cleanup_timeout)
+
+def old_parent_current_child():
+ baseline=REPO/'docs/waves/2071p bounded-reconciliation-reporting/evidence/implementation/upgrade_wavefoundry.py.baseline.txt'
+ old=load('review2071p_old_parent',SCRIPTS/'upgrade_wavefoundry.py',baseline.read_text())
+ with tempfile.TemporaryDirectory(prefix='wf-review2071p-old-parent-') as td:
+  root=pathlib.Path(td)
+  write(root,'live.md','.wavefoundry/bin/docs-lint\n')
+  wrapper='import sys,runpy\nsys.path.insert(0,'+repr(str(SCRIPTS))+')\nrunpy.run_path('+repr(str(SCRIPTS/'upgrade_wavefoundry.py'))+',run_name="__main__")\n'
+  write(root,'.wavefoundry/framework/scripts/upgrade_wavefoundry.py',wrapper)
+  upgrade_lib.write_upgrade_lock(root,'1.28.0','1.29.0');upgrade_lib.update_upgrade_lock(root,index_rebuilt_at='observed-fixture-publication')
+  with mock.patch.object(old,'_preferred_python',return_value=sys.executable):
+   payload,reason=old._delegated_summary_payload(root,timeout_s=3)
+  assert payload is not None and reason is None,reason
+  parsed=json.loads(payload)
+  assert parsed['summary_schema_version']==1 and parsed['reconciliation_state']=='complete'
+  assert parsed['index_update']=='docs and code layers complete'
+  assert [r['file'] for r in parsed['reconciliation']]==['live.md']
+  return {'old_parent_source':'implementation/upgrade_wavefoundry.py.baseline.txt','recognized_schema':parsed['summary_schema_version'],'reason':reason,'state':parsed['reconciliation_state'],'files':[r['file'] for r in parsed['reconciliation']]}
+record('baseline-parent-current-producer-real-boundary',old_parent_current_child)
+
+def report_tree_termination():
+ with tempfile.TemporaryDirectory(prefix='wf-review2071p-descendant-') as td:
+  root=pathlib.Path(td);pidfile=root/'owned-child.pid'
+  body='import subprocess,sys,time\nfrom pathlib import Path\np=subprocess.Popen([sys.executable,"-c","import time;time.sleep(20)"])\nPath('+repr(str(pidfile))+').write_text(str(p.pid))\ntime.sleep(20)\n'
+  worker=write(root,'worker.py',body)
+  with mock.patch.object(upgrade,'__file__',str(worker)),mock.patch.object(upgrade,'_preferred_python',return_value=sys.executable):
+   result=upgrade._collect_reconciliation_report(root,budget_s=.35)
+  assert result['reconciliation_state']=='incomplete' and result['reconciliation_reason']=='reporting_timeout'
+  assert pidfile.exists(),'worker startup not reached'
+  pid=int(pidfile.read_text());alive=True
+  for attempt in range(20):
+   try: os.kill(pid,0)
+   except ProcessLookupError: alive=False;break
+   # A terminated orphan may remain visible as a zombie briefly; ps state
+   # distinguishes it from an owned descendant still doing work.
+   state=subprocess.run(['ps','-o','stat=','-p',str(pid)],capture_output=True,text=True).stdout.strip()
+   if not state or state.startswith('Z'):alive=False;break
+   time.sleep(.025)
+  if alive:
+   os.kill(pid,9)
+  assert not alive,'owned grandchild remained alive after parent reporting timeout'
+  return {'worker_pid_persisted':True,'grandchild_pid':pid,'grandchild_running_after_timeout':alive,'state':result['reconciliation_state'],'elapsed':result['reconciliation_elapsed']}
+record('owned-report-worker-grandchild-timeout',report_tree_termination)
+print(json.dumps({'probes':rows},indent=2))

@@ -92,6 +92,12 @@ PROMPT_NAME_OVERRIDES: "dict[str, dict[str, object]]" = {}
 # ``wave-council-delivery``) are built in and need no entry.
 EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS: "dict[str, str]" = {}
 
+# A distribution's earlier council actor names. Read/replay compatibility only:
+# new evidence always writes council-chair, historical ledgers stay unchanged,
+# and aliases remain one identity for repair/reverification independence.
+# Repeated aliases are harmless. This declaration is reloaded with the profile.
+EXTRA_LEGACY_COUNCIL_ACTORS: tuple[str, ...] = ()
+
 # The display name of the role-based council review protocol (wave 200ey,
 # change 200ew). The renderer's own strings (the ``wf-council`` skill
 # description), role and prompt docs it creates fresh from a seed, and server
@@ -538,6 +544,39 @@ def legacy_council_key_errors(extra: object = None) -> list[str]:
     return errors
 
 
+# Import-time reserved identities; project and wave roles are checked again at
+# the lifecycle policy boundary, where their current configuration is available.
+_NON_COUNCIL_REVIEW_ACTORS = (
+    "operator", "operator-signoff", "code-reviewer", "qa-reviewer",
+    "architecture-reviewer", "docs-contract-reviewer", "release-reviewer",
+    "performance-reviewer", "security-reviewer",
+)
+_LEGACY_ACTOR_TOKEN_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
+
+
+def legacy_council_actor_errors(extra: object = None, *, reviewer_roles=()) -> list[str]:
+    """Validate aliases against token grammar and current non-council roles.
+
+    The stdlib-only profile validates shipped role collisions at import. The
+    lifecycle caller supplies configured and wave-requested roles on every call.
+    Duplicate aliases are intentionally idempotent, not new review identities.
+    """
+    extra = EXTRA_LEGACY_COUNCIL_ACTORS if extra is None else extra
+    label = "EXTRA_LEGACY_COUNCIL_ACTORS"
+    if not isinstance(extra, tuple):
+        return [f"{label} must be a tuple of strings, not {type(extra).__name__}"]
+    reserved = set(_NON_COUNCIL_REVIEW_ACTORS) | set(reviewer_roles)
+    errors: list[str] = []
+    for actor in extra:
+        if not isinstance(actor, str) or not _LEGACY_ACTOR_TOKEN_RE.fullmatch(actor):
+            errors.append(f"{label} entry {actor!r} must be a lowercase ASCII actor token "
+                          "(letters/digits separated by single hyphens)")
+        elif actor in reserved:
+            errors.append(f"{label} entry {actor!r} collides with an active non-council "
+                          "reviewer/operator identity; remove the alias or rename the role")
+    return errors
+
+
 def council_display_name_errors(value: object = None) -> list[str]:
     """Every problem with ``COUNCIL_DISPLAY_NAME`` (default: the live
     constant); empty when valid. Each message names the constant."""
@@ -693,7 +732,7 @@ def archive_profile() -> _Profile:
 def validate() -> None:
     """Raise :class:`VocabularyProfileInvalid` when the constants are unusable."""
     errors = (validation_errors() + prompt_name_errors() + legacy_council_key_errors()
-              + council_display_name_errors())
+              + legacy_council_actor_errors() + council_display_name_errors())
     if ARCHIVE_PROFILE is not None:
         errors += [f"ARCHIVE_PROFILE: {e}" for e in validation_errors(ARCHIVE_PROFILE)]
     if errors:

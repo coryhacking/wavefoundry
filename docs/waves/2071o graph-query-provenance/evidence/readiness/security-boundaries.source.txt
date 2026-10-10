@@ -1,0 +1,40 @@
+import hashlib,json,os,subprocess,sys,time,types
+from pathlib import Path
+from unittest.mock import patch
+base=Path(__file__).parent
+scripts=Path('/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts')
+sys.path.insert(0,str(scripts))
+import contained_files as cf
+import upgrade_wavefoundry as up
+import subprocess_util as su
+out={}
+r=base/'contained';r.mkdir();(r/'normal.md').write_text('ordinary')
+(r/'inside.md').symlink_to('normal.md');(r/'outside.md').symlink_to(base/'outside.md');(base/'outside.md').write_text('outside-control')
+os.mkfifo(r/'fifo.md')
+assert cf.read_contained_bytes(r,r/'normal.md',max_bytes=8)==b'ordinary'
+assert cf.read_contained_bytes(r,r/'inside.md',max_bytes=8)==b'ordinary'
+for rel in ('outside.md','fifo.md'):
+ try:cf.read_contained_bytes(r,r/rel,max_bytes=8)
+ except cf.ContainedFileRefused as exc:out[rel]=exc.cause
+ else:raise AssertionError('contained refusal control failed:'+rel)
+try:cf.read_contained_bytes(r,r/'normal.md',max_bytes=7)
+except cf.ContainedFileRefused as exc:out['oversize']=exc.cause
+else:raise AssertionError('byte-cap control failed')
+out['inside_link']='followed by contained_files; scanner must separately refuse links'
+# Actual delegation boundary receives a realistic completion result and checks protocol.
+sroot=base/'delegate';script=sroot/'.wavefoundry/framework/scripts/upgrade_wavefoundry.py';script.parent.mkdir(parents=True);script.write_text('# scratch producer placeholder\n')
+payload=json.dumps({up.SUMMARY_SCHEMA_KEY:up.SUMMARY_SCHEMA_VERSION,'skipped_scan_locations':['relative-denied-location'],'ran_index_rebuild':True})
+observed=[]
+def child_boundary(cmd,**kwargs):
+ observed.append({'argv':cmd[2:],'publisher_token_present':'WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN' in kwargs['env'],'timeout':kwargs['timeout'],'cwd':kwargs['cwd']})
+ return subprocess.CompletedProcess(cmd,0,up.WAVE_UPGRADE_SUMMARY_SENTINEL+payload+'\n','')
+with patch.dict(os.environ,{'WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN':'controlled-test-token'}),patch.object(su,'run_with_tree_kill',side_effect=child_boundary):
+ result=up._delegated_summary_payload(sroot,timeout_s=.2)
+assert result==(payload,None) and len(observed)==1 and not observed[0]['publisher_token_present']
+out['delegate_boundary']=observed
+start=time.monotonic()
+try:su.run_with_tree_kill([sys.executable,'-B','-c','import time; time.sleep(2)'],timeout=.15,capture_output=True,text=True)
+except subprocess.TimeoutExpired:out['owned_child_timeout']={'class':'TimeoutExpired','seconds':time.monotonic()-start}
+else:raise AssertionError('deadline control did not time out')
+assert out['owned_child_timeout']['seconds']<2
+(base/'boundaries.json').write_text(json.dumps(out,indent=2)+'\n');print(json.dumps(out,indent=2))

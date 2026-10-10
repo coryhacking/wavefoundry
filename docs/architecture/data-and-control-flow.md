@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-07
+Last verified: 2026-10-10
 
 ## Runtime advisory boundary
 
@@ -41,11 +41,11 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 1. Operator or init process runs `python3 .wavefoundry/framework/scripts/render_platform_surfaces.py`
 2. Before cleanup or the first write, the orchestration layer resolves every selected platform write root (`.claude`, `.cursor`, `.github`, `.junie`, `.windsurf`, `.agents` as applicable), unconditional launcher/ignore roots, every registered review carrier, and every enabled native/Guru destination against the resolved repository root. Any pre-existing/static final, parent, or common-ancestor symlink escape in the repository state presented to the command returns nonzero with no platform/agent mutation; fresh `wf setup` therefore stops before `setup_index.py`, and upgrade stops before pruning, the docs gate, and index update. Rendering assumes exclusive control of these path namespaces for the duration of the command; concurrent local filesystem substitution after preflight is outside the supported threat model and is not claimed race-safe
 3. After the complete preflight passes, the platform renderer generates enabled platform entrypoints and merged configuration, including `.claude/hooks/*`, `.cursor/hooks/*`, `.github/hooks/*`, `.claude/settings.json`, `.mcp.json`, and `.junie/mcp/mcp.json`
-4. It then calls `render_agent_surfaces`; before that function's Guru-availability guard, the agent renderer materializes missing-only lifecycle prompt baselines and reconciles only the typed registry's framework-owned executable-review marker regions under `docs/agents/`, `docs/prompts/`, `docs/contributing/`, and explicitly enabled native role destinations under `.claude/agents/` and `.codex/skills/`. Missing required canonical carriers are materialized, absent optional/native roles stay disabled, malformed markers fail safe, and project-authored bytes outside the marker pair remain unchanged. The exact upgrade-prompt destination joins the complete preflight. After Phase 0c may have run the old in-process lifecycle reconciler, Phase 1's freshly extracted renderer replays only the shared `UPGRADE_POLICY_BLOCK` marker through `review_policy_reconcile.py`; the lifecycle reconciler remains primary owner, surrounding project prose is preserved, and no other lifecycle carrier moves into renderer ownership
+4. It then calls `render_agent_surfaces`; its controlled council-role migration also moves named role files and repairs only exact supported local Markdown destinations in current docs (see Upgrade council-role link reconciliation below). Before that function's Guru-availability guard, the agent renderer materializes missing-only lifecycle prompt baselines and reconciles only the typed registry's framework-owned executable-review marker regions under `docs/agents/`, `docs/prompts/`, `docs/contributing/`, and explicitly enabled native role destinations under `.claude/agents/` and `.codex/skills/`. Missing required canonical carriers are materialized, absent optional/native roles stay disabled, malformed markers fail safe, and project-authored bytes outside the marker pair remain unchanged. The exact upgrade-prompt destination joins the complete preflight. After Phase 0c may have run the old in-process lifecycle reconciler, Phase 1's freshly extracted renderer replays only the shared `UPGRADE_POLICY_BLOCK` marker through `review_policy_reconcile.py`; the lifecycle reconciler remains primary owner, surrounding project prose is preserved, and no other lifecycle carrier moves into renderer ownership
 5. The renderer finishes the remaining bin-launcher, ignore/attributes, and cleanup work only after agent-surface reconciliation succeeds. It reports tracked paths matching only the canonical runtime ignore rules, using a read-only, project-scoped Git census. Failures are advisory and explicit; Git tracking and runtime files are never modified by the census
 
 **State read:** `.wavefoundry/framework/scripts/` (templates), `.wavefoundry/framework/install/` (missing-only baseline templates), registered carrier seeds and enabled target files
-**State written:** `.claude/`, `.cursor/`, `.github/hooks/`, `.junie/mcp/mcp.json`, `.mcp.json`, framework-marked regions in registered review carriers under `docs/` plus explicitly enabled native role carriers under `.claude/agents/` and `.codex/skills/`, and the missing-only whole-file baselines it materializes when absent (`docs/plans/plan-template.md`, the lifecycle prompt baselines under `docs/prompts/`, the pointer-form review carriers), each stamped `Last verified` on write and never rewritten afterwards
+**State written:** `.claude/`, `.cursor/`, `.github/hooks/`, `.junie/mcp/mcp.json`, `.mcp.json`, framework-marked regions in registered review carriers under `docs/` plus explicitly enabled native role carriers under `.claude/agents/` and `.codex/skills/`, controlled role-file moves and exact local Markdown link destination repairs in current docs, and the missing-only whole-file baselines it materializes when absent (`docs/plans/plan-template.md`, the lifecycle prompt baselines under `docs/prompts/`, the pointer-form review carriers), each stamped `Last verified` on write and never rewritten afterwards
 **Must not touch:** `.github/workflows/`, `.git/hooks/`, and the Backstage/TechDocs trio (`catalog-info.yaml`, `mkdocs.yml`, `docs/index.md`), which only Path 3a writes
 
 ### Path 3a: Backstage/TechDocs Baseline Command and MCP Tool (wave 1vj4e)
@@ -174,6 +174,24 @@ operator-driven behavior. Persistent lock-file presence alone never blocks work.
 **State written:** write-through opaque event/source/evaluation accounting, producer lease files, sealed checkpoint floors and compact replay tombstones, plus separately labeled memory-advisory estimates in `.wavefoundry/logs/`; durable gap poison on failed transactions; marker-owned Context Efficiency and Estimated Exploration Avoided `wave.md` projections at lifecycle/reload/upgrade barriers and accounting-neutral turn-end/quiet-period opportunities. Monitor observations remain bounded process memory only.
 **Failure semantics:** ordinary measurement uncertainty undercounts; a durable accounting gap suppresses the headline; only the inability to persist both an event and the poison barrier fails the public tool call
 
+### Upgrade journal hook selection and migration (wave 206is)
+
+1. Upgrade apply reaches the existing `upgrade_extensions.pre_docs_gate` journal boundary after extraction. It reads the incoming declaration's trigger statically before selecting executable code. Missing module/constant means `legacy_cutover`; exactly one direct plain or annotated module-level literal string assignment may select `legacy_cutover` or `journals_present`. Empty, non-string or unsupported literals, nonliteral expressions, conditional and duplicate bindings refuse before declaration execution or dependent migration. Unreadable/refused or unparseable source is unknown: later upgrades skip with a path-free uncertainty diagnostic and no declaration execution, while the original pre-1.15 validated apply-time load/refusal remains.
+2. `legacy_cutover` selects the existing pre-1.15 behavior, including its hook when no journal source exists; later upgrades import no declaration or hook. `journals_present` selects the hook on any from-version only when bounded metadata checks find direct regular singly linked `*.md` journals in contained `docs/agents/journals/`, excluding `README.md`. Missing, empty, README-only, nested-only, symlink and hardlink sources select no hook on any version. Presence neither reads journal content nor uses migration preview's `left` list; no recursion or configurable source root is introduced.
+3. On a selected apply path, a journal-only incoming import context spans declaration validation, exact helper-file loading and hook call. The extracted scripts directory precedes old paths even when it was already on `sys.path`. Incoming top-level module/package names and descendant module keys shadow cached old modules, so an older runner resolves declaration-time and call-time dependencies from the pack. The context restores previous `sys.modules` identities and `sys.path`, and removes newly introduced matching modules, in `finally` on success and failure; the generic `_scripts_on_sys_path` context is unchanged.
+4. The hook runs at most once per invocation, with the repository root. Opted-in retries require idempotent hook code; no exactly-once-across-crashes guarantee is made. A hook failure skips dependent migration and emits a diagnostic naming only the hook and exception class. Hook-owned partial effects are not rolled back. The built-in journal migration remains independently gated to upgrades from before 1.15.0, even after a successful later-version hook.
+5. Public `migrate_journals(root, apply=False, zip_path=None)` and upgrade dry-run `post_extract` read policy and templates statically and execute no declaration, hook or distribution helper; trusted shipped read-only helpers may supply bounded reads. A supplied pack owns preview policy, otherwise the target declaration does. Preview's four mechanical report lists remain, plus `hook_preview` with policy/status, current qualifying-journal presence, `hook_executed: false`, `invocation: "upgrade_apply_only"` and optional path-free invalid/unknown detail. Presence is an observation, not a promise of apply eligibility. Public `apply=True` still runs only the mechanical migration, never the hook. The Migrate journals prompt never calls it.
+
+**State read:** incoming declaration source and selected trusted apply code, bounded journal-directory metadata, journal content for the mechanical migration or its preview, and any hook-owned reads on selected apply paths.
+**State written:** selected hook-owned effects and, only under the existing cutover, mechanical migration outputs; previews write none. Temporary matching module/path state is restored.
+**Declaration boundary:** journal policy stays outside MCP `declared()` activation; the pure journal validator preserves its third positional `helper_modules` argument and accepts trigger as a keyword. See the repository contract `docs/specs/mcp-tool-surface.md`, Declared journal migration, and canonical seed `210-migrate-journals.prompt.md` for the decision table and report shape.
+
+### Upgrade council-role link reconciliation (wave 204mp)
+
+`render_agent_surfaces.migrate_council_role_renames` preflights every controlled role rename and plans exact Markdown destination spans before mutation. Current docs are read/written through contained file helpers with their mode and unrelated bytes preserved. Supported inline/reference links keep fragments, query suffixes, titles and destination spelling; code, images and historical record roots stay unchanged. The shared history classifier excludes journals/snapshots; live waves, archives, staged plans, reports and architecture decisions are excluded separately from resolved record roots.
+
+Each role move and subsequent link edit is a separate file publication, not a multi-file transaction. On retry, a new-only docs role must confirm identity in Role metadata (native wrappers use their canonical docs pointer); path existence alone does not grant link-repair ownership. Collisions or unsafe paths refuse with a remedy. Unsupported destinations remain unchanged and reported. `upgrade_extensions.post_extract` previews the incoming renderer in a temporary scripts tree through a bounded `-B` child, without extracting into the target; actual surface rendering keeps the strict docs gate and ordinary managed-region ownership.
+
 ### Path 6b: MCP Resource and Resource-Template Reads
 
 1. MCP client requests a **resource** or **resource template** URI via the MCP resources protocol
@@ -238,6 +256,34 @@ already running rather than claiming that a new server was started.
 **State read:** repository inputs, `.wavefoundry/index/index.sqlite`
 **State written:** `.wavefoundry/index/` by hooks/MCP/indexer only; none by the dashboard
 **Transport:** local hook or MCP request; indexer subprocesses use the configured project Python
+
+
+### Path 8a: Rust Call Provenance and Graph Publication (wave 206og)
+
+Rust extraction reads the grammar's implementing-type and optional-trait fields
+separately. Trait methods have identities such as
+`src/profile.rs::<Profile as FromStr>.from_str`, while receiver inference uses
+`Profile`, including for `Self`. Supported macro token-tree calls retain their
+original UTF-8 byte spans; synthetic parse offsets never become repository
+locations. Simple loops over explicit array element types use lexical facts
+within their own bodies. Unknown shadows and unsupported iterables block an
+outer inference rather than borrowing a same-name project method.
+
+Each call occurrence resolves before edge union. The producer preserves its
+source file, byte span and one-based byte columns in `call_sites`; an unknown
+witness cannot borrow another occurrence's target or precision. Existing edge
+keys and confidence remain unchanged, and the JSON attributes hold the sorted,
+deduplicated occurrence list. SQLite publication and content fingerprints include
+these facts, so an edit that only moves a call still changes the graph content.
+
+Graph builder 54 retires the prior per-file extraction cache and published graph
+representation. Ordinary builds re-extract unchanged files at this boundary;
+query-triggered rebuilding follows the coordinated build path. Required rebuild
+failure remains not-ready. Generation-bound query pins retain their original
+nodes and spans while a later build publishes a replacement. MCP projection
+copies occurrence data and derives the optional legacy `line` from the first
+proven occurrence; it does not scan source for a matching method label. An edge
+without supported provenance has an empty occurrence list and no precise line.
 
 ## State Ownership
 
@@ -651,11 +697,15 @@ the process that ran the upgrade: the pre-extraction parent spawns
 (the pinned old-calls-new contract), persists its parent-only facts to the
 upgrade lock first, captures the child's single sentinel line, and re-emits the
 JSON payload byte-verbatim through its own logger under its own sentinel
-constant. The reconciliation scan therefore runs in the producer's process on
-its own module version, closing the in-process cross-version import skew. On
-any delegation failure the parent's in-process builder emits instead, carrying
-the `summary_source_degraded` marker and no schema token; exactly one sentinel
-is emitted per run. The cleanup-phase summary already runs in a fresh
+constant. Reconciliation uses the producer's installed module version, closing
+the in-process cross-version import skew. Its optional diagnostic work runs in
+an owned child under one 30-second reporting-work budget; the current parent
+passes remaining time, and a new producer also bounds itself when an older
+parent calls it. The pinned outer delegation default remains 300 seconds.
+On delegation failure the current parent's in-process builder emits from
+already observed facts, without another scan or diagnostic pass, carrying the
+`summary_source_degraded` marker and no schema token; exactly one sentinel is
+emitted per run. The cleanup-phase summary already runs in a fresh
 post-extract process, and since wave 1uf68 its emit site sets the schema token
 onto the finished builder dict on both cleanup branches, so the token is no
 longer delegation-exclusive: it witnesses that post-extraction code rendered the
@@ -663,6 +713,25 @@ summary, which is true at both emit sites. The shared builder still never
 carries it, which is what keeps the sentence above true. Server-resident response fields
 (`runner_stale`, diagnostics composition, the summary bounder) are still
 computed by the running server process and change only on host restart.
+
+Reconciliation prunes existing excluded components and repository-root `.local`
+and `target` before directory descent. It retains nested/near-miss names and
+required host operating files even when Git-ignored. Eligible inputs use bounded,
+contained regular-file reads with explicit link refusal. Matching and context
+are processed per file; corpus text is not retained. The structured scan carries
+the existing three finding channels plus complete/incomplete/error state,
+bounded reasons, work counters and last-input progress. Legacy list/tuple APIs
+raise with the partial result when the scan cannot establish completeness.
+Intentional exclusions differ from eligible-scope omissions. Reporting failure
+does not change observed installation or index-publication facts, and owned
+temporary/verified-pack cleanup is attempted independently of optional reporting.
+Verified-pack removal requires the regular-file identity recorded after successful
+staging and validation. A matching filename alone grants no removal authority;
+old-schema or changed-identity temporary packs are retained. POSIX scanning anchors
+directory traversal and file opens to contained descriptors; the native Windows
+fallback retains the shared helper's documented component-swap limitation.
+An unchanged older parent's failure fallback remains outside this repair; the
+reporting budget is not a whole-upgrade deadline.
 
 ## Semantic format upgrade (wave 1xjmm)
 
@@ -716,3 +785,35 @@ Repository host discovery and confirmation are checked again before index
 children. Actual storage conversion continues through its separate migration
 receipt. Existing recovery files remain authoritative across retries; extraction
 cannot erase the obligation by making installed source appear protected.
+
+
+## Graph community reset and reuse (wave 207t4)
+
+`indexer._build_graph_artifacts` and `_execute_orphan_store_reconcile` pass the
+owning `GraphPublication.reset` state into `graph_cluster.update_graph_clusters`.
+A scheduled global reset still deletes every graph table inside the existing
+publication transaction. Community preparation compares against an empty write
+baseline on reset, so unchanged community and member rows are included in the
+replacement. The previous visible generation remains available for supported
+community-ID remapping and concurrent readers until commit; rollback restores it.
+Ordinary publication remains layer-specific and writes only changed memberships.
+
+A matching topology fingerprint can reuse expensive clustering and betweenness
+only after the stored representation passes structural checks: analysis headers,
+community catalog and metadata, unique membership counts and seeds, exact eligible
+projected identities, and fixed-category membership. External and constant nodes
+are excluded by the existing projection. Historical community/member fingerprints
+record establishment and need not equal the current analysis fingerprint. Missing
+or contradictory representation forces recomputation and repair publication.
+These checks occur during build/reuse, not on every public graph query. They do
+not certify the exact historical production partition when a count-preserving
+swap of known members leaves the representation structurally valid.
+
+Valid unchanged analysis still requires complete replacement rows on reset;
+ordinary valid reuse returns no publication. The existing `cluster_recomputed`
+result reflects actual analysis recomputation rather than the existence of reset
+replacement rows. No new transaction, writer or persisted digest format is added.
+
+## Selective wave memory capture
+
+`memory_supply` proposes only current contained regular source anchors. `memory_propose` remains read-only by default; create requires explicit reviewed source-event selection. The server derives bodies and identities, rejects unknown/ineligible selections before writes, and preserves source dispositions across retries. Omitted selection creates nothing, and an empty list is a no-op. Close checks all actual wave-linked pending candidates independently of current proposal eligibility, so a disappeared target cannot conceal unfinished validation. A no-new-memory retrospective lives in wave.md and cannot approve an existing candidate. Ordinary upgrades retain their existing bounded historical-memory checkpoint without broad recuration or a new backfill.

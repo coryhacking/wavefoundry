@@ -19,6 +19,7 @@ import graph_quality_eval as subject  # noqa: E402
 import index_paths  # noqa: E402
 import indexer  # noqa: E402
 import retrieval_eval  # noqa: E402
+import graph_fixture_support as gfs  # noqa: E402
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3].parent
@@ -322,19 +323,11 @@ LEGITIMATE_CONTROLS = (
 )
 
 
-def _load_project_graph():
-    """Read the persisted project graph, sniffing gzip like the real readers."""
-    import gzip
-    path = REPO_ROOT / ".wavefoundry" / "index" / "graph" / "project-graph.json"
-    if not path.exists():
-        return None
-    raw = path.read_bytes()
-    if raw[:2] == b"\x1f\x8b":
-        raw = gzip.decompress(raw)
-    try:
-        return json.loads(raw)
-    except ValueError:
-        return None
+def _published_control_graph(case):
+    """Own a published source fixture independently of the checkout's index."""
+    tmp = tempfile.TemporaryDirectory(prefix="wf-evidence-controls-")
+    case.addCleanup(tmp.cleanup)
+    return gfs.publish_evidence_fixture(Path(tmp.name))
 
 
 def _owning_file(node):
@@ -353,13 +346,9 @@ class LiveGraphEvidenceControlTests(unittest.TestCase):
     silently on an empty node set.
     """
 
-    @classmethod
-    def setUpClass(cls):
-        cls.graph = _load_project_graph()
-
     def setUp(self):
-        if not self.graph:
-            self.skipTest("no persisted project graph in this tree")
+        self.graph = _published_control_graph(self)
+        self.assertTrue(self.graph.get("nodes"), "the published fixture is empty")
         rel_dir = CONTROL_DIR.relative_to(REPO_ROOT).as_posix() + "/"
         self.control_nodes = {}
         for node in self.graph.get("nodes", []):
@@ -586,9 +575,7 @@ class ClassificationControlScorerTests(unittest.TestCase):
         # The end-to-end assertion: read the real verdicts out of the
         # persisted graph and score them. Presence is enforced by the scorer's
         # `not_observed` rule, so an unindexed control fails here.
-        graph = _load_project_graph()
-        if not graph:
-            self.skipTest("no persisted project graph in this tree")
+        graph = _published_control_graph(self)
         prefix = subject.CONTROL_DIRECTORY + "/"
         observed: dict[str, bool] = {}
         for node in graph.get("nodes", []):
@@ -1313,11 +1300,12 @@ class GraphParityBaselineFixtureTests(unittest.TestCase):
         # 1xtnr keeps the archived 1xny6 fixture byte-for-byte. On this
         # unchanged corpus, builder52 changes only two version labels and
         # adds the explicitly empty integrity snapshot below; builder53
-        # (201wg) changes the same two labels. Assert those new values
+        # (201wg) and builder54 (206of) change the same two labels on this
+        # non-Rust corpus. Assert those new values
         # before adapting metadata to the archived digest; never normalize
         # nodes, edges, evidence, coverage or community membership.
-        self.assertEqual(sections["graph"]["builder_version"], "53")
-        self.assertEqual(sections["communities"]["graph_builder_version"], "53")
+        self.assertEqual(sections["graph"]["builder_version"], "54")
+        self.assertEqual(sections["communities"]["graph_builder_version"], "54")
         self.assertEqual(sections["graph"]["call_integrity"], {
             "non_callable_call_targets": 0,
             "callable_wins_collisions": 0,

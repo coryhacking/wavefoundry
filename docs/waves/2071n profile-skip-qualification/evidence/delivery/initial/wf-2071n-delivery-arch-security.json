@@ -1,0 +1,242 @@
+{
+  "wave_id": "2071n",
+  "phase": "delivery",
+  "tree_fingerprint": "da24daa9327940e665629ca6029223d4dad8d413d202aee7c80e2cd4b599385e",
+  "packet_match_before": true,
+  "packet_match_after": true,
+  "packet_match_at_report": true,
+  "created_utc": "2026-10-09T21:30:04.932202+00:00",
+  "contexts": {
+    "architecture-reviewer": {
+      "actor": "architecture-reviewer",
+      "context_id": "2071n-delivery-architecture-independent-20261009",
+      "fresh_context": true,
+      "independent": true
+    },
+    "security-reviewer": {
+      "actor": "security-reviewer",
+      "context_id": "2071n-delivery-security-independent-20261009",
+      "fresh_context": true,
+      "independent": true
+    }
+  },
+  "pre_primer_priors": {
+    "architecture-reviewer": "The test-only design appears to preserve production ownership by extracting and publishing real graph rows and deliberately curating query-test communities, provided copied-checkout execution confirms the real public readers and unchanged historical/current-sibling seams.",
+    "security-reviewer": "The main risk is qualification integrity and accidental scratch-target mutation by trusted local tests, so approval depends on executing pinned-byte corruption/missing controls and verifying fixed-argv historical execution plus test-owned temp publication boundaries; no attacker escalation is yet evidenced."
+  },
+  "primer_received_after_priors": true,
+  "primer_depth": "full",
+  "roles_share_one_disclosed_independent_agent_context": true,
+  "verdicts": {
+    "architecture-reviewer": "needs-revision",
+    "security-reviewer": "approved-with-notes"
+  },
+  "overall_wave_approval": false,
+  "findings": [
+    {
+      "finding_id": "ARCH-2071N-02",
+      "role": "architecture-reviewer",
+      "path": "docs/architecture/testing-architecture.md",
+      "line": 900,
+      "proposition": "The published testing architecture says existing live partition tests remain separate qualification after canonical setup, but this wave replaces those live tests with hermetic scratch-source publication.",
+      "expected": "Coverage documentation names the actual hermetic fixture and reserves live graph qualification for separately executed evidence.",
+      "observed": "Scoped original/current diff removes operator-index copy and graph presence guard; all selected EvidencePartitionResponseTests execute on new temporary roots without a local index, and the 19-case combined graph baseline passes. Current documentation at900\u2013901 still claims these are live-index qualification.",
+      "validation_status": "real",
+      "scope_relation": "admitted",
+      "introduced_or_worsened_by_wave": true,
+      "contract_relevance": "public_contract",
+      "supported_reachability": true,
+      "attacker_reachability": false,
+      "authority_domain": "none",
+      "authority_delta": "none",
+      "observable_impact": "low",
+      "containment": "none",
+      "fix_risk": "lower",
+      "repair_scope_bounded": true,
+      "repair_safety": "safe",
+      "disposition": "do_now",
+      "blocking": true,
+      "blocking_required_lanes": [
+        "architecture-reviewer"
+      ],
+      "recommended_fix": "Replace900\u2013901 with the actual hermetic partition fixture behavior and keep live graph/setup qualification separately labeled when performed.",
+      "census_boundary": "New Profile qualification fixtures section and adjacent Graph community publication controls paragraphs895\u2013907; new section is accurate,900\u2013901 is the sole contradictory present-tense live-partition claim found in that bounded family.",
+      "sibling_control": "New top Profile qualification fixtures paragraph explicitly disclaims clustering and operator index; actual19-case no-index baseline confirms it.",
+      "reachability": "not-externally-reachable",
+      "confidence": "high"
+    }
+  ],
+  "shared_signals": [
+    {
+      "finding_id": "QA-2071N-01",
+      "owner": "qa-reviewer",
+      "deduplicated": true,
+      "assessment": "New meta-test overwrites base label constants without replacing import-derived label regex under second profile; corpus becomes empty. This is required-AC/profile correctness, with no attacker authority delta. No architecture/security duplicate finding created."
+    }
+  ],
+  "architecture": {
+    "boundaries_touched": [
+      "test support to canonical graph extraction/publication/readers",
+      "immutable data bundle to temporary old-entry subprocess/current siblings",
+      "test loaded profile to repository corpus",
+      "published coverage documentation"
+    ],
+    "ownership": "Production source unchanged; helper remains tests-only; curated communities qualify partition/ranking rather than clustering.",
+    "publication": "Actual184 nodes/177 edges published to previously absent temp index; public response/node query baselines pass; canonical re-publication advances generation1\u21922 with same node count.",
+    "historical_seams": "All four original old-carrier/current-reconciler and old-entry/current-sibling tests execute with Git-ref lookups denied by probe wrapper.",
+    "doc_updates": "Required ARCH-2071N-02 only; no new production ownership or ADR needed."
+  },
+  "security": {
+    "severity": "none demonstrated",
+    "actor_classification": "Operator-owned tests, fixture bytes and same-user local processes are trusted under current single-user threat model; no new third-party caller or elevated execution surface is introduced.",
+    "confinement": "Consumers allocate fresh TemporaryDirectory roots; historical-byte writes intercepted and confirmed outside primary repository; subprocess calls observed as argv lists with shell false and scratch cwd. No caller-selected production path added.",
+    "regex": "No new dynamic regex/shell interpolation in this test-only fixture design; existing production confinement/re.escape logic unchanged.",
+    "credential_exposure": "No credentials or external/network probe used.",
+    "chains": [],
+    "approval_scope": "Verified security/qualification-integrity boundary only; this does not approve the wave or failed/incomplete full profiles.",
+    "strongest_unselected_alternative": {
+      "name": "Execute a complete frozen historical scripts tree in a scrubbed isolated child rather than pinned old entries with current siblings",
+      "benefit": "Removes hybrid dependency uncertainty and can make historical runtime identity/environment easier to isolate.",
+      "weakness": "Tests would exercise historical compatibility with historical siblings rather than the required old-entry/current-sibling forward-compatibility fence; a much larger executable historical bundle increases upkeep and trusted code surface.",
+      "why_current_preferable": "The original seam is preserved, bytes are pinned and independently Git-verified, execution is fixed-argv/temp-root, and missing/corrupt/current substitution controls detect qualification damage. Complete historical-runtime qualification is a different contract."
+    }
+  },
+  "primer_question_answers": [
+    {
+      "question": 1,
+      "answer": "Full default capture178files/13skips/zero nonzero file records. Second capture was incomplete177files/26skips with one failed meta-test file at sampling; observed second-only skip lines all name default-profile-only. Declared had no captured files yet. Exact all-three qualification remains unproven; no profile approval.",
+      "artifact": "/private/tmp/wf-2071n-arch-security-skip-status.json"
+    },
+    {
+      "question": 2,
+      "answer": "19 actual graph tests pass without skips using real extraction/publication/public responses and indexed source controls. Independently specified expected ranking tuples31/21 and62/52 remain in source. Own extractor-classification erasure and empty-fixture mutants each cause2 assertion failures, no errors/skips. Extra direct committed-edge oracle checks docs/design/controls.md\u2192machine control as doc_references_doc/EXTRACTED. Primer ranking reversal evidence is acknowledged but not claimed as own execution."
+    },
+    {
+      "question": 3,
+      "answer": "All13 present bodies independently equal fixed-argv git show bytes at named immutable commits, and one recorded absence is independently confirmed. All4 behavior tests execute with Git-ref calls prohibited and current siblings preserved;8 integrity tests pass, covering absent/corrupt/substituted/size errors. Own incorrect bundle-pin and current-source substitution mutants fail literal pinned byte expectations. Runtime/cache authentication, native Windows and fresh downstream-host qualification remain unproven and outside scope."
+    }
+  ],
+  "executable_evidence": {
+    "classification": "executed",
+    "expected": "19 graph and4 historical behavior and8 historical integrity tests pass with no skips; real evidence-erasure/empty and historical-pin/current-substitution defects fail load-bearing assertions.",
+    "observed": {
+      "graph_baseline": {
+        "tests": 19,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0
+      },
+      "historical_behavior": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0
+      },
+      "historical_integrity": {
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0
+      }
+    },
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true
+    },
+    "known_bad_detection_method": "In-memory unittest.mock patches to real graph_indexer classification, fixture publication return, bundle digest pin and historical loader current-byte substitution; focused selected actual test methods, no source edits.",
+    "mutation_table": [
+      {
+        "name": "real extractor erases evidence",
+        "expected": "assertion failure with no unintended skip or import error",
+        "observed": {
+          "tests": 2,
+          "failures": 2,
+          "errors": 0,
+          "skips": 0
+        },
+        "detected": true
+      },
+      {
+        "name": "empty published fixture",
+        "expected": "assertion failure with no unintended skip or import error",
+        "observed": {
+          "tests": 2,
+          "failures": 2,
+          "errors": 0,
+          "skips": 0
+        },
+        "detected": true
+      },
+      {
+        "name": "bundle pin incorrect",
+        "expected": "assertion failure with no unintended skip or import error",
+        "observed": {
+          "tests": 1,
+          "failures": 2,
+          "errors": 0,
+          "skips": 0
+        },
+        "detected": true
+      },
+      {
+        "name": "current source substituted under old-reader key",
+        "expected": "assertion failure with no unintended skip or import error",
+        "observed": {
+          "tests": 1,
+          "failures": 2,
+          "errors": 0,
+          "skips": 0
+        },
+        "detected": true
+      }
+    ],
+    "artifact_or_test_id": [
+      "/private/tmp/wf-2071n-arch-security-probe.py",
+      "/private/tmp/wf-2071n-arch-security-probe.json"
+    ],
+    "safety_and_authorization": "Authorized local independent delivery review; tmp-only outputs, new scratch roots, in-memory patches; -B and unset PYTHONPYCACHEPREFIX; no source/docs/ledger/commit/close writes.",
+    "probe_class": "local_safe",
+    "authorization_status": "authorized",
+    "safe_boundary": false,
+    "unexecuted_remainder_prohibited": false,
+    "universal_claim": false
+  },
+  "probe_method_corrections": [
+    "Initial scratch harness named ReviewPolicyReconciliationTests; actual outline exposed ReviewPolicyReconcilerTests and harness corrected before reported complete run.",
+    "Initial direct edge oracle used references; inspected actual product edge identifies doc_references_doc and corrected harness.",
+    "Attempted re-extraction on same fixture root hits synthetic chunker1/current43 compatibility refusal; all3 source callers allocate new roots and invoke once. Final adjacent repeated-publication probe uses existing publish_graph helper and succeeds. Re-entrant extraction is outside helper caller contract; no product defect or arbitrary-topology certification inferred.",
+    "Full-suite raw stderr includes intentionally printed inner failures; profile sampling counts nonzero file-record returncodes, not every FAIL substring."
+  ],
+  "limitations": [
+    "Finite31-case baseline and4 focused mutation shapes only.",
+    "Graph communities curated; clustering algorithm/arbitrary live topology unqualified.",
+    "Exact all-profile skip reconciliation pending and known second meta-test fails.",
+    "No full-suite rerun by this seat; root qualification authority remains separate.",
+    "No native Windows/fresh host/cache-bytecode authentication/setup/index refresh performed."
+  ],
+  "five_stances": [
+    {
+      "stance": "adversarial",
+      "result": "Erase evidence classification and supply empty fixture; actual load-bearing assertions fail."
+    },
+    {
+      "stance": "constructive",
+      "result": "Keep bounded real producer fixture and repair false coverage prose; reconcile full profile identity/reasons before delivery conclusion."
+    },
+    {
+      "stance": "simplicity",
+      "result": "Tests-only helper and pinned immutable bytes preserve ownership; full historical dependency archive expands surface and changes seam."
+    },
+    {
+      "stance": "first-principles",
+      "result": "Source identity, execution identity, loaded vocabulary and coverage claims are separate obligations; hashes alone do not prove behavior."
+    },
+    {
+      "stance": "analogical",
+      "result": "Treat conformance like reproducible build inputs plus independent observable outputs; bundle/Git comparisons prove bytes while actual old/current seam execution proves bounded behavior."
+    }
+  ]
+}

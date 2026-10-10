@@ -1,0 +1,75 @@
+RESULT_JSON {"run": 1, "failures": 5, "errors": 0, "skips": 0}
+test_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) ... 
+  test_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) (binding=None, version='1.15.0') ... FAIL
+  test_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) (binding=None, version='1.29.0') ... FAIL
+  test_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) (binding="'legacy_cutover'", version='1.15.0') ... FAIL
+  test_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) (binding="'legacy_cutover'", version='1.29.0') ... FAIL
+test_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) ... FAIL
+
+======================================================================
+FAIL: test_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) (binding=None, version='1.15.0')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14842, in test_legacy_absent_and_explicit_defaults_keep_no_source_cutover
+    self.assertEqual(len(self._hook_calls()) - before, int(version == "1.14.9"))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) (binding=None, version='1.29.0')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14842, in test_legacy_absent_and_explicit_defaults_keep_no_source_cutover
+    self.assertEqual(len(self._hook_calls()) - before, int(version == "1.14.9"))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) (binding="'legacy_cutover'", version='1.15.0')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14842, in test_legacy_absent_and_explicit_defaults_keep_no_source_cutover
+    self.assertEqual(len(self._hook_calls()) - before, int(version == "1.14.9"))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) (binding="'legacy_cutover'", version='1.29.0')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14842, in test_legacy_absent_and_explicit_defaults_keep_no_source_cutover
+    self.assertEqual(len(self._hook_calls()) - before, int(version == "1.14.9"))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14846, in test_legacy_absent_and_explicit_defaults_keep_no_source_cutover
+    self._gate("1.29.0")
+    ~~~~~~~~~~^^^^^^^^^^
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 13019, in _gate
+    self.ext.pre_docs_gate(MagicMock(root=self.root, from_version=from_version))
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2683, in pre_docs_gate
+    templates, hook_name, hook = _load_journal_declaration(
+                                 ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        ctx.root, load_hook=eligible, expected_trigger=trigger
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1241, in _execute_mock_call
+    raise effect
+AssertionError: later legacy import
+
+----------------------------------------------------------------------
+Ran 1 test in 0.564s
+
+FAILED (failures=5)

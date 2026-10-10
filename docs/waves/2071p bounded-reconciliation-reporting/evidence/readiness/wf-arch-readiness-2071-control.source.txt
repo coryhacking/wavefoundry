@@ -1,0 +1,38 @@
+import json,sys,hashlib
+from pathlib import Path
+root=Path('/Users/coryhacking/Developer/wavefoundry')
+sys.path[:0]=[str(root/'.wavefoundry/framework/scripts'),str(root/'.wavefoundry/framework/scripts/tests')]
+import graph_query as g
+from wf_server import upgrade_handlers as h
+from wf_server import server_impl
+out={}
+# Existing resolver tiers, with no Rust node, establish preserved differing ambiguity policies.
+nodes=[{'id':'a.py::run','label':'run','kind':'function'},{'id':'long/path.py::run','label':'run','kind':'function'},{'id':'a.py::A.go','label':'go','kind':'function'},{'id':'b.py::B.go','label':'go','kind':'function'}]
+i=g.GraphQueryIndex({'nodes':nodes,'edges':[],'present':True})
+assert i.resolve_symbol('run')=='a.py::run'
+assert i.resolve_symbol('go') is None
+assert i.resolve_symbol('a.py::A.go')=='a.py::A.go'
+assert i.resolve_symbol('absent') is None
+out['resolver_existing_tiers']={'suffix_shortest':'a.py::run','bare_two_callables':None,'exact':'a.py::A.go','absent':None}
+# Actual parser/bounder preserves deliberately small flat future-status details.
+payload={'summary_schema_version':1,'summary_source_degraded':'scan_timeout','reconciliation_status':'incomplete','reconciliation_reason':'timeout','index_rebuilt':True,'reconciliation':[],'host_permission_flags':[],'renderer_provenance_flags':[]}
+parsed=h._parse_upgrade_summary('WAVE_UPGRADE_SUMMARY_JSON:'+json.dumps(payload)+'\n');bounded=h._bounded_upgrade_summary(parsed)
+assert bounded['reconciliation_status']=='incomplete' and bounded['index_rebuilt'] is True
+assert bounded['summary_source_degraded']=='scan_timeout'
+assert h._parse_upgrade_summary('WAVE_UPGRADE_SUMMARY_JSON:{broken\n') is None
+out['flat_status_boundary']={k:bounded[k] for k in ['summary_schema_version','summary_source_degraded','reconciliation_status','reconciliation_reason','index_rebuilt']}
+# Readiness-safe contract omission controls, no product behavior is claimed.
+plans={}
+for wave,name in [('2071o graph-query-provenance','2073s-bug hierarchy-call-site-provenance.md'),('2071p bounded-reconciliation-reporting','2073v-bug bounded-upgrade-reporting.md')]:
+ t=(root/'docs/waves'/wave/name).read_text();required='omit the snippet' if wave.startswith('2071o') else 'do not invoke another scanner'
+ assert required in t
+ bad=t.replace(required,'REMOVED');assert required not in bad
+ plans[wave]={'required_clause':required,'omission_rejected':True}
+out['plan_omission_controls']=plans
+# Independently verify reviewed 14-path packet after controls.
+p=json.loads((root/'docs/waves/2071o graph-query-provenance/evidence/readiness/source-packet.json').read_text())
+for x in p['source_paths']:
+ b=(root/x['path']).read_bytes();assert hashlib.sha256(b).hexdigest()==x['sha256'];assert hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()==x['git_blob']
+out['all14_end_match']=True
+out['packet_fingerprint']=hashlib.sha256(json.dumps([(x['path'],x['git_blob'],x['sha256']) for x in p['source_paths']],separators=(',',':')).encode()).hexdigest()
+Path('/private/tmp/wf-arch-readiness-2071-control.json').write_text(json.dumps(out,indent=2)+'\n');print(json.dumps(out,indent=2))

@@ -1,0 +1,215 @@
+{
+  "wave_id": "206is journal-hook-follow-up",
+  "change_ids": [
+    "204mo-enh version-independent-journal-hook"
+  ],
+  "phase": "readiness",
+  "receipt_id": "review-policy-f6e0dc3d0a917fb40463",
+  "role": "docs-contract-reviewer",
+  "council_seat": "rotating fifth / strongest alternative",
+  "context_id": "c6-readiness-docs-20261009-independent",
+  "fresh_context": true,
+  "independent": true,
+  "runtime_model": "unknown",
+  "identity_context": "Fresh delegated reviewer; no authored plan, implementation, repair or ledger write. Parent supplied candidate risks but no specialist verdict; all findings established by current live reads and my own probes. Full actual primer was read before seat work. No fictional pre-primer independent prior claimed.",
+  "primer_effect": "Extended the packet understanding: cached sibling modules can defeat incoming path loads; independent loader/subprocess probe reproduces this. The unresolved declaration-language choice also creates a substantive contract decision.",
+  "verdict": "changes_required",
+  "specialist_readiness_approval": false,
+  "strongest_challenge_response": "Confirmed at actual _load_journal_hook boundary: cached dependency yields OLD despite incoming file INCOMING; uncached control and fresh subprocess yield INCOMING. This is an AC-4 implementation obligation, not a blocker because future code is absent. Plan should name import-time and call-time collision and restoration verification.",
+  "strongest_alternative": {
+    "choice": "Fresh child interpreter for the selected apply hook, contrasted with scoped incoming imports",
+    "worked_path": "Statically select trigger and qualify contained direct source first. For eligible apply invoke a fresh -B interpreter against extracted scripts with repository root as an argument; child privately loads and validates declaration/hook once, holds incoming scripts on path for load/call, returns only success or sanitized error class/label. Parent permits builtin migration only when legacy pre-1.15 predicate and child success both hold. No child in preview or later legacy/default branch.",
+    "demonstrated": "Scratch cached sibling current loader OLD; fresh subprocess INCOMING; uncached control INCOMING.",
+    "benefit": "Child avoids all retained old-runner sys.modules state without requiring dependency-closure eviction and exception-safe restoration.",
+    "cost": "Interpreter availability, subprocess launch/failure/report transport, timeout semantics and preserving hook process expectations need explicit plumbing. Child is not a filesystem sandbox; hook has operator authority.",
+    "comparison": "Scoped incoming import context preserves current in-process API and is the smaller mechanism if it demonstrably covers actual incoming dependency closure, import-time and call-time imports, and state restoration on success/failure. Subprocess is credible, not proven stronger overall. No demand to change accepted boundary or add a second callable seam."
+  },
+  "primer_questions": [
+    {
+      "question": 1,
+      "answer": "Absent/default legacy_cutover must preserve later no-import behavior; literal journals_present selects bounded presence. Invalid literal must fail clearly. Dynamic/conditional/unreadable values currently cannot be resolved inertly and plan gives no apply rule. Proposed single literal supported declaration; explicit empty-string default normalization if intended; unsupported dynamic/conditional apply refusal before journal/memory migration, preview unknown warning without code execution. Runtime validation and static discovery must agree."
+    },
+    {
+      "question": 2,
+      "answer": "Use actual old-runner upgrade with old cached sibling name, incoming differing bytes, dependency imported at hook import and call time; assert incoming winner, declaration/hook cardinality, restoration after success/failure. My bounded current-loader probe supports feasibility/risk only, not actual old-runner delivery qualification."
+    },
+    {
+      "question": 3,
+      "answer": "Plan selects standard folder, direct regular Markdown excluding README, no recursion/links and existing singly-linked scope. Delivery matrix must include absent/README/nested/symlink/hardlink plus present and version before/at/after; separate hook and builtin call counts, invalid declaration and hook exceptions, same-invocation no duplicates, second attempt idempotence. Keep warning policy-specific: later retry is possible only for opted-in qualifying journals, builtin cutover still does not retry, no crash exactly-once claim."
+    }
+  ],
+  "findings": [
+    {
+      "finding_id": "DOC-C6-TRIGGER-SEMANTICS",
+      "severity": "high",
+      "blocking": true,
+      "source_lanes": [
+        "docs-contract-reviewer"
+      ],
+      "blocking_required_lanes": [
+        "docs-contract-reviewer"
+      ],
+      "contract_relevance": "required_ac",
+      "disposition": "do_now",
+      "proposition": "The plan lacks a rule for dynamic/conditional/unreadable trigger values, so an implementer cannot both make the new opt-in work and preserve later legacy no-import semantics for all declaration shapes.",
+      "evidence": "Requirements1,3,4 / AC2,3; _static_module_literal returns () absent, typo literal unchanged, ValueError dynamic and conditional. Literal parsing cannot decide runtime opt-in without execution.",
+      "proposal": "Add declaration grammar and state table to Requirements1/4: single plain module-level literal string or annotated equivalent; absent legacy_cutover; explicitly decide empty string; accepted journals_present/legacy_cutover only; invalid literal refusal on apply; unsupported dynamic/conditional/refused-read/syntax cases fail clearly on apply without declaration execution and preview reports unknown path-free warning. Preserve later default no-import. Pin this matrix in AC3/tasks. Clarify which before-1.15 legacy dynamic declarations retain their prior behavior if compatibility is desired; do not silently choose it."
+    },
+    {
+      "finding_id": "DOC-C6-LAYERING-CENSUS",
+      "severity": "medium",
+      "blocking": true,
+      "source_lanes": [
+        "docs-contract-reviewer"
+      ],
+      "blocking_required_lanes": [
+        "docs-contract-reviewer"
+      ],
+      "contract_relevance": "public_contract",
+      "disposition": "do_now",
+      "proposition": "Implementing only the named doc scope leaves the authoritative layering invariant explicitly forbidding the new later opt-in loading.",
+      "evidence": "docs/architecture/layering-rules.md Boundary Invariants upgrade_extensions -> declaration/helper row says inside its pre-1.15.0 journal migration gate. docs/ARCHITECTURE.md calls these rows structural authority. Frozen8 and plan affected docs omit it.",
+      "proposal": "Add docs/architecture/layering-rules.md to Scope/serialization/Affected Architecture Docs and frozen packet; rewrite existing edge to distinguish static trigger selection, selected apply-time declaration/helper load, preserved legacy builtin gate and chosen incoming-dependency isolation. Update it with seed210, declaration comments, spec and dataflow together."
+    },
+    {
+      "finding_id": "DOC-C6-DECLARATION-CENSUS",
+      "severity": "medium",
+      "blocking": true,
+      "source_lanes": [
+        "docs-contract-reviewer"
+      ],
+      "blocking_required_lanes": [
+        "docs-contract-reviewer"
+      ],
+      "contract_relevance": "required_ac",
+      "disposition": "do_now",
+      "proposition": "New EXTENSION_* constant without the omitted shipped-declaration registry edit breaks the existing frozen keyset contract and profile test infrastructure.",
+      "evidence": "record_layout_support.SHIPPED_DECLARATION pins every EXTENSION_*; test_profile_support.test_declaration_snapshot_covers_every_declaration_constant compares exact sets. Current sets match; scratch incoming-keyset + trigger versus unchanged registry fails the same assertion.",
+      "proposal": "Add .wavefoundry/framework/scripts/tests/record_layout_support.py to implementation/test scope and serialization with the selected shipped trigger default. Run existing declaration snapshot/profile controls; add test_profile_support.py to scope only if changing its test, not merely to execute it."
+    }
+  ],
+  "affected_contract_surfaces": {
+    "aligned_current": [
+      "seed210 Context line10, spec Declared journal migration, layering edge and pre_docs_gate currently agree on pre-1.15-only behavior",
+      "Public migrate_journals preview remains inert in marker/unchanged-tree probe",
+      "Plan explicitly separates later hook from builtin permission and retains standard nonrecursive folder"
+    ],
+    "planned_update_obligations": [
+      "seed210 Context line10 and shipped seed oracle tests",
+      "mcp-tool-surface declarations table and Declared journal migration paragraphs",
+      "mcp_tool_extensions comments and validation grammar",
+      "data-and-control-flow new ordering/ownership description",
+      "layering-rules existing authoritative dependency edge",
+      "policy-specific hook warning and retry/idempotence language"
+    ],
+    "limits": "No VERSION/package change requested; manifest revision rule remains conditional. No project-specific Waveforge source-root guidance should enter generic seed."
+  },
+  "evidence": {
+    "execution_status": "executed",
+    "public_path": "upgrade_extensions.migrate_journals(root, apply=False); actual _load_journal_hook plus child parser/import boundary; current plan/contract census",
+    "artifact_or_test_id": "/tmp/wf-206is-docs-probes.json",
+    "expected": "Preview inert; absent/invalid/unknown states distinct; current registry exact; incoming sibling differs under cache collision; omitted authoritative doc detected",
+    "observed": [
+      {
+        "case": "absent",
+        "value": "()"
+      },
+      {
+        "case": "legacy",
+        "value": "'legacy_cutover'"
+      },
+      {
+        "case": "optin",
+        "value": "'journals_present'"
+      },
+      {
+        "case": "invalid_literal",
+        "value": "'typo'"
+      },
+      {
+        "case": "dynamic",
+        "error": "ValueError"
+      },
+      {
+        "case": "conditional",
+        "error": "ValueError"
+      },
+      {
+        "case": "public_preview",
+        "report": {
+          "deleted": [],
+          "moved": [],
+          "left": [
+            "docs/agents/journals/live.md"
+          ],
+          "warnings": []
+        },
+        "decl_executed": false,
+        "tree_unchanged": true
+      },
+      {
+        "case": "doc_census_omission",
+        "known_contract": "docs/architecture/layering-rules.md",
+        "frozen_packet_omits": true,
+        "contradictory_future_contract_if_left_unchanged": true
+      },
+      {
+        "case": "declaration_snapshot_keyset",
+        "baseline_equal": true,
+        "new_constant_without_registry_update_detected": true,
+        "named_test": "test_profile_support.test_declaration_snapshot_covers_every_declaration_constant"
+      },
+      {
+        "case": "alternative_cache_isolation",
+        "current_loader_cached": "OLD",
+        "fresh_subprocess": "INCOMING",
+        "uncached_control": "INCOMING"
+      }
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true
+    },
+    "known_bad_detection_method": "readiness-safe-control: intentionally added new constant key without shipped registry update fails exact current test assertion; omitted known layering contract is detected; cached old sibling refutes loader freshness claim",
+    "probe_class": "local_safe",
+    "authorization_status": "authorized",
+    "safety_and_authorization": "Read-only current source/plan/docs plus isolated scratch filesystem and fresh local Python child; no repo target mutations or external actions.",
+    "universal_claim": false
+  },
+  "gapfill": [
+    "MCP discovery and live outline/read used first; code_ask warned stale freshness and index_health reports setup_inputs_changed/action_required. Semantic claims validated against disk. No setup/index build/recovery attempted.",
+    "Framework tests excluded from indexed keyword surface; targeted live reads and rg used for known test registry/census, no graph blast-radius claim."
+  ],
+  "limits": [
+    "Readiness verdict assesses plan and current feasibility, not unimplemented delivery behavior.",
+    "No full upgrade/version/source/retry matrix, full suite, native Windows, downstream Waveforge, packaging or universal import closure qualification.",
+    "Current-loader and child probe is bounded single sibling, not arbitrary packages.",
+    "No repo code/docs/ledger write, approval event, implementation activation, closure, commit or push.",
+    "Parent candidate risks independently verified; shared primer intentionally influences seat."
+  ],
+  "scope_freeze_unchanged": true,
+  "scope_sha256_before": {
+    ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+    ".wavefoundry/framework/scripts/mcp_tool_extensions.py": "44d8e720cec410bb86524700a68fef5f76d5434c725e3490a2c9b90cbc922edd",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "d2b38f6bd06692447f808bb0b9625f0fb782f9bd9d9b2b5496758f17e269e871",
+    ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md": "a4f1319834042e25316845f15f7ff9a119e80158ce89fb65dc7550cf475e598d",
+    "docs/specs/mcp-tool-surface.md": "46abe7a4f05010e692897f90c599778a25284d48df93d19fda27abde7550337c",
+    "docs/architecture/data-and-control-flow.md": "65aef7155f31ea3a65ddc72b11de52c5c2320c6d7ec2ccba41ab80bb252c420a",
+    "docs/waves/206is journal-hook-follow-up/204mo-enh version-independent-journal-hook.md": "42e49ab26aaa927d3255735b5135df7ff074d3ae32f1dc8b2d4e6678bcba2dc0"
+  },
+  "scope_sha256_after": {
+    ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+    ".wavefoundry/framework/scripts/mcp_tool_extensions.py": "44d8e720cec410bb86524700a68fef5f76d5434c725e3490a2c9b90cbc922edd",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "d2b38f6bd06692447f808bb0b9625f0fb782f9bd9d9b2b5496758f17e269e871",
+    ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md": "a4f1319834042e25316845f15f7ff9a119e80158ce89fb65dc7550cf475e598d",
+    "docs/specs/mcp-tool-surface.md": "46abe7a4f05010e692897f90c599778a25284d48df93d19fda27abde7550337c",
+    "docs/architecture/data-and-control-flow.md": "65aef7155f31ea3a65ddc72b11de52c5c2320c6d7ec2ccba41ab80bb252c420a",
+    "docs/waves/206is journal-hook-follow-up/204mo-enh version-independent-journal-hook.md": "42e49ab26aaa927d3255735b5135df7ff074d3ae32f1dc8b2d4e6678bcba2dc0"
+  },
+  "working_verdict_falsification": "Strongest case for approve is that capable implementation can choose reasonable parser semantics and update collateral docs. That does not resolve a substantive apply/preview compatibility decision or authorize omitted registry/doc writes in this named scope; bounded plan repair is required before readiness."
+}

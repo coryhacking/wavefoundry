@@ -26,6 +26,12 @@ Writes go to an exclusive temporary file in the resolved parent, get their
 mode on the descriptor, and are published with ``os.replace``, which replaces a
 directory entry rather than writing through it.
 
+Regular-file removal carries the judged resolved coordinates and expected
+identity, walks the resolved parent without following new links, then checks
+and unlinks the final entry relative to its descriptor. The final stat/unlink
+pair is not atomic; the Windows path fallback has an additional component-swap
+window. Existing contained lexical parent links remain supported.
+
 A refusal raises :class:`ContainedFileRefused` (an ``OSError``, ``EPERM``)
 whose text is a cause class only, never a path or file content. A missing
 file raises ``FileNotFoundError``, also without a path.
@@ -148,7 +154,8 @@ def _checkpoint(stage: str) -> None:
     """A no-op seam between the checks and the descriptor work that follows
     them. ``stage`` is ``"open"`` (read: after the checks, before the open) or
     ``"publish"`` (write: after the temporary file is written, before the
-    replace). Tests patch it to substitute a link at that point."""
+    replace), or ``"unlink"`` (before opening the carried resolved parent).
+    Tests patch it to substitute a link or replacement at that point."""
     return None
 
 
@@ -463,10 +470,12 @@ def _read_capped(fd: int, limit: int) -> bytes:
     return b"".join(chunks)
 
 
-def read_contained(root, path, *, max_bytes: int) -> "tuple[bytes, os.stat_result]":
-    """:func:`read_contained_bytes` plus the ``fstat`` of the descriptor the
-    bytes were read from (a caller's mtime or mode comes from the file read,
-    never from a second, following ``stat``)."""
+def read_contained_identity(root, path, *, max_bytes: int) -> "tuple[bytes, os.stat_result, Path]":
+    """Read bytes, their descriptor's identity, and the judged resolved path.
+
+    The path is carried from the read judgment, never resolved again after
+    publication to grant removal authority to a replacement.
+    """
     resolved_root = _resolved_root(root)
     parts = _lexical_parts(root, path)
     if not parts:
@@ -479,6 +488,12 @@ def read_contained(root, path, *, max_bytes: int) -> "tuple[bytes, os.stat_resul
         os.close(fd)
     if len(data) > max_bytes:
         raise ContainedFileRefused(CAUSE_SIZE)
+    return data, opened, resolved
+
+
+def read_contained(root, path, *, max_bytes: int) -> "tuple[bytes, os.stat_result]":
+    """Read bytes and the ``fstat`` of the descriptor they were read from."""
+    data, opened, _resolved = read_contained_identity(root, path, max_bytes=max_bytes)
     return data, opened
 
 
@@ -488,6 +503,92 @@ def read_contained_bytes(root, path, *, max_bytes: int) -> bytes:
     Raises :class:`ContainedFileRefused` on a refusal and ``FileNotFoundError``
     when the file is missing; neither names a path."""
     return read_contained(root, path, max_bytes=max_bytes)[0]
+
+
+def _regular_removal_entry(path: Path, entry: os.stat_result) -> bool:
+    try:
+        return stat.S_ISREG(entry.st_mode) and not _is_windows_link(str(path))
+    except OSError as exc:
+        raise _path_free(exc) from None
+
+
+def judge_contained_file(root, path) -> "tuple[Path, tuple[int, int]]":
+    """Judge a regular entry for removal without opening or following its final link.
+
+    Contained internal parent links retain the read rule's resolved coordinates.
+    The returned identity must be carried to :func:`unlink_contained`.
+    """
+    resolved_root = _resolved_root(root)
+    parts = _lexical_parts(root, path)
+    if not parts:
+        raise ContainedFileRefused(CAUSE_NOT_REGULAR)
+    lexical = resolved_root.joinpath(*parts)
+    try:
+        entry = os.lstat(lexical)
+    except OSError as exc:
+        raise _path_free(exc) from None
+    if not _regular_removal_entry(lexical, entry):
+        raise ContainedFileRefused(CAUSE_NOT_REGULAR)
+    # Resolve parent components only. A final link appearing after the lexical
+    # lstat must not redirect the judged coordinates to its target.
+    try:
+        resolved = lexical.parent.resolve(strict=True) / lexical.name
+        if not resolved.is_relative_to(resolved_root):
+            raise ContainedFileRefused(CAUSE_OUTSIDE)
+        judged = os.lstat(resolved)
+    except ContainedFileRefused:
+        raise
+    except (OSError, RuntimeError):
+        raise ContainedFileRefused(CAUSE_UNRESOLVED) from None
+    if not _regular_removal_entry(resolved, judged):
+        raise ContainedFileRefused(CAUSE_NOT_REGULAR)
+    if _is_runtime_lock(resolved_root, resolved, judged):
+        raise ContainedFileRefused(CAUSE_RUNTIME_LOCK)
+    if (entry.st_dev, entry.st_ino) != (judged.st_dev, judged.st_ino):
+        raise ContainedFileRefused(CAUSE_CHANGED)
+    return resolved, (judged.st_dev, judged.st_ino)
+
+
+def unlink_contained(root, judged_path, *, expected_identity: "tuple[int, int]") -> None:
+    """Remove only the judged regular-file identity at carried resolved coordinates.
+
+    Do not resolve ``judged_path`` again: a newly linked resolved parent must
+    fail the no-follow walk. POSIX stat/unlink is not an atomic pair. Windows
+    rechecks components and identity immediately before path unlink, with a
+    residual same-user race between those checks and removal.
+    """
+    resolved_root = _resolved_root(root)
+    parts = _lexical_parts(resolved_root, judged_path)
+    if not parts:
+        raise ContainedFileRefused(CAUSE_NOT_REGULAR)
+    target = resolved_root.joinpath(*parts)
+    _checkpoint("unlink")
+    try:
+        dir_fd = open_contained_dir(resolved_root, parts[:-1])
+    except OSError as exc:
+        raise _path_free(exc) from None
+    try:
+        try:
+            entry = (os.stat(parts[-1], dir_fd=dir_fd, follow_symlinks=False)
+                     if dir_fd is not None else os.lstat(target))
+        except OSError as exc:
+            raise _path_free(exc) from None
+        if not stat.S_ISREG(entry.st_mode) or (dir_fd is None and not _regular_removal_entry(target, entry)):
+            raise ContainedFileRefused(CAUSE_NOT_REGULAR)
+        if _is_runtime_lock(resolved_root, target, entry):
+            raise ContainedFileRefused(CAUSE_RUNTIME_LOCK)
+        if (entry.st_dev, entry.st_ino) != tuple(expected_identity):
+            raise ContainedFileRefused(CAUSE_CHANGED)
+        try:
+            if dir_fd is not None:
+                os.unlink(parts[-1], dir_fd=dir_fd)
+            else:
+                os.unlink(target)
+        except OSError as exc:
+            raise _path_free(exc) from None
+    finally:
+        if dir_fd is not None:
+            os.close(dir_fd)
 
 
 def _write_all(fd: int, data: bytes) -> None:

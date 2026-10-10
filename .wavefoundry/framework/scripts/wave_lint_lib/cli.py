@@ -8,6 +8,7 @@ from pathlib import Path
 
 import record_paths  # the discovery refusal (wave 1zrak, 1zu4y)
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
+from advisory_lint_identity import INCREMENTAL_FULL_FALLBACK_FILES, advisory_lint_identity
 
 from .context import build_context
 from .constants import AUDIT_DEFAULT_REPORT
@@ -57,6 +58,11 @@ from .wave_validators import (
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Wave framework docs lint")
     parser.add_argument(
+        "--advisory-trigger-proof",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument("--advisory-incremental-only", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
         "--write-migration-audit",
         action="store_true",
         help="Write a stable migration-audit report for warnings/info using write-if-changed semantics",
@@ -90,7 +96,10 @@ def parse_args() -> argparse.Namespace:
             "pass/fail, the `docs-lint: ok` line, or the exit code. Inert in incremental (--changed) mode."
         ),
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if (args.advisory_trigger_proof is not None or args.advisory_incremental_only) and not args.changed:
+        parser.error("advisory trigger options require --changed")
+    return args
 
 
 @contextmanager
@@ -174,11 +183,6 @@ def _render_audit_report(warnings: list[str], infos: list[str]) -> str:
 # Review-fix (1p9pe follow-up hardening): public constant — `server_impl.run_validate_changed`
 # imports it to PREDICT the full-lint fallback and bound the subprocess with the full-scan
 # timeout knob instead of the lighter hook knob (the two must not cross over).
-INCREMENTAL_FULL_FALLBACK_FILES = (
-    "docs/workflow-config.json",
-    "docs/prompts/prompt-surface-manifest.json",
-    "docs/repo-profile.json",
-)
 
 
 def _record_discovery_refusal(root: Path, roots) -> list[str]:
@@ -208,7 +212,7 @@ def _record_refusal_report(root: Path) -> list[str]:
     return record_refusal_failures()
 
 
-def _run_incremental_checks(root: Path):
+def _run_incremental_checks(root: Path, *, proven_trigger_identity: str | None = None):
     """Post-edit incremental lint (wave 1p9c1).
 
     Self-detects the git working-tree changed set (reusing secrets' ``_get_changed_files`` — the same
@@ -224,7 +228,7 @@ def _run_incremental_checks(root: Path):
     for rel, cause in fileset_refusals().items():
         record_refusal(root, root / rel, cause)
     fallback_files = {root / rel for rel in INCREMENTAL_FULL_FALLBACK_FILES}
-    if any(path in fallback_files for path in changed):
+    if any(path in fallback_files for path in changed) and proven_trigger_identity is None:
         return None  # a config/corpus file changed → run the full lint
 
     failures: list[str] = []
@@ -465,18 +469,28 @@ def main() -> int:
     # changed docs. A changed config/corpus file returns None here → fall through to the full lint.
     # Wave 1p9c6: --timings is inert here — the incremental hot path stays quiet.
     if args.changed:
+        proof = getattr(args, "advisory_trigger_proof", None)
+        rules_root = Path(__file__).resolve().parents[1]
+        if proof is not None and proof != advisory_lint_identity(root, rules_root):
+            return _emit(["advisory lint trigger/rule identity changed; retry full validation"], [], [], root, args, incremental=True)
         try:
-            incremental = _run_incremental_checks(root)
+            incremental = (_run_incremental_checks(root, proven_trigger_identity=proof)
+                           if proof is not None else _run_incremental_checks(root))
         except record_paths.RecordRootUnreadable as exc:
             # Wave 1zrak (1zu4y): the tree changed mid-run; report the refusal, never a traceback.
             return _emit(list(exc.diagnostics), [], [], root, args, incremental=True)
         if incremental is not None:
             failures, warnings = incremental
+            if proof is not None and proof != advisory_lint_identity(root, rules_root):
+                failures.append("advisory lint trigger/rule identity moved during validation; retry full validation")
             # Review-fix (1p9pe follow-up hardening): distinguish "checked the changed set,
             # clean" from "had no changed set to check" — a non-git checkout's advisory
             # summary must not read as checked-and-clean.
             skipped = not _is_inside_git(root)
+            print("docs-lint: scope incremental")
             return _emit(failures, warnings, [], root, args, incremental=True, skipped=skipped)
+        if getattr(args, "advisory_incremental_only", False):
+            return _emit(["advisory lint trigger appeared after scope prediction; retry full validation"], [], [], root, args, incremental=True)
 
     # Wave 1p9c6: --timings records per-phase wall-clock without altering pass/fail or the exit contract.
     timings: dict | None = {} if args.timings else None
@@ -493,4 +507,5 @@ def main() -> int:
             if name in timings:
                 print(f"TIMING: {name} {timings[name]:.1f}", file=sys.stderr)
         print(f"TIMING: total {timings['total']:.1f}", file=sys.stderr)
+    print("docs-lint: scope full")
     return _emit(failures, warnings, infos, root, args, incremental=False)

@@ -59,7 +59,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 # names, but still a difference from the shipped ``ARCHIVE_PROFILE = None``.
 SHIPPED_VOCABULARY = {k: v for k, v in SHIPPED_DEFAULTS["vocabulary_profile"].items()
                       if k not in ("ARCHIVE_PROFILE", "EXTRA_CHANGE_KINDS", "PROMPT_NAME_OVERRIDES",
-                                   "EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS", "COUNCIL_DISPLAY_NAME")}
+                                   "EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS", "EXTRA_LEGACY_COUNCIL_ACTORS", "COUNCIL_DISPLAY_NAME")}
 
 _spec = importlib.util.spec_from_file_location("run_tests", SCRIPTS_DIR / "run_tests.py")
 run_tests = importlib.util.module_from_spec(_spec)
@@ -275,6 +275,32 @@ class DefaultProfileOnlyMarkerTests(unittest.TestCase):
 
         return Marked
 
+    def test_repository_corpus_runs_under_declared_tools(self) -> None:
+        import test_change_id_path_guard as corpus
+
+        result = unittest.TestResult()
+        with self._loaded(), mock.patch.object(
+                corpus.vp, "MEMBER_ID_LABEL_RE", re.escape(corpus.vp.MEMBER_ID_LABEL)), \
+                mock.patch.dict(os.environ, {"WAVEFOUNDRY_TEST_PROFILE": "declared"}):
+            corpus.IsChangeIdTests("test_accepts_every_admitted_id_in_this_repository").run(result)
+        self.assertEqual(result.testsRun, 1)
+        self.assertEqual(result.skipped, [])
+        self.assertEqual(result.errors, [])
+        self.assertEqual(result.failures, [])
+
+    def test_repository_corpus_names_its_renamed_layout_skip(self) -> None:
+        from test_change_id_path_guard import IsChangeIdTests
+
+        result = unittest.TestResult()
+        with self._loaded(record_paths__WAVES_ROOT="docs/other-records"):
+            IsChangeIdTests("test_accepts_every_admitted_id_in_this_repository").run(result)
+        self.assertEqual(result.testsRun, 1)
+        self.assertEqual(len(result.skipped), 1)
+        self.assertIn("default-profile-only:", result.skipped[0][1])
+        self.assertIn("record_paths.WAVES_ROOT", result.skipped[0][1])
+        self.assertEqual(result.errors, [])
+        self.assertEqual(result.failures, [])
+
     def test_method_runs_under_the_shipped_defaults(self) -> None:
         ran: list = []
         with self._loaded():
@@ -435,7 +461,7 @@ class DefaultProfileOnlyMarkerTests(unittest.TestCase):
         self.assertEqual(set(SHIPPED_DEFAULTS["vocabulary_profile"]),
                          set(vocabulary_profile.FIELD_NAMES)
                          | {"ARCHIVE_PROFILE", "EXTRA_CHANGE_KINDS", "PROMPT_NAME_OVERRIDES",
-                            "EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS", "COUNCIL_DISPLAY_NAME"})
+                            "EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS", "EXTRA_LEGACY_COUNCIL_ACTORS", "COUNCIL_DISPLAY_NAME"})
         self.assertEqual(set(SHIPPED_DEFAULTS["record_paths"]),
                          set(record_paths.CONSTANT_NAMES) | {"ARCHIVE_ROOT"})
 

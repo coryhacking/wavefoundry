@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-07
+Last verified: 2026-10-09
 
 What `docs-lint` deliberately does *not* flag, and why. Maintained for security review and enterprise audit — every entry here represents a check that does not run.
 
@@ -23,7 +23,7 @@ Source of truth: `LINT_EXCLUDED_TRANSIENT_DIRS` in `.wavefoundry/framework/scrip
 
 ## Framework bytecode cache
 
-Framework processes keep Python bytecode in `.wavefoundry/cache/pycache/` (change `1zyv1`), never in `__pycache__` beside the framework sources. No exclusion entry is needed for it: `docs-lint` walks `docs/` and defers to `.gitignore`, the managed `.gitignore` block lists `.wavefoundry/cache/`, and the cache sits outside every directory lint reads. The cache is flushed whenever `.wavefoundry/framework/VERSION` changes; `PYTHONDONTWRITEBYTECODE=1` or `python3 -B` makes a process read it without writing. It is refused when `.wavefoundry/cache` or `.wavefoundry/cache/pycache` is a symlink, or on Windows a junction or other reparse point. On macOS, Linux and WSL2 it mirrors absolute source paths; on Windows the mirrored path drops the drive letter and a long path or a locked file only skips caching (inferred, not yet run on Windows). A stray `__pycache__` under `.wavefoundry/framework/` is a defect to report, not routine cleanup.
+Ordinary framework processes keep Python bytecode in the project cache `.wavefoundry/cache/pycache/` (gitignored by the managed block), never in `__pycache__` beside the framework sources. The first cache-enabled process after `.wavefoundry/framework/VERSION` changes flushes the cache. `PYTHONDONTWRITEBYTECODE=1`, `python3 -B`, explicit read-only configuration or `WAVEFOUNDRY_DISABLE_BYTECODE_CACHE=1` disables project-cache reads and writes after configuration, with no flush, warm-up or pruning; the test runner respects those controls. Controlled read-only children also remove `PYTHONPYCACHEPREFIX` before interpreter startup. For externally configured direct invocations, unset `PYTHONPYCACHEPREFIX` at launch: configuration and the disabling switch cannot undo imports already executed during interpreter startup. Ordinary caching uses a process-wide prefix, including standard-library and site-packages bytecode; source digests and pack integrity checks do not authenticate cached bytecode. The cache is refused when `.wavefoundry/cache` or `.wavefoundry/cache/pycache` is a symlink, or on Windows a junction or other reparse point. On macOS, Linux and WSL2 it mirrors absolute source paths; on Windows the mirrored path drops the drive letter, and a long path or a locked file only skips caching (inferred, not yet run on Windows). A stray `__pycache__` under `.wavefoundry/framework/` is a defect to report, not routine cleanup. No exclusion entry is needed: `docs-lint` walks `docs/` and defers to `.gitignore`, the managed block lists `.wavefoundry/cache/`, and the cache sits outside every directory lint reads.
 
 ## What `docs-lint` still flags
 

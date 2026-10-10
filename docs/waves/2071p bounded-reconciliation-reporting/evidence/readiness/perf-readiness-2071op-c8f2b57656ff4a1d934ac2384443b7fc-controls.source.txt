@@ -1,0 +1,33 @@
+import contextlib,io,json,sys,time,tempfile,types,hashlib
+from pathlib import Path
+from unittest.mock import patch
+root=Path('/Users/coryhacking/Developer/wavefoundry'); scripts=root/'.wavefoundry/framework/scripts';sys.path[:0]=[str(scripts),str(scripts/'tests')]
+import reconcile_scan as scan
+import upgrade_wavefoundry as up
+out={}
+r=Path(tempfile.mkdtemp(prefix='wf-perf-readiness-controls-'));out['scratch_root']=str(r)
+for rel,body in {'docs/current.md':'ordinary text','.local/profile.json':'{}','target/output.json':'{}','nested/.local/live.md':'ordinary','.localish/live.md':'ordinary','nested/target/live.md':'ordinary','targeting/live.md':'ordinary','.claude/settings.json':'{"permissions":{"allow":[".wavefoundry/bin/docs-lint"]}}','.gitignore':'.claude/settings.json\n','docs/prompts/example.prompt.md':'example','docs/reports/excluded.md':'ordinary','docs/reports-near/live.md':'ordinary'}.items():
+ p=r/rel;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(body)
+scope=sorted(rel for _,rel in scan._iter_scannable_files(r));out['current_scope']=scope
+for rel in ['.local/profile.json','target/output.json','nested/.local/live.md','nested/target/live.md','.localish/live.md','targeting/live.md','.claude/settings.json','docs/reports-near/live.md']:assert rel in scope,rel
+assert 'docs/reports/excluded.md' not in scope
+cases=['a/'*4096,'(../docs/prompts/example.md).','docs/prompts/example.prompt.md','docs/prompts/no-twin.md','docs/prompts/example.md; docs/prompts/example.md','~~~\n# hidden\n../docs/prompts/example.md\n~~~\n']
+rows=[]
+for text in cases:
+ t=time.perf_counter();baseline=[m.group(0) for m in scan._PROMPT_MD_REFERENCE.finditer(text)];base=time.perf_counter()-t
+ t=time.perf_counter();guarded=[m.group(0) for m in scan._PROMPT_MD_REFERENCE.finditer(text)] if 'docs/prompts/' in text else [];guard=time.perf_counter()-t
+ assert baseline==guarded
+ stale=[matched for _,matched,_ in scan._stale_prompt_extension_hits(r,text)]
+ rows.append({'characters':len(text),'baseline_seconds':base,'guard_seconds':guard,'regex_hits':baseline,'stale_hits':stale})
+assert rows[1]['stale_hits']==['../docs/prompts/example.md'];assert not rows[2]['stale_hits'];assert not rows[3]['stale_hits'];assert len(rows[4]['stale_hits'])==2
+out['literal_guard_differential']=rows
+channels=scan.scan_repo_channels(r);out['channels']=[[ref.as_dict() for ref in channel] for channel in channels]
+assert len(channels[1])==1 and channels[1][0].file=='.claude/settings.json'
+for reason,index_fact in [('timeout_after_300s',True),('spawn_failed: RuntimeError',False),('sentinel_missing_or_malformed',True),('unrecognized_schema_token_999',False)]:
+ calls=[];stub=types.SimpleNamespace(scan_repo_channels=lambda target:calls.append(target) or ([],[],[]));buf=io.StringIO()
+ with patch.dict(sys.modules,{'reconcile_scan':stub}),patch.object(up,'_persist_skipped_scan_locations'),patch.object(up,'_delegated_summary_payload',return_value=(None,reason)),patch.object(up,'_run_reconciliation_disposition_diagnostics',return_value=[]),patch.object(up,'_run_renderer_warning_scan',return_value=[]),contextlib.redirect_stdout(buf):
+  up._emit_primary_summary_via_delegate_or_fallback(r,'1.28.0','1.29.0',None,0,index_published=index_fact)
+ sent=[line[len(up.WAVE_UPGRADE_SUMMARY_SENTINEL):] for line in buf.getvalue().splitlines() if line.startswith(up.WAVE_UPGRADE_SUMMARY_SENTINEL)];assert len(sent)==1 and len(calls)==1
+ payload=json.loads(sent[0]);assert payload[up.SUMMARY_DEGRADATION_MARKER_KEY]==reason;assert up.SUMMARY_SCHEMA_KEY not in payload
+ out.setdefault('fallback_matrix',[]).append({'reason':reason,'index_published_input':index_fact,'scanner_calls':len(calls),'summary':payload})
+p=Path('/private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-controls.json');p.write_text(json.dumps(out,indent=2)+'\n');print(json.dumps({'artifact':str(p),'scratch_root':str(r),'scope':scope,'guard_rows':rows,'fallback_cases':len(out['fallback_matrix'])},indent=2))

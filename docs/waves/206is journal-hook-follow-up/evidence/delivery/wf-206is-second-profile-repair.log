@@ -1,0 +1,23 @@
+Bytecode cache warm (2.0s).
+SECOND-PROFILE run (second): not delivery evidence; this tree's framework test receipt is never written.
+Expected profile: the shipped defaults, then 'second' from WAVEFOUNDRY_TEST_PROFILE.
+Copied 3756 files into a temporary git repository; applied profile 'second'; waves root docs/delivery/sets (README docs/delivery/sets/README.md).
+FOCUSED diagnostic run (3 of 177 test files) — not delivery evidence; the full-suite cache is untouched.
+Running 3 test files across 3 workers …
+  [1/3] test_wf_cli.py — 54 tests ok (3.9s)
+  [2/3] test_server_package.py — 31 tests ok (22.0s)
+  [3/3] test_extension_tool_modules.py — 223 tests ok (58.8s)
+
+----------------------------------------------------------------------
+Slowest files (top 3 of 3):
+  test_extension_tool_modules.py                  58.841s  (223 tests)
+  test_server_package.py                          22.048s  (31 tests)
+  test_wf_cli.py                                   3.924s  (54 tests)
+Worker service time: 84.813s across 3 files; skipped 0 tests
+Ran 308 tests across 3 files in 58.842s
+OK
+
+----------------------------------------------------------------------
+Second-profile per-file result (profile 'second'; expected profile: the shipped defaults, then 'second' from WAVEFOUNDRY_TEST_PROFILE): 0 of 3 files failed
+Total failures and errors: 0 in 0 files; 3 files passed
+SECOND-PROFILE run (second): not delivery evidence; this tree's framework test receipt is never written.

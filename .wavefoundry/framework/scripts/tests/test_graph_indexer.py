@@ -9244,7 +9244,7 @@ class GraphBuilderVersionTests(unittest.TestCase):
         # Wave 1x5tq (1x8e1): unresolved doc targets persist for selective retries.
         # Wave 203pu (201wg) bumped 52->53: an unowned member call keeps its
         # external target and carries `unowned_member_call`.
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "53")
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "54")
 
 
 class OversizedTreeSitterGuardTests(unittest.TestCase):

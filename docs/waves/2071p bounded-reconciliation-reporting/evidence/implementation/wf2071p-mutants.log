@@ -1,0 +1,118 @@
+test_reconcile_scan.BoundedReconciliationTests.test_root_generated_pruned_nested_and_near_miss_live MUTANT_KILLED
+E
+======================================================================
+ERROR: test_root_generated_pruned_nested_and_near_miss_live (test_reconcile_scan.BoundedReconciliationTests.test_root_generated_pruned_nested_and_near_miss_live)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_reconcile_scan.py", line 69, in test_root_generated_pruned_nested_and_near_miss_live
+    refs = self.scan.scan_repo(root)
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/reconcile_scan.py", line 1505, in scan_repo
+    raise ScanIncomplete(result)
+reconcile_scan.ScanIncomplete: reconciliation scan error: scan_AssertionError
+
+----------------------------------------------------------------------
+Ran 1 test in 0.005s
+
+FAILED (errors=1)
+
+test_reconcile_scan.BoundedReconciliationTests.test_partial_result_and_legacy_wrapper_are_truthful MUTANT_KILLED
+F
+======================================================================
+FAIL: test_partial_result_and_legacy_wrapper_are_truthful (test_reconcile_scan.BoundedReconciliationTests.test_partial_result_and_legacy_wrapper_are_truthful)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_reconcile_scan.py", line 79, in test_partial_result_and_legacy_wrapper_are_truthful
+    self.assertEqual(result.state, "incomplete")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'complete' != 'incomplete'
+- complete
++ incomplete
+? ++
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+
+FAILED (failures=1)
+
+test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_delegate_failure_never_scans_or_runs_diagnostics_again MUTANT_KILLED
+F
+======================================================================
+FAIL: test_delegate_failure_never_scans_or_runs_diagnostics_again (test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_delegate_failure_never_scans_or_runs_diagnostics_again)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 8869, in test_delegate_failure_never_scans_or_runs_diagnostics_again
+    self.mod._emit_primary_summary_via_delegate_or_fallback(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        root, "1.28.0", "1.29.0", None, 7,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        index_published=True, timeout_s=.15)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_wavefoundry.py", line 4646, in _emit_primary_summary_via_delegate_or_fallback
+    _emit_primary_phase_summary(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        from_version,
+        ^^^^^^^^^^^^^
+    ...<6 lines>...
+        degradation_marker=degradation or "delegation_failed",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1247, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "/private/tmp/wf2071p-mutants.py", line 22, in emit
+    t.mod._run_reconciliation_scan(args[4])
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1241, in _execute_mock_call
+    raise effect
+AssertionError: second scan
+
+----------------------------------------------------------------------
+Ran 1 test in 0.178s
+
+FAILED (failures=1)
+
+test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_scan_error_is_never_empty_success MUTANT_KILLED
+F
+======================================================================
+FAIL: test_scan_error_is_never_empty_success (test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_scan_error_is_never_empty_success)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 8884, in test_scan_error_is_never_empty_success
+    with self.assertRaises(RuntimeError):
+         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+AssertionError: RuntimeError not raised
+
+----------------------------------------------------------------------
+Ran 1 test in 0.000s
+
+FAILED (failures=1)
+
+test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_verified_pack_cleanup_refuses_unproven_prefix_and_changed_identity MUTANT_KILLED
+F
+======================================================================
+FAIL: test_verified_pack_cleanup_refuses_unproven_prefix_and_changed_identity (test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_verified_pack_cleanup_refuses_unproven_prefix_and_changed_identity)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 8967, in test_verified_pack_cleanup_refuses_unproven_prefix_and_changed_identity
+    self.assertTrue(unproven.exists())
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+AssertionError: False is not true
+
+----------------------------------------------------------------------
+Ran 1 test in 0.039s
+
+FAILED (failures=1)
+

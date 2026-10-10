@@ -1,0 +1,98 @@
+{
+  "reference": {
+    "old_tag": "v1.15.4",
+    "old_commit": "bb7267dddef9f4610227635db17b739adc8161ca",
+    "parent_sha256": "36f7694858d98592645498e04f649ca7028937a193ff7444866795fda7489a80",
+    "server_sha256": "c82f5a9bd1514dd6dec88ef4c516eee5dbef049ae17e05eb551d505e8039e72b"
+  },
+  "matrix": [
+    {
+      "state": "complete",
+      "old_parent_accepts": true,
+      "both_bounded_parsers_retain_flat_fields": true,
+      "sentinel_count": 1,
+      "elapsed": 2.8427930411417037,
+      "reconciliation_reason": "",
+      "findings": 1,
+      "lock_byte_unchanged": true,
+      "interpreter": "disposable -S wrapper with current scripts; no site packages"
+    },
+    {
+      "state": "incomplete",
+      "old_parent_accepts": true,
+      "both_bounded_parsers_retain_flat_fields": true,
+      "sentinel_count": 1,
+      "elapsed": 2.486500292085111,
+      "reconciliation_reason": "file_bytes",
+      "findings": 1,
+      "lock_byte_unchanged": true,
+      "interpreter": "disposable -S wrapper with current scripts; no site packages"
+    },
+    {
+      "state": "error",
+      "old_parent_accepts": true,
+      "both_bounded_parsers_retain_flat_fields": true,
+      "sentinel_count": 1,
+      "elapsed": 1.2984438750427216,
+      "reconciliation_reason": "worker_exit_1",
+      "findings": 0,
+      "lock_byte_unchanged": true,
+      "interpreter": "disposable -S wrapper with current scripts; no site packages"
+    }
+  ],
+  "controls": [
+    {
+      "name": "malformed",
+      "marker": "sentinel_missing_or_malformed",
+      "one_sentinel": true,
+      "no_rescan": true,
+      "elapsed": 0.06013495801016688
+    },
+    {
+      "name": "schema_error",
+      "marker": "unrecognized_schema_token_2",
+      "one_sentinel": true,
+      "no_rescan": true,
+      "elapsed": 0.08339062496088445
+    },
+    {
+      "name": "child_exit",
+      "marker": "exit_status_3",
+      "one_sentinel": true,
+      "no_rescan": true,
+      "elapsed": 0.07918812497518957
+    },
+    {
+      "name": "timeout",
+      "marker": "timeout_after_1s",
+      "one_sentinel": true,
+      "no_rescan": true,
+      "elapsed": 0.21817262494005263
+    },
+    {
+      "name": "contradiction",
+      "marker": "parent_fact_mismatch",
+      "one_sentinel": true,
+      "no_rescan": true,
+      "elapsed": 0.08692841581068933
+    },
+    {
+      "name": "verbatim_payload",
+      "byte_identical": true
+    }
+  ],
+  "mutations": [
+    {
+      "mutant": "accept schema2",
+      "killed": true,
+      "detector": "schema_error control expected marked old-schema degradation",
+      "observed": "KeyError"
+    },
+    {
+      "mutant": "remove parent fact guard",
+      "killed": true,
+      "detector": "contradictory index publication control",
+      "observed": "KeyError"
+    }
+  ]
+}

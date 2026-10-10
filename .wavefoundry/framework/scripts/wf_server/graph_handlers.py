@@ -1357,50 +1357,17 @@ def code_callgraph_response(
         result["nodes"] = nodes_kept
         result["edges"] = edges_kept
 
-    # Enrich call edges with call-site line numbers via targeted file scan
-    _node_map: dict[str, dict[str, Any]] = {
-        n["id"]: n for n in (result.get("nodes") or []) if isinstance(n.get("id"), str)
-    }
-    # Pre-collect all (src_file → callee_labels) and batch-scan each file once
-    _file_callees: dict[str, set[str]] = {}
-    for edge in (result.get("edges") or []):
-        if edge.get("relation") != "calls":
-            continue
-        src_id = str(edge.get("source") or "")
-        tgt_id = str(edge.get("target") or "")
-        if src_id.startswith("external::"):
-            continue
-        src_node = _node_map.get(src_id) or {}
-        tgt_node = _node_map.get(tgt_id) or {}
-        src_file = src_node.get("source_file") or (src_id.split("::")[0] if "::" in src_id else "")
-        callee_label = tgt_node.get("label") or (tgt_id.rsplit("::", 1)[-1] if "::" in tgt_id else tgt_id)
-        if src_file and callee_label:
-            _file_callees.setdefault(src_file, set()).add(callee_label)
-    _batch_sites: dict[str, dict[str, list[dict[str, Any]]]] = {
-        src_file: _scan_all_call_sites_in_file(root, list(labels), src_file)
-        for src_file, labels in _file_callees.items()
-    }
+    # Return copies: graph query snapshots are shared and may be pinned.
+    # A missing occurrence is missing evidence, never a license to guess by label.
     enriched_edges: list[dict[str, Any]] = []
     for edge in (result.get("edges") or []):
         new_edge = dict(edge)
         if edge.get("relation") == "calls":
-            src_id = str(edge.get("source") or "")
-            tgt_id = str(edge.get("target") or "")
-            if not src_id.startswith("external::"):
-                src_node = _node_map.get(src_id) or {}
-                tgt_node = _node_map.get(tgt_id) or {}
-                src_file = src_node.get("source_file") or (src_id.split("::")[0] if "::" in src_id else "")
-                callee_label = tgt_node.get("label") or (tgt_id.rsplit("::", 1)[-1] if "::" in tgt_id else tgt_id)
-                if src_file and callee_label:
-                    sites = _batch_sites.get(src_file, {}).get(callee_label, [])
-                    src_loc = src_node.get("source_location") or "0:0"
-                    try:
-                        src_start = int(str(src_loc).split(":")[0])
-                    except (ValueError, IndexError):
-                        src_start = 0
-                    ref = _first_call_site_at_or_after(sites, src_start)
-                    if ref:
-                        new_edge["line"] = ref["line"]
+            sites = [dict(site) for site in edge.get("call_sites", ())]
+            new_edge["call_sites"] = sites
+            new_edge.pop("line", None)
+            if sites:
+                new_edge["line"] = sites[0]["line"]
         enriched_edges.append(new_edge)
 
     return _attach_auto_rebuild_diag(

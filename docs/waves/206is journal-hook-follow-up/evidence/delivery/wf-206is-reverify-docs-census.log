@@ -1,0 +1,6 @@
+test_no_live_file_references_a_retired_wrapper (test_wf_cli.NoLiveReferenceToRetiredWrapperTests.test_no_live_file_references_a_retired_wrapper) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 1.433s
+
+OK

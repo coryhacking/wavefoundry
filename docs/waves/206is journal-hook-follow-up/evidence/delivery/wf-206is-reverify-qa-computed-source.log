@@ -1,0 +1,17 @@
+test_no_source_read_of_a_moved_flat_path (test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path) ... FAIL
+
+======================================================================
+FAIL: test_no_source_read_of_a_moved_flat_path (test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-206is-qa-reverify-le6_m_58/.wavefoundry/framework/scripts/tests/test_server_package.py", line 439, in test_no_source_read_of_a_moved_flat_path
+    self.assertEqual(found, {}, "read moved-module sources through framework_files.source_path")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: {'test_upgrade_wavefoundry.py': ["SCRIPTS_ROOT / f'{helper}.py'"]} != {}
+- {'test_upgrade_wavefoundry.py': ["SCRIPTS_ROOT / f'{helper}.py'"]}
++ {} : read moved-module sources through framework_files.source_path
+
+----------------------------------------------------------------------
+Ran 1 test in 3.405s
+
+FAILED (failures=1)

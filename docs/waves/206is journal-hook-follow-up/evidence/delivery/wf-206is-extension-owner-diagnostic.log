@@ -1,0 +1,46 @@
+..........F................................E............................................E........................................................................................................................
+======================================================================
+ERROR: setUpClass (test_extension_tool_modules.ExtensionRefusalTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_extension_tool_modules.py", line 4134, in setUpClass
+    cls.out = _run("fail")
+              ~~~~^^^^^^^^
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_extension_tool_modules.py", line 2212, in _run
+    raise AssertionError(f"{mode} driver failed:\n{result.stderr[-6000:]}")
+AssertionError: fail driver failed:
+Traceback (most recent call last):
+  File "<string>", line 1182, in <module>
+    from mcp.server.fastmcp import FastMCP
+ModuleNotFoundError: No module named 'mcp'
+
+
+======================================================================
+ERROR: setUpClass (test_extension_tool_modules.MiscasedModuleTests)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_extension_tool_modules.py", line 3748, in setUpClass
+    cls.out = _run("caseok", env={"PYTHONCASEOK": "1"})
+              ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_extension_tool_modules.py", line 2212, in _run
+    raise AssertionError(f"{mode} driver failed:\n{result.stderr[-6000:]}")
+AssertionError: caseok driver failed:
+Traceback (most recent call last):
+  File "<string>", line 2034, in <module>
+    from mcp.server.fastmcp import FastMCP
+ModuleNotFoundError: No module named 'mcp'
+
+
+======================================================================
+FAIL: test_the_refusal_driver_resets_every_declaration_constant (test_extension_tool_modules.DeclarationConstantCensusTests.test_the_refusal_driver_resets_every_declaration_constant)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_extension_tool_modules.py", line 4446, in test_the_refusal_driver_resets_every_declaration_constant
+    self.assertIn(f"{name}=", empty_line, name)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER=' not found in 'empty = dict(EXTENSION_MODULES=(), EXTENSION_HELPER_MODULES=(), EXTENSION_TOOL_PREFIXES=(), EXTENSION_TOOL_TIERS={}, EXTENSION_OVERRIDES={},\n                     EXTENSION_TOOL_ALIASES={}, EXTENSION_TOOL_PARAMETERS={}, EXTENSION_HIDDEN_TOOLS=(),\n                     EXTENSION_LIFECYCLE_TOOLS=(), EXTENSION_ARTIFACT_PATH_FIELDS={}, EXTENSION_SKILLS={},\n                     EXTENSION_JOURNAL_TEMPLATES=(), EXTENSION_JOURNAL_PRE_MIGRATION_HOOK="",\n                     EXTENSION_REPLACEMENTS={}' : EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER
+
+----------------------------------------------------------------------
+Ran 207 tests in 79.214s
+
+FAILED (failures=1, errors=2)

@@ -1,0 +1,103 @@
+# Wavefoundry upgrade and call-hierarchy diagnostic feedback
+
+Owner: Tensorwell engineering
+Status: reviewed diagnostic feedback; upstream repairs proposed
+Last verified: 2026-10-09
+
+## Scope and result
+
+Reviewed the installed Wavefoundry `1.29.0+pviw` distribution on macOS ARM64. The new standalone regex probes used Python3.14.8 (Clang21.0.0). These are development-tooling issues, separate from Tensorwell inference, CoreML startup, or consumer integration. No framework/product code was changed, full scanner rerun, model download, or model benchmark performed during this review. Existing upgrade interruptions and public MCP queries provide the behavioral evidence; new probes are finite, read-only metadata/regex diagnostics.
+
+The call-hierarchy source-location defect is explained by a confirmed query-time mechanism. The summary stall has confirmed excessive scan scope, unbounded execution/retention, a timeout fallback that repeats the scan, and a reproducible superlinear prompt regex. The exact file/pattern responsible for every whole-run timeout remains unisolated. Do not describe all observed regex work as catastrophic backtracking.
+
+## 1. Incoming hierarchy discards authoritative call-site provenance
+
+Public reproduction:
+
+```text
+code_callhierarchy(symbol="collect",
+  file="crates/tensorwell-inference/src/qualification.rs",
+  direction="incoming", context_depth=0)
+code_definition(symbol_or_path_position="collect", graph=true)
+code_read(path="crates/tensorwell-inference/src/qualification.rs",
+  start_line=1213, end_line=1241)
+```
+
+The hierarchy attributes `completed_cases_survive_timeout_and_partial_files_are_not_completion` to line1224, snippet `.collect()`, with `confidence=RECEIVER_RESOLVED`. That is an iterator method. The actual local `collect(...)` call is line1240; its persisted edge correctly records that site. `qualify` has stored sites912 and944, while the hierarchy exposes only912. Six incoming caller edges remain six callers; seven stored invocation occurrences are a different count. A singular representative is part of the current response shape, so the second occurrence's omission is an information limitation rather than evidence of a missing graph edge.
+
+Mechanism: [`code_callhierarchy_response`](../../.wavefoundry/framework/scripts/wf_server/graph_handlers.py) (snapshot line264) builds incoming entries from edges, but [`_attach_edge_trust`](../../.wavefoundry/framework/scripts/wf_server/graph_handlers.py) (snapshot line193) copies only relation/confidence. It does not copy `edge.call_sites`. The incoming path rescans each caller file by the target's bare label, partitions results using caller start lines and the next incoming caller's start (not actual function ends), then assigns `in_scope[0]` to the response's line/snippet/call_site. [`_scan_call_sites_in_file`](../../.wavefoundry/framework/scripts/wf_server/graph_handlers.py) (snapshot line872) uses tree-sitter references with a text fallback. [`_treesitter_references`](../../.wavefoundry/framework/scripts/wf_server/server_impl.py) (snapshot line15874) matches identifier spelling; [`_tree_sitter_reference_kind`](../../.wavefoundry/framework/scripts/wf_server/server_impl.py) (snapshot line16005) classifies nearby call ancestors without binding the identifier to the graph's target. Both `collect(...)` and `.collect()` qualify as same-name call candidates.
+
+Consequences: valid graph-edge confidence decorates a separately guessed location; clients can navigate to an unrelated method call. The estimated scope can extend across unrelated functions; that broader scope failure is inferred from code, not separately reproduced here.
+
+Proposed minimal repair: use the traversed edge's persisted call_sites as the source of location truth; select a deterministic valid representative for the existing singular field. Preserve caller cardinality. Optionally expose all retained occurrences through an additive plural field. Keep a clearly identified fallback for legacy edges lacking sites; bind fallback sites to real caller scope and target ownership where possible. Preserve unknown-receiver provenance and existing Java compatibility filters. Do not overwrite correct persisted sites with bare-name guesses.
+
+Regression checks: run the registered incoming hierarchy path on this collision; expect1240, never1224. Verify both qualify occurrences remain available in any plural field; singular912 may remain the representative. Include legacy no-site edges, absent/stale source text, same-line repeated calls, adjacent noncaller functions, method/free-function name collisions and existing Java receiver filtering. Test the served response, not only graph extraction.
+
+## 2. Reconciliation scanning is not bounded to live operating surfaces
+
+Observed upgrade behavior: the primary MCP upgrade call timed out at300s after publication. Its owned summary child showed sustained CPU in Python regex search. Cleanup later removed the upgrade lock, refreshed the codebase map and recorded setup before stalling in reporting. SIGINT of only its verified owned process returned the stack `_print_operator_summary -> _run_reconciliation_scan -> scan_repo_channels -> scan_repo -> _TOOL_BARE_PATTERN.finditer` at1173. An earlier pvbx run stopped in `_stale_prompt_extension_hits -> _PROMPT_MD_REFERENCE.finditer` at448. These stacks show processing hot paths, not an exact causal input.
+
+Mechanism: [`_iter_scannable_files`](../../.wavefoundry/framework/scripts/reconcile_scan.py) (snapshot line939) uses root.rglob and filters files afterward. The module-level `_STATIC_EXCLUDED_DIRS` at469 excludes framework/index/cache/history, but neither `.local` nor `target`; no gitignore resolution occurs in this walk. Excluded directory trees are traversed before descendants are rejected. [`scan_repo`](../../.wavefoundry/framework/scripts/reconcile_scan.py) (snapshot line951) accepts `.md/.mdc/.json/.py`, reads whole files without a size budget, applies multiple whole-text pattern passes, and retains all decoded file text in file_texts until contextualization at1191. It retains even files without findings.
+
+A15s-bounded metadata census completed in12.960s:4265 eligible files. `.local` contributed3079 files/1,342,341,297 bytes; `target`1002 files/748,922 bytes. The largest eligible file was a31,734,889-byte ignored ONNX profile JSON. This confirms generated caches, prior-run archives and maintenance backups are in the scan corpus. It does not prove which file was active at the300s timeout.
+
+The module-level `_PROMPT_MD_REFERENCE` at433 has a greedy path prefix `[\w./-]*` before `docs/prompts/`. On slash-separated text without that anchor, many slash positions can start searches that consume/backtrack over the remaining suffix. A bounded probe of the shipped pattern on `'a/' * n` returned zero hits and timings below, consistent with quadratic growth in this input family:
+
+| Input characters | Prompt-path pattern seconds | Bare-tool pattern seconds |
+| ---: | ---: | ---: |
+| 1024 | 0.002037 | 0.000041 |
+| 2048 | 0.008237 | 0.000062 |
+| 4096 | 0.031515 | 0.000135 |
+| 8192 | 0.124286 | 0.000406 |
+
+Each regex case had a1.5s deadline. On the largest existing profile, the prompt pattern reached that deadline; the bare-tool pattern completed in1.204218s with zero hits. A separate bounded literal-membership check confirms that profile contains neither `docs/prompts/` nor any retired bare-tool name. The latter regex is a fixed literal-alternation pattern at121; these results do not demonstrate pathological backtracking in it. Large aggregate scanning alone is substantial work. Twelve prior15MiB-file probes completed without reproducing a stall; prior larger-file probes were skipped by their read ceiling. Those negative/skip results remain valid limits.
+
+Proposed repair: explicitly define live reconciliation scope and prune excluded directories during traversal, with component-aware matching and intentional inclusion of required host permission/config files. Do not blindly reuse the file predicate on directories: its suffix test rejects directories. Do not globally adopt ignore rules that hide required framework surfaces. Replace the wildcard path-prefix search with anchor/token discovery whose work is bounded per token; preserve relative-path, punctuation, extension and twin-resolution semantics. Contextualize findings per file so unused file text need not be retained. Add progress by file/pattern, elapsed time and bytes scanned, without printing file contents or credentials. Caps/skips/deadlines must yield explicit incomplete status, never a false clean scan.
+
+An especially small proposed first repair is a literal `docs/prompts/` precheck before the prompt-path regex: without that required anchor, the shipped expression cannot match. This would bypass the demonstrated no-anchor case without changing matching semantics. It does not solve all candidate-bearing inputs, traversal scope, other pattern passes, memory retention or reporting deadlines; treat it as a focused fast path rather than the whole fix.
+
+Scanner regression cases should explicitly cover directory pruning, near-miss directory names, required host permission files, historical disposition/three-channel preservation, relative prompt paths, trailing punctuation, already-correct `.prompt.md` suppression, twin-file resolution and slash-heavy no-anchor inputs. A large irrelevant generated-tree fixture should verify bounded traversal and truthful skipped/incomplete reporting.
+
+### File-level isolation follow-up
+
+The operator requested an exact file. A subsequent bounded diagnostic ran the original scan_repo one file at a time, in the scanner's traversal order, with in-memory regex timing wrappers only. Limits:5s per regex,15s per file,120s total,32MiB read ceiling; file text was not retained across files. It completed737 files/368,575,661 input bytes in119.613339 cumulative file-scanning seconds. The120s total budget then interrupted another file; no individual regex/file deadline had fired beforehand. Timing wrappers add overhead; these instrumented per-file durations are not exact timings of the original aggregate run. This is a partial instrumented sample, not a clean full-repository scan or a replay of historical process-local variables.
+
+A concrete slow input is:
+
+```text
+.local/reference/2026-10-07-final/runs/worker-1791378231027544000-63264-8/cache/ort-profile_2026-10-07_09-03-52_119.json
+bytes: 31,681,348
+sha256: 13f74e12464ba615c3072d342c2fc5ee1f2cfe3a9011c08724b4a1242abe1e0a
+```
+
+It is a JSON-list ONNX profiling artifact. Its complete per-file scan took10.480564s and returned zero findings. Its prompt-path pass took0.919065s, the bare-tool pass0.581647s, and numerous other whole-text regex passes each consumed about0.5–0.8s. The diagnostic record's final pattern label names the last pass, not the sole cause of that file's total runtime. Other31.7MB profiles completed in10.295324s/10.223353s, also with zero findings. This establishes expensive generated inputs; it does not establish one indefinitely stuck profile or identify which file was active during the earlier uninstrumented timeout.
+
+A separate control called the original aggregate scan_repo with only root `.local` and `target` filtered out in memory. All remaining original scope rules and cross-file text retention were unchanged; it still traversed the excluded trees before filtering. It completed186 files/17,266,612 input bytes in8.414389s, with five findings;4081 generated files were skipped. This strongly supports excessive generated-corpus work as a major delay contributor. Instrumented per-file timings include wrapper overhead and omit aggregate text retention, so they are not a directly comparable speedup measurement against this aggregate control. The control is diagnostic only: it is not a production scope repair, a claim that all skipped files are safe to omit, or a clean reconciliation result. The full scanner's historical interrupted file remains unavailable from its retained stacks, which omitted local variables.
+
+Evidence is retained under `/private/tmp/tensorwell-scanner-file-probe-gc0b9rvl/`: progress.jsonl records each file/pattern, summary.json records the bounded sample, analysis.json records file identity/per-pattern costs and deadline classification, and control-without-generated.json records the control. The file contents were not logged, no source/cache files were altered, and both owned diagnostic children exited normally. For upstream reproduction, use the named profile as a concrete cost fixture and a directory with repeated comparable generated files as the aggregate-work fixture; do not label the120s global-budget cutoff file a pathological input.
+
+## 3. Delegation timeout does not bound fallback or cleanup reporting
+
+[`_delegated_summary_payload`](../../.wavefoundry/framework/scripts/upgrade_wavefoundry.py) (snapshot line4353) applies a300s deadline with process-tree termination. However, [`_emit_primary_summary_via_delegate_or_fallback`](../../.wavefoundry/framework/scripts/upgrade_wavefoundry.py) (snapshot line4434) calls `_emit_primary_phase_summary` when delegation fails; that fallback synchronously runs the same reconciliation scan again at4303. [`_run_reconciliation_scan`](../../.wavefoundry/framework/scripts/upgrade_wavefoundry.py) (snapshot line3870) catches returned exceptions but has no execution deadline. Its empty-list fallback also makes a scan exception indistinguishable from a clean result unless another status reports it.
+
+[`phase_cleanup`](../../.wavefoundry/framework/scripts/upgrade_wavefoundry.py) (snapshot line3577) removes the checkpoint and records the baseline before calling the synchronous operator summary at3607. Verified temporary-pack deletion follows the summary at3627 and can remain unreached. An operator can therefore see an MCP error or hanging command while installation and setup state have succeeded. Reporting incompleteness must be distinguished from failed adoption or publication. The initial client timeout and subsequent owned-process interruptions were not successful exit0 upgrade summaries.
+
+Proposed repair: one end-to-end reporting budget; do not rerun an expensive scanner unbounded after a delegated timeout. Emit a degraded summary carrying observed installation/index/cleanup outcomes plus `reconciliation_status=incomplete/timeout/error`, not clean empty findings. Bound/report cleanup summary similarly, preserve recovery ownership and clean up owned diagnostics/processes. Include regression cells for successful scan, scan exception, timeout, delegated timeout with fallback, and cleanup after successful publication. All should return promptly and disclose whether reconciliation completed. Preserve the delegated old-parent/new-child compatibility contract: sentinel spelling, recognized schema token, exactly-one-summary behavior and marked degradation must remain deliberate, tested boundaries; new status fields need compatible schema evolution.
+
+## Evidence and follow-up boundary
+
+Raw public MCP evidence: `.local/maintenance/pviw/post-restart-evidence.json`. Existing logs: `.wavefoundry/logs/upgrade.log`; stack sample `/private/tmp/tensorwell-pviw-summary-process-sample.txt`; historical summary traceback `/private/tmp/pvbx-final-summary.txt`. Source locations above are the2026-10-09 snapshot and symbol anchors are the durable lookup keys. New bounded census/regex results are reproduced above; no raw profile content is included.
+
+After host restart, server version/disk identities matchpviw, setup/index health are ready, stale file counts are zero, SQLite/FTS/vector integrity pass. This supports separating reporting/query presentation defects from install/index corruption. It does not establish graph-wide correctness, runtime dispatch accuracy, or physical GPU execution.
+
+Suggested Wavefoundry work: repair query response provenance first; separately bound and scope reconciliation and remove the timeout's unbounded fallback. Changes belong in the Wavefoundry source project with registered-path regression tests. Tensorwell's vendored pack remains unchanged. No issue was posted or message sent externally.
+
+## Review evidence
+
+Independent architecture review returned approved-with-notes after checking sources and independently reproducing the registered hierarchy mismatch. Its two advisory additions (scanner semantic regression cases and delegated-summary compatibility preservation) are incorporated above. The new census/timing figures were reviewed as coordinator-provided evidence, not independently repeated. Impact/community coverage was unavailable: the reviewer's two code_impact attempts returned NameError for undefined re; this is an uninvestigated additional tool failure, not a zero-impact result.
+
+Advisory council returned pass, unanimous, with no additional report defects or required corrections. Actual roster: isolated full red-team primer/closing check; architecture-reviewer, security-reviewer, qa-reviewer and reality-checker fixed seats; performance-reviewer rotating seat; council-chair synthesis. The chair first weighed anonymized seat summaries, then reattached identities. Every seat received the primer; agreement is corroboration of source-grounded propositions, not independent rediscovery of the coordinator's measurements. The census, timings and membership results were not independently repeated by the seats.
+
+The strongest alternative is staged mitigation: exact literal-anchor guard first, independent reporting deadline/status, then traversal/retention/candidate-bound matching improvements. Council confirmed that missing whole-run trigger identification remains a disclosed limitation rather than a reason to misstate a root cause. No challenge round was needed. This advisory pass applies to report accuracy; it grants no lifecycle approval, implementation qualification or source-edit authority. Existing upstream defects remain unresolved.
+
+The subsequent file-isolation factual delta received focused independent architecture and council-chair checks of the raw JSONL, totals, deadline classification and named-file identity. Both passed with incorporated instrumentation/comparison caveats. Only those two reviewers ran this follow-up; it is not a new five-seat council approval. The original historical active file remains unclaimed.

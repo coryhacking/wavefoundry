@@ -1,0 +1,101 @@
+[
+  {
+    "name": "inline_html_attribute_link_literal",
+    "passed": false,
+    "first": false,
+    "retry": false,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\nParagraph <span data-note=\"[CODE](council-chair.md)\"> [LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\nParagraph <span data-note=\"[CODE](wave-council.md)\"> [LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.105
+  },
+  {
+    "name": "inline_html_comment_link_literal",
+    "passed": false,
+    "first": false,
+    "retry": false,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\nParagraph <!-- [CODE](council-chair.md) --> [LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\nParagraph <!-- [CODE](wave-council.md) --> [LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.084
+  },
+  {
+    "name": "inline_html_pi_link_literal",
+    "passed": false,
+    "first": false,
+    "retry": false,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\nParagraph <?wave [CODE](council-chair.md) ?> [LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\nParagraph <?wave [CODE](wave-council.md) ?> [LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.095
+  },
+  {
+    "name": "inline_html_attribute_ticks_singlequote",
+    "passed": false,
+    "first": false,
+    "retry": false,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\nParagraph <span note='`'> [LIVE](wave-council.md) <span note='`'>\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\nParagraph <span note='`'> [LIVE](council-chair.md) <span note='`'>\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.106
+  },
+  {
+    "name": "inline_html_multiple_lines",
+    "passed": false,
+    "first": false,
+    "retry": false,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\nParagraph <span\r\ndata-note=\"`\"> [LIVE](wave-council.md) <span data-note=\"`\">\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\nParagraph <span\r\ndata-note=\"`\"> [LIVE](council-chair.md) <span data-note=\"`\">\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.085
+  },
+  {
+    "name": "reference_paragraph_quote",
+    "passed": false,
+    "first": false,
+    "retry": false,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\n> ordinary paragraph\r\n> [ref]: council-chair.md\r\n>\r\n> [LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\n> ordinary paragraph\r\n> [ref]: wave-council.md\r\n>\r\n> [LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.015
+  },
+  {
+    "name": "reference_paragraph_list",
+    "passed": false,
+    "first": false,
+    "retry": false,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\n- ordinary paragraph\r\n  [ref]: council-chair.md\r\n\r\n  [LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\n- ordinary paragraph\r\n  [ref]: wave-council.md\r\n\r\n  [LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.036
+  },
+  {
+    "name": "reference_adjacent_definitions_control",
+    "passed": true,
+    "first": true,
+    "retry": true,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\n[a]: council-chair.md\r\n[ref]: council-chair.md\r\n\r\n[LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\n[a]: council-chair.md\r\n[ref]: council-chair.md\r\n\r\n[LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.016
+  },
+  {
+    "name": "reference_heading_control",
+    "passed": true,
+    "first": true,
+    "retry": true,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\n# heading\r\n[ref]: council-chair.md\r\n\r\n[LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\n# heading\r\n[ref]: council-chair.md\r\n\r\n[LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.022
+  }
+]

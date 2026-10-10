@@ -1,0 +1,41 @@
+test_installing_upgrade_consumes_link_metadata_before_code_ticks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_consumes_link_metadata_before_code_ticks) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 1.697s
+
+OK
+test_installing_upgrade_consumes_link_metadata_before_code_ticks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_consumes_link_metadata_before_code_ticks) ... render_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:3: unchanged unsupported or unrelated council role destination
+
+  test_installing_upgrade_consumes_link_metadata_before_code_ticks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_consumes_link_metadata_before_code_ticks) (case='title_image_reference_is_literal') ... FAIL
+
+======================================================================
+FAIL: test_installing_upgrade_consumes_link_metadata_before_code_ticks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_consumes_link_metadata_before_code_ticks) (case='title_image_reference_is_literal')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 2994, in _assert_incoming_role_link_cases
+    self.assertEqual(target.peer.read_bytes(), expected)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: b'[A][31 chars]r\n[ref]: wave-council.md\r\n\r\n[LIVE](council-chair.md)\r\n' != b'[A][31 chars]r\n[ref]: council-chair.md\r\n\r\n[LIVE](council-chair.md)\r\n'
+
+----------------------------------------------------------------------
+Ran 1 test in 0.992s
+
+FAILED (failures=1)
+test_installing_upgrade_consumes_link_metadata_before_code_ticks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_consumes_link_metadata_before_code_ticks) ... render_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:3: unchanged unsupported or unrelated council role destination
+
+  test_installing_upgrade_consumes_link_metadata_before_code_ticks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_consumes_link_metadata_before_code_ticks) (case='title_image_reference_is_literal') ... FAIL
+
+======================================================================
+FAIL: test_installing_upgrade_consumes_link_metadata_before_code_ticks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_consumes_link_metadata_before_code_ticks) (case='title_image_reference_is_literal')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 2994, in _assert_incoming_role_link_cases
+    self.assertEqual(target.peer.read_bytes(), expected)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: b'[A][31 chars]r\n[ref]: wave-council.md\r\n\r\n[LIVE](council-chair.md)\r\n' != b'[A][31 chars]r\n[ref]: council-chair.md\r\n\r\n[LIVE](council-chair.md)\r\n'
+
+----------------------------------------------------------------------
+Ran 1 test in 1.029s
+
+FAILED (failures=1)
+[{"case": "before_autolink_f71", "failures": 0, "errors": 0, "skips": 0}, {"case": "before_lexical_7cf", "failures": 1, "errors": 0, "skips": 0}, {"case": "current_metadata_blanking_removed", "failures": 1, "errors": 0, "skips": 0}]

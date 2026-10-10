@@ -1,0 +1,136 @@
+[
+  {
+    "probe": "version_default_baseline",
+    "trigger": null,
+    "version": "1.14.9",
+    "hook_calls": 1,
+    "builtin_calls": 1,
+    "declaration_executed": true,
+    "expected_current": 1
+  },
+  {
+    "probe": "version_default_baseline",
+    "trigger": null,
+    "version": "1.15.0",
+    "hook_calls": 0,
+    "builtin_calls": 0,
+    "declaration_executed": false,
+    "expected_current": 0
+  },
+  {
+    "probe": "version_default_baseline",
+    "trigger": null,
+    "version": "1.29.0",
+    "hook_calls": 0,
+    "builtin_calls": 0,
+    "declaration_executed": false,
+    "expected_current": 0
+  },
+  {
+    "probe": "version_default_baseline",
+    "trigger": "journals_present",
+    "version": "1.14.9",
+    "hook_calls": 1,
+    "builtin_calls": 1,
+    "declaration_executed": true,
+    "expected_current": 1
+  },
+  {
+    "probe": "version_default_baseline",
+    "trigger": "journals_present",
+    "version": "1.15.0",
+    "hook_calls": 0,
+    "builtin_calls": 0,
+    "declaration_executed": false,
+    "expected_current": 0
+  },
+  {
+    "probe": "version_default_baseline",
+    "trigger": "journals_present",
+    "version": "1.29.0",
+    "hook_calls": 0,
+    "builtin_calls": 0,
+    "declaration_executed": false,
+    "expected_current": 0
+  },
+  {
+    "probe": "broadened_gate_known_bad",
+    "version": "1.29.0",
+    "hook_calls": 1,
+    "builtin_calls": 1,
+    "AC2_oracle_expected_builtin_calls": 0,
+    "known_bad_detected": true
+  },
+  {
+    "probe": "cached_sibling_import_and_call",
+    "cached": "OLD / OLD",
+    "uncached_control": "INCOMING / INCOMING",
+    "AC4_expected": "INCOMING / INCOMING",
+    "known_bad_detected": true
+  },
+  {
+    "probe": "failure_retry_preview",
+    "two_legacy_invocations_hook_calls": 2,
+    "builtin_calls": [
+      0,
+      0
+    ],
+    "path_restored": true,
+    "existing_warning": "journal migration WARNING: skipped; the pre-migration hook reality_hooks:prepare raised RuntimeError. Journals were left in place; later upgrades do not retry the migration or call the hook again. Run the Migrate journals prompt to finish the work.",
+    "preview": {
+      "deleted": [],
+      "moved": [],
+      "left": [
+        "docs/agents/journals/live.md"
+      ],
+      "warnings": []
+    },
+    "preview_declaration_executed": false,
+    "preview_hook_called": false,
+    "journal_bytes_unchanged": true
+  },
+  {
+    "probe": "source_presence_feasibility",
+    "rows": [
+      {
+        "source": "regular",
+        "qualified": [
+          "live.md"
+        ],
+        "preview_left": [
+          "docs/agents/journals/live.md"
+        ],
+        "nonempty_left_is_valid_presence_predicate": true
+      },
+      {
+        "source": "README_only",
+        "qualified": [],
+        "preview_left": [],
+        "nonempty_left_is_valid_presence_predicate": true
+      },
+      {
+        "source": "nested_only",
+        "qualified": [],
+        "preview_left": [],
+        "nonempty_left_is_valid_presence_predicate": true
+      },
+      {
+        "source": "symlink",
+        "qualified": [],
+        "preview_left": [
+          "docs/agents/journals/live.md"
+        ],
+        "nonempty_left_is_valid_presence_predicate": false
+      },
+      {
+        "source": "hardlink",
+        "qualified": [],
+        "preview_left": [
+          "docs/agents/journals/live.md"
+        ],
+        "nonempty_left_is_valid_presence_predicate": false
+      }
+    ],
+    "known_bad_control": "Using nonempty preview left as trigger incorrectly admits symlink and hardlink-only sources."
+  }
+]

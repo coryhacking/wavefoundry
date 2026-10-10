@@ -1,0 +1,111 @@
+import contextlib,io,importlib.util,json,os,pathlib,subprocess,sys,tempfile,time,types,unittest.mock as mock
+REPO=pathlib.Path('/Users/coryhacking/Developer/wavefoundry'); SCRIPTS=REPO/'.wavefoundry/framework/scripts'
+sys.path.insert(0,str(SCRIPTS)); os.environ['WAVEFOUNDRY_DISABLE_BYTECODE_CACHE']='1'; os.environ.pop('PYTHONPYCACHEPREFIX',None)
+def load(name,path,source=None):
+ spec=importlib.util.spec_from_file_location(name,path); mod=importlib.util.module_from_spec(spec);sys.modules[name]=mod
+ if source is None: spec.loader.exec_module(mod)
+ else: exec(compile(source,str(path),'exec'),mod.__dict__)
+ return mod
+scan=load('reconcile_scan',SCRIPTS/'reconcile_scan.py'); upgrade=load('review2071p_upgrade',SCRIPTS/'upgrade_wavefoundry.py')
+rows=[]
+def record(label,fn):
+ start=time.monotonic()
+ try: result=fn(); rows.append({'id':label,'status':'ok','elapsed':time.monotonic()-start,'observed':result})
+ except Exception as e: rows.append({'id':label,'status':'failed','elapsed':time.monotonic()-start,'error':repr(e)}); raise
+
+def write(root,rel,body):
+ p=root/rel;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(body);return p
+
+def scanner_matrix(module=scan):
+ with tempfile.TemporaryDirectory(prefix='wf-review2071p-scan-') as td:
+  root=pathlib.Path(td)
+  marker='.wavefoundry/bin/docs-lint\n'
+  for rel in ['live.md','nested/target/live.md','targeted/live.md','.claude/settings.local.json']:
+   write(root,rel,marker)
+  baseline=module.scan_repo_result(root)
+  assert baseline.state=='complete',baseline.reasons
+  for rel in ['.local/profiles/large.md','target/generated/live.md','.git/history/live.md']:
+   write(root,rel,marker*100)
+  result=module.scan_repo_result(root)
+  assert result.state=='complete',result.reasons
+  assert {r.file for r in result.findings}=={r.file for r in baseline.findings}
+  assert {r.file for r in result.reconciliation}=={'live.md','nested/target/live.md','targeted/live.md'}
+  assert {r.file for r in result.host_permission_flags}=={'.claude/settings.local.json'}
+  write(root,'oversized.md','X'*100)
+  partial=module.scan_repo_result(root,limits=module.ScanLimits(file_bytes=50))
+  assert partial.state=='incomplete' and 'file_bytes' in partial.reasons
+  assert {r.file for r in partial.findings}=={r.file for r in baseline.findings}
+  try: module.scan_repo(root,limits=module.ScanLimits(file_bytes=50))
+  except module.ScanIncomplete as exc: assert exc.result.state=='incomplete'
+  else: raise AssertionError('legacy wrapper hid incomplete scan')
+  return {'complete_findings':sorted(r.file for r in result.findings),'partial_reason':partial.reasons,'partial_findings':len(partial.findings),'bytes':partial.read_bytes}
+record('scanner-exclusion-metamorphic-partial-legacy',scanner_matrix)
+
+def token_matrix():
+ with tempfile.TemporaryDirectory(prefix='wf-review2071p-token-') as td:
+  root=pathlib.Path(td); write(root,'docs/prompts/alpha.prompt.md','current')
+  write(root,'live.md','[prompt](../docs/prompts/alpha.md), docs/prompts/alpha.prompt.md; docs/prompts/absent.md\n')
+  result=scan.scan_repo_result(root)
+  actual=[(r.retired_surface,r.matched) for r in result.findings]
+  assert actual==[('prompt .md extension','../docs/prompts/alpha.md')],actual
+  write(root,'dense.md',' docs/prompts/absent.md'*101)
+  bounded=scan.scan_repo_result(root,limits=scan.ScanLimits(candidates=8))
+  assert bounded.state=='incomplete' and bounded.candidates==8 and 'candidates' in bounded.reasons
+  return {'exact_findings':actual,'dense_state':bounded.state,'dense_candidates':bounded.candidates}
+record('anchor-token-positive-negative-dense',token_matrix)
+
+def actual_cli():
+ with tempfile.TemporaryDirectory(prefix='wf-review2071p-cli-') as td:
+  root=pathlib.Path(td);write(root,'live.md','.wavefoundry/bin/docs-lint\n')
+  env=dict(os.environ);env['WAVEFOUNDRY_REPORTING_SECONDS']='2'
+  child=subprocess.run([sys.executable,'-B',str(SCRIPTS/'upgrade_wavefoundry.py'),'--emit-summary','--root',str(root)],env=env,text=True,capture_output=True,timeout=5)
+  assert child.returncode==0,(child.returncode,child.stderr)
+  lines=[l for l in child.stdout.splitlines() if l.startswith(upgrade.WAVE_UPGRADE_SUMMARY_SENTINEL)]
+  assert len(lines)==1,child.stdout
+  payload=json.loads(lines[0].split(':',1)[1]);assert payload['summary_schema_version']==1 and payload['reconciliation_state']=='complete',payload
+  assert [r['file'] for r in payload['reconciliation']]==['live.md']
+  return {'returncode':child.returncode,'sentinels':len(lines),'schema':payload['summary_schema_version'],'state':payload['reconciliation_state'],'finding_files':[r['file'] for r in payload['reconciliation']]}
+record('actual-emit-summary-cli',actual_cli)
+
+def primary_matrix():
+ results=[]
+ with tempfile.TemporaryDirectory(prefix='wf-review2071p-primary-') as td:
+  root=pathlib.Path(td)
+  producer=root/'.wavefoundry/framework/scripts/upgrade_wavefoundry.py'; producer.parent.mkdir(parents=True)
+  cases=[('success',"print('WAVE_UPGRADE_SUMMARY_JSON:{\"summary_schema_version\":1,\"index_update\":\"docs and code layers complete\",\"probe\":\"valid\"}')\n",None),('malformed',"print('WAVE_UPGRADE_SUMMARY_JSON:{bad')\n",'sentinel_missing_or_malformed'),('error','raise SystemExit(7)\n','exit_status_7'),('stall','import time;time.sleep(5)\n','timeout_after_1s'),('contradiction',"print('WAVE_UPGRADE_SUMMARY_JSON:{\"summary_schema_version\":1,\"index_update\":\"not run\"}')\n",'parent_fact_mismatch')]
+  for label,body,reason in cases:
+   producer.write_text(body);output=io.StringIO();started=time.monotonic()
+   with mock.patch.object(upgrade,'_preferred_python',return_value=sys.executable),mock.patch.object(upgrade,'_collect_reconciliation_report',side_effect=AssertionError('second reporting run')),contextlib.redirect_stdout(output):
+    upgrade._emit_primary_summary_via_delegate_or_fallback(root,'1.28.0','1.29.0',None,13,index_published=True,timeout_s=.18)
+   elapsed=time.monotonic()-started;assert elapsed<2,(label,elapsed)
+   lines=[l for l in output.getvalue().splitlines() if l.startswith(upgrade.WAVE_UPGRADE_SUMMARY_SENTINEL)]
+   assert len(lines)==1,(label,output.getvalue());payload=json.loads(lines[0].split(':',1)[1])
+   if reason:
+    assert payload['summary_source_degraded']==reason,(label,payload)
+    assert payload['reconciliation_state']=='incomplete' and payload['index_update']=='docs and code layers complete' and payload['pruned_count']==13,payload
+   else: assert payload['probe']=='valid' and payload['summary_schema_version']==1
+   results.append({'case':label,'elapsed':elapsed,'sentinels':len(lines),'marker':payload.get('summary_source_degraded'),'state':payload.get('reconciliation_state')})
+ return results
+record('real-delegate-primary-success-failures-facts',primary_matrix)
+
+def worker_matrix():
+ results=[]
+ with tempfile.TemporaryDirectory(prefix='wf-review2071p-worker-') as td:
+  root=pathlib.Path(td); stub=root/'worker.py'
+  for label,body,expected in [('error','raise SystemExit(9)\n','error'),('malformed',"print('[]')\n",'error'),('stall',"import os,json,time\nfrom pathlib import Path\nPath(os.environ['WAVEFOUNDRY_REPORTING_PROGRESS']).write_text(json.dumps({'last_path':'live.md','last_stage':'read','read_bytes':42}))\ntime.sleep(5)\n",'incomplete')]:
+   stub.write_text(body)
+   with mock.patch.object(upgrade,'__file__',str(stub)),mock.patch.object(upgrade,'_preferred_python',return_value=sys.executable): result=upgrade._collect_reconciliation_report(root,budget_s=.18)
+   assert result['reconciliation_state']==expected,result
+   if label=='stall': assert result['reconciliation_last_path']=='live.md' and result['reconciliation_read_bytes']==42,result
+   results.append({'case':label,'state':result['reconciliation_state'],'reason':result['reconciliation_reason'],'last_path':result['reconciliation_last_path'],'elapsed':result['reconciliation_elapsed']})
+ return results
+record('owned-worker-error-malformed-timeout-progress',worker_matrix)
+
+# Focused mutation in an isolated module; no repository file is modified.
+source=(SCRIPTS/'reconcile_scan.py').read_text();old='if parts[0] in (".local", "target"):';assert source.count(old)==1
+mutant=load('review2071p_reconcile_mutant',SCRIPTS/'reconcile_scan.py',source.replace(old,'if False:'))
+try: scanner_matrix(mutant)
+except AssertionError as exc: mutation={'id':'root-generated-prune-deleted','detected':True,'targeted_probe':'scanner-exclusion-metamorphic-partial-legacy','observed':repr(exc),'whole_file_run':False}
+else: mutation={'id':'root-generated-prune-deleted','detected':False,'targeted_probe':'scanner-exclusion-metamorphic-partial-legacy','whole_file_run':False}
+assert mutation['detected'],mutation
+print(json.dumps({'probes':rows,'mutations':[mutation]},indent=2))

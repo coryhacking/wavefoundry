@@ -38,6 +38,7 @@ import re
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import NamedTuple
 
@@ -161,12 +162,14 @@ _SCHEDULE_MODES = ("bootstrap", "alphabetical", "timing")
 # ``None`` when the cache was refused or the layout is absent, and importing this
 # module never sets it (the close gate borrows the runner in-process).
 _BYTECODE_PREFIX_ENV = "PYTHONPYCACHEPREFIX"
+_BYTECODE_CHILD_ENV = "WAVEFOUNDRY_TEST_RUNNER_CHILD"
 _BYTECODE_PREFIX: "str | None" = None
+_QUALIFICATION_REQUESTED = False
 _BYTECODE_WARM_TIMEOUT_SECONDS = 900
 # Whether the warm-up also compiles each interpreter's stdlib, purelib and
 # platlib. A prefix makes Python ignore the installation's own ``__pycache__``,
-# so read-only workers with a cold prefix would recompile the standard library;
-# only a fixture runner in a test turns this off.
+# so ordinary writable runs may warm their imported installation modules;
+# read-only workers do not consume this prefix. Fixture runners may skip warming.
 _BYTECODE_WARM_INSTALLATION = True
 # Compiles the framework scripts directory (argv[1]) and, when argv[2] is "1",
 # the interpreter's stdlib (minus test and GUI packages), purelib and platlib,
@@ -190,6 +193,7 @@ _BYTECODE_WARM_CODE = (
 
 _USAGE = """usage: run_tests.py [--no-cache | --file NAME ... | --profile NAME [--file NAME ...]
                     | --schedule-control MODE --timings-file PATH]
+                    [--qualification-report PATH]
 
 Run the framework test suite, one subprocess per test file.
 
@@ -216,6 +220,11 @@ Run the framework test suite, one subprocess per test file.
                             delivery evidence. On demand and at release.
   --schedule-control MODE   benchmark-only run (bootstrap|alphabetical|timing);
                             needs --timings-file PATH
+  --qualification-report PATH
+                            opt-in bounded exact execution detail under
+                            .wavefoundry/cache/qualification/; profiles export
+                            before cleanup; cache hits reuse matching detail
+                            or report unavailable. Never receipt authority.
   --help                    show this message
 """
 
@@ -680,7 +689,7 @@ def _parse_args(argv: list[str]) -> dict:
     or ``--no-cache`` only, so this narrowing strands no caller.
     """
     opts: dict = {"no_cache": False, "files": [], "schedule_control": None, "timings_file": None,
-                  "profile": None, "help": False}
+                  "profile": None, "help": False, "qualification_report": None}
     args = argv[1:]
     i = 0
     while i < len(args):
@@ -689,6 +698,13 @@ def _parse_args(argv: list[str]) -> dict:
             opts["no_cache"] = True
         elif arg in ("--help", "-h"):
             opts["help"] = True
+        elif arg == "--qualification-report":
+            if i + 1 >= len(args) or args[i + 1].startswith("-"):
+                raise _UsageError("--qualification-report requires a path")
+            if opts["qualification_report"] is not None:
+                raise _UsageError("--qualification-report may be given only once")
+            opts["qualification_report"] = args[i + 1]
+            i += 1
         elif arg == "--profile":
             if i + 1 >= len(args):
                 raise _UsageError("--profile requires a value (a profile asset name under tests/fixtures/profiles)")
@@ -735,6 +751,8 @@ def _parse_args(argv: list[str]) -> dict:
             "--file and --no-cache are mutually exclusive (focused runs never touch the cache)"
         )
     if opts["schedule_control"] is not None:
+        if opts["qualification_report"] is not None:
+            raise _UsageError("--qualification-report is mutually exclusive with --schedule-control")
         if opts["files"] or opts["no_cache"]:
             raise _UsageError("--schedule-control is mutually exclusive with --file and --no-cache")
         if opts["timings_file"] is None:
@@ -887,6 +905,7 @@ class FileResult(NamedTuple):
     test_count: int
     elapsed_s: float
     skip_count: int
+    qualification: "dict | None" = None
 
 
 def _run_file(file_path: Path) -> FileResult:
@@ -924,14 +943,18 @@ def _run_file(file_path: Path) -> FileResult:
     # environment variable also reaches every Python child a test spawns, so
     # none of them writes ``__pycache__`` into the repository.
     env["PYTHONDONTWRITEBYTECODE"] = "1"
-    # Change 1zyv1: read-only workers read the warmed project cache; the prefix
-    # is passed only when this run's configure() left one active.
+    # Read-only workers must receive no prefix before interpreter startup.
     _apply_bytecode_prefix(env)
+    nonce = uuid.uuid4().hex
+    cmd = [_test_runner_python(), "-B", "-m", "unittest", "discover",
+           "-s", str(_TESTS_DIR), "-p", file_path.name, "-v"]
+    if _QUALIFICATION_REQUESTED:
+        cmd = [_test_runner_python(), "-B", str(_SCRIPT_DIR / "qualification_worker.py"),
+               str(_TESTS_DIR), file_path.name, nonce]
     start = time.monotonic()
     try:
         result = subprocess.run(
-            [_test_runner_python(), "-B", "-m", "unittest", "discover",
-             "-s", str(_TESTS_DIR), "-p", file_path.name, "-v"],
+            cmd,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -966,31 +989,30 @@ def _run_file(file_path: Path) -> FileResult:
     else:
         count = 0
         skipped = 0
-    return FileResult(file_path.name, rc, output, count, elapsed, skipped)
+    qualification = None
+    if _QUALIFICATION_REQUESTED:
+        import qualification_report
+        qualification = qualification_report.worker_detail(output, nonce, rc, count, skipped)
+        output = "\n".join(line for line in output.splitlines()
+                           if not line.startswith(f"WF_QUALIFICATION:{nonce}:")) + "\n"
+    return FileResult(file_path.name, rc, output, count, elapsed, skipped, qualification)
 
 
 def _apply_bytecode_prefix(env: dict) -> dict:
-    """Set ``PYTHONPYCACHEPREFIX`` in a child environment to this run's active
-    prefix, or remove it when none is active (change 1zyv1)."""
-    if _BYTECODE_PREFIX:
-        env[_BYTECODE_PREFIX_ENV] = _BYTECODE_PREFIX
-    else:
-        env.pop(_BYTECODE_PREFIX_ENV, None)
+    """Remove every inherited prefix before a read-only child starts."""
+    env.pop(_BYTECODE_PREFIX_ENV, None)
     return env
 
 
 def _configure_bytecode_cache() -> "tuple[str | None, bool]":
-    """Configure this run's bytecode cache: ``(active prefix or None, top_level)``.
+    """Configure ordinary runs; read-only children never warm or prune a cache.
 
-    An inherited ``PYTHONPYCACHEPREFIX`` is set only by a parent run, so it marks
-    a child (a second-profile copy): the child reuses that prefix read-only and
-    does no warm-up and no temp-mirror cleanup. A top-level run, including
-    ``python3 -B run_tests.py``, configures with the runner's authority, so it
-    still flushes on a changed framework version and warms the cache.
+    Child identity is independent of cache policy. Interpreter and environment
+    opt-outs apply to top-level runs too; runner authority never overrides them.
     """
     import bytecode_cache
 
-    if os.environ.get(_BYTECODE_PREFIX_ENV):
+    if os.environ.get(_BYTECODE_CHILD_ENV) == "1":
         return bytecode_cache.configure(read_only=True), False
     return bytecode_cache.configure(runner=True), True
 
@@ -1002,11 +1024,10 @@ def _warm_interpreters() -> "list[str]":
 
 
 def _warm_bytecode_cache(prefix: str) -> None:
-    """Compile into ``prefix`` before read-only workers start (change 1zyv1).
+    """Compile into the ordinary runner's active ``prefix`` (change 1zyv1).
 
-    One child per interpreter, launched without ``-B`` and without
-    ``PYTHONDONTWRITEBYTECODE`` so it writes even when this runner was started
-    with ``-B``. A failure or timeout costs speed only and is reported."""
+    Used only for ordinary writable runs. One child per interpreter writes the
+    active prefix; a failure or timeout costs speed only and is reported."""
     env = subprocess_util.utf8_child_env(dict(os.environ))
     env.pop("PYTHONDONTWRITEBYTECODE", None)
     env[_BYTECODE_PREFIX_ENV] = prefix
@@ -1391,11 +1412,10 @@ def _child_runner_env(profile_env: "dict[str, str] | None" = None) -> dict:
     ``WAVEFOUNDRY_TEST_PROFILE``), so the copy's guards expect the profile
     the run applied."""
     env = subprocess_util.utf8_child_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
-    env["PYTHONDONTWRITEBYTECODE"] = "1"
-    # Change 1zyv1: the copy's runner reuses this run's warm prefix read-only;
-    # the inherited variable marks it as a child (no warm-up, no cleanup).
-    _apply_bytecode_prefix(env)
     env.update(profile_env or {})
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env[_BYTECODE_CHILD_ENV] = "1"
+    _apply_bytecode_prefix(env)
     return env
 
 
@@ -1469,6 +1489,10 @@ def _profile_run_in(work: Path, name: str, profile: dict, profiles, scripts_rel:
         flush=True,
     )
     cmd = [_test_runner_python(), "-B", str(scripts / "run_tests.py")]
+    if state.get("qualification"):
+        state["report_path"] = ".wavefoundry/cache/qualification/profile.json"
+        state["loaded_profile"] = loaded
+        cmd += ["--qualification-report", ".wavefoundry/cache/qualification/profile.json"]
     for test_name in names:
         cmd += ["--file", test_name]
     # Its own process group, so the cleanup can end the runner and its workers together.
@@ -1485,10 +1509,17 @@ def _profile_run_in(work: Path, name: str, profile: dict, profiles, scripts_rel:
         sys.stdout.write(line)
         sys.stdout.flush()
         lines.append(line)
-    return proc.wait(), "".join(lines), True
+    rc = proc.wait()
+    if state.get("qualification"):
+        import qualification_report
+        try:
+            state["report"] = qualification_report.read_report(repo, state["report_path"])
+        except (ValueError, OSError) as exc:
+            state["report_error"] = str(exc)[:256]
+    return rc, "".join(lines), True
 
 
-def _run_profile(name: str, selectors: "list[str]") -> int:
+def _run_profile(name: str, selectors: "list[str]", qualification_path=None) -> int:
     """The second-profile run (change 1zim1, Requirement 4)."""
     import tempfile
     # The runner is test infrastructure, so it may use the test support's
@@ -1516,7 +1547,10 @@ def _run_profile(name: str, selectors: "list[str]") -> int:
     print(_PROFILE_NOT_EVIDENCE.format(name=name), flush=True)
     print(f"Expected profile: {expected}.", flush=True)
     work = Path(tempfile.mkdtemp(prefix="wf-profile-run-"))
-    state: dict = {"proc": None}
+    state: dict = {"proc": None, "qualification": bool(qualification_path)}
+    if qualification_path:
+        import qualification_report
+        original_hash = _hash_inputs()
     previous = _install_sigterm_as_interrupt()
     rc, output, ran = 1, "", False
     try:
@@ -1538,6 +1572,25 @@ def _run_profile(name: str, selectors: "list[str]") -> int:
     if ran:
         _print_profile_report(name, _profile_run_report(output), expected)
         print(_PROFILE_NOT_EVIDENCE.format(name=name))
+    if qualification_path:
+        report = state.get("report")
+        if report is None:
+            report = qualification_report.make_report(
+                {"source_hash": original_hash, "profile": name}, selectors, [], rc, "unavailable")
+        else:
+            report["executed_identity"] = report["identity"]
+            report["identity"] = {"source_hash": original_hash, "profile": name,
+                                  "profile_input_hash": qualification_report.digest(profile),
+                                  "applied_profile_hash": qualification_report.digest(state["loaded_profile"])}
+            report["returncode"] = rc
+            if _hash_inputs() != original_hash:
+                report["complete"] = False
+                report["issues"] = ["original source changed during profile execution"]
+        try:
+            qualification_report.write_report(_REPO_ROOT, qualification_path, report)
+        except (ValueError, OSError) as exc:
+            print(f"run_tests: qualification report refused: {str(exc)[:256]}", file=sys.stderr)
+            return 2
     return rc
 
 
@@ -1577,7 +1630,7 @@ def main() -> int:
 
     # Change 1zyv1: configure here, never at import (the close gate borrows this
     # module in-process). A top-level run warms the cache and prunes its temp
-    # mirrors; a child reuses the inherited prefix and does neither.
+    # mirrors; a read-only child does neither and receives no prefix.
     global _BYTECODE_PREFIX
     _BYTECODE_PREFIX, top_level = _configure_bytecode_cache()
     if top_level and _BYTECODE_PREFIX:
@@ -1590,7 +1643,24 @@ def main() -> int:
 
 
 def _main(opts: dict) -> int:
+    global _QUALIFICATION_REQUESTED
+    qualification_path = opts.get("qualification_report")
+    _QUALIFICATION_REQUESTED = bool(qualification_path)
+    if qualification_path:
+        import qualification_report
+        try:
+            qualification_report.output_path(_REPO_ROOT, qualification_path)
+            path = Path(qualification_path)
+            if not path.is_absolute():
+                path = _REPO_ROOT / path
+            if path.exists():
+                qualification_report.read_report(_REPO_ROOT, path)
+        except (ValueError, OSError) as exc:
+            print(f"run_tests: qualification report refused: {str(exc)[:256]}", file=sys.stderr)
+            return 2
     if opts["profile"] is not None:
+        if qualification_path:
+            return _run_profile(opts["profile"], opts["files"], qualification_path)
         return _run_profile(opts["profile"], opts["files"])
 
     if not opts["files"] and opts["schedule_control"] is None:
@@ -1618,7 +1688,11 @@ def _main(opts: dict) -> int:
             "not delivery evidence; the full-suite cache is untouched.",
             flush=True,
         )
+        identity = ({"source_hash": _hash_inputs(), "profile": os.environ.get("WAVEFOUNDRY_TEST_PROFILE", "default")}
+                    if qualification_path else None)
         rc, _results = _execute_files(selected)
+        if qualification_path:
+            return _publish_qualification(qualification_path, identity, selected, _results, rc)
         return rc
 
     if opts["schedule_control"] is not None:
@@ -1643,6 +1717,34 @@ def _main(opts: dict) -> int:
                 + (f" at {ts} UTC" if ts else "")
                 + ". Run with --no-cache to force."
             )
+            if qualification_path:
+                identity = {"source_hash": inputs_hash, "profile": "default"}
+                try:
+                    old = qualification_report.read_report(_REPO_ROOT, qualification_path)
+                except (ValueError, OSError):
+                    old = None
+                if (old and old.get("identity") == identity
+                        and old.get("expected_workers") == [p.name for p in test_files]
+                        and old.get("availability") in ("executed", "reused")):
+                    try:
+                        qualification_report.validate(old)
+                    except (ValueError, KeyError, TypeError):
+                        old = None
+                else:
+                    old = None
+                if old:
+                    old["availability"] = "reused"
+                    try:
+                        qualification_report.write_report(_REPO_ROOT, qualification_path, old)
+                    except (ValueError, OSError) as exc:
+                        print(f"run_tests: qualification report refused: {str(exc)[:256]}", file=sys.stderr)
+                        return 2
+                    print("Qualification detail reused from exact matching executed report.")
+                else:
+                    published = _publish_qualification(qualification_path, identity, test_files, [], 0, "unavailable")
+                    if published:
+                        return published
+                    print("Qualification executed detail unavailable; use --no-cache for an authorized qualifying run.")
             return 0
     durations = _validated_durations(cache, test_files)
 
@@ -1656,6 +1758,19 @@ def _main(opts: dict) -> int:
             sum(r.test_count for r in results),
             {r.name: r.elapsed_s for r in results},
         )
+    if qualification_path:
+        return _publish_qualification(qualification_path, {"source_hash": inputs_hash, "profile": "default"}, order, results, rc)
+    return rc
+
+
+def _publish_qualification(path, identity, files, results, rc, availability="executed"):
+    import qualification_report
+    report = qualification_report.make_report(identity, [p.name for p in files], results, rc, availability)
+    try:
+        qualification_report.write_report(_REPO_ROOT, path, report)
+    except (ValueError, OSError) as exc:
+        print(f"run_tests: qualification report refused: {str(exc)[:256]}", file=sys.stderr)
+        return 2
     return rc
 
 

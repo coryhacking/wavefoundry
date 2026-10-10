@@ -1,0 +1,90 @@
+[
+  {
+    "name": "inline_html_attribute_ticks",
+    "passed": false,
+    "first": false,
+    "retry": false,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\nParagraph <span data-note=\"`\"> [LIVE](wave-council.md) <span data-note=\"`\">\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\nParagraph <span data-note=\"`\"> [LIVE](council-chair.md) <span data-note=\"`\">\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.037
+  },
+  {
+    "name": "inline_link_title_ticks",
+    "passed": false,
+    "first": false,
+    "retry": false,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\n[A](council-chair.md \"`\") [LIVE](wave-council.md) [B](elsewhere \"`\")\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\n[A](wave-council.md \"`\") [LIVE](council-chair.md) [B](elsewhere \"`\")\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.004
+  },
+  {
+    "name": "reference_title_ticks",
+    "passed": true,
+    "first": true,
+    "retry": true,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\n[ref]: council-chair.md \"`\"\r\n\r\n[LIVE](council-chair.md)\r\n\r\nOther `\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\n[ref]: council-chair.md \"`\"\r\n\r\n[LIVE](council-chair.md)\r\n\r\nOther `\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.01
+  },
+  {
+    "name": "title_ticks_same_paragraph",
+    "passed": false,
+    "first": false,
+    "retry": false,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\n[A](wave-council.md \"`\") [LIVE](wave-council.md) ending `\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\n[A](wave-council.md \"`\") [LIVE](council-chair.md) ending `\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.007
+  },
+  {
+    "name": "escaped_bracket_inside_label",
+    "passed": true,
+    "first": true,
+    "retry": true,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\n[a\\]b](wave-council.md)\r\n\r\n[LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\n[a\\]b](wave-council.md)\r\n\r\n[LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.01
+  },
+  {
+    "name": "reference_after_paragraph",
+    "passed": false,
+    "first": false,
+    "retry": false,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\nordinary paragraph\r\n[ref]: council-chair.md\r\n\r\n[LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\nordinary paragraph\r\n[ref]: wave-council.md\r\n\r\n[LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.013
+  },
+  {
+    "name": "atx_heading_tab_container",
+    "passed": true,
+    "first": true,
+    "retry": true,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\n- # heading\r\n\r\n      [CODE](wave-council.md)\r\n\r\n  [LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\n- # heading\r\n\r\n      [CODE](wave-council.md)\r\n\r\n  [LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.028
+  },
+  {
+    "name": "quote_escaping_html_ticks",
+    "passed": false,
+    "first": false,
+    "retry": false,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\n> Paragraph <span data-note=\"`\"> [LIVE](wave-council.md) <span data-note=\"`\">\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\n> Paragraph <span data-note=\"`\"> [LIVE](council-chair.md) <span data-note=\"`\">\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.062
+  }
+]

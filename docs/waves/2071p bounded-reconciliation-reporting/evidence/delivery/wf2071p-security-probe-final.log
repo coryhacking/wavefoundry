@@ -1,0 +1,87 @@
+[
+  {
+    "name": "runtime-lock-hardlink-refusal",
+    "observed": {
+      "state": "incomplete",
+      "reasons": [
+        "special_file_refused"
+      ],
+      "read_files": 1
+    }
+  },
+  {
+    "name": "hardlink-guard-mutant-detected",
+    "observed": "{'state': 'complete', 'reasons': [], 'visited_entries': 4, 'eligible_files': 2, 'read_files': 2, 'read_bytes': 42, 'candidates': 1, 'elapsed': 0.0011354158632457256, 'last_path': '.wavefoundry', 'last_stage': 'dispositions', 'reconciliation': [{'file': 'alias.md', 'line': 1, 'retired_surface': 'docs-lint', 'matched': '.wavefoundry/bin/docs-lint', 'suggested': 'wf docs-lint', 'disposition_key': 'v2:2237c2a1db25045ee62a157d35772d50', 'disposition_key_version': 'v2', 'legacy_disposition_key': 'fb549824eed67d6d', 'disposition_state': 'unrecorded', 'logical_line': 'SECRET_LOCK .wavefoundry/bin/docs-lint', 'heading_context': '', 'proposed_v2_key': None}], 'host_permission_flags': [], 'renderer_provenance_flags': []}"
+  },
+  {
+    "name": "public-scanner-link-special-progress",
+    "observed": {
+      "state": "incomplete",
+      "reasons": [
+        "special_file_refused",
+        "link_refused"
+      ],
+      "files": [
+        "normal.md"
+      ],
+      "progress_points": 66,
+      "keys": [
+        "candidates",
+        "elapsed",
+        "eligible_files",
+        "last_path",
+        "last_stage",
+        "read_bytes",
+        "read_files",
+        "visited_entries"
+      ]
+    }
+  },
+  {
+    "name": "directory-swap-no-external-read",
+    "observed": {
+      "state": "error",
+      "reasons": [
+        "traversal_ContainedFileRefused"
+      ],
+      "read_bytes": 0
+    }
+  },
+  {
+    "name": "owned-child-env-readonly",
+    "observed": {
+      "reconciliation_state": "complete",
+      "token": null,
+      "prefix": null,
+      "bytecode_off": true,
+      "reconciliation_elapsed": 0.037656832952052355
+    }
+  },
+  {
+    "name": "publisher-token-mutant-detected",
+    "observed": "{'reconciliation_state': 'complete', 'token': 'FAKE_REVIEW_TOKEN', 'prefix': None, 'bytecode_off': True, 'reconciliation_elapsed': 0.042151416186243296}"
+  },
+  {
+    "name": "owned-child-tree-timeout",
+    "observed": {
+      "elapsed": 0.20510166697204113,
+      "state": "incomplete",
+      "reason": "reporting_timeout",
+      "descendant_marker_absent": true
+    }
+  },
+  {
+    "name": "canonical-staged-pack-cleanup-despite-report-error",
+    "observed": {
+      "owned_deleted": true,
+      "lock_removed": true,
+      "operator_selected_hash_preserved": true
+    }
+  },
+  {
+    "name": "pack-replaced-between-judge-unlink-retained",
+    "observed": {
+      "replacement_preserved": true
+    }
+  }
+]

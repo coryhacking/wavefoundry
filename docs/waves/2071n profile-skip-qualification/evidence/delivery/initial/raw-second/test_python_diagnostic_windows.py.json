@@ -1,0 +1,21 @@
+{
+  "schema": "captured-worker-chunks-v1",
+  "original_capture_sha256": "03f234a9ad20efe63cb2f22ee514516e0ee5d70f1e08be1aaa51310e650f783d",
+  "argv": [
+    "/Users/coryhacking/.wavefoundry/venv/bin/python",
+    "-B",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-profile-run-v3i_83sm/repo/.wavefoundry/framework/scripts/tests",
+    "-p",
+    "test_python_diagnostic_windows.py",
+    "-v"
+  ],
+  "returncode": 0,
+  "stdout_chunks": [],
+  "stderr_chunks": [
+    "test_missing_python_preserves_seeded_checkout_and_fails_launcher (test_python_diagnostic_windows.NativePythonDiagnosticTests.test_missing_python_preserves_seeded_checkout_and_fails_launcher) ... skipped 'requires native Windows process semantics'\n\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nOK (skipped=1)\n"
+  ]
+}

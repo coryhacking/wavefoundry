@@ -1,0 +1,30 @@
+[
+  {
+    "symbol": "_record_index_publication_outcome",
+    "ast_identical": true
+  },
+  {
+    "symbol": "phase_index_update_parent_owned",
+    "ast_identical": true
+  },
+  {
+    "symbol": "phase_index_update",
+    "ast_identical": true
+  },
+  {
+    "symbol": "_memory_action_required_pause",
+    "ast_identical": true
+  },
+  {
+    "symbol": "_index_child_publisher_grant",
+    "ast_identical": true
+  },
+  {
+    "symbol": "_repair_declaring_scaffold_on_resume",
+    "ast_identical": true
+  },
+  {
+    "symbol": "_finalize_failed_upgrade",
+    "ast_identical": true
+  }
+]

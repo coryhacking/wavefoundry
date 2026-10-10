@@ -1,0 +1,122 @@
+[
+  {
+    "case": "wave-council.md:raw:image-inline",
+    "body": "![picture](wave-council.md)\r\n",
+    "preserved": true,
+    "expected_warning": true,
+    "warning": true,
+    "preview_warning": true,
+    "stderr": "render_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\n",
+    "role_move": true
+  },
+  {
+    "case": "wave-council.md:raw:image-reference",
+    "body": "![picture][id]\r\n\r\n[id]: wave-council.md\r\n",
+    "preserved": true,
+    "expected_warning": true,
+    "warning": true,
+    "preview_warning": true,
+    "stderr": "render_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:3: unchanged unsupported or unrelated council role destination\n",
+    "role_move": true
+  },
+  {
+    "case": "wave-council.md:escaped:image-inline",
+    "body": "![picture](wave\\-council.md)\r\n",
+    "preserved": true,
+    "expected_warning": true,
+    "warning": false,
+    "preview_warning": false,
+    "stderr": "",
+    "role_move": true
+  },
+  {
+    "case": "wave-council.md:escaped:image-reference",
+    "body": "![picture][id]\r\n\r\n[id]: wave\\-council.md\r\n",
+    "preserved": true,
+    "expected_warning": true,
+    "warning": false,
+    "preview_warning": false,
+    "stderr": "",
+    "role_move": true
+  },
+  {
+    "case": "wave-council.md:percent:image-inline",
+    "body": "![picture](wave%2Dcouncil.md)\r\n",
+    "preserved": true,
+    "expected_warning": true,
+    "warning": false,
+    "preview_warning": false,
+    "stderr": "",
+    "role_move": true
+  },
+  {
+    "case": "wave-council.md:percent:image-reference",
+    "body": "![picture][id]\r\n\r\n[id]: wave%2Dcouncil.md\r\n",
+    "preserved": true,
+    "expected_warning": true,
+    "warning": false,
+    "preview_warning": false,
+    "stderr": "",
+    "role_move": true
+  },
+  {
+    "case": "../../../.codex/skills/agent-role-wave-council/SKILL.md:raw:image-inline",
+    "body": "![picture](../../../.codex/skills/agent-role-wave-council/SKILL.md)\r\n",
+    "preserved": true,
+    "expected_warning": true,
+    "warning": true,
+    "preview_warning": true,
+    "stderr": "render_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\n",
+    "role_move": true
+  },
+  {
+    "case": "../../../.codex/skills/agent-role-wave-council/SKILL.md:raw:image-reference",
+    "body": "![picture][id]\r\n\r\n[id]: ../../../.codex/skills/agent-role-wave-council/SKILL.md\r\n",
+    "preserved": true,
+    "expected_warning": true,
+    "warning": true,
+    "preview_warning": true,
+    "stderr": "render_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:3: unchanged unsupported or unrelated council role destination\n",
+    "role_move": true
+  },
+  {
+    "case": "../../../.codex/skills/agent-role-wave-council/SKILL.md:escaped:image-inline",
+    "body": "![picture](../../../.codex/skills/agent\\-role\\-wave\\-council/SKILL.md)\r\n",
+    "preserved": true,
+    "expected_warning": true,
+    "warning": false,
+    "preview_warning": false,
+    "stderr": "",
+    "role_move": true
+  },
+  {
+    "case": "../../../.codex/skills/agent-role-wave-council/SKILL.md:escaped:image-reference",
+    "body": "![picture][id]\r\n\r\n[id]: ../../../.codex/skills/agent\\-role\\-wave\\-council/SKILL.md\r\n",
+    "preserved": true,
+    "expected_warning": true,
+    "warning": false,
+    "preview_warning": false,
+    "stderr": "",
+    "role_move": true
+  },
+  {
+    "case": "../../../.codex/skills/agent-role-wave-council/SKILL.md:percent:image-inline",
+    "body": "![picture](../../../.codex/skills/agent%2Drole%2Dwave%2Dcouncil/SKILL.md)\r\n",
+    "preserved": true,
+    "expected_warning": true,
+    "warning": false,
+    "preview_warning": false,
+    "stderr": "",
+    "role_move": true
+  },
+  {
+    "case": "../../../.codex/skills/agent-role-wave-council/SKILL.md:percent:image-reference",
+    "body": "![picture][id]\r\n\r\n[id]: ../../../.codex/skills/agent%2Drole%2Dwave%2Dcouncil/SKILL.md\r\n",
+    "preserved": true,
+    "expected_warning": true,
+    "warning": false,
+    "preview_warning": false,
+    "stderr": "",
+    "role_move": true
+  }
+]

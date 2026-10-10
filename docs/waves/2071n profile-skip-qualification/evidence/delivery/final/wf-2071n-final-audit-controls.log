@@ -1,0 +1,8 @@
+multiline_fully_qualified_baseline 0
+second_marker_extra_accepted 0
+equal_count_wrong_identity_rejected 1
+same_identity_changed_reason_rejected 1
+extra_unmarked_skip_rejected 1
+missing_capture_rejected 1
+failed_worker_rejected 1
+second_removed_baseline_skip_permitted 0

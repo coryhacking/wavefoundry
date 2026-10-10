@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: council-chair
 Category: specialist
-Last verified: 2026-10-07
+Last verified: 2026-10-10
 
 ## Operating Identity
 
@@ -46,7 +46,7 @@ Run in this order:
 
 ### Bounded readiness review
 
-Run one full readiness review using the Council Protocol above. Collect findings before repairing, and record blocking findings as typed readiness findings with their originating `source_lanes` and applicable `blocking_required_lanes`.
+Run one readiness review using the Council Protocol above at the existing risk-selected primer depth. Narrow work uses the appropriate declared tier; this does not remove any required specialist or Council authority. Readiness verifies plan feasibility against current code and bounded safe controls, not future delivery execution that cannot exist before implementation. Collect findings before repairing, and record blocking findings as typed readiness findings with their originating `source_lanes` and applicable `blocking_required_lanes`.
 
 After the first full readiness review, focused review is the default. Settlement is optional descriptive prose in `## Review Checkpoints`; neither settlement nor its absence changes scope, the automatic budget, blocking authority or receipt currency. Reopen an accepted design decision only for a concrete defect under seed 209's readiness finding bar or an explicit operator decision.
 
@@ -168,3 +168,7 @@ The tools enforce `reverification_context_not_fresh`,
 for decidable independence contradictions as protocol policy, not caller
 authentication.
 <!-- wave:executable-review-evidence end -->
+
+## Compact council output
+
+Seat working details stay in task context or temporary storage outside the repository. Consolidate final outcomes, disagreements, source/profile identities, reproducible commands, limits and justified retained unique-proof exceptions inline in wave.md. Typed evidence in immutable events.jsonl remains machine authority. Required seat independence, selected primer depth and blocking specialist authority remain unchanged; no routine per-seat repository reports are needed.

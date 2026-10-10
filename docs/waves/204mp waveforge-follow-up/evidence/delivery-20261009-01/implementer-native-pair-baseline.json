@@ -1,0 +1,16 @@
+{
+  "old_pair": ".codex/skills/agent-role-wave-council/SKILL.md",
+  "new_pair": ".codex/skills/agent-role-council-chair/SKILL.md",
+  "old_moved": true,
+  "new_exists": true,
+  "expected": "[Native](../../../.codex/skills/agent-role-council-chair/SKILL.md)\r\n[LIVE](council-chair.md)\r\n",
+  "observed": "[Native](../../../.codex/skills/agent-role-wave-council/SKILL.md)\r\n[LIVE](council-chair.md)\r\n",
+  "exact": false,
+  "retry_stable": true,
+  "preview": [
+    "would move docs/agents/specialists/wave-council.md -> docs/agents/specialists/council-chair.md",
+    "would move .codex/skills/agent-role-wave-council/SKILL.md -> .codex/skills/agent-role-council-chair/SKILL.md",
+    "docs/agents/specialists/researcher.md:2: would repair council role link",
+    "docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination"
+  ]
+}

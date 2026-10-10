@@ -1,0 +1,233 @@
+--- docs/waves/2071p bounded-reconciliation-reporting/evidence/implementation/test_upgrade_wavefoundry.py.baseline.txt
+
++++ .wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py
+
+@@ -8544,7 +8544,8 @@
+
+                     "matched": ".wavefoundry/bin/docs-lint", "suggested": "wf docs-lint"}]
+         # 1p8o5/1u2az: _run_reconciliation_scan returns (reconciliation,
+         # host_permission_flags, renderer_provenance_flags).
+-        with patch.object(self.mod, "_run_reconciliation_scan", return_value=(finding, [], [])):
++        with patch.object(self.mod, "_collect_reconciliation_report", return_value={
++                **self.mod._empty_reporting("complete", ""), "reconciliation": finding}):
+             out = self._emit_primary("ignored-root-uses-stub", "1.8.0", "1.9.0")
+         summary = self._parse_sentinel(out)[0]
+         self.assertEqual(summary["reconciliation"], finding)
+@@ -8568,7 +8569,8 @@
+
+         finding = [{"file": "x.md", "line": 1, "retired_surface": "docs-lint",
+                     "matched": ".wavefoundry/bin/docs-lint", "suggested": "wf docs-lint"}]
+         # 1p8o5/1u2az: stub returns the three-channel tuple.
+-        with patch.object(self.mod, "_run_reconciliation_scan", return_value=(finding, [], [])) as scan:
++        with patch.object(self.mod, "_collect_reconciliation_report", return_value={
++                **self.mod._empty_reporting("complete", ""), "reconciliation": finding}) as scan:
+             out = self._emit_primary("some-root", "1.9.4", "1.9.5")
+         summary = self._parse_sentinel(out)[0]
+         scan.assert_called_once()
+@@ -8779,29 +8781,13 @@
+
+         return [json.loads(line[len(sentinel):])
+                 for line in out.splitlines() if line.startswith(sentinel)]
+ 
+-    def test_mismatched_scan_shape_yields_silent_empty_channels_in_process(self):
+-        # The pg1a mechanism, reproduced: the in-process caller unpacks a fixed
+-        # channel arity from `reconcile_scan.scan_repo_channels`; a module with a
+-        # DIFFERENT arity (here a future 4-channel shape) raises ValueError at the
+-        # unpack, and the blanket except swallows it into empty channels. The
+-        # findings the stub carries are silently lost; no error, no marker.
++    def test_mismatched_scan_shape_is_explicit_in_process(self):
++        # The former pg1a exception-to-empty behavior is intentionally retired.
++        # A skewed scanner cannot claim successful absence of its finding.
+         stub = _mismatched_reconcile_scan_stub([self.FINDING])
+         with patch.dict(sys.modules, {"reconcile_scan": stub}):
+-            result = self.mod._run_reconciliation_scan(Path("."))
+-        self.assertEqual(result, ([], [], []),
+-                         "shape skew must reproduce the silent empty channels")
+-        # And end to end through the retained in-process emitter: the sentinel
+-        # reports [] although the scan module had a finding.
+-        with patch.dict(sys.modules, {"reconcile_scan": stub}):
+-            buf = io.StringIO()
+-            with contextlib.redirect_stdout(buf):
+-                self.mod._emit_primary_phase_summary(
+-                    from_version="1.14.0", to_version="1.15.0", zip_path=None,
+-                    pruned_count=0, root=Path("."), index_published=True,
+-                )
+-        summary = self._parse_sentinel(buf.getvalue())[0]
+-        self.assertEqual(summary["reconciliation"], [],
+-                         "the in-process path swallows the skew into []")
++            with self.assertRaises(ValueError):
++                self.mod._run_reconciliation_scan(Path("."))
+ 
+     def test_delegated_path_repairs_the_empty_channel(self):
+         # AC-3 repair: with the SAME mismatched module poisoning the parent's
+@@ -8816,6 +8802,7 @@
+
+             _stage_extracted_tree(root)
+             lib = _load_upgrade_lib()
+             lib.write_upgrade_lock(root, from_version="1.14.0", to_version="1.15.0")
++            lib.update_upgrade_lock(root, index_rebuilt_at="2026-10-09T00:00:00Z")
+             stub = _mismatched_reconcile_scan_stub([self.FINDING])
+             buf = io.StringIO()
+             with patch.dict(sys.modules, {"reconcile_scan": stub}), \
+@@ -8848,6 +8835,146 @@
+
+     return script
+ 
+ 
++class BoundedUpgradeReportingTests(unittest.TestCase):
++    """2073v: owned reporting deadline and facts-only recovery."""
++
++    def setUp(self):
++        self.mod = load_upgrade_module()
++
++    def _stage_verified_fixture(self, root):
++        import upgrade_protocol
++        selected = root / "selected.zip"
++        with zipfile.ZipFile(selected, "w") as archive:
++            archive.writestr(upgrade_protocol.PROTOCOL_METADATA_ARCNAME, json.dumps(
++                upgrade_protocol.build_protocol_metadata(release_version="1.29.0", build_id="fixture", artifact_type="feature")))
++            for name in upgrade_protocol.MANDATORY_FEATURE_MODULES:
++                body = ""
++                if name == "upgrade_protocol.py":
++                    body = "UPGRADE_PROTOCOL_VERSION=2\nMINIMUM_RUNNER_PROTOCOL=2\n"
++                elif name == "upgrade_extensions.py":
++                    body = "def post_preflight(ctx):\n    return 'bridge_release_required'\n"
++                archive.writestr(".wavefoundry/framework/scripts/" + name, body)
++        return self.mod._stage_pack_for_consumption(selected)
++
++    def test_delegate_failure_never_scans_or_runs_diagnostics_again(self):
++        with tempfile.TemporaryDirectory() as td:
++            root = Path(td)
++            _write_stub_producer(root, "import time; time.sleep(5)\n")
++            buf = io.StringIO()
++            started = time.monotonic()
++            with patch.object(self.mod, "_preferred_python", return_value=sys.executable), \
++                 patch.object(self.mod, "_run_reconciliation_scan", side_effect=AssertionError("second scan")), \
++                 patch.object(self.mod, "_run_renderer_warning_scan", side_effect=AssertionError("diagnostics")), \
++                 contextlib.redirect_stdout(buf):
++                self.mod._emit_primary_summary_via_delegate_or_fallback(
++                    root, "1.28.0", "1.29.0", None, 7,
++                    index_published=True, timeout_s=.15)
++            self.assertLess(time.monotonic() - started, 2)
++            lines = [line for line in buf.getvalue().splitlines()
++                     if line.startswith(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL)]
++            self.assertEqual(len(lines), 1)
++            summary = json.loads(lines[0].split(":", 1)[1])
++            self.assertEqual(summary["reconciliation_state"], "incomplete")
++            self.assertEqual(summary["index_update"], "docs and code layers complete")
++            self.assertEqual(summary["pruned_count"], 7)
++
++    def test_scan_error_is_never_empty_success(self):
++        with patch.dict(sys.modules, {"reconcile_scan": types.SimpleNamespace(
++                scan_repo_channels=lambda root: (_ for _ in ()).throw(RuntimeError("secret")))}):
++            with self.assertRaises(RuntimeError):
++                self.mod._run_reconciliation_scan(Path("/unused"))
++
++    def test_owned_worker_timeout_retains_progress_and_cleans_temporary(self):
++        with tempfile.TemporaryDirectory() as td:
++            root = Path(td)
++            stub = root / "worker.py"
++            stub.write_text("import os,json,time\nfrom pathlib import Path\n"
++                            "Path(os.environ['WAVEFOUNDRY_REPORTING_PROGRESS']).write_text(json.dumps({'last_path':'docs/live.md','last_stage':'read','read_bytes':9}))\n"
++                            "time.sleep(5)\n", encoding="utf-8")
++            started = time.monotonic()
++            with patch.object(self.mod, "__file__", str(stub)), \
++                 patch.object(self.mod, "_preferred_python", return_value=sys.executable):
++                result = self.mod._collect_reconciliation_report(root, budget_s=.2)
++            self.assertLess(time.monotonic() - started, 2)
++            self.assertEqual(result["reconciliation_state"], "incomplete")
++            self.assertEqual(result["reconciliation_reason"], "reporting_timeout")
++            self.assertEqual(result["reconciliation_last_path"], "docs/live.md")
++            self.assertEqual(result["reconciliation_last_stage"], "read")
++
++    def test_actual_worker_preserves_partial_live_findings(self):
++        with tempfile.TemporaryDirectory() as td:
++            root = Path(td)
++            (root / "live.md").write_text(".wavefoundry/bin/docs-lint\n", encoding="utf-8")
++            with (root / "huge.md").open("wb") as stream:
++                stream.truncate(17 * 1024 * 1024)
++            result = self.mod._collect_reconciliation_report(root, budget_s=3)
++            self.assertEqual(result["reconciliation_state"], "incomplete", result)
++            self.assertIn("file_bytes", result["reconciliation_reason"])
++            self.assertEqual([ref["file"] for ref in result["reconciliation"]], ["live.md"])
++
++    def test_contradictory_publication_and_consent_facts_degrade(self):
++        with tempfile.TemporaryDirectory() as td:
++            root = Path(td)
++            payload = {"summary_schema_version": 1, "index_update": "not run",
++                       "permissions_added": ["invented"]}
++            _write_stub_producer(root, "print('WAVE_UPGRADE_SUMMARY_JSON:' + " + repr(json.dumps(payload)) + ")\n")
++            buf = io.StringIO()
++            delta = {"file": ".claude/settings.json", "added": ["observed"], "removed": [], "unmanaged_present": 0}
++            with patch.object(self.mod, "_preferred_python", return_value=sys.executable), \
++                 patch.object(self.mod, "_PERMISSIONS_DELTA", delta), \
++                 contextlib.redirect_stdout(buf):
++                self.mod._emit_primary_summary_via_delegate_or_fallback(
++                    root, "1.28.0", "1.29.0", None, 0, index_published=True)
++            summary = json.loads(buf.getvalue().split(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL)[1].splitlines()[0])
++            self.assertEqual(summary["summary_source_degraded"], "parent_fact_mismatch")
++            self.assertEqual(summary["index_update"], "docs and code layers complete")
++            self.assertEqual(summary["permissions_added"], ["observed"])
++
++    def test_cleanup_attempts_verified_pack_even_when_optional_emitter_raises(self):
++        lib = _load_upgrade_lib()
++        import sqlite_storage_migration
++        with tempfile.TemporaryDirectory() as td:
++            root = Path(td)
++            lib.write_upgrade_lock(root, "1.28.0", "1.29.0")
++            owned = self._stage_verified_fixture(root)
++            proof = self.mod._VERIFIED_PACK_IDENTITIES[str(owned)]
++            lib.update_upgrade_lock(root, verified_pack_identity=proof)
++            # A fresh runner represents the separate --cleanup/resume process.
++            self.mod = load_upgrade_module()
++            unowned = root / "operator.zip"
++            unowned.write_bytes(b"operator")
++            with patch.object(sqlite_storage_migration, "cleanup_legacy"), \
++                 patch.object(self.mod, "_record_setup_baseline", return_value={}), \
++                 patch.object(self.mod, "_regenerate_codebase_map_on_upgrade"), \
++                 patch.object(self.mod, "_ensure_lifecycle_policy_backstop"), \
++                 patch.object(self.mod, "_print_operator_summary", side_effect=RuntimeError("optional")), \
++                 contextlib.redirect_stdout(io.StringIO()):
++                self.mod.phase_cleanup(root, "1.28.0", "1.29.0", owned, 0, True)
++            self.assertFalse(owned.exists())
++            self.assertEqual(unowned.read_bytes(), b"operator")
++            self.assertIsNone(lib.read_upgrade_lock(root))
++
++    def test_verified_pack_cleanup_refuses_unproven_prefix_and_changed_identity(self):
++        with tempfile.TemporaryDirectory() as td:
++            root = Path(td)
++            owned = self._stage_verified_fixture(root)
++            proof = self.mod._VERIFIED_PACK_IDENTITIES[str(owned)]
++            fd, unproven_name = tempfile.mkstemp(prefix="wf-verified-pack-", suffix=".zip")
++            os.close(fd)
++            unproven = Path(unproven_name)
++            try:
++                self.mod._cleanup_verified_pack(unproven, None)
++                self.assertTrue(unproven.exists())
++                replacement = root / "replacement.zip"
++                replacement.write_bytes(b"operator-owned replacement")
++                os.replace(replacement, owned)
++                self.mod._cleanup_verified_pack(owned, proof)
++                self.assertEqual(owned.read_bytes(), b"operator-owned replacement")
++            finally:
++                unproven.unlink(missing_ok=True)
++                owned.unlink(missing_ok=True)
++
++
+ class DelegatedSummaryContractTests(unittest.TestCase):
+     """Wave 1u44o requirement 5: PERMANENT contract test.
+ 
+@@ -8927,8 +9054,10 @@
+
+             self.assertEqual(cmd[2], "--emit-summary")
+             self.assertEqual(cmd[3], "--root")
+             self.assertEqual(cmd[4], str(root))
+-            # The pinned timeout constant is what the spawn actually uses.
+-            self.assertEqual(captured["timeout"], self.mod._SUMMARY_DELEGATE_TIMEOUT_S)
++            # Current parents enforce the remaining 30-second work budget.
++            # The helper default stays pinned at300 for fielded old parents.
++            self.assertGreater(captured["timeout"], 0)
++            self.assertLessEqual(captured["timeout"], self.mod._REPORTING_WORK_SECONDS)
+             # Byte-verbatim re-emit under the parent's own sentinel constant.
+             lines = [
+                 l for l in buf.getvalue().splitlines()

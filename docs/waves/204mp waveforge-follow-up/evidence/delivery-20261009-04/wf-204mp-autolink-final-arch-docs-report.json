@@ -1,0 +1,1522 @@
+{
+  "wave_id": "204mp",
+  "context_id": "204mp-autolink-final-architecture-docs-independent-20261009",
+  "fresh_context": true,
+  "independent": true,
+  "independence_disclosure": "One fresh independent reviewer holds both architecture-reviewer and docs-contract-reviewer remits; these are disclosed dual roles in one context, not two independent people. Read-only public C1-C5 review. Incoming ZIP/surface fixtures and scratch profile trees are controlled local specimens, not downstream merges or a new release pack. No native Windows, C6/private scope, graph/phase delivery judgment, setup, lifecycle write, canonical receipt, full framework suite, commit, push or close claim. Broad renamed52 had four existing intentional default-only skips; the selected16 regression controls then passed with zero skips. Finite realistic CommonMark specimens only: no whole-CommonMark certification or assertion that every isolated guard has a persistent pin. Earlier reports supply candidates, not inherited approval. The prior narrower first-line HTML-mask survivor was not rerun or claimed killed; the valid HTML-terminator variant was independently caught. No new runtime parser dependency was introduced.",
+  "roles": {
+    "architecture-reviewer": {
+      "verdict": "approve_current_frozen_scope",
+      "reason": "Fresh frozen public C1-C5 source/docs review: own56 current incoming cases and all10 real docs-gate/preflight/refusal/interruption/retry/preview controls pass; default26 and selected renamed16 pass no skips. Strict524 census negative control catches native fixture regression. Profile aliases remain one canonical council identity with preserved ledger bytes, role/operator refusals and real reload. Own14 source mutation variants are detected plus persistent metadata, census and historical guidance controls. Saved f71 four-failure/two-control contrast reproduces C5 defect. No new material architecture or docs-contract defect."
+    },
+    "docs-contract-reviewer": {
+      "verdict": "approve_current_frozen_scope",
+      "reason": "Fresh frozen public C1-C5 source/docs review: own56 current incoming cases and all10 real docs-gate/preflight/refusal/interruption/retry/preview controls pass; default26 and selected renamed16 pass no skips. Strict524 census negative control catches native fixture regression. Profile aliases remain one canonical council identity with preserved ledger bytes, role/operator refusals and real reload. Own14 source mutation variants are detected plus persistent metadata, census and historical guidance controls. Saved f71 four-failure/two-control contrast reproduces C5 defect. No new material architecture or docs-contract defect."
+    }
+  },
+  "freeze": {
+    "path_count": 24,
+    "before_sha256": {
+      ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "65c9d11276eadefb0b6a5e72ae16400ec94f813006a9f3da1dc6a6f23d3f21c3",
+      ".wavefoundry/framework/scripts/render_agent_surfaces.py": "425eb17f45308e232c3c872aee67279d6a44f3ff814efcd46457b578f2f96006",
+      ".wavefoundry/framework/scripts/review_evidence.py": "7696b2ba0c4e151ed383b39c76273ea1f5fe286dcab95969562e9daaacd78cbc",
+      ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "7c766dc1385416beb80f8f6063d7dc194c281aec236569997850e4aa8236da5c",
+      ".wavefoundry/framework/scripts/tests/fixtures/profiles/prompt-names.json": "68aa7cd256da36493a8250d147685c99cb36c16056179d7cd36e9a988ad9395a",
+      ".wavefoundry/framework/scripts/tests/framework_text_ownership.py": "2d4257cd4f6a3981f8f38d978b6646cc4d059dea7f1e86c16b7cb9a75c92dc18",
+      ".wavefoundry/framework/scripts/tests/record_layout_support.py": "286c3cfa93851c18c3fe56a390fc178923aaaf1c9658542f594aa630a0fdeb49",
+      ".wavefoundry/framework/scripts/tests/test_council_signoff_keys.py": "2053e10a2734e186588d6cb28ef4ad2bdfb4d90f199c8b5eb596decfe4fdd2e5",
+      ".wavefoundry/framework/scripts/tests/test_distribution_seams.py": "b25c4d0c6c61beb2c961087d1c119d74fc9b1c39db1c3f344a209be1881c7c4c",
+      ".wavefoundry/framework/scripts/tests/test_legacy_council_actors.py": "2b52ff5294874c58fc870e1a1260e5d301615e73e5a55e2c3c50a8ef35934fb1",
+      ".wavefoundry/framework/scripts/tests/test_profile_support.py": "bca8cabaafb7d8c3b264d1577e639f6466aaa73d9c93fe13bca31bb4cbbbcb88",
+      ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py": "0da7557197c9ca7d823578789dba5417a971f9ac7ce948c5c16fdf7558f23cf6",
+      ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a",
+      ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "f852874bb308acc363973dc33919327cf8133311f73cd5731de56219971d347a",
+      ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+      ".wavefoundry/framework/scripts/vocabulary_profile.py": "5a1f4a5902eddc99137664f176cb5706ab266014b3bf9f54cb68a86dbb1e03b4",
+      "CHANGELOG.md": "f23cc3ddfde9b1198bc7a9b6b8f66b98bad4aa0d08ee1940984116bc11255a0c",
+      "docs/ARCHITECTURE.md": "599f3b205bd75c3c9b0a6766f47e0924c3a52cf7ece61052f5b30ba573d12b15",
+      "docs/architecture/cross-cutting-concerns.md": "374319b418416993f1927ae4bda814fba513bdaf6e5bc70170dd7e0030382c8f",
+      "docs/architecture/data-and-control-flow.md": "65aef7155f31ea3a65ddc72b11de52c5c2320c6d7ec2ccba41ab80bb252c420a",
+      "docs/architecture/domain-map.md": "c05f3e2226e19ca567ac7e3157dd31fa63fda6d5accb495fe92d22eed6acfba9",
+      "docs/architecture/testing-architecture.md": "c6960a2fea0a9fc021c7e07c3e113d37e6099c0c198729d395d39fdc765f7a65",
+      "docs/specs/mcp-tool-surface.md": "46abe7a4f05010e692897f90c599778a25284d48df93d19fda27abde7550337c",
+      ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "27995857defe266f2c2a237d99cd1200bdf0fd1c28121e6923a2626995375db3"
+    },
+    "before_git": {
+      ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "9acc50b3cfab00c559010baf20919f203e48828f",
+      ".wavefoundry/framework/scripts/render_agent_surfaces.py": "3bfd50e3f4b67e4aa8c0c2835cd6fad43129aba6",
+      ".wavefoundry/framework/scripts/review_evidence.py": "54b806ae9a9409cb26be6a5653a1bb6adb9ac45e",
+      ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "e99355979ac908aefa5d2c4ee66dec6ab7c4c7f0",
+      ".wavefoundry/framework/scripts/tests/fixtures/profiles/prompt-names.json": "2be75d0d053b7f66c066934ebef6ab484d081c66",
+      ".wavefoundry/framework/scripts/tests/framework_text_ownership.py": "f460fdf00e3669ee04ca6d5b702b715e9d890d8c",
+      ".wavefoundry/framework/scripts/tests/record_layout_support.py": "5e2a500a063fa9423b2063b0e6d46e5bad731268",
+      ".wavefoundry/framework/scripts/tests/test_council_signoff_keys.py": "934a5d7cb982f03fd6adeb98c7cb226979502aa3",
+      ".wavefoundry/framework/scripts/tests/test_distribution_seams.py": "a53ed1662178217727f5f1d9d35f26e12e47e8e3",
+      ".wavefoundry/framework/scripts/tests/test_legacy_council_actors.py": "09c6bff158ba0e001ed344cb8ad0ca4cba62fb18",
+      ".wavefoundry/framework/scripts/tests/test_profile_support.py": "82e5060e3a85029052d1c876c28aed28eb583710",
+      ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py": "776c7c2df9d89a00be456ec597359669ca3c8168",
+      ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "29c417cb4f11fd2418249b18fe322effb3841dde",
+      ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "42f7785097f2491dd6231fc84673c54ee1df4db1",
+      ".wavefoundry/framework/scripts/upgrade_extensions.py": "e20de384cc4119f3e7146ae93406a39042b0359b",
+      ".wavefoundry/framework/scripts/vocabulary_profile.py": "f9a4d28c30b3645ebf9336853d17e7b78cd2b02d",
+      "CHANGELOG.md": "bb18586b3933d91d35730771f15d8b5116a17173",
+      "docs/ARCHITECTURE.md": "71d11346469e141def3f5cd1bb01156f2d639c28",
+      "docs/architecture/cross-cutting-concerns.md": "c25b6a1a1c691ee046364d3e53355822cba27e48",
+      "docs/architecture/data-and-control-flow.md": "5a773042c3d898191fc53f5cbeb44dc3f113ad4e",
+      "docs/architecture/domain-map.md": "887fdfe9b73cc7fdaf83d4250ec5e033401c3321",
+      "docs/architecture/testing-architecture.md": "235de8aa6603d17c866c6741c3718499a1452bb9",
+      "docs/specs/mcp-tool-surface.md": "b7e5f21b737ac76f7cb604f775bdfcc88acc45db",
+      ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "75555cdc23dde4ea112873bf72a1db5db24de16b"
+    },
+    "after": {
+      "sha256": {
+        ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "65c9d11276eadefb0b6a5e72ae16400ec94f813006a9f3da1dc6a6f23d3f21c3",
+        ".wavefoundry/framework/scripts/render_agent_surfaces.py": "425eb17f45308e232c3c872aee67279d6a44f3ff814efcd46457b578f2f96006",
+        ".wavefoundry/framework/scripts/review_evidence.py": "7696b2ba0c4e151ed383b39c76273ea1f5fe286dcab95969562e9daaacd78cbc",
+        ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "7c766dc1385416beb80f8f6063d7dc194c281aec236569997850e4aa8236da5c",
+        ".wavefoundry/framework/scripts/tests/fixtures/profiles/prompt-names.json": "68aa7cd256da36493a8250d147685c99cb36c16056179d7cd36e9a988ad9395a",
+        ".wavefoundry/framework/scripts/tests/framework_text_ownership.py": "2d4257cd4f6a3981f8f38d978b6646cc4d059dea7f1e86c16b7cb9a75c92dc18",
+        ".wavefoundry/framework/scripts/tests/record_layout_support.py": "286c3cfa93851c18c3fe56a390fc178923aaaf1c9658542f594aa630a0fdeb49",
+        ".wavefoundry/framework/scripts/tests/test_council_signoff_keys.py": "2053e10a2734e186588d6cb28ef4ad2bdfb4d90f199c8b5eb596decfe4fdd2e5",
+        ".wavefoundry/framework/scripts/tests/test_distribution_seams.py": "b25c4d0c6c61beb2c961087d1c119d74fc9b1c39db1c3f344a209be1881c7c4c",
+        ".wavefoundry/framework/scripts/tests/test_legacy_council_actors.py": "2b52ff5294874c58fc870e1a1260e5d301615e73e5a55e2c3c50a8ef35934fb1",
+        ".wavefoundry/framework/scripts/tests/test_profile_support.py": "bca8cabaafb7d8c3b264d1577e639f6466aaa73d9c93fe13bca31bb4cbbbcb88",
+        ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py": "0da7557197c9ca7d823578789dba5417a971f9ac7ce948c5c16fdf7558f23cf6",
+        ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a",
+        ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "f852874bb308acc363973dc33919327cf8133311f73cd5731de56219971d347a",
+        ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+        ".wavefoundry/framework/scripts/vocabulary_profile.py": "5a1f4a5902eddc99137664f176cb5706ab266014b3bf9f54cb68a86dbb1e03b4",
+        "CHANGELOG.md": "f23cc3ddfde9b1198bc7a9b6b8f66b98bad4aa0d08ee1940984116bc11255a0c",
+        "docs/ARCHITECTURE.md": "599f3b205bd75c3c9b0a6766f47e0924c3a52cf7ece61052f5b30ba573d12b15",
+        "docs/architecture/cross-cutting-concerns.md": "374319b418416993f1927ae4bda814fba513bdaf6e5bc70170dd7e0030382c8f",
+        "docs/architecture/data-and-control-flow.md": "65aef7155f31ea3a65ddc72b11de52c5c2320c6d7ec2ccba41ab80bb252c420a",
+        "docs/architecture/domain-map.md": "c05f3e2226e19ca567ac7e3157dd31fa63fda6d5accb495fe92d22eed6acfba9",
+        "docs/architecture/testing-architecture.md": "c6960a2fea0a9fc021c7e07c3e113d37e6099c0c198729d395d39fdc765f7a65",
+        "docs/specs/mcp-tool-surface.md": "46abe7a4f05010e692897f90c599778a25284d48df93d19fda27abde7550337c",
+        ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "27995857defe266f2c2a237d99cd1200bdf0fd1c28121e6923a2626995375db3"
+      },
+      "git": {
+        ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "9acc50b3cfab00c559010baf20919f203e48828f",
+        ".wavefoundry/framework/scripts/render_agent_surfaces.py": "3bfd50e3f4b67e4aa8c0c2835cd6fad43129aba6",
+        ".wavefoundry/framework/scripts/review_evidence.py": "54b806ae9a9409cb26be6a5653a1bb6adb9ac45e",
+        ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "e99355979ac908aefa5d2c4ee66dec6ab7c4c7f0",
+        ".wavefoundry/framework/scripts/tests/fixtures/profiles/prompt-names.json": "2be75d0d053b7f66c066934ebef6ab484d081c66",
+        ".wavefoundry/framework/scripts/tests/framework_text_ownership.py": "f460fdf00e3669ee04ca6d5b702b715e9d890d8c",
+        ".wavefoundry/framework/scripts/tests/record_layout_support.py": "5e2a500a063fa9423b2063b0e6d46e5bad731268",
+        ".wavefoundry/framework/scripts/tests/test_council_signoff_keys.py": "934a5d7cb982f03fd6adeb98c7cb226979502aa3",
+        ".wavefoundry/framework/scripts/tests/test_distribution_seams.py": "a53ed1662178217727f5f1d9d35f26e12e47e8e3",
+        ".wavefoundry/framework/scripts/tests/test_legacy_council_actors.py": "09c6bff158ba0e001ed344cb8ad0ca4cba62fb18",
+        ".wavefoundry/framework/scripts/tests/test_profile_support.py": "82e5060e3a85029052d1c876c28aed28eb583710",
+        ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py": "776c7c2df9d89a00be456ec597359669ca3c8168",
+        ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "29c417cb4f11fd2418249b18fe322effb3841dde",
+        ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "42f7785097f2491dd6231fc84673c54ee1df4db1",
+        ".wavefoundry/framework/scripts/upgrade_extensions.py": "e20de384cc4119f3e7146ae93406a39042b0359b",
+        ".wavefoundry/framework/scripts/vocabulary_profile.py": "f9a4d28c30b3645ebf9336853d17e7b78cd2b02d",
+        "CHANGELOG.md": "bb18586b3933d91d35730771f15d8b5116a17173",
+        "docs/ARCHITECTURE.md": "71d11346469e141def3f5cd1bb01156f2d639c28",
+        "docs/architecture/cross-cutting-concerns.md": "c25b6a1a1c691ee046364d3e53355822cba27e48",
+        "docs/architecture/data-and-control-flow.md": "5a773042c3d898191fc53f5cbeb44dc3f113ad4e",
+        "docs/architecture/domain-map.md": "887fdfe9b73cc7fdaf83d4250ec5e033401c3321",
+        "docs/architecture/testing-architecture.md": "235de8aa6603d17c866c6741c3718499a1452bb9",
+        "docs/specs/mcp-tool-surface.md": "b7e5f21b737ac76f7cb604f775bdfcc88acc45db",
+        ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "75555cdc23dde4ea112873bf72a1db5db24de16b"
+      },
+      "24paths_unchanged": true
+    },
+    "tree_moved_under_review": false
+  },
+  "retrieval": {
+    "callable_MCP_confirmed": [
+      "code_read",
+      "code_outline",
+      "code_keyword",
+      "wf_server_info"
+    ],
+    "method": "MCP-first live disk reads and AST outline; fresh CLI subprocesses for executed probes.",
+    "gapfill": "Gapfill: parent reports indexed setup/runtime stale or indeterminate. No indexed freshness or setup-ready claim; bounded live code_read/ASToutline and fresh CLI disk qualification used. wf_server_info reports runner_stale false/impl_matches_disk true, but that does not establish setup/index readiness."
+  },
+  "scope_audit": {
+    "C1_C3": "Literal reconcile-key expectations, explicit sorted inventory including zero-hit sources, downstream ownership exclusion, shipped hook seed, frozen independent historical payload/goldens and neutral chain/collision fixtures inspected and exercised under default and selected renamed controls.",
+    "C4": "Empty-default alias tuple and validation, deterministic merge/canonical write/replay, byte-preserved history, configured-role/operator refusal, equivalence-aware repair independence and reload exercised; stdlib profile \u2192 review evidence \u2192 lifecycle/MCP direction preserved.",
+    "C5": "Current docs controlled exact destination spans; exclusions, atomic literal tokens, code/block/metadata precedence, native components, contained I/O/modes, preview, collision preflight, interrupted retry, strict docs gate and truthful guidance directly observed.",
+    "outside_scope": "C6/private/native-host hooks/new pack/downstream/native Windows/graph/phase source delivery claims excluded."
+  },
+  "architecture": {
+    "boundaries_touched": [
+      "Framework-owned test-oracle inventory and independent fixture/reference sources",
+      "fork-editable council compatibility aliases consumed behind existing identity/authority guards",
+      "controlled current-doc exact role-link migration exception",
+      "isolated incoming preview, per-file publication and retry"
+    ],
+    "invariants_preserved": [
+      "No new runtime parser dependency or reverse server dependency",
+      "Aliases remain one council identity; no non-council/operator authority",
+      "Historical ledger bytes preserved",
+      "Exact confirmed local destinations only; protected content/modes retained",
+      "Resolved record-root and shared history exclusions retained",
+      "Read-only incoming preview and all-pair collision preflight",
+      "Per-file failure/retry documented without a multi-file atomicity claim"
+    ],
+    "source_refs": [
+      ".wavefoundry/framework/scripts/vocabulary_profile.py:95-99,557-577",
+      ".wavefoundry/framework/scripts/review_evidence.py:276-308,3108-3150",
+      ".wavefoundry/framework/scripts/lifecycle_gate_support.py:1029-1047",
+      ".wavefoundry/framework/scripts/render_agent_surfaces.py:2994-3551",
+      ".wavefoundry/framework/scripts/tests/framework_text_ownership.py:21-56",
+      ".wavefoundry/framework/scripts/tests/test_council_signoff_keys.py:155-241"
+    ],
+    "doc_refs": [
+      "docs/ARCHITECTURE.md",
+      "docs/architecture/domain-map.md",
+      "docs/architecture/layering-rules.md",
+      "docs/architecture/data-and-control-flow.md:179",
+      "docs/architecture/cross-cutting-concerns.md:21",
+      "docs/architecture/testing-architecture.md:184-190",
+      "docs/specs/mcp-tool-surface.md:1562,2183",
+      ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md"
+    ],
+    "new_integration_edge": false,
+    "database_schema_change": "not_applicable",
+    "ADR_required": false
+  },
+  "execution": {
+    "current_incoming_count": 56,
+    "current_failures": 0,
+    "rows": [
+      {
+        "case": "space_code",
+        "group": "01",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "list_quote_fence",
+        "group": "01",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "lazy_quotes",
+        "group": "01",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "setext_code",
+        "group": "02",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "blank_tick",
+        "group": "02",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "quote_definition",
+        "group": "03",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "ordered_definition",
+        "group": "03",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "html_comment",
+        "group": "04",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "html_list_quote",
+        "group": "04",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "bad_fence",
+        "group": "05",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "good_tilde",
+        "group": "05",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "inline_attribute",
+        "group": "09",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "inline_attribute_list",
+        "group": "09",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "inline_comment",
+        "group": "09",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "code_before_tag",
+        "group": "09",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "code_before_title",
+        "group": "09",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "quoted_title_ticks",
+        "group": "09",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "query_ticks",
+        "group": "09",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "nested_query",
+        "group": "09",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "nested_title",
+        "group": "09",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "literal_definition",
+        "group": "10",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "literal_definition_quote",
+        "group": "10",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "literal_definition_list",
+        "group": "10",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "consecutive_definitions",
+        "group": "10",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "blank_definition",
+        "group": "10",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "heading_definition",
+        "group": "10",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "escaped_link_0",
+        "group": "06",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "escaped_image_0",
+        "group": "06",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "escaped_link_1",
+        "group": "06",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "escaped_image_1",
+        "group": "06",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "escaped_link_2",
+        "group": "06",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "escaped_image_2",
+        "group": "06",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "escaped_link_3",
+        "group": "06",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "escaped_image_3",
+        "group": "06",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "escaped_link_4",
+        "group": "06",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "escaped_image_4",
+        "group": "06",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "uri_literal",
+        "old_renderer": false,
+        "preview_no_writes": true,
+        "role_moved": true,
+        "install_exact": true,
+        "reinstall_exact": true,
+        "mode_preserved": true,
+        "expected": "Text <https://host.invalid/[hidden](wave-council.md)> [live](council-chair.md)\r\n",
+        "observed": "Text <https://host.invalid/[hidden](wave-council.md)> [live](council-chair.md)\r\n",
+        "passed": true
+      },
+      {
+        "case": "uri_query",
+        "old_renderer": false,
+        "preview_no_writes": true,
+        "role_moved": true,
+        "install_exact": true,
+        "reinstall_exact": true,
+        "mode_preserved": true,
+        "expected": "Text <custom+protocol://host.invalid/?arg=[hidden](wave-council.md)> [live](council-chair.md)\r\n",
+        "observed": "Text <custom+protocol://host.invalid/?arg=[hidden](wave-council.md)> [live](council-chair.md)\r\n",
+        "passed": true
+      },
+      {
+        "case": "uri_tick",
+        "old_renderer": false,
+        "preview_no_writes": true,
+        "role_moved": true,
+        "install_exact": true,
+        "reinstall_exact": true,
+        "mode_preserved": true,
+        "expected": "Text <https://host.invalid/?arg=`> [live](council-chair.md) tail `\r\n",
+        "observed": "Text <https://host.invalid/?arg=`> [live](council-chair.md) tail `\r\n",
+        "passed": true
+      },
+      {
+        "case": "email_tick",
+        "old_renderer": false,
+        "preview_no_writes": true,
+        "role_moved": true,
+        "install_exact": true,
+        "reinstall_exact": true,
+        "mode_preserved": true,
+        "expected": "Text <a`@host.invalid> [live](council-chair.md) tail `\r\n",
+        "observed": "Text <a`@host.invalid> [live](council-chair.md) tail `\r\n",
+        "passed": true
+      },
+      {
+        "case": "prior_code_uri",
+        "old_renderer": false,
+        "preview_no_writes": true,
+        "role_moved": true,
+        "install_exact": true,
+        "reinstall_exact": true,
+        "mode_preserved": true,
+        "expected": "Text ` <https://host.invalid/[hidden](wave-council.md)?arg=`> [live](council-chair.md)\r\n",
+        "observed": "Text ` <https://host.invalid/[hidden](wave-council.md)?arg=`> [live](council-chair.md)\r\n",
+        "passed": true
+      },
+      {
+        "case": "prior_code_email",
+        "old_renderer": false,
+        "preview_no_writes": true,
+        "role_moved": true,
+        "install_exact": true,
+        "reinstall_exact": true,
+        "mode_preserved": true,
+        "expected": "Text ` <a`@host.invalid> [live](council-chair.md)\r\n",
+        "observed": "Text ` <a`@host.invalid> [live](council-chair.md)\r\n",
+        "passed": true
+      },
+      {
+        "case": "quote_uri",
+        "old_renderer": false,
+        "preview_no_writes": true,
+        "role_moved": true,
+        "install_exact": true,
+        "reinstall_exact": true,
+        "mode_preserved": true,
+        "expected": "> Text <https://host.invalid/[hidden](wave-council.md)> [live](council-chair.md)\r\n",
+        "observed": "> Text <https://host.invalid/[hidden](wave-council.md)> [live](council-chair.md)\r\n",
+        "passed": true
+      },
+      {
+        "case": "list_email",
+        "old_renderer": false,
+        "preview_no_writes": true,
+        "role_moved": true,
+        "install_exact": true,
+        "reinstall_exact": true,
+        "mode_preserved": true,
+        "expected": "- Text <a`@host.invalid> [live](council-chair.md) tail `\r\n",
+        "observed": "- Text <a`@host.invalid> [live](council-chair.md) tail `\r\n",
+        "passed": true
+      },
+      {
+        "case": "metadata_ref",
+        "old_renderer": false,
+        "preview_no_writes": true,
+        "role_moved": true,
+        "install_exact": true,
+        "reinstall_exact": true,
+        "mode_preserved": true,
+        "expected": "[first](elsewhere \"![icon][r]\")\r\n\r\n[r]: council-chair.md\r\n\r\n[live](council-chair.md)\r\n",
+        "observed": "[first](elsewhere \"![icon][r]\")\r\n\r\n[r]: council-chair.md\r\n\r\n[live](council-chair.md)\r\n",
+        "passed": true
+      },
+      {
+        "case": "image_literal_title",
+        "group": "09",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "image_literal_html",
+        "group": "09",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "real_shared_image",
+        "group": "06",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "multiline_tag",
+        "group": "09",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "attribute_link",
+        "group": "09",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "unmatched_title_tick",
+        "group": "11",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "reference_title_literal",
+        "group": "10",
+        "mutant": null,
+        "preview_read_only": true,
+        "role_moved": true,
+        "install_exact": true,
+        "mode_kept": true,
+        "reinstall_exact": true,
+        "one_incoming_child": true,
+        "passed": true,
+        "preview_evidence_note": "This reused specimen runner invokes incoming preview but does not compare a pre/post tree snapshot. Do not treat its preview_read_only flag as an independent assertion; explicit no-write evidence comes from own9 snapshot cases and selected real preview owner tests."
+      },
+      {
+        "case": "native-raw",
+        "group": "07",
+        "installed": true,
+        "retry": true,
+        "mode": true,
+        "passed": true
+      },
+      {
+        "case": "native-escaped",
+        "group": "07",
+        "installed": true,
+        "retry": true,
+        "mode": true,
+        "passed": true
+      },
+      {
+        "case": "native-percent",
+        "group": "07",
+        "installed": true,
+        "retry": true,
+        "mode": true,
+        "passed": true
+      },
+      {
+        "case": "history-and-guidance",
+        "group": "08",
+        "passed": true,
+        "paths": [
+          "docs/agents/journals/past.md",
+          "docs/agents/snapshots/past.md",
+          "docs/reports/past.md",
+          "docs/architecture/decisions/past.md",
+          "docs/decisions/past.md",
+          "docs/adr/past.md",
+          "docs/waves/past.md",
+          "docs/plans/past.md"
+        ],
+        "current_guidance": true,
+        "known_bad_old_guidance_rejected": true
+      }
+    ],
+    "pre_fix": [
+      {
+        "case": "uri_literal",
+        "old_renderer": true,
+        "preview_no_writes": true,
+        "role_moved": true,
+        "install_exact": false,
+        "reinstall_exact": false,
+        "mode_preserved": true,
+        "expected": "Text <https://host.invalid/[hidden](wave-council.md)> [live](council-chair.md)\r\n",
+        "observed": "Text <https://host.invalid/[hidden](council-chair.md)> [live](council-chair.md)\r\n",
+        "passed": false
+      },
+      {
+        "case": "uri_query",
+        "old_renderer": true,
+        "preview_no_writes": true,
+        "role_moved": true,
+        "install_exact": false,
+        "reinstall_exact": false,
+        "mode_preserved": true,
+        "expected": "Text <custom+protocol://host.invalid/?arg=[hidden](wave-council.md)> [live](council-chair.md)\r\n",
+        "observed": "Text <custom+protocol://host.invalid/?arg=[hidden](council-chair.md)> [live](council-chair.md)\r\n",
+        "passed": false
+      },
+      {
+        "case": "uri_tick",
+        "old_renderer": true,
+        "preview_no_writes": true,
+        "role_moved": true,
+        "install_exact": false,
+        "reinstall_exact": false,
+        "mode_preserved": true,
+        "expected": "Text <https://host.invalid/?arg=`> [live](council-chair.md) tail `\r\n",
+        "observed": "Text <https://host.invalid/?arg=`> [live](wave-council.md) tail `\r\n",
+        "passed": false
+      },
+      {
+        "case": "email_tick",
+        "old_renderer": true,
+        "preview_no_writes": true,
+        "role_moved": true,
+        "install_exact": false,
+        "reinstall_exact": false,
+        "mode_preserved": true,
+        "expected": "Text <a`@host.invalid> [live](council-chair.md) tail `\r\n",
+        "observed": "Text <a`@host.invalid> [live](wave-council.md) tail `\r\n",
+        "passed": false
+      },
+      {
+        "case": "prior_code_uri",
+        "old_renderer": true,
+        "preview_no_writes": true,
+        "role_moved": true,
+        "install_exact": true,
+        "reinstall_exact": true,
+        "mode_preserved": true,
+        "expected": "Text ` <https://host.invalid/[hidden](wave-council.md)?arg=`> [live](council-chair.md)\r\n",
+        "observed": "Text ` <https://host.invalid/[hidden](wave-council.md)?arg=`> [live](council-chair.md)\r\n",
+        "passed": true
+      },
+      {
+        "case": "prior_code_email",
+        "old_renderer": true,
+        "preview_no_writes": true,
+        "role_moved": true,
+        "install_exact": true,
+        "reinstall_exact": true,
+        "mode_preserved": true,
+        "expected": "Text ` <a`@host.invalid> [live](council-chair.md)\r\n",
+        "observed": "Text ` <a`@host.invalid> [live](council-chair.md)\r\n",
+        "passed": true
+      }
+    ],
+    "independent_parser": [
+      {
+        "case": "uri_literal",
+        "links": [
+          "https://host.invalid/%5Bhidden%5D(wave-council.md)",
+          "wave-council.md"
+        ],
+        "images": [],
+        "code": [],
+        "references": {},
+        "passed": true
+      },
+      {
+        "case": "uri_query",
+        "links": [
+          "custom+protocol://host.invalid/?arg=%5Bhidden%5D(wave-council.md)",
+          "wave-council.md"
+        ],
+        "images": [],
+        "code": [],
+        "references": {},
+        "passed": true
+      },
+      {
+        "case": "uri_tick",
+        "links": [
+          "https://host.invalid/?arg=%60",
+          "wave-council.md"
+        ],
+        "images": [],
+        "code": [],
+        "references": {},
+        "passed": true
+      },
+      {
+        "case": "email_tick",
+        "links": [
+          "mailto:a%60@host.invalid",
+          "wave-council.md"
+        ],
+        "images": [],
+        "code": [],
+        "references": {},
+        "passed": true
+      },
+      {
+        "case": "prior_code_uri",
+        "links": [
+          "wave-council.md"
+        ],
+        "images": [],
+        "code": [
+          " <https://host.invalid/[hidden](wave-council.md)?arg="
+        ],
+        "references": {},
+        "passed": true
+      },
+      {
+        "case": "prior_code_email",
+        "links": [
+          "wave-council.md"
+        ],
+        "images": [],
+        "code": [
+          " <a"
+        ],
+        "references": {},
+        "passed": true
+      },
+      {
+        "case": "quote_uri",
+        "links": [
+          "https://host.invalid/%5Bhidden%5D(wave-council.md)",
+          "wave-council.md"
+        ],
+        "images": [],
+        "code": [],
+        "references": {},
+        "passed": true
+      },
+      {
+        "case": "list_email",
+        "links": [
+          "mailto:a%60@host.invalid",
+          "wave-council.md"
+        ],
+        "images": [],
+        "code": [],
+        "references": {},
+        "passed": true
+      },
+      {
+        "case": "metadata_ref",
+        "links": [
+          "elsewhere",
+          "wave-council.md"
+        ],
+        "images": [],
+        "code": [],
+        "references": {
+          "R": {
+            "title": "",
+            "href": "wave-council.md",
+            "map": [
+              2,
+              3
+            ]
+          }
+        },
+        "passed": true
+      }
+    ],
+    "default_selected_tests": 26,
+    "renamed_selected_tests": 16,
+    "selected_skips": 0,
+    "broader_renamed_run": {
+      "tests": 52,
+      "existing_intentional_skips": 4,
+      "result": "ok"
+    },
+    "c5_boundary_tests": 10,
+    "c5_boundary_skips": 0,
+    "persistent_metadata": [
+      {
+        "name": "baseline",
+        "tests": 1,
+        "failures": [],
+        "errors": [],
+        "skips": [],
+        "passed": true
+      },
+      {
+        "name": "omit-metadata-blank",
+        "tests": 1,
+        "failures": [
+          "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'[A][31 chars]r\\n[ref]: wave-council.md\\r\\n\\r\\n[LIVE](council-chair.md)\\r\\n' != b'[A][31 chars]r\\n[ref]: council-chair.md\\r\\n\\r\\n[LIVE](council-chair.md)\\r\\n'\n"
+        ],
+        "errors": [],
+        "skips": [],
+        "passed": false
+      }
+    ],
+    "full_suite": "Not run by this reviewer; root owns final canonical qualification; previous11967 receipt is not current evidence for this repair.",
+    "preview_readonly_evidence": "Own9 newly authored fixtures compare full byte/mode trees before/after incoming ZIP preview. Selected real dry-run/unavailable-helper/routed-child controls independently check no target writes. Reused36 candidate specimens and11 extras provide actual install/reinstall/mode observations; their helper preview flags are not independently asserted and are not counted as preview proof."
+  },
+  "existing_finding_reverification": {
+    "01": {
+      "judgment": "clear_applicable_own_lane",
+      "observation": "Own incoming root space-code, recursive list-to-quote fence and nested lazy paragraph controls preserve code bytes and repair live destinations. omit-code fails exact bytes after actual role move and reinstall.",
+      "known_bad_detection_method": "focused-mutation: omit-code through actual incoming surface child"
+    },
+    "02": {
+      "judgment": "clear_applicable_own_lane",
+      "observation": "Own blank-line delimiter and equals-setext/indented-code controls preserve examples and repair adjacent live links. omit-setext mutates code and is detected.",
+      "known_bad_detection_method": "focused-mutation: omit-setext through actual incoming surface child"
+    },
+    "03": {
+      "judgment": "clear_applicable_own_lane",
+      "observation": "Own quoted and wide ordered-list real definitions repair exact destination spans while titles, query/fragment and CRLF remain intact. omit-reference offset capture leaves the real definition old.",
+      "known_bad_detection_method": "focused-mutation: omit-reference through actual incoming surface child"
+    },
+    "04": {
+      "judgment": "clear_applicable_own_lane",
+      "observation": "Own comment and list/quote pre-block cases preserve HTML bodies and repair adjacent destinations. Valid omit-HTML-terminator mutant keeps a subsequent live link old and is detected.",
+      "known_bad_detection_method": "focused-mutation: valid omit-HTML-terminator through actual incoming surface child"
+    },
+    "05": {
+      "judgment": "clear_applicable_own_lane",
+      "observation": "Own invalid backtick info opener remains a paragraph; genuine tilde fence containing a backtick remains code. bad-info mutant hides a real link and is detected.",
+      "known_bad_detection_method": "focused-mutation: bad-info through actual incoming surface child"
+    },
+    "06": {
+      "judgment": "clear_applicable_own_lane",
+      "observation": "Own five backslash polarities for links/images and real shared-image reference match explicit bytes. odd-only-escape mutant misses an even-run ordinary link.",
+      "known_bad_detection_method": "focused-mutation: odd-only-escape through actual incoming surface child"
+    },
+    "07": {
+      "judgment": "clear_applicable_own_lane",
+      "observation": "Own declared native raw/escaped/percent directory destinations repair on installing/reinstall, preserving query, fragment, title and mode; retry emits no false remaining-link notice. Directory-component-skip source mutant moves the native role but leaves the ordinary inbound link old.",
+      "known_bad_detection_method": "focused-mutation: skip-native-directory-component through actual incoming surface child"
+    },
+    "08": {
+      "judgment": "clear_applicable_own_lane",
+      "observation": "Own eight historical/current-record exclusions remain exact and unreported. Canonical seed160 current clauses accurately describe automatic supported repair, write-free preview, partial per-file completion and stable retry; old HEAD guidance fails the independently selected current clauses.",
+      "known_bad_detection_method": "injected-old-behavior: HEAD seed160 fails independently selected current behavior/exclusion propositions"
+    },
+    "09": {
+      "judgment": "clear_applicable_own_lane",
+      "observation": "Own HTML attribute/comment/multiline literal precedence and code opened before apparent HTML/title match exact incoming bytes. Title/attribute image-like literals do not acquire reference ownership; metadata-blank and HTML-precedence mutants are caught. The newly pinned persistent title-image/reference method independently passes current and fails the metadata mutant with exactly one intended assertion and no errors/skips.",
+      "known_bad_detection_method": "focused-mutation: omit-HTML-precedence and omit-metadata-blank; persistent named metadata test fails intended title-reference bytes"
+    },
+    "10": {
+      "judgment": "clear_applicable_own_lane",
+      "observation": "Own root/quote/list paragraph-continuation definition-looking literals remain unchanged; blank/heading boundaries and consecutive genuine definitions repair. definition-interrupts rewrites literal paragraph text and is caught.",
+      "known_bad_detection_method": "focused-mutation: definition-interrupts through actual incoming surface child"
+    },
+    "11": {
+      "judgment": "clear_applicable_own_lane",
+      "observation": "Own paired/single title ticks, query ticks, embedded link literals and earlier-code controls preserve opaque metadata and repair genuine ordinary destinations. omit-link-metadata hides a real link and is caught.",
+      "known_bad_detection_method": "focused-mutation: omit-link-metadata through actual incoming surface child"
+    },
+    "12": {
+      "judgment": "clear_applicable_own_lane",
+      "observation": "Own strict524-file census passes unchanged; a copied owned test_upgrade_wavefoundry.py old native actor injection produces exactly one unexpected occurrence with zero allowance. Current fixture pointer is derived from COUNCIL_ROLE_RENAMES; no ownership or allowance weakening.",
+      "known_bad_detection_method": "focused-mutation: copied owned test_upgrade_wavefoundry.py old actor injection is rejected with exactly one zero-allowance census violation"
+    },
+    "13": {
+      "judgment": "clear_applicable_own_lane",
+      "observation": "Own encoded unsupported-image control preserves bytes and produces actionable preview/reinstall diagnostics. omit-diagnostic-decode preserves bytes but loses required notice and is caught. Supported native retries remain silent in own extras.",
+      "known_bad_detection_method": "focused-mutation: omit-diagnostic-decode through actual incoming preview/reinstall child"
+    },
+    "14": {
+      "judgment": "clear_applicable_own_lane",
+      "observation": "Nine freshly authored URI/email, earlier-code, recursive quote/list and title/reference specimens pass exact installing/reinstall bytes and read-only preview. Installed MarkdownIt commonmark independently confirms each selected semantic expectation. Saved f71 renderer on own six fixtures fails four URI/email cases and passes two earlier-code controls. URI and email protection removals each fail intended output while reaching actual incoming role moves.",
+      "known_bad_detection_method": "pre-fix and focused-mutation: saved f71 actual incoming four failures/two controls; URI/email removals caught independently"
+    }
+  },
+  "new_findings": [],
+  "mutation_table": [
+    {
+      "case": "space_code",
+      "group": "01",
+      "mutant": "omit-code",
+      "preview_read_only": true,
+      "role_moved": true,
+      "install_exact": false,
+      "mode_kept": true,
+      "reinstall_exact": false,
+      "one_incoming_child": true,
+      "passed": false,
+      "actual": "\r\n    [C](council-chair.md)\r\n\r\n[L](council-chair.md)\r\n",
+      "expected": "\r\n    [C](wave-council.md)\r\n\r\n[L](council-chair.md)\r\n",
+      "detected": true
+    },
+    {
+      "case": "setext_code",
+      "group": "02",
+      "mutant": "omit-setext",
+      "preview_read_only": true,
+      "role_moved": true,
+      "install_exact": false,
+      "mode_kept": true,
+      "reinstall_exact": false,
+      "one_incoming_child": true,
+      "passed": false,
+      "actual": "heading\r\n===\r\n    [C](council-chair.md)\r\n\r\n[L](council-chair.md)\r\n",
+      "expected": "heading\r\n===\r\n    [C](wave-council.md)\r\n\r\n[L](council-chair.md)\r\n",
+      "detected": true
+    },
+    {
+      "case": "quote_definition",
+      "group": "03",
+      "mutant": "omit-reference",
+      "preview_read_only": true,
+      "role_moved": true,
+      "install_exact": false,
+      "mode_kept": true,
+      "reinstall_exact": false,
+      "one_incoming_child": true,
+      "passed": false,
+      "actual": "> [r]: <wave-council.md?mode=2#x> \"title\"\r\n>\r\n> [L](council-chair.md)\r\n",
+      "expected": "> [r]: <council-chair.md?mode=2#x> \"title\"\r\n>\r\n> [L](council-chair.md)\r\n",
+      "detected": true
+    },
+    {
+      "case": "bad_fence",
+      "group": "05",
+      "mutant": "bad-info",
+      "preview_read_only": true,
+      "role_moved": true,
+      "install_exact": false,
+      "mode_kept": true,
+      "reinstall_exact": false,
+      "one_incoming_child": true,
+      "passed": false,
+      "actual": "```bad`info\r\n[L](wave-council.md)\r\n",
+      "expected": "```bad`info\r\n[L](council-chair.md)\r\n",
+      "detected": true
+    },
+    {
+      "case": "inline_attribute",
+      "group": "09",
+      "mutant": "omit-HTML-precedence",
+      "preview_read_only": true,
+      "role_moved": true,
+      "install_exact": false,
+      "mode_kept": true,
+      "reinstall_exact": false,
+      "one_incoming_child": true,
+      "passed": false,
+      "actual": "Text <span title=\"`\"> [L](wave-council.md) <span title=\"`\">\r\n",
+      "expected": "Text <span title=\"`\"> [L](council-chair.md) <span title=\"`\">\r\n",
+      "detected": true
+    },
+    {
+      "case": "quoted_title_ticks",
+      "group": "09",
+      "mutant": "omit-link-metadata",
+      "preview_read_only": true,
+      "role_moved": true,
+      "install_exact": false,
+      "mode_kept": true,
+      "reinstall_exact": false,
+      "one_incoming_child": true,
+      "passed": false,
+      "actual": "[A](council-chair.md \"`\") [L](wave-council.md) [B](unrelated \"`\")\r\n",
+      "expected": "[A](council-chair.md \"`\") [L](council-chair.md) [B](unrelated \"`\")\r\n",
+      "detected": true
+    },
+    {
+      "case": "literal_definition",
+      "group": "10",
+      "mutant": "definition-interrupts",
+      "preview_read_only": true,
+      "role_moved": true,
+      "install_exact": false,
+      "mode_kept": true,
+      "reinstall_exact": false,
+      "one_incoming_child": true,
+      "passed": false,
+      "actual": "paragraph\r\n[r]: council-chair.md\r\n\r\n[L](council-chair.md)\r\n",
+      "expected": "paragraph\r\n[r]: wave-council.md\r\n\r\n[L](council-chair.md)\r\n",
+      "detected": true
+    },
+    {
+      "case": "encoded_image",
+      "group": "13",
+      "mutant": "omit-diagnostic-decode",
+      "preview_read_only": true,
+      "role_moved": true,
+      "install_exact": true,
+      "mode_kept": true,
+      "reinstall_exact": true,
+      "one_incoming_child": true,
+      "diagnostic_preview": false,
+      "diagnostic_reinstall": false,
+      "passed": false,
+      "detected": true
+    },
+    {
+      "case": "uri_literal",
+      "group": "14",
+      "mutant": "omit-uri",
+      "preview_read_only": true,
+      "role_moved": true,
+      "install_exact": false,
+      "mode_kept": true,
+      "reinstall_exact": false,
+      "one_incoming_child": true,
+      "passed": false,
+      "actual": "Text <https://host.invalid/[hidden](council-chair.md)> [live](council-chair.md)\r\n",
+      "expected": "Text <https://host.invalid/[hidden](wave-council.md)> [live](council-chair.md)\r\n",
+      "detected": true
+    },
+    {
+      "case": "email_tick",
+      "group": "14",
+      "mutant": "omit-email",
+      "preview_read_only": true,
+      "role_moved": true,
+      "install_exact": false,
+      "mode_kept": true,
+      "reinstall_exact": false,
+      "one_incoming_child": true,
+      "passed": false,
+      "actual": "Text <a`@host.invalid> [live](wave-council.md) tail `\r\n",
+      "expected": "Text <a`@host.invalid> [live](council-chair.md) tail `\r\n",
+      "detected": true
+    },
+    {
+      "case": "metadata_ref",
+      "group": "09",
+      "mutant": "omit-metadata-blank",
+      "preview_read_only": true,
+      "role_moved": true,
+      "install_exact": false,
+      "mode_kept": true,
+      "reinstall_exact": false,
+      "one_incoming_child": true,
+      "passed": false,
+      "actual": "[first](elsewhere \"![icon][r]\")\r\n\r\n[r]: wave-council.md\r\n\r\n[live](council-chair.md)\r\n",
+      "expected": "[first](elsewhere \"![icon][r]\")\r\n\r\n[r]: council-chair.md\r\n\r\n[live](council-chair.md)\r\n",
+      "detected": true
+    },
+    {
+      "case": "html_comment",
+      "group": "04",
+      "mutant": "omit-HTML-terminator",
+      "preview_read_only": true,
+      "role_moved": true,
+      "install_exact": false,
+      "mode_kept": true,
+      "reinstall_exact": false,
+      "one_incoming_child": true,
+      "passed": false,
+      "actual": "<!--\r\n[C](wave-council.md)\r\n-->\r\n\r\n[L](wave-council.md)\r\n",
+      "expected": "<!--\r\n[C](wave-council.md)\r\n-->\r\n\r\n[L](council-chair.md)\r\n",
+      "detected": true
+    },
+    {
+      "case": "escaped_link_2",
+      "group": "06",
+      "mutant": "odd-only-escape",
+      "preview_read_only": true,
+      "role_moved": true,
+      "install_exact": false,
+      "mode_kept": true,
+      "reinstall_exact": false,
+      "one_incoming_child": true,
+      "passed": false,
+      "actual": "\\\\[A](wave-council.md)\r\n\r\n[L](council-chair.md)\r\n",
+      "expected": "\\\\[A](council-chair.md)\r\n\r\n[L](council-chair.md)\r\n",
+      "detected": true
+    },
+    {
+      "mutant": "skip-native-directory-component",
+      "passed": false,
+      "detected": true,
+      "observed": "[native](../../../.codex/skills/agent-role-wave-council/SKILL.md#scope)\r\n[live](council-chair.md)\r\n",
+      "expected": "[native](../../../.codex/skills/agent-role-council-chair/SKILL.md#scope)\r\n[live](council-chair.md)\r\n",
+      "no_errors": true
+    },
+    {
+      "baseline": [],
+      "observed": [
+        "scripts/tests/test_upgrade_wavefoundry.py: 1 occurrence(s), 0 allowed"
+      ],
+      "expected": [
+        "scripts/tests/test_upgrade_wavefoundry.py: 1 occurrence(s), 0 allowed"
+      ],
+      "owned_count": 524,
+      "detected": true,
+      "no_errors": true
+    },
+    {
+      "mutant": "persistent-omit-metadata-blank",
+      "detected": true,
+      "named_test": "CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_consumes_link_metadata_before_code_ticks",
+      "current_pass": true,
+      "intended_failures": 1,
+      "errors": 0,
+      "skips": 0
+    },
+    {
+      "mutant": "restore-old-seed160-guidance",
+      "detected": true,
+      "method": "Own current/history fixture and required-clause check reject HEAD seed"
+    }
+  ],
+  "mutation_summary": {
+    "unique_incoming_source_variants": 14,
+    "detected_variants": 14,
+    "own_survivors": 0,
+    "persistent_metadata_guard_rechecked": true,
+    "whole_file_survivor_sweeps": "None required: every own selected source variant was detected by targeted behavior assertions.",
+    "prior_survivor_limit": "Earlier narrower first-line HTML-mask survivor is disclosed only as prior candidate; not independently rerun or claimed killed. Finite current HTML termination/code precedence coverage does not isolate every redundant guard."
+  },
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "Own known-bad source variants, saved f71 contrast, persistent metadata mutant, owned census native-token injection and historical guidance rejection"
+  },
+  "limitations": "One fresh independent reviewer holds both architecture-reviewer and docs-contract-reviewer remits; these are disclosed dual roles in one context, not two independent people. Read-only public C1-C5 review. Incoming ZIP/surface fixtures and scratch profile trees are controlled local specimens, not downstream merges or a new release pack. No native Windows, C6/private scope, graph/phase delivery judgment, setup, lifecycle write, canonical receipt, full framework suite, commit, push or close claim. Broad renamed52 had four existing intentional default-only skips; the selected16 regression controls then passed with zero skips. Finite realistic CommonMark specimens only: no whole-CommonMark certification or assertion that every isolated guard has a persistent pin. Earlier reports supply candidates, not inherited approval. The prior narrower first-line HTML-mask survivor was not rerun or claimed killed; the valid HTML-terminator variant was independently caught. No new runtime parser dependency was introduced.",
+  "artifacts": [
+    "/tmp/wf-204mp-autolink-final-arch-docs-run.py",
+    "/tmp/wf-204mp-autolink-final-arch-docs-behavior.json",
+    "/tmp/wf-204mp-autolink-final-arch-docs-extras.py",
+    "/tmp/wf-204mp-autolink-final-arch-docs-extras.json",
+    "/tmp/wf-204mp-autolink-final-arch-docs-persistent.py",
+    "/tmp/wf-204mp-autolink-final-arch-docs-persistent.json",
+    "/tmp/wf-204mp-autolink-final-arch-docs-native-mutant.py",
+    "/tmp/wf-204mp-autolink-final-arch-docs-native-mutant.json",
+    "/tmp/wf-204mp-autolink-final-arch-docs-census-mutant.json",
+    "/tmp/wf-204mp-autolink-final-arch-docs-parser.json",
+    "/tmp/wf-204mp-autolink-final-arch-docs-c1-c4.log",
+    "/tmp/wf-204mp-autolink-final-arch-docs-renamed-targeted.py",
+    "/tmp/wf-204mp-autolink-final-arch-docs-renamed-targeted-result.json",
+    "/tmp/wf-204mp-autolink-final-arch-docs-boundaries.log",
+    "/tmp/wf-204mp-autolink-final-arch-docs-end.json"
+  ],
+  "final_approval_payloads": [
+    {
+      "coordinator_record_only_after_applicable_findings_clear": true,
+      "tool_args": {
+        "wave_id": "204mp",
+        "event": "approval",
+        "actor": "architecture-reviewer",
+        "context_id": "204mp-autolink-final-architecture-docs-independent-20261009",
+        "mode": "dry_run",
+        "signoff_key": "architecture-reviewer",
+        "approval_phase": "delivery",
+        "fresh_context": true,
+        "independent": true,
+        "evidence": {
+          "proposition": "The frozen admitted public C1-C5 implementation preserves documented ownership, dependency direction and behavioral contracts within this reviewer lane.",
+          "failure_condition": "A reached supported C1-C5 public boundary violates required AC behavior, alias authority, contained/exact/current-doc rewrite scope or canonical documentation.",
+          "public_path": "Current profile/evidence/lifecycle producers; actual incoming upgrade, preview and strict docs gate; strict framework ownership and portable-oracle consumers.",
+          "command_or_fixture": "/tmp/wf-204mp-autolink-final-arch-docs-run.py; /tmp/wf-204mp-autolink-final-arch-docs-extras.py; /tmp/wf-204mp-autolink-final-arch-docs-persistent.py; /tmp/wf-204mp-autolink-final-arch-docs-native-mutant.py; /tmp/wf-204mp-autolink-final-arch-docs-c1-c4.log; /tmp/wf-204mp-autolink-final-arch-docs-renamed-targeted.py; /tmp/wf-204mp-autolink-final-arch-docs-boundaries.log",
+          "expected": "Documented and actual bounded behavior agree without source/ledger mutation or authority broadening.",
+          "observed": "Fresh frozen public C1-C5 source/docs review: own56 current incoming cases and all10 real docs-gate/preflight/refusal/interruption/retry/preview controls pass; default26 and selected renamed16 pass no skips. Strict524 census negative control catches native fixture regression. Profile aliases remain one canonical council identity with preserved ledger bytes, role/operator refusals and real reload. Own14 source mutation variants are detected plus persistent metadata, census and historical guidance controls. Saved f71 four-failure/two-control contrast reproduces C5 defect. No new material architecture or docs-contract defect.",
+          "artifact_or_test_id": "/tmp/wf-204mp-autolink-final-arch-docs-report.json",
+          "known_bad_detection_method": "Own executed source mutants, saved f71 contrast, persistent title-reference mutant, strict census native-token injection, and rejected historical false seed guidance.",
+          "limitations": "One fresh independent reviewer holds both architecture-reviewer and docs-contract-reviewer remits; these are disclosed dual roles in one context, not two independent people. Read-only public C1-C5 review. Incoming ZIP/surface fixtures and scratch profile trees are controlled local specimens, not downstream merges or a new release pack. No native Windows, C6/private scope, graph/phase delivery judgment, setup, lifecycle write, canonical receipt, full framework suite, commit, push or close claim. Broad renamed52 had four existing intentional default-only skips; the selected16 regression controls then passed with zero skips. Finite realistic CommonMark specimens only: no whole-CommonMark certification or assertion that every isolated guard has a persistent pin. Earlier reports supply candidates, not inherited approval. The prior narrower first-line HTML-mask survivor was not rerun or claimed killed; the valid HTML-terminator variant was independently caught. No new runtime parser dependency was introduced.",
+          "safety_and_authorization": "Authorized read-only independent public review and disposable scratch probes."
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "Own executed source mutants, saved f71 contrast, persistent title-reference mutant, strict census native-token injection, and rejected historical false seed guidance."
+        }
+      }
+    },
+    {
+      "coordinator_record_only_after_applicable_findings_clear": true,
+      "tool_args": {
+        "wave_id": "204mp",
+        "event": "approval",
+        "actor": "docs-contract-reviewer",
+        "context_id": "204mp-autolink-final-architecture-docs-independent-20261009",
+        "mode": "dry_run",
+        "signoff_key": "docs-contract-reviewer",
+        "approval_phase": "delivery",
+        "fresh_context": true,
+        "independent": true,
+        "evidence": {
+          "proposition": "The frozen admitted public C1-C5 implementation preserves documented ownership, dependency direction and behavioral contracts within this reviewer lane.",
+          "failure_condition": "A reached supported C1-C5 public boundary violates required AC behavior, alias authority, contained/exact/current-doc rewrite scope or canonical documentation.",
+          "public_path": "Current profile/evidence/lifecycle producers; actual incoming upgrade, preview and strict docs gate; strict framework ownership and portable-oracle consumers.",
+          "command_or_fixture": "/tmp/wf-204mp-autolink-final-arch-docs-run.py; /tmp/wf-204mp-autolink-final-arch-docs-extras.py; /tmp/wf-204mp-autolink-final-arch-docs-persistent.py; /tmp/wf-204mp-autolink-final-arch-docs-native-mutant.py; /tmp/wf-204mp-autolink-final-arch-docs-c1-c4.log; /tmp/wf-204mp-autolink-final-arch-docs-renamed-targeted.py; /tmp/wf-204mp-autolink-final-arch-docs-boundaries.log",
+          "expected": "Documented and actual bounded behavior agree without source/ledger mutation or authority broadening.",
+          "observed": "Fresh frozen public C1-C5 source/docs review: own56 current incoming cases and all10 real docs-gate/preflight/refusal/interruption/retry/preview controls pass; default26 and selected renamed16 pass no skips. Strict524 census negative control catches native fixture regression. Profile aliases remain one canonical council identity with preserved ledger bytes, role/operator refusals and real reload. Own14 source mutation variants are detected plus persistent metadata, census and historical guidance controls. Saved f71 four-failure/two-control contrast reproduces C5 defect. No new material architecture or docs-contract defect.",
+          "artifact_or_test_id": "/tmp/wf-204mp-autolink-final-arch-docs-report.json",
+          "known_bad_detection_method": "Own executed source mutants, saved f71 contrast, persistent title-reference mutant, strict census native-token injection, and rejected historical false seed guidance.",
+          "limitations": "One fresh independent reviewer holds both architecture-reviewer and docs-contract-reviewer remits; these are disclosed dual roles in one context, not two independent people. Read-only public C1-C5 review. Incoming ZIP/surface fixtures and scratch profile trees are controlled local specimens, not downstream merges or a new release pack. No native Windows, C6/private scope, graph/phase delivery judgment, setup, lifecycle write, canonical receipt, full framework suite, commit, push or close claim. Broad renamed52 had four existing intentional default-only skips; the selected16 regression controls then passed with zero skips. Finite realistic CommonMark specimens only: no whole-CommonMark certification or assertion that every isolated guard has a persistent pin. Earlier reports supply candidates, not inherited approval. The prior narrower first-line HTML-mask survivor was not rerun or claimed killed; the valid HTML-terminator variant was independently caught. No new runtime parser dependency was introduced.",
+          "safety_and_authorization": "Authorized read-only independent public review and disposable scratch probes."
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "Own executed source mutants, saved f71 contrast, persistent title-reference mutant, strict census native-token injection, and rejected historical false seed guidance."
+        }
+      }
+    }
+  ]
+}

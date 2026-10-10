@@ -1,0 +1,27 @@
+{
+  "resolver_existing_tiers": {
+    "suffix_shortest": "a.py::run",
+    "bare_two_callables": null,
+    "exact": "a.py::A.go",
+    "absent": null
+  },
+  "flat_status_boundary": {
+    "summary_schema_version": 1,
+    "summary_source_degraded": "scan_timeout",
+    "reconciliation_status": "incomplete",
+    "reconciliation_reason": "timeout",
+    "index_rebuilt": true
+  },
+  "plan_omission_controls": {
+    "2071o graph-query-provenance": {
+      "required_clause": "omit the snippet",
+      "omission_rejected": true
+    },
+    "2071p bounded-reconciliation-reporting": {
+      "required_clause": "do not invoke another scanner",
+      "omission_rejected": true
+    }
+  },
+  "all14_end_match": true,
+  "packet_fingerprint": "534dc4c520bcccf27e6063216b5b6a0d3f673540b57eb9f3fd94f3702a0e1e06"
+}

@@ -1,0 +1,538 @@
+fixture pause
+fixture pause
+ERROR: Upgrade failed during phase 'index_update'.
+fixture pause
+ERROR: Upgrade failed during phase 'index_update'.
+ERROR: Upgrade failed during phase 'index_update'.
+fixture pause
+fixture pause
+ERROR: Upgrade failed during phase 'index_update'.
+ERROR: Extension hook 'pre_index_update' raised: boom
+ERROR: Upgrade failed during phase 'index_update'.
+fixture pause
+fixture pause
+ERROR: Upgrade failed during phase 'index_update'.
+fixture pause
+ERROR: Upgrade failed during phase 'index_update'.
+ERROR: Upgrade failed during phase 'index_update'.
+fixture pause
+fixture pause
+ERROR: Upgrade failed during phase 'index_update'.
+ERROR: Extension hook 'pre_index_update' raised: boom
+ERROR: Upgrade failed during phase 'index_update'.
+.fixture pause
+fixture pause
+.....................  ⚠  Could not read seeds from zip: File is not a zip file
+..............upgrade-convergence preview: 1 legacy config-key rewrite(s) planned in docs/workflow-config.json; wrote preview log .wavefoundry/logs/upgrade-convergence-migration.preview.log
+  - would rename `wave_council_policy` → `wave_review` in docs/workflow-config.json
+....upgrade-convergence: dropped 1 (`wave_council_policy` (canonical `wave_review` already present)) in docs/workflow-config.json — see /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp13f5mo3d/.wavefoundry/logs/upgrade-convergence-migration.log for the dropped values
+.upgrade-convergence: renamed 1 (`wave_council_policy`→`wave_review`) in docs/workflow-config.json — see /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp51hcjt2d/.wavefoundry/logs/upgrade-convergence-migration.log for the dropped values
+......  WARNING: convergence migration could not read/parse /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpodn13jro/docs/workflow-config.json (Expecting property name enclosed in double quotes: line 1 column 2 (char 1)); legacy config keys were NOT rewritten — the docs gate may fail until this is fixed.
+.......render_platform_surfaces: ERROR — council role migration blocked: docs/agents/specialists/wave-council.md -> docs/agents/specialists/council-chair.md: both exist. All files were preserved and nothing was written. Merge any project-authored prose from each old file into its new file, remove the old file, and rerun the upgrade.
+..render_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination
+.
+── Phase 3: Docs gate ──
+docs-gardener: ok (nothing to report)
+WARNING: docs/waves/change-2026-03/wave.md: change `00058-bug fixture-core` status drift: the wave record says `complete` but `docs/waves/change-2026-03/00058-bug fixture-core.md` says no readable status; update whichever is wrong
+WARNING: docs/waves/change-2026-03/wave.md: change `00059-enh fixture-follow-up` status drift: the wave record says `ready` but `docs/waves/change-2026-03/00059-enh fixture-follow-up.md` says no readable status; update whichever is wrong
+docs-lint: ok
+  Docs gate: PASSED
+..........render_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination
+render_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination
+render_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination
+render_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination
+render_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination
+render_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination
+render_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination
+render_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination
+..render_platform_surfaces: ERROR — council role link repair stopped at docs/agents/specialists/researcher.md (RuntimeError); earlier moves or edits may be complete; restore access and rerun
+.....................................docs-gardener: ok (nothing to report)
+ERROR: docs/README.md: missing or invalid `Owner` metadata
+WARNING: docs/waves/change-2026-03/wave.md: change `00058-bug fixture-core` status drift: the wave record says `complete` but `docs/waves/change-2026-03/00058-bug fixture-core.md` says no readable status; update whichever is wrong
+WARNING: docs/waves/change-2026-03/wave.md: change `00059-enh fixture-follow-up` status drift: the wave record says `ready` but `docs/waves/change-2026-03/00059-enh fixture-follow-up.md` says no readable status; update whichever is wrong
+.......
+── Dry Run ── (no changes will be made) ─────────────────────────────────
+
+Wavefoundry Upgrade Plan
+========================================
+Pack version:       unknown
+Installed revision: (none)
+Zip to apply:       none (using current tree)
+Surfaces to render: hooks, MCP config, bin launchers, agent surfaces
+Prune mode:         legacy removal list (no prior MANIFEST)
+Docs gate:          .wavefoundry/bin/wf docs-gardener && .wavefoundry/bin/wf docs-lint
+Dashboard:          not running
+Prompt files:       none (all already use .prompt.md extension)
+Seeds changed:      n/a (no zip — current tree already applied)
+
+── Hook Inventory ──────────────────────────────────────────────────────
+
+Extension module:   n/a (no zip)
+
+Convention hooks:   none (.wavefoundry/hooks/<name> scripts absent)
+
+── End Dry Run ──────────────────────────────────────────────────────────
+No changes were made. Run without --dry-run to execute the upgrade.
+WAVE_UPGRADE_SUMMARY_JSON:{"review_sidecar_cleanup": null, "from_version": null, "to_version": "unknown", "zip_applied": null, "pruned_count": 0, "docs_gate": "PASSED", "index_update": "not run — call with --update-index after editing pass", "dependency_provisioning_failed": false, "setup_status": "not_assessed", "setup_reasons": [], "setup_command": null, "failed_phase": null, "is_major_or_minor": false, "reconciliation": [], "reconciliation_disposition_diagnostics": [], "host_permission_flags": [], "renderer_provenance_flags": [], "renderer_warnings": [], "permissions_file": null, "permissions_added": [], "permissions_removed": [], "permissions_changed": null, "permissions_unmanaged_present": null, "skipped_scan_locations": [], "retired_model_cleanup_status": "dry_run", "retired_model_cleanup_removed": [], "retired_model_cleanup_absent": [], "retired_model_cleanup_unowned": [], "retired_model_cleanup_failed": [], "summary_schema_version": 1, "preview_logs": []}
+.....
+── Dry Run ── (no changes will be made) ─────────────────────────────────
+
+Wavefoundry Upgrade Plan
+========================================
+Pack version:       unknown
+Installed revision: (none)
+Zip to apply:       none (using current tree)
+Surfaces to render: hooks, MCP config, bin launchers, agent surfaces
+Prune mode:         legacy removal list (no prior MANIFEST)
+Docs gate:          .wavefoundry/bin/wf docs-gardener && .wavefoundry/bin/wf docs-lint
+Dashboard:          not running
+Prompt files:       none (all already use .prompt.md extension)
+Seeds changed:      n/a (no zip — current tree already applied)
+
+── Hook Inventory ──────────────────────────────────────────────────────
+
+Extension module:   n/a (no zip)
+
+Convention hooks:   none (.wavefoundry/hooks/<name> scripts absent)
+
+── End Dry Run ──────────────────────────────────────────────────────────
+No changes were made. Run without --dry-run to execute the upgrade.
+WAVE_UPGRADE_SUMMARY_JSON:{"review_sidecar_cleanup": null, "from_version": null, "to_version": "unknown", "zip_applied": null, "pruned_count": 0, "docs_gate": "PASSED", "index_update": "not run — call with --update-index after editing pass", "dependency_provisioning_failed": false, "setup_status": "not_assessed", "setup_reasons": [], "setup_command": null, "failed_phase": null, "is_major_or_minor": false, "reconciliation": [], "reconciliation_disposition_diagnostics": [], "host_permission_flags": [], "renderer_provenance_flags": [], "renderer_warnings": [], "permissions_file": null, "permissions_added": [], "permissions_removed": [], "permissions_changed": null, "permissions_unmanaged_present": null, "skipped_scan_locations": [], "retired_model_cleanup_status": "dry_run", "retired_model_cleanup_removed": [], "retired_model_cleanup_absent": [], "retired_model_cleanup_unowned": [], "retired_model_cleanup_failed": [], "summary_schema_version": 1, "preview_logs": []}
+...................................⚠  Stale upgrade lock contains pre-extract reconciliation evidence — preserving it until the requested target is known.
+upgrade docs reconciliation: graph builder version 44 -> 45
+..upgrade docs reconciliation: graph builder version 44 -> 45
+....Historical memory requires bounded extraction and agent validation before index publication. Reload MCP, run memory_backfill and memory_validate, then call wf_upgrade(phase='resume_after_memory').
+Historical memory is ready for receipt-owned publication. Reload the installed MCP/runtime and call wf_upgrade(phase='resume_after_memory').
+..Historical memory requires bounded extraction and agent validation before index publication. Reload MCP, run memory_backfill and memory_validate, then call wf_upgrade(phase='resume_after_memory').
+.......upgrade docs reconciliation: docs embedding model docs-v1 -> docs-v2
+upgrade docs reconciliation: code embedding model code-v1 -> code-v2
+upgrade docs reconciliation: reranker model reranker-v1 -> reranker-v2
+upgrade docs reconciliation: state-store schema version 6 -> 7
+upgrade docs reconciliation: chunker version 32 -> 33
+.......ERROR: Historical memory is complete (0 pending) but not yet marked indexed; index/cleanup is refused. Recover in order: --resume-after-memory first (it exits zero while the upgrade is still non-terminal), then --cleanup, then index_build; confirm with index_health.
+ERROR: Historical memory is complete (0 pending) but not yet marked indexed; index/cleanup is refused. Recover in order: --resume-after-memory first (it exits zero while the upgrade is still non-terminal), then --cleanup, then index_build; confirm with index_health.
+..ERROR: Upgrade failed during phase 'index_update'. The upgrade lock has been RETAINED with a failure marker so dashboard restart intent and any partially replaced tree remain visible. Inspect .wavefoundry/upgrade-in-progress.json. Resolve the failure, then re-run the full upgrade to restore a clean state.
+...
+── Resume: re-running the docs gate against the already-extracted tree ──
+  Review-state projection and docs gate PASSED on resume; the historical-memory checkpoint is ready. Run wf_upgrade(phase='resume_after_memory') to publish the index.
+Historical memory validated; Phase 4 index publication complete.
+.ERROR: Historical memory index publication failed: fresh verifier interrupted
+Historical memory index publication is already complete.
+..ERROR: Historical memory validation is pending; index/cleanup is refused. Run bounded memory backfill + validation, then --resume-after-memory.
+ERROR: Historical memory validation is pending; index/cleanup is refused. Run bounded memory backfill + validation, then --resume-after-memory.
+...Historical memory validated; Phase 4 index publication complete.
+..Historical memory validated; Phase 4 index publication complete.
+.
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+  Phase 4b: updating graph index (blocking) ...
+  Phase 4c: skipped — child preparation finished; epoch publication is pending the parent.
+Historical memory validated; Phase 4 index publication complete.
+.Historical memory validated; Phase 4 index publication complete.
+Historical memory index publication is already complete.
+..Historical memory validated; Phase 4 index publication complete.
+Historical memory index publication is already complete.
+.ERROR: Historical memory index publication failed: checkpoint unavailable
+Historical memory index publication is already complete.
+.ERROR: Historical memory index publication failed: index child did not produce a valid staging receipt; authoritative index state remains unpublished
+.Historical memory validated; Phase 4 index publication complete.
+.Historical memory validated; Phase 4 index publication complete.
+............s.............................................................................  Extension module loaded from zip (framework/scripts/upgrade_extensions.py).
+.  Extension module loaded from zip (.wavefoundry/framework/scripts/upgrade_extensions.py).
+.  ⚠  Could not open zip to load upgrade_extensions: File is not a zip file
+.  ⚠  upgrade_extensions.py syntax error — skipping: invalid syntax (upgrade_extensions.py, line 1)
+........................................................................
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+  Phase 4b: updating graph index (blocking) ...
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+.
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+  Phase 4b: updating graph index (blocking) ...
+  ⚠  Graph index update exited 7 — continuing (first-query rebuild remains the safety net).
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+.
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+  Phase 4b: updating graph index (blocking) ...
+  ⚠  Graph index update exited 7 — continuing (first-query rebuild remains the safety net).
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+.
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+  Phase 4b: updating graph index (blocking) ...
+  ⚠  Graph index update exited 7 — continuing (first-query rebuild remains the safety net).
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+.
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+.
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+  Phase 4b: updating graph index (blocking) ...
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+.
+── Phase 4: Index rebuild (full) ──
+  Phase 4a: rebuilding docs and code index layers (blocking) ...
+  Phase 4b: rebuilding graph index (blocking) ...
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+.
+── Phase 4: Index rebuild (full) ──
+  Phase 4a: rebuilding docs and code index layers (blocking) ...
+  Phase 4b: rebuilding graph index (blocking) ...
+  ⚠  Graph index rebuild exited 7 — continuing (first-query rebuild remains the safety net).
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+.
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+  Phase 4b: updating graph index (blocking) ...
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+.......⚠  Failed upgrade lock detected (PID not running) — preserving dashboard restart intent for the recovery run.
+.⚠  Stale upgrade lock contains pre-extract reconciliation evidence — preserving it until the requested target is known.
+...ERROR: Dashboard restart failed; upgrade lock retained for recovery: dashboard restart returned an error
+.......................council role migration preview: 
+..council role migration preview: 
+.council role migration preview: 
+upgrade-migration preview: 1 planned action(s); wrote preview log .wavefoundry/logs/upgrade-migration-1.5.0.preview.log (no upgrade changes were made)
+.council role migration preview: 
+upgrade-migration preview: 2 planned action(s); wrote preview log .wavefoundry/logs/upgrade-migration-1.5.0.preview.log (no upgrade changes were made)
+.council role migration preview: 
+.council role migration preview: 
+.council role migration preview: 
+.....................Historical memory requires validation. Reload the installed MCP/runtime, run memory_validate, then call wf_upgrade(phase='resume_after_memory').
+.
+── Phase 4: Index rebuild (full) ──
+  Phase 4a: rebuilding docs and code index layers (blocking) ...
+  Phase 4b: rebuilding graph index (blocking) ...
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+.
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+  Phase 4b: updating graph index (blocking) ...
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+.
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+  Phase 4b: updating graph index (blocking) ...
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+.
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+  Phase 4b: updating graph index (blocking) ...
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+.
+── Phase 1: Surface rendering ──
+  Surfaces rendered.
+  Permissions delta: none (.claude/settings.json permissions.allow unchanged).
+.............
+Wavefoundry Upgrade — 2026-10-09 01:11
+Repository root: /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpeps57nti
+  No pre-upgrade MANIFEST; diff-based pruning cannot be proven.
+  Upgrade lock written — dashboard will pause indexing.
+  Upgrade log: /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpeps57nti/.wavefoundry/logs/upgrade.log
+  Watch:       tail -f /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpeps57nti/.wavefoundry/logs/upgrade.log
+
+── Phase 0b: Applying zip wavefoundry-upgrade.zip ──
+  Extracted wavefoundry-upgrade.zip
+
+── Phase 0c: Review-policy migration ──
+  {"carriers_reconciled": [], "delivery_mode": "targeted", "waves_marked_for_reprepare": []}
+
+── Phase 2b: Secrets policy ──
+  ok
+
+── Phase 2c: Lifecycle-ID policy ──
+  ok
+
+── Phase 2d: Retired review-evidence sidecar cleanup ──
+  {"removed_sidecars": 0, "removed_stale_root_lock": 0, "restart_required": true}
+  Full restart of every attached MCP/agent host (including this one) is required before lifecycle mutation resumes.
+
+✓ Phases 0–4 complete. Proceed with agent editing pass, then run:
+    upgrade-wavefoundry --cleanup
+
+(Re-run upgrade-wavefoundry --update-index manually only if you edit additional files post-upgrade and want the index refreshed.)
+.
+Wavefoundry Upgrade — 2026-10-09 01:11
+Repository root: /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp64swp81u
+  No pre-upgrade MANIFEST; diff-based pruning cannot be proven.
+  Upgrade lock written — dashboard will pause indexing.
+  Upgrade log: /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp64swp81u/.wavefoundry/logs/upgrade.log
+  Watch:       tail -f /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp64swp81u/.wavefoundry/logs/upgrade.log
+
+── Phase 0c: Review-policy migration ──
+  {"carriers_reconciled": [], "delivery_mode": "targeted", "waves_marked_for_reprepare": []}
+
+── Phase 2b: Secrets policy ──
+  ok
+
+── Phase 2c: Lifecycle-ID policy ──
+  ok
+
+── Phase 2d: Retired review-evidence sidecar cleanup ──
+  {"removed_sidecars": 0, "removed_stale_root_lock": 0, "restart_required": true}
+  Full restart of every attached MCP/agent host (including this one) is required before lifecycle mutation resumes.
+ERROR: Upgrade failed during phase 'index_update'. The upgrade lock has been RETAINED with a failure marker so dashboard restart intent and any partially replaced tree remain visible. Inspect .wavefoundry/upgrade-in-progress.json. Resolve the failure, then re-run the full upgrade to restore a clean state.
+.
+Wavefoundry Upgrade — 2026-10-09 01:11
+Repository root: /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkpqus3_b
+  No pre-upgrade MANIFEST; diff-based pruning cannot be proven.
+  Upgrade lock written — dashboard will pause indexing.
+  Upgrade log: /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkpqus3_b/.wavefoundry/logs/upgrade.log
+  Watch:       tail -f /private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpkpqus3_b/.wavefoundry/logs/upgrade.log
+
+── Phase 0c: Review-policy migration ──
+  {"carriers_reconciled": ["docs/prompts/upgrade-wavefoundry.prompt.md"], "delivery_mode": "targeted", "waves_marked_for_reprepare": []}
+
+── Phase 1: Surface rendering ──
+  Surfaces rendered.
+  Permissions delta (.claude/settings.json permissions.allow); review before relying on the new prompting posture:
+    + mcp__wavefoundry__code_ask
+    + mcp__wavefoundry__code_callgraph
+    + mcp__wavefoundry__code_callhierarchy
+    + mcp__wavefoundry__code_commit_provenance
+    + mcp__wavefoundry__code_constants
+    + mcp__wavefoundry__code_definition
+    + mcp__wavefoundry__code_dependencies
+    + mcp__wavefoundry__code_graph_community
+    + mcp__wavefoundry__code_graph_path
+    + mcp__wavefoundry__code_hover
+    + mcp__wavefoundry__code_impact
+    + mcp__wavefoundry__code_keyword
+    + mcp__wavefoundry__code_lexical
+    + mcp__wavefoundry__code_list_files
+    + mcp__wavefoundry__code_outline
+    + mcp__wavefoundry__code_pattern
+    + mcp__wavefoundry__code_read
+    + mcp__wavefoundry__code_references
+    + mcp__wavefoundry__code_risk_score
+    + mcp__wavefoundry__code_search
+    + mcp__wavefoundry__docs_search
+    + mcp__wavefoundry__index_build_status
+    + mcp__wavefoundry__index_health
+    + mcp__wavefoundry__memory_brief
+    + mcp__wavefoundry__memory_search
+    + mcp__wavefoundry__seed_get
+    + mcp__wavefoundry__wf_audit
+    + mcp__wavefoundry__wf_audit_install
+    + mcp__wavefoundry__wf_current_wave
+    + mcp__wavefoundry__wf_gate_status
+    + mcp__wavefoundry__wf_get_change
+    + mcp__wavefoundry__wf_get_handoff
+    + mcp__wavefoundry__wf_get_prompt
+    + mcp__wavefoundry__wf_gpu_doctor
+    + mcp__wavefoundry__wf_graph_report
+    + mcp__wavefoundry__wf_help
+    + mcp__wavefoundry__wf_list_plans
+    + mcp__wavefoundry__wf_list_waves
+    + mcp__wavefoundry__wf_map
+    + mcp__wavefoundry__wf_server_info
+    + mcp__wavefoundry__wf_techdocs_audit
+    + mcp__wavefoundry__wf_upgrade_status
+    + mcp__wavefoundry__wf_validate_docs
+
+── Phase 2b: Secrets policy ──
+  ok
+
+── Phase 2c: Lifecycle-ID policy ──
+  ok
+
+── Phase 2d: Retired review-evidence sidecar cleanup ──
+  {"removed_sidecars": 0, "removed_stale_root_lock": 0, "restart_required": true}
+  Full restart of every attached MCP/agent host (including this one) is required before lifecycle mutation resumes.
+
+✓ Phases 0–4 complete. Proceed with agent editing pass, then run:
+    upgrade-wavefoundry --cleanup
+
+(Re-run upgrade-wavefoundry --update-index manually only if you edit additional files post-upgrade and want the index refreshed.)
+.
+── Phase 1: Surface rendering ──
+  Surfaces rendered.
+  Permissions delta (.claude/settings.json permissions.allow); review before relying on the new prompting posture:
+    + mcp__wavefoundry__code_ask
+    + mcp__wavefoundry__code_callgraph
+    + mcp__wavefoundry__code_callhierarchy
+    + mcp__wavefoundry__code_commit_provenance
+    + mcp__wavefoundry__code_constants
+    + mcp__wavefoundry__code_definition
+    + mcp__wavefoundry__code_dependencies
+    + mcp__wavefoundry__code_graph_community
+    + mcp__wavefoundry__code_graph_path
+    + mcp__wavefoundry__code_hover
+    + mcp__wavefoundry__code_impact
+    + mcp__wavefoundry__code_keyword
+    + mcp__wavefoundry__code_lexical
+    + mcp__wavefoundry__code_list_files
+    + mcp__wavefoundry__code_outline
+    + mcp__wavefoundry__code_pattern
+    + mcp__wavefoundry__code_read
+    + mcp__wavefoundry__code_references
+    + mcp__wavefoundry__code_risk_score
+    + mcp__wavefoundry__code_search
+    + mcp__wavefoundry__docs_search
+    + mcp__wavefoundry__index_build_status
+    + mcp__wavefoundry__index_health
+    + mcp__wavefoundry__memory_brief
+    + mcp__wavefoundry__memory_search
+    + mcp__wavefoundry__seed_get
+    + mcp__wavefoundry__wf_audit
+    + mcp__wavefoundry__wf_audit_install
+    + mcp__wavefoundry__wf_current_wave
+    + mcp__wavefoundry__wf_gate_status
+    + mcp__wavefoundry__wf_get_change
+    + mcp__wavefoundry__wf_get_handoff
+    + mcp__wavefoundry__wf_get_prompt
+    + mcp__wavefoundry__wf_gpu_doctor
+    + mcp__wavefoundry__wf_graph_report
+    + mcp__wavefoundry__wf_help
+    + mcp__wavefoundry__wf_list_plans
+    + mcp__wavefoundry__wf_list_waves
+    + mcp__wavefoundry__wf_map
+    + mcp__wavefoundry__wf_server_info
+    + mcp__wavefoundry__wf_techdocs_audit
+    + mcp__wavefoundry__wf_upgrade_status
+    + mcp__wavefoundry__wf_validate_docs
+
+── Phase 1: Surface rendering ──
+  Surfaces rendered.
+  Permissions delta: none (.claude/settings.json permissions.allow unchanged).
+.
+── Phase 1: Surface rendering ──
+  Surfaces rendered.
+  Permissions delta (.claude/settings.json permissions.allow); review before relying on the new prompting posture:
+    + mcp__wavefoundry__code_ask
+    + mcp__wavefoundry__code_callgraph
+    + mcp__wavefoundry__code_callhierarchy
+    + mcp__wavefoundry__code_commit_provenance
+    + mcp__wavefoundry__code_constants
+    + mcp__wavefoundry__code_definition
+    + mcp__wavefoundry__code_dependencies
+    + mcp__wavefoundry__code_graph_community
+    + mcp__wavefoundry__code_graph_path
+    + mcp__wavefoundry__code_hover
+    + mcp__wavefoundry__code_impact
+    + mcp__wavefoundry__code_keyword
+    + mcp__wavefoundry__code_lexical
+    + mcp__wavefoundry__code_list_files
+    + mcp__wavefoundry__code_outline
+    + mcp__wavefoundry__code_pattern
+    + mcp__wavefoundry__code_read
+    + mcp__wavefoundry__code_references
+    + mcp__wavefoundry__code_risk_score
+    + mcp__wavefoundry__code_search
+    + mcp__wavefoundry__docs_search
+    + mcp__wavefoundry__index_build_status
+    + mcp__wavefoundry__index_health
+    + mcp__wavefoundry__memory_brief
+    + mcp__wavefoundry__memory_search
+    + mcp__wavefoundry__seed_get
+    + mcp__wavefoundry__wf_audit
+    + mcp__wavefoundry__wf_audit_install
+    + mcp__wavefoundry__wf_current_wave
+    + mcp__wavefoundry__wf_gate_status
+    + mcp__wavefoundry__wf_get_change
+    + mcp__wavefoundry__wf_get_handoff
+    + mcp__wavefoundry__wf_get_prompt
+    + mcp__wavefoundry__wf_gpu_doctor
+    + mcp__wavefoundry__wf_graph_report
+    + mcp__wavefoundry__wf_help
+    + mcp__wavefoundry__wf_list_plans
+    + mcp__wavefoundry__wf_list_waves
+    + mcp__wavefoundry__wf_map
+    + mcp__wavefoundry__wf_server_info
+    + mcp__wavefoundry__wf_techdocs_audit
+    + mcp__wavefoundry__wf_upgrade_status
+    + mcp__wavefoundry__wf_validate_docs
+.
+── Phase 1: Surface rendering ──
+render_platform_surfaces: ERROR — platform render path escapes the repository root through a symlink: .claude
+ERROR: Surface rendering failed.
+.
+── Phase 1: Surface rendering ──
+render_platform_surfaces: ERROR — stale skill path escapes its declared host skill root through a symlink: .codex/skills/auto-guru/SKILL.md
+ERROR: Surface rendering failed.
+.
+── Phase 1: Surface rendering ──
+render_platform_surfaces: ERROR — review carrier path escapes the repository root through a symlink: docs/agents/qa-reviewer.md
+ERROR: Surface rendering failed.
+..............................................................
+── Phase 5: Cleanup ──
+  Upgrade lock retained — it carries a failure marker (phase: retired_model_cleanup) and the tree may be half-replaced.
+  Dashboard restart intent retained; it will run only after a successful recovery cleanup.
+  Resolve the failure on the reported exact component (commonly permissions, ownership, or a file held open by another process), then retry wf_upgrade(phase='cleanup').
+.........s.....................render_platform_surfaces: ERROR — review-plan prompt migration blocked: both docs/prompts/interrogate-plan.prompt.md and docs/prompts/review-plan.prompt.md exist; both were preserved. Merge any project-authored prose into the new prompt, remove the old prompt, and rerun the upgrade.
+.render_platform_surfaces: ERROR — review-plan prompt migration blocked: the legacy prompt has customized or unrecognized canonical contract lines, or mixes recognized profiles; the old prompt was preserved and the new skill/baseline were not rendered. Resolve these fields manually or restore one exact legacy profile before retrying: shortcut-contract: Heading; early-trigger-phrases-contract: Heading, Primary trigger, Canonical source, Input fallback, Scope wording, No-gate identity, Bounded wording, Batch example.
+.render_platform_surfaces: ERROR — review-plan prompt migration blocked: the legacy prompt has customized or unrecognized canonical contract lines, or mixes recognized profiles; the old prompt was preserved and the new skill/baseline were not rendered. Resolve these fields manually or restore one exact legacy profile before retrying: shortcut-contract: Heading, Shortcut, Purpose, Input fallback, When to use, Canonical source; early-trigger-phrases-contract: No-gate identity.
+............................ERROR: Convention hook 'post-docs-gate' exited 1 — aborting upgrade.
+...  Skipping convention hook 'pre-pruning': on Windows a hook needs a runnable extension — add pre-pruning.py or pre-pruning.cmd.
+..ERROR: Extension hook 'pre_docs_gate' raised: boom
+...................scaffold repair: fenced the example block in docs/plans/plan-template.md.
+..scaffold repair: fenced the example block in docs/plans/plan-template.md.
+.scaffold repair: fenced the example block in docs/plans/plan-template.md.
+.scaffold repair: docs/plans/plan-template.md could not be repaired (fencer exploded) — fence its example block by hand, then re-run with --resume-after-gate.
+.scaffold repair: fenced the example block in docs/plans/plan-template.md.
+.scaffold repair: fenced the example block in docs/plans/plan-template.md.
+.scaffold repair: fenced the example block in docs/plans/plan-template.md.
+.scaffold repair: fenced the example block in docs/plans/plan-template.md.
+..scaffold repair: docs/plans/plan-template.md could not be repaired (/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmptqivtugm/docs/plans/plan-template.md is not writable) — fence its example block by hand, then re-run with --resume-after-gate.
+.scaffold repair: fenced the example block in docs/plans/plan-template.md.
+.scaffold repair: fenced the example block in docs/plans/plan-template.md.
+scaffold repair: fenced the example block in docs/plans/plan-template.md.
+scaffold repair: fenced the example block in docs/plans/plan-template.md.
+.scaffold repair: fenced the example block in docs/plans/plan-template.md.
+.scaffold repair: fenced the example block in docs/plans/plan-template.md.
+..scaffold repair: fenced the example block in docs/plans/plan-template.md.
+scaffold repair: fenced the example block in docs/plans/plan-template.md.
+scaffold repair: fenced the example block in docs/plans/plan-template.md.
+scaffold repair: fenced the example block in docs/plans/plan-template.md.
+scaffold repair: fenced the example block in docs/plans/plan-template.md.
+.scaffold repair: fenced the example block in docs/plans/plan-template.md.
+.scaffold repair: docs/plans/plan-template.md declares review targets and could not be repaired automatically — fence its example block by hand, then re-run with --resume-after-gate.
+.scaffold repair: fenced the example block in docs/plans/plan-template.md.
+.scaffold repair: fenced the example block in docs/plans/plan-template.md.
+.scaffold repair: fenced the example block in docs/plans/plan-template.md.
+.scaffold repair: fenced the example block in docs/plans/plan-template.md.
+...
+── Resume: re-running the docs gate against the already-extracted tree ──
+scaffold repair: fenced the example block in docs/plans/plan-template.md.
+  Review-state projection and docs gate PASSED on resume; the historical-memory checkpoint is ready. Run wf_upgrade(phase='resume_after_memory') to publish the index.
+.scaffold repair: fenced the example block in docs/plans/plan-template.md.
+..scaffold repair: fenced the example block in docs/plans/plan-template.md.
+scaffold repair: fenced the example block in docs/plans/plan-template.md.
+scaffold repair: fenced the example block in docs/plans/plan-template.md.
+scaffold repair: docs/plans/plan-template.md could not be repaired (boom) — fence its example block by hand, then re-run with --resume-after-gate.
+scaffold repair: docs/plans/plan-template.md could not be repaired (no chmod) — fence its example block by hand, then re-run with --resume-after-gate.
+scaffold repair: docs/plans/plan-template.md could not be repaired (disk full) — fence its example block by hand, then re-run with --resume-after-gate.
+...................
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+  Phase 4b: updating graph index (blocking) ...
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+  Phase 4b: updating graph index (blocking) ...
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+...............................phase 0 line
+phase 4 line
+.ERROR: something went wrong
+.hello from test
+.timestamped line
+..should not appear in file
+..old content
+new content
+........
+── Phase 2: Pruning ──
+  prune_framework.py not found; retaining MANIFEST snapshot.
+
+── Phase 2: Pruning ──
+  Pruning could not be proven; retaining MANIFEST snapshot: [Errno 2] No such file or directory: '/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpg1b0uzm9/target/.wavefoundry/framework/MANIFEST'
+
+── Phase 2: Pruning ──
+  Pruning could not be proven; retaining MANIFEST snapshot: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte
+...............
+----------------------------------------------------------------------
+Ran 711 tests in 176.088s
+
+OK (skipped=2)

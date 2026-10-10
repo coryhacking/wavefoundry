@@ -1,0 +1,140 @@
+{
+  "reviews": [
+    {
+      "phase": "readiness",
+      "execution_status": "executed",
+      "required_for_approval": true,
+      "known_bad_detection_method": "readiness-safe-control",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "verification_context": {
+        "actor": "performance-reviewer",
+        "context_id": "perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc",
+        "fresh_context": true,
+        "independent": true
+      },
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "universal_claim": false,
+      "source_packet_sha256": "14fef6403ad581f21aeea47500f79d93ec49e858774c1588d036d971fca5d54b",
+      "source_fingerprint_check": "Both identical source packets;14 live SHA256 andGit blob hashes match before andafter finite probes.",
+      "command_or_fixture": "env -u PYTHONPYCACHEPREFIX /Users/coryhacking/.wavefoundry/venv/bin/python -B /private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-replay.py\nenv -u PYTHONPYCACHEPREFIX /Users/coryhacking/.wavefoundry/venv/bin/python -B /private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-controls.py\nenv -u PYTHONPYCACHEPREFIX WAVEFOUNDRY_DISABLE_BYTECODE_CACHE=1 /Users/coryhacking/.wavefoundry/venv/bin/python -B /private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-child-controls.py",
+      "safety_and_authorization": "Readiness-only finite local scratch controls and unique archival replay authorized by coordinator. No repository/source/plan/ledger changes, full suite, network, external scan or operator-pack deletion.",
+      "method_integrity": {
+        "mcp_discovered_callable": true,
+        "live_read_outline_definition_completed": true,
+        "code_ask_crosscutting_completed": true,
+        "indexed_result_used_only_for_navigation": true,
+        "index_freshness": "stale",
+        "gapfill": null,
+        "requested_model": "gpt-6.1-sol",
+        "requested_effort": "high",
+        "actual_model": "unknown;not exposed",
+        "actual_effort": "unknown;not exposed",
+        "budget_seconds": 900,
+        "checkpoint_delivered": true,
+        "selection_rationale": "Bounded source-contract reasoning and finite executable controls fit the15minute seat budget. Higher-latency broader exploration would consume time reserved for actual boundary execution. No inferred runtime model identity."
+      },
+      "wave_id": "2071o graph-query-provenance",
+      "verdict": "approve_readiness_with_notes",
+      "claim_id": "approval:performance-reviewer",
+      "claim_kind": "approval",
+      "proposition": "Current graph repair plans are implementable without introducing a necessary graph rebuild or source rescan, and acceptance controls can distinguish false provenance and resolver failures.",
+      "counterexample_or_failure_condition": "Plan requires name-only provenance guessing, unavailable fresh snippets, changed relationship cardinality or changed resolver tiers; baseline cannot distinguish collision or non-exact Rust failure.",
+      "public_path": "TestCodeCallhierarchy._call -> code_callhierarchy_response, canonical fixture graph publication, served code_impact_response",
+      "expected": "Baseline collision disagrees with persisted site; exact impact succeeds while non-exact Rust fails; plan removes location scan and accepts unproven snippet null.",
+      "observed": "Stored freecall line3 served iterator collect line2 with RECEIVER_RESOLVED; one relationship retained. Barecollect impact NameError re; exactRustID statusok. Live callgraph copies sites instead of rescanning; hierarchy scans both directions.",
+      "artifact_or_test_id": [
+        "/private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-replay.py",
+        "/private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-replay.json",
+        "/private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-fingerprint.json"
+      ],
+      "adjacent_controls": [
+        "ExactRustID impact statusok",
+        "Persisted canonical edge itself contains source_file and line3",
+        "Relationship count remainsone"
+      ],
+      "limitations": "Readiness establishes current defect evidence and feasibility, not unimplemented repair success. No whole corpus, production latency, all historical runners, native Windows, or downstream Tensorwell execution. Cost31681348bytes/10.480564s is attributed downstream;737file120s partialsample and186file8.414389s control differ in corpus/instrumentation, historical activefile unknown. Setup inputs changed; MCP indexedresults stale, live disk validation used.",
+      "strongest_alternative": "Move call-site normalization into a shared query projection used by callgraph and hierarchy. Better for long-term drift prevention and one owner of coordinate validation; costs broadened edits and requalification of an already-correct callgraph consumer. Reject as superior for this repair: existing sites plus hierarchy-local normalization solve the bug without a cross-consumer refactor. Hierarchy-first exactID implementation order can unblock navigation sooner, but loses the resolver-first shared-impact verification benefit; retain planned order."
+    },
+    {
+      "phase": "readiness",
+      "execution_status": "executed",
+      "required_for_approval": true,
+      "known_bad_detection_method": "readiness-safe-control",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "verification_context": {
+        "actor": "performance-reviewer",
+        "context_id": "perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc",
+        "fresh_context": true,
+        "independent": true
+      },
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "universal_claim": false,
+      "source_packet_sha256": "14fef6403ad581f21aeea47500f79d93ec49e858774c1588d036d971fca5d54b",
+      "source_fingerprint_check": "Both identical source packets;14 live SHA256 andGit blob hashes match before andafter finite probes.",
+      "command_or_fixture": "env -u PYTHONPYCACHEPREFIX /Users/coryhacking/.wavefoundry/venv/bin/python -B /private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-replay.py\nenv -u PYTHONPYCACHEPREFIX /Users/coryhacking/.wavefoundry/venv/bin/python -B /private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-controls.py\nenv -u PYTHONPYCACHEPREFIX WAVEFOUNDRY_DISABLE_BYTECODE_CACHE=1 /Users/coryhacking/.wavefoundry/venv/bin/python -B /private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-child-controls.py",
+      "safety_and_authorization": "Readiness-only finite local scratch controls and unique archival replay authorized by coordinator. No repository/source/plan/ledger changes, full suite, network, external scan or operator-pack deletion.",
+      "method_integrity": {
+        "mcp_discovered_callable": true,
+        "live_read_outline_definition_completed": true,
+        "code_ask_crosscutting_completed": true,
+        "indexed_result_used_only_for_navigation": true,
+        "index_freshness": "stale",
+        "gapfill": null,
+        "requested_model": "gpt-6.1-sol",
+        "requested_effort": "high",
+        "actual_model": "unknown;not exposed",
+        "actual_effort": "unknown;not exposed",
+        "budget_seconds": 900,
+        "checkpoint_delivered": true,
+        "selection_rationale": "Bounded source-contract reasoning and finite executable controls fit the15minute seat budget. Higher-latency broader exploration would consume time reserved for actual boundary execution. No inferred runtime model identity."
+      },
+      "wave_id": "2071p bounded-reconciliation-reporting",
+      "verdict": "approve_readiness_with_notes",
+      "claim_id": "approval:performance-reviewer",
+      "claim_kind": "approval",
+      "proposition": "The scanner/reporting plans combine finite work, truthful incomplete states and owned-process reporting containment while preserving the pinned producer contract.",
+      "counterexample_or_failure_condition": "Plan relies on cooperative checks as a hard process deadline, rescans after failure, hides error as clean emptiness, or changes old argv/schema/default300s or parent facts.",
+      "public_path": "scan_repo_channels actual scratch scan, _PROMPT_MD_REFERENCE actual pattern, _emit_primary_summary_via_delegate_or_fallback actual emitter, _delegated_summary_payload real child/tree-timeout boundary",
+      "expected": "Baseline exposes superlinear anchor-free work, rootgenerated scope and error-to-empty fallback; literalguard preserves sampled semantics and existing delegate accepts compatible flatfields/rejects malformedprotocol/terminates finite stalledchild.",
+      "observed": "1024\u21928192chars1.097\u219268.414ms zerohits. Additional8192chars70.122ms vs1.750microseconds literalguard, six differentialcases identicalmatches withtwin controls. Root/nestedgenerated/near-miss and ignoredhost surfaces live; historyexcluded. Hostchannel contains one settings finding. Fourfallbackreasons eachscanonce/emitonesentinel, markerpreserved andschemaabsent. Realchildren valid26.014ms, malformed24.576ms, token999rejected23.615ms,2secondstall killed104.853ms at0.1second timeout; default300 remains.",
+      "artifact_or_test_id": [
+        "/private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-replay.py",
+        "/private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-replay.json",
+        "/private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-controls.py",
+        "/private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-controls.json",
+        "/private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-child-controls.py",
+        "/private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-child-controls.json",
+        "/private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-fingerprint.json"
+      ],
+      "adjacent_controls": [
+        "Nested .local/target androotnear-misses remainlive",
+        "Git-ignored .claude/settings hostchannel retained",
+        "Existingtwin relativepunctuation referencefound; correct.prompt.md andmissingtwin silent",
+        "Compatibleflat incompletefields accepted by actualdelegate",
+        "MalformedJSON/token999reject with reason",
+        "Exactlyone summary forfourdegradationreasons"
+      ],
+      "limitations": "Readiness establishes current defect evidence and feasibility, not unimplemented repair success. No whole corpus, production latency, all historical runners, native Windows, or downstream Tensorwell execution. Cost31681348bytes/10.480564s is attributed downstream;737file120s partialsample and186file8.414389s control differ in corpus/instrumentation, historical activefile unknown. Setup inputs changed; MCP indexedresults stale, live disk validation used. The scanner30seconds is cooperative. The reporting30seconds is a shared work budget enforced by an owned child, with finite startup/scheduling/termination overhead rather than an exact wall-clock equality. Unchanged old-parent fallback cannot be retroactively bounded; no whole-upgrade deadline guarantee.",
+      "strongest_alternative": "Stage a literal-anchor guard and minimal structured-result adapter first, then enforce owned reporting deadline/facts-only fallback, then replace traversal/retention/token matching. Better because reporting stalls are contained before broader scanner surgery; the guard measured equivalent on sixfinitecases and bypassed demonstrated no-anchor cost. Costs additional transitional contracts/qualification, no protection from candidate-bearing/otherpattern/corpus work until stage3, and unchangedoldparent fallback remains. Not superior for this singlewave: retain minimal resultboundary before reporting as planned, qualify one coherent bounded implementation; staged mitigation is preferable only for a separately authorized urgentpartialrelease."
+    }
+  ],
+  "notes": "No falsifiable plan-followed-as-written blocker. Both readiness approvals are performance judgments only; coordinator owns typedrecording anddurableartifactcopy. Requiredfixedseats completed before this rotatingreview, coordinatorconfirmed. This alternative must be weighed by fixedseats before chair synthesis."
+}

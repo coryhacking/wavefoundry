@@ -1,0 +1,1221 @@
+--- before-C6/.wavefoundry/framework/scripts/upgrade_extensions.py
++++ current/.wavefoundry/framework/scripts/upgrade_extensions.py
+@@ -1644,6 +1644,8 @@
+ # ``sys.modules`` never answers and nothing loaded here is left registered.
+ _JOURNAL_DECLARATION_MODULE = "_wf_upgrade_journal_declaration"
+ _JOURNAL_HOOK_MODULE_PREFIX = "_wf_upgrade_journal_hook_"
++_JOURNAL_TRIGGER_NAME = "EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER"
++_JOURNAL_TRIGGER_POLICIES = ("legacy_cutover", "journals_present")
+ # Each free-text placeholder matches 1 to _JOURNAL_PLACEHOLDER_MAX characters
+ # of one line. A real wave id or title is far shorter; the bound keeps a
+ # template with two free-text placeholders on one line from backtracking
+@@ -1669,6 +1671,51 @@
+     return Path(root) / ".wavefoundry" / "framework" / "scripts"
+ 
+ 
++@contextlib.contextmanager
++def _journal_incoming_imports(scripts: Path):
++    """Use incoming siblings for this declaration/hook load and call only.
++
++    The upgrade runner is single-threaded. This is import-state isolation,
++    not a sandbox for trusted distribution code or a generic module reload.
++    Preserve old package objects and descendants rather than mutating them.
++    """
++    try:
++        with os.scandir(scripts) as entries:
++            names = {
++                entry.name[:-3] if entry.name.endswith(".py") else entry.name
++                for entry in entries
++                if ((entry.name.endswith(".py") and entry.is_file(follow_symlinks=False))
++                    or entry.is_dir(follow_symlinks=False))
++            }
++    except FileNotFoundError:
++        names = set()
++    except OSError as exc:
++        raise JournalDeclarationError(
++            [f"incoming journal modules cannot be listed ({type(exc).__name__})"]
++        ) from None
++    names = {name for name in names if name.isidentifier() and name != "__pycache__"}
++
++    def affected(name):
++        return name.partition(".")[0] in names
++
++    previous_modules = {name: module for name, module in sys.modules.copy().items() if affected(name)}
++    previous_path = list(sys.path)
++    for name in previous_modules:
++        sys.modules.pop(name, None)
++    path = str(scripts)
++    sys.path[:] = [path] + [entry for entry in previous_path if entry != path]
++    try:
++        importlib.invalidate_caches()
++        yield
++    finally:
++        for name in list(sys.modules):
++            if affected(name):
++                sys.modules.pop(name, None)
++        sys.modules.update(previous_modules)
++        sys.path[:] = previous_path
++        importlib.invalidate_caches()
++
++
+ def _exec_module_from_file(name: str, path: Path):
+     """Execute the ``.py`` file at ``path`` as a fresh module called ``name``,
+     never registered in ``sys.modules``."""
+@@ -1738,7 +1785,8 @@
+     return function
+ 
+ 
+-def _load_journal_declaration(root, *, load_hook: bool = True) -> "tuple[tuple[str, ...], str, object]":
++def _load_journal_declaration(root, *, load_hook: bool = True,
++                              expected_trigger=None) -> "tuple[tuple[str, ...], str, object]":
+     """The journal migration declaration from the EXTRACTED tree (wave 1zyb3,
+     change 1zxnv): ``(templates, hook_name, hook_callable_or_None)``.
+ 
+@@ -1751,6 +1799,11 @@
+     path = scripts / "mcp_tool_extensions.py"
+     if not path.is_file():
+         return (), "", None
++    if expected_trigger is None:
++        selection = _static_journal_trigger(root)
++        if selection["status"] == "invalid":
++            raise JournalDeclarationError([selection["detail"]])
++        expected_trigger = selection["policy"] or "legacy_cutover"
+     try:
+         module = _exec_module_from_file(_JOURNAL_DECLARATION_MODULE, path)
+     except Exception as exc:  # noqa: BLE001 - refused, never raised raw
+@@ -1759,6 +1812,7 @@
+         ) from None
+     templates = getattr(module, "EXTENSION_JOURNAL_TEMPLATES", ())
+     hook = getattr(module, "EXTENSION_JOURNAL_PRE_MIGRATION_HOOK", "")
++    trigger = getattr(module, _JOURNAL_TRIGGER_NAME, "legacy_cutover")
+     check = getattr(module, "journal_declaration_problems", None)
+     if callable(check):
+         problems = list(check())
+@@ -1766,6 +1820,10 @@
+         problems = ["mcp_tool_extensions declares journal migration entries but has no journal_declaration_problems"]
+     else:
+         problems = []
++    if not isinstance(trigger, str) or trigger not in _JOURNAL_TRIGGER_POLICIES:
++        problems.append(f"{_JOURNAL_TRIGGER_NAME} must be 'legacy_cutover' or 'journals_present'")
++    elif trigger != expected_trigger:
++        problems.append(f"{_JOURNAL_TRIGGER_NAME} does not match the static trigger selection")
+     if problems:
+         raise JournalDeclarationError(problems)
+     function = _load_journal_hook(scripts, hook) if hook and load_hook else None
+@@ -1850,6 +1908,114 @@
+     return ast.literal_eval(value_node)
+ 
+ 
++def _static_journal_trigger(root: Path, zip_path=None, *, extracted: bool = False) -> dict:
++    """Select the hook policy without executing a distribution declaration.
++
++    Preview uses the incoming archive when supplied; apply reads the extracted
++    file, with the incoming read helper available even to a zip-loaded runner.
++    Unknown source is distinct from an explicitly unsupported binding.
++    """
++    try:
++        if zip_path is not None and not extracted:
++            with zipfile.ZipFile(zip_path) as archive:
++                candidates = (
++                    ".wavefoundry/framework/scripts/mcp_tool_extensions.py",
++                    "framework/scripts/mcp_tool_extensions.py",
++                )
++                member = next((name for name in candidates if name in archive.namelist()), None)
++                if member is None:
++                    return {"policy": "legacy_cutover", "status": "valid"}
++                if archive.getinfo(member).file_size > _JOURNAL_DECLARATION_MAX_BYTES:
++                    raise ValueError("declaration exceeds cap")
++                source = archive.read(member)
++        else:
++            if not os.path.lexists(Path(root) / _JOURNAL_DECLARATION_REL):
++                return {"policy": "legacy_cutover", "status": "valid"}
++            reader = _incoming_framework_module("contained_files", zip_path)
++            source = reader.read_contained_bytes(
++                root, _JOURNAL_DECLARATION_REL, max_bytes=_JOURNAL_DECLARATION_MAX_BYTES
++            )
++        tree = ast.parse(source)
++    except Exception as exc:  # noqa: BLE001 -- never disclose paths or source values
++        return {"policy": None, "status": "unknown", "detail":
++                f"journal trigger source is not statically readable ({type(exc).__name__})"}
++
++    try:
++        direct = []
++        for node in tree.body:
++            if isinstance(node, ast.Assign) and any(
++                isinstance(target, ast.Name) and target.id == _JOURNAL_TRIGGER_NAME
++                for target in node.targets
++            ):
++                direct.append(node)
++            elif (isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
++                  and node.target.id == _JOURNAL_TRIGGER_NAME):
++                direct.append(node)
++        # Function/class/exception/pattern/import bindings also count as an
++        # explicit unsupported declaration; do not silently default them.
++        other_binding = any(
++            (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.ExceptHandler))
++             and node.name == _JOURNAL_TRIGGER_NAME)
++            or (isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name == _JOURNAL_TRIGGER_NAME)
++            or (isinstance(node, ast.MatchMapping) and node.rest == _JOURNAL_TRIGGER_NAME)
++            for node in ast.walk(tree)
++        )
++        value = _static_module_literal(tree, _JOURNAL_TRIGGER_NAME)
++        if not direct and value == () and not other_binding:
++            return {"policy": "legacy_cutover", "status": "valid"}
++        if len(direct) != 1 or other_binding or not isinstance(value, str) or value not in _JOURNAL_TRIGGER_POLICIES:
++            raise ValueError("unsupported trigger binding")
++    except Exception:  # noqa: BLE001 -- classification, no execution or value echo
++        return {"policy": None, "status": "invalid", "detail":
++                f"{_JOURNAL_TRIGGER_NAME} requires one direct literal string: 'legacy_cutover' or 'journals_present'"}
++    return {"policy": value, "status": "valid"}
++
++
++def _journals_present(root: Path, zip_path=None) -> bool:
++    """Inspect direct qualifying names/metadata only, never journal contents.
++
++    Reuse the migration's no-follow containment and descriptor walk on POSIX;
++    the existing Windows path branch retains its documented check/use limit.
++    """
++    root = Path(root)
++    fd = None
++    try:
++        containment = _incoming_framework_module("path_containment", zip_path)
++        folder = containment.contained_path(root, _JOURNALS_REL, refuse_symlink_components=True)
++        folder_st = _journal_lstat(folder)
++        if folder is None or folder_st is None or not stat.S_ISDIR(folder_st.st_mode):
++            return False
++        if _journal_dir_fd_supported():
++            _journal_walk_checkpoint("journals")
++            fd = _journal_open_dir(root, _JOURNALS_REL.parts)
++        with os.scandir(fd if fd is not None else folder) as entries:
++            for entry in entries:
++                if not entry.name.endswith(".md") or entry.name == "README.md":
++                    continue
++                if fd is not None:
++                    original = os.stat(entry.name, dir_fd=fd, follow_symlinks=False)
++                    if _journal_source_ok(original) and _journal_dir_unchanged(root, _JOURNALS_REL.parts, fd):
++                        return True
++                else:
++                    candidate = containment.contained_path(
++                        root, _JOURNALS_REL / entry.name, refuse_symlink_components=True
++                    )
++                    if candidate is not None and _journal_source_ok(_journal_lstat(candidate)):
++                        return True
++    except Exception:  # noqa: BLE001 -- a refused/uninspectable source never qualifies
++        return False
++    finally:
++        if fd is not None:
++            os.close(fd)
++    return False
++
++
++def _journal_hook_preview(root: Path, zip_path=None) -> dict:
++    selection = _static_journal_trigger(root, zip_path)
++    return {**selection, "qualifying_journals": _journals_present(root, zip_path),
++            "hook_executed": False, "invocation": "upgrade_apply_only"}
++
++
+ def _static_journal_templates(root: Path, zip_path=None) -> "tuple[tuple[str, ...], bool]":
+     """``(templates, readable)`` for the journal preview (wave 200ey, change
+     200ev), read without executing any repository code.
+@@ -1934,6 +2100,8 @@
+ 
+     root = Path(root)
+     report: dict = {"deleted": [], "moved": [], "left": [], "warnings": []}
++    if not apply:
++        report["hook_preview"] = _journal_hook_preview(root, zip_path)
+     templates_unknown = False
+     if templates is _UNSET:
+         if apply:
+@@ -2191,26 +2359,33 @@
+         )
+ 
+ 
+-def _run_journal_pre_migration_hook(root: Path, hook_name: str, hook) -> bool:
++def _run_journal_pre_migration_hook(root: Path, hook_name: str, hook, *,
++                                   trigger: str = "legacy_cutover") -> bool:
+     """Call the declared pre-migration hook once with the repository root
+     (wave 1zyb3, 1zxnv). True when the migration may run: no hook, or the
+     hook returned. A hook that raises skips the migration for this upgrade
+     with one warning naming the hook and the exception class, never the
+     exception text, which may carry an absolute path.
+ 
+-    Wave 200ey (200ev): the hook runs only on an upgrade from a release before
+-    1.15.0, so the warning says that later upgrades never retry the migration
+-    or the hook and names the Migrate journals prompt as the way to finish."""
++    Default legacy hooks are not retried on later versions. An opted-in hook
++    may run on a later invocation while qualifying sources remain; its own
++    partial effects are not rolled back and it must be idempotent."""
+     if hook is None:
+         return True
+     try:
+         hook(Path(root))
+     except Exception as exc:  # noqa: BLE001 - never fatal to an upgrade
++        retry = (
++            "A later invocation may call the hook again while qualifying journals remain; "
++            "the hook must be idempotent. "
++            if trigger == "journals_present" else
++            "later upgrades do not retry the migration or call the hook again. "
++        )
+         print(
+             f"journal migration WARNING: skipped; the pre-migration hook {hook_name} "
+-            f"raised {type(exc).__name__}. Journals were left in place; later "
+-            "upgrades do not retry the migration or call the hook again. Run "
+-            "the Migrate journals prompt to finish the work.",
++            f"raised {type(exc).__name__}. Dependent journal migration was skipped; "
++            "hook-owned partial effects are not rolled back. " + retry +
++            "Run the Migrate journals prompt to finish the work.",
+             flush=True,
+         )
+         return False
+@@ -2467,6 +2642,12 @@
+     gives that runner the new one-way sidecar cleanup before docs-lint runs.
+     """
+ 
++    if getattr(ctx, "dry_run", False) is True:
++        print("journal hook preview: " + json.dumps(
++            _journal_hook_preview(ctx.root, getattr(ctx, "zip_path", None)), sort_keys=True
++        ), flush=True)
++        return
++
+     # 1.15.6's scaffold rule is class-a, so a repository whose template already
+     # declares would halt at the docs gate on the very upgrade that installs
+     # the rule. Repair first, from this pack-loaded module, so it clears on the
+@@ -2484,21 +2665,31 @@
+     # is idempotent either way. Non-string from_version falls to the module's
+     # unknown-means-old safe default.
+     from_version = ctx.from_version if isinstance(ctx.from_version, str) else ""
+-    if _from_version_predates(from_version, "1.15.0"):
+-        # Wave 1zyb3 (1zxnv): the distribution's journal declaration, loaded
+-        # by path from the extracted tree only when the migration runs, and
+-        # FIRST, so an invalid one (or a hook that cannot be loaded) raises
+-        # before the memory-naming or journal migration changes anything. The
+-        # loaded templates are always passed on, so the declaration module is
+-        # executed once; the hook runs right before the journal migration, and
+-        # a hook that raises skips it. Wave 200ey (200ev): the extracted
+-        # scripts directory is held on sys.path across the hook's load and its
+-        # call (a hook may import helpers declared before it), then removed.
+-        with _scripts_on_sys_path(_journal_scripts_dir(ctx.root)):
+-            templates, hook_name, hook = _load_journal_declaration(ctx.root)
+-            _migrate_memory_naming(ctx.root)
+-            if _run_journal_pre_migration_hook(ctx.root, hook_name, hook):
+-                _migrate_journals(ctx.root, templates)
++    legacy = _from_version_predates(from_version, "1.15.0")
++    zip_path = getattr(ctx, "zip_path", None)
++    selection = _static_journal_trigger(ctx.root, zip_path, extracted=True)
++    if selection["status"] == "invalid":
++        raise JournalDeclarationError([selection["detail"]])
++    if selection["status"] == "unknown" and not legacy:
++        print("journal hook WARNING: unknown trigger; " + selection["detail"] +
++              "; hook skipped without executing the declaration.", flush=True)
++    else:
++        # Unknown pre-cutover sources retain validated load/refusal. Only a
++        # statically selected opt-in can broaden scheduling beyond that gate.
++        trigger = selection["policy"] or "legacy_cutover"
++        eligible = trigger == "legacy_cutover" or _journals_present(ctx.root, zip_path)
++        if legacy or (trigger == "journals_present" and eligible):
++            with _journal_incoming_imports(_journal_scripts_dir(ctx.root)):
++                templates, hook_name, hook = _load_journal_declaration(
++                    ctx.root, load_hook=eligible, expected_trigger=trigger
++                )
++                if legacy:
++                    _migrate_memory_naming(ctx.root)
++                hook_ok = not eligible or _run_journal_pre_migration_hook(
++                    ctx.root, hook_name, hook, trigger=trigger
++                )
++                if legacy and hook_ok:
++                    _migrate_journals(ctx.root, templates)
+ 
+     lock = _read_json_object(
+         ctx.root / ".wavefoundry" / "upgrade-in-progress.json"
+@@ -3614,6 +3805,9 @@
+     it there.
+     """
+     if getattr(ctx, "dry_run", False):
++        print("journal hook preview: " + json.dumps(
++            _journal_hook_preview(ctx.root, getattr(ctx, "zip_path", None)), sort_keys=True
++        ), flush=True)
+         _preview_council_role_links(ctx)
+         return _post_extract(ctx)
+     with _scripts_on_sys_path(_journal_scripts_dir(ctx.root)):
+--- before-C6/.wavefoundry/framework/scripts/mcp_tool_extensions.py
++++ current/.wavefoundry/framework/scripts/mcp_tool_extensions.py
+@@ -135,18 +135,26 @@
+ # and {{date}} (YYYY-MM-DD); every occurrence of one placeholder must match the
+ # same text. A template is the distribution's assertion that a journal equal
+ # to it carries zero operator content, so keep it exact. Read only by the
+-# upgrade, inside its pre-1.15.0 migration gate; an invalid entry refuses that
+-# upgrade (see ``journal_declaration_problems``) and never stops the server.
++# upgrade; built-in deletion remains inside the pre-1.15.0 migration gate.
++# A selected later journal hook also validates the declaration; an invalid
++# entry refuses that upgrade and never stops the server.
+ EXTENSION_JOURNAL_TEMPLATES: tuple[str, ...] = ()
+ 
+ # ``"module:function"`` called once as ``function(root)``, with the repository
+-# root ``pathlib.Path``, right before the journal migration applies (wave
++# root ``pathlib.Path``, at the pre_docs_gate journal boundary (wave
+ # 1zyb3, change 1zxnv). ``module`` must be declared in EXTENSION_HELPER_MODULES,
+ # so the server also loads and hashes it: it must import cleanly there, and its
+ # ``register``, if any, is never called. What the function does on each
+ # platform is the distribution's responsibility. If it raises, the migration is
+-# skipped for that upgrade and journals stay in place.
++# skipped for that upgrade. Hook-owned partial effects are not rolled back.
+ EXTENSION_JOURNAL_PRE_MIGRATION_HOOK: str = ""
++
++# Upgrade-only scheduling, outside the MCP extension activation contract.
++# Declare exactly one module-level literal string (plain or annotated).
++# The default preserves the pre-1.15 cutover. Opt in to "journals_present"
++# for a once-per-invocation hook while standard qualifying journals remain;
++# that policy never grants permission for the built-in legacy migration.
++EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER: str = "legacy_cutover"
+ 
+ # ------------------------------------------------------------------------------
+ 
+@@ -927,10 +935,12 @@
+ 
+ 
+ def journal_declaration_problems(templates: object = None, hook: object = None,
+-                                 helper_modules: object = None) -> list[str]:
++                                 helper_modules: object = None, *,
++                                 trigger: object = None) -> list[str]:
+     """Every problem with the journal migration declaration
+     (``EXTENSION_JOURNAL_TEMPLATES``, ``EXTENSION_JOURNAL_PRE_MIGRATION_HOOK``
+-    and, for the hook's module, ``EXTENSION_HELPER_MODULES``, each read now
++    ``EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER`` and, for the hook's module,
++    ``EXTENSION_HELPER_MODULES``, each read now
+     when its argument is None), one message per problem; empty means valid.
+     Imports nothing: whether the hook function exists and takes one
+     positional argument is checked when the upgrade loads it."""
+@@ -940,7 +950,13 @@
+         hook = EXTENSION_JOURNAL_PRE_MIGRATION_HOOK
+     if helper_modules is None:
+         helper_modules = EXTENSION_HELPER_MODULES
+-    problems: list[str] = []
++    if trigger is None:
++        trigger = EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER
++    problems: list[str] = []
++    if not isinstance(trigger, str) or trigger not in ("legacy_cutover", "journals_present"):
++        problems.append(
++            "EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER must be 'legacy_cutover' or 'journals_present'"
++        )
+     if not isinstance(templates, (tuple, list)):
+         problems.append(
+             f"EXTENSION_JOURNAL_TEMPLATES must be a tuple of template strings, not {type(templates).__name__}"
+--- before-C6/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py
++++ current/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py
+@@ -14771,6 +14771,378 @@
+         self.assertEqual(Path(seen_file.read_text()).resolve(), root.resolve())
+ 
+ 
++
++class JournalTriggerPolicyTests(_JournalDeclarationFixture, unittest.TestCase):
++    """206is/204mo: independent policy, presence and builtin permission oracles."""
++
++    TRIGGER = "EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER"
++    SENTINEL = (
++        "\nfrom pathlib import Path as _TriggerSentinelPath\n"
++        "_TriggerSentinelPath(__file__).with_name('trigger-executed.txt').write_text('bad')\n"
++    )
++
++    def _policy(self, binding="'journals_present'", *, extra="", hook_body="pass"):
++        self._declare(hook="acme_journal_hooks:prepare", helpers=("acme_journal_hooks",),
++                      helper_source=self._hook_source(hook_body))
++        path = self.scripts / "mcp_tool_extensions.py"
++        text, count = re.subn(
++            rf"(?m)^{self.TRIGGER}(?:[ \t]*:[^=\n]*)?[ \t]*=[^\n]*\n?", "",
++            path.read_text(encoding="utf-8"),
++        )
++        self.assertEqual(count, 1, "the shipped constant must be registered exactly once")
++        if binding is not None:
++            text += f"\n{self.TRIGGER} = {binding}\n"
++        else:
++            # An older declaration's validator predates the trigger field;
++            # removing only the assignment from today's validator is not that fixture.
++            text = text.replace("trigger = EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER",
++                                "trigger = 'legacy_cutover'")
++        path.write_text(text + extra, encoding="utf-8")
++
++    def _bytes(self):
++        return sorted((p.relative_to(self.root).as_posix(), p.read_bytes() if p.is_file() else None)
++                      for p in self.root.rglob("*") if not p.is_symlink())
++
++    def _preview(self, *, zip_path=None):
++        before = self._bytes()
++        with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("preview loaded declaration")), \
++                patch.object(self.ext, "_run_journal_pre_migration_hook", side_effect=AssertionError("preview ran hook")):
++            report = self.ext.migrate_journals(self.root, apply=False, zip_path=zip_path)
++        self.assertEqual(self._bytes(), before)
++        self.assertFalse((self.scripts / "trigger-executed.txt").exists())
++        self.assertEqual(self._hook_calls(), [])
++        metadata = report["hook_preview"]
++        self.assertIs(metadata["hook_executed"], False)
++        self.assertEqual(metadata["invocation"], "upgrade_apply_only")
++        return metadata
++
++    def test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion(self):
++        for version in ("1.14.9", "1.15.0", "1.29.0"):
++            with self.subTest(version=version):
++                self._policy()
++                self._write_journal("a.md", "opaque operator note")
++                self._write_journal("b.md", "another note")
++                with patch.object(self.ext, "_migrate_journals") as builtin, \
++                        patch.object(self.ext, "_load_journal_declaration", wraps=self.ext._load_journal_declaration) as load:
++                    before = len(self._hook_calls())
++                    self._gate(version)
++                self.assertEqual(len(self._hook_calls()) - before, 1)
++                self.assertEqual(load.call_count, 1)
++                self.assertEqual(builtin.call_count, int(version == "1.14.9"))
++                self.assertEqual((self.journals / "a.md").read_text(), "opaque operator note")
++
++    def test_legacy_absent_and_explicit_defaults_keep_no_source_cutover(self):
++        for binding in (None, "'legacy_cutover'"):
++            for version in ("1.14.9", "1.15.0", "1.29.0"):
++                with self.subTest(binding=binding, version=version):
++                    self._policy(binding)
++                    before = len(self._hook_calls())
++                    with patch.object(self.ext, "_migrate_journals") as builtin:
++                        self._gate(version)
++                    self.assertEqual(len(self._hook_calls()) - before, int(version == "1.14.9"))
++                    self.assertEqual(builtin.call_count, int(version == "1.14.9"))
++        self._policy(None, extra=self.SENTINEL)
++        with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("later legacy import")):
++            self._gate("1.29.0")
++        self.assertFalse((self.scripts / "trigger-executed.txt").exists())
++
++    def test_nonqualifying_direct_sources_never_call_opted_in_hook(self):
++        shapes = ("missing", "empty", "readme", "nested", "directory", "symlink", "hardlink", "ancestor")
++        outside = self.root / "outside-journals"
++        outside.mkdir()
++        (outside / "note.md").write_text("outside")
++        for shape in shapes:
++            with self.subTest(shape=shape):
++                if self.journals.is_symlink():
++                    self.journals.unlink()
++                elif self.journals.exists():
++                    shutil.rmtree(self.journals)
++                self.journals.mkdir()
++                self._policy()
++                if shape == "missing":
++                    self.journals.rmdir()
++                elif shape == "readme":
++                    (self.journals / "README.md").write_text("index")
++                elif shape == "nested":
++                    (self.journals / "nested").mkdir()
++                    (self.journals / "nested" / "note.md").write_text("nested")
++                elif shape == "directory":
++                    (self.journals / "note.md").mkdir()
++                elif shape in ("symlink", "ancestor"):
++                    try:
++                        if shape == "symlink":
++                            (self.journals / "note.md").symlink_to(outside / "note.md")
++                        else:
++                            self.journals.rmdir()
++                            self.journals.symlink_to(outside, target_is_directory=True)
++                    except (OSError, NotImplementedError) as exc:
++                        self.skipTest(f"symlinks unavailable: {exc}")
++                elif shape == "hardlink":
++                    try:
++                        os.link(outside / "note.md", self.journals / "note.md")
++                    except OSError as exc:
++                        self.skipTest(f"hardlinks unavailable: {exc}")
++                with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("ineligible loaded declaration")), \
++                        patch.object(self.ext, "_migrate_journals", side_effect=AssertionError("later builtin migration")):
++                    self._gate("1.29.0")
++                self.assertEqual(self._hook_calls(), [])
++                self.assertEqual((outside / "note.md").read_text(), "outside")
++
++    def test_linked_source_ancestor_is_not_followed(self):
++        self._policy()
++        self._write_journal("note.md", "outside operator note")
++        docs = self.root / "docs"
++        outside = self.root / "linked-docs-target"
++        docs.rename(outside)
++        try:
++            docs.symlink_to(outside, target_is_directory=True)
++        except (OSError, NotImplementedError) as exc:
++            outside.rename(docs)
++            self.skipTest(f"symlinks unavailable: {exc}")
++        with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("linked ancestor selected")):
++            self._gate("1.29.0")
++        self.assertEqual(self._hook_calls(), [])
++        self.assertEqual((outside / "agents/journals/note.md").read_text(), "outside operator note")
++
++    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO fixture needs native POSIX")
++    def test_fifo_named_markdown_is_not_opened_or_selected(self):
++        self._policy()
++        os.mkfifo(self.journals / "blocked.md")
++        with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("FIFO selected")):
++            self._gate("1.29.0")
++        self.assertEqual(self._hook_calls(), [])
++
++    def test_presence_does_not_read_content_or_use_public_preview_left_entries(self):
++        self._policy()
++        self._write_journal("unmatched.md", "\x00not a migration journal")
++        with patch.object(self.ext, "_read_journal_bytes", side_effect=AssertionError("presence read content")), \
++                patch.object(self.ext, "migrate_journals", side_effect=AssertionError("presence used migration report")), \
++                patch.object(self.ext, "_migrate_journals", side_effect=AssertionError("later builtin")):
++            self._gate("1.29.0")
++        self.assertEqual(len(self._hook_calls()), 1)
++
++    def test_static_preview_decision_table_and_apply_invalid_refusal_before_execution(self):
++        cases = (
++            (None, "", "valid", "legacy_cutover"),
++            ("'legacy_cutover'", "", "valid", "legacy_cutover"),
++            ("'journals_present'", "", "valid", "journals_present"),
++            ("''", "", "invalid", None),
++            ("7", "", "invalid", None),
++            ("'unsupported'", "", "invalid", None),
++            ("str('journals_present')", "", "invalid", None),
++            (None, f"\nif True:\n    {self.TRIGGER} = 'journals_present'\n", "invalid", None),
++            ("'journals_present'", f"\n{self.TRIGGER} = 'journals_present'\n", "invalid", None),
++            ("'journals_present'", f"\n{self.TRIGGER} += ''\n", "invalid", None),
++            ("'journals_present'", "\ndef broken(:\n", "unknown", None),
++        )
++        self._write_journal("note.md", "retained")
++        for binding, extra, status, policy in cases:
++            with self.subTest(binding=binding, extra=extra):
++                self._policy(binding, extra=self.SENTINEL + extra)
++                metadata = self._preview()
++                self.assertEqual((metadata["status"], metadata["policy"]), (status, policy))
++                self.assertIs(metadata["qualifying_journals"], True)
++                package = self.root / "policy-preview.zip"
++                with zipfile.ZipFile(package, "w") as archive:
++                    archive.writestr(".wavefoundry/framework/scripts/mcp_tool_extensions.py",
++                                     (self.scripts / "mcp_tool_extensions.py").read_bytes())
++                    for helper in ("path_containment", "contained_files"):
++                        archive.writestr(f".wavefoundry/framework/scripts/{helper}.py",
++                                         source_path(f"{helper}.py").read_bytes())
++                before = self._bytes()
++                output = io.StringIO()
++                with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("dry-run declaration")), \
++                        patch.object(self.ext, "_run_journal_pre_migration_hook", side_effect=AssertionError("dry-run hook")), \
++                        contextlib.redirect_stdout(output):
++                    self.ext.post_extract(types.SimpleNamespace(root=self.root, from_version="1.29.0", to_version="1.30.0", zip_path=package, dry_run=True))
++                lines = [line for line in output.getvalue().splitlines() if line.startswith("journal hook preview: ")]
++                self.assertEqual(len(lines), 1)
++                proposed = json.loads(lines[0].split(": ", 1)[1])
++                self.assertEqual((proposed["status"], proposed["policy"]), (status, policy))
++                self.assertIs(proposed["hook_executed"], False)
++                self.assertIs(proposed["qualifying_journals"], True)
++                self.assertEqual(self._bytes(), before)
++                if status == "invalid":
++                    for version in ("1.14.9", "1.29.0"):
++                        with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("invalid executed declaration")), \
++                                patch.object(self.ext, "_migrate_memory_naming", side_effect=AssertionError("invalid ran memory")), \
++                                patch.object(self.ext, "_migrate_journals", side_effect=AssertionError("invalid ran builtin")), \
++                                self.assertRaises(self.ext.JournalDeclarationError) as raised:
++                            self.ext.pre_docs_gate(types.SimpleNamespace(root=self.root, from_version=version))
++                        self.assertIn(self.TRIGGER, str(raised.exception))
++                        self.assertNotIn(str(self.root), str(raised.exception))
++                elif status == "unknown":
++                    with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("unknown later import")):
++                        warning = self._gate("1.29.0")
++                    self.assertIn("unknown", warning.lower())
++                    self.assertNotIn(str(self.root), warning)
++                    with self.assertRaises(self.ext.JournalDeclarationError):
++                        self._gate("1.14.9")
++                self.assertEqual((self.journals / "note.md").read_text(), "retained")
++                self.assertEqual(self._hook_calls(), [])
++
++    def test_annotated_literal_and_missing_module_static_controls(self):
++        self._policy(None)
++        with (self.scripts / "mcp_tool_extensions.py").open("a") as stream:
++            stream.write(f"\n{self.TRIGGER}: str = 'journals_present'\n")
++        self.assertEqual(self._preview()["policy"], "journals_present")
++        (self.scripts / "mcp_tool_extensions.py").unlink()
++        self.assertEqual(self._preview()["policy"], "legacy_cutover")
++
++    def test_refused_static_source_is_unknown_without_execution(self):
++        self._policy(extra=self.SENTINEL)
++        source = self.scripts / "mcp_tool_extensions.py"
++        outside_tmp = tempfile.TemporaryDirectory()
++        self.addCleanup(outside_tmp.cleanup)
++        outside = Path(outside_tmp.name) / "outside-declaration.py"
++        source.replace(outside)
++        try:
++            source.symlink_to(outside)
++        except (OSError, NotImplementedError) as exc:
++            self.skipTest(f"symlinks unavailable: {exc}")
++        self.assertEqual(self._preview()["status"], "unknown")
++        with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("refused imported")):
++            output = self._gate("1.29.0")
++        self.assertNotIn(str(self.root), output)
++        self.assertFalse((outside.parent / "trigger-executed.txt").exists())
++
++    def test_zip_preview_uses_incoming_policy_and_writes_no_report(self):
++        self._policy("'legacy_cutover'", extra=self.SENTINEL)
++        disk_source = (self.scripts / "mcp_tool_extensions.py").read_text()
++        incoming = disk_source.replace(f"{self.TRIGGER} = 'legacy_cutover'", f"{self.TRIGGER} = 'journals_present'")
++        package = self.root / "incoming.zip"
++        with zipfile.ZipFile(package, "w") as archive:
++            archive.writestr(".wavefoundry/framework/scripts/mcp_tool_extensions.py", incoming)
++        self._write_journal("note.md", "operator note")
++        self.assertEqual(self._preview()["policy"], "legacy_cutover")
++        self.assertEqual(self._preview(zip_path=package)["policy"], "journals_present")
++        before = self._bytes()
++        output = io.StringIO()
++        with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("dry-run import")), \
++                patch.object(self.ext, "_run_journal_pre_migration_hook", side_effect=AssertionError("dry-run hook")), \
++                contextlib.redirect_stdout(output):
++            self.ext.post_extract(types.SimpleNamespace(root=self.root, from_version="1.29.0", to_version="1.30.0", zip_path=package, dry_run=True))
++        lines = [line for line in output.getvalue().splitlines() if line.startswith("journal hook preview: ")]
++        self.assertEqual(len(lines), 1)
++        metadata = json.loads(lines[0].split(": ", 1)[1])
++        self.assertEqual(metadata["policy"], "journals_present")
++        self.assertIs(metadata["hook_executed"], False)
++        self.assertEqual(self._bytes(), before)
++
++    def test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration(self):
++        self._policy(hook_body="(Path(root) / 'hook-owned-effect.txt').write_text('partial'); raise RuntimeError(str(root) + '/secret')")
++        self._write_pristine("1zff0 kept", "kept", "2026-01-05")
++        with patch.object(self.ext, "_migrate_journals", side_effect=AssertionError("failed hook migrated")):
++            output = self._gate("1.14.9")
++        self.assertIn("RuntimeError", output)
++        self.assertNotIn(str(self.root), output)
++        self.assertNotIn("secret", output)
++        self.assertNotIn("Journals were left in place", output)
++        self.assertNotIn("do not retry", output)
++        self.assertEqual((self.root / "hook-owned-effect.txt").read_text(), "partial")
++        self.assertEqual(len(list(self.journals.iterdir())), 1)
++
++    def test_loaded_trigger_must_match_static_selection_before_dependents(self):
++        self._write_journal("note.md", "retained operator content")
++        for version in ("1.14.9", "1.29.0"):
++            with self.subTest(version=version):
++                sentinel = self.scripts / "trigger-executed.txt"
++                sentinel.unlink(missing_ok=True)
++                self._policy(extra=self.SENTINEL + f"\nglobals()[{self.TRIGGER!r}] = 'legacy_cutover'\n")
++                metadata = self._preview()
++                self.assertEqual((metadata["status"], metadata["policy"]), ("valid", "journals_present"))
++                before = self._journal_tree()
++                with patch.object(self.ext, "_load_journal_hook", side_effect=AssertionError("mismatched trigger loaded hook")), \
++                        patch.object(self.ext, "_run_journal_pre_migration_hook", side_effect=AssertionError("mismatched trigger called hook")), \
++                        patch.object(self.ext, "_migrate_memory_naming", side_effect=AssertionError("mismatched trigger migrated memory")), \
++                        patch.object(self.ext, "_migrate_journals", side_effect=AssertionError("mismatched trigger migrated journals")), \
++                        self.assertRaises(self.ext.JournalDeclarationError) as raised:
++                    self.ext.pre_docs_gate(types.SimpleNamespace(root=self.root, from_version=version))
++                self.assertIn("does not match the static trigger selection", str(raised.exception))
++                self.assertNotIn(str(self.root), str(raised.exception))
++                self.assertTrue(sentinel.exists(), "the selected declaration must really have executed")
++                self.assertEqual(self._hook_calls(), [])
++                self.assertEqual(self._journal_tree(), before)
++
++    def test_loaded_invalid_trigger_is_refused_by_framework_policy_guard(self):
++        # An older/custom validator can ignore the new field. Framework refusal
++        # must not depend on that validator or on the invalid object's equality.
++        invalid_values = (
++            "'unsupported'", "[]",
++            "type('_TriggerSpoof', (), {'__eq__': lambda self, other: True, "
++            "'__ne__': lambda self, other: False})()",
++        )
++        self._write_journal("note.md", "retained operator content")
++        for value in invalid_values:
++            for version in ("1.14.9", "1.29.0"):
++                with self.subTest(value=value, version=version):
++                    sentinel = self.scripts / "trigger-executed.txt"
++                    sentinel.unlink(missing_ok=True)
++                    self._policy(extra=self.SENTINEL + f"\nglobals()[{self.TRIGGER!r}] = {value}\n")
++                    path = self.scripts / "mcp_tool_extensions.py"
++                    source = path.read_text().replace(
++                        "trigger = EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER", "trigger = 'legacy_cutover'"
++                    )
++                    path.write_text(source)
++                    metadata = self._preview()
++                    self.assertEqual((metadata["status"], metadata["policy"]), ("valid", "journals_present"))
++                    before = self._journal_tree()
++                    with patch.object(self.ext, "_load_journal_hook", side_effect=AssertionError("invalid loaded trigger loaded hook")), \
++                            patch.object(self.ext, "_run_journal_pre_migration_hook", side_effect=AssertionError("invalid loaded trigger called hook")), \
++                            patch.object(self.ext, "_migrate_memory_naming", side_effect=AssertionError("invalid loaded trigger migrated memory")), \
++                            patch.object(self.ext, "_migrate_journals", side_effect=AssertionError("invalid loaded trigger migrated journals")), \
++                            self.assertRaises(self.ext.JournalDeclarationError) as raised:
++                        self.ext.pre_docs_gate(types.SimpleNamespace(root=self.root, from_version=version))
++                    self.assertIn("must be 'legacy_cutover' or 'journals_present'", str(raised.exception))
++                    self.assertNotIn(str(self.root), str(raised.exception))
++                    self.assertTrue(sentinel.exists(), "the invalid value must come from the actual loaded declaration")
++                    self.assertEqual(self._hook_calls(), [])
++                    self.assertEqual(self._journal_tree(), before)
++
++    def test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution(self):
++        bindings = (
++            f"def {self.TRIGGER}(root):\n    pass\n",
++            f"class {self.TRIGGER}:\n    pass\n",
++            f"try:\n    pass\nexcept Exception as {self.TRIGGER}:\n    pass\n",
++            f"match 0:\n    case {self.TRIGGER}:\n        pass\n",
++            f"match []:\n    case [*{self.TRIGGER}]:\n        pass\n",
++            f"match {{}}:\n    case {{'x': _, **{self.TRIGGER}}}:\n        pass\n",
++        )
++        self._write_journal("note.md", "retained operator content")
++        for binding in bindings:
++            with self.subTest(binding=binding):
++                self._policy(extra=self.SENTINEL + "\n" + binding)
++                metadata = self._preview()
++                self.assertEqual((metadata["status"], metadata["policy"]), ("invalid", None))
++                for version in ("1.14.9", "1.29.0"):
++                    with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("unsupported binding executed declaration")), \
++                            patch.object(self.ext, "_run_journal_pre_migration_hook", side_effect=AssertionError("unsupported binding called hook")), \
++                            patch.object(self.ext, "_migrate_memory_naming", side_effect=AssertionError("unsupported binding migrated memory")), \
++                            patch.object(self.ext, "_migrate_journals", side_effect=AssertionError("unsupported binding migrated journals")), \
++                            self.assertRaises(self.ext.JournalDeclarationError) as raised:
++                        self.ext.pre_docs_gate(types.SimpleNamespace(root=self.root, from_version=version))
++                    self.assertIn(self.TRIGGER, str(raised.exception))
++                self.assertFalse((self.scripts / "trigger-executed.txt").exists())
++                self.assertEqual(self._hook_calls(), [])
++                self.assertEqual((self.journals / "note.md").read_text(), "retained operator content")
++
++    def test_registry_base_profiles_positional_validator_and_activation_are_compatible(self):
++        import mcp_tool_extensions as declaration
++        from declaration_support import DECLARATION_CONSTANTS, base_declaration
++        from record_layout_support import SHIPPED_DECLARATION, expected_profile
++
++        self.assertEqual(SHIPPED_DECLARATION[self.TRIGGER], "legacy_cutover")
++        self.assertIn(self.TRIGGER, DECLARATION_CONSTANTS)
++        for profile in ("default", "second", "prompt-names", "declared"):
++            environ = {} if profile == "default" else {"WAVEFOUNDRY_TEST_PROFILE": profile}
++            with self.subTest(profile=profile):
++                self.assertEqual(expected_profile(environ).declaration()[self.TRIGGER], "legacy_cutover")
++        with base_declaration(EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER="journals_present"):
++            self.assertEqual(declaration.journal_declaration_problems((), "acme_journal_hooks:prepare", ("acme_journal_hooks",)), [])
++            self.assertFalse(declaration.declared())
++            self.assertTrue(declaration.journal_declaration_problems((), "", (), trigger="bad"))
++
++
+ if __name__ == "__main__":
+     unittest.main()
+ 
+--- before-C6/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py
++++ current/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py
+@@ -1028,5 +1028,179 @@
+             self.assertTrue((outside / "framework").is_dir())
+ 
+ 
++class JournalIncomingRunnerTests(unittest.TestCase):
++    """206is: real unchanged older runner, zip loader, extraction and dispatcher.
++
++    This stops at the journal boundary rather than running setup/index phases.
++    The runner file is copied before extraction and never rewritten or mocked.
++    """
++
++    TRIGGER = "EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER"
++    NAMES = ("c6_dependency", "c6_package", "c6_package.child", "c6_package.new_child", "mcp_tool_extensions")
++
++    def setUp(self):
++        import importlib.util
++
++        self.tmp = tempfile.TemporaryDirectory()
++        self.addCleanup(self.tmp.cleanup)
++        self.base = Path(self.tmp.name)
++        self.root = self.base / "target"
++        self.root.mkdir()
++        self.old = self.base / "old-scripts"
++        self.old.mkdir()
++        self.incoming = self.root / ".wavefoundry/framework/scripts"
++        self.incoming.mkdir(parents=True)
++        self.saved_path = list(sys.path)
++        self.saved_modules = {name: sys.modules.get(name) for name in self.NAMES}
++        self.addCleanup(self._restore_host)
++        runner_path = self.old / "upgrade_wavefoundry.py"
++        runner_path.write_bytes((SCRIPTS / "upgrade_wavefoundry.py").read_bytes())
++        spec = importlib.util.spec_from_file_location("_c6_older_runner", runner_path)
++        self.runner = importlib.util.module_from_spec(spec)
++        spec.loader.exec_module(self.runner)
++        self.assertEqual(Path(self.runner.__file__).parent, self.old)
++        (self.root / "docs/agents/journals").mkdir(parents=True)
++        (self.root / "docs/agents/journals/note.md").write_bytes(b"operator note\x00")
++        (self.root / ".wavefoundry/upgrade-in-progress.json").write_text('{"review_sidecar_cleanup": {}}')
++        # Import genuine old-tree dependencies before the incoming extraction.
++        # The disk copies also make a wrong sys.path order observable after purge.
++        (self.old / "c6_dependency.py").write_text("VALUE = 'old-on-disk'\n")
++        (self.old / "mcp_tool_extensions.py").write_text("VALUE = 'old-declaration'\n")
++        (self.old / "c6_package").mkdir()
++        (self.old / "c6_package/__init__.py").write_text("VALUE = 'old-on-disk'\n")
++        (self.old / "c6_package/child.py").write_text("VALUE = 'old-on-disk'\n")
++        (self.old / "c6_package/new_child.py").write_text("VALUE = 'old-on-disk'\n")
++        sys.path.insert(0, str(self.old))
++        sys.path.append(str(self.incoming))
++        for name in self.NAMES:
++            sys.modules.pop(name, None)
++        import importlib
++
++        self.cached = {name: importlib.import_module(name) for name in self.NAMES
++                       if name != "c6_package.new_child"}
++        for name, module in self.cached.items():
++            self.assertTrue(Path(module.__file__).is_relative_to(self.old), name)
++        self.before_path = list(sys.path)
++        self.package = self.base / "incoming.zip"
++
++    def _restore_host(self):
++        sys.path[:] = self.saved_path
++        for name, module in self.saved_modules.items():
++            if module is None:
++                sys.modules.pop(name, None)
++            else:
++                sys.modules[name] = module
++
++    def _pack(self, *, fail=""):
++        import re
++
++        declaration = (SCRIPTS / "mcp_tool_extensions.py").read_text(encoding="utf-8")
++        for name, value in (
++            ("EXTENSION_HELPER_MODULES", ("acme_journal_hooks",)),
++            ("EXTENSION_JOURNAL_PRE_MIGRATION_HOOK", "acme_journal_hooks:prepare"),
++            (self.TRIGGER, "journals_present"),
++        ):
++            declaration, count = re.subn(
++                rf"(?m)^({name}(?:[ \t]*:[^=\n]*)?[ \t]*=[ \t]*)[^\n]*$",
++                lambda match, value=value: match.group(1) + repr(value), declaration,
++            )
++            self.assertEqual(count, 1)
++        declaration += (
++            "\nimport c6_dependency\nimport c6_package.child\n"
++            "assert c6_dependency.VALUE == 'incoming', 'declaration got old dependency'\n"
++            "assert c6_package.child.VALUE == 'incoming-child', 'declaration got old child'\n"
++        )
++        hook = (
++            "from pathlib import Path\nimport c6_dependency\nimport c6_package.child\n"
++            "assert c6_dependency.VALUE == 'incoming', 'hook import got old dependency'\n"
++            "assert c6_package.child.VALUE == 'incoming-child', 'hook import got old child'\n"
++            "def prepare(root):\n"
++            "    import c6_dependency\n    import c6_package.new_child\n"
++            "    assert c6_dependency.VALUE == 'incoming', 'hook call got old dependency'\n"
++            "    assert c6_package.new_child.VALUE == 'incoming-new', 'hook call got old descendant'\n"
++            "    root = Path(root)\n"
++            "    with (root / 'invocations.txt').open('a') as stream:\n        stream.write('called\\n')\n"
++            "    effect = root / 'idempotent-effect.txt'\n"
++            "    if not effect.exists():\n        effect.write_text('once')\n"
++        )
++        if fail == "import":
++            hook += "\nraise RuntimeError('secret-import-' + str(Path(__file__)))\n"
++        elif fail == "call":
++            hook += "    raise RuntimeError('secret-call-' + str(root))\n"
++        overrides = {
++            "mcp_tool_extensions.py": declaration,
++            "acme_journal_hooks.py": hook,
++            "c6_dependency.py": "VALUE = 'incoming'\n",
++            "c6_package/__init__.py": "VALUE = 'incoming-package'\n",
++            "c6_package/child.py": "VALUE = 'incoming-child'\n",
++            "c6_package/new_child.py": "VALUE = 'incoming-new'\n",
++        }
++        with zipfile.ZipFile(self.package, "w", compression=zipfile.ZIP_DEFLATED) as archive:
++            for source in framework_source_files(include_aliases=True):
++                rel = source.relative_to(SCRIPTS).as_posix()
++                if rel not in overrides:
++                    archive.writestr(".wavefoundry/framework/scripts/" + rel, source.read_bytes())
++            for rel, source in overrides.items():
++                archive.writestr(".wavefoundry/framework/scripts/" + rel, source)
++
++    def _dispatch(self):
++        output = io.StringIO()
++        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
++            extension = self.runner._load_extension_module(self.package)
++            self.assertIsNotNone(extension, "the actual older-runner archive loader must load the extension")
++            with zipfile.ZipFile(self.package) as archive:
++                self.runner._extract_feature_members(archive, self.root)
++            self.assertEqual((self.incoming / "upgrade_wavefoundry.py").read_bytes(), (SCRIPTS / "upgrade_wavefoundry.py").read_bytes())
++            loads = []
++            original = extension._exec_module_from_file
++
++            def count(name, path):
++                loads.append(name)
++                return original(name, path)
++
++            with patch.object(extension, "_exec_module_from_file", side_effect=count), \
++                    patch.object(extension, "_migrate_journals", side_effect=AssertionError("later-version builtin ran")):
++                self.runner._run_hook("pre_docs_gate", types.SimpleNamespace(root=self.root, from_version="1.29.0", zip_path=self.package), extension)
++        self.assertEqual(loads.count(extension._JOURNAL_DECLARATION_MODULE), 1)
++        self.assertEqual(loads.count(extension._JOURNAL_HOOK_MODULE_PREFIX + "acme_journal_hooks"), 1)
++        return output.getvalue()
++
++    def _assert_restored(self):
++        self.assertEqual(sys.path, self.before_path)
++        for name, module in self.cached.items():
++            self.assertIs(sys.modules.get(name), module, name)
++        self.assertNotIn("c6_package.new_child", sys.modules)
++        self.assertFalse(any(name.startswith("acme_journal_hooks.") or name == "acme_journal_hooks" for name in sys.modules))
++
++    def test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry(self):
++        self._pack()
++        for attempt in (1, 2):
++            self._dispatch()
++            self._assert_restored()
++            self.assertEqual((self.root / "invocations.txt").read_text().splitlines(), ["called"] * attempt)
++            self.assertEqual((self.root / "idempotent-effect.txt").read_text(), "once")
++            self.assertEqual((self.root / "docs/agents/journals/note.md").read_bytes(), b"operator note\x00")
++
++    def test_call_failure_restores_modules_path_and_reports_partial_effect_truthfully(self):
++        self._pack(fail="call")
++        output = self._dispatch()
++        self._assert_restored()
++        self.assertEqual((self.root / "invocations.txt").read_text().splitlines(), ["called"])
++        self.assertEqual((self.root / "idempotent-effect.txt").read_text(), "once")
++        self.assertIn("RuntimeError", output)
++        self.assertNotIn("secret-call", output)
++        self.assertNotIn(str(self.root), output)
++        self.assertNotIn("Journals were left in place", output)
++
++    def test_import_failure_restores_modules_path_and_uses_actual_runner_refusal(self):
++        self._pack(fail="import")
++        with self.assertRaises(SystemExit) as raised:
++            self._dispatch()
++        self.assertEqual(raised.exception.code, 3)
++        self._assert_restored()
++        self.assertFalse((self.root / "invocations.txt").exists())
++        self.assertFalse((self.root / "idempotent-effect.txt").exists())
++
++
+ if __name__ == "__main__":
+     unittest.main()
+--- before-C6/.wavefoundry/framework/scripts/tests/record_layout_support.py
++++ current/.wavefoundry/framework/scripts/tests/record_layout_support.py
+@@ -186,7 +186,7 @@
+     },
+ }
+ 
+-# The shipped (empty) value of every distribution-edited tool declaration in
++# The shipped base value of every distribution-edited tool declaration in
+ # ``mcp_tool_extensions`` (change 1zim4), frozen like SHIPPED_DEFAULTS and
+ # pinned by a test to the module's own ``EXTENSION_*`` names. Tuple-typed
+ # constants stay tuples when a profile writes them. It is the base the
+@@ -213,6 +213,7 @@
+     # Wave 1zyb3 (1zxnv): the journal migration declaration, read only by the upgrade.
+     "EXTENSION_JOURNAL_TEMPLATES": (),
+     "EXTENSION_JOURNAL_PRE_MIGRATION_HOOK": "",
++    "EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER": "legacy_cutover",
+ }
+ # Every constant a profile asset may name, per module.
+ _EDITABLE = {**SHIPPED_DEFAULTS, "mcp_tool_extensions": SHIPPED_DECLARATION}
+--- before-C6/.wavefoundry/framework/seeds/210-migrate-journals.prompt.md
++++ current/.wavefoundry/framework/seeds/210-migrate-journals.prompt.md
+@@ -7,7 +7,23 @@
+ Context:
+ 
+ - Wave journals and the distill-at-close pipeline are retired. The memory system owns durable capture: `memory_add(status='candidate', ...)` for in-flight lessons, `memory_propose` plus `memory_validate` at wave close.
+-- Upgrades already perform the mechanical half automatically: a journal byte-identical to the pristine generated scaffold is deleted (zero information loss), and a content-bearing wave journal moves into its wave's directory when that directory exists. The upgrade report lists everything it left behind — role journals, template drift, or journals whose wave directory is missing. This prompt finishes that remainder with judgment. To preview the mechanical half on demand, call `upgrade_extensions.migrate_journals(<repository root>, apply=False)` with `.wavefoundry/framework/scripts` on `sys.path`: it reports what it would delete, move and leave (with reasons) and changes nothing; `apply=True` performs it. It follows the record vocabulary profile's id key and nested waves, refuses any journal or folder reached through a link, and leaves a journal whose wave is archived (the archive is read-only) or whose id is ambiguous. A distribution can declare its own pristine journal scaffolds and a hook that runs right before the upgrade's migration in `mcp_tool_extensions.py` (`EXTENSION_JOURNAL_TEMPLATES` and `EXTENSION_JOURNAL_PRE_MIGRATION_HOOK`); the preview reads the same templates statically, without executing that module, and never calls the hook. The upgrade's journal migration, and the hook with it, runs only on an upgrade from a release before 1.15.0: the hook is never retried by a later upgrade and is never called by the Migrate journals prompt, so journals left behind after a hook failure are finished here.
++- The upgrade's built-in mechanical migration runs only on an upgrade from a release before 1.15.0. It deletes journals byte-identical to a pristine scaffold (zero information loss), moves content-bearing wave journals into their wave directories when those directories exist, and reports everything left behind for this prompt to finish with judgment. It follows the record vocabulary profile's id key and nested waves, refuses linked journal/folder paths, and leaves journals whose wave is archived or whose id is ambiguous.
++- A distribution declares its pristine scaffolds and pre-migration hook in `mcp_tool_extensions.py` through `EXTENSION_JOURNAL_TEMPLATES` and `EXTENSION_JOURNAL_PRE_MIGRATION_HOOK` (`"module:function"` in `EXTENSION_HELPER_MODULES`). The default trigger, `EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER = "legacy_cutover"`, retains the legacy contract: the hook runs only on an upgrade from a release before 1.15.0, is never retried by a later upgrade, and is never called by the Migrate journals prompt. An absent trigger constant uses this default; the legacy hook can run even when no journal source remains.
++- A distribution can explicitly opt in with `EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER = "journals_present"`. During upgrade apply, at `pre_docs_gate`, this calls the hook when `docs/agents/journals/` contains a direct regular singly linked `*.md` file other than `README.md`, regardless of from-version. Missing, empty, README-only, nested-only, symlink or hardlink sources cause no invocation on any version. Presence uses bounded metadata checks, without reading journal content or inferring eligibility from the migration preview's `left` entries. There is no recursive scan or configurable journal source root. The built-in migration still independently requires an upgrade from before 1.15.0, even after an opted-in hook succeeds.
++
++Static trigger decisions:
++
++| Declaration source / binding | Upgrade apply | Dry-run / public preview |
++| --- | --- | --- |
++| Missing module or absent trigger | Use `legacy_cutover`; later versions import no declaration or hook | Report the default without extension execution |
++| Exactly one direct plain or annotated module-level literal `"legacy_cutover"` assignment | Retain the legacy cutover, including a legacy hook with no journal source | Report the legacy policy; execute no hook |
++| Exactly one direct plain or annotated module-level literal `"journals_present"` assignment | Invoke only with qualifying source journals; built-in migration remains independently version-gated | Report policy and current bounded presence; execute no hook |
++| Empty, non-string or unsupported literal; nonliteral expression; conditional or duplicate binding | Refuse before declaration execution or dependent migration | Report invalid policy without executing it |
++| Unreadable/refused or unparseable source | Later versions skip with a path-free uncertainty diagnostic and no declaration execution; the original pre-1.15 validated apply-time load/refusal remains | Report unknown, never silently default or execute extensions |
++
++- Upgrade apply loads selected declarations and the hook from the extracted pack. A journal-only import context gives incoming top-level modules/packages and their descendants precedence over cached old modules during declaration validation, hook loading and its call. It restores previous `sys.modules` identities and `sys.path`, and removes newly introduced matching modules, on success and failure, including when the incoming directory was already later on `sys.path`.
++- The hook runs at most once per upgrade invocation. Opted-in retries require a hook that is idempotent; there is no exactly-once-across-crashes guarantee. A hook failure skips dependent migration with a diagnostic naming the hook and exception class only. The framework does not roll back hook-owned partial effects.
++- To preview the mechanical half on demand, call `upgrade_extensions.migrate_journals(<repository root>, apply=False)` with the framework scripts on `sys.path`. It changes nothing, never calls the hook, and executes no declaration or distribution helper; trusted shipped read-only framework helpers may supply bounded reads. Templates and trigger policy are read statically. Its `deleted`, `moved`, `left` and `warnings` lists retain their meanings, and `hook_preview` reports `policy` (`legacy_cutover`, `journals_present` or null), `status` (`valid`, `invalid` or `unknown`), `qualifying_journals`, `hook_executed: false` and `invocation: "upgrade_apply_only"`, with optional path-free `detail` for invalid/unknown policy. If `zip_path` is supplied, policy comes from that incoming pack; otherwise it comes from the target declaration. Upgrade dry-run's `post_extract` prints this static hook preview. Current source presence is an observation, not a promise of eligibility when apply reaches `pre_docs_gate`. Public `migrate_journals(..., apply=True)` performs the mechanical migration and still never calls the hook.
+ 
+ Tasks:
+ 
+--- before-C6/docs/specs/mcp-tool-surface.md
++++ current/docs/specs/mcp-tool-surface.md
+@@ -134,7 +134,8 @@
+ | `EXTENSION_ARTIFACT_PATH_FIELDS` | `{tool: data_field}`: the response `data` field holding the repository-relative paths a new write-tier extension tool wrote, credited as derived artifacts (wave `1zimf`). |
+ | `EXTENSION_SKILLS` | Skills the distribution renders to every active skill host, `{name: {"title": text, "description": text, "prompt_doc": path, "summary": [line, ...]}}` (wave `1zv8c`), plus the optional `"prompt_doc_template"` (wave `1zyb3`). Read only by the agent-surface renderer and never fatal to the server (see **Declared skills**). |
+ | `EXTENSION_JOURNAL_TEMPLATES` | Extra pristine journal scaffolds for the upgrade's journal migration, each using the placeholders `{{wave_id}}`, `{{title}}` and `{{date}}` (wave `1zyb3`). Read only by the upgrade, never fatal to the server (see **Declared journal migration**). |
+-| `EXTENSION_JOURNAL_PRE_MIGRATION_HOOK` | `"module:function"` in a declared helper module, called once with the repository root right before the journal migration applies (wave `1zyb3`). Read only by the upgrade (see **Declared journal migration**). |
++| `EXTENSION_JOURNAL_PRE_MIGRATION_HOOK` | `"module:function"` in a declared helper module, called at most once per upgrade invocation with the repository root at `pre_docs_gate`, under the selected trigger (waves `1zyb3`, `206is`). Public migration never calls it (see **Declared journal migration**). |
++| `EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER` | `"legacy_cutover"` (shipped and absent-constant default) or `"journals_present"` (explicit opt-in). Exactly one direct module-level literal string assignment, plain or annotated, selects the upgrade hook policy; journal declarations remain outside MCP activation (wave `206is`; see **Declared journal migration**). |
+ 
+ **Registration.** `register(mcp, get_handler)` receives a staging FastMCP surface: `@mcp.tool()`
+ and `mcp.add_tool` work, and every attempted name is recorded. Handlers must be synchronous
+@@ -542,37 +543,77 @@
+ render preflight. A template that cannot be found while the doc is absent refuses the render,
+ naming the template, before any write.
+ 
+-**Declared journal migration (wave `1zyb3`).** The upgrade's one-time journal migration (from a
+-release before 1.15.0) deletes a journal only when it provably carries no operator content.
+-`EXTENSION_JOURNAL_TEMPLATES` adds a distribution's own scaffolds to that oracle: a journal whose
+-text, with CRLF read as LF, fully matches a template is deleted, where `{{date}}` matches
+-`YYYY-MM-DD`, `{{wave_id}}` and `{{title}}` match one line fragment of 1 to 512 characters each, and
+-every occurrence of one placeholder must match the same text; a journal longer than the longest
+-text a template can match is never matched against it. `EXTENSION_JOURNAL_PRE_MIGRATION_HOOK`, `"module:function"`
+-with `module` declared in `EXTENSION_HELPER_MODULES`, is called once as `function(root)` right
+-before the migration applies. Both are read only by the upgrade, inside its pre-1.15.0 gate, from
+-the extracted `mcp_tool_extensions.py` loaded by file path; they are outside `declared()` and the
+-server's validation, and the helper module is loaded only from a `.py` file named exactly
+-`<module>.py` directly in the scripts directory. `mcp_tool_extensions.journal_declaration_problems()`
+-reports a template that is not a non-empty string of at most 65,536 characters, contains `\r`, has
+-any other `{{...}}` token, has no non-blank line without a placeholder, or has two placeholders with
+-no text between them, and a hook that is not one `module:function` with a valid, declared helper
+-module and an identifier function. An invalid declaration, a declaration module that fails to
+-import, or a hook that cannot be loaded (the helper's resolved file must be `<module>.py` itself,
+-so a link to a sibling script is refused) or bound to one positional argument refuses the upgrade at
+-`pre_docs_gate` before any pre-1.15.0 migration, the memory-naming one included, changes anything;
+-the declaration module is executed once per upgrade. A hook that raises skips the migration for that
+-upgrade, leaving journals in place, with a warning naming the hook and the exception class only.
+-The hook is called only on an upgrade from a release before 1.15.0 and is never retried: a later
+-upgrade runs neither the hook nor the journal migration again, and the hook is never called by the
+-Migrate journals prompt, which is how leftover journals are finished (wave `200ey`). The preview
+-`migrate_journals(root, apply=False)` never calls the hook and executes no repository code: it reads
+-`EXTENSION_JOURNAL_TEMPLATES` statically (the module source through the contained read, parsed with
+-`ast`, the module-level literal evaluated with `ast.literal_eval`) and accepts a tuple or list of
+-non-empty strings the migration can compile. A value it cannot read that way adds one path-free
+-warning, and journals a declared template might delete are listed as left; the upgrade itself
+-still loads and validates the declaration as above. A missing declaration module, or one without
+-the constants, reads as empty.
++**Declared journal migration (waves `1zyb3`, `206is`).** The upgrade's built-in mechanical
++journal migration remains a one-time cutover from a release before 1.15.0; opting into a hook on
++later upgrades does not authorize it. `EXTENSION_JOURNAL_TEMPLATES` adds a distribution's own
++scaffolds to the deletion oracle: text, with CRLF read as LF, must fully match a template, where
++`{{date}}` matches `YYYY-MM-DD`, `{{wave_id}}` and `{{title}}` each match one line fragment of 1 to
++512 characters, and repeated placeholders must match the same text. A journal longer than the
++longest text a template can match is never matched against it.
++
++`EXTENSION_JOURNAL_PRE_MIGRATION_HOOK`, `"module:function"` with `module` declared in
++`EXTENSION_HELPER_MODULES`, is invoked as `function(root)` at the existing `pre_docs_gate` journal
++boundary. Its trigger is selected statically from `EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER`:
++
++| Declaration source / binding | Upgrade apply | Dry-run / public preview |
++| --- | --- | --- |
++| Missing module or absent trigger constant | `legacy_cutover`; later versions import no declaration or hook | Report the default without executing extensions |
++| One direct plain or annotated module-level literal `"legacy_cutover"` assignment | Existing pre-1.15 behavior, including the legacy hook without a journal source | Report the legacy policy without hook execution |
++| One direct plain or annotated module-level literal `"journals_present"` assignment | Hook only with qualifying journals, independent of from-version; built-in migration remains pre-1.15 | Report policy and current bounded presence without hook execution |
++| Empty, non-string or unsupported literal, nonliteral expression, conditional or duplicate binding | Refuse before declaration execution or dependent migration | Report invalid/unsupported policy without execution |
++| Unreadable/refused or unparseable source | Later versions skip with path-free uncertainty diagnostic and no declaration execution; retain original pre-1.15 validated apply-time load/refusal | Report unknown, never silently default or execute the declaration |
++
++The opt-in presence predicate inspects only metadata for direct regular singly linked `*.md`
++files under the contained standard `docs/agents/journals/` directory, excluding `README.md`.
++It reads no journal content and does not use the mechanical preview's `left` list as eligibility.
++Missing, empty, README-only, nested-only, symlink and hardlink sources produce no opted-in hook
++invocation on any version. Discovery is neither recursive nor configurable through a new source
++root. An absent or literal `legacy_cutover` declaration retains the original default: its hook
++runs only on an upgrade from a release before 1.15.0 and is never retried by a later upgrade.
++The hook is never called by the Migrate journals prompt or the public migration helper.
++
++On the selected apply path, the extracted declaration is loaded by file path under a private
++module name. The helper is loaded only from the exact `<module>.py` directly in the extracted
++scripts directory; a link to a sibling script is refused. A journal-only incoming import context
++covers declaration validation, hook loading and its call. It shadows incoming top-level module
++and package names and all their descendant `sys.modules` keys, resolves those imports from the
++incoming scripts tree, and puts that tree first even if it was already later on `sys.path`.
++On success and failure it restores prior module identities and `sys.path` and removes newly
++introduced matching modules. This does not change the generic `_scripts_on_sys_path` context.
++
++Journal declarations remain outside `declared()` and MCP-extension activation.
++`mcp_tool_extensions.journal_declaration_problems(templates, hook, helper_modules, *, trigger=...)`
++is a pure validator: its existing third positional `helper_modules` argument remains compatible.
++It reports unsupported trigger values, a template that is not a non-empty string of at most
++65,536 characters, contains `\r`, has another `{{...}}` token, has no non-blank line without a
++placeholder, or has adjacent placeholders, and a hook that is not one valid `module:function`
++in a declared helper. Apply additionally checks that the function exists and binds one positional
++argument. Invalid declarations or hook-load failures refuse before dependent migration; the
++selected declaration is executed once per upgrade invocation. The hook is called at most once
++per invocation; subsequent opted-in attempts require hook-owned idempotence, with no
++exactly-once-across-crashes guarantee. A hook that raises skips dependent migration and reports
++only its name and exception class. This is not a rollback of hook-owned partial effects.
++
++`migrate_journals(root, apply=False, zip_path=None)` never executes a declaration, hook or
++distribution helper and makes no target changes; trusted shipped read-only framework helpers
++may supply bounded source reads. It reads templates and trigger policy statically from the
++incoming pack when `zip_path` is supplied, otherwise from the target. Templates use the contained
++source read, `ast` and `ast.literal_eval`; a tuple/list of non-empty compilable strings is accepted.
++Unreadable templates add a path-free warning and leave journals that a declared template might
++delete. Missing template declarations read as empty. Unknown trigger source stays unknown.
++
++The existing report lists `deleted`, `moved`, `left` and `warnings` retain their meanings.
++Preview additionally returns `hook_preview`; public `apply=True` still performs only the
++mechanical migration, never the hook, and retains its four-list report.
++
++| Preview field | Contract |
++| --- | --- |
++| `hook_preview` | Always present on preview: `{policy: "legacy_cutover" \| "journals_present" \| null, status: "valid" \| "invalid" \| "unknown", qualifying_journals: bool, hook_executed: false, invocation: "upgrade_apply_only"}`. Current bounded source presence is an observation, not a promise of future apply eligibility. |
++| `hook_preview.detail` | Optional path-free diagnostic for invalid or unknown policy. |
++
++Upgrade dry-run's `post_extract` prints the same static hook-preview metadata from the incoming
++pack (or target declaration when no pack is supplied) without declaration/hook/distribution-helper
++execution. Actual eligibility is checked when upgrade apply reaches `pre_docs_gate`.
+ 
+ **Failure.** Registration refuses, naming the module and cause, when:
+ 
+--- before-C6/docs/architecture/data-and-control-flow.md
++++ current/docs/architecture/data-and-control-flow.md
+@@ -173,6 +173,18 @@
+ 
+ **State written:** write-through opaque event/source/evaluation accounting, producer lease files, sealed checkpoint floors and compact replay tombstones, plus separately labeled memory-advisory estimates in `.wavefoundry/logs/`; durable gap poison on failed transactions; marker-owned Context Efficiency and Estimated Exploration Avoided `wave.md` projections at lifecycle/reload/upgrade barriers and accounting-neutral turn-end/quiet-period opportunities. Monitor observations remain bounded process memory only.
+ **Failure semantics:** ordinary measurement uncertainty undercounts; a durable accounting gap suppresses the headline; only the inability to persist both an event and the poison barrier fails the public tool call
++
++### Upgrade journal hook selection and migration (wave 206is)
++
++1. Upgrade apply reaches the existing `upgrade_extensions.pre_docs_gate` journal boundary after extraction. It reads the incoming declaration's trigger statically before selecting executable code. Missing module/constant means `legacy_cutover`; exactly one direct plain or annotated module-level literal string assignment may select `legacy_cutover` or `journals_present`. Empty, non-string or unsupported literals, nonliteral expressions, conditional and duplicate bindings refuse before declaration execution or dependent migration. Unreadable/refused or unparseable source is unknown: later upgrades skip with a path-free uncertainty diagnostic and no declaration execution, while the original pre-1.15 validated apply-time load/refusal remains.
++2. `legacy_cutover` selects the existing pre-1.15 behavior, including its hook when no journal source exists; later upgrades import no declaration or hook. `journals_present` selects the hook on any from-version only when bounded metadata checks find direct regular singly linked `*.md` journals in contained `docs/agents/journals/`, excluding `README.md`. Missing, empty, README-only, nested-only, symlink and hardlink sources select no hook on any version. Presence neither reads journal content nor uses migration preview's `left` list; no recursion or configurable source root is introduced.
++3. On a selected apply path, a journal-only incoming import context spans declaration validation, exact helper-file loading and hook call. The extracted scripts directory precedes old paths even when it was already on `sys.path`. Incoming top-level module/package names and descendant module keys shadow cached old modules, so an older runner resolves declaration-time and call-time dependencies from the pack. The context restores previous `sys.modules` identities and `sys.path`, and removes newly introduced matching modules, in `finally` on success and failure; the generic `_scripts_on_sys_path` context is unchanged.
++4. The hook runs at most once per invocation, with the repository root. Opted-in retries require idempotent hook code; no exactly-once-across-crashes guarantee is made. A hook failure skips dependent migration and emits a diagnostic naming only the hook and exception class. Hook-owned partial effects are not rolled back. The built-in journal migration remains independently gated to upgrades from before 1.15.0, even after a successful later-version hook.
++5. Public `migrate_journals(root, apply=False, zip_path=None)` and upgrade dry-run `post_extract` read policy and templates statically and execute no declaration, hook or distribution helper; trusted shipped read-only helpers may supply bounded reads. A supplied pack owns preview policy, otherwise the target declaration does. Preview's four mechanical report lists remain, plus `hook_preview` with policy/status, current qualifying-journal presence, `hook_executed: false`, `invocation: "upgrade_apply_only"` and optional path-free invalid/unknown detail. Presence is an observation, not a promise of apply eligibility. Public `apply=True` still runs only the mechanical migration, never the hook. The Migrate journals prompt never calls it.
++
++**State read:** incoming declaration source and selected trusted apply code, bounded journal-directory metadata, journal content for the mechanical migration or its preview, and any hook-owned reads on selected apply paths.
++**State written:** selected hook-owned effects and, only under the existing cutover, mechanical migration outputs; previews write none. Temporary matching module/path state is restored.
++**Declaration boundary:** journal policy stays outside MCP `declared()` activation; the pure journal validator preserves its third positional `helper_modules` argument and accepts trigger as a keyword. See the repository contract `docs/specs/mcp-tool-surface.md`, Declared journal migration, and canonical seed `210-migrate-journals.prompt.md` for the decision table and report shape.
+ 
+ ### Upgrade council-role link reconciliation (wave 204mp)
+ 
+--- before-C6/docs/architecture/layering-rules.md
++++ current/docs/architecture/layering-rules.md
+@@ -2,7 +2,7 @@
+ 
+ Owner: Engineering
+ Status: active
+-Last verified: 2026-10-08
++Last verified: 2026-10-09
+ 
+ ## Allowed Dependencies
+ 
+@@ -25,7 +25,7 @@
+ | Handler siblings → `wf_server/server_impl.py` | No module-top import of the composition root or another handler sibling. Shared helpers resolve through function-local public imports; every handler sibling participates in purge-and-reimport reload. Registration remains in the composition root. | `test_handler_modules.py` checks import boundaries, re-export identity, name resolution, packaging and actual scratch reload; import-derived purge coverage is checked by `test_lifecycle_gates_structure.py`. |
+ | Declared extension modules → `wf_server/server_impl.py` | Registration stays in the composition root except for modules declared in `mcp_tool_extensions`, which register against a staging surface; `server_impl` imports them by declared name during registration (not at module top) and installs their tools before the prefix contract and `MIDDLEWARE`; aliases, core-behaviour aliases and hidden names (wave `1z8oz`) are applied after the chain, inside the same fail-closed block. `mcp_tool_roster` reads `mcp_tool_extensions` (the first import dependency between flat siblings, recorded in `1ye5y-adr`). | `test_extension_tool_modules.py` drives build, reload and refusal through the real server in a scratch scripts tree. |
+ | `render_agent_surfaces.py` → `mcp_tool_extensions.py` | The second import dependency between flat siblings (wave `1zv8c`), beside `mcp_tool_roster` → `mcp_tool_extensions`: the agent-surface renderer imports the stdlib-only declaration module at module top and reads `EXTENSION_SKILLS` through the module attribute at call time (never a `from` import), so a test base declaration and the upgrade old-code window see the current module, and an old module without the constant reads as empty. The edge points one way: `mcp_tool_extensions` imports no framework module. `EXTENSION_SKILLS` is read only by the renderer and is never fatal to the server: it is outside `declared()`, `declaration_problems` and `validate_declaration`, and `_skill_output_destinations`, which `preflight_agent_surface_paths` calls, validates it before the first write of any render. | `test_declared_extension_skills.py` (byte-identical tree on refusal for both render entry points, call-time read, skills-only declaration keeps `declared()` false) |
+-| `upgrade_extensions.py` → `mcp_tool_extensions.py` and the declared journal hook's helper module | Wave `1zyb3` (change `1zxnv`): inside its pre-1.15.0 journal migration gate, `pre_docs_gate` loads the extracted `mcp_tool_extensions.py` by file path under a private module name, never through `sys.modules`, and reads `EXTENSION_JOURNAL_TEMPLATES` and `EXTENSION_JOURNAL_PRE_MIGRATION_HOOK` with `getattr` defaults, so a missing module or one without the constants reads as empty. The hook's helper module is loaded the same way, only from a `.py` file named exactly `<module>.py` directly in the extracted scripts directory. `mcp_tool_extensions` still imports no framework module. | `test_upgrade_wavefoundry.py` `JournalDeclarationMigrationTests` (refusal with byte-identical journals, hook ordering, old and missing module) |
++| `upgrade_extensions.py` → `mcp_tool_extensions.py` and the declared journal hook's helper module | Waves `1zyb3`, `206is`: `pre_docs_gate` selects `legacy_cutover` (absent/shipped default) or literal `journals_present` statically, refusing invalid/nonliteral/conditional/duplicate bindings before declaration execution or dependent migration. Unknown source skips later-version execution with uncertainty; the original pre-1.15 validated apply-time fallback remains. Only contained direct regular singly linked Markdown journals excluding README qualify for opt-in, on any version; the built-in migration remains independently pre-1.15. Selected declaration validation and exact helper-file loading/call run in a journal-only incoming import context: incoming top-level modules/packages and descendants shadow old cache entries, incoming path precedes old paths, and prior module identities/path are restored with new matching modules removed on success/failure. Preview executes no declaration/hook/distribution helper. Journal declarations remain outside MCP `declared()`; the pure validator preserves third positional `helper_modules`. At most one hook call per invocation; retries require an idempotent hook, with no exactly-once-across-crashes guarantee or rollback of hook-owned partial effects. `mcp_tool_extensions` imports no framework module. See [journal flow](data-and-control-flow.md#upgrade-journal-hook-selection-and-migration-wave-206is) and the repository MCP surface contract's static decision table. | Existing `JournalDeclarationMigrationTests` cover the legacy contract. New `206is` static-decision, source/version, preview, failure/retry and actual older-runner cached dependency/restoration controls in `test_upgrade_wavefoundry.py` and `test_upgrade_protocol.py` are the integration qualification targets; this row alone does not claim those checks passed. |
+ | MCP server → target repo | Must never write outside configured allowed roots without mutation tool approval | Inferred from AGENTS.md and seed-050 safety rules |
+ | `build_pack.py` → VERSION | Must stamp VERSION before writing zip; VERSION must match zip basename date+letter | Verified from build_pack.py behavior described in seeds |
+ | `docs_lint.py` → manifest | Must fail (exit non-zero) when `framework_revision` in manifest does not match `.wavefoundry/framework/VERSION` | Verified from seed-010 lint gate requirement |
+--- before-C6/.wavefoundry/framework/scripts/tests/test_extension_tool_modules.py
++++ current/.wavefoundry/framework/scripts/tests/test_extension_tool_modules.py
+@@ -1552,6 +1552,7 @@
+                      EXTENSION_TOOL_ALIASES={}, EXTENSION_TOOL_PARAMETERS={}, EXTENSION_HIDDEN_TOOLS=(),
+                      EXTENSION_LIFECYCLE_TOOLS=(), EXTENSION_ARTIFACT_PATH_FIELDS={}, EXTENSION_SKILLS={},
+                      EXTENSION_JOURNAL_TEMPLATES=(), EXTENSION_JOURNAL_PRE_MIGRATION_HOOK="",
++                     EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER="legacy_cutover",
+                      EXTENSION_REPLACEMENTS={})
+         results = {}
+         for label, attrs in cases.items():
+--- before-C6/docs/reconcile-dispositions.json
++++ current/docs/reconcile-dispositions.json
+@@ -0,0 +1,35 @@
++[
++  {
++    "key": "v2:fd27233375f1797e9fd992b66e99b344",
++    "status": "historical-record",
++    "reason": "Correct retained legacy migration input in C6 contract or historical implementation checkpoint; this does not instruct creation of new journals. Exact logical-line and heading-context identity retains raw audit and re-reports changed or new live instructions.",
++    "file": "docs/agents/session-handoff.md",
++    "matched": "docs/agents/journals",
++    "logical_line": "Next dependent work: prepare and independently ready C6 wave206is using the operator-confirmed standard docs/agents/journals source. C6 has no remaining source-location blocker; no readiness approval or implementation is claimed. The private workspace-scope answer remains pending; do not infer it from silence. Operator closure/commit/push must be explicitly requested in a current request. No framework edits remain for the completed waves; keep the fresh receipt valid. The broad memory budget remains above its cap; no repaired-renderer candidates were found, and unrelated memories/Rust drafts were left unchanged.",
++    "heading_context": "## Historical qualification checkpoint \u2014 before C6 implementation",
++    "reviewed_by": "docs-contract-reviewer (independent agent assessment; no human identity asserted)",
++    "evidence": "docs/waves/206is journal-hook-follow-up/evidence/delivery/wf-206is-delivery-docs-disposition-probe.log"
++  },
++  {
++    "key": "v2:77092f48819f91b56970ac9791132db6",
++    "status": "historical-record",
++    "reason": "Correct retained legacy migration input in C6 contract or historical implementation checkpoint; this does not instruct creation of new journals. Exact logical-line and heading-context identity retains raw audit and re-reports changed or new live instructions.",
++    "file": "docs/architecture/data-and-control-flow.md",
++    "matched": "docs/agents/journals/",
++    "logical_line": "2. `legacy_cutover` selects the existing pre-1.15 behavior, including its hook when no journal source exists; later upgrades import no declaration or hook. `journals_present` selects the hook on any from-version only when bounded metadata checks find direct regular singly linked `*.md` journals in contained `docs/agents/journals/`, excluding `README.md`. Missing, empty, README-only, nested-only, symlink and hardlink sources select no hook on any version. Presence neither reads journal content nor uses migration preview's `left` list; no recursion or configurable source root is introduced.",
++    "heading_context": "### Upgrade journal hook selection and migration (wave 206is)",
++    "reviewed_by": "docs-contract-reviewer (independent agent assessment; no human identity asserted)",
++    "evidence": "docs/waves/206is journal-hook-follow-up/evidence/delivery/wf-206is-delivery-docs-disposition-probe.log"
++  },
++  {
++    "key": "v2:419ee3cd412c68570df0edb3e5729b72",
++    "status": "historical-record",
++    "reason": "Correct retained legacy migration input in C6 contract or historical implementation checkpoint; this does not instruct creation of new journals. Exact logical-line and heading-context identity retains raw audit and re-reports changed or new live instructions.",
++    "file": "docs/specs/mcp-tool-surface.md",
++    "matched": "docs/agents/journals/",
++    "logical_line": "files under the contained standard `docs/agents/journals/` directory, excluding `README.md`.",
++    "heading_context": "## Distribution Extension Tools",
++    "reviewed_by": "docs-contract-reviewer (independent agent assessment; no human identity asserted)",
++    "evidence": "docs/waves/206is journal-hook-follow-up/evidence/delivery/wf-206is-delivery-docs-disposition-probe.log"
++  }
++]

@@ -1,0 +1,41 @@
+RESULT_JSON {"run": 1, "failures": 2, "errors": 0, "skips": 0}
+test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... 
+  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=None, extra="\nif True:\n    EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER = 'journals_present'\n") ... FAIL
+  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding="'journals_present'", extra="\nEXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER += ''\n") ... FAIL
+
+======================================================================
+FAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=None, extra="\nif True:\n    EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER = 'journals_present'\n")
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14943, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution
+    self.assertEqual((metadata["status"], metadata["policy"]), (status, policy))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Tuples differ: ('valid', 'legacy_cutover') != ('invalid', None)
+
+First differing element 0:
+'valid'
+'invalid'
+
+- ('valid', 'legacy_cutover')
++ ('invalid', None)
+
+======================================================================
+FAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding="'journals_present'", extra="\nEXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER += ''\n")
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14943, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution
+    self.assertEqual((metadata["status"], metadata["policy"]), (status, policy))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Tuples differ: ('valid', 'journals_present') != ('invalid', None)
+
+First differing element 0:
+'valid'
+'invalid'
+
+- ('valid', 'journals_present')
++ ('invalid', None)
+
+----------------------------------------------------------------------
+Ran 1 test in 2.055s
+
+FAILED (failures=2)

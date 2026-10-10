@@ -1,0 +1,311 @@
+{
+  "source_sha256": {
+    ".wavefoundry/framework/scripts/render_agent_surfaces.py": "7cf5bf0ca4654f2f11cb07815df151282b15888dd361c95d9caac27670d93c1e",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "a963c63aec54c2d3462ff2a9976e1a7e3f0f0949484dc281f1c18e4b8831ccbe"
+  },
+  "quiet_native_assertion_present": true,
+  "started_at": "2026-10-09T06:18:59Z",
+  "independent": false,
+  "scope": "scratch incoming pack focused mutants; no repository or lifecycle writes",
+  "runs": [
+    {
+      "name": "baseline",
+      "tests": [
+        "test_installing_upgrade_repairs_container_reference_definitions",
+        "test_installing_upgrade_preserves_html_literal_blocks",
+        "test_installing_upgrade_distinguishes_backtick_and_tilde_info",
+        "test_installing_upgrade_respects_link_and_image_escape_parity",
+        "test_installing_upgrade_repairs_native_skill_directory_destinations"
+      ],
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_container_reference_definitions",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_html_literal_blocks",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_distinguishes_backtick_and_tilde_info",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_link_and_image_escape_parity",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_native_skill_directory_destinations"
+      ],
+      "cwd": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/baseline",
+      "exit_code": 0,
+      "seconds": 30.16,
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/baseline.log",
+      "assertion_failures": 0,
+      "skip_seen": false,
+      "import_or_syntax_error": false,
+      "output_tail": "test_installing_upgrade_repairs_container_reference_definitions (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_container_reference_definitions) ... ok\ntest_installing_upgrade_preserves_html_literal_blocks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_html_literal_blocks) ... ok\ntest_installing_upgrade_distinguishes_backtick_and_tilde_info (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_distinguishes_backtick_and_tilde_info) ... ok\ntest_installing_upgrade_respects_link_and_image_escape_parity (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_link_and_image_escape_parity) ... render_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\nrender_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\nrender_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\nrender_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\nrender_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\nrender_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\nrender_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\nrender_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\nok\ntest_installing_upgrade_repairs_native_skill_directory_destinations (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_native_skill_directory_destinations) ... ok\n\n----------------------------------------------------------------------\nRan 5 tests in 29.973s\n\nOK\n",
+      "error_types": [],
+      "unittest_error_cases": 0,
+      "failure_cases": [],
+      "expected_status": "baseline_green",
+      "qualified": true
+    },
+    {
+      "name": "root_only_reference_definitions",
+      "tests": [
+        "test_installing_upgrade_repairs_container_reference_definitions"
+      ],
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_container_reference_definitions"
+      ],
+      "cwd": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/root_only_reference_definitions",
+      "exit_code": 1,
+      "seconds": 6.556,
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/root_only_reference_definitions.log",
+      "assertion_failures": 5,
+      "skip_seen": false,
+      "import_or_syntax_error": false,
+      "output_tail": "^^^^^^^^^^^^^^\nAssertionError: b'> [entry][chair]\\r\\n>\\r\\n> [chair]: wave-council.md#scope \"title\"\\r\\n' != b'> [entry][chair]\\r\\n>\\r\\n> [chair]: council-chair.md#scope \"title\"\\r\\n'\n\n======================================================================\nFAIL: test_installing_upgrade_repairs_container_reference_definitions (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_container_reference_definitions) (case='wide_ordered_list')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/root_only_reference_definitions/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b\"123[28 chars]   [chair]: wave-council.md?mode=1#scope 'retained title'\\r\\n\" != b\"123[28 chars]   [chair]: council-chair.md?mode=1#scope 'retained title'\\r\\n\"\n\n======================================================================\nFAIL: test_installing_upgrade_repairs_container_reference_definitions (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_container_reference_definitions) (case='list_quote')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/root_only_reference_definitions/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'- >[20 chars] >\\r\\n  > [chair]: <wave-council.md?mode=1#scope> \"title\"\\r\\n' != b'- >[20 chars] >\\r\\n  > [chair]: <council-chair.md?mode=1#scope> \"title\"\\r\\n'\n\n======================================================================\nFAIL: test_installing_upgrade_repairs_container_reference_definitions (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_container_reference_definitions) (case='quote_list_quote')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/root_only_reference_definitions/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'> - > [entry][chair]\\r\\n>   >\\r\\n>   > [chair]: wave-council.md#scope\\r\\n' != b'> - > [entry][chair]\\r\\n>   >\\r\\n>   > [chair]: council-chair.md#scope\\r\\n'\n\n======================================================================\nFAIL: test_installing_upgrade_repairs_container_reference_definitions (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_container_reference_definitions) (case='nested_quote')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/root_only_reference_definitions/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'> >[13 chars]r]\\r\\n> >\\r\\n> > [chair]: <wave-council.md#scope> (title)\\r\\n' != b'> >[13 chars]r]\\r\\n> >\\r\\n> > [chair]: <council-chair.md#scope> (title)\\r\\n'\n\n----------------------------------------------------------------------\nRan 1 test in 6.351s\n\nFAILED (failures=5)\n",
+      "replace_anchor": "for start, end in _role_link_destination_spans(masked, reference_starts):",
+      "replacement": "for start, end in _role_link_destination_spans(masked, None):",
+      "mutant_sha256": "7a53d6125e380c68525e31e33f6f65f885ffbc1350e2cbb3b7375b8c8bb8d98c",
+      "syntax_valid": true,
+      "error_types": [
+        "AssertionError"
+      ],
+      "unittest_error_cases": 0,
+      "failure_cases": [
+        "test_installing_upgrade_repairs_container_reference_definitions (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_container_reference_definitions) (case='quote')",
+        "test_installing_upgrade_repairs_container_reference_definitions (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_container_reference_definitions) (case='wide_ordered_list')",
+        "test_installing_upgrade_repairs_container_reference_definitions (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_container_reference_definitions) (case='list_quote')",
+        "test_installing_upgrade_repairs_container_reference_definitions (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_container_reference_definitions) (case='quote_list_quote')",
+        "test_installing_upgrade_repairs_container_reference_definitions (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_container_reference_definitions) (case='nested_quote')"
+      ],
+      "expected_status": "assertion_failure",
+      "qualified": true
+    },
+    {
+      "name": "disable_html_block_mask",
+      "tests": [
+        "test_installing_upgrade_preserves_html_literal_blocks"
+      ],
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_html_literal_blocks"
+      ],
+      "cwd": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/disable_html_block_mask",
+      "exit_code": 1,
+      "seconds": 5.228,
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/disable_html_block_mask.log",
+      "assertion_failures": 5,
+      "skip_seen": false,
+      "import_or_syntax_error": false,
+      "output_tail": "ole_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'<pre>\\r\\n[CODE](council-chair.md)\\r\\n</pre>\\r\\n\\r\\n[LIVE][18 chars]\\r\\n' != b'<pre>\\r\\n[CODE](wave-council.md)\\r\\n</pre>\\r\\n\\r\\n[LIVE]([17 chars]\\r\\n'\n\n======================================================================\nFAIL: test_installing_upgrade_preserves_html_literal_blocks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_html_literal_blocks) (case='comment')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/disable_html_block_mask/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'<!--\\r\\n[CODE](council-chair.md)\\r\\n-->\\r\\n\\r\\n[LIVE](council-chair.md)\\r\\n' != b'<!--\\r\\n[CODE](wave-council.md)\\r\\n-->\\r\\n\\r\\n[LIVE](council-chair.md)\\r\\n'\n\n======================================================================\nFAIL: test_installing_upgrade_preserves_html_literal_blocks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_html_literal_blocks) (case='nested_quote_pre')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/disable_html_block_mask/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'> >[16 chars]ODE](council-chair.md)\\r\\n> > </pre>\\r\\n> >\\r\\[29 chars]\\r\\n' != b'> >[16 chars]ODE](wave-council.md)\\r\\n> > </pre>\\r\\n> >\\r\\n[28 chars]\\r\\n'\n\n======================================================================\nFAIL: test_installing_upgrade_preserves_html_literal_blocks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_html_literal_blocks) (case='nested_quote_comment')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/disable_html_block_mask/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'> >[15 chars]ODE](council-chair.md)\\r\\n> > -->\\r\\n> >\\r\\n> [26 chars]\\r\\n' != b'> >[15 chars]ODE](wave-council.md)\\r\\n> > -->\\r\\n> >\\r\\n> >[25 chars]\\r\\n'\n\n======================================================================\nFAIL: test_installing_upgrade_preserves_html_literal_blocks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_html_literal_blocks) (case='list_quote_pre')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/disable_html_block_mask/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'- >[16 chars]ODE](council-chair.md)\\r\\n  > </pre>\\r\\n  >\\r\\[29 chars]\\r\\n' != b'- >[16 chars]ODE](wave-council.md)\\r\\n  > </pre>\\r\\n  >\\r\\n[28 chars]\\r\\n'\n\n----------------------------------------------------------------------\nRan 1 test in 5.046s\n\nFAILED (failures=5)\n",
+      "replace_anchor": "            masked = bool(mark or html_open)\n",
+      "replacement": "            html_open = None\n            masked = bool(mark or html_open)\n",
+      "mutant_sha256": "4b158d71ab6191c98a23c279b5d2d3ff4e3399473e47cb016576f139d0d795b3",
+      "syntax_valid": true,
+      "error_types": [
+        "AssertionError"
+      ],
+      "unittest_error_cases": 0,
+      "failure_cases": [
+        "test_installing_upgrade_preserves_html_literal_blocks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_html_literal_blocks) (case='pre')",
+        "test_installing_upgrade_preserves_html_literal_blocks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_html_literal_blocks) (case='comment')",
+        "test_installing_upgrade_preserves_html_literal_blocks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_html_literal_blocks) (case='nested_quote_pre')",
+        "test_installing_upgrade_preserves_html_literal_blocks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_html_literal_blocks) (case='nested_quote_comment')",
+        "test_installing_upgrade_preserves_html_literal_blocks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_html_literal_blocks) (case='list_quote_pre')"
+      ],
+      "expected_status": "assertion_failure",
+      "qualified": true
+    },
+    {
+      "name": "allow_backtick_in_info",
+      "tests": [
+        "test_installing_upgrade_distinguishes_backtick_and_tilde_info"
+      ],
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_distinguishes_backtick_and_tilde_info"
+      ],
+      "cwd": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/allow_backtick_in_info",
+      "exit_code": 1,
+      "seconds": 3.788,
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/allow_backtick_in_info.log",
+      "assertion_failures": 2,
+      "skip_seen": false,
+      "import_or_syntax_error": false,
+      "output_tail": "test_installing_upgrade_distinguishes_backtick_and_tilde_info (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_distinguishes_backtick_and_tilde_info) ... \n  test_installing_upgrade_distinguishes_backtick_and_tilde_info (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_distinguishes_backtick_and_tilde_info) (case='invalid_root_backtick_info') ... FAIL\n  test_installing_upgrade_distinguishes_backtick_and_tilde_info (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_distinguishes_backtick_and_tilde_info) (case='invalid_quote_backtick_info') ... FAIL\n\n======================================================================\nFAIL: test_installing_upgrade_distinguishes_backtick_and_tilde_info (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_distinguishes_backtick_and_tilde_info) (case='invalid_root_backtick_info')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/allow_backtick_in_info/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'```bad`info\\r\\n[LIVE](wave-council.md)\\r\\n' != b'```bad`info\\r\\n[LIVE](council-chair.md)\\r\\n'\n\n======================================================================\nFAIL: test_installing_upgrade_distinguishes_backtick_and_tilde_info (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_distinguishes_backtick_and_tilde_info) (case='invalid_quote_backtick_info')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/allow_backtick_in_info/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'> ```bad`info\\r\\n> [LIVE](wave-council.md)\\r\\n' != b'> ```bad`info\\r\\n> [LIVE](council-chair.md)\\r\\n'\n\n----------------------------------------------------------------------\nRan 1 test in 3.601s\n\nFAILED (failures=2)\n",
+      "replace_anchor": "        if fence is None and mark and mark[1][0] == \"`\" and \"`\" in mark[2]:\n            mark = None\n",
+      "replacement": "        if False:\n            mark = None\n",
+      "mutant_sha256": "a3829c75a3ec82ba6f7d756a9f800b23e5ce038f26afbca8c7942b3cdcd270fc",
+      "syntax_valid": true,
+      "error_types": [
+        "AssertionError"
+      ],
+      "unittest_error_cases": 0,
+      "failure_cases": [
+        "test_installing_upgrade_distinguishes_backtick_and_tilde_info (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_distinguishes_backtick_and_tilde_info) (case='invalid_root_backtick_info')",
+        "test_installing_upgrade_distinguishes_backtick_and_tilde_info (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_distinguishes_backtick_and_tilde_info) (case='invalid_quote_backtick_info')"
+      ],
+      "expected_status": "assertion_failure",
+      "qualified": true
+    },
+    {
+      "name": "bracket_previous_char_only",
+      "tests": [
+        "test_installing_upgrade_respects_link_and_image_escape_parity"
+      ],
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_link_and_image_escape_parity"
+      ],
+      "cwd": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/bracket_previous_char_only",
+      "exit_code": 1,
+      "seconds": 10.24,
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/bracket_previous_char_only.log",
+      "assertion_failures": 3,
+      "skip_seen": false,
+      "import_or_syntax_error": false,
+      "output_tail": "ICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\n  test_installing_upgrade_respects_link_and_image_escape_parity (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_link_and_image_escape_parity) (case='bracket_4_slashes') ... FAIL\nrender_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\nrender_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\n  test_installing_upgrade_respects_link_and_image_escape_parity (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_link_and_image_escape_parity) (case='image_2_slashes') ... FAIL\n\n======================================================================\nFAIL: test_installing_upgrade_respects_link_and_image_escape_parity (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_link_and_image_escape_parity) (case='bracket_2_slashes')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/bracket_previous_char_only/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'\\\\\\\\[candidate](wave-council.md)\\r\\n\\r\\n[LIVE](council-chair.md)\\r\\n' != b'\\\\\\\\[candidate](council-chair.md)\\r\\n\\r\\n[LIVE](council-chair.md)\\r\\n'\n\n======================================================================\nFAIL: test_installing_upgrade_respects_link_and_image_escape_parity (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_link_and_image_escape_parity) (case='bracket_4_slashes')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/bracket_previous_char_only/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'\\\\\\\\\\\\\\\\[candidate](wave-council.md)\\r\\n\\r\\n[LIVE](council-chair.md)\\r\\n' != b'\\\\\\\\\\\\\\\\[candidate](council-chair.md)\\r\\n\\r\\n[LIVE](council-chair.md)\\r\\n'\n\n======================================================================\nFAIL: test_installing_upgrade_respects_link_and_image_escape_parity (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_link_and_image_escape_parity) (case='image_2_slashes')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/bracket_previous_char_only/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'\\\\\\\\![candidate](council-chair.md)\\r\\n\\r\\n[LIVE](council-chair.md)\\r\\n' != b'\\\\\\\\![candidate](wave-council.md)\\r\\n\\r\\n[LIVE](council-chair.md)\\r\\n'\n\n----------------------------------------------------------------------\nRan 1 test in 10.055s\n\nFAILED (failures=3)\n",
+      "replace_anchor": "        return (at - 1 - before) % 2 != 0\n",
+      "replacement": "        return at > 0 and masked[at - 1] == \"\\\\\"\n",
+      "mutant_sha256": "ac73d9ae898721d7b54b7e0a458e905d08f0ccbd17ec433792c3e8f09f2c1303",
+      "syntax_valid": true,
+      "error_types": [
+        "AssertionError"
+      ],
+      "unittest_error_cases": 0,
+      "failure_cases": [
+        "test_installing_upgrade_respects_link_and_image_escape_parity (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_link_and_image_escape_parity) (case='bracket_2_slashes')",
+        "test_installing_upgrade_respects_link_and_image_escape_parity (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_link_and_image_escape_parity) (case='bracket_4_slashes')",
+        "test_installing_upgrade_respects_link_and_image_escape_parity (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_link_and_image_escape_parity) (case='image_2_slashes')"
+      ],
+      "expected_status": "assertion_failure",
+      "qualified": true
+    },
+    {
+      "name": "image_bang_always_image",
+      "tests": [
+        "test_installing_upgrade_respects_link_and_image_escape_parity"
+      ],
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_link_and_image_escape_parity"
+      ],
+      "cwd": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/image_bang_always_image",
+      "exit_code": 1,
+      "seconds": 9.489,
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/image_bang_always_image.log",
+      "assertion_failures": 2,
+      "skip_seen": false,
+      "import_or_syntax_error": false,
+      "output_tail": "doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\nrender_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\nrender_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\nrender_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\n\n  test_installing_upgrade_respects_link_and_image_escape_parity (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_link_and_image_escape_parity) (case='image_1_slashes') ... FAIL\nrender_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\nrender_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\nrender_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\n  test_installing_upgrade_respects_link_and_image_escape_parity (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_link_and_image_escape_parity) (case='image_3_slashes') ... FAIL\n\n======================================================================\nFAIL: test_installing_upgrade_respects_link_and_image_escape_parity (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_link_and_image_escape_parity) (case='image_1_slashes')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/image_bang_always_image/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'\\\\![candidate](wave-council.md)\\r\\n\\r\\n[LIVE](council-chair.md)\\r\\n' != b'\\\\![candidate](council-chair.md)\\r\\n\\r\\n[LIVE](council-chair.md)\\r\\n'\n\n======================================================================\nFAIL: test_installing_upgrade_respects_link_and_image_escape_parity (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_link_and_image_escape_parity) (case='image_3_slashes')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/image_bang_always_image/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'\\\\\\\\\\\\![candidate](wave-council.md)\\r\\n\\r\\n[LIVE](council-chair.md)\\r\\n' != b'\\\\\\\\\\\\![candidate](council-chair.md)\\r\\n\\r\\n[LIVE](council-chair.md)\\r\\n'\n\n----------------------------------------------------------------------\nRan 1 test in 9.307s\n\nFAILED (failures=2)\n",
+      "replace_anchor": "m.start() > 0 and masked[m.start() - 1] == \"!\" and not escaped(m.start() - 1)",
+      "replacement": "m.start() > 0 and masked[m.start() - 1] == \"!\"",
+      "mutant_sha256": "0546be14dd03c9c31c0986f2cfdfa912282f8d90721f159c5a597accbd3d206d",
+      "syntax_valid": true,
+      "error_types": [
+        "AssertionError"
+      ],
+      "unittest_error_cases": 0,
+      "failure_cases": [
+        "test_installing_upgrade_respects_link_and_image_escape_parity (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_link_and_image_escape_parity) (case='image_1_slashes')",
+        "test_installing_upgrade_respects_link_and_image_escape_parity (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_link_and_image_escape_parity) (case='image_3_slashes')"
+      ],
+      "expected_status": "assertion_failure",
+      "qualified": true
+    },
+    {
+      "name": "disallow_native_directory_replacement",
+      "tests": [
+        "test_installing_upgrade_repairs_native_skill_directory_destinations"
+      ],
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_native_skill_directory_destinations"
+      ],
+      "cwd": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/disallow_native_directory_replacement",
+      "exit_code": 1,
+      "seconds": 1.501,
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/disallow_native_directory_replacement.log",
+      "assertion_failures": 1,
+      "skip_seen": false,
+      "import_or_syntax_error": false,
+      "output_tail": "test_installing_upgrade_repairs_native_skill_directory_destinations (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_native_skill_directory_destinations) ... render_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\nFAIL\n\n======================================================================\nFAIL: test_installing_upgrade_repairs_native_skill_directory_destinations (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_native_skill_directory_destinations)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/disallow_native_directory_replacement/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 3100, in test_installing_upgrade_repairs_native_skill_directory_destinations\n    self.assertEqual(self.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'[na[36 chars]role-wave-council/SKILL.md?view=1#scope> \"reta[211 chars]\\r\\n' != b'[na[36 chars]role-council-chair/SKILL.md?view=1#scope> \"ret[214 chars]\\r\\n'\n\n----------------------------------------------------------------------\nRan 1 test in 1.328s\n\nFAILED (failures=1)\n",
+      "replace_anchor": "    old_parts, new_parts = target.split(\"/\"), new_rel.split(\"/\")\n",
+      "replacement": "    old_parts, new_parts = target.split(\"/\"), new_rel.split(\"/\")\n    if old_parts[-1] == new_parts[-1]:\n        return None\n",
+      "mutant_sha256": "f0f6ef38cf1fed18947be7804864c3165083235cda4882be8a1cc3076aca545f",
+      "syntax_valid": true,
+      "error_types": [
+        "AssertionError"
+      ],
+      "unittest_error_cases": 0,
+      "failure_cases": [
+        "test_installing_upgrade_repairs_native_skill_directory_destinations (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_native_skill_directory_destinations)"
+      ],
+      "expected_status": "assertion_failure",
+      "qualified": true
+    },
+    {
+      "name": "same_filename_diagnostic_false_positive",
+      "tests": [
+        "test_installing_upgrade_repairs_native_skill_directory_destinations"
+      ],
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_native_skill_directory_destinations"
+      ],
+      "cwd": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/same_filename_diagnostic_false_positive",
+      "exit_code": 1,
+      "seconds": 1.845,
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/same_filename_diagnostic_false_positive.log",
+      "assertion_failures": 1,
+      "skip_seen": false,
+      "import_or_syntax_error": false,
+      "output_tail": "test_installing_upgrade_repairs_native_skill_directory_destinations (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_native_skill_directory_destinations) ... FAIL\n\n======================================================================\nFAIL: test_installing_upgrade_repairs_native_skill_directory_destinations (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_native_skill_directory_destinations)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-new-mechanism-eifyq4yo/mutants/same_filename_diagnostic_false_positive/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 3118, in test_installing_upgrade_repairs_native_skill_directory_destinations\n    self.assertNotIn(\"markdown link targets the moved council role doc\", runs[0].stderr)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'markdown link targets the moved council role doc' unexpectedly found in 'render_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\\nrender_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:2: unchanged unsupported or unrelated council role destination\\nrender_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:3: unchanged unsupported or unrelated council role destination\\n'\n\n----------------------------------------------------------------------\nRan 1 test in 1.670s\n\nFAILED (failures=1)\n",
+      "replace_anchor": "        old_names = {old_part for old, new in pairs\n                     for old_part, new_part in zip(old.split(\"/\"), new.split(\"/\"))\n                     if old_part != new_part}\n",
+      "replacement": "        old_names = {Path(old).name for old, new in pairs}\n",
+      "mutant_sha256": "cff92268f6c690c70c999d9ce9b1b89f38bae033d5d81fac4045e67ae51c89d2",
+      "syntax_valid": true,
+      "error_types": [
+        "AssertionError"
+      ],
+      "unittest_error_cases": 0,
+      "failure_cases": [
+        "test_installing_upgrade_repairs_native_skill_directory_destinations (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_native_skill_directory_destinations)"
+      ],
+      "expected_status": "assertion_failure",
+      "qualified": true
+    }
+  ],
+  "finished_at": "2026-10-09T06:20:09Z",
+  "repository_sha256_after": {
+    ".wavefoundry/framework/scripts/render_agent_surfaces.py": "7cf5bf0ca4654f2f11cb07815df151282b15888dd361c95d9caac27670d93c1e",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "a963c63aec54c2d3462ff2a9976e1a7e3f0f0949484dc281f1c18e4b8831ccbe"
+  },
+  "all_mutants_detected": true,
+  "source_unchanged_during_probe": true
+}

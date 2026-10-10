@@ -1,0 +1,19 @@
+RESULT_JSON {"run": 1, "failures": 1, "errors": 0, "skips": 0}
+test_import_failure_restores_modules_path_and_uses_actual_runner_refusal (test_upgrade_protocol.JournalIncomingRunnerTests.test_import_failure_restores_modules_path_and_uses_actual_runner_refusal) ... FAIL
+
+======================================================================
+FAIL: test_import_failure_restores_modules_path_and_uses_actual_runner_refusal (test_upgrade_protocol.JournalIncomingRunnerTests.test_import_failure_restores_modules_path_and_uses_actual_runner_refusal)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py", line 1200, in test_import_failure_restores_modules_path_and_uses_actual_runner_refusal
+    self._assert_restored()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py", line 1171, in _assert_restored
+    self.assertIs(sys.modules.get(name), module, name)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: None is not <module 'c6_dependency' from '/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpti0qrbee/old-scripts/c6_dependency.py'> : c6_dependency
+
+----------------------------------------------------------------------
+Ran 1 test in 0.353s
+
+FAILED (failures=1)

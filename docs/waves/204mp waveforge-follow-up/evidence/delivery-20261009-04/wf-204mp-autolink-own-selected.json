@@ -1,0 +1,26 @@
+{
+  "names": [
+    "test_distribution_seams.LiteralReconcileKeyTests",
+    "test_distribution_seams.ActorTokenCensusTests",
+    "test_distribution_seams.CouncilActorReadTests",
+    "test_distribution_seams.ModeratorRoleDigestTests",
+    "test_council_signoff_keys.DigestInputTests",
+    "test_legacy_council_actors.LegacyActorDeclarationTests",
+    "test_vocabulary_prompt_names.ValidationTests",
+    "test_vocabulary_prompt_names.FreshProfiledInstallTests",
+    "test_vocabulary_prompt_names.ProfileMigrationTests.test_conflicts_write_nothing",
+    "test_vocabulary_prompt_names.ProfileMigrationTests.test_every_interruption_converges",
+    "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_customized_specialist_passes_real_docs_gate",
+    "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_destinations_preserve_suffixes_encoding_titles_and_history",
+    "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_upgrade_driver_dry_run_reports_without_target_writes",
+    "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_interrupted_driver_after_move_retries_remaining_links",
+    "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_all_pairs_preflight_before_any_role_move",
+    "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_linked_peer_refusal_preserves_role_and_outside_content",
+    "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_retry_requires_new_document_role_identity"
+  ],
+  "ran": 45,
+  "failures": 0,
+  "errors": 0,
+  "skips": [],
+  "seconds": 37.62044704100117
+}

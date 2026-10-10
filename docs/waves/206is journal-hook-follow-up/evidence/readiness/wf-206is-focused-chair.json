@@ -1,0 +1,320 @@
+{
+  "wave_id": "206is journal-hook-follow-up",
+  "change_ids": [
+    "204mo-enh version-independent-journal-hook"
+  ],
+  "phase": "readiness",
+  "review_round": "one focused verification after one bounded plan repair",
+  "receipt_id": "review-policy-0461c07cde4e57b46259",
+  "approval": true,
+  "final_verdict": "APPROVE COUNCIL READINESS of the current bounded repaired plan. No readiness blocker remains in the actual focused reports. This is a chair judgment for coordinator recording, not implementation or delivery approval, and it performs no lifecycle activation.",
+  "verification_context": {
+    "actor": "council-chair",
+    "context_id": "c6-focused-chair-20261009-fresh-independent-0461c07cde4e57b46259",
+    "fresh_context": true,
+    "independent": true
+  },
+  "identity_context": "Fresh delegated chair context, with no plan/repair/implementation authorship and no retained implementation/recheck context. Mandatory startup, original full primer, original chair and all three actual targeted challenges supplied history. Own current plan/diff inspection, ten-path hashes and finite omission controls grounded this judgment; history is context, not proof. Runtime model identity unknown; no fictional pre-primer prior claimed.",
+  "actual_protocol": {
+    "initial_full": "Actual initial round used full primer depth with all five stances and three questions, then four fixed seats architecture/security/QA/reality, rotating docs strongest-alternative seat and a separate required code specialist. Initial split triggered exactly one actual targeted challenge of docs/security/reality. Initial chair withheld approval and accepted one bounded plan repair.",
+    "receipt_metadata_disclosure": "Default receipt metadata describes standard depth and a two-seat roster; it does not enumerate the actual expanded full-depth five-seat council. The actual protocol is disclosed here rather than attributing unrun seats to metadata.",
+    "focused": "Repaired ten-path packet published at current receipt; five fresh independent seat contexts replayed original source-lane findings or reviewed repair effects. The code and QA specialist remits now share one explicitly disclosed assessment. Chair waited for actual security and reality completion before final synthesis. This is focused verification, not a second full sweep or a new isolated primer.",
+    "challenge": "Original targeted challenge completed once. Current five-seat agreement is unanimous on readiness within remit, with no current readiness finding; no further challenge or repair round was run."
+  },
+  "roster": [
+    {
+      "seat": "architecture-reviewer",
+      "remits": [
+        "fixed architecture council seat",
+        "required architecture specialist"
+      ],
+      "assessment_count": 1,
+      "context_id": "c6_focused_architecture_fresh_20261009_206is",
+      "verdict": "approve within remit",
+      "report": "/tmp/wf-206is-focused-architecture.json"
+    },
+    {
+      "seat": "security-reviewer",
+      "remits": [
+        "fixed security council seat",
+        "required security specialist"
+      ],
+      "assessment_count": 1,
+      "context_id": "c6-focused-security-20261009-fresh-01",
+      "verdict": "approve with notes within remit",
+      "report": "/tmp/wf-206is-focused-security.json"
+    },
+    {
+      "seat": "qa-reviewer",
+      "remits": [
+        "fixed QA council seat",
+        "required QA specialist",
+        "additional required code specialist"
+      ],
+      "assessment_count": 1,
+      "context_id": "c6-focused-code-qa-20261009-independent-one-assessment",
+      "verdict": "approve both specialist remits and fixed QA remit",
+      "report": "/tmp/wf-206is-focused-code-qa.json",
+      "correlation": "ONE independent assessment, two specialist remits; code is additional required authority, not a sixth council seat or a second independent corroboration."
+    },
+    {
+      "seat": "reality-checker",
+      "remits": [
+        "fixed reality council seat"
+      ],
+      "assessment_count": 1,
+      "context_id": "c6-focused-reality-independent-20261009-0461c07cde4e57b46259",
+      "verdict": "approve within remit",
+      "report": "/tmp/wf-206is-focused-reality.json"
+    },
+    {
+      "seat": "docs-contract-reviewer",
+      "remits": [
+        "rotating strongest-alternative council seat",
+        "required docs-contract specialist"
+      ],
+      "assessment_count": 1,
+      "context_id": "c6-focused-docs-20261009-fresh-independent",
+      "verdict": "approve within remit",
+      "report": "/tmp/wf-206is-focused-docs.json"
+    }
+  ],
+  "anonymized_first_synthesis": {
+    "method": "For convergence, the chair first weighed role-neutral Seat1..5 findings/content in mixed order, then reattached authority. Prior source/blocking lane authority remained attributed throughout and was never downgraded. This is convergence anonymization, not a claim that reports or mandatory history hid identities from the chair.",
+    "merit_pass": [
+      {
+        "label": "Seat1",
+        "content": "Literal/unknown/trusted-preview decisions and both omitted ownership sites are now explicit; omission controls reject their removal; current cache OLD versus fresh-child INCOMING directly grounds the isolation tradeoff.",
+        "weight": "Positive contract completeness and executable alternative evidence; no future import-context proof."
+      },
+      {
+        "label": "Seat2",
+        "content": "Linked preview-left entries cannot define eligibility; broadened-gate mutant grants unwanted builtin; repeated failure and version cells preserve independent operational oracles.",
+        "weight": "Strong concrete refutation of unsafe shortcuts; repaired plan expressly excludes them."
+      },
+      {
+        "label": "Seat3",
+        "content": "Exact production declaration census rejects a new unregistered constant and accepts registry addition; duplicate literal reader currently accepts last assignment; six selected regressions run without skips.",
+        "weight": "Non-vacuous registry/grammar coverage and compatibility feasibility, from one assessment."
+      },
+      {
+        "label": "Seat4",
+        "content": "Five static decisions, journal-only namespace ownership and authoritative layering inclusion resolved; current cached import/call baseline differs from uncached control and failure still leaves module cleanup obligation.",
+        "weight": "Architecture defect repaired at plan level; origin/restoration remains explicitly falsifiable delivery work."
+      },
+      {
+        "label": "Seat5",
+        "content": "Actual public preview mutation oracle detects declaration execution; cache collision is detected at import/call; selected trusted apply path adds no demonstrated attacker authority.",
+        "weight": "Repair preserves safety boundary without inflating cache correctness into an exploit claim."
+      }
+    ],
+    "reattached_order": [
+      "docs-contract-reviewer",
+      "reality-checker",
+      "qa-reviewer",
+      "architecture-reviewer",
+      "security-reviewer"
+    ]
+  },
+  "seat_agreement_aggregate": {
+    "seat_agreement": "unanimous",
+    "max_severity": "none",
+    "basis": "All five actual current council seat outputs approve their remits (some with implementation notes), no current readiness finding is reported. Additional code specialist also approves, within the same disclosed QA assessment. Known current baseline defects are planned implementation work, not newly reported readiness findings."
+  },
+  "deduplicated_original_findings": [
+    {
+      "finding_id": "ARCH-C6-RDY-01",
+      "aliases": [
+        "CODE-206IS-STATIC-01",
+        "DOC-C6-TRIGGER-SEMANTICS"
+      ],
+      "source_and_blocking_lanes": [
+        "architecture-reviewer",
+        "code-reviewer",
+        "docs-contract-reviewer"
+      ],
+      "current_report_clearances": [
+        "architecture-reviewer",
+        "code-reviewer",
+        "docs-contract-reviewer"
+      ],
+      "merit": "Requirements1/4 and five-row static table resolve supported grammar, refused parseable invalid forms, later unknown noexec skip and original pre-cutover validated fallback; preview trust boundary is explicit.",
+      "judgment": "Cleared by each actual originating/blocking lane for readiness; future parser behavior not proven."
+    },
+    {
+      "finding_id": "QA-206IS-01",
+      "aliases": [
+        "CODE-206IS-REGISTRY-01",
+        "DOC-C6-DECLARATION-CENSUS"
+      ],
+      "source_and_blocking_lanes": [
+        "qa-reviewer",
+        "code-reviewer",
+        "docs-contract-reviewer"
+      ],
+      "current_report_clearances": [
+        "qa-reviewer",
+        "code-reviewer",
+        "docs-contract-reviewer"
+      ],
+      "merit": "Requirement6, AC4, serialization and packet admit exact SHIPPED_DECLARATION legacy_cutover registry default, base/profile controls, third-positional helper_modules compatibility and journal exclusion from declared().",
+      "judgment": "Cleared by each actual originating/blocking lane for readiness; production omission/addition controls demonstrate the oracle."
+    },
+    {
+      "finding_id": "DOC-C6-LAYERING-CENSUS",
+      "source_and_blocking_lanes": [
+        "docs-contract-reviewer"
+      ],
+      "current_report_clearances": [
+        "docs-contract-reviewer"
+      ],
+      "corroboration": "architecture-reviewer independently confirms inclusion without claiming docs lane clearance.",
+      "merit": "Authoritative layering-rules.md is admitted with spec/dataflow/seed and applicable existing local surface; current unchanged cutover-only row is implementation context, not falsely claimed repaired code.",
+      "judgment": "Cleared by its actual docs-contract authority for readiness."
+    }
+  ],
+  "primer_summary": {
+    "strongest_challenge": "Incoming hook file loading and sys.path precedence alone do not override already cached old sibling modules. Every current seat engages this baseline; independently executed cached controls return OLD at import/call against uncached INCOMING controls. The chosen plan now expressly owns journal-only incoming module/package descendants across declaration validation, hook load and call, with exact restoration.",
+    "question1": "Explicit absent/default, supported direct plain/annotated single literal, parseable invalid/nonliteral/conditional/duplicate refusal, and separate unreadable/unparseable unknown outcomes resolve selection without extension execution. Later unknown skips with uncertainty; pre1.15 retains existing validated load/refusal. Future grammar still requires tests.",
+    "question2": "AC4 requires actual complete older-runner upgrade using incoming pack, cached prior modules and import/call origin sentinels, package descendants, incoming directory already later on sys.path, finally restoration/removal on success/failure and once-per-invocation. Readiness loader/scratch-eviction controls only establish a falsifiable feasibility baseline.",
+    "question3": "AC1 explicitly uses contained direct regular singly linked Markdown excluding README, no recursion/content reads/preview-left shortcut. AC2 independently preserves builtin pre1.15 permission. AC3/4 reject rollback promises and crash exactly-once; retries remain hook-owned idempotent and once per invocation."
+  },
+  "strongest_alternative": {
+    "alternative": "Fresh child interpreter executing the selected incoming hook",
+    "actual_evidence": "Focused rotating docs seat independently executed cached loader OLD, uncached INCOMING and fresh child INCOMING. Other current seats independently reran cache controls. Security/architecture/code-QA explicitly weigh child versus scoped context; reality explicitly weighed child in the actual original targeted challenge and its fresh focused report accepts the narrowed current import obligations, without a claimed fresh child rerun.",
+    "why_it_can_be_better": "A fresh process naturally avoids inherited sys.modules cache identities.",
+    "cost": "New interpreter launch, process failure and report transport obligations, with different current callable/exception assumptions; not a filesystem sandbox.",
+    "chosen_path": "Retain the explicitly journal-only incoming module context. It is sufficiently decided and has finite falsifiable old-runner/restoration obligations. No evidence now requires reopening that accepted design. If delivery cannot prove this bounded origin/restoration contract, escalate the concrete defect and reconsider child isolation rather than weaken AC4.",
+    "limit": "Neither child fixture nor scratch eviction proves the future implementation, arbitrary dependency closure, native behavior or complete historical runner integration."
+  },
+  "strongest_points_of_agreement": [
+    "Static selection, qualifying-source observation, trusted apply loading, hook dispatch and builtin permission remain separate predicates.",
+    "All original substantive plan choices and omitted owners are now explicit and admitted.",
+    "A readiness pass cannot certify the future grammar, source scan, journal namespace context or old-runner integration.",
+    "No further automatic readiness repair round is available; any remaining/new blocker would require operator escalation."
+  ],
+  "material_disagreements": [],
+  "disagreement_resolution": "Initial remit passes never waived required architecture/code/QA/docs blockers. Each blocker was repaired once and independently replayed by each authoritative lane. Current unanimity is bounded plan readiness; all runtime uncertainties remain delivery obligations.",
+  "improvements_recommended": [
+    "Carry implementation notes without another plan publication: pin duplicate/nonliteral/conditional grammar and unknown noexec behavior with execution sentinels and deliberately weakened controls.",
+    "Use the real older-runner/main incoming archive path at delivery; include cached helpers/package descendants at import/call and exact success/failure restoration, plus incoming-already-later path precedence.",
+    "Keep hook and builtin counters independent; prove linked/nested/README/empty negatives and preview byte/noexec invariants rather than reusing preview-left eligibility.",
+    "Synchronize declaration default registry, positional validator compatibility, spec/dataflow/layering/seed and existing applicable local surface; make failure wording policy-specific and honest about partial effects and retries."
+  ],
+  "remaining_blockers": [],
+  "coordinator_actions": [
+    "Record source-lane clearances and all five current required specialist readiness approvals against this receipt, preserving actual authority and the disclosed shared code/QA context. Parent reports the seven per-lane reverifications on all three chains already succeeded; chair has not independently audited the ledger.",
+    "Record this chair readiness approval with its own context/evidence, then run the phase-correct prepare-ready/activation workflow. This report itself does not ready/open the wave or authorize bypassing source gates."
+  ],
+  "typed_recording_note": "Coordinator is the writing hand. Chair wrote no events, approvals, wave docs or repository source. Coordinator supplied actual successful chain-state results via messages; actual focused reviewer reports and own current packet checks are the evidence basis here.",
+  "evidence": {
+    "claim_id": "approval:council-readiness",
+    "claim_kind": "approval",
+    "required_for_approval": true,
+    "phase": "readiness",
+    "proposition": "The current frozen repaired readiness plan closes the three deduplicated plan blockers with actual authoritative focused judgments and preserves the affected source, execution, permission and retry boundaries.",
+    "counterexample_or_failure_condition": "An absent current report, receipt/hash mismatch, uncleared original source lane, retained blocker, omitted repaired decision/owner/isolation obligation, or a false claim of implemented behavior would invalidate this approval.",
+    "execution_status": "executed",
+    "public_path": "Current admitted change document and published focused packet, own finite contract-presence omission controls; actual reported pre_docs_gate, public migrate_journals, exact production declaration census and hook load/call controls are source-attributed, not claimed as chair execution.",
+    "command_or_fixture": "Chair three-cell Python current-plan/packet checker with in-memory omissions; fixture /tmp/wf-206is-focused-chair-plan-controls.json; ten-path SHA-256 check and actual report receipt/blocker check.",
+    "expected": "Three repaired obligation cells present, each deliberate omission rejected; all five actual council contexts/current specialist remits approve on current receipt; ten before/after hashes match frozen packet.",
+    "observed": {
+      "own_controls": [
+        {
+          "cell": "static-policy-choice",
+          "expected_current": true,
+          "observed_current": true,
+          "expected_omitted_control": false,
+          "observed_omitted_control": false
+        },
+        {
+          "cell": "registry-and-layering-owners",
+          "expected_current": true,
+          "observed_current": true,
+          "expected_omitted_control": false,
+          "observed_omitted_control": false
+        },
+        {
+          "cell": "import-and-builtin-separation",
+          "expected_current": true,
+          "observed_current": true,
+          "expected_omitted_control": false,
+          "observed_omitted_control": false
+        }
+      ],
+      "actual_reports_complete": true,
+      "all_actual_receipts_match": true,
+      "current_report_blockers": [],
+      "frozen_paths": 10,
+      "before_after_packet_match": true
+    },
+    "artifact_or_test_id": "/tmp/wf-206is-focused-chair-plan-controls.json; /tmp/wf-206is-focused-chair-before.json; /tmp/wf-206is-focused-chair-after.json; actual source reports listed once in roster.",
+    "adjacent_controls": [
+      "Unmodified current plan against independently selected original bounded obligations",
+      "Three in-memory omitted clause/site controls",
+      "Each actual seat report compared to current receipt",
+      "All ten current disk bytes compared before/after and to frozen packet"
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true
+    },
+    "known_bad_detection_method": "readiness-safe-control: deliberate removal of static decision heading, declared registry owner and exact restoration clause each rejected by finite current-plan checker. Source-attributed runtime controls independently detect cached old imports, forbidden later builtin and preview execution.",
+    "independent_reference": "Original originating-lane bounded defect propositions determine the three finite predicates; chair directly read current repaired plan/diff and checks its bytes. Different actual authorities supply current baseline judgments; shared primer and code/QA context correlation are explicitly retained.",
+    "limitations": [
+      "Contract-presence evidence only. Does not prove runtime implementation or that agents followed the contract.",
+      "Finite three-cell check derived from original bounded findings; no universal plan or code census.",
+      "Chair did not rerun seat runtime probes or independently audit typed ledger. Their actual execution is attributed to the source reports, never counted as chair execution.",
+      "Hash scope is precisely ten paths, not whole repository.",
+      "Current product code is unchanged and new behavior remains unimplemented."
+    ],
+    "safety_and_authorization": "Read-only delegated focused chair review; only /tmp artifacts and in-memory plan/packet omissions; no repository or ledger mutation, no external/destructive execution.",
+    "probe_class": "local_safe",
+    "authorization_status": "authorized",
+    "safe_boundary": false,
+    "unexecuted_remainder_prohibited": false,
+    "universal_claim": false,
+    "verification_context": {
+      "actor": "council-chair",
+      "context_id": "c6-focused-chair-20261009-fresh-independent-0461c07cde4e57b46259",
+      "fresh_context": true,
+      "independent": true
+    }
+  },
+  "scope_sha256_before": {
+    ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+    ".wavefoundry/framework/scripts/mcp_tool_extensions.py": "44d8e720cec410bb86524700a68fef5f76d5434c725e3490a2c9b90cbc922edd",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "d2b38f6bd06692447f808bb0b9625f0fb782f9bd9d9b2b5496758f17e269e871",
+    ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md": "a4f1319834042e25316845f15f7ff9a119e80158ce89fb65dc7550cf475e598d",
+    "docs/specs/mcp-tool-surface.md": "929c2e26c897bf2d4037c120240822a4d97a36b701c4d769ef984606b08689a5",
+    "docs/architecture/data-and-control-flow.md": "ec5bff5e439a3b47f2bf9a7191e51895d6ebd09a17438be5776aa40bbb058740",
+    "docs/waves/206is journal-hook-follow-up/204mo-enh version-independent-journal-hook.md": "4a24e2c026c81b9a9833e957acce2d63dc43c67e39831e02a0e6cf0ffed9e265",
+    ".wavefoundry/framework/scripts/tests/record_layout_support.py": "286c3cfa93851c18c3fe56a390fc178923aaaf1c9658542f594aa630a0fdeb49",
+    "docs/architecture/layering-rules.md": "fc0ed24463fc9a83c11fdc80ed9171d844d0feb045e28e8d173109d9be66345b"
+  },
+  "scope_sha256_after": {
+    ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+    ".wavefoundry/framework/scripts/mcp_tool_extensions.py": "44d8e720cec410bb86524700a68fef5f76d5434c725e3490a2c9b90cbc922edd",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "d2b38f6bd06692447f808bb0b9625f0fb782f9bd9d9b2b5496758f17e269e871",
+    ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md": "a4f1319834042e25316845f15f7ff9a119e80158ce89fb65dc7550cf475e598d",
+    "docs/specs/mcp-tool-surface.md": "929c2e26c897bf2d4037c120240822a4d97a36b701c4d769ef984606b08689a5",
+    "docs/architecture/data-and-control-flow.md": "ec5bff5e439a3b47f2bf9a7191e51895d6ebd09a17438be5776aa40bbb058740",
+    "docs/waves/206is journal-hook-follow-up/204mo-enh version-independent-journal-hook.md": "4a24e2c026c81b9a9833e957acce2d63dc43c67e39831e02a0e6cf0ffed9e265",
+    ".wavefoundry/framework/scripts/tests/record_layout_support.py": "286c3cfa93851c18c3fe56a390fc178923aaaf1c9658542f594aa630a0fdeb49",
+    "docs/architecture/layering-rules.md": "fc0ed24463fc9a83c11fdc80ed9171d844d0feb045e28e8d173109d9be66345b"
+  },
+  "scope_freeze_unchanged": true,
+  "frozen_path_count": 10,
+  "limits": [
+    "Readiness only; no C6 implementation, full canonical suite, actual complete old-parent new-trigger driver, native Windows, live downstream, release/archive or general import-closure qualification.",
+    "MCP/setup stale warnings remain unresolved. No setup, index build, host restart or semantic freshness certification performed by chair.",
+    "Five actual seat contexts, shared primer intentionally supplied; required code/QA authority shares one disclosed assessment. No invented assent, identities or additional independent corroboration.",
+    "All ten hashes unchanged; no source/docs/seed/ledger edit, typed approval, activation, closure, commit or push.",
+    "One bounded readiness repair/focused round has ended. Any surviving or subsequently identified blocker requires operator decision; no automatic second repair/review round."
+  ]
+}

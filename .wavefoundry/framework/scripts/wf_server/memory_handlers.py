@@ -789,6 +789,7 @@ def memory_propose_response(
     limit: int = MEMORY_PROPOSE_CAP,
     *,
     _defer_index_refresh: bool = False,
+    source_events: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """Serialize create-mode duplicate scan + batch write as one operation."""
     from wf_server import server_impl
@@ -804,6 +805,7 @@ def memory_propose_response(
             mode=mode,
             limit=limit,
             defer_index_refresh=_defer_index_refresh,
+            source_events=source_events,
         )
 
 
@@ -814,13 +816,15 @@ def _memory_propose_response_locked(
     limit: int = MEMORY_PROPOSE_CAP,
     *,
     defer_index_refresh: bool = False,
+    source_events: Optional[list[str]] = None,
+    _historical_batch: bool = False,
 ) -> dict[str, Any]:
     """Draft candidate memory records from a wave's typed review evidence.
 
     Reads the wave's ``events.jsonl`` heads + admitted change-doc Decision Logs
     and drafts durable-shaped ``candidate`` records (never auto-promoted).
-    ``dry_run`` (default) returns the drafts; ``create`` writes them through the
-    existing candidate write path, skipping exact/normalized duplicates so
+    ``dry_run`` (default) returns the drafts; ``create`` requires explicit
+    source-event selection, skipping exact/normalized duplicates so
     re-runs are idempotent (1stwl detector). Local-only, read-then-draft.
     """
     from wf_server import server_impl
@@ -866,9 +870,11 @@ def _memory_propose_response_locked(
     # Read the complete eligible set, then page AFTER suppressing durable
     # dispositions. Otherwise the first 20 already-validated sources would
     # permanently hide source 21+ on every subsequent run.
+    omitted_sources: list[dict[str, str]] = []
     drafts = supply.draft_candidates(
         root, wave_id, limit=None,
         wave_dir=wave_dir, profile=supply.wave_profile(root, wave_dir),
+        omitted_sources=omitted_sources,
     )
 
     # Idempotent supply (AC-5): skip a draft whose (kind, targets, normalized
@@ -897,6 +903,29 @@ def _memory_propose_response_locked(
             next_tools=["memory_propose"],
             usage="",
         )
+    if source_events is not None:
+        if (not isinstance(source_events, list) or len(source_events) > MEMORY_PROPOSE_CAP
+                or any(not isinstance(item, str) or not item or len(item) > 2048 for item in source_events)
+                or len(set(source_events)) != len(source_events)):
+            return server_impl._response("error", {"records_written": 0},
+                diagnostics=[_diagnostic("invalid_memory_selection", "Select a bounded list of distinct source-event IDs.", recovery_tools=["memory_propose"], recovery_usage="")], next_tools=["memory_propose"], usage="")
+        change_ids = set(supply._admitted_change_ids(wave_dir, supply.wave_profile(root, wave_dir)))
+        known = {d["source_event"] for d in drafts} | {
+            str(record.get("source_event")) for record in accumulated
+            if supply.memory_record_belongs_to_wave(record, wave_dir.name, change_ids)}
+        unknown = [item for item in source_events if item not in known and not (
+            mem.source_event_digest(item) in purged_source_digests and
+            supply.memory_record_belongs_to_wave({"source_event": item}, wave_dir.name, change_ids))]
+        if unknown:
+            return server_impl._response("error", {"records_written": 0},
+                diagnostics=[_diagnostic("invalid_memory_selection", "Selection contains unknown or currently ineligible sources; nothing written.", recovery_tools=["memory_propose"], recovery_usage="memory_propose(wave_id=<id>, mode='dry_run')")], next_tools=["memory_propose"], usage="")
+        selected = set(source_events)
+        drafts = [d for d in drafts if d["source_event"] in selected]
+    elif mode == "create" and not _historical_batch:
+        return server_impl._response("ok", {"records_written": 0, "proposed": [], "selection_required": True, "omitted_sources": omitted_sources},
+            diagnostics=[_diagnostic("memory_selection_required", "Review future action and canonical overlap, then explicitly select source_events. No candidates created.", recovery_tools=["memory_propose"], recovery_usage="memory_propose(wave_id=<id>, mode='dry_run')")], next_tools=["memory_propose"], usage="")
+    if mode == "create" and source_events == []:
+        return server_impl._response("ok", {"records_written": 0, "proposed": [], "written": [], "mode": mode}, diagnostics=[], next_tools=[], usage="")
     unique: list[dict[str, Any]] = []
     eligible_count = 0
     skipped_duplicates = 0
@@ -930,7 +959,8 @@ def _memory_propose_response_locked(
             "ok",
             {"proposed": [], "records_proposed": 0, "records_promoted": 0,
              "records_written": 0,
-             "skipped_duplicates": 0, "skipped_dispositions": 0, "mode": mode},
+             "skipped_duplicates": 0, "skipped_dispositions": 0, "mode": mode,
+             "omitted_sources": omitted_sources},
             diagnostics=[_diagnostic(
                 "no_material_evidence",
                 "No durable-shaped evidence to draft from this wave (Decision Logs "
@@ -943,19 +973,23 @@ def _memory_propose_response_locked(
             "ok",
             {"proposed": [_draft_view(d) for d in unique],
              "records_proposed": len(unique), "records_promoted": 0,
-             "records_written": 0,
+             "records_written": 0, "omitted_sources": omitted_sources,
              "records_remaining": max(0, eligible_count - len(unique)),
              "exhausted": eligible_count <= len(unique),
              "skipped_duplicates": skipped_duplicates,
              "skipped_dispositions": skipped_dispositions, "mode": "dry_run"},
             diagnostics=[], next_tools=["memory_propose"],
-            usage=f"memory_propose(wave_id={wave_id!r}, mode='create')")
+            usage=f"memory_propose(wave_id={wave_id!r}, mode='create', source_events=[<reviewed source IDs>])")
 
     # create: fence the seqlock, then write each unique draft as a candidate.
     try:
         from wave_lint_lib.constants import MEMORY_DISALLOWED_PATTERNS as _FORBIDDEN
     except ImportError:
         _FORBIDDEN = ()
+    if any(supply.eligible_repository_targets(root, d["targets"]) != d["targets"] for d in unique):
+        return server_impl._response("error", {"records_written": 0}, diagnostics=[_diagnostic("memory_target_changed", "A selected target became ineligible; nothing written.", recovery_tools=["memory_propose"], recovery_usage="")], next_tools=["memory_propose"], usage="")
+    if not unique:
+        return server_impl._response("ok", {"records_written": 0, "records_promoted": 0, "records_proposed": 0, "written": [], "skipped_dispositions": skipped_dispositions, "skipped_duplicates": skipped_duplicates, "mode": mode}, diagnostics=[], next_tools=[], usage="")
     _fence_token = _memory_fence(root)
     if _fence_token is None:
         return server_impl._response(
@@ -1204,6 +1238,7 @@ def _memory_backfill_batch_locked(
                 mode="create",
                 limit=remaining_budget,
                 defer_index_refresh=True,
+                _historical_batch=True,
             )
             if proposed.get("status") != "ok":
                 message = "; ".join(

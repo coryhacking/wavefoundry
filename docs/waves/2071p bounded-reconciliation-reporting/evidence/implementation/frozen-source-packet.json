@@ -1,0 +1,47 @@
+[
+  {
+    "path": ".wavefoundry/framework/scripts/reconcile_scan.py",
+    "sha256": "0e3fa8b98a7cfe3474787c0b012ebab2a61d916d90ab3aa09d843db8d6d0275f",
+    "git_blob": "6c8e96911c58a23752c0d6788962fe4edd76eda9"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+    "sha256": "30d63f776029ed28201a39d404321d8ab8e9507a30907bf4b059ca115d144aef",
+    "git_blob": "70398fb1c4a959b9e0da3a05eba14153b11a6e03"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_reconcile_scan.py",
+    "sha256": "5eff8c9c3a33cae9a1ccc14237a0d88707e9f3856e618cc5bdd7e99ce20a7759",
+    "git_blob": "2d4203eee45b6e680c02fa48fb576f3365657ce8"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+    "sha256": "693d7f57f189005e4141ae3ad14032681a627c4cc6697f5e033c71e5a774547a",
+    "git_blob": "e8c981acf773ab992f68e125c577c446d8423107"
+  },
+  {
+    "path": "docs/architecture/data-and-control-flow.md",
+    "sha256": "741912d852753f114f8e42e1f4ae1da8c95e1f53de90391043533adeb0968eb3",
+    "git_blob": "089c365203e750026493bba24e1b7aaae8607fe4"
+  },
+  {
+    "path": "docs/architecture/performance-budget.md",
+    "sha256": "c7627bf17decd81bb48025fafc15c3e79cb951c324a3c6b18eb286c800381611",
+    "git_blob": "63534b210beaa768d3479bd49ba414b6cc96679c"
+  },
+  {
+    "path": "docs/contributing/build-and-verification.md",
+    "sha256": "56c8cd70b0a235e9a4a840198670606a7b8db0e51927d2fe3ffb23aa79634264",
+    "git_blob": "6a3769ed793328e21d53db74d1fcb004663e9b69"
+  },
+  {
+    "path": "docs/architecture/decisions/1u49j-adr fresh-code-summary-producer-contract.md",
+    "sha256": "c2696277676e398aafdf052ce85ef7fb153866e3c57948c8fa97309f1c4704b1",
+    "git_blob": "4cf050b65838298d3867a7666ce5a9ddea98a283"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py",
+    "sha256": "879ada4c074a082f045d7cbbe975ddcb60755a843647b1a43cdb8ba61ce94af7",
+    "git_blob": "961b686ceb9e2c0054388ae8f336a639c0f80735"
+  }
+]

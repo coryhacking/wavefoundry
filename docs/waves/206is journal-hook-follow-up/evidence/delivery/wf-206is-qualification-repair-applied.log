@@ -1,0 +1,43 @@
+{
+  "tests": [
+    "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_extension_tool_modules.py",
+    "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py"
+  ],
+  "exact_historical_judgments": [
+    {
+      "key": "v2:fd27233375f1797e9fd992b66e99b344",
+      "status": "historical-record",
+      "reason": "Correct retained legacy migration input in C6 contract or historical implementation checkpoint; this does not instruct creation of new journals. Exact logical-line and heading-context identity retains raw audit and re-reports changed or new live instructions.",
+      "file": "docs/agents/session-handoff.md",
+      "matched": "docs/agents/journals",
+      "logical_line": "Next dependent work: prepare and independently ready C6 wave206is using the operator-confirmed standard docs/agents/journals source. C6 has no remaining source-location blocker; no readiness approval or implementation is claimed. The private workspace-scope answer remains pending; do not infer it from silence. Operator closure/commit/push must be explicitly requested in a current request. No framework edits remain for the completed waves; keep the fresh receipt valid. The broad memory budget remains above its cap; no repaired-renderer candidates were found, and unrelated memories/Rust drafts were left unchanged.",
+      "heading_context": "## Historical qualification checkpoint \u2014 before C6 implementation",
+      "reviewed_by": "docs-contract-reviewer (independent agent assessment; no human identity asserted)",
+      "evidence": "docs/waves/206is journal-hook-follow-up/evidence/delivery/wf-206is-delivery-docs-disposition-probe.log"
+    },
+    {
+      "key": "v2:77092f48819f91b56970ac9791132db6",
+      "status": "historical-record",
+      "reason": "Correct retained legacy migration input in C6 contract or historical implementation checkpoint; this does not instruct creation of new journals. Exact logical-line and heading-context identity retains raw audit and re-reports changed or new live instructions.",
+      "file": "docs/architecture/data-and-control-flow.md",
+      "matched": "docs/agents/journals/",
+      "logical_line": "2. `legacy_cutover` selects the existing pre-1.15 behavior, including its hook when no journal source exists; later upgrades import no declaration or hook. `journals_present` selects the hook on any from-version only when bounded metadata checks find direct regular singly linked `*.md` journals in contained `docs/agents/journals/`, excluding `README.md`. Missing, empty, README-only, nested-only, symlink and hardlink sources select no hook on any version. Presence neither reads journal content nor uses migration preview's `left` list; no recursion or configurable source root is introduced.",
+      "heading_context": "### Upgrade journal hook selection and migration (wave 206is)",
+      "reviewed_by": "docs-contract-reviewer (independent agent assessment; no human identity asserted)",
+      "evidence": "docs/waves/206is journal-hook-follow-up/evidence/delivery/wf-206is-delivery-docs-disposition-probe.log"
+    },
+    {
+      "key": "v2:419ee3cd412c68570df0edb3e5729b72",
+      "status": "historical-record",
+      "reason": "Correct retained legacy migration input in C6 contract or historical implementation checkpoint; this does not instruct creation of new journals. Exact logical-line and heading-context identity retains raw audit and re-reports changed or new live instructions.",
+      "file": "docs/specs/mcp-tool-surface.md",
+      "matched": "docs/agents/journals/",
+      "logical_line": "files under the contained standard `docs/agents/journals/` directory, excluding `README.md`.",
+      "heading_context": "## Distribution Extension Tools",
+      "reviewed_by": "docs-contract-reviewer (independent agent assessment; no human identity asserted)",
+      "evidence": "docs/waves/206is journal-hook-follow-up/evidence/delivery/wf-206is-delivery-docs-disposition-probe.log"
+    }
+  ],
+  "apply": true
+}
+Applied only two test fixture substitutions and three exact historical judgments.

@@ -1,0 +1,92 @@
+import sys, os, json, tempfile, pathlib, importlib.util, unittest.mock, time, hashlib, subprocess
+ROOT=pathlib.Path('/Users/coryhacking/Developer/wavefoundry')
+SCRIPTS=ROOT/'.wavefoundry/framework/scripts'
+sys.path.insert(0,str(SCRIPTS)); sys.dont_write_bytecode=True
+import reconcile_scan as scan, upgrade_wavefoundry as upgrade, contained_files
+out=[]
+def record(name,observed):
+    out.append({'name':name,'observed':observed})
+def load_mutant(source, name, replace):
+    body=source.read_text(); before,after=replace; assert body.count(before)==1
+    file=pathlib.Path('/private/tmp')/(name+'.py');file.write_text(body.replace(before,after))
+    spec=importlib.util.spec_from_file_location(name,file); mod=importlib.util.module_from_spec(spec);sys.modules[name]=mod;spec.loader.exec_module(mod);return mod
+def hardlink_check(module):
+    with tempfile.TemporaryDirectory(prefix='wf-sec-hardlink-') as td:
+        root=pathlib.Path(td);(root/'normal.md').write_text('safe');(root/'.wavefoundry').mkdir()
+        lock=root/'.wavefoundry/runtime.lock';lock.write_text('SECRET_LOCK .wavefoundry/bin/docs-lint')
+        os.link(lock,root/'alias.md')
+        result=module.scan_repo_result(root)
+        assert result.state=='incomplete' and result.read_files==1 and not result.findings, result.as_dict()
+        return {'state':result.state,'reasons':result.reasons,'read_files':result.read_files}
+record('runtime-lock-hardlink-refusal',hardlink_check(scan))
+mutant=load_mutant(SCRIPTS/'reconcile_scan.py','wf2071p_security_hardlink_mutant',('not stat.S_ISREG(info.st_mode) or info.st_nlink > 1','not stat.S_ISREG(info.st_mode) or False'))
+try: hardlink_check(mutant)
+except AssertionError as exc:record('hardlink-guard-mutant-detected',str(exc))
+else:raise AssertionError('hardlink guard mutant survived')
+with tempfile.TemporaryDirectory(prefix='wf-sec-paths-') as td:
+    base=pathlib.Path(td);root=base/'root';root.mkdir();outside=base/'outside.md';outside.write_text('SECRET_OUTSIDE .wavefoundry/bin/docs-lint')
+    (root/'normal.md').write_text('SECRET_BODY .wavefoundry/bin/docs-lint')
+    (root/'internal.md').symlink_to(root/'normal.md');(root/'external.md').symlink_to(outside)
+    os.mkfifo(root/'special.md');points=[];result=scan.scan_repo_result(root,progress=points.append)
+    assert result.state=='incomplete' and {x.file for x in result.findings}=={'normal.md'},result.as_dict()
+    assert result.read_files==1 and 'link_refused' in result.reasons and 'special_file_refused' in result.reasons
+    assert 'SECRET_' not in json.dumps(points) and all(not str(p['last_path']).startswith('/') for p in points)
+    record('public-scanner-link-special-progress',{'state':result.state,'reasons':result.reasons,'files':[x.file for x in result.findings],'progress_points':len(points),'keys':sorted(points[0])})
+with tempfile.TemporaryDirectory(prefix='wf-sec-swap-') as td:
+    base=pathlib.Path(td);root=base/'root';root.mkdir();directory=root/'docs';directory.mkdir();(directory/'live.md').write_text('safe')
+    outside=base/'outside';outside.mkdir();(outside/'live.md').write_text('SECRET_OUTSIDE .wavefoundry/bin/docs-lint')
+    original=contained_files.open_contained_dir;changed=[]
+    def swap(root_arg,rel):
+        if tuple(rel)==('docs',) and not changed:
+            directory.rename(root/'moved');directory.symlink_to(outside,target_is_directory=True);changed.append(True)
+        return original(root_arg,rel)
+    with unittest.mock.patch.object(contained_files,'open_contained_dir',side_effect=swap):result=scan.scan_repo_result(root)
+    assert result.state!='complete' and not result.findings and result.read_bytes==0,result.as_dict()
+    record('directory-swap-no-external-read',{'state':result.state,'reasons':result.reasons,'read_bytes':result.read_bytes})
+with tempfile.TemporaryDirectory(prefix='wf-sec-child-') as td:
+    root=pathlib.Path(td);stub=root/'worker.py'
+    stub.write_text("import os,sys,json\nprint(json.dumps({'reconciliation_state':'complete','token':os.environ.get('WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN'),'prefix':os.environ.get('PYTHONPYCACHEPREFIX'),'bytecode_off':sys.dont_write_bytecode}))\n")
+    def env_check(module):
+        with unittest.mock.patch.object(module,'__file__',str(stub)),unittest.mock.patch.object(module,'_preferred_python',return_value=sys.executable),unittest.mock.patch.dict(os.environ,{'WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN':'FAKE_REVIEW_TOKEN','PYTHONPYCACHEPREFIX':str(root/'cache')}):
+            result=module._collect_reconciliation_report(root,budget_s=2)
+        assert result['token'] is None and result['prefix'] is None and result['bytecode_off'] is True,result
+        assert not (root/'cache').exists()
+        return result
+    record('owned-child-env-readonly',env_check(upgrade))
+    envmutant=load_mutant(SCRIPTS/'upgrade_wavefoundry.py','wf2071p_security_token_mutant',('        env.pop("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN", None)','        # MUTANT: retained publisher token'))
+    try:env_check(envmutant)
+    except AssertionError as exc:record('publisher-token-mutant-detected',str(exc))
+    else:raise AssertionError('publisher token mutant survived')
+    marker=root/'escaped.txt';pid=root/'descendant.pid'
+    stub.write_text("import subprocess,sys,time\nfrom pathlib import Path\np=subprocess.Popen([sys.executable,'-B','-c',"+repr("import time;from pathlib import Path;time.sleep(.8);Path("+repr(str(marker))+").write_text('escaped')")+"])\nPath("+repr(str(pid))+").write_text(str(p.pid))\ntime.sleep(8)\n")
+    start=time.monotonic()
+    with unittest.mock.patch.object(upgrade,'__file__',str(stub)),unittest.mock.patch.object(upgrade,'_preferred_python',return_value=sys.executable):result=upgrade._collect_reconciliation_report(root,budget_s=.2)
+    elapsed=time.monotonic()-start;time.sleep(1)
+    assert pid.exists() and not marker.exists() and result['reconciliation_reason']=='reporting_timeout' and elapsed<2,result
+    record('owned-child-tree-timeout',{'elapsed':elapsed,'state':result['reconciliation_state'],'reason':result['reconciliation_reason'],'descendant_marker_absent':not marker.exists()})
+import zipfile, upgrade_protocol, upgrade_lib, sqlite_storage_migration, io, contextlib
+with tempfile.TemporaryDirectory(prefix='wf-sec-pack-') as td:
+    root=pathlib.Path(td);selected=root/'operator.zip'
+    with zipfile.ZipFile(selected,'w') as archive:
+        archive.writestr(upgrade_protocol.PROTOCOL_METADATA_ARCNAME,json.dumps(upgrade_protocol.build_protocol_metadata(release_version='1.29.0',build_id='security-review',artifact_type='feature')))
+        for name in upgrade_protocol.MANDATORY_FEATURE_MODULES:
+            body=''
+            if name=='upgrade_protocol.py':body='UPGRADE_PROTOCOL_VERSION=2\nMINIMUM_RUNNER_PROTOCOL=2\n'
+            elif name=='upgrade_extensions.py':body="def post_preflight(ctx):\n    return 'bridge_release_required'\n"
+            archive.writestr('.wavefoundry/framework/scripts/'+name,body)
+    original=hashlib.sha256(selected.read_bytes()).hexdigest()
+    owned=upgrade._stage_pack_for_consumption(selected);proof=upgrade._VERIFIED_PACK_IDENTITIES[str(owned)]
+    upgrade_lib.write_upgrade_lock(root,'1.28.0','1.29.0');upgrade_lib.update_upgrade_lock(root,verified_pack_identity=proof)
+    with unittest.mock.patch.object(sqlite_storage_migration,'cleanup_legacy'),unittest.mock.patch.object(upgrade,'_record_setup_baseline',return_value={}),unittest.mock.patch.object(upgrade,'_regenerate_codebase_map_on_upgrade'),unittest.mock.patch.object(upgrade,'_ensure_lifecycle_policy_backstop'),unittest.mock.patch.object(upgrade,'_print_operator_summary',side_effect=RuntimeError('optional')),contextlib.redirect_stdout(io.StringIO()):
+        upgrade.phase_cleanup(root,'1.28.0','1.29.0',owned,0,True)
+    assert not owned.exists() and upgrade_lib.read_upgrade_lock(root) is None and hashlib.sha256(selected.read_bytes()).hexdigest()==original
+    record('canonical-staged-pack-cleanup-despite-report-error',{'owned_deleted':True,'lock_removed':True,'operator_selected_hash_preserved':True})
+    owned=upgrade._stage_pack_for_consumption(selected);proof=upgrade._VERIFIED_PACK_IDENTITIES[str(owned)]
+    original_checkpoint=contained_files._checkpoint;replacement=root/'replacement.zip';replacement.write_bytes(b'operator replacement')
+    def replace_at_unlink(stage):
+        if stage=='unlink':os.replace(replacement,owned)
+        original_checkpoint(stage)
+    with unittest.mock.patch.object(contained_files,'_checkpoint',side_effect=replace_at_unlink),contextlib.redirect_stdout(io.StringIO()):upgrade._cleanup_verified_pack(owned,proof)
+    assert owned.read_bytes()==b'operator replacement'
+    record('pack-replaced-between-judge-unlink-retained',{'replacement_preserved':True});owned.unlink()
+pathlib.Path('/private/tmp/wf2071p-security-probe-results.json').write_text(json.dumps(out,indent=2));print(json.dumps(out,indent=2))

@@ -1,0 +1,291 @@
+{
+  "role": "architecture-reviewer",
+  "phase": "delivery",
+  "context_id": "c6-delivery-architecture-fresh-20261009",
+  "fresh_context": true,
+  "independent": true,
+  "verdict": "approve architecture delivery within stated finite scope; canonical full qualification remains separate",
+  "tree_fingerprint": "a1033368f0c48a884fe0c5c38fc0f48d1201eb994d07feef57731d6bb579c600",
+  "files_in_scope": [
+    ".wavefoundry/framework/scripts/upgrade_extensions.py",
+    ".wavefoundry/framework/scripts/mcp_tool_extensions.py",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py",
+    ".wavefoundry/framework/scripts/tests/record_layout_support.py",
+    ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md",
+    "docs/specs/mcp-tool-surface.md",
+    "docs/architecture/data-and-control-flow.md",
+    "docs/architecture/layering-rules.md"
+  ],
+  "hashes_before": [
+    {
+      "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+      "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/mcp_tool_extensions.py",
+      "sha256": "b19a7e12e2cb7e0a843abc655a32b3b8801c2bc510fed98d210f7e065ff0dad1"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+      "sha256": "9e4d047befb84aae19dae23ba25544a0311e3801597e864e7f47479feff884ef"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py",
+      "sha256": "a98ab97f0706c12d24ad64f6803a5c8454be01aa73f89f9df95f1e51394404a8"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/record_layout_support.py",
+      "sha256": "82325f6a3f403ef98ffd25ce6e7479e12f482d5d0569272d3f75c85b667189d4"
+    },
+    {
+      "path": ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md",
+      "sha256": "18b97d8d6d9487889700cc2345fc47046adb0674f66c9aae3a815e5145e754ce"
+    },
+    {
+      "path": "docs/specs/mcp-tool-surface.md",
+      "sha256": "3a99e045b721c0140b9bae0034852838fc7999f5c312d32838502277095df0c0"
+    },
+    {
+      "path": "docs/architecture/data-and-control-flow.md",
+      "sha256": "fde3312da48d0a8bb6c720b3d375460810f27e0c2a20bdd472fb62ffdb100bc5"
+    },
+    {
+      "path": "docs/architecture/layering-rules.md",
+      "sha256": "b0b0e2800fde4df05610a2aef04c8fde76ea2d0e14fd0e4cde7f260e9b0c1856"
+    }
+  ],
+  "hashes_after": [
+    {
+      "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+      "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/mcp_tool_extensions.py",
+      "sha256": "b19a7e12e2cb7e0a843abc655a32b3b8801c2bc510fed98d210f7e065ff0dad1"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+      "sha256": "9e4d047befb84aae19dae23ba25544a0311e3801597e864e7f47479feff884ef"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py",
+      "sha256": "a98ab97f0706c12d24ad64f6803a5c8454be01aa73f89f9df95f1e51394404a8"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/record_layout_support.py",
+      "sha256": "82325f6a3f403ef98ffd25ce6e7479e12f482d5d0569272d3f75c85b667189d4"
+    },
+    {
+      "path": ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md",
+      "sha256": "18b97d8d6d9487889700cc2345fc47046adb0674f66c9aae3a815e5145e754ce"
+    },
+    {
+      "path": "docs/specs/mcp-tool-surface.md",
+      "sha256": "3a99e045b721c0140b9bae0034852838fc7999f5c312d32838502277095df0c0"
+    },
+    {
+      "path": "docs/architecture/data-and-control-flow.md",
+      "sha256": "fde3312da48d0a8bb6c720b3d375460810f27e0c2a20bdd472fb62ffdb100bc5"
+    },
+    {
+      "path": "docs/architecture/layering-rules.md",
+      "sha256": "b0b0e2800fde4df05610a2aef04c8fde76ea2d0e14fd0e4cde7f260e9b0c1856"
+    }
+  ],
+  "nine_hashes_unchanged": true,
+  "boundaries_touched": [
+    "static distribution source vs selected apply execution",
+    "old runner/cache vs incoming dependency identity",
+    "bounded journal metadata vs destructive builtin migration",
+    "read-only preview vs upgrade apply"
+  ],
+  "invariants": [
+    {
+      "claim": "Builtin destructive migration remains independently pre-1.15; opt-in can schedule hook at all from-versions only with qualifying source.",
+      "source": [
+        "pre_docs_gate",
+        "docs/architecture/data-and-control-flow.md: Upgrade journal hook selection and migration",
+        "AC-1",
+        "AC-2"
+      ],
+      "verification": "Own version/control execution + builtin-authority causal mutant."
+    },
+    {
+      "claim": "Journal-only incoming import context spans validation/load/call; incoming package descendants are purged/restored; new descendants removed, old object identities and sys.path restored on success/import failure/call failure.",
+      "source": [
+        "_journal_incoming_imports",
+        "JournalIncomingRunnerTests",
+        "AC-4"
+      ],
+      "verification": "Own actual dispatcher success/retry/import/call failure tests + descendant and identity mutants."
+    },
+    {
+      "claim": "Generic _scripts_on_sys_path unchanged.",
+      "source": [
+        "_scripts_on_sys_path",
+        "pre-C6 baseline"
+      ],
+      "verification": "Exact AST-selected source segment equality."
+    },
+    {
+      "claim": "Preview executes no extension declaration, hook or distribution helper and distinguishes invalid/unknown source.",
+      "source": [
+        "_static_journal_trigger",
+        "JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution",
+        "AC-3"
+      ],
+      "verification": "Own static decision preview/refusal execution."
+    },
+    {
+      "claim": "Journal declarations stay outside declared() activation; third positional helper_modules preserved.",
+      "source": [
+        "mcp_tool_extensions.journal_declaration_problems",
+        "docs/architecture/layering-rules.md journal boundary row",
+        "C6 diff"
+      ],
+      "verification": "Live-source signature inspection only; profile/activation carrier not independently rerun."
+    }
+  ],
+  "required_doc_updates": [],
+  "findings": [],
+  "execution": [
+    {
+      "command": [
+        "python3",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_upgrade_protocol.JournalIncomingRunnerTests",
+        "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion",
+        "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover",
+        "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution",
+        "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration"
+      ],
+      "environment": {
+        "PYTHONDONTWRITEBYTECODE": "1"
+      },
+      "cwd": "/tmp/wf-206is-architecture-scratch/.wavefoundry/framework/scripts/tests",
+      "expected": "seven tests OK, zero skips",
+      "observed": "Ran 7 tests in 8.036s; OK, zero skips",
+      "log": "/tmp/wf-206is-architecture-baseline.log"
+    }
+  ],
+  "mutation_table": [
+    {
+      "mutant": "descendants",
+      "replacement_before": "return name.partition(\".\")[0] in names",
+      "replacement_after": "return name in names",
+      "command": [
+        "python3",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry"
+      ],
+      "cwd": "/tmp/wf-206is-architecture-scratch/.wavefoundry/framework/scripts/tests",
+      "returncode": 1,
+      "log": "/tmp/wf-206is-architecture-descendants.log",
+      "tail": "test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry (test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry) ... ERROR\n\n======================================================================\nERROR: test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry (test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpc6l4gymh/old-scripts/upgrade_wavefoundry.py\", line 1195, in _run_hook\n    hook_fn(ctx)\n    ~~~~~~~^^^^^\n  File \".wavefoundry/framework/scripts/upgrade_extensions.py\", line 2683, in pre_docs_gate\n  File \".wavefoundry/framework/scripts/upgrade_extensions.py\", line 1810, in _load_journal_declaration\nupgrade_extensions.JournalDeclarationError: invalid journal migration declaration: mcp_tool_extensions could not be imported (AttributeError)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/private/tmp/wf-206is-architecture-scratch/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py\", line 1178, in test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry\n    self._dispatch()\n    ~~~~~~~~~~~~~~^^\n  File \"/private/tmp/wf-206is-architecture-scratch/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py\", line 1163, in _dispatch\n    self.runner._run_hook(\"pre_docs_gate\", types.SimpleNamespace(root=self.root, from_version=\"1.29.0\", zip_path=self.package), extension)\n    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpc6l4gymh/old-scripts/upgrade_wavefoundry.py\", line 1200, in _run_hook\n    sys.exit(3)\n    ~~~~~~~~^^^\nSystemExit: 3\n\n----------------------------------------------------------------------\nRan 1 test in 0.483s\n\nFAILED (errors=1)\n"
+    },
+    {
+      "mutant": "restore_identity",
+      "replacement_before": "        sys.modules.update(previous_modules)\n",
+      "replacement_after": "",
+      "command": [
+        "python3",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_upgrade_protocol.JournalIncomingRunnerTests.test_call_failure_restores_modules_path_and_reports_partial_effect_truthfully"
+      ],
+      "cwd": "/tmp/wf-206is-architecture-scratch/.wavefoundry/framework/scripts/tests",
+      "returncode": 1,
+      "log": "/tmp/wf-206is-architecture-restore_identity.log",
+      "tail": "test_call_failure_restores_modules_path_and_reports_partial_effect_truthfully (test_upgrade_protocol.JournalIncomingRunnerTests.test_call_failure_restores_modules_path_and_reports_partial_effect_truthfully) ... FAIL\n\n======================================================================\nFAIL: test_call_failure_restores_modules_path_and_reports_partial_effect_truthfully (test_upgrade_protocol.JournalIncomingRunnerTests.test_call_failure_restores_modules_path_and_reports_partial_effect_truthfully)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/private/tmp/wf-206is-architecture-scratch/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py\", line 1187, in test_call_failure_restores_modules_path_and_reports_partial_effect_truthfully\n    self._assert_restored()\n    ~~~~~~~~~~~~~~~~~~~~~^^\n  File \"/private/tmp/wf-206is-architecture-scratch/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py\", line 1171, in _assert_restored\n    self.assertIs(sys.modules.get(name), module, name)\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None is not <module 'c6_dependency' from '/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpivmjti4j/old-scripts/c6_dependency.py'> : c6_dependency\n\n----------------------------------------------------------------------\nRan 1 test in 0.439s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "mutant": "builtin_authority",
+      "replacement_before": "                if legacy and hook_ok:\n",
+      "replacement_after": "                if hook_ok:\n",
+      "command": [
+        "python3",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion"
+      ],
+      "cwd": "/tmp/wf-206is-architecture-scratch/.wavefoundry/framework/scripts/tests",
+      "returncode": 1,
+      "log": "/tmp/wf-206is-architecture-builtin_authority.log",
+      "tail": "test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) ... \n  test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) (version='1.15.0') ... FAIL\n  test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) (version='1.29.0') ... FAIL\n\n======================================================================\nFAIL: test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) (version='1.15.0')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/private/tmp/wf-206is-architecture-scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14831, in test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion\n    self.assertEqual(builtin.call_count, int(version == \"1.14.9\"))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 1 != 0\n\n======================================================================\nFAIL: test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) (version='1.29.0')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/private/tmp/wf-206is-architecture-scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14831, in test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion\n    self.assertEqual(builtin.call_count, int(version == \"1.14.9\"))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 1 != 0\n\n----------------------------------------------------------------------\nRan 1 test in 0.263s\n\nFAILED (failures=2)\n"
+    }
+  ],
+  "mutants_detected": 3,
+  "survivors": [],
+  "owner_sweeps": "None: no selected mutant survived; whole owner is coordinator-owned.",
+  "limitations": [
+    "Finite architecture risk selection, not an exhaustive dependency/import or concurrency proof.",
+    "Own checks ran on macOS ARM64/Python 3.14 in scratch; native Windows path branch was not run.",
+    "Used shipped tests as execution carriers but evaluated expected behavior against independently read ACs and architecture/public contracts; no new independent test suite was authored.",
+    "Older-runner fixture preserves a pre-extraction runner copy and exercises the actual archive loader, feature extraction and registered hook dispatcher; no ancient released archive or whole upgrade setup/index/cleanup was exercised.",
+    "Seven selected tests ran without skips; 18-test/837-owner results supplied by the coordinator are not counted as own execution.",
+    "Canonical full suite is coordinator-owned and was still pending with a reported extension-tool owner failure when briefed; no full-suite-green or current-receipt claim.",
+    "MCP index_health says project stale and setup action_required/setup_inputs_changed; semantic code_ask succeeded with stale navigation and current-file outline/read validation supplied code authority. No setup/index rebuild or host restart.",
+    "One initial builtin mutant invocation lacked scripts PYTHONPATH and failed at test import, so it was discarded and rerun with explicit scratch PYTHONPATH; only the causal rerun counts.",
+    "Source eligibility/link matrix and positional-validator/profile activation test were read/contract checked but not independently rerun in this lane."
+  ],
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "focused-mutation"
+  },
+  "approval_event": {
+    "wave_id": "206is",
+    "event": "approval",
+    "actor": "architecture-reviewer",
+    "context_id": "c6-delivery-architecture-fresh-20261009",
+    "signoff_key": "architecture-reviewer",
+    "approval_phase": "delivery",
+    "fresh_context": true,
+    "independent": true,
+    "evidence": {
+      "proposition": "The C6 journal hook preserves separate scheduling/migration authority and confines incoming import substitution to the selected journal load/call with restoration on success/failure; preview remains nonexecuting.",
+      "failure_condition": "A later opt-in authorizes builtin migration, dormant/default or preview executes the declaration/hook, old dependencies answer incoming imports, or cached module/path state leaks after success/failure.",
+      "public_path": "Actual upgrade_wavefoundry._load_extension_module, _extract_feature_members and registered _run_hook(pre_docs_gate) boundary; public upgrade_extensions.migrate_journals(apply=False) and pre_docs_gate policy boundary.",
+      "command_or_fixture": "PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest -v test_upgrade_protocol.JournalIncomingRunnerTests test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration; python3 -B /tmp/wf-206is-architecture-mutate.py",
+      "expected": "Selected seven tests green without skips; each selected weakened architectural guard is detected by its named test; frozen source and generic path helper unchanged.",
+      "observed": "Own seven selected tests completed OK in 8.036s with zero skips: real archive/extraction/registered older-runner hook dispatch success and idempotent retry, import failure SystemExit(3), call failure with retained hook-owned partial effects and restored module/path state, opt-in before/at/after 1.15 with built-in permission unchanged, absent/literal legacy default dormancy, static preview/invalid refusal, and dependent-migration failure handling. Own three focused mutants causally failed named tests: top-level-only cache shadowing caused declaration AttributeError/SystemExit(3), removing prior-module restoration caused an identity assertion failure, and removing the independent legacy builtin gate caused builtin call count 1 instead of 0 at 1.15 and 1.29. Generic path helper is byte-identical to pre-C6 baseline; all nine frozen hashes match before and after.",
+      "artifact_or_test_id": "/tmp/wf-206is-delivery-architecture.json; /tmp/wf-206is-architecture-baseline.log; /tmp/wf-206is-architecture-mutations.json; JournalIncomingRunnerTests; JournalTriggerPolicyTests",
+      "known_bad_detection_method": "focused-mutation",
+      "limitations": [
+        "Finite architecture risk selection, not an exhaustive dependency/import or concurrency proof.",
+        "Own checks ran on macOS ARM64/Python 3.14 in scratch; native Windows path branch was not run.",
+        "Used shipped tests as execution carriers but evaluated expected behavior against independently read ACs and architecture/public contracts; no new independent test suite was authored.",
+        "Older-runner fixture preserves a pre-extraction runner copy and exercises the actual archive loader, feature extraction and registered hook dispatcher; no ancient released archive or whole upgrade setup/index/cleanup was exercised.",
+        "Seven selected tests ran without skips; 18-test/837-owner results supplied by the coordinator are not counted as own execution.",
+        "Canonical full suite is coordinator-owned and was still pending with a reported extension-tool owner failure when briefed; no full-suite-green or current-receipt claim.",
+        "MCP index_health says project stale and setup action_required/setup_inputs_changed; semantic code_ask succeeded with stale navigation and current-file outline/read validation supplied code authority. No setup/index rebuild or host restart.",
+        "One initial builtin mutant invocation lacked scripts PYTHONPATH and failed at test import, so it was discarded and rerun with explicit scratch PYTHONPATH; only the causal rerun counts.",
+        "Source eligibility/link matrix and positional-validator/profile activation test were read/contract checked but not independently rerun in this lane."
+      ],
+      "safety_and_authorization": "Authorized read-only independent review; only temporary scratch copies mutated, local fixtures write to temporary targets; no original source, wave ledger, setup/index, external service, close, commit or push changed.",
+      "disposition_rationale": "No architecture defect reproduced in the finite selected delivery scope; architecture/public-contract text explains the actual boundaries."
+    },
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "focused-mutation"
+    }
+  }
+}

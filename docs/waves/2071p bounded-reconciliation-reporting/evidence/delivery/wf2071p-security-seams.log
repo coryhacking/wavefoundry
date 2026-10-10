@@ -1,0 +1,57 @@
+EEEE
+======================================================================
+ERROR: test_upgrade_wavefoundry (unittest.loader._FailedTest.test_upgrade_wavefoundry)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_upgrade_wavefoundry
+Traceback (most recent call last):
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/loader.py", line 141, in loadTestsFromName
+    module = __import__(module_name)
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 30, in <module>
+    import index_paths  # noqa: E402 — one definition of the shared database name
+    ^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'index_paths'
+
+
+======================================================================
+ERROR: test_upgrade_wavefoundry (unittest.loader._FailedTest.test_upgrade_wavefoundry)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_upgrade_wavefoundry
+Traceback (most recent call last):
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/loader.py", line 141, in loadTestsFromName
+    module = __import__(module_name)
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 30, in <module>
+    import index_paths  # noqa: E402 — one definition of the shared database name
+    ^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'index_paths'
+
+
+======================================================================
+ERROR: test_upgrade_wavefoundry (unittest.loader._FailedTest.test_upgrade_wavefoundry)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_upgrade_wavefoundry
+Traceback (most recent call last):
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/loader.py", line 141, in loadTestsFromName
+    module = __import__(module_name)
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 30, in <module>
+    import index_paths  # noqa: E402 — one definition of the shared database name
+    ^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'index_paths'
+
+
+======================================================================
+ERROR: test_upgrade_wavefoundry (unittest.loader._FailedTest.test_upgrade_wavefoundry)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_upgrade_wavefoundry
+Traceback (most recent call last):
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/loader.py", line 141, in loadTestsFromName
+    module = __import__(module_name)
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 30, in <module>
+    import index_paths  # noqa: E402 — one definition of the shared database name
+    ^^^^^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'index_paths'
+
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.000s
+
+FAILED (errors=4)

@@ -1,0 +1,212 @@
+[
+  {
+    "source": "/private/tmp/wf-2071op-docs-contract-readiness.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-2071op-docs-contract-readiness.json",
+    "sha256": "33490d0ffc3bdfe3598bef392b1971a754007ccba2f1879cb5220b15ed42ed6b"
+  },
+  {
+    "source": "/private/tmp/wf-arch-readiness-2071-control.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-arch-readiness-2071-control.json",
+    "sha256": "9a54ae9e50ea779dbe1d5a3a88883b8a35f2fe9f01cecc4212def95ba625d429"
+  },
+  {
+    "source": "/private/tmp/wf-arch-readiness-2071-control.py",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-arch-readiness-2071-control.source.txt",
+    "sha256": "3bef4316160732cda6485605bd6797c627edfb89b029961532e350b17834c857"
+  },
+  {
+    "source": "/private/tmp/wf-arch-readiness-2071-judgment.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-arch-readiness-2071-judgment.json",
+    "sha256": "97dfbcee67ed914319c592d01aefaf4fc0666478e88ca69e2b3a7ea56b6112bc"
+  },
+  {
+    "source": "/private/tmp/wf-arch-readiness-2071-path",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-arch-readiness-2071-path",
+    "sha256": "38bb709c9876724c37cf031cca532e8e80c886fc851c40f1d358d1ad91ba5997"
+  },
+  {
+    "source": "/private/tmp/wf-qa-readiness-2071op-probe.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-qa-readiness-2071op-probe.json",
+    "sha256": "26c8918ddba25cab1933f330b6716c0af0c826e196bf175c9bf760bb6ff3ebf0"
+  },
+  {
+    "source": "/private/tmp/wf-qa-readiness-2071op-probe.py",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-qa-readiness-2071op-probe.source.txt",
+    "sha256": "fd0b43907678381d0c3e56d12e4f4390f1d22ac6783dffd7a9555343d2df2f7a"
+  },
+  {
+    "source": "/private/tmp/wf-readiness-code-2071op-adjacent.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-readiness-code-2071op-adjacent.json",
+    "sha256": "866899650a46cb50ace048c08d4a2c18c713c9b3b664a47fcbc0c919ffa7ecf5"
+  },
+  {
+    "source": "/private/tmp/wf-readiness-code-2071op-adjacent.py",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-readiness-code-2071op-adjacent.source.txt",
+    "sha256": "db4cca852d6804a81059b7cc68a81ac2cb7548d6f72baf4404cb85d89aa82045"
+  },
+  {
+    "source": "/private/tmp/wf-readiness-code-2071op-fingerprint.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-readiness-code-2071op-fingerprint.json",
+    "sha256": "d9e3257b85ceba2608b326eb92a9911ca2cc61d635bafed814f563bba85ef582"
+  },
+  {
+    "source": "/private/tmp/wf-readiness-code-2071op-plan-hashes.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-readiness-code-2071op-plan-hashes.json",
+    "sha256": "3deb84bd4e870334c99d0930b16a1e15d4a9b9df342c3ca2899df93121259a31"
+  },
+  {
+    "source": "/private/tmp/wf-readiness-code-2071op-replay.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-readiness-code-2071op-replay.json",
+    "sha256": "9671af63ea6b056cf49dfdae915e4aaea7625574fa20fcfdbe2c77f0d56e3f4d"
+  },
+  {
+    "source": "/private/tmp/wf-readiness-code-2071op-replay.py",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-readiness-code-2071op-replay.source.txt",
+    "sha256": "e9528658b897b757675172b9f80b463b39d551b26b52f4cae01271e0032eab5f"
+  },
+  {
+    "source": "/private/tmp/wf-readiness-code-2071op-review.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-readiness-code-2071op-review.json",
+    "sha256": "fed59773814c20a8957c4e25c34bd40fe272fbee37662f1f6cb0026ffab29b8e"
+  },
+  {
+    "source": "/private/tmp/wf-security-readiness-9bb4030e35ea49d98b0864d7ea045d7d/baseline.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/security-baseline.json",
+    "sha256": "472a5d6f507ce9a69cd1070696f6494383ca8263288025164e003a2a1260ae47"
+  },
+  {
+    "source": "/private/tmp/wf-security-readiness-9bb4030e35ea49d98b0864d7ea045d7d/boundaries.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/security-boundaries.json",
+    "sha256": "ce44a7e50c6567d94d4ca59fd18ade3ab06ece703fc2a9a860e0a2e82e230ed0"
+  },
+  {
+    "source": "/private/tmp/wf-security-readiness-9bb4030e35ea49d98b0864d7ea045d7d/boundaries.py",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/security-boundaries.source.txt",
+    "sha256": "da2dc65640d8ec3e5022964794c072b29c5b1cdb1991e1249440e903585eb3de"
+  },
+  {
+    "source": "/private/tmp/wf-security-readiness-9bb4030e35ea49d98b0864d7ea045d7d/outside.md",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/security-outside.capture.txt",
+    "sha256": "10f15ecec337d7f57c9e0ffaea3af18d1d14be3b57715bfc664a250ae54d6c58"
+  },
+  {
+    "source": "/private/tmp/wf-security-readiness-9bb4030e35ea49d98b0864d7ea045d7d/replay.py",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/security-replay.source.txt",
+    "sha256": "b847a13aae6ba7e72184ecb5d7b14315086722db308c1e23dd5f424e807997c2"
+  },
+  {
+    "source": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-reality-readiness-xl0oxesb/baseline.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/reality-baseline.json",
+    "sha256": "5fccaf76e1faacf0ba1b6d65001b6f762b2ea802b29129da16cd3aae95d2aa76"
+  },
+  {
+    "source": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-reality-readiness-xl0oxesb/probe.py",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/reality-probe.source.txt",
+    "sha256": "054175e7a17ed165e72a46b1c568d9f58cd50e26becfb65b000ce05b62c1b79d"
+  },
+  {
+    "source": "/private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-replay.py",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-replay.source.txt",
+    "sha256": "a76fa16758447461e008523a349275b2d10b7fedfed70617abf423531de7e917"
+  },
+  {
+    "source": "/private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-payload.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-payload.json",
+    "sha256": "35749dfe0c318def6341b9b2f98590609287501298e4a6fc335b3ecc40779ce6"
+  },
+  {
+    "source": "/private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-controls.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-controls.json",
+    "sha256": "668c66cd5ef2ad437d74f899f1ba2f9d89a6fc81ee58f458215daf6d1aeb1d74"
+  },
+  {
+    "source": "/private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-child-controls.py",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-child-controls.source.txt",
+    "sha256": "3c75e83fb9ad732c44b149c0b3212fd9f0df4483677cdfd320ec45f2e7a47c7a"
+  },
+  {
+    "source": "/private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-controls.py",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-controls.source.txt",
+    "sha256": "0f7e03dda424e9db6b4919c8e8b23ba71469495911dcd7137be78c490bdcb33e"
+  },
+  {
+    "source": "/private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-fingerprint.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-fingerprint.json",
+    "sha256": "502e37c7af6a7ff45ce35bca8fbd44238bafbab1a0b7a00ce66949824b056eb9"
+  },
+  {
+    "source": "/private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-child-controls.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-child-controls.json",
+    "sha256": "3cba098c3748126fcbf5b1a3af1285bcd7c3547117fe5176ba99dfd44ab5414a"
+  },
+  {
+    "source": "/private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-replay.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-replay.json",
+    "sha256": "5b6fb5c52747e214c0775415577295c7a746cc0c30b8b7aef49b99d4fa613647"
+  },
+  {
+    "source": "/private/tmp/wf-release-readiness-2071p-stdlib.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-release-readiness-2071p-stdlib.json",
+    "sha256": "b4f99d9bb4dd2f53b0577810fc4bdb5e19edda42f5175da34780aa33409c9300"
+  },
+  {
+    "source": "/private/tmp/wf-release-readiness-2071p-probe.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-release-readiness-2071p-probe.json",
+    "sha256": "89e5d262652a1fce58dfe556fd40c86117ae15a3ec133df3e1d50810ab43a132"
+  },
+  {
+    "source": "/private/tmp/wf-release-readiness-2071p-report.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-release-readiness-2071p-report.json",
+    "sha256": "5ec4abd5cf3ea170c56b6d4868f4251a8fdf4f6ee0619ce58ed814145b64c16e"
+  },
+  {
+    "source": "/private/tmp/wf-release-readiness-2071p-probe.py",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-release-readiness-2071p-probe.source.txt",
+    "sha256": "753a0ad145be119fea8dbf4b8e54067623bc3ba3ddb854aa57de1c0849dddabe"
+  },
+  {
+    "source": "/private/tmp/wf-release-readiness-2071p-source-check.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-release-readiness-2071p-source-check.json",
+    "sha256": "e3369ed80f9986837991b7d404cfe77c8ae50d6940aa74c0082df1aaffb1210f"
+  },
+  {
+    "source": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-arch-readiness-2071-z5pyl_dv/arch-baseline.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/arch-baseline.json",
+    "sha256": "3879c0d7d93456568346c0e040cb71ff899f1a2a6fb44226f65956f1f65c5859"
+  },
+  {
+    "source": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-arch-readiness-2071-z5pyl_dv/probe-paths.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/probe-paths.json",
+    "sha256": "0450f663fa10a3eff5842a40ddc9bf4ca6eae5cc9bf0eceae00a74188005dc60"
+  },
+  {
+    "source": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-arch-readiness-2071-z5pyl_dv/arch-baseline.py",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/arch-baseline.source.txt",
+    "sha256": "f174d8d1d04945a8533177d24d5d4aa85fad4e62bac9896712e561070b35d7cd"
+  },
+  {
+    "source": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-arch-readiness-2071-z5pyl_dv/fingerprint-start.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/fingerprint-start.json",
+    "sha256": "5fed2358f812cf2a58cfe3ba16cc783a97ffb73fa471d0473b7acd2dd6c903c4"
+  },
+  {
+    "source": "/private/tmp/wf-chair-readiness-2071op-synthesis.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/chair-synthesis.json",
+    "sha256": "154dd9f94ff37ff031637cff70dc60425a6d075d2638204f282d3fdffc762551"
+  },
+  {
+    "source": "/private/tmp/wf-chair-readiness-2071op-probe.py",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/chair-probe.source.txt",
+    "sha256": "a06c2221346bba295f41667e7456027e8be37c826a31b2148fb821e3ff67bef4"
+  },
+  {
+    "source": "/private/tmp/wf-chair-readiness-2071op-probe.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/chair-probe.json",
+    "sha256": "0c381d81214fd57c499fd91efe53daafb19517aa13bf90b6e1c72edbf6161bc0"
+  },
+  {
+    "source": "/private/tmp/wf-chair-readiness-2071op-fingerprint.json",
+    "artifact": "docs/waves/2071o graph-query-provenance/evidence/readiness/chair-fingerprint.json",
+    "sha256": "8872d1429169719dd0cbecd1f57a5db9dddb19db16955e77b7dfd3869f29f054"
+  }
+]

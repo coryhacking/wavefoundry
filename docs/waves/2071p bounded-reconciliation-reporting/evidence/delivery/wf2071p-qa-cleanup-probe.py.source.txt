@@ -1,0 +1,27 @@
+exec(open('/private/tmp/wf2071p-qa-probes.py').read().split('# Specification-derived traversal')[0])
+import sqlite_storage_migration
+with tempfile.TemporaryDirectory(prefix='wf2071p-qa-cleanup-') as td:
+ r=Path(td);selected=r/'operator-source.zip'
+ with zipfile.ZipFile(selected,'w') as archive:
+  archive.writestr(protocol.PROTOCOL_METADATA_ARCNAME,json.dumps(protocol.build_protocol_metadata(release_version='1.29.0',build_id='qa-independent',artifact_type='feature')))
+  for name in protocol.MANDATORY_FEATURE_MODULES:
+   body=''
+   if name=='upgrade_protocol.py':body='UPGRADE_PROTOCOL_VERSION=2\nMINIMUM_RUNNER_PROTOCOL=2\n'
+   if name=='upgrade_extensions.py':body="def post_preflight(ctx):\n    return 'bridge_release_required'\n"
+   archive.writestr('.wavefoundry/framework/scripts/'+name,body)
+ staged=u._stage_pack_for_consumption(selected);proof=u._VERIFIED_PACK_IDENTITIES[str(staged)]
+ lib.write_upgrade_lock(r,'1.28.0','1.29.0',staged);lib.update_upgrade_lock(r,verified_pack_identity=proof,index_rebuilt_at='publication-proof')
+ fresh=ut.load_upgrade_module();assert fresh._VERIFIED_PACK_IDENTITIES=={}
+ # Reporting path is an actual owned sleeping subprocess; eligible cleanup is real. Irrelevant post-upgrade work is isolated.
+ stub=write(r,'stall.py',"import os,json,time\nfrom pathlib import Path\nPath(os.environ['WAVEFOUNDRY_REPORTING_PROGRESS']).write_text(json.dumps({'last_path':'docs/stall.md','last_stage':'read','read_bytes':13}))\ntime.sleep(5)\n")
+ output=io.StringIO();started=time.monotonic()
+ with patch.object(fresh,'__file__',str(stub)),patch.object(fresh,'_preferred_python',return_value=sys.executable),patch.dict(os.environ,{fresh._REPORTING_BUDGET_ENV:'.2'}),patch.object(sqlite_storage_migration,'cleanup_legacy'),patch.object(fresh,'_record_setup_baseline',return_value={}),patch.object(fresh,'_regenerate_codebase_map_on_upgrade'),patch.object(fresh,'_ensure_lifecycle_policy_backstop'),contextlib.redirect_stdout(output):
+  fresh.phase_cleanup(r,'1.28.0','1.29.0',staged,3,True)
+ elapsed=time.monotonic()-started;assert elapsed<2 and not staged.exists() and selected.exists() and lib.read_upgrade_lock(r) is None
+ sent=[l for l in output.getvalue().splitlines() if l.startswith(fresh.WAVE_UPGRADE_SUMMARY_SENTINEL)];assert len(sent)==1;summary=json.loads(sent[0].split(':',1)[1]);assert summary['index_update']=='docs and code layers complete' and summary['reconciliation_state']=='incomplete' and summary['reconciliation_reason']=='reporting_timeout' and summary['reconciliation_last_path']=='docs/stall.md'
+ # Boundary controls: unproven prefix and changed identity remain intact.
+ f=Path(tempfile.mkstemp(prefix='wf-verified-pack-',suffix='.zip')[1]);f.write_bytes(b'unproven')
+ fresh._cleanup_verified_pack(f,None);assert f.read_bytes()==b'unproven';f.unlink()
+ changed=u._stage_pack_for_consumption(selected);old=u._VERIFIED_PACK_IDENTITIES[str(changed)];replacement=write(r,'replacement.zip','replacement');os.replace(replacement,changed);fresh._cleanup_verified_pack(changed,old);assert changed.read_bytes()==b'replacement';changed.unlink()
+ result={'elapsed':elapsed,'summary':summary,'private_pack_deleted':not staged.exists(),'operator_pack_preserved':selected.exists(),'lock_removed':lib.read_upgrade_lock(r) is None,'unproven_retained':True,'changed_identity_retained':True,'fresh_registry_empty':True,'patch_limitations':['storage cleanup and setup/backstop/map operations isolated; reporting child, summary, lock and verified-pack cleanup production functions execute']}
+ Path('/private/tmp/wf2071p-qa-cleanup-result.json').write_text(json.dumps(result,indent=2));print(json.dumps(result))

@@ -1,0 +1,37 @@
+import contextlib, io, json, sys, tempfile
+from pathlib import Path
+from unittest.mock import patch
+scripts=Path('/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts');sys.path[:0]=[str(scripts),str(scripts/'tests')]
+import reconcile_scan as scan
+import contained_files as contained
+import upgrade_wavefoundry as up
+from wf_server import upgrade_handlers
+out={}
+with tempfile.TemporaryDirectory(prefix='wf-code-readiness-adjacent-') as td:
+ root=Path(td)
+ for rel in ('docs/reports-overview.md','nested/.local/live.md','nested/target/live.md','targeting/live.md','.claude/settings.local.json','docs/prompts/plan-change.prompt.md'):
+  p=root/rel;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('ordinary text')
+ required={'docs/reports-overview.md','nested/.local/live.md','nested/target/live.md','targeting/live.md','.claude/settings.local.json'}
+ scoped={rel for _,rel in scan._iter_scannable_files(root)};assert required<=scoped
+ out['legitimate_scope_controls']=sorted(required)
+ text='See `../../docs/prompts/plan-change.md`, `docs/prompts/plan-change.prompt.md` and `docs/prompts/nonexistent.md`.'
+ hits=list(scan._stale_prompt_extension_hits(root,text));assert len(hits)==1 and hits[0][1]=='../../docs/prompts/plan-change.md'
+ out['prompt_twin_controls']=[h[1] for h in hits]
+ (root/'real.md').write_text('legitimate contained data');(root/'linked.md').symlink_to(root/'real.md')
+ got=contained.read_contained_bytes(root,root/'linked.md',max_bytes=128);assert got==b'legitimate contained data'
+ out['contained_helper_symlink_limitation']='Existing read helper accepts an in-root final symlink; scanner must independently reject lexical links before helper use.'
+ # A flat new field survives the existing old-compatible passthrough bounder.
+ summary={'summary_schema_version':1,'reconciliation_status':'incomplete','reconciliation_reason':'work_deadline','reconciliation_elapsed_seconds':0.1,'reconciliation':[], 'host_permission_flags':[], 'renderer_provenance_flags':[], 'index_update_failed':False}
+ bounded=upgrade_handlers._bounded_upgrade_summary(summary)
+ for key in ('reconciliation_status','reconciliation_reason','reconciliation_elapsed_seconds','summary_schema_version','index_update_failed'):
+  assert bounded[key]==summary[key],(key,bounded)
+ out['flat_summary_control']={key:bounded[key] for key in ('reconciliation_status','reconciliation_reason','reconciliation_elapsed_seconds','summary_schema_version','index_update_failed')}
+ # Public summary compatibility refuses unknown schema, never silently transports it.
+ producer=root/'.wavefoundry/framework/scripts/upgrade_wavefoundry.py';producer.parent.mkdir(parents=True,exist_ok=True);producer.write_text('# placeholder boundary target')
+ import subprocess
+ unknown=up.WAVE_UPGRADE_SUMMARY_SENTINEL+json.dumps({'summary_schema_version':999})+'\n'
+ with patch.object(up.subprocess_util,'run_with_tree_kill',return_value=subprocess.CompletedProcess([],0,stdout=unknown,stderr='')):
+  payload,reason=up._delegated_summary_payload(root,timeout_s=0.1)
+ assert payload is None and reason.startswith('unrecognized_schema_token_')
+ out['invalid_schema_rejected']={'payload':payload,'reason':reason}
+Path('/private/tmp/wf-readiness-code-2071op-adjacent.json').write_text(json.dumps(out,indent=2)+'\n');print(json.dumps(out,indent=2))

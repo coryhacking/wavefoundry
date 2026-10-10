@@ -1,0 +1,103 @@
+RESULT_JSON {"run": 1, "failures": 6, "errors": 0, "skips": 0}
+test_loaded_invalid_trigger_is_refused_by_framework_policy_guard (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_invalid_trigger_is_refused_by_framework_policy_guard) ... 
+  test_loaded_invalid_trigger_is_refused_by_framework_policy_guard (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_invalid_trigger_is_refused_by_framework_policy_guard) (value="'unsupported'", version='1.14.9') ... FAIL
+  test_loaded_invalid_trigger_is_refused_by_framework_policy_guard (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_invalid_trigger_is_refused_by_framework_policy_guard) (value="'unsupported'", version='1.29.0') ... FAIL
+  test_loaded_invalid_trigger_is_refused_by_framework_policy_guard (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_invalid_trigger_is_refused_by_framework_policy_guard) (value='[]', version='1.14.9') ... FAIL
+  test_loaded_invalid_trigger_is_refused_by_framework_policy_guard (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_invalid_trigger_is_refused_by_framework_policy_guard) (value='[]', version='1.29.0') ... FAIL
+  test_loaded_invalid_trigger_is_refused_by_framework_policy_guard (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_invalid_trigger_is_refused_by_framework_policy_guard) (value="type('_TriggerSpoof', (), {'__eq__': lambda self, other: True, '__ne__': lambda self, other: False})()", version='1.14.9') ... FAIL
+  test_loaded_invalid_trigger_is_refused_by_framework_policy_guard (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_invalid_trigger_is_refused_by_framework_policy_guard) (value="type('_TriggerSpoof', (), {'__eq__': lambda self, other: True, '__ne__': lambda self, other: False})()", version='1.29.0') ... FAIL
+
+======================================================================
+FAIL: test_loaded_invalid_trigger_is_refused_by_framework_policy_guard (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_invalid_trigger_is_refused_by_framework_policy_guard) (value="'unsupported'", version='1.14.9')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 15096, in test_loaded_invalid_trigger_is_refused_by_framework_policy_guard
+    self.assertIn("must be 'legacy_cutover' or 'journals_present'", str(raised.exception))
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: "must be 'legacy_cutover' or 'journals_present'" not found in 'invalid journal migration declaration: EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER does not match the static trigger selection'
+
+======================================================================
+FAIL: test_loaded_invalid_trigger_is_refused_by_framework_policy_guard (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_invalid_trigger_is_refused_by_framework_policy_guard) (value="'unsupported'", version='1.29.0')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 15096, in test_loaded_invalid_trigger_is_refused_by_framework_policy_guard
+    self.assertIn("must be 'legacy_cutover' or 'journals_present'", str(raised.exception))
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: "must be 'legacy_cutover' or 'journals_present'" not found in 'invalid journal migration declaration: EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER does not match the static trigger selection'
+
+======================================================================
+FAIL: test_loaded_invalid_trigger_is_refused_by_framework_policy_guard (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_invalid_trigger_is_refused_by_framework_policy_guard) (value='[]', version='1.14.9')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 15096, in test_loaded_invalid_trigger_is_refused_by_framework_policy_guard
+    self.assertIn("must be 'legacy_cutover' or 'journals_present'", str(raised.exception))
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: "must be 'legacy_cutover' or 'journals_present'" not found in 'invalid journal migration declaration: EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER does not match the static trigger selection'
+
+======================================================================
+FAIL: test_loaded_invalid_trigger_is_refused_by_framework_policy_guard (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_invalid_trigger_is_refused_by_framework_policy_guard) (value='[]', version='1.29.0')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 15096, in test_loaded_invalid_trigger_is_refused_by_framework_policy_guard
+    self.assertIn("must be 'legacy_cutover' or 'journals_present'", str(raised.exception))
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: "must be 'legacy_cutover' or 'journals_present'" not found in 'invalid journal migration declaration: EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER does not match the static trigger selection'
+
+======================================================================
+FAIL: test_loaded_invalid_trigger_is_refused_by_framework_policy_guard (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_invalid_trigger_is_refused_by_framework_policy_guard) (value="type('_TriggerSpoof', (), {'__eq__': lambda self, other: True, '__ne__': lambda self, other: False})()", version='1.14.9')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 15095, in test_loaded_invalid_trigger_is_refused_by_framework_policy_guard
+    self.ext.pre_docs_gate(types.SimpleNamespace(root=self.root, from_version=version))
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2683, in pre_docs_gate
+    templates, hook_name, hook = _load_journal_declaration(
+                                 ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        ctx.root, load_hook=eligible, expected_trigger=trigger
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 1829, in _load_journal_declaration
+    function = _load_journal_hook(scripts, hook) if hook and load_hook else None
+               ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1241, in _execute_mock_call
+    raise effect
+AssertionError: invalid loaded trigger loaded hook
+
+======================================================================
+FAIL: test_loaded_invalid_trigger_is_refused_by_framework_policy_guard (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_invalid_trigger_is_refused_by_framework_policy_guard) (value="type('_TriggerSpoof', (), {'__eq__': lambda self, other: True, '__ne__': lambda self, other: False})()", version='1.29.0')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 15095, in test_loaded_invalid_trigger_is_refused_by_framework_policy_guard
+    self.ext.pre_docs_gate(types.SimpleNamespace(root=self.root, from_version=version))
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2683, in pre_docs_gate
+    templates, hook_name, hook = _load_journal_declaration(
+                                 ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        ctx.root, load_hook=eligible, expected_trigger=trigger
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 1829, in _load_journal_declaration
+    function = _load_journal_hook(scripts, hook) if hook and load_hook else None
+               ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1241, in _execute_mock_call
+    raise effect
+AssertionError: invalid loaded trigger loaded hook
+
+----------------------------------------------------------------------
+Ran 1 test in 0.968s
+
+FAILED (failures=6)

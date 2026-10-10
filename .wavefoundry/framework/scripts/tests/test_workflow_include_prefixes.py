@@ -3,16 +3,19 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 import workflow_include_prefixes as wip  # noqa: E402
+import contained_files  # noqa: E402
 from framework_files import source_path  # noqa: E402
 
 SCRIPTS = ".wavefoundry/framework/scripts"
@@ -94,14 +97,76 @@ class WorkflowIncludePrefixReaderTests(unittest.TestCase):
         cfg.write_bytes(b"\xff\xfe\x00{")
         self.assertEqual(wip.read_project_include_prefixes(self.root), {"docs": (), "code": ()})
 
+    def test_exact_byte_cap_is_accepted_and_one_more_is_refused(self):
+        self._indexing({"project_include_prefixes": ["src"]})
+        cfg = self.root / "docs" / "workflow-config.json"
+        data = cfg.read_bytes()
+        cfg.write_bytes(data + b" " * (8 * 1024 * 1024 - len(data)))
+        self.assertEqual(wip.read_project_include_prefixes(self.root), {"docs": ("src",), "code": ("src",)})
+        with cfg.open("ab") as stream:
+            stream.write(b" ")
+        self.assertEqual(wip.read_project_include_prefixes(self.root), {"docs": (), "code": ()})
+
+    def test_contained_link_is_supported_and_external_link_is_refused(self):
+        self._indexing({"project_include_prefixes": ["src"]})
+        cfg = self.root / "docs" / "workflow-config.json"
+        target = self.root / "inside.json"
+        cfg.rename(target)
+        cfg.symlink_to(target)
+        self.assertEqual(wip.read_project_include_prefixes(self.root)["code"], ("src",))
+        with tempfile.TemporaryDirectory() as outside:
+            external = Path(outside) / "config.json"
+            external.write_bytes(target.read_bytes())
+            cfg.unlink()
+            cfg.symlink_to(external)
+            self.assertEqual(wip.read_project_include_prefixes(self.root), {"docs": (), "code": ()})
+
+    def test_special_and_runtime_lock_targets_are_refused_before_read(self):
+        self._read({})
+        cfg = self.root / "docs" / "workflow-config.json"
+        cfg.unlink()
+        if hasattr(os, "mkfifo"):
+            os.mkfifo(cfg)
+            # A regression to read_text must fail immediately instead of hanging.
+            with patch.object(Path, "read_text", side_effect=AssertionError("following read")):
+                self.assertEqual(wip.read_project_include_prefixes(self.root), {"docs": (), "code": ()})
+            cfg.unlink()
+        lock = self.root / ".wavefoundry" / "lifecycle-mutation.lock"
+        lock.parent.mkdir(parents=True)
+        lock.write_text('{"indexing":{"project_include_prefixes":["src"]}}')
+        os.link(lock, cfg)
+        self.assertEqual(wip.read_project_include_prefixes(self.root), {"docs": (), "code": ()})
+
+    def test_config_replaced_between_judgment_and_open_is_refused(self):
+        self._indexing({"project_include_prefixes": ["original"]})
+        cfg = self.root / "docs" / "workflow-config.json"
+        original_open = contained_files._open_verified
+        with tempfile.TemporaryDirectory() as outside:
+            external = Path(outside) / "config.json"
+            external.write_text('{"indexing":{"project_include_prefixes":["outside"]}}')
+            def replace_then_open(*args):
+                cfg.unlink()
+                cfg.symlink_to(external)
+                return original_open(*args)
+            with patch.object(contained_files, "_open_verified", side_effect=replace_then_open) as opened:
+                self.assertEqual(wip.read_project_include_prefixes(self.root), {"docs": (), "code": ()})
+            opened.assert_called_once()
+            self.assertIn("outside", external.read_text())
+
+    def test_utf16_json_does_not_change_the_utf8_fallback(self):
+        self._read({})
+        cfg = self.root / "docs" / "workflow-config.json"
+        cfg.write_bytes('{"indexing":{"project_include_prefixes":["src"]}}'.encode("utf-16"))
+        self.assertEqual(wip.read_project_include_prefixes(self.root), {"docs": (), "code": ()})
+
 
 class SingleReaderOwnershipTests(unittest.TestCase):
-    """AC-11: one reader, stdlib-only, and setup reaches it without importing the indexer."""
+    """One bootstrap-safe reader; only its contained-files leaf may be non-stdlib."""
 
     def _tree(self, name: str) -> ast.Module:
         return ast.parse(source_path(name).read_text(encoding="utf-8"))
 
-    def test_reader_module_imports_only_the_standard_library(self):
+    def test_reader_module_imports_only_stdlib_and_the_contained_leaf(self):
         imported: set[str] = set()
         for node in ast.walk(self._tree("workflow_include_prefixes.py")):
             if isinstance(node, ast.Import):
@@ -109,8 +174,17 @@ class SingleReaderOwnershipTests(unittest.TestCase):
             elif isinstance(node, ast.ImportFrom):
                 imported.add((node.module or "").split(".")[0])
         imported.discard("__future__")
-        # Every framework module name is outside the standard library, so this also refuses them.
-        self.assertTrue(imported <= set(sys.stdlib_module_names), imported - set(sys.stdlib_module_names))
+        allowed = set(sys.stdlib_module_names) | {"contained_files"}
+        self.assertIn("contained_files", imported)
+        self.assertTrue(imported <= allowed, imported - allowed)
+        leaf_imports = set()
+        for node in ast.walk(self._tree("contained_files.py")):
+            if isinstance(node, ast.Import):
+                leaf_imports.update(a.name.split(".")[0] for a in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                leaf_imports.add((node.module or "").split(".")[0])
+        leaf_imports.discard("__future__")
+        self.assertTrue(leaf_imports <= set(sys.stdlib_module_names), leaf_imports - set(sys.stdlib_module_names))
 
     def test_setup_and_indexer_define_no_prefix_coercion_of_their_own(self):
         for name in ("setup_index.py", "indexer.py"):

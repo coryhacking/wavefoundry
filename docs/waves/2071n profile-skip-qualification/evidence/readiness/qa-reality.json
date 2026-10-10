@@ -1,0 +1,234 @@
+{
+  "phase": "readiness",
+  "wave_id": "2071n",
+  "change_id": "205jp",
+  "tree_fingerprint": "02bfe86fd4c8045b262dbcf7d2f9841fd5284666858077efea69812ade795cd0",
+  "packet_integrity": {
+    "checked_paths": 8,
+    "changed_paths": 0
+  },
+  "roles": {
+    "qa-reviewer": {
+      "verdict": "approved_readiness",
+      "proposition": "The admitted plan owns the observed missing-index, wrong corpus applicability and absent historical-ref preconditions, preserves concrete non-vacuous original assertions and specifies falsifiable independent delivery evidence.",
+      "counterexample_or_failure_condition": "A missing affected census site, unavailable production fixture boundary, weakened original assertions, or a proposal to replace exact historical source with current source would refute readiness.",
+      "execution_status": "executed",
+      "public_path": "Readiness plan/current live-test boundary and exact executed skip-identity inventory comparison (not future graph implementation)",
+      "command_or_fixture": "python3 -B independent packet blob and exact skip-map readiness probe; live MCP reads named above",
+      "expected": "Eight frozen paths unchanged; known declared extras exactly14 retrieval+1 corpus+4 history; intentionally omitted known site/equal-total wrong identity rejected.",
+      "observed": "8 unchanged; exact19 extras found; omitted site and equal-total replacement detected. Named retained production assertions and current fixture pattern checked live.",
+      "artifact_or_test_id": "evidence/readiness/qa-reality.json; /private/tmp/wf-2071n-qa-readiness-control.json",
+      "adjacent_controls": [
+        "Unmodified exact19-entry census accepted",
+        "Seven baseline quality skips separated from newly skipped retrieval/corpus cases",
+        "Original existing controlled publication pattern read independently"
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "known_bad_detection_method": "readiness-safe-control: deliberately omit known census site and replace one skip identity while preserving aggregate count; both exact-map comparisons detect mismatch",
+      "verification_context": {
+        "actor": "qa-reviewer",
+        "context_id": "2071n-ready-qa-independent-20261009",
+        "fresh_context": true,
+        "independent": true
+      },
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "universal_claim": false,
+      "limitations": [
+        "This is readiness review only, not implemented behavior or delivery approval.",
+        "Live MCP read/keyword callable; setup/index unready, no indexed freshness claim.",
+        "Provided executed targeted logs independently parsed; no fresh full-suite execution or full skip census by this seat.",
+        "Future graph/historical/corpus mutations not yet run and not claimed.",
+        "Historical fixture source bytes not yet captured, so raw provenance cannot be approved at readiness."
+      ]
+    },
+    "reality-checker": {
+      "verdict": "approved_readiness",
+      "proposition": "The admitted plan owns the observed missing-index, wrong corpus applicability and absent historical-ref preconditions, preserves concrete non-vacuous original assertions and specifies falsifiable independent delivery evidence.",
+      "counterexample_or_failure_condition": "A missing affected census site, unavailable production fixture boundary, weakened original assertions, or a proposal to replace exact historical source with current source would refute readiness.",
+      "execution_status": "executed",
+      "public_path": "Readiness plan/current live-test boundary and exact executed skip-identity inventory comparison (not future graph implementation)",
+      "command_or_fixture": "python3 -B independent packet blob and exact skip-map readiness probe; live MCP reads named above",
+      "expected": "Eight frozen paths unchanged; known declared extras exactly14 retrieval+1 corpus+4 history; intentionally omitted known site/equal-total wrong identity rejected.",
+      "observed": "8 unchanged; exact19 extras found; omitted site and equal-total replacement detected. Named retained production assertions and current fixture pattern checked live.",
+      "artifact_or_test_id": "evidence/readiness/qa-reality.json; /private/tmp/wf-2071n-qa-readiness-control.json",
+      "adjacent_controls": [
+        "Unmodified exact19-entry census accepted",
+        "Seven baseline quality skips separated from newly skipped retrieval/corpus cases",
+        "Original existing controlled publication pattern read independently"
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "known_bad_detection_method": "readiness-safe-control: deliberately omit known census site and replace one skip identity while preserving aggregate count; both exact-map comparisons detect mismatch",
+      "verification_context": {
+        "actor": "reality-checker",
+        "context_id": "2071n-ready-reality-independent-20261009",
+        "fresh_context": true,
+        "independent": true
+      },
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "universal_claim": false,
+      "limitations": [
+        "This is readiness review only, not implemented behavior or delivery approval.",
+        "Live MCP read/keyword callable; setup/index unready, no indexed freshness claim.",
+        "Provided executed targeted logs independently parsed; no fresh full-suite execution or full skip census by this seat.",
+        "Future graph/historical/corpus mutations not yet run and not claimed.",
+        "Historical fixture source bytes not yet captured, so raw provenance cannot be approved at readiness."
+      ]
+    }
+  },
+  "required_acs": [
+    {
+      "ac": "AC-1",
+      "classification": "feasible; delivery unverified until implemented",
+      "reference": "LiveGraphEvidenceControlTests; EvidencePartitionResponseTests; EvidenceNodesStayQueryableTests; ControlledCommunityPublicationResponseTests",
+      "negative_oracles": [
+        "Delete evidence or ordinary control: independently asserted presence must fail.",
+        "Remove explicit provenance/machine-run reason or child inheritance: exact classification assertions fail.",
+        "Use fewer than two independent production/evidence communities: exact limit=2 fill fails.",
+        "Drop cross-boundary edge or catalog publication: lookup/relationship assertions fail."
+      ],
+      "obligation": "Use real extraction and current published snapshot; do not revive retired project-graph.json or stamp classification by hand."
+    },
+    {
+      "ac": "AC-2",
+      "classification": "feasible; delivery unverified until implemented",
+      "reference": "IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository; record_layout_support.default_profile_only",
+      "negative_oracles": [
+        "Declared mode with unchanged vocabulary must execute >100 admitted-ID corpus and no rejected IDs.",
+        "Genuinely renamed constants trigger only explicit default-profile-only reason.",
+        "Reject valid corpus ID or accept malformed ID: existing independent predicates fail."
+      ],
+      "obligation": "Keep corpus >100 and every-ID checks; do not substitute an empty fabricated corpus."
+    },
+    {
+      "ac": "AC-3",
+      "classification": "feasible; required executable falsification at delivery",
+      "reference": "Literal EXPECTED in ControlledCommunityPublicationResponseTests versus independent public response; inherited classification controls",
+      "negative_oracles": [
+        "Evidence larger than both production halves detects partition-after-top-N.",
+        "Missing ordinary lookup target must fail presence before negative classification.",
+        "Empty graph/evidence cannot become a skip or vacuous set disjointness pass."
+      ],
+      "obligation": "Independent delivery reviewer executes affected assertions against bounded known-bad controls; fixture builders cannot supply their own expected answer."
+    },
+    {
+      "ac": "AC-4",
+      "classification": "feasible; exact snapshot provenance and old-code execution remain delivery obligations",
+      "reference": "ReviewPolicyReconcilerTests.test_real_v114_carrier_family_reconciles_and_retries_byte_stably; test_real_v114_carriers_render_policy_and_pass_production_validator; StorageUpgradeProcessResumeTests; SchemaEightKindTests.test_version_one_code_refuses_a_version_two_receipt_and_creates_nothing",
+      "negative_oracles": [
+        "Delete required fixture or corrupt bytes: clear failure with no current-source fallback.",
+        "Substitute current bytes and recompute local digest: independent trusted resolved-revision comparison fails.",
+        "Original old receipt reader must refuse version-2 receipt with MigrationRequired and no legacy DB/sidecars.",
+        "Original old upgrade main must retain pause/fresh installed main/relocated pack/retry assertions."
+      ],
+      "obligation": "Two v1.14 tests consume docs rather than execute Python: preserve required lifecycle versus historically optional direct-doc carrier inventory. v1.22 entry and pinned reader deliberately use current siblings; retain this existing seam and exact captured bytes."
+    }
+  ],
+  "primer_engagement": {
+    "strongest_challenge": "Accepted as concrete fixture-design risk: real extraction/publication and independent literal oracles required; empty graphs and absent ordinary controls must fail rather than skip. Existing controlled publication sibling establishes a bounded feasible pattern, not future correctness.",
+    "question_1": "Use separately asserted control IDs/reason strings, genuine extraction, evidence larger than production at limit2, child nodes, crossing edges and community lookup; mutate each highest-risk claim at delivery.",
+    "question_2": "Record trusted resolved commit, source path, raw byte SHA256; independently compare capture to Git once. Pin historical absence manifest for optional direct docs. Do not rewrite Python bytes or silently swap current source.",
+    "question_3": "Compare exact skip IDs/reasons for the same frozen source tree, not totals. Own readiness control detected an omitted known site and an equal-size replacement with an accidental skip."
+  },
+  "executed_probe": {
+    "packet_paths_checked": 8,
+    "packet_paths_changed": 0,
+    "fingerprint": "02bfe86fd4c8045b262dbcf7d2f9841fd5284666858077efea69812ade795cd0",
+    "default_targeted_skips": 7,
+    "declared_targeted_skips": 22,
+    "history_targeted_skips": 4,
+    "exact_declared_extra_census": 19,
+    "negative_controls": {
+      "omitted_known_site_detected": [
+        "test_server_tools_retrieval.EvidencePartitionResponseTests.test_a_classified_community_keeps_its_compatibility_fields"
+      ],
+      "equal_total_wrong_identity_detected": "test_server_tools_retrieval.EvidencePartitionResponseTests.test_a_classified_community_keeps_its_compatibility_fields"
+    },
+    "extra_skip_identities": {
+      "test_server_tools_retrieval.EvidencePartitionResponseTests.test_a_classified_community_keeps_its_compatibility_fields": "'this repository has no published graph generation (its index predates the current resident schema); run the standard upgrade or a graph build'",
+      "test_server_tools_retrieval.EvidencePartitionResponseTests.test_every_pair_is_present_including_its_evidence_half": "'this repository has no published graph generation (its index predates the current resident schema); run the standard upgrade or a graph build'",
+      "test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_communities_do_not_appear_in_the_production_ranking": "'this repository has no published graph generation (its index predates the current resident schema); run the standard upgrade or a graph build'",
+      "test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_communities_remain_queryable_by_id": "'this repository has no published graph generation (its index predates the current resident schema); run the standard upgrade or a graph build'",
+      "test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_rows_are_not_erased_by_exclude_generated": "'this repository has no published graph generation (its index predates the current resident schema); run the standard upgrade or a graph build'",
+      "test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_rows_carry_their_type_and_a_nonempty_reason": "'this repository has no published graph generation (its index predates the current resident schema); run the standard upgrade or a graph build'",
+      "test_server_tools_retrieval.EvidencePartitionResponseTests.test_the_evidence_array_ships_even_when_the_section_was_not_requested": "'this repository has no published graph generation (its index predates the current resident schema); run the standard upgrade or a graph build'",
+      "test_server_tools_retrieval.EvidencePartitionResponseTests.test_the_limit_applies_independently_to_each_half": "'this repository has no published graph generation (its index predates the current resident schema); run the standard upgrade or a graph build'",
+      "test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_a_non_evidence_node_is_not_swept_up_by_its_neighbours": "'no persisted project graph in this tree'",
+      "test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_an_evidence_file_is_still_listed_among_graph_nodes": "'no persisted project graph in this tree'",
+      "test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_an_evidence_node_keeps_its_reasons_on_lookup": "'no persisted project graph in this tree'",
+      "test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_cross_boundary_edges_survive_the_partition": "'no persisted project graph in this tree'",
+      "test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_the_control_is_classified_before_anything_else_is_asserted": "'no persisted project graph in this tree'",
+      "test_server_tools_retrieval.EvidencePairDocumentationTests.test_the_pair_list_matches_what_the_report_actually_emits": "'this repository has no published graph generation (its index predates the current resident schema); run the standard upgrade or a graph build'",
+      "test_change_id_path_guard.IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository": "\"this repository's records use the shipped profile\"",
+      "test_review_policy.ReviewPolicyReconcilerTests.test_real_v114_carrier_family_reconciles_and_retries_byte_stably": "'v1.14.0 tag unavailable in this source distribution'",
+      "test_review_policy.ReviewPolicyReconcilerTests.test_real_v114_carriers_render_policy_and_pass_production_validator": "'v1.14.0 tag unavailable in this source distribution'",
+      "test_storage_upgrade_resume.StorageUpgradeProcessResumeTests.test_old_main_pause_then_fresh_installed_main_relocated_pack_and_retry": "'v1.22.0 tag unavailable (historical-runner integration requires full history)'",
+      "test_sqlite_storage_migration.SchemaEightKindTests.test_version_one_code_refuses_a_version_two_receipt_and_creates_nothing": "'version-1 reader commit unavailable in this checkout'"
+    },
+    "limitations": [
+      "Targeted supplied logs independently parsed; not a full-suite exact skip census.",
+      "No implementation or future delivery behavior exercised."
+    ]
+  },
+  "assumptions": [
+    {
+      "name": "A controlled graph can prove classification and public partition/query without operator index",
+      "status": "feasible from live existing extraction/publication sibling; delivery unverified",
+      "action": "Retain real producers and literal independent identities; curated communities do not prove clustering algorithm."
+    },
+    {
+      "name": "Existing marker uses loaded vocabulary/layout, not run mode env",
+      "status": "verified from live marker implementation",
+      "action": "Regression under declared plus renamed profiles."
+    },
+    {
+      "name": "All four missing-history paths can be restored by pinned sources",
+      "status": "feasible from source; provenance unverified until capture",
+      "action": "Required/optional carrier manifest and raw byte capture, no old dependency tree expansion."
+    },
+    {
+      "name": "Aggregate skip equality proves identity coverage",
+      "status": "refuted by executed same-total replacement negative control",
+      "action": "Exact identities/reasons comparison required."
+    }
+  ],
+  "readiness_blockers": [],
+  "not_this_scope": [
+    "Production graph algorithm changes",
+    "Clustering algorithm qualification from manually curated membership",
+    "Release qualification or dependency bootstrap upgrade",
+    "Commit, push, publication, closure",
+    "Full suite or product mutations during readiness"
+  ],
+  "limitations": [
+    "This is readiness review only, not implemented behavior or delivery approval.",
+    "Live MCP read/keyword callable; setup/index unready, no indexed freshness claim.",
+    "Provided executed targeted logs independently parsed; no fresh full-suite execution or full skip census by this seat.",
+    "Future graph/historical/corpus mutations not yet run and not claimed.",
+    "Historical fixture source bytes not yet captured, so raw provenance cannot be approved at readiness."
+  ],
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true
+  }
+}

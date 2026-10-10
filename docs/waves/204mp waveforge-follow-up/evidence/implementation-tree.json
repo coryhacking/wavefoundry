@@ -1,0 +1,28 @@
+{
+  "algorithm": "sha256",
+  "files": {
+    ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "65c9d11276eadefb0b6a5e72ae16400ec94f813006a9f3da1dc6a6f23d3f21c3",
+    ".wavefoundry/framework/scripts/render_agent_surfaces.py": "7ae9da161df0716050f8c0f931911b7c3a068fc3488151528008bd4b8ef5f605",
+    ".wavefoundry/framework/scripts/review_evidence.py": "7696b2ba0c4e151ed383b39c76273ea1f5fe286dcab95969562e9daaacd78cbc",
+    ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "7c766dc1385416beb80f8f6063d7dc194c281aec236569997850e4aa8236da5c",
+    ".wavefoundry/framework/scripts/tests/fixtures/profiles/prompt-names.json": "68aa7cd256da36493a8250d147685c99cb36c16056179d7cd36e9a988ad9395a",
+    ".wavefoundry/framework/scripts/tests/framework_text_ownership.py": "2d4257cd4f6a3981f8f38d978b6646cc4d059dea7f1e86c16b7cb9a75c92dc18",
+    ".wavefoundry/framework/scripts/tests/record_layout_support.py": "286c3cfa93851c18c3fe56a390fc178923aaaf1c9658542f594aa630a0fdeb49",
+    ".wavefoundry/framework/scripts/tests/test_council_signoff_keys.py": "2053e10a2734e186588d6cb28ef4ad2bdfb4d90f199c8b5eb596decfe4fdd2e5",
+    ".wavefoundry/framework/scripts/tests/test_distribution_seams.py": "b25c4d0c6c61beb2c961087d1c119d74fc9b1c39db1c3f344a209be1881c7c4c",
+    ".wavefoundry/framework/scripts/tests/test_legacy_council_actors.py": "2b52ff5294874c58fc870e1a1260e5d301615e73e5a55e2c3c50a8ef35934fb1",
+    ".wavefoundry/framework/scripts/tests/test_profile_support.py": "bca8cabaafb7d8c3b264d1577e639f6466aaa73d9c93fe13bca31bb4cbbbcb88",
+    ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py": "0da7557197c9ca7d823578789dba5417a971f9ac7ce948c5c16fdf7558f23cf6",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "207cc3e15d288cae8f6d99dd47447d60a6b55e5b6de9ce72778ac83ee0837fdb",
+    ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "f852874bb308acc363973dc33919327cf8133311f73cd5731de56219971d347a",
+    ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+    ".wavefoundry/framework/scripts/vocabulary_profile.py": "5a1f4a5902eddc99137664f176cb5706ab266014b3bf9f54cb68a86dbb1e03b4",
+    "CHANGELOG.md": "f23cc3ddfde9b1198bc7a9b6b8f66b98bad4aa0d08ee1940984116bc11255a0c",
+    "docs/ARCHITECTURE.md": "599f3b205bd75c3c9b0a6766f47e0924c3a52cf7ece61052f5b30ba573d12b15",
+    "docs/architecture/cross-cutting-concerns.md": "374319b418416993f1927ae4bda814fba513bdaf6e5bc70170dd7e0030382c8f",
+    "docs/architecture/data-and-control-flow.md": "65aef7155f31ea3a65ddc72b11de52c5c2320c6d7ec2ccba41ab80bb252c420a",
+    "docs/architecture/domain-map.md": "c05f3e2226e19ca567ac7e3157dd31fa63fda6d5accb495fe92d22eed6acfba9",
+    "docs/architecture/testing-architecture.md": "c6960a2fea0a9fc021c7e07c3e113d37e6099c0c198729d395d39fdc765f7a65",
+    "docs/specs/mcp-tool-surface.md": "46abe7a4f05010e692897f90c599778a25284d48df93d19fda27abde7550337c"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+  ".wavefoundry/framework/scripts/mcp_tool_extensions.py": "44d8e720cec410bb86524700a68fef5f76d5434c725e3490a2c9b90cbc922edd",
+  ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a",
+  ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "d2b38f6bd06692447f808bb0b9625f0fb782f9bd9d9b2b5496758f17e269e871",
+  ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md": "a4f1319834042e25316845f15f7ff9a119e80158ce89fb65dc7550cf475e598d",
+  "docs/specs/mcp-tool-surface.md": "929c2e26c897bf2d4037c120240822a4d97a36b701c4d769ef984606b08689a5",
+  "docs/architecture/data-and-control-flow.md": "ec5bff5e439a3b47f2bf9a7191e51895d6ebd09a17438be5776aa40bbb058740",
+  "docs/waves/206is journal-hook-follow-up/204mo-enh version-independent-journal-hook.md": "4a24e2c026c81b9a9833e957acce2d63dc43c67e39831e02a0e6cf0ffed9e265",
+  ".wavefoundry/framework/scripts/tests/record_layout_support.py": "286c3cfa93851c18c3fe56a390fc178923aaaf1c9658542f594aa630a0fdeb49",
+  "docs/architecture/layering-rules.md": "fc0ed24463fc9a83c11fdc80ed9171d844d0feb045e28e8d173109d9be66345b"
+}

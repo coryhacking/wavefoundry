@@ -1,0 +1,8 @@
+{
+  "alternative": "Truthful explicit Migrate journals wording on each retained-input line using existing line-scoped exemption; no store/scanner edit/path concealment",
+  "baseline": 3,
+  "rewritten_raw": 0,
+  "rewritten_reported": 0,
+  "changed_same_line_reported": 0,
+  "adverse_effect": "Existing exemption loses raw findings and also suppresses a later ongoing-authoring directive on the same line."
+}

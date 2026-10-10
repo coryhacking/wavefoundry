@@ -1,0 +1,109 @@
+RESULT_JSON {"run": 1, "failures": 6, "errors": 0, "skips": 0}
+test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution) ... 
+  test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution) (binding='def EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER(root):\n    pass\n') ... FAIL
+  test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution) (binding='class EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER:\n    pass\n') ... FAIL
+  test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution) (binding='try:\n    pass\nexcept Exception as EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER:\n    pass\n') ... FAIL
+  test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution) (binding='match 0:\n    case EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER:\n        pass\n') ... FAIL
+  test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution) (binding='match []:\n    case [*EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER]:\n        pass\n') ... FAIL
+  test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution) (binding="match {}:\n    case {'x': _, **EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER}:\n        pass\n") ... FAIL
+
+======================================================================
+FAIL: test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution) (binding='def EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER(root):\n    pass\n')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 15116, in test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution
+    self.assertEqual((metadata["status"], metadata["policy"]), ("invalid", None))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Tuples differ: ('valid', 'journals_present') != ('invalid', None)
+
+First differing element 0:
+'valid'
+'invalid'
+
+- ('valid', 'journals_present')
++ ('invalid', None)
+
+======================================================================
+FAIL: test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution) (binding='class EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER:\n    pass\n')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 15116, in test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution
+    self.assertEqual((metadata["status"], metadata["policy"]), ("invalid", None))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Tuples differ: ('valid', 'journals_present') != ('invalid', None)
+
+First differing element 0:
+'valid'
+'invalid'
+
+- ('valid', 'journals_present')
++ ('invalid', None)
+
+======================================================================
+FAIL: test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution) (binding='try:\n    pass\nexcept Exception as EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER:\n    pass\n')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 15116, in test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution
+    self.assertEqual((metadata["status"], metadata["policy"]), ("invalid", None))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Tuples differ: ('valid', 'journals_present') != ('invalid', None)
+
+First differing element 0:
+'valid'
+'invalid'
+
+- ('valid', 'journals_present')
++ ('invalid', None)
+
+======================================================================
+FAIL: test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution) (binding='match 0:\n    case EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER:\n        pass\n')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 15116, in test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution
+    self.assertEqual((metadata["status"], metadata["policy"]), ("invalid", None))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Tuples differ: ('valid', 'journals_present') != ('invalid', None)
+
+First differing element 0:
+'valid'
+'invalid'
+
+- ('valid', 'journals_present')
++ ('invalid', None)
+
+======================================================================
+FAIL: test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution) (binding='match []:\n    case [*EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER]:\n        pass\n')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 15116, in test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution
+    self.assertEqual((metadata["status"], metadata["policy"]), ("invalid", None))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Tuples differ: ('valid', 'journals_present') != ('invalid', None)
+
+First differing element 0:
+'valid'
+'invalid'
+
+- ('valid', 'journals_present')
++ ('invalid', None)
+
+======================================================================
+FAIL: test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution) (binding="match {}:\n    case {'x': _, **EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER}:\n        pass\n")
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 15116, in test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution
+    self.assertEqual((metadata["status"], metadata["policy"]), ("invalid", None))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Tuples differ: ('valid', 'journals_present') != ('invalid', None)
+
+First differing element 0:
+'valid'
+'invalid'
+
+- ('valid', 'journals_present')
++ ('invalid', None)
+
+----------------------------------------------------------------------
+Ran 1 test in 0.421s
+
+FAILED (failures=6)

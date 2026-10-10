@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+import stat
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -3534,3 +3535,68 @@ class HookVenvMismatchTests(unittest.TestCase):
             with self.subTest(rel):
                 self.assertEqual((repo / rel).read_bytes(), (render_root / rel).read_bytes(),
                                  f"{rel} differs from the renderer; regenerate with wf_sync_surfaces")
+
+
+class IdentityBoundPlatformRemovalTests(unittest.TestCase):
+    def test_ordinary_missing_internal_parent_and_final_link_cells(self):
+        mod = _load_render_module()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            actual = root / "actual"
+            actual.mkdir()
+            old = actual / "old"
+            old.write_bytes(b"old")
+            if os.name != "nt":
+                linked = root / "linked"
+                linked.symlink_to(actual, target_is_directory=True)
+                mod.remove_files([linked / "old", linked / "missing"], root=root)
+                self.assertFalse(old.exists())
+                old.write_bytes(b"preserved")
+                final = actual / "final"
+                final.symlink_to(old)
+                with self.assertRaises(mod.contained_files.ContainedFileRefused):
+                    mod.remove_files([final], root=root)
+                self.assertTrue(final.is_symlink())
+                self.assertEqual(old.read_bytes(), b"preserved")
+            else:
+                mod.remove_files([old, root / "missing"], root=root)
+                self.assertFalse(old.exists())
+
+    def test_remove_files_and_retired_launchers_preserve_replaced_entries(self):
+        mod = _load_render_module()
+        for retired in (False, True):
+            for descriptor in ((True, False) if mod.contained_files._DIR_FD_SUPPORTED else (False,)):
+                with self.subTest(retired=retired, descriptor=descriptor), tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary).resolve()
+                    old = root / ".wavefoundry" / "bin" / "upgrade-wavefoundry.bat"
+                    old.parent.mkdir(parents=True)
+                    old.write_bytes(b"original")
+                    saved = old.with_name("saved")
+                    fired = []
+
+                    def replace(stage):
+                        if stage == "unlink" and not fired:
+                            old.rename(saved)
+                            old.write_bytes(b"replacement")
+                            fired.append(True)
+
+                    with patch.object(mod.contained_files, "_checkpoint", side_effect=replace), \
+                            patch.object(mod.contained_files, "_dir_fd_supported", return_value=descriptor):
+                        with self.assertRaises(mod.contained_files.ContainedFileRefused):
+                            if retired:
+                                mod.render_bin_launchers(root)
+                            else:
+                                mod.remove_files([old], root=root)
+                    self.assertEqual(fired, [True])
+                    self.assertEqual(old.read_bytes(), b"replacement")
+                    self.assertEqual(saved.read_bytes(), b"original")
+
+    def test_regular_removal_census_covers_the_named_platform_paths(self):
+        import ast
+        tree = ast.parse(SCRIPT_PATH.read_text())
+        for owner in ("remove_files", "render_bin_launchers"):
+            fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == owner)
+            calls = [node for node in ast.walk(fn) if isinstance(node, ast.Call)]
+            self.assertFalse(any(isinstance(node.func, ast.Attribute) and node.func.attr == "unlink" for node in calls))
+        fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "remove_files")
+        self.assertIn("contained_files.unlink_contained", ast.unparse(fn))

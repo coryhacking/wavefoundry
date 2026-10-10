@@ -1,0 +1,11 @@
+{
+  "name": "M12-unexpected-owned-native-fixture-literal",
+  "baseline": [],
+  "knownbad": [
+    "scripts/tests/test_upgrade_wavefoundry.py: 1 occurrence(s), 0 allowed"
+  ],
+  "detected": true,
+  "inventory_count": 524,
+  "errors": 0,
+  "skips": 0
+}

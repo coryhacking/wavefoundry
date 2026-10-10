@@ -175,6 +175,7 @@ SHIPPED_DEFAULTS: "dict[str, dict[str, Any]]" = {
                            # Wave 200ey (200ew): a distribution's earlier council
                            # keys and the council protocol's display name.
                            "EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS": {},
+                           "EXTRA_LEGACY_COUNCIL_ACTORS": (),
                            "COUNCIL_DISPLAY_NAME": "Wave Council"},
     "record_paths": {
         "WAVES_ROOT": "docs/waves",
@@ -185,7 +186,7 @@ SHIPPED_DEFAULTS: "dict[str, dict[str, Any]]" = {
     },
 }
 
-# The shipped (empty) value of every distribution-edited tool declaration in
+# The shipped base value of every distribution-edited tool declaration in
 # ``mcp_tool_extensions`` (change 1zim4), frozen like SHIPPED_DEFAULTS and
 # pinned by a test to the module's own ``EXTENSION_*`` names. Tuple-typed
 # constants stay tuples when a profile writes them. It is the base the
@@ -212,6 +213,7 @@ SHIPPED_DECLARATION: "dict[str, Any]" = {
     # Wave 1zyb3 (1zxnv): the journal migration declaration, read only by the upgrade.
     "EXTENSION_JOURNAL_TEMPLATES": (),
     "EXTENSION_JOURNAL_PRE_MIGRATION_HOOK": "",
+    "EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER": "legacy_cutover",
 }
 # Every constant a profile asset may name, per module.
 _EDITABLE = {**SHIPPED_DEFAULTS, "mcp_tool_extensions": SHIPPED_DECLARATION}

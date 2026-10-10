@@ -54,11 +54,22 @@ The briefing packet is assembled once per phase (readiness or delivery) before a
 
 Use existing wave records by default. A briefing packet, reviewer report, council synthesis, repair recheck, or smoke-test result is an output to communicate, not an instruction to create a separate Markdown file.
 
-- Pass briefing packets in the agent task context. Reviewers return their findings, evidence, and rechecks to the coordinator; do not create a file per seat, phase, or repair cycle.
-- Keep the concise human summary in `wave.md` (`## Review checkpoints`); the writing-hand contract is in Typed authoring and human view below. Update implementation tasks and AC evidence in the admitted change docs. Legacy prose waves retain their existing recording contract.
+- Pass briefing packets in the agent task context. Keep routine per-seat reports, probe captures, source baselines and green logs in task context or temporary storage outside the repository. Reviewers return their findings, evidence, and rechecks to the coordinator; do not create a file per seat, phase, or repair cycle.
+- Keep final outcomes, review disagreements, source/profile identities, reproducible commands, limits, memory disposition and the evidence index in `wave.md` (`## Review checkpoints`); the writing-hand contract is in Typed authoring and human view below. Update implementation tasks and AC evidence in the admitted change docs. Legacy prose waves retain their existing recording contract.
 - Preserve distinct reviewer outcomes, required evidence fields, independence, and reproducible test or fixture references. Fewer files must not mean less evidence. Temporary working notes are acceptable, but evidence required for later verification must remain durably resolvable.
-- Create a separate Markdown artifact only when explicitly requested or when it has a distinct, lasting purpose that the existing wave and change records cannot reasonably serve. State that purpose in the wave record and reuse the artifact for subsequent updates.
-- Apply this default prospectively. Do not delete historical reports or break existing evidence references as an incidental cleanup.
+- Retain a separate repository artifact only when explicitly requested or for unique long-run proof that canonical tests, exact Git history and the wave summary cannot preserve. Explain each retained exception inline in `wave.md` and reuse it for subsequent updates. An unreconstructable dirty-tree baseline is unique proof; a routine green transcript is not.
+- Reconcile mutable watchpoints and handoff notes with final outcomes; preserve historical conclusions, admitted change docs and immutable `events.jsonl` without rewriting history.
+- Apply this default prospectively. An operator-authorized manual cleanup may prune only wave-owned, verified redundant material with no live references. Before unlink, check containment, file identity, uniqueness and references; keep cited originals unless their consumers are explicitly migrated, and keep unreconstructable dirty-tree baselines. No age expiry, blanket deletion, reference resolver, cleanup sidecar or automatic deletion gate is introduced. Do not delete historical reports or break evidence references as incidental cleanup.
+
+## Continuation And Qualification Discipline
+
+After a successful typed write, consume its returned continuation actions and current receipt identity. Do not follow an accepted write with an extra list or whole-review call merely to rediscover that state. If the response is incomplete, the tree moved, or authority is unresolved, inspect the affected state through the canonical tool.
+
+Batch review bookkeeping and final documentation reconciliation before the final quiet canonical suite. Reuse a current successful test receipt only when its input identity matches; changed inputs, a red result, or missing/unreadable proof still stop qualification. Required specialist/Council authority, exact test qualification and final full documentation validation remain unchanged; advisory lint is not a cached hard-gate result.
+
+When the operator authorizes closure and current review authority proves readiness, perform one canonical close mutation. Use dry-run to resolve uncertain checks, not as a compulsory extra gate. The close mutation still evaluates its hard gates, and a failed gate must be resolved before retrying; no result cache or prose summary replaces those checks.
+
+Consuming-repository upgrades gain no framework-source suite/profile qualification, extra evidence pass or broad memory maintenance from this discipline. Preserve their existing bounded historical-memory checkpoint and render → docs gate → incremental index ordering. Reuse a report only while its inputs are unchanged.
 
 ## Finding Record Schema
 

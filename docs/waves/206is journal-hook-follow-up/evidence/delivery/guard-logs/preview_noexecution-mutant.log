@@ -1,0 +1,381 @@
+RESULT_JSON {"run": 1, "failures": 11, "errors": 0, "skips": 0}
+test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+
+  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=None, extra='') ... FAIL
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding="'legacy_cutover'", extra='') ... FAIL
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding="'journals_present'", extra='') ... FAIL
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding="''", extra='') ... FAIL
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding='7', extra='') ... FAIL
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding="'unsupported'", extra='') ... FAIL
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding="str('journals_present')", extra='') ... FAIL
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=None, extra="\nif True:\n    EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER = 'journals_present'\n") ... FAIL
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding="'journals_present'", extra="\nEXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER = 'journals_present'\n") ... FAIL
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding="'journals_present'", extra="\nEXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER += ''\n") ... FAIL
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding="'journals_present'", extra='\ndef broken(:\n') ... FAIL
+
+======================================================================
+FAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=None, extra='')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14942, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution
+    metadata = self._preview()
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14810, in _preview
+    report = self.ext.migrate_journals(self.root, apply=False, zip_path=zip_path)
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2105, in migrate_journals
+    report["hook_preview"] = _journal_hook_preview(root, zip_path)
+                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2014, in _journal_hook_preview
+    _load_journal_declaration(root)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1241, in _execute_mock_call
+    raise effect
+AssertionError: preview loaded declaration
+
+======================================================================
+FAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding="'legacy_cutover'", extra='')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14942, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution
+    metadata = self._preview()
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14810, in _preview
+    report = self.ext.migrate_journals(self.root, apply=False, zip_path=zip_path)
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2105, in migrate_journals
+    report["hook_preview"] = _journal_hook_preview(root, zip_path)
+                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2014, in _journal_hook_preview
+    _load_journal_declaration(root)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1241, in _execute_mock_call
+    raise effect
+AssertionError: preview loaded declaration
+
+======================================================================
+FAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding="'journals_present'", extra='')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14942, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution
+    metadata = self._preview()
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14810, in _preview
+    report = self.ext.migrate_journals(self.root, apply=False, zip_path=zip_path)
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2105, in migrate_journals
+    report["hook_preview"] = _journal_hook_preview(root, zip_path)
+                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2014, in _journal_hook_preview
+    _load_journal_declaration(root)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1241, in _execute_mock_call
+    raise effect
+AssertionError: preview loaded declaration
+
+======================================================================
+FAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding="''", extra='')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14942, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution
+    metadata = self._preview()
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14810, in _preview
+    report = self.ext.migrate_journals(self.root, apply=False, zip_path=zip_path)
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2105, in migrate_journals
+    report["hook_preview"] = _journal_hook_preview(root, zip_path)
+                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2014, in _journal_hook_preview
+    _load_journal_declaration(root)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1241, in _execute_mock_call
+    raise effect
+AssertionError: preview loaded declaration
+
+======================================================================
+FAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding='7', extra='')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14942, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution
+    metadata = self._preview()
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14810, in _preview
+    report = self.ext.migrate_journals(self.root, apply=False, zip_path=zip_path)
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2105, in migrate_journals
+    report["hook_preview"] = _journal_hook_preview(root, zip_path)
+                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2014, in _journal_hook_preview
+    _load_journal_declaration(root)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1241, in _execute_mock_call
+    raise effect
+AssertionError: preview loaded declaration
+
+======================================================================
+FAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding="'unsupported'", extra='')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14942, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution
+    metadata = self._preview()
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14810, in _preview
+    report = self.ext.migrate_journals(self.root, apply=False, zip_path=zip_path)
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2105, in migrate_journals
+    report["hook_preview"] = _journal_hook_preview(root, zip_path)
+                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2014, in _journal_hook_preview
+    _load_journal_declaration(root)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1241, in _execute_mock_call
+    raise effect
+AssertionError: preview loaded declaration
+
+======================================================================
+FAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding="str('journals_present')", extra='')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14942, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution
+    metadata = self._preview()
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14810, in _preview
+    report = self.ext.migrate_journals(self.root, apply=False, zip_path=zip_path)
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2105, in migrate_journals
+    report["hook_preview"] = _journal_hook_preview(root, zip_path)
+                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2014, in _journal_hook_preview
+    _load_journal_declaration(root)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1241, in _execute_mock_call
+    raise effect
+AssertionError: preview loaded declaration
+
+======================================================================
+FAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=None, extra="\nif True:\n    EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER = 'journals_present'\n")
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14942, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution
+    metadata = self._preview()
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14810, in _preview
+    report = self.ext.migrate_journals(self.root, apply=False, zip_path=zip_path)
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2105, in migrate_journals
+    report["hook_preview"] = _journal_hook_preview(root, zip_path)
+                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2014, in _journal_hook_preview
+    _load_journal_declaration(root)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1241, in _execute_mock_call
+    raise effect
+AssertionError: preview loaded declaration
+
+======================================================================
+FAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding="'journals_present'", extra="\nEXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER = 'journals_present'\n")
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14942, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution
+    metadata = self._preview()
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14810, in _preview
+    report = self.ext.migrate_journals(self.root, apply=False, zip_path=zip_path)
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2105, in migrate_journals
+    report["hook_preview"] = _journal_hook_preview(root, zip_path)
+                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2014, in _journal_hook_preview
+    _load_journal_declaration(root)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1241, in _execute_mock_call
+    raise effect
+AssertionError: preview loaded declaration
+
+======================================================================
+FAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding="'journals_present'", extra="\nEXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER += ''\n")
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14942, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution
+    metadata = self._preview()
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14810, in _preview
+    report = self.ext.migrate_journals(self.root, apply=False, zip_path=zip_path)
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2105, in migrate_journals
+    report["hook_preview"] = _journal_hook_preview(root, zip_path)
+                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2014, in _journal_hook_preview
+    _load_journal_declaration(root)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1241, in _execute_mock_call
+    raise effect
+AssertionError: preview loaded declaration
+
+======================================================================
+FAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding="'journals_present'", extra='\ndef broken(:\n')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14942, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution
+    metadata = self._preview()
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14810, in _preview
+    report = self.ext.migrate_journals(self.root, apply=False, zip_path=zip_path)
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2105, in migrate_journals
+    report["hook_preview"] = _journal_hook_preview(root, zip_path)
+                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2014, in _journal_hook_preview
+    _load_journal_declaration(root)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1241, in _execute_mock_call
+    raise effect
+AssertionError: preview loaded declaration
+
+----------------------------------------------------------------------
+Ran 1 test in 0.116s
+
+FAILED (failures=11)

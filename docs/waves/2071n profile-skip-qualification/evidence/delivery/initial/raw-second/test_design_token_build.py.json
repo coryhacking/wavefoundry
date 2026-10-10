@@ -1,0 +1,22 @@
+{
+  "schema": "captured-worker-chunks-v1",
+  "original_capture_sha256": "f6b60b64a7a82a695ce82546882ada2ae815b737f4cf3b240cd8ec75a47663a1",
+  "argv": [
+    "/Users/coryhacking/.wavefoundry/venv/bin/python",
+    "-B",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-profile-run-v3i_83sm/repo/.wavefoundry/framework/scripts/tests",
+    "-p",
+    "test_design_token_build.py",
+    "-v"
+  ],
+  "returncode": 0,
+  "stdout_chunks": [],
+  "stderr_chunks": [
+    "test_broken_ref_raises (test_design_token_build.BuiltinTransformTest.test_broken_ref_raises) ... ok\ntest_emits_four_targets_with_structure (test_design_token_build.BuiltinTransformTest.test_emits_four_targets_with_structure) ... ok\ntest_idempotent_byte_identical (test_design_token_build.BuiltinTransformTest.test_idempotent_byte_identical) ... ok\ntest_build_records_parity_fields (test_design_token_build.ManifestParityTest.test_build_records_parity_fields) ... ok\ntest_lint_warns_on_stale (test_design_token_build.ManifestParityTest.test_lint_warns_on_stale) ... ok\ntest_stale_detection_when_source_newer (test_design_token_build.ManifestParityTest.test_stale_detection_when_source_newer) ... ok\ntest_builtin_broken_ref_exits_nonzero (test_design_token_build.WrapperDispatchTest.test_builtin_broken_ref_exits_nonzero) ... ok\ntest_builtin_tool_generates_exports (test_design_token_build.WrapperDispatchTest.test_builtin_tool_generates_exports) ... ok\ntest_custom_tool_missing_command_exits_nonzero (test_design_token_build.",
+    "WrapperDispatchTest.test_custom_tool_missing_command_exits_nonzero) ... ok\ntest_custom_tool_runs_command (test_design_token_build.WrapperDispatchTest.test_custom_tool_runs_command) ... ok\ntest_missing_config_exits_nonzero_actionable (test_design_token_build.WrapperDispatchTest.test_missing_config_exits_nonzero_actionable) ... ok\ntest_style_dictionary_absent_exits_actionable (test_design_token_build.WrapperDispatchTest.test_style_dictionary_absent_exits_actionable) ... skipped 'style-dictionary/npx present \u2014 actual run is install-time'\n\n----------------------------------------------------------------------\nRan 12 tests in 0.304s\n\nOK (skipped=1)\n"
+  ]
+}

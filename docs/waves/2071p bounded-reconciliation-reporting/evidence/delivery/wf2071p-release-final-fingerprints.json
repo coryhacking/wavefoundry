@@ -1,0 +1,47 @@
+[
+  {
+    "path": ".wavefoundry/framework/scripts/reconcile_scan.py",
+    "git_blob": "6c8e96911c58a23752c0d6788962fe4edd76eda9",
+    "match": true
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+    "git_blob": "70398fb1c4a959b9e0da3a05eba14153b11a6e03",
+    "match": true
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_reconcile_scan.py",
+    "git_blob": "2d4203eee45b6e680c02fa48fb576f3365657ce8",
+    "match": true
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+    "git_blob": "e8c981acf773ab992f68e125c577c446d8423107",
+    "match": true
+  },
+  {
+    "path": "docs/architecture/data-and-control-flow.md",
+    "git_blob": "089c365203e750026493bba24e1b7aaae8607fe4",
+    "match": true
+  },
+  {
+    "path": "docs/architecture/performance-budget.md",
+    "git_blob": "63534b210beaa768d3479bd49ba414b6cc96679c",
+    "match": true
+  },
+  {
+    "path": "docs/contributing/build-and-verification.md",
+    "git_blob": "6a3769ed793328e21d53db74d1fcb004663e9b69",
+    "match": true
+  },
+  {
+    "path": "docs/architecture/decisions/1u49j-adr fresh-code-summary-producer-contract.md",
+    "git_blob": "4cf050b65838298d3867a7666ce5a9ddea98a283",
+    "match": true
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py",
+    "git_blob": "961b686ceb9e2c0054388ae8f336a639c0f80735",
+    "match": true
+  }
+]

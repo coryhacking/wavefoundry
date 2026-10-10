@@ -1,0 +1,13 @@
+--- docs/waves/2071p bounded-reconciliation-reporting/evidence/implementation/test_tree_kill_routing.py.baseline.txt
+
++++ .wavefoundry/framework/scripts/tests/test_tree_kill_routing.py
+
+@@ -96,6 +96,7 @@
+
+     ("wf_server/dashboard_handlers.py", "_terminate_dashboard_pid", "_mcp_subprocess_run"): 1,
+     ("techdocs_audit_lib.py", "run_techdocs_audit", "run_with_tree_kill"): 1,
+     ("upgrade_wavefoundry.py", "_delegated_summary_payload", "run_with_tree_kill"): 1,
++    ("upgrade_wavefoundry.py", "_collect_reconciliation_report", "run_with_tree_kill"): 1,
+     ("upgrade_wavefoundry.py", "_read_installed_graph_builder_version", "run_with_tree_kill"): 1,
+     ("upgrade_wavefoundry.py", "_run_hook", "run_with_tree_kill"): 1,
+     # Wave 204mp: incoming role-link preview is a bounded private Python child;

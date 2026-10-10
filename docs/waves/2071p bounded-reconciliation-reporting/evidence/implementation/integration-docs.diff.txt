@@ -1,0 +1,157 @@
+--- docs/architecture/data-and-control-flow.md (before this effort)
++++ docs/architecture/data-and-control-flow.md
+@@ -697,11 +697,15 @@
+ (the pinned old-calls-new contract), persists its parent-only facts to the
+ upgrade lock first, captures the child's single sentinel line, and re-emits the
+ JSON payload byte-verbatim through its own logger under its own sentinel
+-constant. The reconciliation scan therefore runs in the producer's process on
+-its own module version, closing the in-process cross-version import skew. On
+-any delegation failure the parent's in-process builder emits instead, carrying
+-the `summary_source_degraded` marker and no schema token; exactly one sentinel
+-is emitted per run. The cleanup-phase summary already runs in a fresh
++constant. Reconciliation uses the producer's installed module version, closing
++the in-process cross-version import skew. Its optional diagnostic work runs in
++an owned child under one 30-second reporting-work budget; the current parent
++passes remaining time, and a new producer also bounds itself when an older
++parent calls it. The pinned outer delegation default remains 300 seconds.
++On delegation failure the current parent's in-process builder emits from
++already observed facts, without another scan or diagnostic pass, carrying the
++`summary_source_degraded` marker and no schema token; exactly one sentinel is
++emitted per run. The cleanup-phase summary already runs in a fresh
+ post-extract process, and since wave 1uf68 its emit site sets the schema token
+ onto the finished builder dict on both cleanup branches, so the token is no
+ longer delegation-exclusive: it witnesses that post-extraction code rendered the
+@@ -709,6 +713,20 @@
+ carries it, which is what keeps the sentence above true. Server-resident response fields
+ (`runner_stale`, diagnostics composition, the summary bounder) are still
+ computed by the running server process and change only on host restart.
++
++Reconciliation prunes existing excluded components and repository-root `.local`
++and `target` before directory descent. It retains nested/near-miss names and
++required host operating files even when Git-ignored. Eligible inputs use bounded,
++contained regular-file reads with explicit link refusal. Matching and context
++are processed per file; corpus text is not retained. The structured scan carries
++the existing three finding channels plus complete/incomplete/error state,
++bounded reasons, work counters and last-input progress. Legacy list/tuple APIs
++raise with the partial result when the scan cannot establish completeness.
++Intentional exclusions differ from eligible-scope omissions. Reporting failure
++does not change observed installation or index-publication facts, and owned
++temporary/verified-pack cleanup is attempted independently of optional reporting.
++An unchanged older parent's failure fallback remains outside this repair; the
++reporting budget is not a whole-upgrade deadline.
+ 
+ ## Semantic format upgrade (wave 1xjmm)
+ 
+--- docs/architecture/performance-budget.md (before this effort)
++++ docs/architecture/performance-budget.md
+@@ -2,7 +2,7 @@
+ 
+ Owner: Engineering
+ Status: active
+-Last verified: 2026-09-28
++Last verified: 2026-10-09
+ 
+ Budgets cite recorded measurements (1sc7c hook-cost design pass, 1sbfk/1seiz
+ live probes, 1sed7 structural budgets) — no unquantified claims. Reference
+@@ -43,6 +43,32 @@
+ | `wf docs-lint` full corpus | < 300 s bound (config-tunable `docs_lint.full_scan_timeout_seconds`) | typically seconds; the bound guards the subprocess |
+ | Gardener / surface render / sensor subprocesses | Defaults: gardener/render 180 s, sensors 120 s; configurable via `subprocess_ops.*_timeout_seconds`, including `sensor_timeout_seconds` | Prefer fast phase sensors; configured limits bound each subprocess |
+ | Framework script test suite | ~4.5 min full (6 workers, ~6,000 tests) | 2026-07-20 runs: 260–320 s |
++
++## Reconciliation work bounds (wave 2071p)
++
++Reconciliation uses internal, test-injectable defaults: 100,000 visited entries,
++10,000 eligible files, 16 MiB per file, 128 MiB total read, 100,000 candidates,
++10,000 findings and a 30-second cooperative scan deadline. Reaching a bound or
++refusing an eligible read reports incomplete work; an execution failure reports
++error. Generated/history exclusions are intentional scope. Root `.local` and
++`target` are pruned before descent without deleting their contents, while ignored
++host settings and legitimate nested/near-miss paths remain eligible.
++
++Literal-anchor prompt matching and per-file contextualization bound matching
++work and avoid retaining the full corpus. Cooperative checks alone do not stop
++a blocked read or parser: upgrade reporting enforces its single 30-second work
++budget with an owned process-tree boundary and passes remaining time between
++stages. Finite startup, scheduling and termination overhead is not exact
++wall-clock equality. The old parent default remains 300 seconds, and an
++unchanged old-parent failure fallback or the whole upgrade is not covered by the
++new reporting budget. Failure fallback performs no additional scan.
++
++Tensorwell's named 31,681,348-byte ONNX profile took 10.480564 seconds and
++produced no findings in its diagnostic probe. The normal-scope partial sample
++exhausted 120 seconds after 737 files; a separate aggregate control excluding
++root `.local`/`target` completed in 8.414389 seconds. These are attributed
++diagnostic observations with different corpus/instrumentation, not a matched
++speedup measurement. The exact historical timeout input remains unknown.
+ 
+ ## Memory retrieval qualification (wave 1yad2)
+ 
+--- docs/contributing/build-and-verification.md (before this effort)
++++ docs/contributing/build-and-verification.md
+@@ -44,6 +44,32 @@
+ advisory timing map. Timing data is advisory only — it never authorizes a test
+ skip or a pass, and neither the cache file nor the timing manifest is a public
+ compatibility API.
++
++### Bounded reconciliation and upgrade reporting
++
++The reconciliation scanner prunes root `.local`/`target` and existing excluded
++components before descent. Keep diagnostic artifacts: adding Git ignore entries
++or deleting profiles is not the cost repair. Required local host settings remain
++eligible even when ignored. Structured results distinguish complete scans from
++incomplete or failed work; legacy list/tuple callers receive an exception with
++the partial result instead of a false clean-empty result.
++
++Upgrade reporting has one 30-second work budget enforced around an owned child;
++cooperative scanner checks do not themselves bound blocked I/O. The pinned
++old-calls-new producer contract and 300-second outer default remain unchanged.
++Current-code failure fallback performs no second scan, preserves observed
++installation/publication/consent facts and emits one marked summary. Reporting
++warnings and scan completeness are separate from upgrade success, and optional
++reporting cannot prevent eligible owned cleanup. An unchanged older parent's
++fallback remains outside this repair; no whole-upgrade timeout is promised.
++
++Qualify with real child success/error/malformed/timeout controls, old-schema
++locks, positive and negative parser cases, parent/child fact contradictions,
++owned versus unowned cleanup fixtures and the existing resume/memory/index
++authorization seam tests. Exercise every scan bound and all three channels,
++including candidate-dense and cumulative workloads. Small injected budgets make
++these tests finite; they do not establish downstream or native Windows runtime
++qualification. Run the canonical suite against the final frozen source tree.
+ 
+ ### Packaging profile qualification
+ 
+--- docs/architecture/decisions/1u49j-adr fresh-code-summary-producer-contract.md (before this effort)
++++ docs/architecture/decisions/1u49j-adr fresh-code-summary-producer-contract.md
+@@ -2,7 +2,7 @@
+ 
+ Owner: Engineering
+ Status: accepted
+-Last verified: 2026-09-25
++Last verified: 2026-10-09
+ 
+ ## Context
+ 
+@@ -67,6 +67,22 @@
+ 
+ ## Consequences
+ 
++**Bounded reporting amendment (wave 2071p):** the pinned entry point, argv,
++sentinel, schema token and 300-second outer default remain unchanged. A new
++producer bounds optional diagnostic work in an owned child with one 30-second
++reporting-work budget, including when called by an older parent. The current
++parent propagates remaining time. Its marked in-process failure fallback uses
++already observed facts and performs no second reconciliation scan or expensive
++diagnostic pass. Complete/incomplete/error reconciliation status and small
++progress/count fields are additive flat values; the three finding channels
++retain their existing meaning. An incomplete report does not convert observed
++successful installation or index publication into failure. Optional reporting
++does not prevent attempts to clean owned temporary resources or a verified pack.
++The unchanged older-parent fallback remains a disclosed residual, and the new
++reporting-work budget is not a whole-upgrade deadline. The original decision
++above records the fielded contract; this amendment narrows new-code recovery
++work without changing old-parent requirements.
++
+ **Positive:**
+ 
+ - Sentinel-carried reporting changes shipped after this decision take effect on the upgrade that

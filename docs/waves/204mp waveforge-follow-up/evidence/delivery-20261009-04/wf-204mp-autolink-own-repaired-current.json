@@ -1,0 +1,16 @@
+{
+  "names": [
+    "test_installing_upgrade_repairs_container_reference_definitions",
+    "test_installing_upgrade_preserves_html_literal_blocks",
+    "test_installing_upgrade_distinguishes_backtick_and_tilde_info",
+    "test_installing_upgrade_respects_link_and_image_escape_parity",
+    "test_installing_upgrade_preserves_inline_html_and_code_precedence",
+    "test_installing_upgrade_respects_reference_definition_context",
+    "test_installing_upgrade_preserves_autolink_atoms_and_code_precedence"
+  ],
+  "ran": 7,
+  "failures": 0,
+  "errors": 0,
+  "skips": [],
+  "seconds": 50.351536916103214
+}

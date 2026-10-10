@@ -46,7 +46,8 @@ _PREFIX_ENV = "PYTHONPYCACHEPREFIX"
 
 def _child_env(**extra: str) -> dict:
     env = {k: v for k, v in os.environ.items()
-           if k not in ("PYTHONDONTWRITEBYTECODE", _PREFIX_ENV)}
+           if k not in ("PYTHONDONTWRITEBYTECODE", _PREFIX_ENV,
+                        "WAVEFOUNDRY_DISABLE_BYTECODE_CACHE", "WAVEFOUNDRY_TEST_RUNNER_CHILD")}
     env["WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER"] = "1"
     env["PYTHONUTF8"] = "1"
     env.update(extra)
@@ -131,7 +132,7 @@ class EntryProcessCacheTests(_ScratchCase):
 
     def test_framework_c_children_cache_under_the_prefix(self):
         # The production -c programs, run from the scratch install: the CoreML probe
-        # prelude (cwd = scripts) and the upgrade graph-builder probe.
+        # prelude (cwd = scripts); the identity probe is explicitly read-only.
         def constant(module: str, name: str) -> str:
             tree = ast.parse((self.scripts / module).read_text(encoding="utf-8"))
             for node in tree.body:
@@ -141,10 +142,13 @@ class EntryProcessCacheTests(_ScratchCase):
         prelude = constant("accel_embedder.py", "_COREML_STATIC_PROBE_PRELUDE")
         done = _run([sys.executable, "-c", prelude + "import accel_embedder\n"], cwd=self.scripts)
         self.assertEqual(done.returncode, 0, done.stderr)
+        self._assert_cached("venv_bootstrap", "accel_embedder")
+        before = {str(p): p.read_bytes() for p in self.prefix.rglob("*") if p.is_file()}
         probe = constant("upgrade_wavefoundry.py", "_GRAPH_BUILDER_PROBE")
-        done = _run([sys.executable, "-c", probe, str(self.scripts), str(self.root)], cwd=self.root)
+        done = _run([sys.executable, "-B", "-c", probe, str(self.scripts), str(self.root)], cwd=self.root)
         self.assertEqual(done.returncode, 0, done.stderr)
-        self._assert_cached("venv_bootstrap", "accel_embedder", "graph_indexer")
+        self.assertEqual({str(p): p.read_bytes() for p in self.prefix.rglob("*") if p.is_file()}, before)
+        self.assert_no_in_tree_bytecode()
 
 
 class HookBootstrapCacheTests(_ScratchCase):
@@ -595,7 +599,7 @@ import json, sys
 sys.path.insert(0, sys.argv[1])
 sys.dont_write_bytecode = True
 import bytecode_cache
-result = bytecode_cache.configure()
+result = bytecode_cache.configure(read_only="--read-only" in sys.argv)
 out = {"result": result, "prefix": sys.pycache_prefix, "dont_write": sys.dont_write_bytecode,
        "env": __import__("os").environ.get("PYTHONPYCACHEPREFIX")}
 if len(sys.argv) > 2:
@@ -605,8 +609,8 @@ print(json.dumps(out))
 """
 
 
-def _probe(scripts: Path, *flags: str, env: dict | None = None, module: bool = False) -> dict:
-    argv = [sys.executable, *flags, "-c", _PROBE, str(scripts)] + (["probe"] if module else [])
+def _probe(scripts: Path, *flags: str, env: dict | None = None, module: bool = False, read_only: bool = False) -> dict:
+    argv = [sys.executable, *flags, "-c", _PROBE, str(scripts)] + (["probe"] if module else []) + (["--read-only"] if read_only else [])
     done = _run(argv, cwd=scripts, env=env)
     if done.returncode != 0:
         raise AssertionError(done.stderr)
@@ -625,9 +629,10 @@ class OptOutAndRefusalTests(_ScratchCase):
             self.assertEqual(_all_files(self.root), before)
             self.assertFalse(self.cache_root.exists())
 
-    def test_a_read_only_process_uses_the_derived_prefix_for_reads(self):
+    def test_a_read_only_process_uses_no_project_prefix(self):
         state = _probe(self.scripts, "-B")
-        self.assertEqual(state["prefix"], str(self.prefix))
+        self.assertIsNone(state["prefix"])
+        self.assertIsNone(state["result"])
         self.assertTrue(state["dont_write"])
         self.assertFalse(self.cache_root.exists())
 
@@ -650,14 +655,60 @@ class OptOutAndRefusalTests(_ScratchCase):
         os.utime(planted_src, ns=(st.st_atime_ns, st.st_mtime_ns))
         cfile = _mirror(target_prefix, self.scripts) / f"probe_mod.{sys.implementation.cache_tag}.pyc"
         cfile.parent.mkdir(parents=True, exist_ok=True)
-        py_compile.compile(str(planted_src), cfile=str(cfile), doraise=True)
+        py_compile.compile(str(planted_src), cfile=str(cfile), doraise=True,
+                           invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH)
 
-    def test_the_plant_is_executed_without_the_refusal(self):
-        # The fixture is live: with a real (unlinked) cache directory, the planted
-        # bytecode is what runs.
+    def test_opt_out_imports_source_instead_of_unchecked_cached_payload(self):
         self._plant_behind(self.prefix)
-        state = _probe(self.scripts, "-B", module=True)
-        self.assertEqual(state["mark"], "PLNT")
+        (self.prefix / bytecode_cache.STAMP_NAME).write_text("stale-version", encoding="utf-8")
+        before = {str(p): p.read_bytes() for p in self.prefix.rglob("*") if p.is_file()}
+        cases = [(("-B",), _child_env(), False),
+                 ((), _child_env(PYTHONDONTWRITEBYTECODE="1"), False),
+                 ((), _child_env(WAVEFOUNDRY_DISABLE_BYTECODE_CACHE="1"), False),
+                 ((), _child_env(), True)]
+        for flags, env, read_only in cases:
+            with self.subTest(flags=flags, read_only=read_only, opt_out=env.get(bytecode_cache.DISABLE_ENV)):
+                state = _probe(self.scripts, *flags, env=env, module=True, read_only=read_only)
+                self.assertEqual(state["mark"], "real")
+                self.assertEqual((state["result"], state["prefix"], state["dont_write"]), (None, None, True))
+                self.assertEqual({str(p): p.read_bytes() for p in self.prefix.rglob("*") if p.is_file()}, before)
+        self.assert_no_in_tree_bytecode()
+
+    def test_fixture_payload_executes_when_python_is_given_the_prefix_directly(self):
+        self._plant_behind(self.prefix)
+        env = _child_env(**{_PREFIX_ENV: str(self.prefix)})
+        done = _run([sys.executable, "-B", "-c", "import probe_mod; print(probe_mod.MARK)"],
+                    cwd=self.scripts, env=env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.strip(), "PLNT")
+
+    def test_read_only_and_disable_override_cached_writable_decision(self):
+        program = """import json, os, sys
+sys.dont_write_bytecode = True
+sys.path.insert(0, sys.argv[1])
+import bytecode_cache
+first = bytecode_cache.configure()
+if sys.argv[2] == 'read-only':
+    second = bytecode_cache.configure(read_only=True)
+else:
+    os.environ[bytecode_cache.DISABLE_ENV] = '1'
+    second = bytecode_cache.configure()
+    os.environ.pop(bytecode_cache.DISABLE_ENV)
+sys.pycache_prefix = first
+sys.dont_write_bytecode = False
+third = bytecode_cache.configure()
+import probe_mod
+print(json.dumps([first, second, third, sys.pycache_prefix, sys.dont_write_bytecode, probe_mod.MARK]))
+"""
+        self._plant_behind(self.prefix)
+        (self.prefix / bytecode_cache.STAMP_NAME).write_text("9.9.9+test\n", encoding="utf-8")
+        for mode in ("read-only", "disable"):
+            with self.subTest(mode=mode):
+                done = _run([sys.executable, "-c", program, str(self.scripts), mode],
+                            cwd=self.scripts, env=_child_env())
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(json.loads(done.stdout.strip()), [str(self.prefix), None, None, None, True, "real"])
+        self.assert_no_in_tree_bytecode()
 
     @POSIX_ONLY
     def test_a_symlinked_cache_root_or_pycache_is_refused(self):
@@ -801,9 +852,9 @@ class RunnerPrefixTests(unittest.TestCase):
             self.rt._run_file(Path("test_x.py"))
         return seen
 
-    def test_workers_receive_the_active_prefix_and_stay_read_only(self):
+    def test_workers_strip_the_active_prefix_before_read_only_startup(self):
         seen = self._worker_call("/repo/.wavefoundry/cache/pycache")
-        self.assertEqual(seen["env"][_PREFIX_ENV], "/repo/.wavefoundry/cache/pycache")
+        self.assertNotIn(_PREFIX_ENV, seen["env"])
         self.assertEqual(seen["env"]["PYTHONDONTWRITEBYTECODE"], "1")
         self.assertIn("-B", seen["cmd"])
 
@@ -812,9 +863,10 @@ class RunnerPrefixTests(unittest.TestCase):
         self.assertNotIn(_PREFIX_ENV, seen["env"])
         self.assertIn("-B", seen["cmd"])
 
-    def test_the_profile_child_receives_the_active_prefix(self):
+    def test_the_profile_child_identity_is_independent_of_the_prefix(self):
         self.rt._BYTECODE_PREFIX = "/p"
-        self.assertEqual(self.rt._child_runner_env({})[_PREFIX_ENV], "/p")
+        self.assertNotIn(_PREFIX_ENV, self.rt._child_runner_env({}))
+        self.assertEqual(self.rt._child_runner_env({})[self.rt._BYTECODE_CHILD_ENV], "1")
         self.rt._BYTECODE_PREFIX = None
         with mock.patch.dict(os.environ, {_PREFIX_ENV: "/inherited"}):
             self.assertNotIn(_PREFIX_ENV, self.rt._child_runner_env({}))
@@ -863,12 +915,12 @@ class RunnerPrefixTests(unittest.TestCase):
         prune.assert_not_called()
         self.assertIsNone(self.rt._BYTECODE_PREFIX)
 
-    def test_an_inherited_prefix_marks_a_child(self):
+    def test_an_independent_marker_marks_a_child(self):
         with mock.patch.object(bytecode_cache, "configure", return_value="/inh") as configure, \
-                mock.patch.dict(os.environ, {_PREFIX_ENV: "/inh"}):
+                mock.patch.dict(os.environ, {self.rt._BYTECODE_CHILD_ENV: "1"}):
             self.assertEqual(self.rt._configure_bytecode_cache(), ("/inh", False))
         configure.assert_called_once_with(read_only=True)
-        env = {k: v for k, v in os.environ.items() if k != _PREFIX_ENV}
+        env = {k: v for k, v in os.environ.items() if k != self.rt._BYTECODE_CHILD_ENV}
         with mock.patch.object(bytecode_cache, "configure", return_value="/top") as configure, \
                 mock.patch.dict(os.environ, env, clear=True):
             self.assertEqual(self.rt._configure_bytecode_cache(), ("/top", True))
@@ -955,41 +1007,98 @@ class RunnerTopLevelAndChildTests(_ScratchCase):
         (tests / "__init__.py").write_text("", encoding="utf-8")
         (tests / "test_probe.py").write_text(_PROBE_TEST, encoding="utf-8")
 
-    def _drive(self, env: dict) -> dict:
-        done = _run([sys.executable, "-B", "-c", _RUNNER_DRIVER, str(self.scripts)], cwd=self.scripts, env=env,
+    def _drive(self, env: dict, flags=("-B",)) -> dict:
+        done = _run([sys.executable, *flags, "-c", _RUNNER_DRIVER, str(self.scripts)], cwd=self.scripts, env=env,
                     timeout=300)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         return json.loads(done.stdout.strip().splitlines()[-1])
 
-    def test_a_top_level_minus_b_run_flushes_warms_and_passes_the_prefix(self):
+    def test_a_top_level_opt_out_run_neither_flushes_warms_nor_passes_prefix(self):
         self.prefix.mkdir(parents=True)
-        (self.prefix / bytecode_cache.STAMP_NAME).write_text("old-version\n", encoding="utf-8")
-        (self.prefix / "stale-marker").write_text("x", encoding="utf-8")
-        result = self._drive(_child_env())
-        self.assertEqual(result["prefix"], str(self.prefix))
-        self.assertEqual(result["pruned"], [str(self.prefix)])
-        self.assertFalse((self.prefix / "stale-marker").exists())
-        self.assertEqual((self.prefix / bytecode_cache.STAMP_NAME).read_text(encoding="utf-8"), "9.9.9+test\n")
-        # docs_lint is written by the warm-up (the runner never imports it); the
-        # worker sees it before the run's temp-mirror cleanup removes this scratch
-        # tree's mirror (the scratch install lives in the temporary directory).
-        worker = json.loads((self.scripts / "tests" / "worker-env.json").read_text(encoding="utf-8"))
-        self.assertEqual(worker, {"prefix": str(self.prefix), "warmed": True})
+        stamp = self.prefix / bytecode_cache.STAMP_NAME
+        stamp.write_text("old-version\n", encoding="utf-8")
+        marker = self.prefix / "stale-marker"
+        marker.write_text("x", encoding="utf-8")
+        for flags, env in ((("-B",), _child_env()),
+                           ((), _child_env(PYTHONDONTWRITEBYTECODE="1")),
+                           ((), _child_env(WAVEFOUNDRY_DISABLE_BYTECODE_CACHE="1"))):
+            with self.subTest(flags=flags, env_opt_out=env.get(bytecode_cache.DISABLE_ENV)):
+                result = self._drive(env, flags=flags)
+                self.assertIsNone(result["prefix"])
+                self.assertEqual(result["pruned"], [])
+                self.assertEqual(stamp.read_text(), "old-version\n")
+                self.assertEqual(marker.read_text(), "x")
+                worker = json.loads((self.scripts / "tests" / "worker-env.json").read_text())
+                self.assertEqual(worker, {"prefix": "<none>", "warmed": False})
         self.assert_no_in_tree_bytecode()
 
-    def test_a_runner_with_an_inherited_prefix_neither_flushes_nor_warms(self):
+    def test_a_normal_runner_retains_writable_cache_but_children_get_no_prefix(self):
+        result = self._drive(_child_env(), flags=())
+        self.assertEqual(result["prefix"], str(self.prefix))
+        self.assertEqual(result["pruned"], [str(self.prefix)])
+        self.assertEqual((self.prefix / bytecode_cache.STAMP_NAME).read_text(), "9.9.9+test\n")
+        worker = json.loads((self.scripts / "tests" / "worker-env.json").read_text())
+        self.assertEqual(worker, {"prefix": "<none>", "warmed": False})
+        self.assert_no_in_tree_bytecode()
+
+    def test_a_marked_child_discards_inherited_prefix_and_never_warms(self):
         parent = self.root / "parent-cache"
         parent.mkdir()
         self.prefix.mkdir(parents=True)
-        (self.prefix / bytecode_cache.STAMP_NAME).write_text("old-version\n", encoding="utf-8")
-        result = self._drive(_child_env(**{_PREFIX_ENV: str(parent), "PYTHONDONTWRITEBYTECODE": "1"}))
-        self.assertEqual(result["prefix"], str(parent))
+        stamp = self.prefix / bytecode_cache.STAMP_NAME
+        stamp.write_text("old-version\n", encoding="utf-8")
+        env = _child_env(**{_PREFIX_ENV: str(parent), "PYTHONDONTWRITEBYTECODE": "1",
+                           "WAVEFOUNDRY_TEST_RUNNER_CHILD": "1"})
+        result = self._drive(env)
+        self.assertIsNone(result["prefix"])
         self.assertEqual(result["pruned"], [])
-        self.assertEqual((self.prefix / bytecode_cache.STAMP_NAME).read_text(encoding="utf-8"), "old-version\n")
-        self.assertEqual(_cached_module_names(self.prefix, self.scripts), set())
+        self.assertEqual(stamp.read_text(), "old-version\n")
         self.assertEqual(list(parent.rglob("*")), [])
-        worker = json.loads((self.scripts / "tests" / "worker-env.json").read_text(encoding="utf-8"))
-        self.assertEqual(worker, {"prefix": str(parent), "warmed": False})
+        worker = json.loads((self.scripts / "tests" / "worker-env.json").read_text())
+        self.assertEqual(worker, {"prefix": "<none>", "warmed": False})
+
+    def test_a_marked_child_without_interpreter_flags_still_stays_read_only(self):
+        env = _child_env(WAVEFOUNDRY_TEST_RUNNER_CHILD="1")
+        result = self._drive(env, flags=())
+        self.assertIsNone(result["prefix"])
+        self.assertEqual(result["pruned"], [])
+        self.assertFalse(self.cache_root.exists())
+        self.assert_no_in_tree_bytecode()
+
+    def test_actual_worker_does_not_execute_planted_startup_module(self):
+        rt = _load_runner()
+        marker = self.root / "startup-payload-executed"
+        payload = self.root / "startup-payload.py"
+        payload.write_text(f"from pathlib import Path\nPath({str(marker)!r}).write_text('executed')\n"
+                           "raise RuntimeError('planted unittest startup module')\n", encoding="utf-8")
+        origin = importlib.util.find_spec("unittest").origin
+        saved = sys.pycache_prefix
+        try:
+            sys.pycache_prefix = str(self.prefix)
+            cfile = Path(importlib.util.cache_from_source(origin))
+        finally:
+            sys.pycache_prefix = saved
+        cfile.parent.mkdir(parents=True)
+        py_compile.compile(str(payload), cfile=str(cfile), doraise=True,
+                           invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH)
+        before = {str(p): p.read_bytes() for p in self.prefix.rglob("*") if p.is_file()}
+        with mock.patch.object(rt, "_BYTECODE_PREFIX", str(self.prefix)), \
+                mock.patch.object(rt, "_TESTS_DIR", self.scripts / "tests"), \
+                mock.patch.object(rt, "_SCRIPT_DIR", self.scripts), \
+                mock.patch.object(rt, "_test_runner_python", return_value=sys.executable), \
+                mock.patch.dict(os.environ, {_PREFIX_ENV: str(self.prefix)}):
+            result = rt._run_file(Path("test_probe.py"))
+        self.assertEqual(result.returncode, 0, result.output)
+        self.assertEqual(result.test_count, 1)
+        self.assertFalse(marker.exists())
+        self.assertEqual({str(p): p.read_bytes() for p in self.prefix.rglob("*") if p.is_file()}, before)
+        # A direct unsanitized launch is the independent fixture control: Python
+        # executes the unchecked startup module before any framework configure.
+        control = _run([sys.executable, "-B", "-m", "unittest", "--help"], cwd=self.scripts,
+                       env=_child_env(**{_PREFIX_ENV: str(self.prefix)}))
+        self.assertNotEqual(control.returncode, 0)
+        self.assertTrue(marker.exists())
+        self.assert_no_in_tree_bytecode()
 
     def test_a_child_creates_no_cache_in_its_own_tree(self):
         parent = self.root / "parent-cache"

@@ -1,0 +1,264 @@
+{
+  "context_id": "wf-204mp-autolink-public-security-20261009-01",
+  "role": "security-reviewer",
+  "verification_context": {
+    "actor": "security-reviewer",
+    "context_id": "wf-204mp-autolink-public-security-20261009-01",
+    "fresh_context": true,
+    "independent": true
+  },
+  "role_disclosure": "Fresh distinct delegated context, did not implement or recheck repair; orientation and prior candidate report read as scope/history only; current judgment grounded in live source and independently executed controls.",
+  "skill": ".agents/skills/wf-review-wave/SKILL.md -> docs/prompts/review-wave.prompt.md; docs/agents/security-reviewer.md; seed209 canonical protocol",
+  "verdict": "approved-with-notes",
+  "overall_security_severity": "none demonstrated",
+  "scope_of_approval": "Current public C1\u2013C5 security approval with final authority delta bounded as in evidence; preserves standing typed security approval, does not approve general parser completeness or other lanes.",
+  "new_findings": [],
+  "executed_summary": {
+    "baseline": [
+      {
+        "label": "selected",
+        "tests": 15,
+        "skips": 0,
+        "failures": 0,
+        "errors": 0,
+        "seconds": 31.711,
+        "log": "/tmp/wf-204mp-autolink-security-selected.log",
+        "expected": "green, zero skips",
+        "detected": true
+      },
+      {
+        "label": "standing-authority-controls",
+        "tests": 12,
+        "skips": 0,
+        "failures": 0,
+        "errors": 0,
+        "seconds": 4.838,
+        "log": "/tmp/wf-204mp-autolink-security-standing-authority-controls.log",
+        "detected": true
+      }
+    ],
+    "independent": [
+      {
+        "label": "independent",
+        "tests": 5,
+        "skips": 0,
+        "failures": 0,
+        "errors": 0,
+        "seconds": 5.218,
+        "log": "/tmp/wf-204mp-autolink-security-independent.log",
+        "expected": "green, zero skips",
+        "detected": true
+      }
+    ],
+    "mutations": [
+      {
+        "label": "exact-target-loosened",
+        "tests": 1,
+        "skips": 0,
+        "failures": 1,
+        "errors": 0,
+        "seconds": 0.527,
+        "log": "/tmp/wf-204mp-autolink-security-exact-target-loosened.log",
+        "expected": "assertion failure",
+        "detected": true
+      },
+      {
+        "label": "rewritten-spans-not-excluded",
+        "tests": 1,
+        "skips": 0,
+        "failures": 1,
+        "errors": 0,
+        "seconds": 0.538,
+        "log": "/tmp/wf-204mp-autolink-security-rewritten-spans-not-excluded.log",
+        "expected": "assertion failure",
+        "detected": true
+      },
+      {
+        "label": "diagnostic-decode-removed-calibrated",
+        "tests": 1,
+        "skips": 0,
+        "failures": 1,
+        "errors": 0,
+        "seconds": 0.988,
+        "log": "/tmp/wf-204mp-autolink-security-diagnostic-decode-removed-calibrated.log",
+        "expected": "assertion failure",
+        "detected": true
+      }
+    ],
+    "frozen_tree_after": {
+      "path_count": 24,
+      "mismatches": []
+    },
+    "seconds": 38.317,
+    "calibration_notes": [
+      {
+        "probe": "diagnostic-decode-removed",
+        "status": "invalid harness needle, not product detection; corrected exact live-line needle and reran only that mutant",
+        "log": "/tmp/wf-204mp-autolink-security-diagnostic-decode-removed.log"
+      }
+    ]
+  },
+  "mutation_table": [
+    {
+      "label": "exact-target-loosened",
+      "tests": 1,
+      "skips": 0,
+      "failures": 1,
+      "errors": 0,
+      "seconds": 0.527,
+      "log": "/tmp/wf-204mp-autolink-security-exact-target-loosened.log",
+      "expected": "assertion failure",
+      "detected": true
+    },
+    {
+      "label": "rewritten-spans-not-excluded",
+      "tests": 1,
+      "skips": 0,
+      "failures": 1,
+      "errors": 0,
+      "seconds": 0.538,
+      "log": "/tmp/wf-204mp-autolink-security-rewritten-spans-not-excluded.log",
+      "expected": "assertion failure",
+      "detected": true
+    },
+    {
+      "label": "diagnostic-decode-removed-calibrated",
+      "tests": 1,
+      "skips": 0,
+      "failures": 1,
+      "errors": 0,
+      "seconds": 0.988,
+      "log": "/tmp/wf-204mp-autolink-security-diagnostic-decode-removed-calibrated.log",
+      "expected": "assertion failure",
+      "detected": true
+    }
+  ],
+  "frozen_tree": {
+    "packet": "/tmp/wf-204mp-autolink-final-packet.json",
+    "reviewed_path_count": 24,
+    "tree_fingerprint": {
+      ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "9acc50b3cfab00c559010baf20919f203e48828f",
+      ".wavefoundry/framework/scripts/render_agent_surfaces.py": "3bfd50e3f4b67e4aa8c0c2835cd6fad43129aba6",
+      ".wavefoundry/framework/scripts/review_evidence.py": "54b806ae9a9409cb26be6a5653a1bb6adb9ac45e",
+      ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "e99355979ac908aefa5d2c4ee66dec6ab7c4c7f0",
+      ".wavefoundry/framework/scripts/tests/fixtures/profiles/prompt-names.json": "2be75d0d053b7f66c066934ebef6ab484d081c66",
+      ".wavefoundry/framework/scripts/tests/framework_text_ownership.py": "f460fdf00e3669ee04ca6d5b702b715e9d890d8c",
+      ".wavefoundry/framework/scripts/tests/record_layout_support.py": "5e2a500a063fa9423b2063b0e6d46e5bad731268",
+      ".wavefoundry/framework/scripts/tests/test_council_signoff_keys.py": "934a5d7cb982f03fd6adeb98c7cb226979502aa3",
+      ".wavefoundry/framework/scripts/tests/test_distribution_seams.py": "a53ed1662178217727f5f1d9d35f26e12e47e8e3",
+      ".wavefoundry/framework/scripts/tests/test_legacy_council_actors.py": "09c6bff158ba0e001ed344cb8ad0ca4cba62fb18",
+      ".wavefoundry/framework/scripts/tests/test_profile_support.py": "82e5060e3a85029052d1c876c28aed28eb583710",
+      ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py": "776c7c2df9d89a00be456ec597359669ca3c8168",
+      ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "29c417cb4f11fd2418249b18fe322effb3841dde",
+      ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "42f7785097f2491dd6231fc84673c54ee1df4db1",
+      ".wavefoundry/framework/scripts/upgrade_extensions.py": "e20de384cc4119f3e7146ae93406a39042b0359b",
+      ".wavefoundry/framework/scripts/vocabulary_profile.py": "f9a4d28c30b3645ebf9336853d17e7b78cd2b02d",
+      "CHANGELOG.md": "bb18586b3933d91d35730771f15d8b5116a17173",
+      "docs/ARCHITECTURE.md": "71d11346469e141def3f5cd1bb01156f2d639c28",
+      "docs/architecture/cross-cutting-concerns.md": "c25b6a1a1c691ee046364d3e53355822cba27e48",
+      "docs/architecture/data-and-control-flow.md": "5a773042c3d898191fc53f5cbeb44dc3f113ad4e",
+      "docs/architecture/domain-map.md": "887fdfe9b73cc7fdaf83d4250ec5e033401c3321",
+      "docs/architecture/testing-architecture.md": "235de8aa6603d17c866c6741c3718499a1452bb9",
+      "docs/specs/mcp-tool-surface.md": "b7e5f21b737ac76f7cb604f775bdfcc88acc45db",
+      ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "75555cdc23dde4ea112873bf72a1db5db24de16b"
+    },
+    "scope_sha256": {
+      ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "65c9d11276eadefb0b6a5e72ae16400ec94f813006a9f3da1dc6a6f23d3f21c3",
+      ".wavefoundry/framework/scripts/render_agent_surfaces.py": "425eb17f45308e232c3c872aee67279d6a44f3ff814efcd46457b578f2f96006",
+      ".wavefoundry/framework/scripts/review_evidence.py": "7696b2ba0c4e151ed383b39c76273ea1f5fe286dcab95969562e9daaacd78cbc",
+      ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "7c766dc1385416beb80f8f6063d7dc194c281aec236569997850e4aa8236da5c",
+      ".wavefoundry/framework/scripts/tests/fixtures/profiles/prompt-names.json": "68aa7cd256da36493a8250d147685c99cb36c16056179d7cd36e9a988ad9395a",
+      ".wavefoundry/framework/scripts/tests/framework_text_ownership.py": "2d4257cd4f6a3981f8f38d978b6646cc4d059dea7f1e86c16b7cb9a75c92dc18",
+      ".wavefoundry/framework/scripts/tests/record_layout_support.py": "286c3cfa93851c18c3fe56a390fc178923aaaf1c9658542f594aa630a0fdeb49",
+      ".wavefoundry/framework/scripts/tests/test_council_signoff_keys.py": "2053e10a2734e186588d6cb28ef4ad2bdfb4d90f199c8b5eb596decfe4fdd2e5",
+      ".wavefoundry/framework/scripts/tests/test_distribution_seams.py": "b25c4d0c6c61beb2c961087d1c119d74fc9b1c39db1c3f344a209be1881c7c4c",
+      ".wavefoundry/framework/scripts/tests/test_legacy_council_actors.py": "2b52ff5294874c58fc870e1a1260e5d301615e73e5a55e2c3c50a8ef35934fb1",
+      ".wavefoundry/framework/scripts/tests/test_profile_support.py": "bca8cabaafb7d8c3b264d1577e639f6466aaa73d9c93fe13bca31bb4cbbbcb88",
+      ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py": "0da7557197c9ca7d823578789dba5417a971f9ac7ce948c5c16fdf7558f23cf6",
+      ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a",
+      ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "f852874bb308acc363973dc33919327cf8133311f73cd5731de56219971d347a",
+      ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+      ".wavefoundry/framework/scripts/vocabulary_profile.py": "5a1f4a5902eddc99137664f176cb5706ab266014b3bf9f54cb68a86dbb1e03b4",
+      "CHANGELOG.md": "f23cc3ddfde9b1198bc7a9b6b8f66b98bad4aa0d08ee1940984116bc11255a0c",
+      "docs/ARCHITECTURE.md": "599f3b205bd75c3c9b0a6766f47e0924c3a52cf7ece61052f5b30ba573d12b15",
+      "docs/architecture/cross-cutting-concerns.md": "374319b418416993f1927ae4bda814fba513bdaf6e5bc70170dd7e0030382c8f",
+      "docs/architecture/data-and-control-flow.md": "65aef7155f31ea3a65ddc72b11de52c5c2320c6d7ec2ccba41ab80bb252c420a",
+      "docs/architecture/domain-map.md": "c05f3e2226e19ca567ac7e3157dd31fa63fda6d5accb495fe92d22eed6acfba9",
+      "docs/architecture/testing-architecture.md": "c6960a2fea0a9fc021c7e07c3e113d37e6099c0c198729d395d39fdc765f7a65",
+      "docs/specs/mcp-tool-surface.md": "46abe7a4f05010e692897f90c599778a25284d48df93d19fda27abde7550337c",
+      ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "27995857defe266f2c2a237d99cd1200bdf0fd1c28121e6923a2626995375db3"
+    },
+    "before_matches": true,
+    "after_matches": true,
+    "mismatches": []
+  },
+  "source_anchors": [
+    "render_agent_surfaces.COUNCIL_ROLE_RENAMES",
+    "render_agent_surfaces._role_link_current_doc",
+    "render_agent_surfaces._role_link_destination",
+    "render_agent_surfaces._role_link_mask_code",
+    "render_agent_surfaces._role_link_destination_spans",
+    "render_agent_surfaces._role_link_replacement",
+    "render_agent_surfaces._council_role_link_plan",
+    "render_agent_surfaces._confirmed_council_role_pairs",
+    "render_agent_surfaces.migrate_council_role_renames"
+  ],
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "focused-mutation: three mutations introduced only in copied incoming renderer; exact target mapping loosened, diagnostic percent/unescape normalization removed, rewritten destination ranges not excluded. Each reaches real incoming private preview and fails a behavioral notice-count assertion (3 vs4, 0 vs2, 3 vs2); mutation harness needle calibration failure excluded. Named installing/reinstall controls pass unchanged source."
+  },
+  "approval_payload": {
+    "wave_id": "204mp waveforge-follow-up",
+    "event": "approval",
+    "actor": "security-reviewer",
+    "context_id": "wf-204mp-autolink-public-security-20261009-01",
+    "signoff_key": "security-reviewer",
+    "approval_phase": "delivery",
+    "fresh_context": true,
+    "independent": true,
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "focused-mutation: three mutations introduced only in copied incoming renderer; exact target mapping loosened, diagnostic percent/unescape normalization removed, rewritten destination ranges not excluded. Each reaches real incoming private preview and fails a behavioral notice-count assertion (3 vs4, 0 vs2, 3 vs2); mutation harness needle calibration failure excluded. Named installing/reinstall controls pass unchanged source."
+    },
+    "evidence": {
+      "observed": "Current24 packet Git-blob and SHA256 identities match before and after. 32 selected baseline/current-tree controls pass (15 C5/census, five independently authored actual incoming cases, 12 actor/read/literal authority checks), zero skips/errors/failures. Actual incoming private preview/install/reinstall retains exact owned destination selection, unrelated/external/custom-scheme/protocol-relative bytes, autolink literal/code precedence, unsupported encoded image bytes and actionable notices, CRLF/query/fragment/mode/history retention, refused symlink content, all-pair collision preflight, explicit role-identity retry and interrupted recovery. Private Popen preview uses -B, isolated UTF8 environment, detached stdin and no target writes; unavailable helper yields path-free recovery and unrelated loader failures propagate. Independent diagnostic probe confirms destination control text is not echoed. Three reaching temporary mutants fail expected behavioral assertions. No credible threat/authority escalation or exploit chain demonstrated in this bounded remit; re.escape remains applied to legacy-name diagnostic regexes and no new role-content subprocess/shell interpolation introduced.",
+      "artifact_or_test_id": "/tmp/wf-204mp-autolink-security-report.json",
+      "public_path": "Actual upgrade phase_surface_rendering -> copied incoming render_agent_surfaces child; incoming-pack _preview_council_role_links -> real privately loaded subprocess_util/Popen; current alias validation/canonical write/replay/reload owner tests. Named faithful boundaries for narrow security delta.",
+      "command_or_fixture": "python3 -B /tmp/wf-204mp-autolink-security-probes.py; python3 -B /tmp/wf-204mp-autolink-security-decode-recheck.py; 12 selected current alias/read/literal controls in /tmp/wf-204mp-autolink-security-standing-authority-controls.log",
+      "expected": "The final destination/parser changes preserve the exercised controlled rewrite authority, path containment and preview boundaries; diagnostic normalization detects unsupported encodings without granting rewrite authority.",
+      "known_bad_detection_method": "focused-mutation: three mutations introduced only in copied incoming renderer; exact target mapping loosened, diagnostic percent/unescape normalization removed, rewritten destination ranges not excluded. Each reaches real incoming private preview and fails a behavioral notice-count assertion (3 vs4, 0 vs2, 3 vs2); mutation harness needle calibration failure excluded. Named installing/reinstall controls pass unchanged source.",
+      "limitations": "Bounded public C1\u2013C5 security review, final parser/destination delta only; standing earlier typed security authority/containment approval plus current selected authority controls preserved. This is not complete parser or broad security certification and does not close/reverify the fourteen correctness findings. No live downstream, native Windows, C6, private follow-up, new pack, setup/index readiness or canonical full-suite qualification. Current canonical11967 receipt predates final repair. Operator-owned repository content, operator and same-user processes retain current trusted threat model; no multi-user/untrusted-repository/remote service claim. Individual file publication atomicity only; interrupted multi-file upgrades require retry. Fresh CLI processes are disk authoritative; MCP reports setup_inputs_changed, so indexed readiness remains unproven.",
+      "safety_and_authorization": "Delegated independent required security-reviewer under wf-review-wave; temporary fixture mutation and local-safe incoming preview/install/reinstall only. No source, docs, lifecycle, receipt, setup/index, full-suite, Git, close or external-message writes."
+    }
+  },
+  "retrieval": {
+    "mcp_first": true,
+    "live_tools": [
+      "wf_server_info",
+      "code_outline",
+      "code_read"
+    ],
+    "gapfill": "MCP reports setup_inputs_changed; known stale/indeterminate indexed runtime not used as disk proof. Narrow source reads through live MCP code_read and fresh CLI fixture probes provide current-disk evidence, no setup claim. Prior candidates inspected but no prior verdict used as approval evidence."
+  },
+  "limits": "Bounded public C1\u2013C5 security review, final parser/destination delta only; standing earlier typed security authority/containment approval plus current selected authority controls preserved. This is not complete parser or broad security certification and does not close/reverify the fourteen correctness findings. No live downstream, native Windows, C6, private follow-up, new pack, setup/index readiness or canonical full-suite qualification. Current canonical11967 receipt predates final repair. Operator-owned repository content, operator and same-user processes retain current trusted threat model; no multi-user/untrusted-repository/remote service claim. Individual file publication atomicity only; interrupted multi-file upgrades require retry. Fresh CLI processes are disk authoritative; MCP reports setup_inputs_changed, so indexed readiness remains unproven.",
+  "no_exploit_chains_identified_in_bounded_remit": true,
+  "sweep_rule": "Targeted per mutant; no whole owner run, no survivor requiring sweep",
+  "time_budget": "600 seconds",
+  "not_run": [
+    "full owner/suite",
+    "live downstream",
+    "native Windows",
+    "new pack",
+    "C6/private follow-up",
+    "setup/index recovery"
+  ],
+  "coordinator_note": "Current review action projection has security-reviewer approved and no security next_action; this fresh payload is a supplemental narrow current security judgment for coordinator, not a instruction to invalidate/close other findings."
+}

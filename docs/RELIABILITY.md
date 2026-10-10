@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-08
+Last verified: 2026-10-10
 
 ## Reliability Posture
 
@@ -62,7 +62,7 @@ modes explicitly instead of guessing.
   to the previous runner, and the retained rollback copy is never read back
   into service.
 - **Per-layer freshness and the heal:** each layer records its builder
-  version (graph builder version `53` currently); a version advance triggers
+  version (graph builder version `54` currently); a version advance triggers
   re-extraction, and read-side heals repair false-stale verdicts without a
   rebuild.
 - **Secrets-scan cache posture:** the secrets scan runs inside index builds

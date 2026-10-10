@@ -1,0 +1,560 @@
+{
+  "wave_id": "2071n",
+  "phase": "delivery",
+  "timestamp": "2026-10-09T22:16:41.683119+00:00",
+  "approval": true,
+  "qa_approval": true,
+  "qa_context": {
+    "actor": "qa-reviewer",
+    "context_id": "2071n-reverify-qa-independent-20261009",
+    "fresh_context": true,
+    "independent": true
+  },
+  "reality_context": {
+    "actor": "reality-checker",
+    "context_id": "2071n-reverify-reality-independent-20261009",
+    "fresh_context": true,
+    "independent": true
+  },
+  "verdict": "Approve QA delivery for frozen repaired2071n scope; QA-2071N-01 independently repaired and final all-profile skip contract established. No new QA or reality blocker.",
+  "reality_fact_checkpoint": {
+    "load_bearing_assumptions": [
+      {
+        "assumption": "Copied renamed profile executes repaired meta-test while stock corpus checks retain count/acceptance assertions",
+        "status": "executed",
+        "observed": "Earlier independent real second copy1105 IDs and zero rejected; regex repair deletion produces original count0 failure; final second capture marks meta-test ok."
+      },
+      {
+        "assumption": "Declared-tools profile loses no coverage through extra skips",
+        "status": "executed",
+        "observed": "Exact13skip identity/reason map equals default; retained corpus result ok; every178worker rc0."
+      },
+      {
+        "assumption": "Extra renamed skips are deliberate loaded-vocabulary guards",
+        "status": "executed",
+        "observed": "All15extra reasons start default-profile-only; source marker checked for shared changed reason. All13default baseline IDs remain present."
+      },
+      {
+        "assumption": "Qualification observations are durable, source-identical and receipt-current",
+        "status": "executed",
+        "observed": "All534durable chunked captures reconstruct byte-exact originals and authenticate manifest hashes;15packetpathSHA256s exact; independently computed current frameworkinputs hash matches green168eafe7receipt."
+      },
+      {
+        "assumption": "Historical bytes equal originals and old/current seams actually execute",
+        "status": "executed",
+        "observed": "Earlier own13Gitbodymatches+1verifiedabsence;4originalhistorical behavior+8integrity tests pass0skips in history-free copy. Full-profile captures also rc0."
+      },
+      {
+        "assumption": "Hermetic source fixtures qualify arbitrary live graph/runtime/cache/platform behavior",
+        "status": "unverified",
+        "observed": "No such approval claim. Explicit limits retained; repaired architecture describes separate live qualification."
+      }
+    ]
+  },
+  "finding_reverification": {
+    "finding_id": "QA-2071N-01",
+    "repair_execution_state": "completed",
+    "clear_own_lane": "qa-reviewer",
+    "execution_status": "executed",
+    "new_findings": []
+  },
+  "new_findings": [],
+  "executable_evidence": {
+    "claim_id": "approval:qa-reviewer",
+    "claim_kind": "approval",
+    "required_for_approval": true,
+    "phase": "delivery",
+    "proposition": "All required ACs have faithful executable evidence and known-bad detection, and the same frozen repaired source passes full default/second/declared qualification with only explicit renamed-vocabulary extra skips and no declared skip loss.",
+    "counterexample_or_failure_condition": "Any affected assertion fails or skips unintentionally; any captured worker rc is nonzero; declared skip identity/reason differs from default; second has extra skip without explicit marker reason; scoped source moves or canonical receipt hash is stale.",
+    "execution_status": "executed",
+    "public_path": "Original IsChangeIdTests repository corpus through DefaultProfileOnlyMarkerTests; real copied profile application; graph producer/public responses and historical old-entry/current-sibling subprocess seams.",
+    "command_or_fixture": "Independent prior probes: /private/tmp/wf-2071n-qa-reverify-{probe,adjacent,mutants}.py; independent final audit: env -u PYTHONPYCACHEPREFIX /Users/coryhacking/.wavefoundry/venv/bin/python -B /private/tmp/wf-2071n-final-qa-audit.py",
+    "expected": "Every178worker rc0 in each profile; default12040tests/13skips, declared same IDs/reasons; second extras only explicit default_profile_only; repaired meta-test executes all3; retained corpus executes default/declared. Same15frozen hashes and current green12040receipt.",
+    "observed": {
+      "full_profiles": {
+        "default": {
+          "files": 178,
+          "tests": 12040,
+          "rc0_workers": 178,
+          "skip_count": 13
+        },
+        "second": {
+          "files": 178,
+          "tests": 12032,
+          "rc0_workers": 178,
+          "skip_count": 28
+        },
+        "declared": {
+          "files": 178,
+          "tests": 12040,
+          "rc0_workers": 178,
+          "skip_count": 13
+        }
+      },
+      "exact_declared_skip_map_matches_default": true,
+      "second_extra_skip_count": 15,
+      "all_second_extra_reasons_explicit_marker": true,
+      "shared_second_changed_reason_count": 1,
+      "shared_second_changed_reason_is_explicit_marker": true,
+      "corpus_outcomes": {
+        "default": "ok",
+        "second": "skipped",
+        "declared": "ok"
+      },
+      "meta_outcomes": {
+        "default": "ok",
+        "second": "ok",
+        "declared": "ok"
+      },
+      "534_durable_capture_reconstructions_match_originals": 534,
+      "current_receipt": {
+        "inputs_hash": "168eafe7d59e87c2acf0ab232ae3ac0a418b3aeec0a6972fef0fad78b9e1c22d",
+        "ran_at": "2026-10-09T21:52:08.464019+00:00",
+        "test_count": 12040,
+        "result": "ok"
+      },
+      "earlier_independent_actual_checks": {
+        "profile_corpus": {
+          "default_meta": {
+            "tests": 1,
+            "failures": 0,
+            "errors": 0,
+            "skips": [],
+            "log": "test_repository_corpus_runs_under_declared_tools (test_profile_support.DefaultProfileOnlyMarkerTests.test_repository_corpus_runs_under_declared_tools) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.044s\n\nOK\n",
+            "corpus_observations": [
+              {
+                "observed_corpus_size": 1105,
+                "required_minimum": 100
+              }
+            ],
+            "loaded_label": "Change ID",
+            "loaded_regex": "Change\\ ID"
+          },
+          "declared_meta": {
+            "tests": 1,
+            "failures": 0,
+            "errors": 0,
+            "skips": [],
+            "log": "test_repository_corpus_runs_under_declared_tools (test_profile_support.DefaultProfileOnlyMarkerTests.test_repository_corpus_runs_under_declared_tools) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.042s\n\nOK\n",
+            "corpus_observations": [
+              {
+                "observed_corpus_size": 1105,
+                "required_minimum": 100
+              }
+            ],
+            "loaded_label": "Change ID",
+            "loaded_regex": "Change\\ ID"
+          },
+          "second_meta": {
+            "tests": 1,
+            "failures": 0,
+            "errors": 0,
+            "skips": [],
+            "log": "test_repository_corpus_runs_under_declared_tools (test_profile_support.DefaultProfileOnlyMarkerTests.test_repository_corpus_runs_under_declared_tools) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.043s\n\nOK\n",
+            "corpus_observations": [
+              {
+                "observed_corpus_size": 1105,
+                "required_minimum": 100
+              }
+            ],
+            "loaded_label": "Wave ID",
+            "loaded_regex": "Wave\\ ID"
+          },
+          "second_raw_prebody_skip": {
+            "tests": 1,
+            "failures": 0,
+            "errors": 0,
+            "skips": [
+              [
+                "test_accepts_every_admitted_id_in_this_repository (test_change_id_path_guard.IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository)",
+                "default-profile-only: this repository's admitted-ID corpus uses the shipped vocabulary and layout (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)"
+              ]
+            ],
+            "log": "test_accepts_every_admitted_id_in_this_repository (test_change_id_path_guard.IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository) ... skipped \"default-profile-only: this repository's admitted-ID corpus uses the shipped vocabulary and layout (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)\"\n\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nOK (skipped=1)\n",
+            "corpus_observations": [],
+            "loaded_label": "Wave ID",
+            "loaded_regex": "Wave\\ ID"
+          },
+          "second_derived_regex_removal_mutant": {
+            "tests": 1,
+            "failures": 1,
+            "errors": 0,
+            "skips": [],
+            "log": "test_repository_corpus_runs_under_declared_tools (test_profile_support.DefaultProfileOnlyMarkerTests.test_repository_corpus_runs_under_declared_tools) ... FAIL\n\n======================================================================\nFAIL: test_repository_corpus_runs_under_declared_tools (test_profile_support.DefaultProfileOnlyMarkerTests.test_repository_corpus_runs_under_declared_tools)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/private/tmp/wf-2071n-qa-independent-pc4og1iu/.wavefoundry/framework/scripts/tests/test_profile_support.py\", line 287, in test_repository_corpus_runs_under_declared_tools\n    self.assertEqual(result.failures, [])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [(<test_change_id_path_guard.IsChangeIdTes[665 chars]\\n')] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n(<test_change_id_path_guard.IsChangeIdTests testMethod=test_accepts_every_admitted_id_in_this_repository>, 'Traceback (most recent call last):\\n  File \"/private/tmp/wf-2071n-qa-independent-pc4og1iu/.wavefoundry/framework/scripts/tests/record_layout_support.py\", line 956, in wrapper\\n    return func(*args, **kwargs)\\n  File \"/private/tmp/wf-2071n-qa-independent-pc4og1iu/.wavefoundry/framework/scripts/tests/test_change_id_path_guard.py\", line 236, in test_accepts_every_admitted_id_in_this_repository\\n    self.assertGreater(len(ids), 100)\\n    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^\\n  File \"<string>\", line 10, in observe\\n    return original(self,a,b,*args,**kwargs)\\nAssertionError: 0 not greater than 100\\n')\n\nDiff is 808 characters long. Set self.maxDiff to None to see it.\n\n----------------------------------------------------------------------\nRan 1 test in 0.043s\n\nFAILED (failures=1)\n",
+            "corpus_observations": [
+              {
+                "observed_corpus_size": 0,
+                "required_minimum": 100
+              }
+            ],
+            "loaded_label": "Wave ID",
+            "loaded_regex": "Wave\\ ID"
+          }
+        },
+        "adjacent_tests": {
+          "tests": 31,
+          "failures": 0,
+          "errors": 0,
+          "skips": []
+        },
+        "mutants": {
+          "classification_removed": {
+            "tests": 2,
+            "failures": 2,
+            "errors": 0,
+            "skips": 0
+          },
+          "ranking_reversed": {
+            "tests": 1,
+            "failures": 1,
+            "errors": 0,
+            "skips": 0
+          },
+          "corpus_acceptance_removed": {
+            "tests": 1,
+            "failures": 1,
+            "errors": 0,
+            "skips": 0
+          }
+        },
+        "historical_present_git_matches": 13,
+        "historical_recorded_absence_verified": 1
+      }
+    },
+    "artifact_or_test_id": [
+      "/private/tmp/wf-2071n-qa-reverify-probe-results.json",
+      "/private/tmp/wf-2071n-qa-reverify-adjacent-results.json",
+      "/private/tmp/wf-2071n-qa-reverify-mutants-results.json",
+      "/private/tmp/wf-2071n-qa-reverify-provenance.json",
+      ".wavefoundry/framework/scripts/tests/test_profile_support.py::DefaultProfileOnlyMarkerTests.test_repository_corpus_runs_under_declared_tools",
+      ".wavefoundry/framework/scripts/tests/test_change_id_path_guard.py::IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository",
+      "/private/tmp/wf-2071n-final-qa-audit.py",
+      "/private/tmp/wf-2071n-final-qa-audit-results.json",
+      "docs/waves/2071n profile-skip-qualification/evidence/delivery/final/skip-inventory.json",
+      "docs/waves/2071n profile-skip-qualification/evidence/delivery/final/capture-manifest.json",
+      "docs/waves/2071n profile-skip-qualification/evidence/delivery/final/canonical-receipt.json"
+    ],
+    "adjacent_controls": [
+      "Real original corpus,1105 IDs, copied docs and framework at original relative shape",
+      "Actual second profile applied to copied modules, not environment selector alone",
+      "Raw renamed corpus with discover_wave_dirs poisoned if reached",
+      "19 graph and12 historical/integrity tests run from no-history copied tree",
+      "13 historical bytes independently compared to original Git objects; one absence confirmed"
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true
+    },
+    "known_bad_detection_method": "focused-mutation: remove only derived-regex repair in copied second test source (1 failure,0 errors/skips,0 IDs versus >100); separately real extractor returns ordinary classification (2 assertion failures), reverse actual public response rankings (1 assertion failure), deny every corpus ID (1 assertion failure). Historical integrity tests exercise missing/corrupt/current-source substitution refusals.",
+    "limitations": "Finite local macOS qualification of the frozen admitted scope. Canonical full-suite outputs were produced by coordinator-owned runs and independently checked here from every actual worker capture; this reviewer did not rerun the full suites. Real extraction/publication/query fixtures use curated community membership and do not qualify arbitrary clustering or live operator graph topology. Existing13 baseline environment/platform/missing-fixture skips remain disclosed. Native Windows, fresh downstream host, cached bytecode authentication, canonical live setup and index readiness are not established. No source, docs, ledger, commit, close or lifecycle writes were performed.",
+    "safety_and_authorization": "Authorized independent local delivery review. Output/scratch mutations only under /private/tmp. Original repository source/docs/ledger unchanged. Canonical interpreter -B, PYTHONPYCACHEPREFIX removed. No network, commit, close or lifecycle writes.",
+    "probe_class": "local_safe",
+    "authorization_status": "authorized",
+    "safe_boundary": false,
+    "unexecuted_remainder_prohibited": false,
+    "universal_claim": false,
+    "verification_context": {
+      "actor": "qa-reviewer",
+      "context_id": "2071n-reverify-qa-independent-20261009",
+      "fresh_context": true,
+      "independent": true
+    }
+  },
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true
+  },
+  "known_bad_detection_method": "focused-mutation: remove only derived-regex repair in copied second test source (1 failure,0 errors/skips,0 IDs versus >100); separately real extractor returns ordinary classification (2 assertion failures), reverse actual public response rankings (1 assertion failure), deny every corpus ID (1 assertion failure). Historical integrity tests exercise missing/corrupt/current-source substitution refusals.",
+  "mutation_table": [
+    {
+      "mutation": "delete derived-member-regex repair in copied second tree",
+      "test": "DefaultProfileOnlyMarkerTests.test_repository_corpus_runs_under_declared_tools",
+      "expected": "Original corpus>100 fails,0 IDs",
+      "observed": "1 test,1failure,0errors,0skips;original count0"
+    },
+    {
+      "mutation": "real extractor classify_evidence_payload returns(False,[])",
+      "test": "EvidencePartitionResponseTests.test_the_limit_applies_independently_to_each_half and test_evidence_communities_remain_queryable_by_id",
+      "expected": "Public query assertions fail",
+      "observed": "2tests,2failures,0errors,0skips"
+    },
+    {
+      "mutation": "reverse actual response community rankings retaining identities/counts",
+      "test": "EvidencePartitionResponseTests.test_the_limit_applies_independently_to_each_half",
+      "expected": "Exact ranking tuple assertion fails",
+      "observed": "1test,1failure,0errors,0skips"
+    },
+    {
+      "mutation": "is_change_id denies every real corpus ID",
+      "test": "IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository",
+      "expected": "Zero-rejected assertion fails",
+      "observed": "1test,1failure,0errors,0skips"
+    }
+  ],
+  "independent_reference": {
+    "reference": "Independently read AC-2/AC-3 and original corpus test assertions, plus original graph literal consumer tuples and original four historical behavior assertions.",
+    "property": "Declared-tools selector does not suppress stock corpus; real renamed loaded constants skip intentionally; original non-vacuous count/acceptance assertions remain load-bearing.",
+    "common_mode_limitations": "Existing test structure is reused at the faithful boundary; negative controls, literal tuples and independent Git byte comparison provide separately derived falsification. Finite probes do not establish universal corpus acceptance, arbitrary clustering or host/runtime authentication."
+  },
+  "final_qualification_audit": {
+    "timestamp": "2026-10-09T22:16:01.712925+00:00",
+    "profiles": {
+      "default": {
+        "files": 178,
+        "tests": 12040,
+        "rc0_workers": 178,
+        "skips": {
+          "test_accel_embedder.AccelEmbedderTests.test_reranker_fp16_matches_fp32_when_available": "no GPU provider",
+          "test_contained_files.SwapInjectionWindowsTests.test_documented_window": "the POSIX twin is SwapInjectionTests",
+          "test_dashboard_server.RenderMarkdownishDocumentContractTests.test_fixed_viewport_browser_geometry_has_no_document_overflow": "set WAVEFOUNDRY_BROWSER_TESTS=1 to execute fixed-viewport Chrome tests",
+          "test_design_token_build.WrapperDispatchTest.test_style_dictionary_absent_exits_actionable": "style-dictionary/npx present \u2014 actual run is install-time",
+          "test_python_diagnostic_windows.NativePythonDiagnosticTests.test_missing_python_preserves_seeded_checkout_and_fails_launcher": "requires native Windows process semantics",
+          "test_runtime_lock.LinuxOfdEvidenceTests.test_held_byte_reports_an_ofd_holder": "Linux x86_64 or aarch64 only (wave 200xy, 200v2)",
+          "test_runtime_lock.LinuxOfdEvidenceTests.test_ofd_tests_run_rather_than_skip": "Linux x86_64 or aarch64 only (wave 200xy, 200v2)",
+          "test_server_tools_lifecycle.GuruCitationContractRenderTests.test_block_claims_match_the_implementation": "seed not present",
+          "test_server_tools_lifecycle.GuruCitationContractRenderTests.test_seed_and_rendered_blocks_are_byte_identical": "seed/render surfaces not present",
+          "test_server_tools_lifecycle.SignoffLatestStateTests.test_live_wave_records_parse_correctly": "wave record not found: docs/waves/1seav search-freshness-degraded-retrieval",
+          "test_sqlite_storage_migration.ReceiptTests.test_native_windows_junction_migration_components_are_refused": "native Windows junction execution required; simulated Python 3.11 metadata runs on every host",
+          "test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_helper_junction_is_refused_on_windows": "directory junctions exist only on native Windows",
+          "test_upgrade_wavefoundry.RetiredModelCleanupTests.test_native_windows_junction_root_and_nested_cleanup_preserve_referent": "native Windows junction cleanup qualification; simulated metadata runs on every host"
+        }
+      },
+      "second": {
+        "files": 178,
+        "tests": 12032,
+        "rc0_workers": 178,
+        "skips": {
+          "test_accel_embedder.AccelEmbedderTests.test_reranker_fp16_matches_fp32_when_available": "no GPU provider",
+          "test_change_id_path_guard.IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository": "default-profile-only: this repository's admitted-ID corpus uses the shipped vocabulary and layout (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_contained_files.SwapInjectionWindowsTests.test_documented_window": "the POSIX twin is SwapInjectionTests",
+          "test_context_efficiency.OpenWaveAttributionTests.test_stage_derivation_parses_real_canonical_ledger": "default-profile-only: reads this repository's own live wave ledgers under the shipped waves root (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_dashboard_server.RenderMarkdownishDocumentContractTests.test_fixed_viewport_browser_geometry_has_no_document_overflow": "set WAVEFOUNDRY_BROWSER_TESTS=1 to execute fixed-viewport Chrome tests",
+          "test_design_token_build.WrapperDispatchTest.test_style_dictionary_absent_exits_actionable": "style-dictionary/npx present \u2014 actual run is install-time",
+          "test_docs_lint.SerializationPointsTokenGrammarPinTests.test_the_fenced_examples_are_untouched": "default-profile-only: pins the shipped plan template's fenced example text, written for the default layout (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_python_diagnostic_windows.NativePythonDiagnosticTests.test_missing_python_preserves_seeded_checkout_and_fails_launcher": "requires native Windows process semantics",
+          "test_record_layout_lifecycle.DefaultLayoutUnchangedTests.test_default_paths_are_byte_identical": "default-profile-only: pins path identity on the shipped layout (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_record_paths.NestedDiscoveryTests.test_default_max_depth_is_four_and_finds_a_depth_four_wave": "default-profile-only: pins the shipped MAX_DEPTH default of four (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_record_paths.ShippedLayoutTests.test_shipped_constants_are_the_historical_layout_byte_identical": "default-profile-only: pins the shipped layout constants and their historical joins (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_review_evidence.RealCorpusRegressionTests.setUpClass": "default-profile-only: a census of this repository's own closed wave records, which are written in the default profile (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_review_policy.ReviewLoopFrictionPolicyTests.test_carrier_boundary_census_reports_its_own_transition_cost": "default-profile-only: a census of this repository's own documents, which are written in the default profile (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_runtime_lock.LinuxOfdEvidenceTests.test_held_byte_reports_an_ofd_holder": "Linux x86_64 or aarch64 only (wave 200xy, 200v2)",
+          "test_runtime_lock.LinuxOfdEvidenceTests.test_ofd_tests_run_rather_than_skip": "Linux x86_64 or aarch64 only (wave 200xy, 200v2)",
+          "test_server_tools_lifecycle.DeclaredWaveTreeSweepTests.setUpClass": "default-profile-only: census of this repository's own closed wave records (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_server_tools_lifecycle.GuruCitationContractRenderTests.test_block_claims_match_the_implementation": "seed not present",
+          "test_server_tools_lifecycle.GuruCitationContractRenderTests.test_seed_and_rendered_blocks_are_byte_identical": "seed/render surfaces not present",
+          "test_server_tools_lifecycle.SignoffLatestStateTests.test_live_wave_records_parse_correctly": "default-profile-only: reads this repository's own closed wave records (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_server_tools_lifecycle.WaveImplementTests.test_roster_extractors_agree_over_current_wave_corpus": "default-profile-only: census of this repository's own wave records (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_sqlite_storage_migration.ReceiptTests.test_native_windows_junction_migration_components_are_refused": "native Windows junction execution required; simulated Python 3.11 metadata runs on every host",
+          "test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_helper_junction_is_refused_on_windows": "directory junctions exist only on native Windows",
+          "test_upgrade_wavefoundry.RetiredModelCleanupTests.test_native_windows_junction_root_and_nested_cleanup_preserve_referent": "native Windows junction cleanup qualification; simulated metadata runs on every host",
+          "test_vocabulary_prompt_names.DefaultNamePinTests.setUpClass": "default-profile-only: pins the shipped prompt names and their pre-change consumer literals (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_vocabulary_prompt_names.DefaultRenderIdentityTests.setUpClass": "default-profile-only: renders this repository's own surfaces with the shipped names (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_vocabulary_prompt_names.DefaultTemplateIdentityTests.setUpClass": "default-profile-only: materializes the shipped templates with the shipped names (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_vocabulary_prompt_names.ValidationTests.test_fixed_shortcuts_and_slugs_match_this_repository": "default-profile-only: reads this repository's own manifest and prompt files (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_vocabulary_writers.DefaultProfileWriterTests.test_shipped_template_is_unchanged_under_the_default_profile": "default-profile-only: pins the shipped template as the identity of localize_template under the shipped labels (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)"
+        }
+      },
+      "declared": {
+        "files": 178,
+        "tests": 12040,
+        "rc0_workers": 178,
+        "skips": {
+          "test_accel_embedder.AccelEmbedderTests.test_reranker_fp16_matches_fp32_when_available": "no GPU provider",
+          "test_contained_files.SwapInjectionWindowsTests.test_documented_window": "the POSIX twin is SwapInjectionTests",
+          "test_dashboard_server.RenderMarkdownishDocumentContractTests.test_fixed_viewport_browser_geometry_has_no_document_overflow": "set WAVEFOUNDRY_BROWSER_TESTS=1 to execute fixed-viewport Chrome tests",
+          "test_design_token_build.WrapperDispatchTest.test_style_dictionary_absent_exits_actionable": "style-dictionary/npx present \u2014 actual run is install-time",
+          "test_python_diagnostic_windows.NativePythonDiagnosticTests.test_missing_python_preserves_seeded_checkout_and_fails_launcher": "requires native Windows process semantics",
+          "test_runtime_lock.LinuxOfdEvidenceTests.test_held_byte_reports_an_ofd_holder": "Linux x86_64 or aarch64 only (wave 200xy, 200v2)",
+          "test_runtime_lock.LinuxOfdEvidenceTests.test_ofd_tests_run_rather_than_skip": "Linux x86_64 or aarch64 only (wave 200xy, 200v2)",
+          "test_server_tools_lifecycle.GuruCitationContractRenderTests.test_block_claims_match_the_implementation": "seed not present",
+          "test_server_tools_lifecycle.GuruCitationContractRenderTests.test_seed_and_rendered_blocks_are_byte_identical": "seed/render surfaces not present",
+          "test_server_tools_lifecycle.SignoffLatestStateTests.test_live_wave_records_parse_correctly": "wave record not found: docs/waves/1seav search-freshness-degraded-retrieval",
+          "test_sqlite_storage_migration.ReceiptTests.test_native_windows_junction_migration_components_are_refused": "native Windows junction execution required; simulated Python 3.11 metadata runs on every host",
+          "test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_helper_junction_is_refused_on_windows": "directory junctions exist only on native Windows",
+          "test_upgrade_wavefoundry.RetiredModelCleanupTests.test_native_windows_junction_root_and_nested_cleanup_preserve_referent": "native Windows junction cleanup qualification; simulated metadata runs on every host"
+        }
+      }
+    },
+    "extra_second_skips": {
+      "test_change_id_path_guard.IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository": "default-profile-only: this repository's admitted-ID corpus uses the shipped vocabulary and layout (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_context_efficiency.OpenWaveAttributionTests.test_stage_derivation_parses_real_canonical_ledger": "default-profile-only: reads this repository's own live wave ledgers under the shipped waves root (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_docs_lint.SerializationPointsTokenGrammarPinTests.test_the_fenced_examples_are_untouched": "default-profile-only: pins the shipped plan template's fenced example text, written for the default layout (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_record_layout_lifecycle.DefaultLayoutUnchangedTests.test_default_paths_are_byte_identical": "default-profile-only: pins path identity on the shipped layout (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_record_paths.NestedDiscoveryTests.test_default_max_depth_is_four_and_finds_a_depth_four_wave": "default-profile-only: pins the shipped MAX_DEPTH default of four (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_record_paths.ShippedLayoutTests.test_shipped_constants_are_the_historical_layout_byte_identical": "default-profile-only: pins the shipped layout constants and their historical joins (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_review_evidence.RealCorpusRegressionTests.setUpClass": "default-profile-only: a census of this repository's own closed wave records, which are written in the default profile (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_review_policy.ReviewLoopFrictionPolicyTests.test_carrier_boundary_census_reports_its_own_transition_cost": "default-profile-only: a census of this repository's own documents, which are written in the default profile (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_server_tools_lifecycle.DeclaredWaveTreeSweepTests.setUpClass": "default-profile-only: census of this repository's own closed wave records (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_server_tools_lifecycle.WaveImplementTests.test_roster_extractors_agree_over_current_wave_corpus": "default-profile-only: census of this repository's own wave records (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_vocabulary_prompt_names.DefaultNamePinTests.setUpClass": "default-profile-only: pins the shipped prompt names and their pre-change consumer literals (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_vocabulary_prompt_names.DefaultRenderIdentityTests.setUpClass": "default-profile-only: renders this repository's own surfaces with the shipped names (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_vocabulary_prompt_names.DefaultTemplateIdentityTests.setUpClass": "default-profile-only: materializes the shipped templates with the shipped names (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_vocabulary_prompt_names.ValidationTests.test_fixed_shortcuts_and_slugs_match_this_repository": "default-profile-only: reads this repository's own manifest and prompt files (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_vocabulary_writers.DefaultProfileWriterTests.test_shipped_template_is_unchanged_under_the_default_profile": "default-profile-only: pins the shipped template as the identity of localize_template under the shipped labels (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)"
+    },
+    "shared_changed_reasons": {
+      "test_server_tools_lifecycle.SignoffLatestStateTests.test_live_wave_records_parse_correctly": {
+        "default": "wave record not found: docs/waves/1seav search-freshness-degraded-retrieval",
+        "second": "default-profile-only: reads this repository's own closed wave records (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)"
+      }
+    },
+    "534_durable_captures_exact_original_matches": 534,
+    "corpus_outcomes": {
+      "default": "ok",
+      "second": "skipped",
+      "declared": "ok"
+    },
+    "meta_outcomes": {
+      "default": "ok",
+      "second": "ok",
+      "declared": "ok"
+    },
+    "packet_fingerprint": "c7bd807a8edbe7878841b4e2971e6405f5bc7418e60ed86658125e770bc039d0",
+    "path_hashes": {
+      ".wavefoundry/framework/scripts/tests/test_graph_quality_eval.py": "32191794772a6acaa691d0b219a3ddb098b86154590bc61cc95f2fe349a1e3c8",
+      ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "ee0821b1eae4ffd5d722cb5ce9cbaa25129ee9ddb7e95af15bd18abd160fbd8e",
+      ".wavefoundry/framework/scripts/tests/test_change_id_path_guard.py": "5576b5ae4c34512625f30a22333decfee15610887d9fc3199f42addcb240930b",
+      ".wavefoundry/framework/scripts/tests/test_review_policy.py": "f4b1043267d9f9ae18caadba57deaf4fa9a0dd208b0cca7ab23ef5abd4c371ed",
+      ".wavefoundry/framework/scripts/tests/test_storage_upgrade_resume.py": "4bd68eb3d40f6697e8a2e9a9f8ce72ee49bd29f09fc0a3be837da0ddea5aaaf5",
+      ".wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py": "2317a5c2301a0ddb65ee6e90994be58346ab1c1625fa95b244b7538b1dafc1a3",
+      ".wavefoundry/framework/scripts/tests/graph_fixture_support.py": "995922d6e62457bb11a35771640441600d1acdf63194206958be96472197605f",
+      ".wavefoundry/framework/scripts/tests/record_layout_support.py": "82325f6a3f403ef98ffd25ce6e7479e12f482d5d0569272d3f75c85b667189d4",
+      ".wavefoundry/framework/scripts/tests/test_profile_support.py": "d14523d4d838ae6fafb8015e41d1a275d379f7b3f0d7b7bf315f43b987f87647",
+      ".wavefoundry/framework/scripts/tests/historical_fixture_support.py": "8cd98a1687be7e7ec7ff9e34c05167b42d6b099d041585a815692addb884d4f4",
+      ".wavefoundry/framework/scripts/tests/test_historical_fixture_support.py": "0746f6a8aea1cf575f9c0ab32c048c902ac6bb757a084d155da445585847122a",
+      ".wavefoundry/framework/scripts/tests/fixtures/historical_sources.json": "dd51106bf6121ae1d22cfcdb5b2e5231200a90b334d14a0e65c403449e18671f",
+      ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "53aaa1592d01e968df2edb819cf8468626f75fe4afc47d043844cc1d64f6021d",
+      "docs/architecture/testing-architecture.md": "4322b47e8e93fc9f1de0639dc2d04f6ae23fc79f684b86eb8792243db8d977dc",
+      "docs/contributing/build-and-verification.md": "3b1ee60d04310c2f0d9f4e55a575f3f7101d62947d6afd1639f21594ce1232f5"
+    },
+    "current_receipt": {
+      "inputs_hash": "168eafe7d59e87c2acf0ab232ae3ac0a418b3aeec0a6972fef0fad78b9e1c22d",
+      "ran_at": "2026-10-09T21:52:08.464019+00:00",
+      "test_count": 12040,
+      "result": "ok"
+    },
+    "receipt_unchanged_by_check": true
+  },
+  "primer_prior": {
+    "recorded_at": "2026-10-09T21:34:47.346940+00:00",
+    "before_primer": true,
+    "context": "2071n-reverify-reality-independent-20261009",
+    "prior": "Needs more evidence. Base label and derived regex coherence must be proved under a real second-profile copy. Supplied focused green counts and mutation log are hypotheses, not independent evidence. Full default/second/declared suite qualification remains pending. Hermetic graph fixtures cannot by themselves qualify live persisted index behavior.",
+    "independence": "Fresh delivery-only context. No prior readiness, implementation or initial review work retained; only parent briefing and current source reads."
+  },
+  "primer_prior_artifact": "/private/tmp/wf-2071n-reverify-qa-reality-prior.json",
+  "primer_engagement": {
+    "prior_effect": "Primer sharpened the requirement for exact skip identity/reason reconciliation and separation of provenance from actual old/current execution. It did not change the independent repaired-property judgment or authorize whole qualification.",
+    "updated_effect": "The previously unverified exact skip question is now settled by independent reconstruction/parsing of all actual worker outputs. Confidence increased from bounded repair verification with withheld approval to QA delivery approval. The primer did not substitute for own probes, source hash checks or exact evidence audit.",
+    "questions": [
+      {
+        "question": 1,
+        "status": "executed",
+        "answer": "Full default12040/178/13;second12032/178/28;declared12040/178/13. Declared exact skip IDs/reasons equal default. Second adds15IDs,all explicit default-profile-only;one retained baseline ID changes from missing repository record to explicit marker. Corpus runs default/declared and repaired meta-test runs all3.534workers allrc0."
+      },
+      {
+        "question": 2,
+        "execution_status": "executed",
+        "answer": "19 named graph controls run with zero skips/errors/failures against source-extracted, canonically published copy-local fixtures. Consumer assertions retain independent literal production tuples ledger31/ranking21, evidence results62/trace52, exact evidence lookup result identity62 and source node, explicit cross-boundary relations and production/evidence presence. Real classifier ordinary mutant fails2 chosen public response tests; reversed actual response rankings fail exact tuple assertion. Curated cluster membership is not arbitrary live clustering qualification."
+      },
+      {
+        "question": 3,
+        "execution_status": "executed",
+        "answer": "Four original historical behavior tests and8 integrity tests execute from copied tree without historical Git objects; all12 pass with0 skips. Two v1.14 carriers feed current reconciler/validator, v1.22 old upgrade entry resumes through current installed siblings, pinned v1 reader refuses v2 with no retired-store artifacts. Independently compared13 captured bodies to original Git objects and verified one historical absence. Integrity tests reject missing/corrupt bundle, forged source digest/size and current-source substitution. Runtime/cache/fresh-host/native-Windows qualification remains unproven."
+      }
+    ]
+  },
+  "ac_matrix": [
+    {
+      "ac": "AC-1",
+      "status": "executed verified within stated boundaries",
+      "evidence": "19 original graph controls; actual canonical publication plus source/control identity/classification/query assertions; no operator graph index required. Final full-profile exact audit passed."
+    },
+    {
+      "ac": "AC-2",
+      "status": "executed verified within stated boundaries",
+      "evidence": "Original >100 and zero-rejected corpus retained;1105 IDs across default/declared/second meta controls; actual renamed skip proved prebody. Final full-profile exact audit passed."
+    },
+    {
+      "ac": "AC-3",
+      "status": "executed verified within stated boundaries",
+      "evidence": "Derived-regex deletion1/1 failure; corpus acceptance denied1/1; classifier ordinary2/2; ranking reversed1/1; no mutant errors/skips. Historical guard negatives included in integrity tests. Final full-profile exact audit passed."
+    },
+    {
+      "ac": "AC-4",
+      "status": "executed verified within stated boundaries",
+      "evidence": "4 original historical behavior tests+8 integrity tests run0 skips in history-free copy;13 byte-exactGit matches+1 verifiedabsence. Final full-profile exact audit passed."
+    }
+  ],
+  "fingerprint_before": "c7bd807a8edbe7878841b4e2971e6405f5bc7418e60ed86658125e770bc039d0",
+  "fingerprint_after": "c7bd807a8edbe7878841b4e2971e6405f5bc7418e60ed86658125e770bc039d0",
+  "path_hashes_before": {
+    ".wavefoundry/framework/scripts/tests/test_graph_quality_eval.py": "32191794772a6acaa691d0b219a3ddb098b86154590bc61cc95f2fe349a1e3c8",
+    ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "ee0821b1eae4ffd5d722cb5ce9cbaa25129ee9ddb7e95af15bd18abd160fbd8e",
+    ".wavefoundry/framework/scripts/tests/test_change_id_path_guard.py": "5576b5ae4c34512625f30a22333decfee15610887d9fc3199f42addcb240930b",
+    ".wavefoundry/framework/scripts/tests/test_review_policy.py": "f4b1043267d9f9ae18caadba57deaf4fa9a0dd208b0cca7ab23ef5abd4c371ed",
+    ".wavefoundry/framework/scripts/tests/test_storage_upgrade_resume.py": "4bd68eb3d40f6697e8a2e9a9f8ce72ee49bd29f09fc0a3be837da0ddea5aaaf5",
+    ".wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py": "2317a5c2301a0ddb65ee6e90994be58346ab1c1625fa95b244b7538b1dafc1a3",
+    ".wavefoundry/framework/scripts/tests/graph_fixture_support.py": "995922d6e62457bb11a35771640441600d1acdf63194206958be96472197605f",
+    ".wavefoundry/framework/scripts/tests/record_layout_support.py": "82325f6a3f403ef98ffd25ce6e7479e12f482d5d0569272d3f75c85b667189d4",
+    ".wavefoundry/framework/scripts/tests/test_profile_support.py": "d14523d4d838ae6fafb8015e41d1a275d379f7b3f0d7b7bf315f43b987f87647",
+    ".wavefoundry/framework/scripts/tests/historical_fixture_support.py": "8cd98a1687be7e7ec7ff9e34c05167b42d6b099d041585a815692addb884d4f4",
+    ".wavefoundry/framework/scripts/tests/test_historical_fixture_support.py": "0746f6a8aea1cf575f9c0ab32c048c902ac6bb757a084d155da445585847122a",
+    ".wavefoundry/framework/scripts/tests/fixtures/historical_sources.json": "dd51106bf6121ae1d22cfcdb5b2e5231200a90b334d14a0e65c403449e18671f",
+    ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "53aaa1592d01e968df2edb819cf8468626f75fe4afc47d043844cc1d64f6021d",
+    "docs/architecture/testing-architecture.md": "4322b47e8e93fc9f1de0639dc2d04f6ae23fc79f684b86eb8792243db8d977dc",
+    "docs/contributing/build-and-verification.md": "3b1ee60d04310c2f0d9f4e55a575f3f7101d62947d6afd1639f21594ce1232f5"
+  },
+  "path_hashes_after": {
+    ".wavefoundry/framework/scripts/tests/test_graph_quality_eval.py": "32191794772a6acaa691d0b219a3ddb098b86154590bc61cc95f2fe349a1e3c8",
+    ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "ee0821b1eae4ffd5d722cb5ce9cbaa25129ee9ddb7e95af15bd18abd160fbd8e",
+    ".wavefoundry/framework/scripts/tests/test_change_id_path_guard.py": "5576b5ae4c34512625f30a22333decfee15610887d9fc3199f42addcb240930b",
+    ".wavefoundry/framework/scripts/tests/test_review_policy.py": "f4b1043267d9f9ae18caadba57deaf4fa9a0dd208b0cca7ab23ef5abd4c371ed",
+    ".wavefoundry/framework/scripts/tests/test_storage_upgrade_resume.py": "4bd68eb3d40f6697e8a2e9a9f8ce72ee49bd29f09fc0a3be837da0ddea5aaaf5",
+    ".wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py": "2317a5c2301a0ddb65ee6e90994be58346ab1c1625fa95b244b7538b1dafc1a3",
+    ".wavefoundry/framework/scripts/tests/graph_fixture_support.py": "995922d6e62457bb11a35771640441600d1acdf63194206958be96472197605f",
+    ".wavefoundry/framework/scripts/tests/record_layout_support.py": "82325f6a3f403ef98ffd25ce6e7479e12f482d5d0569272d3f75c85b667189d4",
+    ".wavefoundry/framework/scripts/tests/test_profile_support.py": "d14523d4d838ae6fafb8015e41d1a275d379f7b3f0d7b7bf315f43b987f87647",
+    ".wavefoundry/framework/scripts/tests/historical_fixture_support.py": "8cd98a1687be7e7ec7ff9e34c05167b42d6b099d041585a815692addb884d4f4",
+    ".wavefoundry/framework/scripts/tests/test_historical_fixture_support.py": "0746f6a8aea1cf575f9c0ab32c048c902ac6bb757a084d155da445585847122a",
+    ".wavefoundry/framework/scripts/tests/fixtures/historical_sources.json": "dd51106bf6121ae1d22cfcdb5b2e5231200a90b334d14a0e65c403449e18671f",
+    ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "53aaa1592d01e968df2edb819cf8468626f75fe4afc47d043844cc1d64f6021d",
+    "docs/architecture/testing-architecture.md": "4322b47e8e93fc9f1de0639dc2d04f6ae23fc79f684b86eb8792243db8d977dc",
+    "docs/contributing/build-and-verification.md": "3b1ee60d04310c2f0d9f4e55a575f3f7101d62947d6afd1639f21594ce1232f5"
+  },
+  "packet_match_before": true,
+  "packet_match_after": true,
+  "receipt_current": true,
+  "receipt_hash": "168eafe7d59e87c2acf0ab232ae3ac0a418b3aeec0a6972fef0fad78b9e1c22d",
+  "receipt_unchanged_by_check": true,
+  "no_primary_source_docs_ledger_commit_close_writes": true,
+  "source_navigation": {
+    "mcp_first": true,
+    "callable_tools": [
+      "code_read",
+      "code_keyword",
+      "code_outline"
+    ],
+    "indexed_retrieval_used": false,
+    "setup": "MCP live source read warned setup_inputs_changed. No setup/rebuild/index check attempted.",
+    "area_agents": "Map consulted; tests area has no additional AGENTS.md",
+    "final_source_checks": [
+      "run_tests._hash_inputs source and exclusions through MCP code_outline/code_read",
+      "build-and-verification Packaging profile qualification through MCP code_read",
+      "SignoffLatestStateTests.test_live_wave_records_parse_correctly marker through MCP code_keyword/code_read"
+    ]
+  },
+  "limitations": "Finite local macOS qualification of the frozen admitted scope. Canonical full-suite outputs were produced by coordinator-owned runs and independently checked here from every actual worker capture; this reviewer did not rerun the full suites. Real extraction/publication/query fixtures use curated community membership and do not qualify arbitrary clustering or live operator graph topology. Existing13 baseline environment/platform/missing-fixture skips remain disclosed. Native Windows, fresh downstream host, cached bytecode authentication, canonical live setup and index readiness are not established. No source, docs, ledger, commit, close or lifecycle writes were performed.",
+  "not_run": [
+    "No repeat full suite",
+    "Canonical live setup/graph smoke/index freshness",
+    "NativeWindows/downstream host/cache authentication"
+  ],
+  "audit_execution_note": "Initial output formatter syntax error in scratch prevented audit execution; fixed scratch formatter, then complete audit executed successfully. No failed attempt counted as evidence."
+}

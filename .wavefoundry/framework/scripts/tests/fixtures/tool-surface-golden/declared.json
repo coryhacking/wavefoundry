@@ -1280,6 +1280,21 @@
             "title": "Mode",
             "type": "string"
           },
+          "source_events": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Events"
+          },
           "wave_id": {
             "default": "",
             "title": "Wave Id",

@@ -1,0 +1,45 @@
+RESULT_JSON {"run": 1, "failures": 1, "errors": 0, "skips": 0}
+test_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) ... PROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+PROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {"c6_dependency": null, "c6_package": null, "c6_package.child": null, "c6_package.new_child": null}
+
+  test_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) (shape='readme') ... FAIL
+
+======================================================================
+FAIL: test_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) (shape='readme')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14887, in test_nonqualifying_direct_sources_never_call_opted_in_hook
+    self._gate("1.29.0")
+    ~~~~~~~~~~^^^^^^^^^^
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 13019, in _gate
+    self.ext.pre_docs_gate(MagicMock(root=self.root, from_version=from_version))
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2683, in pre_docs_gate
+    templates, hook_name, hook = _load_journal_declaration(
+                                 ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        ctx.root, load_hook=eligible, expected_trigger=trigger
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1241, in _execute_mock_call
+    raise effect
+AssertionError: ineligible loaded declaration
+
+----------------------------------------------------------------------
+Ran 1 test in 0.600s
+
+FAILED (failures=1)

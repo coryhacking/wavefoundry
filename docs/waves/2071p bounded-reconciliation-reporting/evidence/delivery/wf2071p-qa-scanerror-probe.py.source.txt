@@ -1,0 +1,8 @@
+exec(open('/private/tmp/wf2071p-qa-probes.py').read().split('# Specification-derived traversal')[0])
+with tempfile.TemporaryDirectory(prefix='wf2071p-qa-scanerror-') as td:
+ r=Path(td);lib.write_upgrade_lock(r,'1.28.0','1.29.0');lib.update_upgrade_lock(r,index_rebuilt_at='observed');write(r,'live.md','.wavefoundry/bin/docs-lint')
+ body="import sys\nfrom pathlib import Path\nsys.path.insert(0,"+repr(str(S))+")\nimport upgrade_wavefoundry as u\nimport reconcile_scan as rs\nu.__file__=__file__\nroot=Path(sys.argv[-1])\nif '--reconciliation-report' in sys.argv:\n def broken(*args): raise RuntimeError('PRIVATE_ERROR_TEXT')\n rs._scan_file=broken\n raise SystemExit(u._produce_reconciliation_report(root))\nraise SystemExit(u._emit_delegated_summary(root))\n"
+ write(r,'.wavefoundry/framework/scripts/upgrade_wavefoundry.py',body);buf=io.StringIO()
+ with patch.object(u,'_preferred_python',return_value=sys.executable),patch.object(u,'_run_reconciliation_scan',side_effect=AssertionError('rescan')),contextlib.redirect_stdout(buf):u._emit_primary_summary_via_delegate_or_fallback(r,'1.28.0','1.29.0',None,0,index_published=True,timeout_s=2)
+ lines=[l for l in buf.getvalue().splitlines() if l.startswith(u.WAVE_UPGRADE_SUMMARY_SENTINEL)];assert len(lines)==1;z=json.loads(lines[0].split(':',1)[1]);assert z['reconciliation_state']=='error' and 'scan_RuntimeError' in z['reconciliation_reason'] and z['index_update']=='docs and code layers complete' and 'PRIVATE_ERROR_TEXT' not in buf.getvalue()
+ Path('/private/tmp/wf2071p-qa-scanerror-result.json').write_text(json.dumps(z,indent=2));print(json.dumps({'state':z['reconciliation_state'],'reason':z['reconciliation_reason'],'single_sentinel':True,'published_fact_preserved':True,'secret_exception_omitted':True}))

@@ -1,0 +1,15 @@
+test_retry_claim_matches_actual_older_runner_observation (__main__.DocsRetryContractControl.test_retry_claim_matches_actual_older_runner_observation) ... FAIL
+
+======================================================================
+FAIL: test_retry_claim_matches_actual_older_runner_observation (__main__.DocsRetryContractControl.test_retry_claim_matches_actual_older_runner_observation)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-delivery-docs-retry-control.py", line 18, in test_retry_claim_matches_actual_older_runner_observation
+    self.assertEqual(len(invocations), expected, 'documentation retry count must match the actual older-runner dispatch')
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 2 != 1 : documentation retry count must match the actual older-runner dispatch
+
+----------------------------------------------------------------------
+Ran 1 test in 0.390s
+
+FAILED (failures=1)

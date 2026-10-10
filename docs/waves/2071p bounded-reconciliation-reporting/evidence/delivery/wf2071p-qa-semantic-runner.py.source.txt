@@ -1,0 +1,6 @@
+import sys,unittest
+sys.path[:0]=['/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests','/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts']
+import test_reconcile_scan as s
+suite=unittest.TestSuite()
+for c in (s.HostPermissionChannelTests,s.RendererProvenanceChannelTests,s.FindingSpecificDispositionTests,s.ArchiveSectionExclusionTests,s.RetiredFeaturePromptNameTests,s.ScanResultShapeTests):suite.addTests(unittest.defaultTestLoader.loadTestsFromTestCase(c))
+r=unittest.TextTestRunner(verbosity=2).run(suite);sys.exit(not r.wasSuccessful())

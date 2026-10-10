@@ -21,7 +21,14 @@ Call sites follow one rule:
 :func:`configure` never exports ``PYTHONPYCACHEPREFIX`` into ``os.environ``: every
 framework script configures itself, and an exported variable would reach product,
 sensor, git and uv children. Only the framework test runner passes the variable,
-explicitly, to its own children.
+explicitly, to its writable warm-up only. Read-only children receive no prefix.
+
+The prefix is process-wide: standard-library and site-packages imports also use
+this repository-writable cache. Source digests and pack integrity checks do not
+authenticate cached bytecode. ``-B``, ``PYTHONDONTWRITEBYTECODE``, ``read_only`` or
+``WAVEFOUNDRY_DISABLE_BYTECODE_CACHE=1`` stop adopting the prefix. An externally
+inherited prefix may already have supplied interpreter startup imports: unset
+``PYTHONPYCACHEPREFIX`` before launching such direct invocations.
 
 The cache is flushed whenever ``.wavefoundry/framework/VERSION`` changes (a stamp
 file inside the cache records the bytes it was built for). A cache directory that
@@ -39,6 +46,7 @@ import sys
 from pathlib import Path
 
 PREFIX_ENV = "PYTHONPYCACHEPREFIX"
+DISABLE_ENV = "WAVEFOUNDRY_DISABLE_BYTECODE_CACHE"
 STAMP_NAME = "framework-version.stamp"
 _STALE_PREFIX = "pycache.stale-"
 _REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
@@ -160,23 +168,26 @@ def configure(*, runner: bool = False, read_only: bool = False,
     decision (a nested ``__main__`` run, for example ``runpy``, sets the entry flag
     again before it calls this). In order:
 
-    (a) refuse a linked ``.wavefoundry/cache`` or ``.wavefoundry/cache/pycache``
-        (writes off, and a prefix naming this cache is cleared);
-    (b) when the interpreter started with writes disabled (``-B`` or
-        ``PYTHONDONTWRITEBYTECODE``) or ``read_only`` is set, keep an inherited
-        prefix, or else use the derived one, for reads only, with no writes and no
-        flush; ``runner=True`` (a top-level framework test run) skips this step so
-        the runner, not the interpreter flag, decides;
+    (a) disable the prefix and writes for interpreter opt-outs, ``read_only``,
+        or ``WAVEFOUNDRY_DISABLE_BYTECODE_CACHE=1``, before cached decision replay;
+    (b) refuse linked cache paths;
     (c) flush on a changed framework ``VERSION``;
     (d) set ``sys.pycache_prefix`` and turn writes on.
+
+    ``runner`` is retained for callers but never overrides an opt-out. A disabled
+    decision remains disabled on later calls. Startup imports precede this policy.
 
     ``PYTHONPYCACHEPREFIX`` is never written to ``os.environ``.
     """
     global _configured
+    if _disabled(read_only):
+        sys.pycache_prefix = None
+        sys.dont_write_bytecode = True
+        _configured = (None, False)
+        return None
     if _configured is not _UNSET:
         prefix, writes = _configured  # type: ignore[misc]
-        if prefix is not None:
-            sys.pycache_prefix = prefix
+        sys.pycache_prefix = prefix
         sys.dont_write_bytecode = not writes
         return prefix
     prefix = _configure(runner=runner, read_only=read_only, scripts_dir=scripts_dir)
@@ -184,7 +195,17 @@ def configure(*, runner: bool = False, read_only: bool = False,
     return prefix
 
 
+def _disabled(read_only: bool) -> bool:
+    return bool(sys.flags.dont_write_bytecode or read_only
+                or os.environ.get("PYTHONDONTWRITEBYTECODE")
+                or os.environ.get(DISABLE_ENV) == "1")
+
+
 def _configure(*, runner: bool, read_only: bool, scripts_dir: "Path | None") -> "str | None":
+    if _disabled(read_only):
+        sys.pycache_prefix = None
+        sys.dont_write_bytecode = True
+        return None
     layout = layout_paths(scripts_dir)
     try:
         if layout is not None:
@@ -192,14 +213,6 @@ def _configure(*, runner: bool, read_only: bool, scripts_dir: "Path | None") -> 
             if is_linked(cache_root) or is_linked(pycache):
                 _refuse(cache_root)
                 return None
-        if (sys.flags.dont_write_bytecode or read_only) and not runner:
-            sys.dont_write_bytecode = True
-            if os.environ.get(PREFIX_ENV) and sys.pycache_prefix:
-                return sys.pycache_prefix
-            if layout is None:
-                return sys.pycache_prefix or None
-            sys.pycache_prefix = str(layout[1])
-            return sys.pycache_prefix
         if layout is None:
             sys.dont_write_bytecode = True
             sys.pycache_prefix = None

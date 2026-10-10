@@ -1,0 +1,255 @@
+{
+  "wave_id": "2071n",
+  "change_id": "205jp",
+  "tree_fingerprint": "02bfe86fd4c8045b262dbcf7d2f9841fd5284666858077efea69812ade795cd0",
+  "policy_input_digest": "a8d0c88bd8bf03c033ad4b44bbed57a2f0433ad94feeec85f8fb29021396473a",
+  "reviewer": "p_ready_code_release",
+  "scope": "Fresh independent readiness only; no implementation/lifecycle edits",
+  "reports": [
+    {
+      "phase": "readiness",
+      "execution_status": "executed",
+      "required_for_approval": true,
+      "known_bad_detection_method": "readiness-safe-control",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "universal_claim": false,
+      "role": "code-reviewer",
+      "verdict": "approved",
+      "verification_context": {
+        "actor": "code-reviewer",
+        "context_id": "2071n-code-readiness-independent-20261009",
+        "fresh_context": true,
+        "independent": true
+      },
+      "proposition": "The bounded fixture and loaded-profile plan can retain the named graph/corpus/historical contracts without production changes; current exact old-source inputs are available and materially differ from current implementations.",
+      "counterexample_or_failure_condition": "A required historical path is unavailable; a current-source substitute matches its historical trusted digest; corpus applicability remains run-mode-only; graph plan drops extraction/publication/presence or full independent halves.",
+      "public_path": "live MCP code_read/code_keyword; Git object historical source boundary; existing record_layout_support.default_profile_only runtime decorator",
+      "command_or_fixture": "Read named source anchors; resolve historical refs with git rev-parse <ref>^{commit}, git show <commit>:<path>, SHA256; remove first required carrier from inventory and compare required set; compare old sources to current bytes; execute marked local function under declared run-mode env with loaded shipped constants.",
+      "expected": "All required old bytes are available; omitted required carrier and current substitution are rejected; loaded shipped constants run marked control despite declared environment.",
+      "observed": "8/8 frozen paths unchanged before and after. Six required v1.14 carriers present; optional lifecycle-overview absent. Two historical Python sources differ from current bytes. Omitted upgrade prompt fails required-set assertion; current upgrade/reader substitution fails exact historical identity. Loaded profile differences=[] under declared run-mode environment and marker control executes.",
+      "artifact_or_test_id": "evidence/readiness/code-release.json; LiveGraphEvidenceControlTests._nodes_for/test_children_of_the_evidence_control_resolve_as_evidence; EvidencePartitionResponseTests.test_the_limit_applies_independently_to_each_half; ControlledCommunityPublicationResponseTests.setUp; IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository; historical test anchors recorded below",
+      "adjacent_controls": [
+        "All required paths present before deliberate omission",
+        "Trusted historical sources resolve and differ from current implementations",
+        "Loaded shipped profile marker execution"
+      ],
+      "limitations": [
+        "Readiness only; no implementation, graph mutation, full suite or old Python execution approved by this report. Actual historical execution and known-bad delivery checks remain required.",
+        "19-extra-skips inventory supplied by coordinator, not independently enumerated here. No count-based future qualification approval.",
+        "MCP live reads callable; semantic freshness/setup unready, so no indexed retrieval used."
+      ],
+      "safety_and_authorization": "Read-only source/Git reads and local marker function in an isolated interpreter; no repository source changes or destructive/external execution."
+    },
+    {
+      "phase": "readiness",
+      "execution_status": "executed",
+      "required_for_approval": true,
+      "known_bad_detection_method": "readiness-safe-control",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "universal_claim": false,
+      "role": "release-reviewer",
+      "verdict": "approved",
+      "verification_context": {
+        "actor": "release-reviewer",
+        "context_id": "2071n-release-readiness-independent-20261009",
+        "fresh_context": true,
+        "independent": true
+      },
+      "proposition": "The proposed test-only repair preserves packaging skip policy and can pin byte-exact historical vectors without requiring checkout Git refs; the explicitly waived local pack is distinct from future release qualification.",
+      "counterexample_or_failure_condition": "The plan treats the waiver as lasting qualification; captures mutable current source as old code; loses optional-path absence semantics; changes packaging skip policy.",
+      "public_path": "docs/prompts/package-wavefoundry.prompt.md Required Packaging Order step5; Git historical object reads at resolved commits; current historical test subprocess setup",
+      "command_or_fixture": "Compare admitted Requirements4-5/AC4 with exact Git source paths and current old-code tests; execute required-inventory omission/current-byte substitution controls.",
+      "expected": "Second extras remain restricted to default_profile_only and declared has no extra skips; required and optional historical inputs remain distinct and immutable; existing current siblings preserved.",
+      "observed": "Plan explicitly leaves packaging contract/production behavior unchanged and records waiver only for local1.29.0+pviw. Six required v1.14 docs available; optional inventory has five present and one historically absent. v1.22 upgrade and pinned reader byte digests resolved independently; exact current-byte replacements differ. Current setup deliberately uses old entry module plus current siblings and incoming current pack, which must remain unchanged.",
+      "artifact_or_test_id": "evidence/readiness/code-release.json historical_inventory; StorageUpgradeProcessResumeTests.setUp; SchemaEightKindTests.test_version_one_code_refuses_a_version_two_receipt_and_creates_nothing; ReviewPolicyReconcilerTests.test_real_v114_carrier_family_reconciles_and_retries_byte_stably/test_real_v114_carriers_render_policy_and_pass_production_validator",
+      "adjacent_controls": [
+        "Original optional docs absence is legitimate and not missing-fixture corruption",
+        "Required v1.14 docs and both Python sources present",
+        "Existing packaging prompt separates profile qualification from wave delivery evidence"
+      ],
+      "limitations": [
+        "No pack built or inspected by this reviewer. No future release or all-profile qualification approval; final frozen-source default/second/declared identities and skip reasons must be enumerated.",
+        "Fixture manifest digests generated by implementer alone will be insufficient; compare captured bytes with the independent resolved-commit inventory here.",
+        "Version/manifest/bootstrap pin changes are outside this repair, and this report does not reopen the separate build decision."
+      ],
+      "safety_and_authorization": "Read-only local historical object checks, invalid inventory input rejection, current-source comparison; no publication, tag or source mutation."
+    }
+  ],
+  "readiness_blockers": [],
+  "historical_inventory": [
+    {
+      "ref": "v1.14.0",
+      "resolved_commit": "d37227197df2ef9a595b475a4c1a03b8744055c3",
+      "source_path": "docs/prompts/upgrade-wavefoundry.prompt.md",
+      "required": true,
+      "present": true,
+      "byte_count": 27589,
+      "sha256": "dd51fcc32d9fa6a12df8435bb82d93c0a65450dcb9c88f02a1158f79d6441855"
+    },
+    {
+      "ref": "v1.14.0",
+      "resolved_commit": "d37227197df2ef9a595b475a4c1a03b8744055c3",
+      "source_path": "docs/prompts/implement-wave.prompt.md",
+      "required": true,
+      "present": true,
+      "byte_count": 6291,
+      "sha256": "7d5cf705e2b217475d40b120e9f7b2dc34c07dc760d11d4f9c0e2aaa4d37d856"
+    },
+    {
+      "ref": "v1.14.0",
+      "resolved_commit": "d37227197df2ef9a595b475a4c1a03b8744055c3",
+      "source_path": "docs/prompts/review-wave.prompt.md",
+      "required": true,
+      "present": true,
+      "byte_count": 7053,
+      "sha256": "9cbe83542fed3f62c986843f26e9d1bf2b19002ceb26ae524fa42a6b972e6326"
+    },
+    {
+      "ref": "v1.14.0",
+      "resolved_commit": "d37227197df2ef9a595b475a4c1a03b8744055c3",
+      "source_path": "docs/prompts/agents/review-wave.prompt.md",
+      "required": true,
+      "present": true,
+      "byte_count": 4747,
+      "sha256": "74ea04e5cc369c689e9cdae90b78c5bb0090d2c1ad02e99161e68a5ee8edd410"
+    },
+    {
+      "ref": "v1.14.0",
+      "resolved_commit": "d37227197df2ef9a595b475a4c1a03b8744055c3",
+      "source_path": "docs/prompts/council-review.prompt.md",
+      "required": true,
+      "present": true,
+      "byte_count": 8710,
+      "sha256": "1f9e0055848c50c2d32f62425f19c3c09d841258d7b192838809373d644dbf6d"
+    },
+    {
+      "ref": "v1.14.0",
+      "resolved_commit": "d37227197df2ef9a595b475a4c1a03b8744055c3",
+      "source_path": "docs/prompts/prepare-wave.prompt.md",
+      "required": true,
+      "present": true,
+      "byte_count": 8293,
+      "sha256": "b7997d66c368908eb6cea0007e45e0d0567c0d356c2c0cd8d2dbbe6d8726fc4f"
+    },
+    {
+      "ref": "v1.14.0",
+      "resolved_commit": "d37227197df2ef9a595b475a4c1a03b8744055c3",
+      "source_path": "docs/contributing/build-and-verification.md",
+      "required": false,
+      "present": true,
+      "byte_count": 19579,
+      "sha256": "6ddaeadf9880ae63da189a0cc3ecee30b8003a5d8bd6c1a2568125406f70d5fc"
+    },
+    {
+      "ref": "v1.14.0",
+      "resolved_commit": "d37227197df2ef9a595b475a4c1a03b8744055c3",
+      "source_path": "docs/contributing/lifecycle-overview.md",
+      "required": false,
+      "present": false,
+      "byte_count": null,
+      "sha256": null
+    },
+    {
+      "ref": "v1.14.0",
+      "resolved_commit": "d37227197df2ef9a595b475a4c1a03b8744055c3",
+      "source_path": "docs/contributing/review-and-evals.md",
+      "required": false,
+      "present": true,
+      "byte_count": 19044,
+      "sha256": "47c20ff6930353d15e1052527d8a7574241eab6dc27ff950d0200bd1bee0480d"
+    },
+    {
+      "ref": "v1.14.0",
+      "resolved_commit": "d37227197df2ef9a595b475a4c1a03b8744055c3",
+      "source_path": "docs/references/dashboard-adapter-model.md",
+      "required": false,
+      "present": true,
+      "byte_count": 9208,
+      "sha256": "5eebe150dad594fd4fdd077dd86944f0d52281d60a48b22df0b9a7528f3eeb8b"
+    },
+    {
+      "ref": "v1.14.0",
+      "resolved_commit": "d37227197df2ef9a595b475a4c1a03b8744055c3",
+      "source_path": "docs/references/project-overview.md",
+      "required": false,
+      "present": true,
+      "byte_count": 10801,
+      "sha256": "9711316511f53602e13706cc57b6cae38f3a48b05996ca7a8922f7ef58c35bd9"
+    },
+    {
+      "ref": "v1.14.0",
+      "resolved_commit": "d37227197df2ef9a595b475a4c1a03b8744055c3",
+      "source_path": "docs/specs/mcp-tool-surface.md",
+      "required": false,
+      "present": true,
+      "byte_count": 99178,
+      "sha256": "d597eabb0d4c6fd35ee63d91371ab4e56c27d071874bd133e7c08c606d2feec4"
+    },
+    {
+      "ref": "v1.22.0",
+      "resolved_commit": "feaef9ac0e5bffe3bed46498340eaf5e7d191583",
+      "source_path": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+      "required": true,
+      "present": true,
+      "byte_count": 269025,
+      "sha256": "ae18d63246bc55f398bb6ae10303044f7701b68dbbf7ecff8e8e54230df0fb24"
+    },
+    {
+      "ref": "5e798daa",
+      "resolved_commit": "5e798daa159119c6f434eaf357b82dd264bb2a48",
+      "source_path": ".wavefoundry/framework/scripts/sqlite_storage_migration.py",
+      "required": true,
+      "present": true,
+      "byte_count": 65762,
+      "sha256": "2facf5370782062acba6775aa6132ee933dd2c794acf8705cd23c8317aa98397"
+    }
+  ],
+  "primer_engagement": {
+    "strongest_challenge": "Agreed: a fabricated pre-labelled graph can hide extraction/classification/publication defects. Approval requires retaining real extraction and published responses with independently stated source controls; curated membership only proves partition/ranking, not clustering.",
+    "questions": [
+      {
+        "question": 1,
+        "response": "Retain indexed presence, explicit provenance AND machine-run reasons, child evidence inheritance, ordinary controls, ignored-path exclusions, full production/evidence top-N halves and public lookup. At delivery require deleted controls/lost flags/missing partition rows and wrong lookup identity to fail. Fixture assertions may not derive their oracle solely from response."
+      },
+      {
+        "question": 2,
+        "response": "Independent Git probe froze resolved commits, exact source paths, hashes and required/optional absence below. v1.14 fixtures are carrier documents. v1.22 runner and old receipt-reader execute historical entry bytes with intentionally current siblings. Fail on missing/corrupt/substituted bytes; do not replace optional absent lifecycle-overview with current docs."
+      },
+      {
+        "question": 3,
+        "response": "Final qualification must enumerate exact selected test IDs and skip reasons on the same frozen source for default/second/declared; graph-quality cases previously skipped by default must execute, so equal aggregate counts alone cannot approve."
+      }
+    ]
+  },
+  "not_run": [
+    "Full suite",
+    "Production graph mutants",
+    "Historical old Python execution",
+    "Future package build"
+  ],
+  "frozen_path_check": {
+    "before": 8,
+    "after": 8,
+    "changed": []
+  }
+}

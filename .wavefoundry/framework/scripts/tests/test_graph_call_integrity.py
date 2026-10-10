@@ -2,6 +2,7 @@
 from __future__ import annotations
 import collections
 import json
+import re
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -764,6 +765,211 @@ class UnownedMemberCallTests(unittest.TestCase):
             self.assertFalse(any((e['source'], e['target']) == wrong for e in edges))
             self.assert_unowned(edges, 'src/preprocess.rs::capture')
         self.assertEqual(self.g.read_state_builder_version(self.driver.index_dir), self.g.GRAPH_BUILDER_VERSION)
+
+
+
+class RustIdentityProvenanceTests(unittest.TestCase):
+    setUpClass = classmethod(CallIntegrityTests.setUpClass.__func__)
+    setUp = CallIntegrityTests.setUp
+    build = CallIntegrityTests.build
+    artifact = CallIntegrityTests.artifact
+
+    def test_trait_impl_identity_and_explicit_calls(self):
+        source = '''struct Profile; struct Role;
+impl FromStr for Profile { fn from_str() { Self::help(); } }
+impl FromStr for Role { fn from_str() {} }
+impl Other for Profile { fn from_str() {} }
+impl Profile { fn help() {} }
+fn run() { <Profile as FromStr>::from_str(); <Role as FromStr>::from_str(); }
+'''
+        art = self.artifact('rust', source, 'types.rs')
+        ids = set(art['defined_symbols'])
+        expected = {'types.rs::<Profile as FromStr>.from_str', 'types.rs::<Role as FromStr>.from_str',
+                    'types.rs::<Profile as Other>.from_str'}
+        self.assertTrue(expected <= ids)
+        self.assertNotIn('types.rs::FromStr.from_str', ids)
+        calls = {(e['source'], e['target']) for e in art['edges'] if e['relation'] == 'calls'}
+        self.assertIn(('types.rs::<Profile as FromStr>.from_str', 'types.rs::Profile.help'), calls)
+        for target in expected - {'types.rs::<Profile as Other>.from_str'}:
+            self.assertIn(('types.rs::run', target), calls)
+
+    def test_let_initializer_uses_previous_binding_then_new_binding(self):
+        source = '''struct P; struct R; struct Mystery;
+impl P { fn hit(&self) -> R { R } }
+impl R { fn hit(&self) -> R { R } }
+fn run(p: P, mystery: Mystery) {
+ let p: R = p.hit();
+ p.hit();
+ { let p: R = p.hit(); p.hit(); }
+ let p = mystery; p.hit();
+}
+fn no_previous() { let p: R = p.hit(); p.hit(); }
+'''
+        graph = self.build({'types.rs': source})
+        sites = {site['start_byte']: edge['target'] for edge in graph['edges']
+                 if edge['relation'] == 'calls'
+                 for site in edge.get('call_sites', ())
+                 if source.encode()[site['start_byte']:site['end_byte']] == b'p.hit()'}
+        starts = [m.start() for m in re.finditer(rb'p\.hit\(\)', source.encode())]
+        self.assertEqual([sites[start] for start in starts],
+                         ['types.rs::P.hit', 'types.rs::R.hit', 'types.rs::R.hit', 'types.rs::R.hit',
+                          'external::p.hit', 'external::p.hit', 'types.rs::R.hit'])
+
+    def test_initializer_loop_keeps_outer_array_type(self):
+        source = '''struct P; struct R;
+impl P { fn hit(&self) {} } impl R { fn hit(&self) {} }
+fn run() {
+ let values: [P; 1] = [P];
+ let values: [R; 1] = { for p in values { p.hit(); } [R] };
+ for p in values { p.hit(); }
+}
+'''
+        art = self.artifact('rust', source, 'types.rs')
+        calls = [edge for edge in art['edges'] if edge['relation'] == 'calls' and edge['target'].endswith('.hit')]
+        self.assertEqual({edge['call_sites'][0]['line']: edge['target'] for edge in calls},
+                         {5: 'types.rs::P.hit', 6: 'types.rs::R.hit'})
+
+    def test_explicit_module_receiver_paths_preserve_identity_and_ambiguity(self):
+        source = '''trait T { fn hit(&self); } trait U { fn hit(&self); }
+mod a { use crate::T; pub struct P; impl T for P { fn hit(&self) {} } }
+mod b { use crate::{T,U}; pub struct P; impl T for P { fn hit(&self) {} } impl U for P { fn hit(&self) {} } }
+fn run(p: a::P, q: b::P) { a::P::hit(&p); b::P::hit(&q); p.hit(); q.hit(); unknown::P::hit(); }
+'''
+        graph = self.build({'types.rs': source})
+        calls = [edge for edge in graph['edges'] if edge['relation'] == 'calls' and edge['source'] == 'types.rs::run']
+        self.assertEqual({edge['target']: len(edge['call_sites']) for edge in calls},
+                         {'types.rs::a.<P as T>.hit': 2, 'external::b.P.hit': 2, 'external::unknown.P.hit': 1})
+        for edge in calls:
+            if edge['target'].startswith('external::'):
+                self.assertEqual(edge['confidence'], 'EXTRACTED')
+
+    def test_repeated_bindings_use_bounded_candidate_lookup(self):
+        # Count both iteration and indexed access at the real producer boundary.
+        # The generous linear bound kills the former N-candidates-per-call scan
+        # without a platform-sensitive elapsed-time assertion.
+        real_facts = self.g._RustLexicalFacts
+        for count in (64, 128, 256):
+            visits = [0]
+            class Counted(list):
+                def __iter__(self):
+                    for item in super().__iter__():
+                        visits[0] += 1
+                        yield item
+                def __getitem__(self, key):
+                    visits[0] += 1
+                    return super().__getitem__(key)
+            def instrument(*args):
+                facts = real_facts(*args)
+                facts.bindings = {scope: {name: Counted(entries) for name, entries in names.items()}
+                                  for scope, names in facts.bindings.items()}
+                return facts
+            source = 'struct P; impl P { fn hit(&self) {} } fn run() {\n' + 'let p: P = P; p.hit();\n' * count + '}'
+            with self.subTest(count=count), patch.object(self.g, '_RustLexicalFacts', instrument):
+                art = self.artifact('rust', source, 'types.rs')
+            sites = [site for edge in art['edges'] if edge['relation'] == 'calls' and edge['target'] == 'types.rs::P.hit'
+                     for site in edge['call_sites']]
+            self.assertEqual(len(sites), count)
+            self.assertEqual(len({site['start_byte'] for site in sites}), count)
+            self.assertLessEqual(visits[0], 8 * count)
+
+    def test_generic_impl_identity_retained_but_dispatch_unresolved(self):
+        source = "struct P<T>; impl<T> P<T> { fn hit(&self) {} fn run(&self) { self.hit(); Self::hit(); } }"
+        art = self.artifact('rust', source, 'types.rs')
+        self.assertIn('types.rs::P<T>.hit', art['defined_symbols'])
+        calls = [e for e in art['edges'] if e['relation'] == 'calls']
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(e['target'].startswith('external::') for e in calls))
+        self.assertTrue(all(e.get('unowned_member_call') for e in calls))
+
+    def test_ambiguous_trait_alias_stays_unresolved(self):
+        source = '''struct Profile;
+impl One for Profile { fn hit(&self) {} }
+impl Two for Profile { fn hit(&self) {} }
+fn run(p: Profile) { p.hit(); }
+'''
+        built = self.build({'types.rs': source})
+        calls = [e for e in built['edges'] if e['relation'] == 'calls' and e['source'] == 'types.rs::run']
+        self.assertEqual([e['target'] for e in calls], ['external::Profile.hit'])
+        self.assertEqual(calls[0]['confidence'], 'EXTRACTED')
+
+    def test_typed_loops_and_lexical_unknown_shadows(self):
+        source = '''struct Profile; struct Other;
+impl Profile { const ALL: [Self; 2] = []; fn hit(&self) {} fn run() {
+ for p in Self::ALL { p.hit(); }
+} }
+impl Other { fn hit(&self) {} }
+fn run(p: Profile, unknown: Mystery) {
+ p.hit();
+ { let p = unknown; p.hit(); }
+ { let p: Other = Other; p.hit(); }
+ p.hit();
+ let values: [Profile; 2] = [];
+ for p in values { p.hit(); }
+ for p in unknown { p.hit(); }
+ for p in values.iter() { p.hit(); }
+ p.hit();
+ let p = unknown; p.hit();
+}
+'''
+        art = self.artifact('rust', source, 'types.rs')
+        calls = [e for e in art['edges'] if e['relation'] == 'calls' and e['target'].endswith('.hit')]
+        targets = {e['call_sites'][0]['line']: e['target'] for e in calls}
+        for line in (3, 7, 10, 12, 15):
+            self.assertEqual(targets[line], 'types.rs::Profile.hit', line)
+        self.assertEqual(targets[9], 'types.rs::Other.hit')
+        for line in (8, 13, 14, 16):
+            self.assertEqual(targets[line], 'external::p.hit', line)
+
+    def test_later_and_sibling_array_declarations_do_not_leak(self):
+        source = '''struct P; impl P { fn hit(&self) {} }
+fn run() {
+ for p in values { p.hit(); }
+ { let values: [P; 2] = []; }
+ for p in values { p.hit(); }
+ let values: [P; 2] = [];
+ for p in values { p.hit(); }
+}
+'''
+        art = self.artifact('rust', source, 'types.rs')
+        calls = [e for e in art['edges'] if e['relation'] == 'calls' and e['target'].endswith('.hit')]
+        self.assertEqual({e['call_sites'][0]['line']: e['target'] for e in calls},
+                         {3: 'external::p.hit', 5: 'external::p.hit', 7: 'types.rs::P.hit'})
+
+    def test_macro_provenance_and_same_line_callers(self):
+        source = '''struct P; struct V; impl P { fn hit(&self) {} } impl V { fn hit(&self) {} }
+fn first(p: P) { p.hit(); } fn second(v: V, p: P) { println!("é {}", v.hit()); p.hit(); p.hit(); }
+'''
+        art = self.artifact('rust', source, 'types.rs')
+        calls = [e for e in art['edges'] if e['relation'] == 'calls' and e['target'].endswith('.hit')]
+        self.assertEqual(len(calls), 4)
+        encoded = source.encode()
+        for edge in calls:
+            site = edge['call_sites'][0]
+            expression = encoded[site['start_byte']:site['end_byte']].decode()
+            self.assertEqual(expression, 'v.hit()' if edge['target'].endswith('V.hit') else 'p.hit()')
+            expected_caller = 'first' if site['start_byte'] < encoded.index(b'fn second') else 'second'
+            self.assertEqual(edge['source'], 'types.rs::'+expected_caller)
+            line_start = encoded.rfind(b'\n', 0, site['start_byte']) + 1
+            self.assertEqual(site['column'], site['start_byte'] - line_start + 1)
+
+    def test_unknown_and_known_witnesses_do_not_share_resolution(self):
+        source = '''struct P; impl P { fn hit(&self) {} }
+fn run(p: P) { p.hit(); { let p = mystery(); p.hit(); } p.hit(); }
+'''
+        built = self.build({'types.rs': source})
+        calls = [e for e in built['edges'] if e['relation'] == 'calls' and e['source'] == 'types.rs::run' and e['target'].endswith('.hit')]
+        by_target = {e['target']: e for e in calls}
+        self.assertEqual(len(by_target['types.rs::P.hit']['call_sites']), 2)
+        self.assertEqual(len(by_target['external::p.hit']['call_sites']), 1)
+        self.assertTrue(by_target['external::p.hit']['unowned_member_call'])
+
+    def test_cross_file_trait_candidates_remain_distinct(self):
+        files = {'types.rs': 'struct P; struct R; impl T for P { fn hit() {} } impl T for R { fn hit() {} }',
+                 'main.rs': 'fn run() { P::hit(); R::hit(); }'}
+        built = self.build(files)
+        calls = [e for e in built['edges'] if e['relation'] == 'calls' and e['source'] == 'main.rs::run']
+        self.assertEqual({e['target'] for e in calls}, {'types.rs::<P as T>.hit', 'types.rs::<R as T>.hit'})
+        self.assertTrue(all(len(e['call_sites']) == 1 for e in calls))
 
 
 if __name__=='__main__':unittest.main()

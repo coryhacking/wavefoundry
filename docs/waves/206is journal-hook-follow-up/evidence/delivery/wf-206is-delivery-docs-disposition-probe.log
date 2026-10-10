@@ -1,0 +1,29 @@
+{
+  "baseline_exact_hits": 4,
+  "after_v2_judgments": 0,
+  "raw_audit_retains_hits": true,
+  "changed_line_detected": true,
+  "new_live_directive_detected": true,
+  "proposed_entries": [
+    {
+      "key": "v2:90a2991371f5b521ed4f305b7939332b",
+      "status": "historical-record",
+      "rationale": "Retained reference to historical journal source consumed by migration, not permission to write new journals."
+    },
+    {
+      "key": "v2:98775d9219eac8a186950355abd2bb30",
+      "status": "historical-record",
+      "rationale": "Retained reference to historical journal source consumed by migration, not permission to write new journals."
+    },
+    {
+      "key": "v2:77092f48819f91b56970ac9791132db6",
+      "status": "historical-record",
+      "rationale": "Retained reference to historical journal source consumed by migration, not permission to write new journals."
+    },
+    {
+      "key": "v2:419ee3cd412c68570df0edb3e5729b72",
+      "status": "historical-record",
+      "rationale": "Retained reference to historical journal source consumed by migration, not permission to write new journals."
+    }
+  ]
+}

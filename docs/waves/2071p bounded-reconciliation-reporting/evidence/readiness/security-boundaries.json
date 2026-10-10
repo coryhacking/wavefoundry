@@ -1,0 +1,22 @@
+{
+  "outside.md": "resolves outside the repository",
+  "fifo.md": "not a regular file",
+  "oversize": "exceeds the size cap",
+  "inside_link": "followed by contained_files; scanner must separately refuse links",
+  "delegate_boundary": [
+    {
+      "argv": [
+        "--emit-summary",
+        "--root",
+        "/private/tmp/wf-security-readiness-9bb4030e35ea49d98b0864d7ea045d7d/delegate"
+      ],
+      "publisher_token_present": false,
+      "timeout": 0.2,
+      "cwd": "/private/tmp/wf-security-readiness-9bb4030e35ea49d98b0864d7ea045d7d/delegate"
+    }
+  ],
+  "owned_child_timeout": {
+    "class": "TimeoutExpired",
+    "seconds": 0.15501079196110368
+  }
+}

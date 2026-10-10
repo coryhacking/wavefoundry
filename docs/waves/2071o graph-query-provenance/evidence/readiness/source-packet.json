@@ -1,0 +1,76 @@
+{
+  "phase": "readiness",
+  "source_paths": [
+    {
+      "path": ".wavefoundry/framework/scripts/wf_server/graph_handlers.py",
+      "git_blob": "540ed2d3b012cc5d73d48ae5bc831712af7a31e3",
+      "sha256": "c57640801ebfd896a3dcb3e5c31bbafb37935032583796d9ac42466859ddc404"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/graph_query.py",
+      "git_blob": "592687dd5a103bd523d27af04d4954c02a5d3f17",
+      "sha256": "77f1882d86937fcf8498c679fb006489c3a53927468e5510489bc76e539446aa"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/reconcile_scan.py",
+      "git_blob": "0396a30aac7bcb38e2764fd1d250c44009e63889",
+      "sha256": "1d7d297bcc938eafde9a68965c46cd40eb8072bd00832d32284132a799aae515"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
+      "git_blob": "8367a6fd634079e3c9e435f7e93a0a4c593927c0",
+      "sha256": "e938d6f0d1ccef7ab87f4ba700188640bd07e80426a4d08ab4cd34753f012abe"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py",
+      "git_blob": "606f109a6fd5049c5cc874fe09a327ffb87def8f",
+      "sha256": "ee0821b1eae4ffd5d722cb5ce9cbaa25129ee9ddb7e95af15bd18abd160fbd8e"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_graph_query.py",
+      "git_blob": "0181ed20800de33a51d2f45bb15e26ec952a6dc0",
+      "sha256": "f1a4ecf8a1f38f5bf4ea52ebbad9e0f4716615d805f16d8366718641f95b07a8"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_reconcile_scan.py",
+      "git_blob": "350b5e62c6a2dc906db75fb70919d098a8e6f8e4",
+      "sha256": "c398c454419f81bee785dccc3cda8f1040ccc70a8fdecabaa84a33ef9b93d981"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+      "git_blob": "1da1b9a9c621e8ce80f923297f99f6cf1f341d75",
+      "sha256": "dbe0dd37a58827fafcb9bc231983fa395b8e2817997b03d0200cef6524857868"
+    },
+    {
+      "path": "docs/specs/mcp-tool-surface.md",
+      "git_blob": "fbd9444ad3874388a47ec70d044c79d9690e5ccd",
+      "sha256": "3a99e045b721c0140b9bae0034852838fc7999f5c312d32838502277095df0c0"
+    },
+    {
+      "path": "docs/architecture/graph-index-system.md",
+      "git_blob": "22d92a3aed29aec878acb2f191980b14447d7607",
+      "sha256": "eed4264d5b7a0541aefdf8c001413dd7e45c0fb3dad72d063af232ef21c9a499"
+    },
+    {
+      "path": "docs/architecture/data-and-control-flow.md",
+      "git_blob": "085cc83c01cb874348b38ad4c722806890c5676b",
+      "sha256": "fde3312da48d0a8bb6c720b3d375460810f27e0c2a20bdd472fb62ffdb100bc5"
+    },
+    {
+      "path": "docs/architecture/performance-budget.md",
+      "git_blob": "abcffeb9cc4f465d8935bfa67c1d6586846ee7dd",
+      "sha256": "255c3478926590727e3b80a32900e6d7333227b7828d59ab236492e40dcaef5e"
+    },
+    {
+      "path": "docs/contributing/build-and-verification.md",
+      "git_blob": "86e353e5a1384d4c67d157e61930357d98a39ca5",
+      "sha256": "3b1ee60d04310c2f0d9f4e55a575f3f7101d62947d6afd1639f21594ce1232f5"
+    },
+    {
+      "path": "docs/architecture/decisions/1u49j-adr fresh-code-summary-producer-contract.md",
+      "git_blob": "91f28d4b49bdaf021f5ed9a2dac98cc31798a6c4",
+      "sha256": "4cb9e1f25b66380061863795ce8c3e3e05b998df3158939c2bc138f05654e499"
+    }
+  ],
+  "limitations": "No implementation edits. Baseline observed defects, not repair success. Downstream timings attributed; historical active file unclaimed."
+}

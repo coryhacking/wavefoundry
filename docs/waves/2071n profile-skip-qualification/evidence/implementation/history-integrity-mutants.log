@@ -1,0 +1,48 @@
+MUTANT bundle-digest EXPECTED failure test_metadata_changes_are_rejected_by_the_pinned_bundle_digest
+test_metadata_changes_are_rejected_by_the_pinned_bundle_digest (test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_metadata_changes_are_rejected_by_the_pinned_bundle_digest) ... FAIL
+
+======================================================================
+FAIL: test_metadata_changes_are_rejected_by_the_pinned_bundle_digest (test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_metadata_changes_are_rejected_by_the_pinned_bundle_digest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/wf-205jp-history-mutant-gd0kpvcy/test_historical_fixture_support.py", line 45, in test_metadata_changes_are_rejected_by_the_pinned_bundle_digest
+    with self.assertRaisesRegex(AssertionError, "bundle integrity mismatch"):
+         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: AssertionError not raised
+
+----------------------------------------------------------------------
+Ran 1 test in 0.007s
+
+FAILED (failures=1)
+MUTANT source-digest EXPECTED failure test_source_digest_is_checked_even_if_bundle_digest_is_recomputed
+test_source_digest_is_checked_even_if_bundle_digest_is_recomputed (test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_source_digest_is_checked_even_if_bundle_digest_is_recomputed) ... FAIL
+
+======================================================================
+FAIL: test_source_digest_is_checked_even_if_bundle_digest_is_recomputed (test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_source_digest_is_checked_even_if_bundle_digest_is_recomputed)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/wf-205jp-history-mutant-qfa21qtj/test_historical_fixture_support.py", line 56, in test_source_digest_is_checked_even_if_bundle_digest_is_recomputed
+    with self.assertRaisesRegex(AssertionError, "source integrity mismatch"):
+         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: AssertionError not raised
+
+----------------------------------------------------------------------
+Ran 1 test in 0.008s
+
+FAILED (failures=1)
+MUTANT source-size EXPECTED failure test_source_size_is_checked_even_when_its_bytes_and_digest_match
+test_source_size_is_checked_even_when_its_bytes_and_digest_match (test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_source_size_is_checked_even_when_its_bytes_and_digest_match) ... FAIL
+
+======================================================================
+FAIL: test_source_size_is_checked_even_when_its_bytes_and_digest_match (test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_source_size_is_checked_even_when_its_bytes_and_digest_match)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/wf-205jp-history-mutant-wvijrj84/test_historical_fixture_support.py", line 62, in test_source_size_is_checked_even_when_its_bytes_and_digest_match
+    with self.assertRaisesRegex(AssertionError, "source integrity mismatch"):
+         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: AssertionError not raised
+
+----------------------------------------------------------------------
+Ran 1 test in 0.007s
+
+FAILED (failures=1)

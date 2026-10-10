@@ -1,0 +1,237 @@
+{
+  "phase": "readiness",
+  "verdict": "readinessapprove",
+  "actor": "qa-reviewer",
+  "context_id": "c6-qualification-ready-qa-independent-20261009",
+  "fresh_context": true,
+  "independent": true,
+  "assessment_roles": [
+    "required qa-reviewer specialist",
+    "fixed QA council seat"
+  ],
+  "one_assessment_disclosed": true,
+  "receipt": "review-policy-0c94bbf32063d832c3fd",
+  "tree_fingerprint": "4046fd4ff1d8320818438c439852420eb3413778755880fc1c5d8cd2d0d56711",
+  "scope": "Admissibility of literal reset/source_path fixture corrections and exact current historical migration-input judgments; source9 frozen, no product completion or delivery approval.",
+  "primer_read": true,
+  "primer_depth": "standard",
+  "strongest_challenge_response": "Agree: prior four-hit inventory cannot be reused. Current three logical lines describe historical planning or supported retained migration inputs, not instructions to author ongoing journals. Exact v2 judgments must be generated from current full logical-line/context keys; raw audit and changed/new-live detection remain acceptance obligations. Readiness does not terminalize delivery findings.",
+  "Q1": "Feasible, not yet product-proven. Independently live-read handoff line110 as historical next-step planning; dataflow line180 and spec line567 as bounded retained-source presence contracts. Current directory references do not authorize new ongoing journal authoring. Existing exact v2 machinery can classify these references while preserving raw audit. Primer scratch controls support feasibility, attributed to primer author, not my execution. Actual store write must be followed by fresh exact-current inventory, raw audit preservation and changed-line/new-live negative controls.",
+  "Q2": "My disposable full-framework copy reproduced both original named censuses failing, then only two literal fixture corrections made both pass without changing sensors. Fifteen JournalTriggerPolicyTests passed after scratch correction, including static public preview/nonexecution and registry/base/profile/positional compatibility. Exact post-repository evidence must replay both censuses, all18 C6 controls including3 protocol older-runner controls, public preview/profile owners, scanner exact/changed/new-live controls, prove source9 unchanged, obtain independent same-phase delivery rechecks and run canonical whole-suite LAST for fresh receipt. Current canonical11995 suite remains red in3 owners.",
+  "evidence": [
+    {
+      "mode": "known-bad",
+      "command": [
+        "python3",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_extension_tool_modules.DeclarationConstantCensusTests.test_the_refusal_driver_resets_every_declaration_constant",
+        "test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path"
+      ],
+      "root": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c6-qa-ready-b4tdz7_r",
+      "returncode": 1,
+      "log": "/tmp/wf-206is-ready-qa-known-bad.log",
+      "observed": "test_the_refusal_driver_resets_every_declaration_constant (test_extension_tool_modules.DeclarationConstantCensusTests.test_the_refusal_driver_resets_every_declaration_constant) ... FAIL\ntest_no_source_read_of_a_moved_flat_path (test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path) ... FAIL\n\n======================================================================\nFAIL: test_the_refusal_driver_resets_every_declaration_constant (test_extension_tool_modules.DeclarationConstantCensusTests.test_the_refusal_driver_resets_every_declaration_constant)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c6-qa-ready-b4tdz7_r/.wavefoundry/framework/scripts/tests/test_extension_tool_modules.py\", line 4446, in test_the_refusal_driver_resets_every_declaration_constant\n    self.assertIn(f\"{name}=\", empty_line, name)\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER=' not found in 'empty = dict(EXTENSION_MODULES=(), EXTENSION_HELPER_MODULES=(), EXTENSION_TOOL_PREFIXES=(), EXTENSION_TOOL_TIERS={}, EXTENSION_OVERRIDES={},\\n                     EXTENSION_TOOL_ALIASES={}, EXTENSION_TOOL_PARAMETERS={}, EXTENSION_HIDDEN_TOOLS=(),\\n                     EXTENSION_LIFECYCLE_TOOLS=(), EXTENSION_ARTIFACT_PATH_FIELDS={}, EXTENSION_SKILLS={},\\n                     EXTENSION_JOURNAL_TEMPLATES=(), EXTENSION_JOURNAL_PRE_MIGRATION_HOOK=\"\",\\n                     EXTENSION_REPLACEMENTS={}' : EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER\n\n======================================================================\nFAIL: test_no_source_read_of_a_moved_flat_path (test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c6-qa-ready-b4tdz7_r/.wavefoundry/framework/scripts/tests/test_server_package.py\", line 439, in test_no_source_read_of_a_moved_flat_path\n    self.assertEqual(found, {}, \"read moved-module sources through framework_files.source_path\")\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: {'test_upgrade_wavefoundry.py': [\"SCRIPTS_ROOT / f'{helper}.py'\"]} != {}\n- {'test_upgrade_wavefoundry.py': [\"SCRIPTS_ROOT / f'{helper}.py'\"]}\n+ {} : read moved-module sources through framework_files.source_path\n\n----------------------------------------------------------------------\nRan 2 tests in 3.360s\n\nFAILED (failures=2)\n"
+    },
+    {
+      "mode": "scratch-patched",
+      "command": [
+        "python3",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_extension_tool_modules.DeclarationConstantCensusTests.test_the_refusal_driver_resets_every_declaration_constant",
+        "test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path"
+      ],
+      "root": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c6-qa-ready-b4tdz7_r",
+      "returncode": 0,
+      "log": "/tmp/wf-206is-ready-qa-scratch-patched.log",
+      "observed": "test_the_refusal_driver_resets_every_declaration_constant (test_extension_tool_modules.DeclarationConstantCensusTests.test_the_refusal_driver_resets_every_declaration_constant) ... ok\ntest_no_source_read_of_a_moved_flat_path (test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path) ... ok\n\n----------------------------------------------------------------------\nRan 2 tests in 3.176s\n\nOK\n"
+    },
+    {
+      "command": [
+        "python3",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_upgrade_wavefoundry.JournalTriggerPolicyTests"
+      ],
+      "root": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c6-qa-ready-b4tdz7_r",
+      "returncode": 0,
+      "log": "/tmp/wf-206is-ready-qa-runtime.log",
+      "observed": "test_annotated_literal_and_missing_module_static_controls (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_annotated_literal_and_missing_module_static_controls) ... ok\ntest_fifo_named_markdown_is_not_opened_or_selected (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected) ... ok\ntest_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution) ... ok\ntest_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) ... ok\ntest_linked_source_ancestor_is_not_followed (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed) ... ok\ntest_loaded_invalid_trigger_is_refused_by_framework_policy_guard (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_invalid_trigger_is_refused_by_framework_policy_guard) ... ok\ntest_loaded_trigger_must_match_static_selection_before_dependents (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_trigger_must_match_static_selection_before_dependents) ... ok\ntest_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) ... ok\ntest_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration) ... ok\ntest_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) ... ok\ntest_presence_does_not_read_content_or_use_public_preview_left_entries (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_presence_does_not_read_content_or_use_public_preview_left_entries) ... ok\ntest_refused_static_source_is_unknown_without_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_refused_static_source_is_unknown_without_execution) ... ok\ntest_registry_base_profiles_positional_validator_and_activation_are_compatible (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_registry_base_profiles_positional_validator_and_activation_are_compatible) ... ok\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... ok\ntest_zip_preview_uses_incoming_policy_and_writes_no_report (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_zip_preview_uses_incoming_policy_and_writes_no_report) ... ok\n\n----------------------------------------------------------------------\nRan 15 tests in 3.079s\n\nOK\n"
+    }
+  ],
+  "expected_vs_observed": "Unchanged scratch expected2 original failures: observed2 failures/0 skips. Literal scratch patches expected unchanged censuses green: observed2 pass/0 skips. Adjacent runtime expected finite journal controls green: observed15 pass/0 skips.",
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "pre-fix-failure"
+  },
+  "integrity_scope": "Five booleans apply to own two original census boundary probes plus adjacent JournalTriggerPolicyTests; they do not assert scanner/store actual-write proof or canonical green. Public path means canonical production-suite censuses and existing preview/application fixtures, not live installed downstream hook.",
+  "independent_reference": "Existing census definitions and literal shipped declaration/default plus admitted AC/static decision table read independently. Expected failures derived from original missing reset/computed-source defects, not implementer green assertions.",
+  "limitations": [
+    "No repository repair/store write/scanner negative execution by this reviewer. Primer scanner controls attributed separately.",
+    "Only15 runtime JournalTriggerPolicyTests executed;3 older-runner protocol controls not rerun. No whole owner/full suite/live downstream/native/pack/index qualification.",
+    "Scratch prototype is feasibility evidence and cannot independently reverify a repository repair this reviewer later implements; I made no repository repair.",
+    "No typed approval/event/synthesis/close/commit/push; delivery findings remain open."
+  ],
+  "gapfill": "Deferred MCP tool schemas discovered and callable wf_server_info/docs_search/code_read confirmed. wf_server_info runner_stale=false/impl_matches_disk=true but setup_inputs_changed. Semantic query returned unrelated historical readiness records; not accepted as current proof. Used live MCP code_read for exact fixture/current plan/protocol/reference lines and local frozen artifact reads; no setup/index mutation. Initial seed180 filename was absent; resolved actual180-implement-change.prompt.md and read live.",
+  "findings": [],
+  "source_hashes_before": [
+    {
+      "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+      "absent": false,
+      "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/mcp_tool_extensions.py",
+      "absent": false,
+      "sha256": "b19a7e12e2cb7e0a843abc655a32b3b8801c2bc510fed98d210f7e065ff0dad1"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+      "absent": false,
+      "sha256": "9e4d047befb84aae19dae23ba25544a0311e3801597e864e7f47479feff884ef"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py",
+      "absent": false,
+      "sha256": "a98ab97f0706c12d24ad64f6803a5c8454be01aa73f89f9df95f1e51394404a8"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/record_layout_support.py",
+      "absent": false,
+      "sha256": "82325f6a3f403ef98ffd25ce6e7479e12f482d5d0569272d3f75c85b667189d4"
+    },
+    {
+      "path": ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md",
+      "absent": false,
+      "sha256": "18b97d8d6d9487889700cc2345fc47046adb0674f66c9aae3a815e5145e754ce"
+    },
+    {
+      "path": "docs/specs/mcp-tool-surface.md",
+      "absent": false,
+      "sha256": "3a99e045b721c0140b9bae0034852838fc7999f5c312d32838502277095df0c0"
+    },
+    {
+      "path": "docs/architecture/data-and-control-flow.md",
+      "absent": false,
+      "sha256": "fde3312da48d0a8bb6c720b3d375460810f27e0c2a20bdd472fb62ffdb100bc5"
+    },
+    {
+      "path": "docs/architecture/layering-rules.md",
+      "absent": false,
+      "sha256": "b0b0e2800fde4df05610a2aef04c8fde76ea2d0e14fd0e4cde7f260e9b0c1856"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_extension_tool_modules.py",
+      "absent": false,
+      "sha256": "453d6e2d20d8f04c3b799a796ee130055a3972ec9e12f6cd109fd29d2878a035"
+    },
+    {
+      "path": "docs/reconcile-dispositions.json",
+      "absent": true,
+      "sha256": null
+    },
+    {
+      "path": "docs/waves/206is journal-hook-follow-up/204mo-enh version-independent-journal-hook.md",
+      "absent": false,
+      "sha256": "3f0a9c316342cf4fca8ea9fdedde14b039534daf400662f4a28b9df8b9995129"
+    }
+  ],
+  "source_hashes_after": [
+    {
+      "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+      "absent": false,
+      "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/mcp_tool_extensions.py",
+      "absent": false,
+      "sha256": "b19a7e12e2cb7e0a843abc655a32b3b8801c2bc510fed98d210f7e065ff0dad1"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+      "absent": false,
+      "sha256": "9e4d047befb84aae19dae23ba25544a0311e3801597e864e7f47479feff884ef"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py",
+      "absent": false,
+      "sha256": "a98ab97f0706c12d24ad64f6803a5c8454be01aa73f89f9df95f1e51394404a8"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/record_layout_support.py",
+      "absent": false,
+      "sha256": "82325f6a3f403ef98ffd25ce6e7479e12f482d5d0569272d3f75c85b667189d4"
+    },
+    {
+      "path": ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md",
+      "absent": false,
+      "sha256": "18b97d8d6d9487889700cc2345fc47046adb0674f66c9aae3a815e5145e754ce"
+    },
+    {
+      "path": "docs/specs/mcp-tool-surface.md",
+      "absent": false,
+      "sha256": "3a99e045b721c0140b9bae0034852838fc7999f5c312d32838502277095df0c0"
+    },
+    {
+      "path": "docs/architecture/data-and-control-flow.md",
+      "absent": false,
+      "sha256": "fde3312da48d0a8bb6c720b3d375460810f27e0c2a20bdd472fb62ffdb100bc5"
+    },
+    {
+      "path": "docs/architecture/layering-rules.md",
+      "absent": false,
+      "sha256": "b0b0e2800fde4df05610a2aef04c8fde76ea2d0e14fd0e4cde7f260e9b0c1856"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_extension_tool_modules.py",
+      "absent": false,
+      "sha256": "453d6e2d20d8f04c3b799a796ee130055a3972ec9e12f6cd109fd29d2878a035"
+    },
+    {
+      "path": "docs/reconcile-dispositions.json",
+      "absent": true,
+      "sha256": null
+    },
+    {
+      "path": "docs/waves/206is journal-hook-follow-up/204mo-enh version-independent-journal-hook.md",
+      "absent": false,
+      "sha256": "3f0a9c316342cf4fca8ea9fdedde14b039534daf400662f4a28b9df8b9995129"
+    }
+  ],
+  "hashes_unchanged": true,
+  "absent_store_preserved": true,
+  "repository_mutations": [],
+  "rotating_alternative_weigh": {
+    "actual_report_read": "/tmp/wf-206is-qualification-ready-docs.json",
+    "fixed_seat": "qa-reviewer",
+    "verdict": "retain exact-current-judgment plan; readinessapprove unchanged",
+    "benefit": "Explicit Migrate journals language avoids store/key maintenance and can clarify retained-source purpose. This is a concrete low-code alternative rather than a preference dismissed without evidence.",
+    "decisive_tradeoff": "QA requires raw audit and changed/new ongoing-authoring visibility. Existing line exemption removes raw3 references and conceals a new explicit ongoing.md authoring directive on the same line. Exact judgments preserve raw3 and invalidate on context change; key maintenance is therefore a valuable integrity obligation. Broader structural scanner repair would change authority and frozen scope.",
+    "own_finite_probe": {
+      "command": "python3 -B /tmp/wf-206is-ready-qa-alternative-probe.py",
+      "reference": "admitted raw/changed/new-live preservation requirement, independently read full logical lines; copied docs reviewer script with stronger explicit new journal filename directive",
+      "observed": {
+        "alternative": "Truthful explicit Migrate journals wording on each retained-input line using existing line-scoped exemption; no store/scanner edit/path concealment",
+        "baseline": 3,
+        "rewritten_raw": 0,
+        "rewritten_reported": 0,
+        "changed_same_line_reported": 0,
+        "adverse_effect": "Existing exemption loses raw findings and also suppresses a later ongoing-authoring directive on the same line."
+      },
+      "assertion": "baseline==3; rewritten_raw==0; rewritten_reported==0; changed_same_line_reported==0",
+      "common_mode_limit": "Uses rotating author copy/scanner API setup, so not a separately designed differential; own stronger explicit new authoring directive supplies a specification-derived adverse-case check. No scanner implementation independent oracle or universal claim."
+    },
+    "scope": "Only alternative weighting; no delivery finding clear, store repair, canonical green or chair synthesis."
+  }
+}

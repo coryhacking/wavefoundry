@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-08
+Last verified: 2026-10-10
 
 ## Host-neutral orchestration
 
@@ -117,3 +117,7 @@ Protected surfaces that require single-lane ownership:
 - `.wavefoundry/framework/seeds/` — seed edits require `seed_edit_allowed` guard approval; single write owner at a time
 - `docs/prompts/` and `AGENTS.md` — framework-maintenance edits require `framework_edit_allowed` approval; single write owner
 - `docs/workflow-config.json` and `docs/prompts/prompt-surface-manifest.json` — manifest/config writes require coordinator confirmation before parallel work proceeds
+
+## Durable review boundary
+
+Required independent reviewer authority is unchanged. Use the existing risk-selected primer depth: readiness reviews plan feasibility and current source, while delivery verifies completed behavior. Routine per-seat details and probes stay temporary; wave.md retains final synthesis, disagreements, commands/results, limits and justified unique proof references. Immutable typed authority stays in events.jsonl. Continue from successful typed-write actions instead of repeating full review/list calls. Compact evidence does not waive a selected lane, executable proof, a full lifecycle docs gate or operator-owned closure.

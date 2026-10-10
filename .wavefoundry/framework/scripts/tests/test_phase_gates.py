@@ -495,6 +495,98 @@ class PhaseLaneTests(unittest.TestCase):
         match = re.search(rf'(?m)^- Required {label} lanes: (.*)$', self.wave_md.read_text())
         return match.group(1) if match else None
 
+    def phase_finding(self, lanes, recheck_lanes, *, finding_id, run_kind):
+        from test_lifecycle_golden import _APPROVAL_INTEGRITY
+
+        judgment = dict(
+            validation_status='real', scope_relation='admitted', introduced_or_worsened_by_wave=True,
+            contract_relevance='required_ac', supported_reachability=True, attacker_reachability=False,
+            authority_domain='none', authority_delta='none', observable_impact='material', containment='none',
+            fix_risk='lower', optional_value='none', repair_scope_bounded=True, repair_safety='safe',
+            benefit_vs_fix_risk='greater', rejection_basis='none', disposition='do_now',
+            repair_execution_state='pending')
+        evidence = {key: 'generic phase-isolation fixture' for key in (
+            'proposition', 'failure_condition', 'public_path', 'command_or_fixture', 'expected', 'observed',
+            'artifact_or_test_id', 'known_bad_detection_method', 'limitations', 'safety_and_authorization',
+            'disposition_rationale')}
+        result = self.srv.wf_review_event_response(
+            self.root, self.wave, 'finding', 'qa-reviewer', 'phase-isolation-finding', mode='create',
+            finding_id=finding_id, run_kind=run_kind, cycle=0, judgment=judgment,
+            evidence=evidence, source_lanes=lanes, blocking_required_lanes=lanes,
+            approval_recheck_lanes=list(recheck_lanes),
+            integrity_checks=dict(_APPROVAL_INTEGRITY))
+        self.assertNotEqual(result['status'], 'error', result)
+
+    def test_delivery_findings_allow_real_readiness_admission_but_block_close(self):
+        """207lx: canonical producers, paired consumers, and unchanged ledger bytes."""
+        import review_evidence as evidence_module
+
+        lanes = ['code-reviewer', 'qa-reviewer', 'architecture-reviewer',
+                 'security-reviewer', 'custom-reviewer']
+        ready_keys = lanes + [evidence_module.COUNCIL_READINESS_SIGNOFF_KEY]
+        delivery_keys = lanes + [evidence_module.COUNCIL_DELIVERY_SIGNOFF_KEY]
+        self.configure({'prepare': {'required_lanes': ['custom-reviewer']}},
+                       required_review_lanes=lanes[:-1])
+        self.assertNotEqual(self.ready(approvals=tuple(ready_keys))['status'], 'error')
+        self.phase_finding(lanes, list(dict.fromkeys(ready_keys + delivery_keys)),
+                           finding_id='delivery-fix', run_kind='initial_delivery')
+        ledger = self.wave_md.parent / 'events.jsonl'
+        before = ledger.read_bytes()
+        records = [json.loads(line) for line in before.splitlines()]
+        for phase, keys, expected in (('readiness', ready_keys, 'approved'),
+                                      ('delivery', delivery_keys, 'withheld')):
+            projection = evidence_module.review_authority_projection(records, keys, approval_phase=phase)
+            self.assertEqual({row['state'] for row in projection['status_rows']}, {expected})
+        authority = evidence_module.resolve_review_authority(self.root, self.wave_md)
+        gates = self.srv.lifecycle_gates
+        ctx = gates.GateContext(self.root, self.wave_md, self.wave_md.read_text(), 'ready',
+                               _stub_validate(self.root), 'prepare')
+        gate = gates.review_lanes_gate(ctx, authority=authority, required_lanes=lanes)
+        self.assertEqual(gate.diagnostics, [])
+        _authority, pending = self.srv._prepare_lane_review_state(
+            self.root, self.wave_md, self.wave_md.read_text())
+        self.assertEqual(pending, [])
+        admission = self.srv.wf_implement_wave_response(self.root, self.wave, mode='dry_run')
+        self.assertNotEqual(admission['status'], 'error', admission)
+        close = self.srv.wf_close_wave_response(self.root, self.wave, mode='dry_run')
+        self.assertEqual(close['status'], 'error', close)
+        self.assertIn('missing_required_lane', self.codes(close))
+        self.assertEqual(ledger.read_bytes(), before)
+
+    def test_readiness_finding_keeps_recorded_approval_withheld_in_every_consumer(self):
+        import review_evidence as evidence_module
+
+        self.configure(required_review_lanes=['code-reviewer'])
+        self.assertNotEqual(self.ready(approvals=(
+            evidence_module.COUNCIL_READINESS_SIGNOFF_KEY, 'code-reviewer'))['status'], 'error')
+        self.phase_finding(['code-reviewer'], ['code-reviewer'],
+                           finding_id='plan-fix', run_kind='readiness')
+        ledger = self.wave_md.parent / 'events.jsonl'
+        before = ledger.read_bytes()
+        review = self.srv.wf_review_wave_response(self.root, self.wave, phase='prepare')
+        admission = self.srv.wf_implement_wave_response(self.root, self.wave, mode='dry_run')
+        prepare = self.srv.wf_prepare_wave_response(self.root, self.wave, mode='dry_run')
+        self.assertEqual(admission['status'], 'error', admission)
+        consumers = {
+            'review': review['data']['lane_results'],
+            'implementation': next(d['lane_results'] for d in admission['diagnostics']
+                                   if d['code'] == 'prepare_review_incomplete'),
+            'prepare advisory': next(d['lane_results'] for d in prepare['diagnostics']
+                                     if d['code'] == 'readiness_lane_approvals_missing'),
+        }
+        for consumer, rows in consumers.items():
+            with self.subTest(consumer=consumer):
+                row = next(row for row in rows if row['lane'] == 'code-reviewer')
+                self.assertTrue(row['approval_recorded'])
+                self.assertFalse(row['approval_current'])
+                self.assertEqual(row['approval_state'], 'withheld')
+                self.assertEqual(tuple(row['blocking_finding_ids']), ('plan-fix',))
+                self.assertTrue(row['has_unresolved_blocking_findings'])
+                self.assertIn('plan-fix', row['why'])
+                self.assertIn('independent reverification', row['next_action'])
+                self.assertNotEqual(row['next_action'], 'record approval evidence for code-reviewer')
+        self.assertEqual(ledger.read_bytes(), before)
+
     # AC-1 --------------------------------------------------------------
     def test_required_lanes_validation(self):
         import review_policy

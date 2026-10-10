@@ -1552,6 +1552,7 @@ with tempfile.TemporaryDirectory() as tmp:
                      EXTENSION_TOOL_ALIASES={}, EXTENSION_TOOL_PARAMETERS={}, EXTENSION_HIDDEN_TOOLS=(),
                      EXTENSION_LIFECYCLE_TOOLS=(), EXTENSION_ARTIFACT_PATH_FIELDS={}, EXTENSION_SKILLS={},
                      EXTENSION_JOURNAL_TEMPLATES=(), EXTENSION_JOURNAL_PRE_MIGRATION_HOOK="",
+                     EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER="legacy_cutover",
                      EXTENSION_REPLACEMENTS={})
         results = {}
         for label, attrs in cases.items():

@@ -1,0 +1,79 @@
+{
+  "actual_scanner_scope": [
+    ".claude/settings.json",
+    ".local/profile.json",
+    "docs/current.md",
+    "target/output.json"
+  ],
+  "prompt_regex_no_anchor": [
+    {
+      "characters": 1024,
+      "seconds": 0.0011421248782426119,
+      "hits": 0
+    },
+    {
+      "characters": 2048,
+      "seconds": 0.004471332998946309,
+      "hits": 0
+    },
+    {
+      "characters": 4096,
+      "seconds": 0.017916500102728605,
+      "hits": 0
+    },
+    {
+      "characters": 8192,
+      "seconds": 0.07201720890589058,
+      "hits": 0
+    }
+  ],
+  "delegate_timeout_fallback": {
+    "scanner_calls": 1,
+    "summary_sentinels": 1
+  },
+  "actual_scanner_exception_result": [
+    [],
+    [],
+    []
+  ],
+  "stored_edge_provenance": [
+    {
+      "column": 13,
+      "end_byte": 78,
+      "end_column": 22,
+      "end_line": 3,
+      "line": 3,
+      "source_file": "src/fixture.rs",
+      "start_byte": 69
+    }
+  ],
+  "actual_hierarchy_response": {
+    "persisted_site_line": 3,
+    "incoming": [
+      {
+        "name": "caller",
+        "file": "src/fixture.rs",
+        "line": 2,
+        "snippet": "    let a = vec![1].into_iter().collect();",
+        "call_site": {
+          "file": "src/fixture.rs",
+          "line": 2,
+          "snippet": "    let a = vec![1].into_iter().collect();"
+        },
+        "node_id": "src/fixture.rs::caller",
+        "kind": "function",
+        "community": null,
+        "community_id": null,
+        "relation": "calls",
+        "confidence": "RECEIVER_RESOLVED"
+      }
+    ]
+  },
+  "actual_bare_symbol_impact_failure": {
+    "exception": "NameError",
+    "message": "name 're' is not defined"
+  },
+  "exact_symbol_impact_adjacent_control": {
+    "status": "ok"
+  }
+}

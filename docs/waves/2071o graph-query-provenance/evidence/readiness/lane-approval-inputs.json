@@ -1,0 +1,132 @@
+[
+  {
+    "wave_id": "2071o graph-query-provenance",
+    "event": "approval",
+    "actor": "code-reviewer",
+    "context_id": "code-readiness-2071op-20261009-independent-01",
+    "signoff_key": "code-reviewer",
+    "approval_phase": "readiness",
+    "mode": "create",
+    "fresh_context": true,
+    "independent": true,
+    "evidence": {
+      "safety_and_authorization": "Authorized finite readiness probes in isolated local temporary repositories; no repository source, plans or ledger edits; no network or downstream scan.",
+      "limitations": "Readiness premises only; no implemented repair, full suite, downstream/native Windows, old released binary qualification, whole-upgrade deadline, or fresh-index claim. code_ask/definition diagnostic reported setup_inputs_changed; final judgments use live code_read plus fresh subprocesses. Initial replay launch used nonexistent .wavefoundry/tool-venv; corrected to ~/.wavefoundry/venv. Initial unittest launch lacked scripts PYTHONPATH; corrected and all 10 selected tests completed.",
+      "proposition": "The graph plans address reproduced hierarchy provenance loss and Rust non-exact lookup failure using existing persisted coordinates and binding, with implementable compatibility-preserving requirements.",
+      "public_path": "code_callhierarchy_response and code_impact_response on canonically published isolated fixture via TestCodeCallhierarchy._write_graph",
+      "command_or_fixture": "/private/tmp/wf-readiness-code-2071op-replay.py",
+      "expected": "Reproduce line-3 persisted provenance versus line-2 served wrong location and bare-symbol NameError; exact node succeeds.",
+      "observed": "Stored site line 3/source_file src/fixture.rs/start_byte69/end_byte78; one incoming edge served line2 iterator .collect() with RECEIVER_RESOLVED. Bare collect impact raises NameError re undefined; exact src/fixture.rs::collect returns status ok.",
+      "artifact_or_test_id": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-readiness-code-2071op-review.json; docs/waves/2071o graph-query-provenance/evidence/readiness/wf-readiness-code-2071op-replay.json; docs/waves/2071o graph-query-provenance/evidence/readiness/wf-readiness-code-2071op-adjacent.json"
+    },
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "readiness-safe-control"
+    }
+  },
+  {
+    "wave_id": "2071o graph-query-provenance",
+    "event": "approval",
+    "actor": "performance-reviewer",
+    "context_id": "perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc",
+    "signoff_key": "performance-reviewer",
+    "approval_phase": "readiness",
+    "mode": "create",
+    "fresh_context": true,
+    "independent": true,
+    "evidence": {
+      "command_or_fixture": "env -u PYTHONPYCACHEPREFIX /Users/coryhacking/.wavefoundry/venv/bin/python -B /private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-replay.py\nenv -u PYTHONPYCACHEPREFIX /Users/coryhacking/.wavefoundry/venv/bin/python -B /private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-controls.py\nenv -u PYTHONPYCACHEPREFIX WAVEFOUNDRY_DISABLE_BYTECODE_CACHE=1 /Users/coryhacking/.wavefoundry/venv/bin/python -B /private/tmp/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-child-controls.py",
+      "safety_and_authorization": "Readiness-only finite local scratch controls and unique archival replay authorized by coordinator. No repository/source/plan/ledger changes, full suite, network, external scan or operator-pack deletion.",
+      "proposition": "Current graph repair plans are implementable without introducing a necessary graph rebuild or source rescan, and acceptance controls can distinguish false provenance and resolver failures.",
+      "public_path": "TestCodeCallhierarchy._call -> code_callhierarchy_response, canonical fixture graph publication, served code_impact_response",
+      "expected": "Baseline collision disagrees with persisted site; exact impact succeeds while non-exact Rust fails; plan removes location scan and accepts unproven snippet null.",
+      "observed": "Stored freecall line3 served iterator collect line2 with RECEIVER_RESOLVED; one relationship retained. Barecollect impact NameError re; exactRustID statusok. Live callgraph copies sites instead of rescanning; hierarchy scans both directions.",
+      "limitations": "Readiness establishes current defect evidence and feasibility, not unimplemented repair success. No whole corpus, production latency, all historical runners, native Windows, or downstream Tensorwell execution. Cost31681348bytes/10.480564s is attributed downstream;737file120s partialsample and186file8.414389s control differ in corpus/instrumentation, historical activefile unknown. Setup inputs changed; MCP indexedresults stale, live disk validation used.",
+      "artifact_or_test_id": "docs/waves/2071o graph-query-provenance/evidence/readiness/perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc-payload.json"
+    },
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "readiness-safe-control"
+    }
+  },
+  {
+    "wave_id": "2071o graph-query-provenance",
+    "event": "approval",
+    "actor": "architecture-reviewer",
+    "context_id": "arch-readiness-2071op-20261009-z5pyl_dv",
+    "signoff_key": "architecture-reviewer",
+    "approval_phase": "readiness",
+    "mode": "create",
+    "fresh_context": true,
+    "independent": true,
+    "evidence": {
+      "observed": "Independent readiness approved with notes: actual pre-fix hierarchy/Rust impact and scanner/emitter replay, flat compatible fields/malformed refusal and omitted-plan-clause controls;18 seam tests OK0skips. No plan blocker. Fixed-seat alternative weighing retained admitted narrow graph/coherent scanner scope.",
+      "limitations": "[\"No future repaired behavior, bounded scanner/runtime cleanup, whole-upgrade timing or actual new implementation against historical old parent executed.\", \"No full suite, network, downstream scan, profile timing repetition, model/index build or source/plan/ledger edits.\", \"One initial selected unittest invocation had ModuleNotFoundError index_paths due missing scripts PYTHONPATH; corrected invocation passed all18; two initial MCP invocations had invalid argument names and were retried successfully.\", \"code_ask reported index_freshness stale; direct current-disk MCP reads and hash matches used for assessment.\"]",
+      "artifact_or_test_id": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-arch-readiness-2071-judgment.json; docs/waves/2071o graph-query-provenance/evidence/readiness/wf-arch-readiness-2071-control.json; docs/waves/2071o graph-query-provenance/evidence/readiness/arch-baseline.json"
+    },
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "Executed pre-fix served hierarchy/Rust impact and scanner/fallback boundary controls; old malformed/unknown summary inputs in18 existing seam tests; readiness omission checks reject absent snippet-nullability and no-fallback-rescan clauses. Assertions concern current tree/plan feasibility only."
+    }
+  },
+  {
+    "wave_id": "2071o graph-query-provenance",
+    "event": "approval",
+    "actor": "docs-contract-reviewer",
+    "context_id": "docs-contract-readiness-2071op-20261009-fresh-01",
+    "signoff_key": "docs-contract-reviewer",
+    "approval_phase": "readiness",
+    "mode": "create",
+    "fresh_context": true,
+    "independent": true,
+    "evidence": {
+      "observed": "{\"flat_fields_survive_pre_registration_bounder\": true, \"oversized_nested_details_known_bad\": true, \"plan_omission_controls_detected\": [\"outgoing top-level line remains the callee definition line\", \"Preserve the pinned delegated parent timeout constant (300 seconds)\"], \"actual_hierarchy_prefixed_exact_id_baseline\": {\"stored_line\": 3, \"served_line\": 2, \"callers\": 1, \"edge_confidence\": \"RECEIVER_RESOLVED\"}, \"actual_outgoing_definition_contract\": {\"line\": 5, \"snippet\": null}, \"current_timeout_fallback_baseline\": {\"scan_reentries\": 1, \"sentinels\": 1, \"marker\": \"timeout_after_300s\"}, \"current_exception_to_empty_baseline\": true, \"mixed_language_bare_symbol_baseline\": \"NameError\", \"source_fingerprints_match_after\": 14, \"selected_contract_tests\": {\"tests\": 18, \"seconds\": 4.114, \"result\": \"OK\", \"skips\": 0}, \"context_id\": \"docs-contract-readiness-2071op-20261009-fresh-01\", \"selected_model_effort\": \"gpt-6.1-sol/high\", \"observed_runtime_identity\": \"unknown\", \"integrity_checks\": {\"test_ran_without_unintended_skip\": true, \"public_path_reached\": true, \"boundary_values_realistic\": true, \"assertions_non_vacuous\": true, \"known_bad_detected\": true, \"known_bad_detection_method\": \"readiness-safe-control\"}}",
+      "limitations": "Current-tree/plan readiness only.18 selected contract tests passed0skips; no implemented repair/full-suite/native/downstream qualification.",
+      "artifact_or_test_id": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-2071op-docs-contract-readiness.json"
+    },
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "readiness-safe-control"
+    }
+  },
+  {
+    "wave_id": "2071o graph-query-provenance",
+    "event": "approval",
+    "actor": "qa-reviewer",
+    "context_id": "qa-readiness-2071op-20261009-2332",
+    "signoff_key": "qa-reviewer",
+    "approval_phase": "readiness",
+    "mode": "create",
+    "fresh_context": true,
+    "independent": true,
+    "evidence": {
+      "observed": "Independent readiness approved: canonical storedline3 servedline2, exact impact succeeds/bare Rust NameError; actual fallback scanner call1/sentinel1, scan exception three empties. Six selected child contract, Java filter and scanner near-miss tests OK2.300s0skips. AC outcomes/negative oracles implementable. Fixed-seat alternative weighing favors current scope, no plan blocker.",
+      "limitations": "Readiness present defects and feasibility only; no future delivered behavior/full suite/downstream/native qualification.",
+      "artifact_or_test_id": "docs/waves/2071o graph-query-provenance/evidence/readiness/wf-qa-readiness-2071op-probe.json; docs/waves/2071o graph-query-provenance/evidence/readiness/wf-qa-readiness-2071op-probe.source.txt"
+    },
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "Initial independent readiness pre-fix replay through canonical graph publication and served handlers, actual scanner/emitter failure controls, and six focused executable compatibility controls. Follow-up weighs attributed rotating-seat alternatives against independently reviewed acceptance criteria; no additional execution claimed."
+    }
+  }
+]

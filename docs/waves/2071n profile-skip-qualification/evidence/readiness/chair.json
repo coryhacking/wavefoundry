@@ -1,0 +1,164 @@
+{
+  "phase": "readiness",
+  "wave_id": "2071n",
+  "change_id": "205jp",
+  "role": "council-chair",
+  "verdict": "approved",
+  "primer_depth": "full",
+  "tree_fingerprint": "02bfe86fd4c8045b262dbcf7d2f9841fd5284666858077efea69812ade795cd0",
+  "policy_input_digest": "a8d0c88bd8bf03c033ad4b44bbed57a2f0433ad94feeec85f8fb29021396473a",
+  "verification_context": {
+    "actor": "council-chair",
+    "context_id": "2071n-council-readiness-independent-20261009",
+    "fresh_context": true,
+    "independent": true
+  },
+  "pre_primer_read": "The plan must remove checkout-dependent preconditions while preserving the original graph, corpus and historical compatibility assertions.",
+  "primer_effect": "Extended: the primer makes circular fixture oracles and required-versus-historically-absent carriers explicit verification obligations without changing the admitted scope.",
+  "primer_summary": "Full five-stance, three-question primer identifies circular synthetic graph expectations as the strongest challenge; all seats accept actual extraction/publication, independent literal oracles, fail-closed historical provenance and exact skip identities as necessary constraints. No demonstrated readiness blocker.",
+  "anonymized_first_pass": [
+    {
+      "label": "Seat1",
+      "merit": "Actual current publication/response feasibility and exact/corrupted packet controls support a bounded test-owned fixture without production ownership changes."
+    },
+    {
+      "label": "Seat2",
+      "merit": "Trusted historical object availability, required/optional carrier census and current-byte substitution controls support immutable fixtures; future capture remains unproven."
+    },
+    {
+      "label": "Seat3",
+      "merit": "Exact19-extra targeted skip census and equal-total wrong-identity negative control establish why counts are insufficient."
+    }
+  ],
+  "seat_roster": [
+    "architecture-reviewer",
+    "security-reviewer",
+    "qa-reviewer",
+    "reality-checker",
+    "code-reviewer",
+    "release-reviewer"
+  ],
+  "rotating_seat": "security-reviewer",
+  "seat_summaries": [
+    {
+      "role": "architecture-reviewer",
+      "reference": "arch-security.json/reviews/architecture-reviewer",
+      "facts": "Existing controlled publication class executes3 tests, zero skips; actual extraction/store/report supports feasibility. Keep index.sqlite authority and current fixture publication ownership. No findings in my lane, as recorded by the seat."
+    },
+    {
+      "role": "security-reviewer",
+      "reference": "arch-security.json/reviews/security-reviewer",
+      "facts": "No new product authority path or demonstrated exploit chain. Test-only encoded pinned data, fixed scratch destinations and argv, no current/network fallback are necessary implementation checks. No findings in my lane, as recorded by the seat."
+    },
+    {
+      "role": "qa-reviewer",
+      "reference": "qa-reality.json/roles/qa-reviewer",
+      "facts": "Independently parsed targeted inventories establish19 declared extras and7 baseline quality skips; omitted-site and equal-total identity replacement detected. AC1-4 remain feasible and falsifiable. No findings in my lane, as recorded by the seat."
+    },
+    {
+      "role": "reality-checker",
+      "reference": "qa-reality.json/roles/reality-checker",
+      "facts": "Plan owns missing graph/history and wrong corpus predicate preconditions; no empty-fixture or aggregate-count shortcut. Future behavior remains unverified. No findings in my lane, as recorded by the seat."
+    },
+    {
+      "role": "code-reviewer",
+      "reference": "code-release.json/reports/code-reviewer",
+      "facts": "Six required v1.14 carriers present, optional lifecycle overview absent; two old Python sources differ from current implementations; shipped loaded-profile marker executes despite declared environment. No findings in my lane, as recorded by the seat."
+    },
+    {
+      "role": "release-reviewer",
+      "reference": "code-release.json/reports/release-reviewer",
+      "facts": "Waiver applies only to existing local1.29.0+pviw pack. Future same-source exact default/second/declared identities and reasons required; package contract unchanged. No findings in my lane, as recorded by the seat."
+    }
+  ],
+  "seat_agreement_aggregate": {
+    "seat_agreement": "unanimous",
+    "max_severity": "none"
+  },
+  "correlation_note": "Paired roles share the same worker/probe artifact (code-release, qa-reality, arch-security). Their overlapping concerns are one signal per probe, not six independent confirmations. No formal findings to deduplicate.",
+  "pre_primer_quality_check": "Seat artifact JSON includes primer engagement but not explicit per-seat pre-primer/effect sentences; therefore phrase-echo contamination cannot be assessed from these files. Coordinator was asked to retain actual annotations. No independent priors invented.",
+  "primer_answers": [
+    {
+      "question": 1,
+      "answer": "Use extracted ordinary source and genuine provenance/machine-run JSON controls; independently assert file and child-node presence, exact reasons, ordinary nonclassification, ignored-path absence, crossing edges, lookup identities and independently full top-N production/evidence halves. Empty fixture, lost tag/child/crossing/member and pre-partition top-N mutants must fail at delivery. Existing literal-oracle publication sibling makes this feasible; curated communities do not prove clustering."
+    },
+    {
+      "question": 2,
+      "answer": "Pin resolved revision, source path, raw-byte digest and presence/absence inventory. v1.14 cases consume old documents with current reconciliation, not old Python. v1.22 upgrade and pinned receipt-reader use historical entry bytes with intentionally current siblings. Preserve those exact original seams. Independently compare captured bytes to trusted Git before approving fixtures, retain historically absent optional carrier, and fail on missing/corrupt/current substitutes without fallback."
+    },
+    {
+      "question": 3,
+      "answer": "Enumerate exact skip identities/reasons and executed affected checks under default/second/declared on one final frozen source. Extra second skips must be default_profile_only; declared must have no accidental extras. Equal counts cannot satisfy this requirement; QA readiness negative control demonstrates the difference. No future qualification claimed now."
+    }
+  ],
+  "strongest_alternative": {
+    "proposal": "One shared bounded extraction/publication fixture plus one encoded immutable historical-source bundle, rather than duplicate synthetic graphs, copied operator indexes or blanket default-only marks.",
+    "reason": "Uses established production boundaries and independent oracles while controlling size and retaining copied-checkout coverage. This refines the admitted approach rather than replacing it; copying operator state and allowing additional skips lose the required independence.",
+    "unselected_alternative_weighed": "Security proposed full historical archives/original siblings for self-contained import provenance; this is weaker for the admitted compatibility contract because it changes its original old-entry/current-sibling seam and broadens inventory. Keep exact encoded snapshots and current siblings."
+  },
+  "improvements_recommended": [
+    "Keep literal fixture oracles separate from response-derived values.",
+    "Record required/optional historical absence and independently checked trusted revision digests.",
+    "Retain exact same-source skip-identity maps, not just aggregate totals.",
+    "Preserve old-entry/current-sibling setup and explicitly state curated-community clustering limitation."
+  ],
+  "finding_synthesis": {
+    "candidate_finding_ids": [],
+    "rows": [],
+    "red_team_reconciliation": "No sealed candidate proposition; primer risks are already explicit requirements and future verification obligations, not demonstrated readiness defects.",
+    "notes": "No repair pass or challenge round needed: unanimous, severity none."
+  },
+  "falsification_check": {
+    "working_verdict": "Approve readiness for this test-only repair.",
+    "strongest_argument_against": "A fabricated graph or self-generated digest could hide the defect while producing green qualification.",
+    "reason": "The admitted requirements forbid circular oracles and demand actual publication paths, independent trusted-byte checks and nonvacuous mutant detection; current live source provides feasible established seams. These are delivery obligations, not unimplemented behavior claimed as proven. Counterargument does not change readiness verdict."
+  },
+  "proposition": "The frozen plan can restore its named copied-checkout test preconditions without weakening the existing graph/corpus/historical contracts or changing production behavior.",
+  "counterexample_or_failure_condition": "Current packet differs; required historical seam unavailable; loaded-profile marker cannot discriminate declared mode; plan permits circular fixture expectations, current-source fallback or count-only qualification.",
+  "execution_status": "executed",
+  "required_for_approval": true,
+  "public_path": "Live MCP code_read and current readiness packet working-tree Git object validation; existing test extraction/publication/subprocess boundaries inspected live.",
+  "command_or_fixture": "Read current named anchors with MCP; git hash-object each8 packet paths; compare exact packet and intentionally omitted/corrupted inputs; synthesize referenced independent readiness probes.",
+  "expected": "Frozen8-path packet matches; known incomplete/corrupt input rejected; current controlled publication and historical-entry/current-sibling seams resolve.",
+  "observed": "8/8 working-tree blobs equal packet; omitted entry and all-zero blob differ and are rejected by exact comparison. Live ControlledCommunityPublicationResponseTests extracts real JSON and publishes stored graph with literal rankings. Corpus _same_profile_run is env-only; default_profile_only uses loaded differences. Historical v1.22 and receipt-reader paths retain current siblings. All required seats report readiness approval, no blockers.",
+  "artifact_or_test_id": "evidence/readiness/chair.json; packet.json; ControlledCommunityPublicationResponseTests.setUp/_assert_rankings; record_layout_support.default_profile_only; StorageUpgradeProcessResumeTests.setUp; SchemaEightKindTests.test_version_one_code_refuses_a_version_two_receipt_and_creates_nothing",
+  "adjacent_controls": [
+    "Exact8-entry current packet accepted next to omitted/corrupt input",
+    "Live current loaded-profile marker alongside env-only corpus predicate",
+    "Original old-entry/current-sibling paths remain distinct from a fully historical dependency tree"
+  ],
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true
+  },
+  "known_bad_detection_method": "readiness-safe-control: omitted packet entry and corrupt recorded blob rejected by exact current-tree comparison; no delivery mutation claimed.",
+  "limitations": [
+    "Readiness only: fixture implementation, trusted byte capture, actual old-code execution, final mutations and three-profile full qualification remain unproven delivery work.",
+    "No semantic/index freshness claimed; live MCP reads used with setup unready.",
+    "Chair did not rerun whole suite or historical subprocesses; peer execution artifacts are attributed as such.",
+    "Actual rotating-security alternative/effect supplement incorporated. Original per-seat pre-primer prior sentences were not recorded; chronological priors are not claimed.",
+    "Packet validates eight named paths, not the unrelated dirty repository."
+  ],
+  "safety_and_authorization": "Operator authorized prepare/implement/review; current work is read-only live source and Git inspection with local in-memory negative controls. Only this report is written; no code, plan, ledger, closure, commit or publication mutation.",
+  "probe_class": "local_safe",
+  "authorization_status": "authorized",
+  "safe_boundary": false,
+  "unexecuted_remainder_prohibited": false,
+  "universal_claim": false,
+  "rotating_seat_supplement": {
+    "role": "security-reviewer",
+    "source": "Actual follow-up security seat supplement relayed by coordinator before final synthesis",
+    "strongest_unselected_alternative": "Complete historical script archive per revision with original siblings.",
+    "benefit": "Self-contained historical runtime/import provenance.",
+    "rejected_as_stronger_because": "Changes the original old-entry/current-sibling compatibility oracle and broadens executable source inventory. Encoded exact snapshots preserve the existing seam while failing missing/corrupt/current substitution.",
+    "primer_effect": "Directed scrutiny to classification/nonempty controls, child inheritance, literal top-N and required-versus-optional historical carriers.",
+    "pre_primer_prior": "No actual prior recorded; no chronological prior claimed."
+  },
+  "packet_rechecked_before_final": {
+    "checked": 8,
+    "changed": 0
+  }
+}

@@ -50,7 +50,7 @@ _CE_STATE_RE = re.compile(
     r"<!-- wave:context-efficiency-state (\{.*?\}) -->", re.DOTALL
 )
 _PATH_TOKEN_RE = re.compile(
-    r"(?<![A-Za-z0-9_])((?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+"
+    r"(?<![A-Za-z0-9_/\\])((?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+"
     r"|[A-Za-z0-9_.-]+\.[A-Za-z][A-Za-z0-9]{0,8})(?::\d+(?::\d+)?)?"
 )
 
@@ -228,6 +228,40 @@ def _code_targets(refs: list[str]) -> list[str]:
     return deduped
 
 
+def eligible_repository_targets(root: Path, targets: list[str]) -> list[str]:
+    """Automatic drafts anchor only to current, contained regular source files."""
+    from contained_files import judge_contained_file
+    result = []
+    for target in targets:
+        if target.startswith(("symbol:", "community:")) or Path(target).is_absolute():
+            continue
+        try:
+            judge_contained_file(root, root / target)
+        except (OSError, ValueError, RuntimeError):
+            continue
+        result.append(target)
+    return result
+
+
+def memory_record_belongs_to_wave(record: dict[str, Any], wave_id: str,
+                                  change_ids: set[str]) -> bool:
+    """Match durable selected records without consulting current draft eligibility."""
+    source = str(record.get("source_event") or "")
+    # Manually selected candidates have wave evidence but no generated source event.
+    # Existing non-candidate manual history keeps its prior disposition.
+    if not source and record.get("status") != "candidate":
+        return False
+    token = _wave_id_token(wave_id)
+    parts = source.split(":", 2)
+    if len(parts) == 3:
+        if parts[0] in {"finding", "repeated-repairs"} and parts[1] == token:
+            return True
+        if parts[0] == "decision-log" and parts[1] in change_ids:
+            return True
+    return any(str(ref).strip() in {token, wave_id}
+               for ref in record.get("evidence_refs", ()))
+
+
 def _text_refs(*values: Any) -> list[str]:
     """Explicit backtick/path refs from canonical evidence string fields."""
     refs: list[str] = []
@@ -273,10 +307,8 @@ def _prose_targets(refs: list[str], test_runner_names: set[str]) -> list[str]:
       never the harness that verified it (the same exclusion the repaired-
       finding path applies).
 
-    Deliberately NOT screened: whether a ref resolves to a file on disk. A
-    decision doc legitimately names paths that do not exist at drafting time
-    (a module the decision introduces, or a path recorded before a rename), so
-    an existence check discards genuine targets.
+    The caller also checks current repository containment and existence before
+    proposing an automatic candidate. Historical records are never rewritten.
     """
     out: list[str] = []
     for ref in _code_targets(refs):
@@ -454,6 +486,7 @@ def draft_candidates(
     limit: Optional[int] = DEFAULT_DRAFT_LIMIT,
     wave_dir: Optional[Path] = None,
     profile: Any = None,
+    omitted_sources: Optional[list[dict[str, str]]] = None,
 ) -> list[dict[str, Any]]:
     """Draft candidate memory records from a wave's typed evidence.
 
@@ -491,13 +524,16 @@ def draft_candidates(
             continue
         change_id = change_doc.stem
         for row in _decision_log_rows(text):
-            targets = _prose_targets(row["refs"], test_runner_names)
-            if not targets:  # conservative: a decision needs a code anchor to attach to
-                continue
+            targets = eligible_repository_targets(root, _prose_targets(row["refs"], test_runner_names))
             reason = f" Rationale: {row['reason']}." if row["reason"] else ""
             decision_identity = hashlib.sha256(
                 (row["decision"].strip() + "\n" + row["reason"].strip()).encode("utf-8")
             ).hexdigest()[:16]
+            if not targets:
+                if omitted_sources is not None and len(omitted_sources) < DEFAULT_DRAFT_LIMIT:
+                    omitted_sources.append({"source_event": f"decision-log:{change_id}:{decision_identity}",
+                                            "reason": "no_current_contained_source_target"})
+                continue
             drafts.append({
                 "kind": "decision",
                 "title": f"Decision: {_truncate(row['decision'], 60)}",
@@ -545,7 +581,11 @@ def draft_candidates(
             target for target in targets
             if Path(target.split(":", 1)[0]).name not in test_runner_names
         ]
-        if not targets:  # need a concrete code anchor to attach the advisory to
+        targets = eligible_repository_targets(root, targets)
+        if not targets:
+            if omitted_sources is not None and len(omitted_sources) < DEFAULT_DRAFT_LIMIT:
+                omitted_sources.append({"source_event": f"finding:{wid}:{finding_id}",
+                                        "reason": "no_current_contained_source_target"})
             continue
         repaired.append({
             "finding_id": finding_id, "targets": targets, "rationale": rationale,

@@ -1,0 +1,9 @@
+[
+  {
+    "file": "new_descendant_cleanup-mutant.log",
+    "original_sha256": "891503e3c74bd3bc80f4b822ccfa7238918b88d543b96689c2c53457ffb13522",
+    "original_bytes": 341370,
+    "format": "long diagnostic lines folded every 2000 characters; all content retained",
+    "durable_sha256": "8d77a2827f654680a095fac63700dd679c6557208619f0a4a663a15c8ae85f84"
+  }
+]

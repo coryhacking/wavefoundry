@@ -1,0 +1,68 @@
+import sys,os,json,tempfile,time,contextlib,io,subprocess,zipfile,unittest
+from pathlib import Path
+from unittest.mock import patch
+ROOT=Path('/Users/coryhacking/Developer/wavefoundry');S=ROOT/'.wavefoundry/framework/scripts'
+sys.path[:0]=[str(S),str(S/'tests')];tempfile.tempdir='/private/tmp'
+import reconcile_scan as rs,upgrade_lib as lib,upgrade_protocol as protocol
+import test_upgrade_wavefoundry as ut
+u=ut.load_upgrade_module();results=[];mutants=[]
+def row(name,expected,observed):results.append(dict(name=name,expected=expected,observed=observed))
+def write(r,p,t):q=r/p;q.parent.mkdir(parents=True,exist_ok=True);q.write_text(t);return q
+# Specification-derived traversal metamorphism: root generated ignored, same names nested live.
+with tempfile.TemporaryDirectory(prefix='wf2071p-qa-') as td:
+ r=Path(td);live=['nested/.local/a.md','nested/target/a.md','.locality/a.md','targeted/a.md','docs/current.md','.claude/settings.local.json']
+ for p in live+['.local/a.md','target/a.md','.git/a.md','node_modules/a.md']:write(r,p,'.wavefoundry/bin/docs-lint')
+ seen=[];orig=rs._scan_directory
+ def guarded(root,directory):
+  seen.append(directory.relative_to(root).as_posix());assert directory not in [r/'.local',r/'target',r/'.git',r/'node_modules'];return orig(root,directory)
+ with patch.object(rs,'_scan_directory',side_effect=guarded):z=rs.scan_repo_result(r)
+ assert z.state=='complete' and {x.file for x in z.findings}==set(live),(z.state,z.as_dict())
+ row('scope-metamorphism',live,{'findings':[x.file for x in z.findings],'visited_directories':seen})
+ original=rs._directory_excluded
+ def weakened(rel,dirs,**kw):return False if rel in ('.local','target') else original(rel,dirs,**kw)
+ try:
+  with patch.object(rs,'_directory_excluded',side_effect=weakened),patch.object(rs,'_scan_directory',side_effect=guarded):
+   bad=rs.scan_repo_result(r);assert bad.state=='complete','missing prune reached forbidden directory and became error'
+ except AssertionError as ex:mutants.append({'mutation':'delete root generated prune','targeted_test':'scope-metamorphism','result':'detected','failure':str(ex),'whole_file_run':'not needed'})
+ else:raise AssertionError('root prune mutant survived')
+# Every admitted bound plus adjacent exact-byte control, contents-free progress and live retained findings.
+with tempfile.TemporaryDirectory(prefix='wf2071p-qa-') as td:
+ r=Path(td)
+ for i in range(4):write(r,f'{i}.md','.wavefoundry/bin/docs-lint\n')
+ caps=[]
+ for values,reason in [({'entries':2},'entries'),({'files':2},'files'),({'file_bytes':8},'file_bytes'),({'total_bytes':30},'total_bytes'),({'candidates':2},'candidates'),({'findings':2},'findings'),({'seconds':0},'deadline')]:
+  z=rs.scan_repo_result(r,limits=rs.ScanLimits(**values));assert z.state=='incomplete' and reason in z.reasons,z.as_dict();assert z.read_bytes<=values.get('total_bytes',128*1024**2);caps.append({'limit':values,'state':z.state,'reasons':z.reasons,'counts':[z.visited_entries,z.eligible_files,z.read_bytes,z.candidates,len(z.findings)]})
+  try:rs.scan_repo(r,limits=rs.ScanLimits(**values))
+  except rs.ScanIncomplete as exc:assert exc.result.state=='incomplete'
+  else:raise AssertionError('legacy list concealed omission')
+ row('all-seven-limits', 'incomplete and explicit reason; legacy raises; no byte overrun',caps)
+with tempfile.TemporaryDirectory(prefix='wf2071p-qa-') as td:
+ r=Path(td);write(r,'exact.md','xxxxxxxx');z=rs.scan_repo_result(r,limits=rs.ScanLimits(file_bytes=8,total_bytes=8));assert z.state=='complete' and z.read_bytes==8
+ write(r,'secret.md','PRIVATE_CONTENT .wavefoundry/bin/docs-lint');points=[];z=rs.scan_repo_result(r,progress=points.append);assert 'PRIVATE_CONTENT' not in json.dumps(points) and any(x['last_path']=='secret.md' for x in points)
+ row('exact-byte-progress','exact byte boundary complete and only coordinates/counts in progress',{'exact_bytes':8,'progress_points':len(points),'progress_keys':list(points[0])})
+# Prompt-resolution semantics independently assert punctuation and twin adjacency.
+with tempfile.TemporaryDirectory(prefix='wf2071p-qa-') as td:
+ r=Path(td);write(r,'docs/prompts/live.prompt.md','valid');write(r,'refs.md','Use (docs/prompts/live.md), docs/prompts/live.prompt.md and docs/prompts/legitimate.md.\n')
+ z=rs.scan_repo_result(r);assert [x.matched for x in z.findings]==['docs/prompts/live.md'],z.as_dict()
+ write(r,'noise.md','a/'*300000);z=rs.scan_repo_result(r,limits=rs.ScanLimits(seconds=4));assert z.state=='complete';assert len(z.findings)==1
+ write(r,'noise.md',' docs/prompts/absent.md'*200);z=rs.scan_repo_result(r,limits=rs.ScanLimits(candidates=7));assert z.state=='incomplete' and z.candidates==7
+ row('anchor-resolution-scaling','one stale twin reference; anchor-free completes; dense caps at7',{'matched':'docs/prompts/live.md','dense_candidates':z.candidates,'dense_state':z.state})
+# Actual delegate subprocesses through current single emitter: no fallback scans or diagnostics, success facts preserved.
+with tempfile.TemporaryDirectory(prefix='wf2071p-qa-') as td:
+ r=Path(td);out=[]
+ for mode,body in [('compatible',"print('WAVE_UPGRADE_SUMMARY_JSON:'+"+repr(json.dumps({'summary_schema_version':1,'index_update':'docs and code layers complete','reconciliation_state':'complete'}))+")\n"),('error','raise SystemExit(4)\n'),('malformed',"print('WAVE_UPGRADE_SUMMARY_JSON:{broken')\n"),('timeout','import time;time.sleep(5)\n')]:
+  write(r,'.wavefoundry/framework/scripts/upgrade_wavefoundry.py',body);buf=io.StringIO();start=time.monotonic()
+  with patch.object(u,'_preferred_python',return_value=sys.executable),patch.object(u,'_run_reconciliation_scan',side_effect=AssertionError('rescan')),patch.object(u,'_run_renderer_warning_scan',side_effect=AssertionError('diagnostic rescan')),contextlib.redirect_stdout(buf):
+   u._emit_primary_summary_via_delegate_or_fallback(r,'1.28.0','1.29.0',None,11,index_published=True,timeout_s=.3)
+  elapsed=time.monotonic()-start;sent=[x for x in buf.getvalue().splitlines() if x.startswith(u.WAVE_UPGRADE_SUMMARY_SENTINEL)];assert len(sent)==1 and elapsed<2
+  val=json.loads(sent[0][len(u.WAVE_UPGRADE_SUMMARY_SENTINEL):]);assert val['index_update']=='docs and code layers complete'
+  if mode!='compatible':assert val['reconciliation_state']=='incomplete' and val['pruned_count']==11 and 'summary_schema_version' not in val
+  out.append({'mode':mode,'elapsed':elapsed,'summary':val})
+ row('delegate-four-state','one sentinel <2s with injected .3s; preserved index facts; zero rescans',out)
+# Direct old argv CLI, stdlib-only interpreter, old state produced by canonical lock writer.
+with tempfile.TemporaryDirectory(prefix='wf2071p-qa-') as td:
+ r=Path(td);lib.write_upgrade_lock(r,'1.28.0','1.29.0');lib.update_upgrade_lock(r,index_rebuilt_at='independently-observed-publication',pruned_count=2)
+ write(r,'live.md','.wavefoundry/bin/docs-lint');env=dict(os.environ,WAVEFOUNDRY_REPORTING_BUDGET_SECONDS='2',TMPDIR='/private/tmp');cp=subprocess.run([sys.executable,'-S','-B',str(S/'upgrade_wavefoundry.py'),'--emit-summary','--root',str(r)],capture_output=True,text=True,timeout=4,env=env)
+ assert cp.returncode==0,(cp.stdout,cp.stderr);lines=[x for x in cp.stdout.splitlines() if x.startswith(u.WAVE_UPGRADE_SUMMARY_SENTINEL)];assert len(lines)==1;val=json.loads(lines[0].split(':',1)[1]);assert val['summary_schema_version']==1 and val['index_update']=='docs and code layers complete' and val['reconciliation_state']=='complete' and [x['file'] for x in val['reconciliation']]==['live.md']
+ row('old-argv-stdlib-cli','one schema1 sentinel, actual finding and published fact',{'returncode':cp.returncode,'summary':val,'stderr':cp.stderr})
+Path('/private/tmp/wf2071p-qa-probe-results.json').write_text(json.dumps({'results':results,'mutation_table':mutants},indent=2));print(json.dumps({'probes':len(results),'mutants':mutants}))

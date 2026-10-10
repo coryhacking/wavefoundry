@@ -274,7 +274,11 @@ LEGACY_COUNCIL_SIGNOFF_KEYS = {
 # forever (ledgers are never rewritten), so every council actor comparison
 # accepts ``COUNCIL_ACTORS``; new records carry ``COUNCIL_ACTOR`` only.
 COUNCIL_ACTOR = "council-chair"
-LEGACY_COUNCIL_ACTORS: tuple[str, ...] = ("wave-council",)
+BUILTIN_LEGACY_COUNCIL_ACTORS: tuple[str, ...] = ("wave-council",)
+LEGACY_COUNCIL_ACTORS: tuple[str, ...] = tuple(dict.fromkeys(
+    actor for actor in (*BUILTIN_LEGACY_COUNCIL_ACTORS, *_vocab.EXTRA_LEGACY_COUNCIL_ACTORS)
+    if actor != COUNCIL_ACTOR
+))
 COUNCIL_ACTORS: tuple[str, ...] = (COUNCIL_ACTOR, *LEGACY_COUNCIL_ACTORS)
 # Frozen literal, not derived from the actor: it keeps the earlier keys and a
 # distribution's own ``wave-council-<x>`` key council keys forever. No prefix
@@ -1560,6 +1564,7 @@ def _finding_affects_signoff(
     signoff_key: str,
     *,
     origin_phase: str | None = None,
+    approval_phase: str | None = None,
 ) -> bool:
     explicit = head.get("approval_recheck_lanes")
     affected = (
@@ -1580,7 +1585,7 @@ def _finding_affects_signoff(
     # Delivery-born findings cannot reopen the crossed readiness gate. An
     # unknown phase retains the explicit lane relation for old/synthetic rows;
     # canonical ledgers always provide the executable finding phase.
-    if signoff_key == COUNCIL_READINESS_SIGNOFF_KEY and origin_phase == "delivery":
+    if (approval_phase or _council_approval_phase(signoff_key)) == "readiness" and origin_phase == "delivery":
         return False
     if council_key:
         return (
@@ -1710,6 +1715,9 @@ def review_authority_projection(
         if str(item):
             _by_canonical.setdefault(canonical_signoff_key(str(item)), str(item))
     signoff_keys = tuple(_by_canonical.values())
+    signoff_phases = {
+        key: approval_phase or _council_approval_phase(key) for key in signoff_keys
+    }
 
     finding_facts: list[dict[str, Any]] = []
     for order, (finding_id, head) in enumerate(heads.items()):
@@ -1776,7 +1784,8 @@ def review_authority_projection(
                     key
                     for key in signoff_keys
                     if _finding_affects_signoff(
-                        head, key, origin_phase=origin_phase
+                        head, key, origin_phase=origin_phase,
+                        approval_phase=signoff_phases[key],
                     )
                 ),
                 "terminal": terminal,
@@ -1794,7 +1803,7 @@ def review_authority_projection(
     approval_facts: list[dict[str, Any]] = []
     status_rows: list[dict[str, Any]] = []
     for key in signoff_keys:
-        selected_phase = approval_phase or _council_approval_phase(key)
+        selected_phase = signoff_phases[key]
         approvals = _approval_rows(rows, approval_phase=selected_phase)
         approval = approvals.get(f"approval:{canonical_signoff_key(key)}")
         approval_position = approval[0] if approval is not None else -1
@@ -1900,9 +1909,11 @@ def review_authority_projection(
             attested = context.get("attested_by")
             attested = _display_attested_by(attested) if _nonempty_string(attested) else None
             if attested and handle:
-                attribution = f" by {attested} ({handle})"
-            elif attested or handle:
-                attribution = f" by {attested or handle}"
+                attribution = f" by {attested} (self-attested) ({handle})"
+            elif attested:
+                attribution = f" by {attested} (self-attested)"
+            elif handle:
+                attribution = f" by {handle}"
             else:
                 attribution = ""
             why = (
@@ -1951,6 +1962,19 @@ def review_authority_projection(
             "next_action": next_action,
         }
         status_rows.append(status_row)
+        # Presence, validity and finding currency are different facts. Keep
+        # the historical status vocabulary while exposing the precise cause
+        # to gate callers without making them parse presentation prose.
+        if approval_record is None:
+            approval_state = "absent"
+        elif not (context_valid and actor_valid and independence_valid):
+            approval_state = "invalid"
+        elif not receipt_binding_current:
+            approval_state = "stale"
+        elif blocking:
+            approval_state = "withheld"
+        else:
+            approval_state = "approved"
         approval_facts.append(
             {
                 "signoff_key": key,
@@ -1959,6 +1983,9 @@ def review_authority_projection(
                 "approval_recorded": approval_record is not None,
                 "approval_current": state == "approved",
                 "state": state,
+                "approval_state": approval_state,
+                "why": why,
+                "next_action": next_action,
                 "blocking_finding_ids": tuple(
                     fact["finding_id"] for fact in blocking
                 ),

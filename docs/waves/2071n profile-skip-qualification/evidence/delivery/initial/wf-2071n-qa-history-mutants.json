@@ -1,0 +1,32 @@
+{
+  "source_guard_removed": {
+    "tests": 3,
+    "skips": [],
+    "failures": [
+      [
+        "test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_source_digest_is_checked_even_if_bundle_digest_is_recomputed",
+        "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_historical_fixture_support.py\", line 56, in test_source_digest_is_checked_even_if_bundle_digest_is_recomputed\n    with self.assertRaisesRegex(AssertionError, \"source integrity mismatch\"):\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: AssertionError not raised\n"
+      ],
+      [
+        "test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_source_size_is_checked_even_when_its_bytes_and_digest_match",
+        "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_historical_fixture_support.py\", line 62, in test_source_size_is_checked_even_when_its_bytes_and_digest_match\n    with self.assertRaisesRegex(AssertionError, \"source integrity mismatch\"):\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: AssertionError not raised\n"
+      ],
+      [
+        "test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_substituting_current_source_does_not_make_an_old_fixture_valid",
+        "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_historical_fixture_support.py\", line 70, in test_substituting_current_source_does_not_make_an_old_fixture_valid\n    with self.assertRaisesRegex(AssertionError, \"source integrity mismatch\"):\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: AssertionError not raised\n"
+      ]
+    ],
+    "errors": []
+  },
+  "current_reader_substituted": {
+    "tests": 1,
+    "skips": [],
+    "failures": [
+      [
+        "test_sqlite_storage_migration.SchemaEightKindTests.test_version_one_code_refuses_a_version_two_receipt_and_creates_nothing",
+        "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py\", line 1954, in test_version_one_code_refuses_a_version_two_receipt_and_creates_nothing\n    self.assertNotEqual(child.returncode, 0)\n    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 0 == 0\n"
+      ]
+    ],
+    "errors": []
+  }
+}

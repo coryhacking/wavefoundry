@@ -1,0 +1,11 @@
+{
+  "baseline": 3,
+  "omitted_judgment_visible": 1,
+  "invalid_legacy_key_visible": 1,
+  "exact_reported": 0,
+  "raw_audit": 3,
+  "changed_heading_visible": 1,
+  "new_live_instruction_visible": 1,
+  "hashes_unchanged": true,
+  "absent_repository_store_preserved": true
+}

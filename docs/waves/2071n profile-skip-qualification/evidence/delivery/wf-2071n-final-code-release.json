@@ -1,0 +1,421 @@
+{
+  "wave_id": "2071n",
+  "change_id": "205jp-bug profile-skip-qualification",
+  "phase": "delivery",
+  "created_utc": "2026-10-09T22:16:32.581376+00:00",
+  "source_fingerprint_before": "c7bd807a8edbe7878841b4e2971e6405f5bc7418e60ed86658125e770bc039d0",
+  "source_fingerprint_after": "c7bd807a8edbe7878841b4e2971e6405f5bc7418e60ed86658125e770bc039d0",
+  "source15_hash_match": true,
+  "contexts": {
+    "code-reviewer": {
+      "actor": "code-reviewer",
+      "context_id": "2071n-reverify-code-independent-20261009",
+      "fresh_context": true,
+      "independent": true
+    },
+    "release-reviewer": {
+      "actor": "release-reviewer",
+      "context_id": "2071n-reverify-release-independent-20261009",
+      "fresh_context": true,
+      "independent": true
+    }
+  },
+  "roles_share_one_disclosed_independent_agent_context": true,
+  "same_delivery_only_context_continuation": true,
+  "retained_implementation_or_readiness_context": false,
+  "approval": true,
+  "lane_approvals": {
+    "code-reviewer": true,
+    "release-reviewer": true
+  },
+  "lanes": [
+    {
+      "role": "code-reviewer",
+      "approval": true,
+      "approval_phase": "delivery",
+      "verdict": "approved-with-notes",
+      "verification_context": {
+        "actor": "code-reviewer",
+        "context_id": "2071n-reverify-code-independent-20261009",
+        "fresh_context": true,
+        "independent": true
+      },
+      "proposition": "The frozen205jp fixture/corpus repair retains load-bearing original assertions, the targeted repairs are verified, and full default/second/declared qualification satisfies the exact packaging skip identity/reason contract.",
+      "counterexample_or_failure_condition": "Nonzero worker return, missingcapture, unsupported extra/non-marker skip, declared/default map mismatch, marker regression still failing, false live-coverage claim, sourcehash drift or stale/redreceipt.",
+      "execution_status": "executed",
+      "public_path": "Canonical run_tests.py default and --profile second/declared copied-tree suites; original IsChangeIdTests corpus method and actual graph extraction/publication/public-response tests; output-capture process boundary independently inspected.",
+      "command_or_fixture": [
+        "/private/tmp/wf-2071n-final-independent-audit.py",
+        "own previous canonical run_tests.py --file test_profile_support.py with default/second/declared",
+        "/private/tmp/wf-2071n-reverify-code-release-probe.py",
+        "/private/tmp/wf-2071n-reverify-doc-control.py"
+      ],
+      "expected": "534 complete workers/0rc; default12040/178/13, second12032/178/28 with15marker-only extras, declared12040/178/13 exactdefaultmap;15sourcehashes unchanged; current green receipt; owned baseline1pass\u2192deletedregex1failure/0errors/0skips;21graphchecksgreen.",
+      "observed": {
+        "final_suite_totals": {
+          "default": {
+            "files": 178,
+            "tests": 12040,
+            "skip_count": 13
+          },
+          "second": {
+            "files": 178,
+            "tests": 12032,
+            "skip_count": 28
+          },
+          "declared": {
+            "files": 178,
+            "tests": 12040,
+            "skip_count": 13
+          }
+        },
+        "worker_rows": 534,
+        "worker_rc_zero": 534,
+        "durable_reconstruction_byte_exact": 534,
+        "declared_exact_default_map": true,
+        "second_extra_count": 15,
+        "second_extra_all_explicit_default_profile_only": true,
+        "shared_reason_change_count": 1,
+        "shared_reason_change_identity": "test_server_tools_lifecycle.SignoffLatestStateTests.test_live_wave_records_parse_correctly",
+        "source15_hash_match": true,
+        "receipt": {
+          "result": "ok",
+          "inputs_hash": "168eafe7d59e87c2acf0ab232ae3ac0a418b3aeec0a6972fef0fad78b9e1c22d",
+          "ran_at": "2026-10-09T21:52:08.464019+00:00",
+          "test_count": 12040,
+          "worker_files": 178,
+          "current_framework_hash_matches": true,
+          "durable_receipt_byte_exact": true
+        },
+        "named_corpus_lines": [
+          {
+            "profile": "default",
+            "identity": "test_repository_corpus_runs_under_declared_tools",
+            "actual_line": "test_repository_corpus_runs_under_declared_tools (test_profile_support.DefaultProfileOnlyMarkerTests.test_repository_corpus_runs_under_declared_tools) ... ok"
+          },
+          {
+            "profile": "default",
+            "identity": "test_accepts_every_admitted_id_in_this_repository",
+            "actual_line": "test_accepts_every_admitted_id_in_this_repository (test_change_id_path_guard.IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository) ... ok"
+          },
+          {
+            "profile": "second",
+            "identity": "test_repository_corpus_runs_under_declared_tools",
+            "actual_line": "test_repository_corpus_runs_under_declared_tools (test_profile_support.DefaultProfileOnlyMarkerTests.test_repository_corpus_runs_under_declared_tools) ... ok"
+          },
+          {
+            "profile": "second",
+            "identity": "test_accepts_every_admitted_id_in_this_repository",
+            "actual_line": "test_accepts_every_admitted_id_in_this_repository (test_change_id_path_guard.IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository) ... skipped \"default-profile-only: this repository's admitted-ID corpus uses the shipped vocabulary and layout (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)\""
+          },
+          {
+            "profile": "declared",
+            "identity": "test_repository_corpus_runs_under_declared_tools",
+            "actual_line": "test_repository_corpus_runs_under_declared_tools (test_profile_support.DefaultProfileOnlyMarkerTests.test_repository_corpus_runs_under_declared_tools) ... ok"
+          },
+          {
+            "profile": "declared",
+            "identity": "test_accepts_every_admitted_id_in_this_repository",
+            "actual_line": "test_accepts_every_admitted_id_in_this_repository (test_change_id_path_guard.IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository) ... ok"
+          }
+        ],
+        "own_marker_baseline": {
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0,
+          "details": []
+        },
+        "own_regex_deleted": {
+          "tests": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0,
+          "details": [
+            "Traceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-2071n-code-mutant-nu0s1o1m/repo/.wavefoundry/framework/scripts/tests/test_profile_support.py\", line 287, in test_repository_corpus_runs_under_declared_tools\n    self.assertEqual(result.failures, [])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [(<test_change_id_path_guard.IsChangeIdTes[655 chars]\\n')] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n(<test_change_id_path_guard.IsChangeIdTests testMethod=test_accepts_every_admitted_id_in_this_repository>, 'Traceback (most recent call last):\\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-2071n-code-mutant-nu0s1o1m/repo/.wavefoundry/framework/scripts/tests/record_layout_support.py\", line 956, in wrapper\\n    return func(*args, **kwargs)\\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-2071n-code-mutant-nu0s1o1m/repo/.wavefoundry/framework/scripts/tests/test_change_id_path_guard.py\", line 236, in test_accepts_every_admitted_id_in_this_repository\\n    self.assertGreater(len(ids), 100)\\n    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^\\nAssertionError: 0 not greater than 100\\n')\n\nDiff is 784 characters long. Set self.maxDiff to None to see it.\n"
+          ]
+        },
+        "own_graph21": {
+          "tests": 21,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0
+        },
+        "own_documentation_provenance_control": {
+          "actual_response": {
+            "tests": 1,
+            "failures": 0,
+            "errors": 0,
+            "skips": 0
+          },
+          "observed_public_response_roots": [
+            "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-evidence-response-cdaphovm"
+          ],
+          "current_doc_provenance_assertion": {
+            "tests": 1,
+            "failures": 0,
+            "errors": 0,
+            "skips": 0,
+            "failure_details": []
+          },
+          "injected_original_live_qualification_claim": {
+            "tests": 1,
+            "failures": 1,
+            "errors": 0,
+            "skips": 0,
+            "failure_details": [
+              "Traceback (most recent call last):\n  File \"/private/tmp/wf-2071n-reverify-doc-control.py\", line 17, in runTest\n    def runTest(self): self.assertEqual(self.claimed,observed,'Claimed coverage provenance contradicts observed real public-response fixture root')\n                       ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'checkout-live-after-canonical-setup' != 'scratch-hermetic-source'\n- checkout-live-after-canonical-setup\n+ scratch-hermetic-source\n : Claimed coverage provenance contradicts observed real public-response fixture root\n"
+            ]
+          },
+          "method": "Specification-derived provenance invariant: observed real fixture producer root must agree with hand-authored coverage claim; old prose interpreted as checkout-live qualification disagrees. This detects false claim, not presence of a phrase."
+        }
+      },
+      "artifact_or_test_id": [
+        "/private/tmp/wf-2071n-final-independent-audit.json",
+        "docs/waves/2071n profile-skip-qualification/evidence/delivery/final/capture-manifest.json",
+        "docs/waves/2071n profile-skip-qualification/evidence/delivery/final/raw-default/",
+        "docs/waves/2071n profile-skip-qualification/evidence/delivery/final/raw-second/",
+        "docs/waves/2071n profile-skip-qualification/evidence/delivery/final/raw-declared/",
+        "docs/waves/2071n profile-skip-qualification/evidence/delivery/final/canonical-receipt.json",
+        "/private/tmp/wf-2071n-reverify-code-release.json"
+      ],
+      "adjacent_controls": [
+        "Own focused default/second/declared76case/0skip baselines",
+        "Own actual21graphchecks with original independent presence/classification/ranking/lookup/crossing assertions",
+        "Original nonempty >100 and zero-rejected corpus assertions",
+        "Semantically invalid prior live-coverage claim rejected against actual producer-root provenance"
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "known_bad_detection_method": "focused-mutation: own scratch second-profile copy deletes only derived MEMBER_ID_LABEL_RE restoration, producing selected corpus1failure/0errors/0skips versus1pass baseline. For release coverage prose, own injected-old-behavior provenance comparator rejects original live-checkout qualification claim against instrumented real scratch publication root; reviewer-authored semantic documentation assertion, not a repository phrase-presence test.",
+      "limitations": "Qualification establishes the frozen source and packaging profile skip contract, not a rebuilt archive. No new pack, native Windows, fresh host/downstream, loaded MCP identity or cached-bytecode authentication qualified. Full suites executed by the coordinator; this reviewer independently parsed and authenticated actual outputs, and previously executed its own focused profiles, real graph paths and mutations. Historical behavior/provenance evidence from the initial independent delivery reviewers remains applicable to unchanged13paths; not rerun by this repair context. Both lanes share one disclosed independent reviewer process; the two role context IDs are judgment identities, not a claim of two separate processes.",
+      "safety_and_authorization": "Authorized independent delivery review continuation; only/tmp outputs, read-only primarysource/docs/ledger/receipt; no fulltest rerun, source edit, lifecycle write, commit, close or packagebuild. Toolvenv -B with PYTHONPYCACHEPREFIX removed.",
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "universal_claim": false
+    },
+    {
+      "role": "release-reviewer",
+      "approval": true,
+      "approval_phase": "delivery",
+      "verdict": "approved-with-notes",
+      "verification_context": {
+        "actor": "release-reviewer",
+        "context_id": "2071n-reverify-release-independent-20261009",
+        "fresh_context": true,
+        "independent": true
+      },
+      "proposition": "The frozen205jp fixture/corpus repair retains load-bearing original assertions, the targeted repairs are verified, and full default/second/declared qualification satisfies the exact packaging skip identity/reason contract.",
+      "counterexample_or_failure_condition": "Nonzero worker return, missingcapture, unsupported extra/non-marker skip, declared/default map mismatch, marker regression still failing, false live-coverage claim, sourcehash drift or stale/redreceipt.",
+      "execution_status": "executed",
+      "public_path": "Canonical run_tests.py default and --profile second/declared copied-tree suites; original IsChangeIdTests corpus method and actual graph extraction/publication/public-response tests; output-capture process boundary independently inspected.",
+      "command_or_fixture": [
+        "/private/tmp/wf-2071n-final-independent-audit.py",
+        "own previous canonical run_tests.py --file test_profile_support.py with default/second/declared",
+        "/private/tmp/wf-2071n-reverify-code-release-probe.py",
+        "/private/tmp/wf-2071n-reverify-doc-control.py"
+      ],
+      "expected": "534 complete workers/0rc; default12040/178/13, second12032/178/28 with15marker-only extras, declared12040/178/13 exactdefaultmap;15sourcehashes unchanged; current green receipt; owned baseline1pass\u2192deletedregex1failure/0errors/0skips;21graphchecksgreen.",
+      "observed": {
+        "final_suite_totals": {
+          "default": {
+            "files": 178,
+            "tests": 12040,
+            "skip_count": 13
+          },
+          "second": {
+            "files": 178,
+            "tests": 12032,
+            "skip_count": 28
+          },
+          "declared": {
+            "files": 178,
+            "tests": 12040,
+            "skip_count": 13
+          }
+        },
+        "worker_rows": 534,
+        "worker_rc_zero": 534,
+        "durable_reconstruction_byte_exact": 534,
+        "declared_exact_default_map": true,
+        "second_extra_count": 15,
+        "second_extra_all_explicit_default_profile_only": true,
+        "shared_reason_change_count": 1,
+        "shared_reason_change_identity": "test_server_tools_lifecycle.SignoffLatestStateTests.test_live_wave_records_parse_correctly",
+        "source15_hash_match": true,
+        "receipt": {
+          "result": "ok",
+          "inputs_hash": "168eafe7d59e87c2acf0ab232ae3ac0a418b3aeec0a6972fef0fad78b9e1c22d",
+          "ran_at": "2026-10-09T21:52:08.464019+00:00",
+          "test_count": 12040,
+          "worker_files": 178,
+          "current_framework_hash_matches": true,
+          "durable_receipt_byte_exact": true
+        },
+        "named_corpus_lines": [
+          {
+            "profile": "default",
+            "identity": "test_repository_corpus_runs_under_declared_tools",
+            "actual_line": "test_repository_corpus_runs_under_declared_tools (test_profile_support.DefaultProfileOnlyMarkerTests.test_repository_corpus_runs_under_declared_tools) ... ok"
+          },
+          {
+            "profile": "default",
+            "identity": "test_accepts_every_admitted_id_in_this_repository",
+            "actual_line": "test_accepts_every_admitted_id_in_this_repository (test_change_id_path_guard.IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository) ... ok"
+          },
+          {
+            "profile": "second",
+            "identity": "test_repository_corpus_runs_under_declared_tools",
+            "actual_line": "test_repository_corpus_runs_under_declared_tools (test_profile_support.DefaultProfileOnlyMarkerTests.test_repository_corpus_runs_under_declared_tools) ... ok"
+          },
+          {
+            "profile": "second",
+            "identity": "test_accepts_every_admitted_id_in_this_repository",
+            "actual_line": "test_accepts_every_admitted_id_in_this_repository (test_change_id_path_guard.IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository) ... skipped \"default-profile-only: this repository's admitted-ID corpus uses the shipped vocabulary and layout (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)\""
+          },
+          {
+            "profile": "declared",
+            "identity": "test_repository_corpus_runs_under_declared_tools",
+            "actual_line": "test_repository_corpus_runs_under_declared_tools (test_profile_support.DefaultProfileOnlyMarkerTests.test_repository_corpus_runs_under_declared_tools) ... ok"
+          },
+          {
+            "profile": "declared",
+            "identity": "test_accepts_every_admitted_id_in_this_repository",
+            "actual_line": "test_accepts_every_admitted_id_in_this_repository (test_change_id_path_guard.IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository) ... ok"
+          }
+        ],
+        "own_marker_baseline": {
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0,
+          "details": []
+        },
+        "own_regex_deleted": {
+          "tests": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0,
+          "details": [
+            "Traceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-2071n-code-mutant-nu0s1o1m/repo/.wavefoundry/framework/scripts/tests/test_profile_support.py\", line 287, in test_repository_corpus_runs_under_declared_tools\n    self.assertEqual(result.failures, [])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [(<test_change_id_path_guard.IsChangeIdTes[655 chars]\\n')] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n(<test_change_id_path_guard.IsChangeIdTests testMethod=test_accepts_every_admitted_id_in_this_repository>, 'Traceback (most recent call last):\\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-2071n-code-mutant-nu0s1o1m/repo/.wavefoundry/framework/scripts/tests/record_layout_support.py\", line 956, in wrapper\\n    return func(*args, **kwargs)\\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-2071n-code-mutant-nu0s1o1m/repo/.wavefoundry/framework/scripts/tests/test_change_id_path_guard.py\", line 236, in test_accepts_every_admitted_id_in_this_repository\\n    self.assertGreater(len(ids), 100)\\n    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^\\nAssertionError: 0 not greater than 100\\n')\n\nDiff is 784 characters long. Set self.maxDiff to None to see it.\n"
+          ]
+        },
+        "own_graph21": {
+          "tests": 21,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0
+        },
+        "own_documentation_provenance_control": {
+          "actual_response": {
+            "tests": 1,
+            "failures": 0,
+            "errors": 0,
+            "skips": 0
+          },
+          "observed_public_response_roots": [
+            "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-evidence-response-cdaphovm"
+          ],
+          "current_doc_provenance_assertion": {
+            "tests": 1,
+            "failures": 0,
+            "errors": 0,
+            "skips": 0,
+            "failure_details": []
+          },
+          "injected_original_live_qualification_claim": {
+            "tests": 1,
+            "failures": 1,
+            "errors": 0,
+            "skips": 0,
+            "failure_details": [
+              "Traceback (most recent call last):\n  File \"/private/tmp/wf-2071n-reverify-doc-control.py\", line 17, in runTest\n    def runTest(self): self.assertEqual(self.claimed,observed,'Claimed coverage provenance contradicts observed real public-response fixture root')\n                       ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'checkout-live-after-canonical-setup' != 'scratch-hermetic-source'\n- checkout-live-after-canonical-setup\n+ scratch-hermetic-source\n : Claimed coverage provenance contradicts observed real public-response fixture root\n"
+            ]
+          },
+          "method": "Specification-derived provenance invariant: observed real fixture producer root must agree with hand-authored coverage claim; old prose interpreted as checkout-live qualification disagrees. This detects false claim, not presence of a phrase."
+        }
+      },
+      "artifact_or_test_id": [
+        "/private/tmp/wf-2071n-final-independent-audit.json",
+        "docs/waves/2071n profile-skip-qualification/evidence/delivery/final/capture-manifest.json",
+        "docs/waves/2071n profile-skip-qualification/evidence/delivery/final/raw-default/",
+        "docs/waves/2071n profile-skip-qualification/evidence/delivery/final/raw-second/",
+        "docs/waves/2071n profile-skip-qualification/evidence/delivery/final/raw-declared/",
+        "docs/waves/2071n profile-skip-qualification/evidence/delivery/final/canonical-receipt.json",
+        "/private/tmp/wf-2071n-reverify-code-release.json"
+      ],
+      "adjacent_controls": [
+        "Own focused default/second/declared76case/0skip baselines",
+        "Own actual21graphchecks with original independent presence/classification/ranking/lookup/crossing assertions",
+        "Original nonempty >100 and zero-rejected corpus assertions",
+        "Semantically invalid prior live-coverage claim rejected against actual producer-root provenance"
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "known_bad_detection_method": "focused-mutation: own scratch second-profile copy deletes only derived MEMBER_ID_LABEL_RE restoration, producing selected corpus1failure/0errors/0skips versus1pass baseline. For release coverage prose, own injected-old-behavior provenance comparator rejects original live-checkout qualification claim against instrumented real scratch publication root; reviewer-authored semantic documentation assertion, not a repository phrase-presence test.",
+      "limitations": "Qualification establishes the frozen source and packaging profile skip contract, not a rebuilt archive. No new pack, native Windows, fresh host/downstream, loaded MCP identity or cached-bytecode authentication qualified. Full suites executed by the coordinator; this reviewer independently parsed and authenticated actual outputs, and previously executed its own focused profiles, real graph paths and mutations. Historical behavior/provenance evidence from the initial independent delivery reviewers remains applicable to unchanged13paths; not rerun by this repair context. Both lanes share one disclosed independent reviewer process; the two role context IDs are judgment identities, not a claim of two separate processes.",
+      "safety_and_authorization": "Authorized independent delivery review continuation; only/tmp outputs, read-only primarysource/docs/ledger/receipt; no fulltest rerun, source edit, lifecycle write, commit, close or packagebuild. Toolvenv -B with PYTHONPYCACHEPREFIX removed.",
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "universal_claim": false
+    }
+  ],
+  "findings": [],
+  "prior_reverifications": "/private/tmp/wf-2071n-reverify-code-release.json",
+  "pending_primer_question1_resolved": {
+    "answer": "Independent534worker/rawchunk audit verifies default13skip exactmap equals declared13, second28 with15extras all explicitdefault-profile-only and one shared baseline reason change to marker. Raw named corpus checks show actual declared corpus method runs; profile_support meta-regression runs under all3. No new waiver or policy weakening.",
+    "actual_extra_ids_and_reasons": {
+      "test_change_id_path_guard.IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository": "default-profile-only: this repository's admitted-ID corpus uses the shipped vocabulary and layout (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_context_efficiency.OpenWaveAttributionTests.test_stage_derivation_parses_real_canonical_ledger": "default-profile-only: reads this repository's own live wave ledgers under the shipped waves root (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_docs_lint.SerializationPointsTokenGrammarPinTests.test_the_fenced_examples_are_untouched": "default-profile-only: pins the shipped plan template's fenced example text, written for the default layout (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_record_layout_lifecycle.DefaultLayoutUnchangedTests.test_default_paths_are_byte_identical": "default-profile-only: pins path identity on the shipped layout (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_record_paths.NestedDiscoveryTests.test_default_max_depth_is_four_and_finds_a_depth_four_wave": "default-profile-only: pins the shipped MAX_DEPTH default of four (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_record_paths.ShippedLayoutTests.test_shipped_constants_are_the_historical_layout_byte_identical": "default-profile-only: pins the shipped layout constants and their historical joins (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_review_evidence.RealCorpusRegressionTests.setUpClass": "default-profile-only: a census of this repository's own closed wave records, which are written in the default profile (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_review_policy.ReviewLoopFrictionPolicyTests.test_carrier_boundary_census_reports_its_own_transition_cost": "default-profile-only: a census of this repository's own documents, which are written in the default profile (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_server_tools_lifecycle.DeclaredWaveTreeSweepTests.setUpClass": "default-profile-only: census of this repository's own closed wave records (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_server_tools_lifecycle.WaveImplementTests.test_roster_extractors_agree_over_current_wave_corpus": "default-profile-only: census of this repository's own wave records (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_vocabulary_prompt_names.DefaultNamePinTests.setUpClass": "default-profile-only: pins the shipped prompt names and their pre-change consumer literals (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_vocabulary_prompt_names.DefaultRenderIdentityTests.setUpClass": "default-profile-only: renders this repository's own surfaces with the shipped names (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_vocabulary_prompt_names.DefaultTemplateIdentityTests.setUpClass": "default-profile-only: materializes the shipped templates with the shipped names (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_vocabulary_prompt_names.ValidationTests.test_fixed_shortcuts_and_slugs_match_this_repository": "default-profile-only: reads this repository's own manifest and prompt files (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+      "test_vocabulary_writers.DefaultProfileWriterTests.test_shipped_template_is_unchanged_under_the_default_profile": "default-profile-only: pins the shipped template as the identity of localize_template under the shipped labels (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)"
+    },
+    "actual_shared_reason_change": {
+      "test_server_tools_lifecycle.SignoffLatestStateTests.test_live_wave_records_parse_correctly": {
+        "default": "wave record not found: docs/waves/1seav search-freshness-degraded-retrieval",
+        "second": "default-profile-only: reads this repository's own closed wave records (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)"
+      }
+    }
+  },
+  "primer_questions2_and3": "Retain targeted reverification answers; graph/historical paths are unchanged among13paths, and current21graphpaths were independently executed in this context. No unsupported live-clustering/runtime/freshhost claim added.",
+  "false_positive_before_after": {
+    "before": "Potential incomplete profile qualification required withholding approval despite repaired checks",
+    "after": "Exact independently parsed worker set/maps, currentreceipt and unchangedsource remove that evidence blocker; no actual new finding"
+  },
+  "limitations": "Qualification establishes the frozen source and packaging profile skip contract, not a rebuilt archive. No new pack, native Windows, fresh host/downstream, loaded MCP identity or cached-bytecode authentication qualified. Full suites executed by the coordinator; this reviewer independently parsed and authenticated actual outputs, and previously executed its own focused profiles, real graph paths and mutations. Historical behavior/provenance evidence from the initial independent delivery reviewers remains applicable to unchanged13paths; not rerun by this repair context. Both lanes share one disclosed independent reviewer process; the two role context IDs are judgment identities, not a claim of two separate processes.",
+  "receipt": {
+    "result": "ok",
+    "inputs_hash": "168eafe7d59e87c2acf0ab232ae3ac0a418b3aeec0a6972fef0fad78b9e1c22d",
+    "ran_at": "2026-10-09T21:52:08.464019+00:00",
+    "test_count": 12040,
+    "worker_files": 178,
+    "current_framework_hash_matches": true,
+    "durable_receipt_byte_exact": true
+  },
+  "no_source_docs_ledger_commit_close_writes": true
+}

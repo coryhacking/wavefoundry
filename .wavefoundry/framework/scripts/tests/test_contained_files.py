@@ -620,5 +620,140 @@ class RendererCensusTests(unittest.TestCase):
         self.assertIn("contained_files.open_contained_dir(", text("render_agent_surfaces.py", "_exclusive_parent"))
 
 
+class IdentityBoundRemovalTests(_Roots):
+    def test_classifier_and_parent_errors_are_path_free(self):
+        path, judged, identity = self._file()
+        error = PermissionError(13, "denied", str(path))
+        with mock.patch.object(cf, "_is_windows_link", side_effect=error):
+            with self.assertRaises(PermissionError) as caught:
+                cf.judge_contained_file(self.root, path)
+        self.assert_path_free(caught.exception)
+        with mock.patch.object(cf, "open_contained_dir", side_effect=error):
+            with self.assertRaises(PermissionError) as caught:
+                cf.unlink_contained(self.root, judged, expected_identity=identity)
+        self.assert_path_free(caught.exception)
+        self.assertEqual(path.read_bytes(), b"ordinary\r\n")
+
+    def test_invalid_removal_coordinates_are_path_free_and_preserve_files(self):
+        for target in (self.secret, self.root / ".." / "outside" / "secret.txt", self.root):
+            with self.subTest(target=target):
+                with self.assertRaises(cf.ContainedFileRefused) as caught:
+                    cf.unlink_contained(self.root, target, expected_identity=(0, 0))
+                self.assert_path_free(caught.exception)
+                self.assert_outside_untouched()
+
+    def _file(self):
+        path = self.root / "docs" / "ordinary.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"ordinary\r\n")
+        data, opened, judged = cf.read_contained_identity(self.root, path, max_bytes=100)
+        self.assertEqual(data, b"ordinary\r\n")
+        return path, judged, (opened.st_dev, opened.st_ino)
+
+    def test_read_api_shapes_and_ordinary_removal(self):
+        path, judged, identity = self._file()
+        self.assertEqual(len(cf.read_contained(self.root, path, max_bytes=100)), 2)
+        self.assertEqual(cf.read_contained_bytes(self.root, path, max_bytes=100), b"ordinary\r\n")
+        self.assertEqual(cf.judge_contained_file(self.root, path), (judged, identity))
+        cf.unlink_contained(self.root, judged, expected_identity=identity)
+        self.assertFalse(path.exists())
+
+    def test_replaced_identity_is_preserved_on_both_branches(self):
+        for descriptor in ((True, False) if cf._DIR_FD_SUPPORTED else (False,)):
+            with self.subTest(descriptor=descriptor):
+                path, judged, identity = self._file()
+                saved = path.with_name("saved.md")
+                path.rename(saved)
+                path.write_bytes(b"replacement")
+                with mock.patch.object(cf, "_dir_fd_supported", return_value=descriptor):
+                    with self.assertRaises(cf.ContainedFileRefused) as caught:
+                        cf.unlink_contained(self.root, judged, expected_identity=identity)
+                self.assertEqual(caught.exception.cause, cf.CAUSE_CHANGED)
+                self.assert_path_free(caught.exception)
+                self.assertEqual(path.read_bytes(), b"replacement")
+                saved.unlink()
+
+    @unittest.skipUnless(POSIX, "symlink and FIFO control runs on POSIX")
+    def test_final_links_special_files_and_runtime_locks_are_refused(self):
+        for kind in ("link", "fifo", "directory", "lock", "lock_alias"):
+            with self.subTest(kind=kind):
+                path, judged, identity = self._file()
+                path.unlink()
+                if kind == "link":
+                    path.symlink_to(self.secret)
+                elif kind == "fifo":
+                    os.mkfifo(path)
+                elif kind == "directory":
+                    path.mkdir()
+                else:
+                    lock = self.root / ".wavefoundry" / "runtime.lock"
+                    lock.parent.mkdir(exist_ok=True)
+                    lock.write_bytes(b"lock")
+                    if kind == "lock":
+                        judged = lock
+                    else:
+                        os.link(lock, path)
+                    entry = os.lstat(judged)
+                    identity = (entry.st_dev, entry.st_ino)
+                result, exc = _run_with_timeout(self, lambda: cf.unlink_contained(
+                    self.root, judged, expected_identity=identity))
+                self.assertIsNone(result)
+                self.assertIsInstance(exc, cf.ContainedFileRefused)
+                self.assertTrue(os.path.lexists(judged))
+                self.assert_outside_untouched()
+                if path.is_dir():
+                    path.rmdir()
+                elif os.path.lexists(path):
+                    path.unlink()
+
+    @unittest.skipUnless(POSIX, "internal parent links run on POSIX")
+    def test_internal_parent_link_is_supported_but_changed_resolved_parent_is_not(self):
+        actual = self.root / "actual"
+        actual.mkdir()
+        lexical = self.root / "linked"
+        lexical.symlink_to(actual, target_is_directory=True)
+        (actual / "old.md").write_bytes(b"ordinary")
+        data, opened, judged = cf.read_contained_identity(self.root, lexical / "old.md", max_bytes=100)
+        self.assertEqual(judged, actual / "old.md")
+        identity = (opened.st_dev, opened.st_ino)
+        cf.unlink_contained(self.root, judged, expected_identity=identity)
+        self.assertEqual(data, b"ordinary")
+        self.assertFalse((actual / "old.md").exists())
+        for descriptor in ((True, False) if cf._DIR_FD_SUPPORTED else (False,)):
+            with self.subTest(descriptor=descriptor):
+                actual.mkdir(exist_ok=True)
+                (actual / "old.md").write_bytes(b"original")
+                _, opened, judged = cf.read_contained_identity(self.root, lexical / "old.md", max_bytes=100)
+                saved = self.root / "saved"
+                actual.rename(saved)
+                actual.symlink_to(saved, target_is_directory=True)
+                with mock.patch.object(cf, "_dir_fd_supported", return_value=descriptor):
+                    with self.assertRaises(cf.ContainedFileRefused):
+                        cf.unlink_contained(self.root, judged, expected_identity=(opened.st_dev, opened.st_ino))
+                self.assertEqual((saved / "old.md").read_bytes(), b"original")
+                actual.unlink()
+                saved.rename(actual)
+
+    @unittest.skipUnless(POSIX, "descriptor redirection control runs on POSIX")
+    def test_parent_swap_after_open_cannot_redirect_descriptor_unlink(self):
+        path, judged, identity = self._file()
+        real_open = cf.open_contained_dir
+        saved = self.root / "saved"
+        decoy = self.root / "decoy"
+        decoy.mkdir()
+        (decoy / path.name).write_bytes(b"decoy")
+
+        def swap_after_open(root, parts):
+            fd = real_open(root, parts)
+            path.parent.rename(saved)
+            path.parent.symlink_to(decoy, target_is_directory=True)
+            return fd
+
+        with mock.patch.object(cf, "open_contained_dir", side_effect=swap_after_open):
+            cf.unlink_contained(self.root, judged, expected_identity=identity)
+        self.assertFalse((saved / path.name).exists())
+        self.assertEqual((decoy / path.name).read_bytes(), b"decoy")
+
+
 if __name__ == "__main__":
     unittest.main()

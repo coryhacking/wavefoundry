@@ -1,0 +1,112 @@
+import ast, contextlib, hashlib, importlib.util, io, json, os, pathlib, shutil, subprocess, sys, tempfile, time, types
+
+ROOT = pathlib.Path('/Users/coryhacking/Developer/wavefoundry')
+SCRIPTS = ROOT/'.wavefoundry/framework/scripts'
+OUT = pathlib.Path('/private/tmp/wf2071p-release-probe-output.json')
+SENTINEL = 'WAVE_UPGRADE_SUMMARY_JSON:'
+sys.path.insert(0,str(SCRIPTS))
+os.environ['PYTHONDONTWRITEBYTECODE']='1'
+os.environ.pop('PYTHONPYCACHEPREFIX',None)
+
+def load(path,name):
+    spec=importlib.util.spec_from_file_location(name,path);mod=importlib.util.module_from_spec(spec);sys.modules[name]=mod;spec.loader.exec_module(mod);return mod
+
+def old_source(name):
+    return subprocess.check_output(['git','show','v1.15.4:.wavefoundry/framework/scripts/'+name],cwd=ROOT,text=True)
+
+def parser(source,current=False):
+    tree=ast.parse(source)
+    selected=[]
+    for n in tree.body:
+        names={t.id for t in n.targets if isinstance(t,ast.Name)} if isinstance(n,ast.Assign) else set()
+        if isinstance(n,ast.FunctionDef) and n.name in {'_parse_upgrade_summary','_bounded_upgrade_summary','_project_retired_model_cleanup_fields'}:
+            selected.append(n)
+        elif names and any(x.startswith('UPGRADE_SUMMARY_') or x.startswith('RETIRED_MODEL_CLEANUP_KEYS') or x.startswith('_RETIRED_MODEL_CLEANUP_ITEM_RE') for x in names):
+            selected.append(n)
+    ns={'json':json,'Any':object,'Mapping':dict,'_upgrade_summary_sentinel':lambda:SENTINEL,'sys':sys,'re':__import__('re')}
+    exec(compile(ast.Module(body=selected,type_ignores=[]),'<exact-parser-source>','exec'),ns)
+    if current:
+        fake=types.ModuleType('wf_server');fake.server_impl=types.SimpleNamespace(UPGRADE_SUMMARY_TERMINAL_KEYS=ns['UPGRADE_SUMMARY_TERMINAL_KEYS']);sys.modules['wf_server']=fake
+    return ns
+
+results={'reference':{'old_tag':'v1.15.4','old_commit':subprocess.check_output(['git','rev-parse','v1.15.4^{commit}'],cwd=ROOT,text=True).strip()},'matrix':[],'controls':[],'mutations':[]}
+old=old_source('upgrade_wavefoundry.py');oldserver=old_source('server_impl.py')
+results['reference']['parent_sha256']=hashlib.sha256(old.encode()).hexdigest();results['reference']['server_sha256']=hashlib.sha256(oldserver.encode()).hexdigest()
+legacy=parser(oldserver);currentparser=parser((SCRIPTS/'wf_server/upgrade_handlers.py').read_text(),True)
+mod=load(SCRIPTS/'upgrade_wavefoundry.py','release_current')
+assert mod._SUMMARY_DELEGATE_TIMEOUT_S==300 and mod.SUMMARY_SCHEMA_VERSION==1 and mod.WAVE_UPGRADE_SUMMARY_SENTINEL==SENTINEL
+
+with tempfile.TemporaryDirectory(prefix='wf2071p-release-') as td:
+    work=pathlib.Path(td)
+    wrapper=work/'tool/bin/python';wrapper.parent.mkdir(parents=True)
+    wrapper.write_text('#!/bin/sh\nexec '+str(pathlib.Path(sys.executable).resolve())+' -S "$@"\n');wrapper.chmod(0o700)
+    os.environ['WAVEFOUNDRY_TOOL_VENV']=str(work/'tool')
+    os.environ['WAVEFOUNDRY_REPORTING_SECONDS']='3'
+    parentpath=work/'old-parent.py';parentpath.write_text(old);parent=load(parentpath,'release_v1154_parent')
+    parent._preferred_python=lambda:str(wrapper)
+    mod._preferred_python=lambda:str(wrapper)
+    for state in ['complete','incomplete','error']:
+        root=work/state;dest=root/'.wavefoundry/framework/scripts';dest.mkdir(parents=True)
+        for p in SCRIPTS.glob('*.py'):shutil.copy2(p,dest/p.name)
+        (root/'live.md').write_text('.wavefoundry/bin/docs-lint\n')
+        lock=root/'.wavefoundry/upgrade-in-progress.json'
+        lock.write_text(json.dumps({'from_version':'1.15.4','to_version':'1.29.0','pruned_count':4,'index_rebuilt_at':'observed'}))
+        before=lock.read_bytes()
+        if state=='incomplete':
+            with (root/'huge.md').open('wb') as f:f.truncate(17*1024*1024)
+        if state=='error':(dest/'reconcile_scan.py').write_text("raise RuntimeError('release-safe-control')\n")
+        started=time.monotonic();payload,reason=parent._delegated_summary_payload(root,timeout_s=6)
+        assert reason is None and payload is not None,(state,reason)
+        data=json.loads(payload);assert data['reconciliation_state']==state,(state,data)
+        assert data['summary_schema_version']==1 and data['index_update']=='docs and code layers complete'
+        assert lock.read_bytes()==before,'report mutated authority lock'
+        for generation,ns in [('v1.15.4',legacy),('current',currentparser)]:
+            parsed=ns['_parse_upgrade_summary'](SENTINEL+payload+'\n');bounded=ns['_bounded_upgrade_summary'](parsed)
+            for key in ['reconciliation_state','reconciliation_reason','reconciliation_last_path','reconciliation_last_stage','reconciliation_read_bytes','summary_schema_version','index_update']:
+                assert bounded[key]==data[key],(generation,key)
+        buf=io.StringIO()
+        with contextlib.redirect_stdout(buf):parent._emit_primary_summary_via_delegate_or_fallback(root,'1.15.4','1.29.0',None,4,index_published=True,timeout_s=6)
+        lines=[x for x in buf.getvalue().splitlines() if x.startswith(SENTINEL)]
+        assert len(lines)==1 and json.loads(lines[0][len(SENTINEL):])['reconciliation_state']==state
+        results['matrix'].append({'state':state,'old_parent_accepts':True,'both_bounded_parsers_retain_flat_fields':True,'sentinel_count':len(lines),'elapsed':time.monotonic()-started,'reconciliation_reason':data['reconciliation_reason'],'findings':len(data['reconciliation']),'lock_byte_unchanged':True,'interpreter':'disposable -S wrapper with current scripts; no site packages'})
+    stubroot=work/'stub';stub=stubroot/'.wavefoundry/framework/scripts/upgrade_wavefoundry.py';stub.parent.mkdir(parents=True)
+    def emit(body,expected,*,mutant=False):
+        stub.write_text(body);buf=io.StringIO();calls=[]
+        prior=mod._run_reconciliation_scan;prior2=mod._run_renderer_warning_scan
+        mod._run_reconciliation_scan=lambda *a,**k: (_ for _ in ()).throw(AssertionError('second scan'))
+        mod._run_renderer_warning_scan=lambda *a,**k: (_ for _ in ()).throw(AssertionError('diagnostic rescan'))
+        try:
+            with contextlib.redirect_stdout(buf):mod._emit_primary_summary_via_delegate_or_fallback(stubroot,'1.28.0','1.29.0',None,9,index_published=True,timeout_s=.2)
+        finally:mod._run_reconciliation_scan=prior;mod._run_renderer_warning_scan=prior2
+        lines=[x for x in buf.getvalue().splitlines() if x.startswith(SENTINEL)];assert len(lines)==1
+        value=json.loads(lines[0][len(SENTINEL):])
+        if expected:
+            assert value['summary_source_degraded']==expected,(value,expected)
+            assert value['index_update']=='docs and code layers complete' and value['pruned_count']==9
+            assert 'summary_schema_version' not in value
+            assert value['reconciliation_state']=='incomplete'
+        return value,lines[0][len(SENTINEL):]
+    controls=[('malformed',"print('WAVE_UPGRADE_SUMMARY_JSON:{bad')\n",'sentinel_missing_or_malformed'),('schema_error',"print('WAVE_UPGRADE_SUMMARY_JSON:{\"summary_schema_version\":2}')\n",'unrecognized_schema_token_2'),('child_exit','raise SystemExit(3)\n','exit_status_3'),('timeout','import time;time.sleep(5)\n','timeout_after_1s'),('contradiction',"print('WAVE_UPGRADE_SUMMARY_JSON:{\"summary_schema_version\":1,\"index_update\":\"not run\"}')\n",'parent_fact_mismatch')]
+    for name,body,reason in controls:
+        start=time.monotonic();value,_=emit(body,reason);results['controls'].append({'name':name,'marker':value['summary_source_degraded'],'one_sentinel':True,'no_rescan':True,'elapsed':time.monotonic()-start})
+    raw='{ "summary_schema_version" : 1, "probe" : "verbatim ✓", "index_update" : "docs and code layers complete" }'
+    _,echo=emit('print('+repr(SENTINEL+raw)+')\n',None);assert echo==raw
+    results['controls'].append({'name':'verbatim_payload','byte_identical':True})
+    # Process-local mutant silently accepts a foreign schema: exact nearby guard.
+    oldset=mod._RECOGNIZED_SUMMARY_SCHEMAS;mod._RECOGNIZED_SUMMARY_SCHEMAS=frozenset({1,2})
+    try:
+        try:emit(controls[1][1],controls[1][2])
+        except (AssertionError,KeyError) as ex:results['mutations'].append({'mutant':'accept schema2','killed':True,'detector':'schema_error control expected marked old-schema degradation','observed':type(ex).__name__})
+        else:raise AssertionError('schema guard mutant survived')
+    finally:mod._RECOGNIZED_SUMMARY_SCHEMAS=oldset
+    # Exact current emitter without the parent-fact mismatch guard.
+    source=(SCRIPTS/'upgrade_wavefoundry.py').read_text();tree=ast.parse(source)
+    node=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='_emit_primary_summary_via_delegate_or_fallback')
+    src=ast.get_source_segment(source,node).replace('if mismatch:\n            payload, degradation = None, "parent_fact_mismatch"','if False:\n            payload, degradation = None, "parent_fact_mismatch"')
+    original=mod._emit_primary_summary_via_delegate_or_fallback;exec(compile(src,'<process-local-fact-mutant>','exec'),mod.__dict__)
+    try:
+        try:emit(controls[4][1],controls[4][2])
+        except (AssertionError,KeyError) as ex:results['mutations'].append({'mutant':'remove parent fact guard','killed':True,'detector':'contradictory index publication control','observed':type(ex).__name__})
+        else:raise AssertionError('fact guard mutant survived')
+    finally:mod._emit_primary_summary_via_delegate_or_fallback=original
+OUT.write_text(json.dumps(results,indent=2));print(json.dumps(results,indent=2))

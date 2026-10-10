@@ -7,9 +7,9 @@ to both. The indexer resolves eligibility from this reader on every launch, and
 setup reports the same values in its "Workflow policy" line, so both read the
 config through one coercion.
 
-Standard library only, and nothing runs at import: setup imports this before
-its dependencies are provisioned, so it must not pull in the indexer, the tool
-venv or any other framework module.
+Bootstrap-safe, and nothing runs at import: setup imports this before its
+dependencies are provisioned. Only the standard library and its contained_files
+leaf are permitted; never pull in the indexer or tool environment.
 
 Fail-safe coercion: only a list contributes prefixes; a string, dict or other
 value yields none, and non-string items are skipped. Each token has whitespace
@@ -24,6 +24,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Iterable
+
+from contained_files import DEFAULT_MAX_BYTES, read_contained_bytes
 
 INDEXING_KEY = "indexing"
 PROJECT_INCLUDE_PREFIXES_KEY = "project_include_prefixes"
@@ -60,7 +62,8 @@ def read_project_include_prefixes(root: Path) -> dict[str, tuple[str, ...]]:
     """The ``docs`` and ``code`` include-prefix tuples from ``root``'s workflow config. Never raises."""
     cfg = Path(root) / "docs" / "workflow-config.json"
     try:
-        data = json.loads(cfg.read_text(encoding="utf-8"))
+        raw = read_contained_bytes(root, cfg, max_bytes=DEFAULT_MAX_BYTES)
+        data = json.loads(raw.decode("utf-8"))
     except (OSError, ValueError):
         return _empty()
     if not isinstance(data, dict):

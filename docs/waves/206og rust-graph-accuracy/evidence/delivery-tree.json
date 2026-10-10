@@ -1,0 +1,15 @@
+{
+  ".wavefoundry/framework/scripts/graph_indexer.py": "150d375b327f805b24e7072c1e8c0e210aa9c9d4",
+  ".wavefoundry/framework/scripts/graph_query.py": "592687dd5a103bd523d27af04d4954c02a5d3f17",
+  ".wavefoundry/framework/scripts/wf_server/graph_handlers.py": "540ed2d3b012cc5d73d48ae5bc831712af7a31e3",
+  ".wavefoundry/framework/scripts/tests/test_graph_call_integrity.py": "ca08a93582cee370e7215afee69276ac92fb93b9",
+  ".wavefoundry/framework/scripts/tests/test_graph_indexer.py": "8e9c1ac86631cabecd1294abc1d285ca060699e9",
+  ".wavefoundry/framework/scripts/tests/test_graph_quality_eval.py": "b1a8afcc95ede375d6aa0396080412c134c66617",
+  ".wavefoundry/framework/scripts/tests/test_graph_rust_provenance.py": "676b7d2694277b1350b5aec227ebd2ced981dbd5",
+  "docs/RELIABILITY.md": "26b04d0e289b694bd0d6ff7bd4d06cfb229a044e",
+  "docs/reports/graph-quality-post.json": "448b43f3274f758685e997ea513e2a356b029ae7",
+  "docs/specs/mcp-tool-surface.md": "31e15b8a80954dec0c7a6374058eaedf84780e46",
+  "docs/architecture/data-and-control-flow.md": "98b6164c012484f93bce9352855fec456a390bdc",
+  "docs/architecture/testing-architecture.md": "3ff220dc693ff252f9701e9d69cc5ec73a290a78",
+  "CHANGELOG.md": "cae8ea22584006edbfeb74fc737df4fe0766b4c7"
+}

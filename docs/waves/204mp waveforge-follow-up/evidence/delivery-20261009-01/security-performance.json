@@ -1,0 +1,890 @@
+{
+  "context_id": "wf-integrated-security-performance-delivery-20261009-01",
+  "role_disclosure": "Fresh independent security-reviewer for 207lx and public204mp delta; performance-reviewer for 207t4. Distinct specialist remits share this context. I implemented none of these changes and authored no repair evidence. Earlier public security approval belongs to its original reviewer/context, not mine.",
+  "method": "wf-review-wave skill/backing prompt and seed209; live MCP retrieval first. No unavailable-tool fallback required.",
+  "verdicts": {
+    "207lx/security-reviewer": {
+      "verdict": "approved-with-notes",
+      "overall_security_severity": "none",
+      "judgment": "Canonical phase-origin sealing and phase-selected relation preserve readiness findings and conservative unknown origins, stale receipt validity, actor/independence binding, terminal delivery freshness, and operator blocking. Same ledger admits a delivery repair plan while close still refuses; no filtering/rewriting. Structured withheld diagnostics expose actual remedy. No credible threat or exploit chain introduced under current local trusted-operator model.",
+      "approval_payload": {
+        "wave_id": "207lx readiness-phase-isolation",
+        "event": "approval",
+        "actor": "security-reviewer",
+        "context_id": "wf-integrated-security-performance-delivery-20261009-01",
+        "signoff_key": "security-reviewer",
+        "approval_phase": "delivery",
+        "fresh_context": true,
+        "independent": true,
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "Actual canonical authoring rejects wrong actor and independence; injected council-only readiness exemption and unsealed-origin exemption each fail the public admission/withheld assertions."
+        },
+        "evidence": {
+          "observed": "Fresh canonical producer scratch: six readiness lanes approved despite unresolved delivery finding; paired delivery withheld; admission dry-run accepts and close dry-run rejects. Readiness finding reverses admission to error and gives independent reverification remedy. Mutable phase cannot relabel origin; unknown origin withholds. Invalid actor/non-independent create refuses and ledger bytes unchanged. Phase8 + integrity/stale/independence38 selected tests green, zero skips; two reaching phase mutants detected.",
+          "artifact_or_test_id": "/tmp/wf-integrated-security-performance-delivery-report.json",
+          "public_path": "wf_review_event_response \u2192 canonical external ledger \u2192 wf_review_wave_response(prepare)/wf_implement_wave_response(dry_run)/wf_close_wave_response(dry_run); review_authority_projection",
+          "command_or_fixture": "python3 -B /tmp/wf-secperf-phase.py; selected phase/integrity owner tests; /tmp/wf-secperf-mutants.py",
+          "expected": "Admitted contract holds on current frozen tree; negative controls fail genuine assertions; no unintended skips.",
+          "known_bad_detection_method": "Actual canonical authoring rejects wrong actor and independence; injected council-only readiness exemption and unsealed-origin exemption each fail the public admission/withheld assertions.",
+          "limitations": "macOS local execution only; no native Windows, WSL2, Linux, live downstream Waveforge or native partition semantic certification.; Loaded MCP setup/index assessment remains indeterminate; callable live code_read/outline used for disk source and fresh Python processes for execution. No host readiness claim.; Actor identity and freshness are declared protocol facts, not caller authentication; trusted operator-owned data and same-user processes retain existing documented threat assumptions.; No private B1\u2013B5 scope, C6 work, closure, commit, push, setup, full-suite rerun or live-index mutation performed. Canonical suite/graph results supplied by coordinator are contextual evidence, not independent runs by this reviewer.; Selected fixture gardening/post-write lint is stubbed; canonical producers, admission/close dry runs, actor binding, identity replay and review-authority functions are real. C5 incoming rendering/preview children and controlled graph response consumers execute actual code.; Initial runtime mutant attempts patched an obsolete module object and did not reach the consumer; loader-binding calibration was repaired. Only the seven reaching assertion failures are credited.; Completeness validates stored representation and eligible identities/fixed buckets, not exact historical production membership. Equal-count nonseed production swaps can pass structural completeness; a trusted prior membership digest would add a guarantee outside admitted scope.; Scale topology: 1k/10k/50k functions, disjoint 100-node stars with 0.99 edges/node, 25% fixed test buckets, others production. Five local reuse repetitions and one reset/recovery measurement per size; not dense/cross-package graph, contention, end-to-end source extraction or percentile qualification. Lock hold is successful BEGIN IMMEDIATE return through COMMIT return; acquisition wait reported separately. Graph/semantic row participants are not materialized in scale probe, which isolates community replacement cost.",
+          "safety_and_authorization": "Operator-authorized full required-lane review; all mutable probe state confined to temporary roots/copies; no source, docs, event, lifecycle, real setup/index writes, commit, push or closure."
+        }
+      }
+    },
+    "204mp/security-reviewer": {
+      "verdict": "approved-with-notes",
+      "overall_security_severity": "none",
+      "recheck_need": "Narrow C5 paragraph/escape/setext mask repair alone could retain earlier security approval under that original review. The integrated shared review_evidence phase-semantics change is load-bearing authority behavior, so I performed a fresh integration security recheck of C4 recognition/replay/authority plus C5 containment/preview. This is my current delta judgment, not adoption of earlier-context evidence or certification of private pending scope.",
+      "judgment": "The executed actor/phase authority and contained-file/preview boundaries remain approved with notes. Declared aliases preserve council versus reviewer/operator authority; historical replay and canonical writes remain distinct, and actual reload reflects declarations. Selected contained peer refusal, preflight/collision, retry identity and private -B UTF8 tree-kill preview controls passed. The newly reported container-reference omissions, HTML/example rewrites, invalid fence-info and escaped-link omissions, and directory-changing native-pair omission are real public preservation/exact-link correctness blockers. They invalidate an overall C5 contract-success claim. The supplied observations show writes or missed rewrites within operator-owned authorized current documents, with mode preserved; they establish neither an escaped file write nor a less-trusted actor gaining authority, external execution, secrets disclosure, or a preview write. I therefore add no separate security blocker or credible-threat severity under the current trusted-operator local model. No claim that all user content or Markdown forms are preserved is made. re.escape and no shell interpolation in changed name scanning remain observed; no security exploit chain identified in this bounded remit.",
+      "approval_payload": {
+        "wave_id": "204mp waveforge-follow-up",
+        "event": "approval",
+        "actor": "security-reviewer",
+        "context_id": "wf-integrated-security-performance-delivery-20261009-01",
+        "signoff_key": "security-reviewer",
+        "approval_phase": "delivery",
+        "fresh_context": true,
+        "independent": true,
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "Copied incoming setext-disabled, escape-disabled and whole-document inline-region mutants fail actual upgrade preservation assertions; invalid alias/collision/authority and preview unavailability controls refuse through actual paths."
+        },
+        "evidence": {
+          "observed": "Fourteen selected controls passed without skips: canonical actor declaration/replay/runtime collisions and actual reload; all-pair preflight, contained peer refusal, retry role identity, interrupted-driver retry, actual private -B/UTF8/tree-kill preview launch, unavailable-helper refusal without child and unrelated loader failure propagation. The selected35 installing/reinstall literal CRLF cases and history/mode controls passed, and three copied source mutants failed their corresponding byte assertions; those selected results do not prove the full C5 contract. I inspected the other independent reviewers' actual result artifacts: seven additional C5 preservation/link cases fail, and a directory-changing existing native-role pair remains stale after move/retry. These are unresolved public correctness findings; code/QA and architecture/docs approvals stay withheld. They supply no evidenced authority or filesystem-containment escalation, so the narrow security judgment stands.",
+          "artifact_or_test_id": "/tmp/wf-integrated-security-performance-delivery-report.json",
+          "public_path": "phase_surface_rendering on actual copied incoming scripts; migrate_council_role_renames; _preview_council_role_links actual Popen; wf_review_event_response and perform_mcp_reload in copied declared-actor profile",
+          "command_or_fixture": "python3 -B /tmp/wf-secperf-review-controls.py baseline public14; python3 -B /tmp/wf-secperf-mutants.py C5 copied source changes",
+          "expected": "Executed security controls retain canonical actor/phase binding, reviewer/operator separation, historical ledger identity, contained-file refusal, all-pair preflight, mode preservation, retry identity and bounded private preview isolation. This expectation excludes overall C5 parser preservation/exact-link correctness, whose required-lane approvals remain withheld.",
+          "known_bad_detection_method": "Copied incoming setext-disabled, escape-disabled and whole-document inline-region mutants fail actual upgrade preservation assertions; invalid alias/collision/authority and preview unavailability controls refuse through actual paths.",
+          "limitations": "macOS local execution only; no native Windows, WSL2, Linux, live downstream Waveforge or native partition semantic certification.; Loaded MCP setup/index assessment remains indeterminate; callable live code_read/outline used for disk source and fresh Python processes for execution. No host readiness claim.; Actor identity and freshness are declared protocol facts, not caller authentication; trusted operator-owned data and same-user processes retain existing documented threat assumptions.; No private B1\u2013B5 scope, C6 work, closure, commit, push, setup, full-suite rerun or live-index mutation performed. Canonical suite/graph results supplied by coordinator are contextual evidence, not independent runs by this reviewer.; Selected fixture gardening/post-write lint is stubbed; canonical producers, admission/close dry runs, actor binding, identity replay and review-authority functions are real. C5 incoming rendering/preview children and controlled graph response consumers execute actual code.; Initial runtime mutant attempts patched an obsolete module object and did not reach the consumer; loader-binding calibration was repaired. Only the seven reaching assertion failures are credited.; Completeness validates stored representation and eligible identities/fixed buckets, not exact historical production membership. Equal-count nonseed production swaps can pass structural completeness; a trusted prior membership digest would add a guarantee outside admitted scope.; Scale topology: 1k/10k/50k functions, disjoint 100-node stars with 0.99 edges/node, 25% fixed test buckets, others production. Five local reuse repetitions and one reset/recovery measurement per size; not dense/cross-package graph, contention, end-to-end source extraction or percentile qualification. Lock hold is successful BEGIN IMMEDIATE return through COMMIT return; acquisition wait reported separately. Graph/semantic row participants are not materialized in scale probe, which isolates community replacement cost.; Public C5 is not correct overall: independently reported container references, HTML preservation, invalid fence-info, escaped-link forms and directory-changing native-pair failures remain blocking. These result artifacts were inspected by this reviewer, not independently executed here, and are not credited to my own executed integrity booleans.",
+          "safety_and_authorization": "Operator-authorized full required-lane review; all mutable probe state confined to temporary roots/copies; no source, docs, event, lifecycle, real setup/index writes, commit, push or closure."
+        }
+      },
+      "scope_of_approval": "Only executed security/authority/containment remit: canonical actor binding/aliases/history/reload, review phase authority, path confinement and collision/preflight/refusal controls, mode preservation and bounded/private preview subprocess isolation. Does not approve the overall C5 Markdown preservation or exact-link repair contract.",
+      "public_correctness_approvals": "withheld; independent code/QA and architecture/docs-contract blockers remain unresolved on the frozen source"
+    },
+    "207t4/performance-reviewer": {
+      "verdict": "approved-with-notes",
+      "judgment": "Both reset branches construct full replacements outside the sole publication transaction. Valid unchanged reuse does zero DB writes and invokes neither clustering nor betweenness; completeness adds a graph/member build-path scan outside the lock. Missing-member recovery recomputes and writes exactly one membership plus analysis rather than rewriting all memberships. Scale cost is acceptable for observed sparse workload; no standing budget weakened and no locked analysis added. Graph-indexer admitted delta is analysis_recomputed metadata, retaining earlier Rust extractor source. Stored-consumer identity/order/limits/hubs pass through real SQLite and public handler. Stronger persisted digest considered, not admitted; structural/semantic limits remain explicit.",
+      "approval_payload": {
+        "wave_id": "207t4 graph-community-publication",
+        "event": "approval",
+        "actor": "performance-reviewer",
+        "context_id": "wf-integrated-security-performance-delivery-20261009-01",
+        "signoff_key": "performance-reviewer",
+        "approval_phase": "delivery",
+        "fresh_context": true,
+        "independent": true,
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "Actual public consumer assertion fails when reset diff uses pre-reset baseline; missing-member recovery assertion fails when completeness is bypassed. Valid positive/no-op controls prevent a blanket-recompute false fix."
+        },
+        "evidence": {
+          "observed": "Fresh actual producers/publication at1k/10k/50k sparse nodes: valid reuse9.3/106.1/562.9ms median over five; zero DB writes/expensive analysis. Reset reuse writer-held3.32/19.76/113.61ms, reset recompute held3.15/21.96/112.90ms after outside-lock preparation. 50k missing-member recovery prepared2119ms and held1.72ms, inserting exactly one member. Graph14 targeted controls zero skips, including actual build/orphan callers, rollback/old-reader/source/schema/layer behavior and real two production/two evidence artifact responses at limits1/2 with literal identities/counts/hubs. Pre-reset diff and incomplete reuse mutants detected.",
+          "artifact_or_test_id": "/tmp/wf-integrated-security-performance-delivery-report.json",
+          "public_path": "update_graph_clusters \u2192 prepare_cluster_publication \u2192 GraphPublication.apply \u2192 GraphCommunityPublication.apply inside BEGIN IMMEDIATE/COMMIT; wf_graph_report_response on fresh scratch publication",
+          "command_or_fixture": "python3 -B /tmp/wf-secperf-graph.py; selected graph/controlled response14; python3 -B /tmp/wf-secperf-mutants.py; python3 -B /tmp/wf-secperf-digest.py",
+          "expected": "Admitted contract holds on current frozen tree; negative controls fail genuine assertions; no unintended skips.",
+          "known_bad_detection_method": "Actual public consumer assertion fails when reset diff uses pre-reset baseline; missing-member recovery assertion fails when completeness is bypassed. Valid positive/no-op controls prevent a blanket-recompute false fix.",
+          "limitations": "macOS local execution only; no native Windows, WSL2, Linux, live downstream Waveforge or native partition semantic certification.; Loaded MCP setup/index assessment remains indeterminate; callable live code_read/outline used for disk source and fresh Python processes for execution. No host readiness claim.; Actor identity and freshness are declared protocol facts, not caller authentication; trusted operator-owned data and same-user processes retain existing documented threat assumptions.; No private B1\u2013B5 scope, C6 work, closure, commit, push, setup, full-suite rerun or live-index mutation performed. Canonical suite/graph results supplied by coordinator are contextual evidence, not independent runs by this reviewer.; Selected fixture gardening/post-write lint is stubbed; canonical producers, admission/close dry runs, actor binding, identity replay and review-authority functions are real. C5 incoming rendering/preview children and controlled graph response consumers execute actual code.; Initial runtime mutant attempts patched an obsolete module object and did not reach the consumer; loader-binding calibration was repaired. Only the seven reaching assertion failures are credited.; Completeness validates stored representation and eligible identities/fixed buckets, not exact historical production membership. Equal-count nonseed production swaps can pass structural completeness; a trusted prior membership digest would add a guarantee outside admitted scope.; Scale topology: 1k/10k/50k functions, disjoint 100-node stars with 0.99 edges/node, 25% fixed test buckets, others production. Five local reuse repetitions and one reset/recovery measurement per size; not dense/cross-package graph, contention, end-to-end source extraction or percentile qualification. Lock hold is successful BEGIN IMMEDIATE return through COMMIT return; acquisition wait reported separately. Graph/semantic row participants are not materialized in scale probe, which isolates community replacement cost.",
+          "safety_and_authorization": "Operator-authorized full required-lane review; all mutable probe state confined to temporary roots/copies; no source, docs, event, lifecycle, real setup/index writes, commit, push or closure."
+        }
+      }
+    }
+  },
+  "findings": [],
+  "tree_fingerprint_before": {
+    ".wavefoundry/framework/scripts/graph_cluster.py": "54638186c4e15abc413f6b1e76b9d231b798a153",
+    ".wavefoundry/framework/scripts/graph_indexer.py": "15042cd748a46d24cbb22dc0f1bde7c1ded178fb",
+    ".wavefoundry/framework/scripts/indexer.py": "ca3c080364aebdafe18f51fea5236feaf3d5f530",
+    ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "9acc50b3cfab00c559010baf20919f203e48828f",
+    ".wavefoundry/framework/scripts/lifecycle_gates.py": "207a2c0c84c7e582efb9ad695367dff4072b5f87",
+    ".wavefoundry/framework/scripts/render_agent_surfaces.py": "5e1c9b9094a97acaf7b6f77fb581dbe6c9cea54b",
+    ".wavefoundry/framework/scripts/review_evidence.py": "54b806ae9a9409cb26be6a5653a1bb6adb9ac45e",
+    ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "e99355979ac908aefa5d2c4ee66dec6ab7c4c7f0",
+    ".wavefoundry/framework/scripts/tests/fixtures/lifecycle-gate-golden.json": "27c62ab52e6f3620f551fdc6b2178f5e9dbe7e0b",
+    ".wavefoundry/framework/scripts/tests/fixtures/profiles/prompt-names.json": "2be75d0d053b7f66c066934ebef6ab484d081c66",
+    ".wavefoundry/framework/scripts/tests/framework_text_ownership.py": "f460fdf00e3669ee04ca6d5b702b715e9d890d8c",
+    ".wavefoundry/framework/scripts/tests/record_layout_support.py": "5e2a500a063fa9423b2063b0e6d46e5bad731268",
+    ".wavefoundry/framework/scripts/tests/test_council_signoff_keys.py": "934a5d7cb982f03fd6adeb98c7cb226979502aa3",
+    ".wavefoundry/framework/scripts/tests/test_distribution_seams.py": "a53ed1662178217727f5f1d9d35f26e12e47e8e3",
+    ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": "7f1188b4486c2e193294e686d2d11b297f1dd1cf",
+    ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": "e3c932fadf23e0d44603e572c37beae6876e3949",
+    ".wavefoundry/framework/scripts/tests/test_indexer.py": "20b217f99dbd79823177940105b5aeb326429143",
+    ".wavefoundry/framework/scripts/tests/test_legacy_council_actors.py": "09c6bff158ba0e001ed344cb8ad0ca4cba62fb18",
+    ".wavefoundry/framework/scripts/tests/test_lifecycle_gates.py": "f497ffaf555aff15b0eb909a00bc8fdef3874a73",
+    ".wavefoundry/framework/scripts/tests/test_lifecycle_golden.py": "78375f503090b8b4fc064599e70fc6059a0972eb",
+    ".wavefoundry/framework/scripts/tests/test_phase_gates.py": "e09464efe152022abf28514af4e3b3bf5e5a0e95",
+    ".wavefoundry/framework/scripts/tests/test_profile_support.py": "82e5060e3a85029052d1c876c28aed28eb583710",
+    ".wavefoundry/framework/scripts/tests/test_readiness_convergence.py": "fd675ca2c67e52c831b4fe61e9dc1287c1f10d77",
+    ".wavefoundry/framework/scripts/tests/test_review_evidence.py": "6ea8a4f58b280e68e42ba2f37ec357ce7f386aa3",
+    ".wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py": "01583b714ead53c5a5a286ced02613501f25c0d7",
+    ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "2b69eecb3aa83fc89c7c037f86612cee3fec9102",
+    ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py": "776c7c2df9d89a00be456ec597359669ca3c8168",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "71e627b00922d37056d3fad4055f14483b418aea",
+    ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "42f7785097f2491dd6231fc84673c54ee1df4db1",
+    ".wavefoundry/framework/scripts/upgrade_extensions.py": "e20de384cc4119f3e7146ae93406a39042b0359b",
+    ".wavefoundry/framework/scripts/vocabulary_profile.py": "f9a4d28c30b3645ebf9336853d17e7b78cd2b02d",
+    ".wavefoundry/framework/scripts/wf_server/server_impl.py": "a9bf342af0c05c6a69a05adc4e112b13f535cee0",
+    "CHANGELOG.md": "bb18586b3933d91d35730771f15d8b5116a17173",
+    "docs/ARCHITECTURE.md": "71d11346469e141def3f5cd1bb01156f2d639c28",
+    "docs/architecture/cross-cutting-concerns.md": "c25b6a1a1c691ee046364d3e53355822cba27e48",
+    "docs/architecture/data-and-control-flow.md": "5a773042c3d898191fc53f5cbeb44dc3f113ad4e",
+    "docs/architecture/domain-map.md": "887fdfe9b73cc7fdaf83d4250ec5e033401c3321",
+    "docs/architecture/testing-architecture.md": "235de8aa6603d17c866c6741c3718499a1452bb9",
+    "docs/specs/mcp-tool-surface.md": "b7e5f21b737ac76f7cb604f775bdfcc88acc45db"
+  },
+  "tree_fingerprint_after": {
+    ".wavefoundry/framework/scripts/graph_cluster.py": "54638186c4e15abc413f6b1e76b9d231b798a153",
+    ".wavefoundry/framework/scripts/graph_indexer.py": "15042cd748a46d24cbb22dc0f1bde7c1ded178fb",
+    ".wavefoundry/framework/scripts/indexer.py": "ca3c080364aebdafe18f51fea5236feaf3d5f530",
+    ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "9acc50b3cfab00c559010baf20919f203e48828f",
+    ".wavefoundry/framework/scripts/lifecycle_gates.py": "207a2c0c84c7e582efb9ad695367dff4072b5f87",
+    ".wavefoundry/framework/scripts/render_agent_surfaces.py": "5e1c9b9094a97acaf7b6f77fb581dbe6c9cea54b",
+    ".wavefoundry/framework/scripts/review_evidence.py": "54b806ae9a9409cb26be6a5653a1bb6adb9ac45e",
+    ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "e99355979ac908aefa5d2c4ee66dec6ab7c4c7f0",
+    ".wavefoundry/framework/scripts/tests/fixtures/lifecycle-gate-golden.json": "27c62ab52e6f3620f551fdc6b2178f5e9dbe7e0b",
+    ".wavefoundry/framework/scripts/tests/fixtures/profiles/prompt-names.json": "2be75d0d053b7f66c066934ebef6ab484d081c66",
+    ".wavefoundry/framework/scripts/tests/framework_text_ownership.py": "f460fdf00e3669ee04ca6d5b702b715e9d890d8c",
+    ".wavefoundry/framework/scripts/tests/record_layout_support.py": "5e2a500a063fa9423b2063b0e6d46e5bad731268",
+    ".wavefoundry/framework/scripts/tests/test_council_signoff_keys.py": "934a5d7cb982f03fd6adeb98c7cb226979502aa3",
+    ".wavefoundry/framework/scripts/tests/test_distribution_seams.py": "a53ed1662178217727f5f1d9d35f26e12e47e8e3",
+    ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": "7f1188b4486c2e193294e686d2d11b297f1dd1cf",
+    ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": "e3c932fadf23e0d44603e572c37beae6876e3949",
+    ".wavefoundry/framework/scripts/tests/test_indexer.py": "20b217f99dbd79823177940105b5aeb326429143",
+    ".wavefoundry/framework/scripts/tests/test_legacy_council_actors.py": "09c6bff158ba0e001ed344cb8ad0ca4cba62fb18",
+    ".wavefoundry/framework/scripts/tests/test_lifecycle_gates.py": "f497ffaf555aff15b0eb909a00bc8fdef3874a73",
+    ".wavefoundry/framework/scripts/tests/test_lifecycle_golden.py": "78375f503090b8b4fc064599e70fc6059a0972eb",
+    ".wavefoundry/framework/scripts/tests/test_phase_gates.py": "e09464efe152022abf28514af4e3b3bf5e5a0e95",
+    ".wavefoundry/framework/scripts/tests/test_profile_support.py": "82e5060e3a85029052d1c876c28aed28eb583710",
+    ".wavefoundry/framework/scripts/tests/test_readiness_convergence.py": "fd675ca2c67e52c831b4fe61e9dc1287c1f10d77",
+    ".wavefoundry/framework/scripts/tests/test_review_evidence.py": "6ea8a4f58b280e68e42ba2f37ec357ce7f386aa3",
+    ".wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py": "01583b714ead53c5a5a286ced02613501f25c0d7",
+    ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "2b69eecb3aa83fc89c7c037f86612cee3fec9102",
+    ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py": "776c7c2df9d89a00be456ec597359669ca3c8168",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "71e627b00922d37056d3fad4055f14483b418aea",
+    ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "42f7785097f2491dd6231fc84673c54ee1df4db1",
+    ".wavefoundry/framework/scripts/upgrade_extensions.py": "e20de384cc4119f3e7146ae93406a39042b0359b",
+    ".wavefoundry/framework/scripts/vocabulary_profile.py": "f9a4d28c30b3645ebf9336853d17e7b78cd2b02d",
+    ".wavefoundry/framework/scripts/wf_server/server_impl.py": "a9bf342af0c05c6a69a05adc4e112b13f535cee0",
+    "CHANGELOG.md": "bb18586b3933d91d35730771f15d8b5116a17173",
+    "docs/ARCHITECTURE.md": "71d11346469e141def3f5cd1bb01156f2d639c28",
+    "docs/architecture/cross-cutting-concerns.md": "c25b6a1a1c691ee046364d3e53355822cba27e48",
+    "docs/architecture/data-and-control-flow.md": "5a773042c3d898191fc53f5cbeb44dc3f113ad4e",
+    "docs/architecture/domain-map.md": "887fdfe9b73cc7fdaf83d4250ec5e033401c3321",
+    "docs/architecture/testing-architecture.md": "235de8aa6603d17c866c6741c3718499a1452bb9",
+    "docs/specs/mcp-tool-surface.md": "b7e5f21b737ac76f7cb604f775bdfcc88acc45db"
+  },
+  "tree_unchanged": true,
+  "scope_sha256": {
+    "public": {
+      ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "65c9d11276eadefb0b6a5e72ae16400ec94f813006a9f3da1dc6a6f23d3f21c3",
+      ".wavefoundry/framework/scripts/render_agent_surfaces.py": "7ae9da161df0716050f8c0f931911b7c3a068fc3488151528008bd4b8ef5f605",
+      ".wavefoundry/framework/scripts/review_evidence.py": "7696b2ba0c4e151ed383b39c76273ea1f5fe286dcab95969562e9daaacd78cbc",
+      ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "7c766dc1385416beb80f8f6063d7dc194c281aec236569997850e4aa8236da5c",
+      ".wavefoundry/framework/scripts/tests/fixtures/profiles/prompt-names.json": "68aa7cd256da36493a8250d147685c99cb36c16056179d7cd36e9a988ad9395a",
+      ".wavefoundry/framework/scripts/tests/framework_text_ownership.py": "2d4257cd4f6a3981f8f38d978b6646cc4d059dea7f1e86c16b7cb9a75c92dc18",
+      ".wavefoundry/framework/scripts/tests/record_layout_support.py": "286c3cfa93851c18c3fe56a390fc178923aaaf1c9658542f594aa630a0fdeb49",
+      ".wavefoundry/framework/scripts/tests/test_council_signoff_keys.py": "2053e10a2734e186588d6cb28ef4ad2bdfb4d90f199c8b5eb596decfe4fdd2e5",
+      ".wavefoundry/framework/scripts/tests/test_distribution_seams.py": "b25c4d0c6c61beb2c961087d1c119d74fc9b1c39db1c3f344a209be1881c7c4c",
+      ".wavefoundry/framework/scripts/tests/test_legacy_council_actors.py": "2b52ff5294874c58fc870e1a1260e5d301615e73e5a55e2c3c50a8ef35934fb1",
+      ".wavefoundry/framework/scripts/tests/test_profile_support.py": "bca8cabaafb7d8c3b264d1577e639f6466aaa73d9c93fe13bca31bb4cbbbcb88",
+      ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py": "0da7557197c9ca7d823578789dba5417a971f9ac7ce948c5c16fdf7558f23cf6",
+      ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "207cc3e15d288cae8f6d99dd47447d60a6b55e5b6de9ce72778ac83ee0837fdb",
+      ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "f852874bb308acc363973dc33919327cf8133311f73cd5731de56219971d347a",
+      ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+      ".wavefoundry/framework/scripts/vocabulary_profile.py": "5a1f4a5902eddc99137664f176cb5706ab266014b3bf9f54cb68a86dbb1e03b4",
+      "CHANGELOG.md": "f23cc3ddfde9b1198bc7a9b6b8f66b98bad4aa0d08ee1940984116bc11255a0c",
+      "docs/ARCHITECTURE.md": "599f3b205bd75c3c9b0a6766f47e0924c3a52cf7ece61052f5b30ba573d12b15",
+      "docs/architecture/cross-cutting-concerns.md": "374319b418416993f1927ae4bda814fba513bdaf6e5bc70170dd7e0030382c8f",
+      "docs/architecture/data-and-control-flow.md": "65aef7155f31ea3a65ddc72b11de52c5c2320c6d7ec2ccba41ab80bb252c420a",
+      "docs/architecture/domain-map.md": "c05f3e2226e19ca567ac7e3157dd31fa63fda6d5accb495fe92d22eed6acfba9",
+      "docs/architecture/testing-architecture.md": "c6960a2fea0a9fc021c7e07c3e113d37e6099c0c198729d395d39fdc765f7a65",
+      "docs/specs/mcp-tool-surface.md": "46abe7a4f05010e692897f90c599778a25284d48df93d19fda27abde7550337c"
+    },
+    "phase": {
+      ".wavefoundry/framework/scripts/review_evidence.py": "7696b2ba0c4e151ed383b39c76273ea1f5fe286dcab95969562e9daaacd78cbc",
+      ".wavefoundry/framework/scripts/lifecycle_gates.py": "155e7f0f786f0f4e16e9e861357e31e35e6518d4dc888440c7d1b7b094bc2b8e",
+      ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "65c9d11276eadefb0b6a5e72ae16400ec94f813006a9f3da1dc6a6f23d3f21c3",
+      ".wavefoundry/framework/scripts/wf_server/server_impl.py": "ea4dac9211bb747a025e9df200e89ac6e284c792b1c9790b99fc16e1eae0dd48",
+      ".wavefoundry/framework/scripts/tests/test_review_evidence.py": "44bc30c2999a91f405669c187fc2c1e4cc26e5dcb24cd20efc2750271ed8c7a3",
+      ".wavefoundry/framework/scripts/tests/test_lifecycle_gates.py": "3a503cdadff6df671e6be74fc8ec3f4d47979252873cb7ae736a77d9b379d016",
+      ".wavefoundry/framework/scripts/tests/test_phase_gates.py": "eecba79b4b1351aaeec91b98e86297b30ea5fb366b060a9d8d65c8bc9dcbac58",
+      ".wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py": "b1b984f6458481b6bdc0218ad9cbbe8382fde0a1cf4be62b537aa253854d47cc",
+      ".wavefoundry/framework/scripts/tests/test_lifecycle_golden.py": "3722fc8bb3cf835b461e051ee6415a20841feeee45b30701a1e9573ffc92bb2e",
+      ".wavefoundry/framework/scripts/tests/test_readiness_convergence.py": "a3a923f78fb2d9401c8f0417f74a339eca7f9f491fe43be3bbb39883b22666ed",
+      ".wavefoundry/framework/scripts/tests/fixtures/lifecycle-gate-golden.json": "01698151de7919965d1b2dc27f814eb80e28f8cb00877c5a4f2d42eeeaac5e80",
+      "docs/specs/mcp-tool-surface.md": "46abe7a4f05010e692897f90c599778a25284d48df93d19fda27abde7550337c"
+    },
+    "graph": {
+      ".wavefoundry/framework/scripts/indexer.py": "3e1c935ccfe460a82c288c46d61f49460351f8d953a5084641681dac700c7605",
+      ".wavefoundry/framework/scripts/graph_indexer.py": "0f193c0b4e9f8eedf7ce113a9fd3bd6caa9970f36dca98d2ad385500d23fcd3c",
+      ".wavefoundry/framework/scripts/graph_cluster.py": "c861d84f039c323c755842f355ad159fa2ac1c0133beea537dcca2a6bcd3b0fe",
+      ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": "19736b0bc4a031fc2605994b062f566ac4054355157befacbb49f347dbe7ccac",
+      ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": "b6fcf1e5ac291408182cdeb7696537849f9a479c44b6fa12621aaaa95c488da9",
+      ".wavefoundry/framework/scripts/tests/test_indexer.py": "5d89b3ef32d48b726df97258c53330f99fc0799a9b09feaaae35e728a185e22f",
+      ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "0e292d7d5643fe2339167cd8fdca3507c6aeeb9ab1a78cc5779f1ba5bb920992",
+      "docs/architecture/data-and-control-flow.md": "65aef7155f31ea3a65ddc72b11de52c5c2320c6d7ec2ccba41ab80bb252c420a",
+      "docs/architecture/testing-architecture.md": "c6960a2fea0a9fc021c7e07c3e113d37e6099c0c198729d395d39fdc765f7a65"
+    }
+  },
+  "time_budget": "1800 seconds; report limitations when budget reached",
+  "sweep_rule": "Targeted assertions per scratch mutant; whole-file only for surviving mutants. Never change repository source or weaken production assertions.",
+  "measurements": {
+    "timings": [
+      {
+        "nodes": 1000,
+        "edges": 990,
+        "initial_compute_ms": 120.84916606545448,
+        "communities": 8,
+        "reuses": [
+          10.023374808952212,
+          11.16579188965261,
+          9.253708180040121,
+          9.309125132858753,
+          9.308666922152042
+        ],
+        "reset_reuse_prepare_ms": 9.660874959081411,
+        "reset_reuse_publish": {
+          "wait_ms": 0.00695791095495224,
+          "held_ms": 3.3242921344935894,
+          "counts": {
+            "nodes": 0,
+            "edges": 0,
+            "files": 0,
+            "files_retired": 0,
+            "fragments": 0,
+            "fragments_retired": 0,
+            "owners_rewritten": 0,
+            "reset": 1,
+            "communities": 8,
+            "communities_retired": 0,
+            "members": 1000,
+            "members_retired": 0,
+            "analysis": 1
+          }
+        },
+        "reset_recompute_prepare_ms": 23.979166988283396,
+        "reset_recompute_publish": {
+          "wait_ms": 0.004125060513615608,
+          "held_ms": 3.1450828537344933,
+          "counts": {
+            "nodes": 0,
+            "edges": 0,
+            "files": 0,
+            "files_retired": 0,
+            "fragments": 0,
+            "fragments_retired": 0,
+            "owners_rewritten": 0,
+            "reset": 1,
+            "communities": 8,
+            "communities_retired": 0,
+            "members": 1000,
+            "members_retired": 0,
+            "analysis": 1
+          }
+        },
+        "recovery_prepare_ms": 32.28616598062217,
+        "recovery_publish": {
+          "wait_ms": 0.004416098818182945,
+          "held_ms": 1.2152090203016996,
+          "counts": {
+            "nodes": 0,
+            "edges": 0,
+            "files": 0,
+            "files_retired": 0,
+            "fragments": 0,
+            "fragments_retired": 0,
+            "owners_rewritten": 0,
+            "reset": 0,
+            "communities": 0,
+            "communities_retired": 0,
+            "members": 1,
+            "members_retired": 0,
+            "analysis": 1
+          }
+        }
+      },
+      {
+        "nodes": 10000,
+        "edges": 9900,
+        "initial_compute_ms": 250.73095900006592,
+        "communities": 76,
+        "reuses": [
+          104.46587507613003,
+          121.48212478496134,
+          106.09429096803069,
+          103.10887498781085,
+          106.35112505406141
+        ],
+        "reset_reuse_prepare_ms": 110.50800001248717,
+        "reset_reuse_publish": {
+          "wait_ms": 0.015584053471684456,
+          "held_ms": 19.763832911849022,
+          "counts": {
+            "nodes": 0,
+            "edges": 0,
+            "files": 0,
+            "files_retired": 0,
+            "fragments": 0,
+            "fragments_retired": 0,
+            "owners_rewritten": 0,
+            "reset": 1,
+            "communities": 76,
+            "communities_retired": 0,
+            "members": 10000,
+            "members_retired": 0,
+            "analysis": 1
+          }
+        },
+        "reset_recompute_prepare_ms": 265.6362091656774,
+        "reset_recompute_publish": {
+          "wait_ms": 0.014999881386756897,
+          "held_ms": 21.956834010779858,
+          "counts": {
+            "nodes": 0,
+            "edges": 0,
+            "files": 0,
+            "files_retired": 0,
+            "fragments": 0,
+            "fragments_retired": 0,
+            "owners_rewritten": 0,
+            "reset": 1,
+            "communities": 76,
+            "communities_retired": 0,
+            "members": 10000,
+            "members_retired": 0,
+            "analysis": 1
+          }
+        },
+        "recovery_prepare_ms": 363.4197919163853,
+        "recovery_publish": {
+          "wait_ms": 0.010875053703784943,
+          "held_ms": 1.3956669718027115,
+          "counts": {
+            "nodes": 0,
+            "edges": 0,
+            "files": 0,
+            "files_retired": 0,
+            "fragments": 0,
+            "fragments_retired": 0,
+            "owners_rewritten": 0,
+            "reset": 0,
+            "communities": 0,
+            "communities_retired": 0,
+            "members": 1,
+            "members_retired": 0,
+            "analysis": 1
+          }
+        }
+      },
+      {
+        "nodes": 50000,
+        "edges": 49500,
+        "initial_compute_ms": 1409.7842909395695,
+        "communities": 376,
+        "reuses": [
+          539.8984579369426,
+          562.9357919096947,
+          563.656457932666,
+          567.0670841354877,
+          533.2818331662565
+        ],
+        "reset_reuse_prepare_ms": 605.9770830906928,
+        "reset_reuse_publish": {
+          "wait_ms": 0.023667002096772194,
+          "held_ms": 113.6109170038253,
+          "counts": {
+            "nodes": 0,
+            "edges": 0,
+            "files": 0,
+            "files_retired": 0,
+            "fragments": 0,
+            "fragments_retired": 0,
+            "owners_rewritten": 0,
+            "reset": 1,
+            "communities": 376,
+            "communities_retired": 0,
+            "members": 50000,
+            "members_retired": 0,
+            "analysis": 1
+          }
+        },
+        "reset_recompute_prepare_ms": 1564.186166971922,
+        "reset_recompute_publish": {
+          "wait_ms": 0.020624836906790733,
+          "held_ms": 112.90491698309779,
+          "counts": {
+            "nodes": 0,
+            "edges": 0,
+            "files": 0,
+            "files_retired": 0,
+            "fragments": 0,
+            "fragments_retired": 0,
+            "owners_rewritten": 0,
+            "reset": 1,
+            "communities": 376,
+            "communities_retired": 0,
+            "members": 50000,
+            "members_retired": 0,
+            "analysis": 1
+          }
+        },
+        "recovery_prepare_ms": 2119.298000121489,
+        "recovery_publish": {
+          "wait_ms": 0.020625069737434387,
+          "held_ms": 1.7245421186089516,
+          "counts": {
+            "nodes": 0,
+            "edges": 0,
+            "files": 0,
+            "files_retired": 0,
+            "fragments": 0,
+            "fragments_retired": 0,
+            "owners_rewritten": 0,
+            "reset": 0,
+            "communities": 0,
+            "communities_retired": 0,
+            "members": 1,
+            "members_retired": 0,
+            "analysis": 1
+          }
+        }
+      }
+    ],
+    "controls": []
+  },
+  "membership_digest_alternative": {
+    "structural_completeness_accepts_nonseed_equal_count_production_swap": true,
+    "prior_digest_detects_swap": true,
+    "note": "Stored completeness verifies eligible identity coverage, catalog attributes, fixed buckets and counts, not exact historic production partition. A trusted prior per-community digest would add that guarantee; it was considered at readiness but is outside this admitted change."
+  },
+  "canonical_producer_phase_controls": {
+    "cases": [
+      {
+        "origin": "initial_delivery",
+        "states": {
+          "readiness": {
+            "code-reviewer": "approved",
+            "qa-reviewer": "approved",
+            "architecture-reviewer": "approved",
+            "security-reviewer": "approved",
+            "custom-reviewer": "approved",
+            "council-readiness": "approved"
+          },
+          "delivery": {
+            "code-reviewer": "withheld",
+            "qa-reviewer": "withheld",
+            "architecture-reviewer": "withheld",
+            "security-reviewer": "withheld",
+            "custom-reviewer": "withheld",
+            "council-readiness": "withheld"
+          }
+        },
+        "admission": "dry_run",
+        "close": "error",
+        "diagnostic_rows": [
+          {
+            "signoff_key": "code-reviewer",
+            "approval_phase": "readiness",
+            "expected_actor": "code-reviewer",
+            "approval_recorded": true,
+            "approval_current": true,
+            "state": "approved",
+            "approval_state": "approved",
+            "why": "current executed approval follows every affected repair",
+            "next_action": "none",
+            "blocking_finding_ids": [],
+            "has_unresolved_blocking_findings": false,
+            "unresolved_required_lanes": [],
+            "lane": "code-reviewer",
+            "recorded_signoff": true
+          },
+          {
+            "signoff_key": "qa-reviewer",
+            "approval_phase": "readiness",
+            "expected_actor": "qa-reviewer",
+            "approval_recorded": true,
+            "approval_current": true,
+            "state": "approved",
+            "approval_state": "approved",
+            "why": "current executed approval follows every affected repair",
+            "next_action": "none",
+            "blocking_finding_ids": [],
+            "has_unresolved_blocking_findings": false,
+            "unresolved_required_lanes": [],
+            "lane": "qa-reviewer",
+            "recorded_signoff": true
+          },
+          {
+            "signoff_key": "architecture-reviewer",
+            "approval_phase": "readiness",
+            "expected_actor": "architecture-reviewer",
+            "approval_recorded": true,
+            "approval_current": true,
+            "state": "approved",
+            "approval_state": "approved",
+            "why": "current executed approval follows every affected repair",
+            "next_action": "none",
+            "blocking_finding_ids": [],
+            "has_unresolved_blocking_findings": false,
+            "unresolved_required_lanes": [],
+            "lane": "architecture-reviewer",
+            "recorded_signoff": true
+          },
+          {
+            "signoff_key": "security-reviewer",
+            "approval_phase": "readiness",
+            "expected_actor": "security-reviewer",
+            "approval_recorded": true,
+            "approval_current": true,
+            "state": "approved",
+            "approval_state": "approved",
+            "why": "current executed approval follows every affected repair",
+            "next_action": "none",
+            "blocking_finding_ids": [],
+            "has_unresolved_blocking_findings": false,
+            "unresolved_required_lanes": [],
+            "lane": "security-reviewer",
+            "recorded_signoff": true
+          },
+          {
+            "signoff_key": "custom-reviewer",
+            "approval_phase": "readiness",
+            "expected_actor": "custom-reviewer",
+            "approval_recorded": true,
+            "approval_current": true,
+            "state": "approved",
+            "approval_state": "approved",
+            "why": "current executed approval follows every affected repair",
+            "next_action": "none",
+            "blocking_finding_ids": [],
+            "has_unresolved_blocking_findings": false,
+            "unresolved_required_lanes": [],
+            "lane": "custom-reviewer",
+            "recorded_signoff": true
+          }
+        ],
+        "ledger_sha256": "c721b2ffeaed897f7c46f2220f6c12a4381c512adbadeed201f5d54ccd96ab00"
+      },
+      {
+        "origin": "readiness",
+        "states": {
+          "readiness": {
+            "code-reviewer": "withheld",
+            "qa-reviewer": "withheld",
+            "architecture-reviewer": "withheld",
+            "security-reviewer": "withheld",
+            "custom-reviewer": "withheld",
+            "council-readiness": "withheld"
+          },
+          "delivery": {
+            "code-reviewer": "withheld",
+            "qa-reviewer": "withheld",
+            "architecture-reviewer": "withheld",
+            "security-reviewer": "withheld",
+            "custom-reviewer": "withheld",
+            "council-readiness": "withheld"
+          }
+        },
+        "admission": "error",
+        "close": "error",
+        "diagnostic_rows": [
+          {
+            "signoff_key": "code-reviewer",
+            "approval_phase": "readiness",
+            "expected_actor": "code-reviewer",
+            "approval_recorded": true,
+            "approval_current": false,
+            "state": "withheld",
+            "approval_state": "withheld",
+            "why": "blocking findings: scratch-phase; unresolved lanes: architecture-reviewer, code-reviewer, custom-reviewer, qa-reviewer, security-reviewer",
+            "next_action": "record independent reverification for architecture-reviewer, code-reviewer, custom-reviewer, qa-reviewer, security-reviewer, then re-approve code-reviewer",
+            "blocking_finding_ids": [
+              "scratch-phase"
+            ],
+            "has_unresolved_blocking_findings": true,
+            "unresolved_required_lanes": [
+              "architecture-reviewer",
+              "code-reviewer",
+              "custom-reviewer",
+              "qa-reviewer",
+              "security-reviewer"
+            ],
+            "lane": "code-reviewer",
+            "recorded_signoff": false
+          },
+          {
+            "signoff_key": "qa-reviewer",
+            "approval_phase": "readiness",
+            "expected_actor": "qa-reviewer",
+            "approval_recorded": true,
+            "approval_current": false,
+            "state": "withheld",
+            "approval_state": "withheld",
+            "why": "blocking findings: scratch-phase; unresolved lanes: architecture-reviewer, code-reviewer, custom-reviewer, qa-reviewer, security-reviewer",
+            "next_action": "record independent reverification for architecture-reviewer, code-reviewer, custom-reviewer, qa-reviewer, security-reviewer, then re-approve qa-reviewer",
+            "blocking_finding_ids": [
+              "scratch-phase"
+            ],
+            "has_unresolved_blocking_findings": true,
+            "unresolved_required_lanes": [
+              "architecture-reviewer",
+              "code-reviewer",
+              "custom-reviewer",
+              "qa-reviewer",
+              "security-reviewer"
+            ],
+            "lane": "qa-reviewer",
+            "recorded_signoff": false
+          },
+          {
+            "signoff_key": "architecture-reviewer",
+            "approval_phase": "readiness",
+            "expected_actor": "architecture-reviewer",
+            "approval_recorded": true,
+            "approval_current": false,
+            "state": "withheld",
+            "approval_state": "withheld",
+            "why": "blocking findings: scratch-phase; unresolved lanes: architecture-reviewer, code-reviewer, custom-reviewer, qa-reviewer, security-reviewer",
+            "next_action": "record independent reverification for architecture-reviewer, code-reviewer, custom-reviewer, qa-reviewer, security-reviewer, then re-approve architecture-reviewer",
+            "blocking_finding_ids": [
+              "scratch-phase"
+            ],
+            "has_unresolved_blocking_findings": true,
+            "unresolved_required_lanes": [
+              "architecture-reviewer",
+              "code-reviewer",
+              "custom-reviewer",
+              "qa-reviewer",
+              "security-reviewer"
+            ],
+            "lane": "architecture-reviewer",
+            "recorded_signoff": false
+          },
+          {
+            "signoff_key": "security-reviewer",
+            "approval_phase": "readiness",
+            "expected_actor": "security-reviewer",
+            "approval_recorded": true,
+            "approval_current": false,
+            "state": "withheld",
+            "approval_state": "withheld",
+            "why": "blocking findings: scratch-phase; unresolved lanes: architecture-reviewer, code-reviewer, custom-reviewer, qa-reviewer, security-reviewer",
+            "next_action": "record independent reverification for architecture-reviewer, code-reviewer, custom-reviewer, qa-reviewer, security-reviewer, then re-approve security-reviewer",
+            "blocking_finding_ids": [
+              "scratch-phase"
+            ],
+            "has_unresolved_blocking_findings": true,
+            "unresolved_required_lanes": [
+              "architecture-reviewer",
+              "code-reviewer",
+              "custom-reviewer",
+              "qa-reviewer",
+              "security-reviewer"
+            ],
+            "lane": "security-reviewer",
+            "recorded_signoff": false
+          },
+          {
+            "signoff_key": "custom-reviewer",
+            "approval_phase": "readiness",
+            "expected_actor": "custom-reviewer",
+            "approval_recorded": true,
+            "approval_current": false,
+            "state": "withheld",
+            "approval_state": "withheld",
+            "why": "blocking findings: scratch-phase; unresolved lanes: architecture-reviewer, code-reviewer, custom-reviewer, qa-reviewer, security-reviewer",
+            "next_action": "record independent reverification for architecture-reviewer, code-reviewer, custom-reviewer, qa-reviewer, security-reviewer, then re-approve custom-reviewer",
+            "blocking_finding_ids": [
+              "scratch-phase"
+            ],
+            "has_unresolved_blocking_findings": true,
+            "unresolved_required_lanes": [
+              "architecture-reviewer",
+              "code-reviewer",
+              "custom-reviewer",
+              "qa-reviewer",
+              "security-reviewer"
+            ],
+            "lane": "custom-reviewer",
+            "recorded_signoff": false
+          }
+        ],
+        "ledger_sha256": "bf698f2e552a378457685cf2e0d837745d0ddfeedbca137bc7d7df31978141f9"
+      }
+    ],
+    "known_bad": [
+      {
+        "defect": "actor",
+        "diagnostics": [
+          {
+            "code": "invalid_review_event",
+            "message": "approval actor must be `security-reviewer` for signoff `security-reviewer`",
+            "recovery_tools": [
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0f2hx lane-fixture', phase='prepare')  # derive the current phase-correct action before retrying"
+          }
+        ],
+        "ledger_unchanged": true
+      },
+      {
+        "defect": "independence",
+        "diagnostics": [
+          {
+            "code": "invalid_review_event",
+            "message": "specialist and council approvals require fresh_context=true and independent=true",
+            "recovery_tools": [
+              "wf_review_wave"
+            ],
+            "recovery_usage": "wf_review_wave(wave_id='0f2hx lane-fixture', phase='prepare')  # derive the current phase-correct action before retrying"
+          }
+        ],
+        "ledger_unchanged": true
+      }
+    ]
+  },
+  "mutation_table": [
+    {
+      "label": "mutant-phase-old-specialist",
+      "tests": 1,
+      "skips": 0,
+      "failures": 1,
+      "errors": 0,
+      "log": "/tmp/wf-secperf-mutant-phase-old-specialist.log",
+      "targets": "<unittest.suite.TestSuite tests=[None]>"
+    },
+    {
+      "label": "mutant-phase-unsealed-origin",
+      "tests": 1,
+      "skips": 0,
+      "failures": 1,
+      "errors": 0,
+      "log": "/tmp/wf-secperf-mutant-phase-unsealed-origin.log",
+      "targets": "<unittest.suite.TestSuite tests=[None]>"
+    },
+    {
+      "label": "mutant-graph-prereset-diff",
+      "tests": 1,
+      "skips": 0,
+      "failures": 1,
+      "errors": 0,
+      "log": "/tmp/wf-secperf-mutant-graph-prereset-diff.log",
+      "targets": "<unittest.suite.TestSuite tests=[None]>"
+    },
+    {
+      "label": "mutant-graph-countonly-reuse",
+      "tests": 1,
+      "skips": 0,
+      "failures": 1,
+      "errors": 0,
+      "log": "/tmp/wf-secperf-mutant-graph-countonly-reuse.log",
+      "targets": "<unittest.suite.TestSuite tests=[None]>"
+    },
+    {
+      "label": "mutant-c5-setext",
+      "tests": 1,
+      "skips": 0,
+      "failures": 4,
+      "errors": 0,
+      "log": "/tmp/wf-secperf-mutant-c5-setext.log",
+      "targets": "['test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_inline_block_boundaries_and_escapes']"
+    },
+    {
+      "label": "mutant-c5-escape",
+      "tests": 1,
+      "skips": 0,
+      "failures": 2,
+      "errors": 0,
+      "log": "/tmp/wf-secperf-mutant-c5-escape.log",
+      "targets": "['test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_inline_block_boundaries_and_escapes']"
+    },
+    {
+      "label": "mutant-c5-crossblock",
+      "tests": 1,
+      "skips": 0,
+      "failures": 7,
+      "errors": 0,
+      "log": "/tmp/wf-secperf-mutant-c5-crossblock.log",
+      "targets": "['test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_inline_block_boundaries_and_escapes']"
+    }
+  ],
+  "baseline_tests": {
+    "phase": {
+      "tests": 8,
+      "skips": 0,
+      "log": "/tmp/wf-secperf-phase-controls.log"
+    },
+    "graph": {
+      "tests": 14,
+      "skips": 0,
+      "log": "/tmp/wf-secperf-graph-controls.log"
+    },
+    "public": {
+      "tests": 14,
+      "skips": 0,
+      "log": "/tmp/wf-secperf-public-controls.log"
+    },
+    "independence_and_stale_receipt": {
+      "tests": 38,
+      "skips": 0,
+      "command": "python3 -B with PYTHONPATH scripts/tests; unittest RepairReverificationIndependenceTests and LapsedApprovalReasonTests",
+      "result": "ok"
+    }
+  },
+  "commands": [
+    "python3 -B /tmp/wf-secperf-phase.py",
+    "python3 -B /tmp/wf-secperf-graph.py",
+    "python3 -B /tmp/wf-secperf-review-controls.py (baseline phases passed; first nonreaching mutation stopped and is not credited)",
+    "python3 -B /tmp/wf-secperf-mutants.py (corrected reached mutation controls)",
+    "python3 -B /tmp/wf-secperf-digest.py (schema-calibrated valid baseline plus membership metamorphic control)"
+  ],
+  "limitations": [
+    "macOS local execution only; no native Windows, WSL2, Linux, live downstream Waveforge or native partition semantic certification.",
+    "Loaded MCP setup/index assessment remains indeterminate; callable live code_read/outline used for disk source and fresh Python processes for execution. No host readiness claim.",
+    "Actor identity and freshness are declared protocol facts, not caller authentication; trusted operator-owned data and same-user processes retain existing documented threat assumptions.",
+    "No private B1\u2013B5 scope, C6 work, closure, commit, push, setup, full-suite rerun or live-index mutation performed. Canonical suite/graph results supplied by coordinator are contextual evidence, not independent runs by this reviewer.",
+    "Selected fixture gardening/post-write lint is stubbed; canonical producers, admission/close dry runs, actor binding, identity replay and review-authority functions are real. C5 incoming rendering/preview children and controlled graph response consumers execute actual code.",
+    "Initial runtime mutant attempts patched an obsolete module object and did not reach the consumer; loader-binding calibration was repaired. Only the seven reaching assertion failures are credited.",
+    "Completeness validates stored representation and eligible identities/fixed buckets, not exact historical production membership. Equal-count nonseed production swaps can pass structural completeness; a trusted prior membership digest would add a guarantee outside admitted scope.",
+    "Scale topology: 1k/10k/50k functions, disjoint 100-node stars with 0.99 edges/node, 25% fixed test buckets, others production. Five local reuse repetitions and one reset/recovery measurement per size; not dense/cross-package graph, contention, end-to-end source extraction or percentile qualification. Lock hold is successful BEGIN IMMEDIATE return through COMMIT return; acquisition wait reported separately. Graph/semantic row participants are not materialized in scale probe, which isolates community replacement cost.",
+    "Security approval is specifically scoped; external C5 correctness blockers remain unresolved and prevent overall public delivery/close readiness. No approval of a future parser repair is supplied by this frozen-tree review."
+  ],
+  "elapsed_after_first_fingerprint_s": 525.854642868042,
+  "external_correctness_findings_considered": {
+    "artifacts": [
+      "/tmp/wf-codeqa-c5-public-results.json",
+      "/tmp/wf-arch-docs-c5-native-pair-results.json"
+    ],
+    "failed_cases": [
+      "quoted-reference",
+      "deep-list-reference",
+      "pre-code-preservation",
+      "html-comment-preservation",
+      "invalid-fence-live-paragraph",
+      "even-backslash-live",
+      "escaped-image-prefix-live",
+      "directory-changing-existing-native-role-pair"
+    ],
+    "reviewer_assessment": "Real C5 public-contract failures, already owned by independent code/QA and architecture/docs-contract. No additional security blocker under current threat assumptions. Do not suppress them or record public correctness approval.",
+    "own_execution": false,
+    "authority_delta_evidenced": false,
+    "attacker_reachability_evidenced": false,
+    "public_correctness_approvals": "withheld"
+  },
+  "clarification": "Public security expected/observed narrowed after actual independent C5 counterexamples; no source repair landed, all39 hashes unchanged. Root has recorded no approval. Verdicts remain remit-specific and do not establish universal admitted-contract success."
+}

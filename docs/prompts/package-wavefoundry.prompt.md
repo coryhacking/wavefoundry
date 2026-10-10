@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-03
+Last verified: 2026-10-10
 
 Shortcut: **`Package Wavefoundry`** | Legacy: **`Package wave framework`** / **`Package wave context`**
 
@@ -50,16 +50,25 @@ python3 -B .wavefoundry/framework/scripts/verify_vendored_scripts.py
 5. Run framework tests:
 
 ```bash
-python3 -B .wavefoundry/framework/scripts/run_tests.py
+python3 -B .wavefoundry/framework/scripts/run_tests.py --qualification-report .wavefoundry/cache/qualification/default.json
 ```
 
    Then run the suite under the second vocabulary and layout profile, which copies the tree into a temporary repository and never writes the test receipt:
 
 ```bash
-python3 -B .wavefoundry/framework/scripts/run_tests.py --profile second
+python3 -B .wavefoundry/framework/scripts/run_tests.py --profile second --qualification-report .wavefoundry/cache/qualification/second.json
 ```
 
-   Every file must pass; a skip beyond the default run's must come from a test marked `default_profile_only`. This run is a release check, not delivery evidence for a wave. Then run `python3 -B .wavefoundry/framework/scripts/run_tests.py --profile declared` the same way, which runs the suite with a sample distribution tool declaration (a plain and a parameter-mapped alias) and must pass with no skips beyond the default run's.
+   Every file must pass; a skip beyond the default run's must come from a test marked `default_profile_only`. This run is a release check, not delivery evidence for a wave. Then run `python3 -B .wavefoundry/framework/scripts/run_tests.py --profile declared --qualification-report .wavefoundry/cache/qualification/declared.json` the same way, which runs the suite with a sample distribution tool declaration (a plain and a parameter-mapped alias) and must pass with the same exact skip IDs and reasons as the default run.
+
+   Compare the execution-origin reports with the deterministic reader:
+
+```bash
+python3 -B .wavefoundry/framework/scripts/qualification_report.py --compare .wavefoundry/cache/qualification/default.json .wavefoundry/cache/qualification/second.json --profile second
+python3 -B .wavefoundry/framework/scripts/qualification_report.py --compare .wavefoundry/cache/qualification/default.json .wavefoundry/cache/qualification/declared.json --profile declared
+```
+
+   Reports are optional release evidence: one bounded report per requested run, with worker return codes, exact executed skip IDs/reasons and completeness; no transcripts or copied source. Paths must be under the repository's `.wavefoundry/cache/qualification/`, outside framework hashing and the packed payload. Linked, special, protected and unowned existing targets are refused; owned reports are replaced atomically. Ordinary invocations create no reports. A cache hit reuses a complete passing report only when its source identity and worker inventory match exactly; otherwise it reports unavailable executed detail. If exact detail is required, explicitly authorize and run `--no-cache --qualification-report ...` for the default suite. Profile reports export the actual applied profile and original source identities before cleanup and never write the source framework receipt. Missing, duplicate, malformed, contradictory or reason-changed evidence fails comparison. Consumer upgrades never invoke this facility.
 
 6. **Update root `CHANGELOG.md`** — the canonical release history. The wavefoundry repo's root `CHANGELOG.md` is the single source of truth; `build_pack.py` copies it into the pack zip at `.wavefoundry/CHANGELOG.md` so consumer projects receive an in-tree changelog on every upgrade (offline-readable, MCP-indexable, no GitHub fetch required). The wavefoundry repo does NOT carry `.wavefoundry/CHANGELOG.md` — root is the only place release history is maintained.
 

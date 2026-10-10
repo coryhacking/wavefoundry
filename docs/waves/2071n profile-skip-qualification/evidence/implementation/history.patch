@@ -1,0 +1,157 @@
+--- a/.wavefoundry/framework/scripts/tests/test_review_policy.py
++++ b/.wavefoundry/framework/scripts/tests/test_review_policy.py
+@@ -27,6 +27,7 @@
+ import record_paths
+ import vocabulary_profile
+ from record_layout_support import default_profile_only
++from historical_fixture_support import historical_bytes
+ 
+ # The record filename and the live waves root the loaded profile uses.
+ RECORD = vocabulary_profile.RECORD_FILENAME
+@@ -324,25 +325,12 @@
+                 review_policy_reconcile.plan_reconciliation(root)
+ 
+     def test_real_v114_carrier_family_reconciles_and_retries_byte_stably(self):
+-        probe = subprocess.run(
+-            ["git", "rev-parse", "--verify", "v1.14.0"],
+-            cwd=str(SCRIPTS.parents[2]),
+-            check=False,
+-            capture_output=True,
+-        )
+-        if probe.returncode != 0:
+-            self.skipTest("v1.14.0 tag unavailable in this source distribution")
+         with tempfile.TemporaryDirectory() as tmp:
+             root = Path(tmp)
+-            for relative in review_policy.LIFECYCLE_RECONCILER_CARRIERS:
+-                path = root / relative
++            for carrier in review_policy.review_policy_carriers("lifecycle_reconciler"):
++                path = root / carrier.destination
+                 path.parent.mkdir(parents=True, exist_ok=True)
+-                path.write_bytes(
+-                    subprocess.check_output(
+-                        ["git", "show", f"v1.14.0:{relative}"],
+-                        cwd=str(SCRIPTS.parents[2]),
+-                    )
+-                )
++                path.write_bytes(historical_bytes("v114:" + carrier.source))
+             self.assertEqual(
+                 set(review_policy_reconcile.reconcile_lifecycle_sections(root)),
+                 set(review_policy.LIFECYCLE_RECONCILER_CARRIERS),
+@@ -393,41 +381,22 @@
+             self.assertEqual(path.read_bytes(), current)
+ 
+     def test_real_v114_carriers_render_policy_and_pass_production_validator(self):
+-        repo_root = SCRIPTS.parents[2]
+-        probe = subprocess.run(
+-            ["git", "rev-parse", "--verify", "v1.14.0"],
+-            cwd=str(repo_root),
+-            check=False,
+-            capture_output=True,
+-        )
+-        if probe.returncode != 0:
+-            self.skipTest("v1.14.0 tag unavailable in this source distribution")
+-        direct_files = {
+-            carrier.destination
+-            for carrier in review_policy.REVIEW_POLICY_CARRIER_REGISTRY
+-            if carrier.owner == "direct_docs" and carrier.destination != "docs/agents"
+-        }
+         with tempfile.TemporaryDirectory() as tmp:
+             root = Path(tmp)
+-            for relative in (
+-                set(review_policy.LIFECYCLE_RECONCILER_CARRIERS) | direct_files
+-            ):
+-                exists = subprocess.run(
+-                    ["git", "cat-file", "-e", f"v1.14.0:{relative}"],
+-                    cwd=str(repo_root),
+-                    check=False,
+-                    capture_output=True,
+-                )
+-                if exists.returncode != 0:
++            for carrier in review_policy.REVIEW_POLICY_CARRIER_REGISTRY:
++                if carrier.owner not in {"lifecycle_reconciler", "direct_docs"}:
+                     continue
+-                path = root / relative
++                if carrier.destination == "docs/agents":
++                    continue
++                # The frozen inventory records the optional document absent in
++                # this revision; unknown or damaged entries fail rather than skip.
++                source = historical_bytes("v114:" + carrier.source,
++                                          optional=carrier.owner == "direct_docs")
++                if source is None:
++                    continue
++                path = root / carrier.destination
+                 path.parent.mkdir(parents=True, exist_ok=True)
+-                path.write_bytes(
+-                    subprocess.check_output(
+-                        ["git", "show", f"v1.14.0:{relative}"],
+-                        cwd=str(repo_root),
+-                    )
+-                )
++                path.write_bytes(source)
+ 
+             review_policy_reconcile.reconcile_lifecycle_sections(root)
+             render_agent_surfaces.render_agent_surfaces(root)
+--- a/.wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py
++++ b/.wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py
+@@ -22,6 +22,7 @@
+ import index_paths
+ import sqlite_storage_migration as migration
+ import upgrade_lib
++from historical_fixture_support import historical_bytes
+ 
+ 
+ # Wave 1z8ox (change 1z8ow): the timed sites these tests fake now call
+@@ -1524,12 +1525,6 @@
+     unittest.main()
+ 
+ 
+-# The last commit that shipped the version-1-only receipt reader. Its
+-# `read_receipt` rejects any receipt_version other than 1, which IS the
+-# old-code fence a version-2 record installs.
+-V1_RECEIPT_READER_COMMIT = "5e798daa159119c6f434eaf357b82dd264bb2a48"
+-
+-
+ @unittest.skipUnless(_native_available(), "qualified APSW + sqlite-vec runtime unavailable")
+ class SchemaEightKindTests(unittest.TestCase):
+     """The schema-8 kind: dispatch per population, staged rebuild, cutover."""
+@@ -1940,13 +1935,10 @@
+     def test_version_one_code_refuses_a_version_two_receipt_and_creates_nothing(self):
+         self._seed("7")
+         self._run()
+-        v1_source = subprocess.run(
+-            ["git", "show", f"{V1_RECEIPT_READER_COMMIT}:.wavefoundry/framework/scripts/sqlite_storage_migration.py"],
+-            cwd=str(SCRIPTS.parents[2]), capture_output=True, text=True)
+-        if v1_source.returncode != 0:
+-            self.skipTest("version-1 reader commit unavailable in this checkout")
++        # Execute the pinned version-one reader with current siblings, as the
++        # historical Git-based test did; fixture integrity forbids current code.
+         module = self.root / "v1_storage_migration.py"
+-        module.write_text(v1_source.stdout, encoding="utf-8")
++        module.write_bytes(historical_bytes("v1-receipt-reader"))
+         for path in (self.legacy, *index_paths.sidecar_paths(self.legacy)):
+             if path.exists():
+                 path.unlink()
+--- a/.wavefoundry/framework/scripts/tests/test_storage_upgrade_resume.py
++++ b/.wavefoundry/framework/scripts/tests/test_storage_upgrade_resume.py
+@@ -32,6 +32,7 @@
+ 
+ sys.path.insert(0, str(SCRIPTS / "tests"))
+ from record_layout_support import localize_record_text, waves_dir  # noqa: E402
++from historical_fixture_support import historical_bytes  # noqa: E402
+ 
+ # A separate driver process imports exactly the on-disk runner named by the
+ # emitted command, then gives main its emitted arguments unchanged.
+@@ -79,12 +80,7 @@
+         shutil.copytree(SCRIPTS, self.installed, ignore=shutil.ignore_patterns("tests", "__pycache__"))
+         self.runner = self.installed / "upgrade_wavefoundry.py"
+         if self._testMethodName.startswith("test_old_main"):
+-            old = subprocess.run(
+-                ["git", "show", "v1.22.0:.wavefoundry/framework/scripts/upgrade_wavefoundry.py"],
+-                cwd=REPO, capture_output=True)
+-            if old.returncode:
+-                self.skipTest("v1.22.0 tag unavailable (historical-runner integration requires full history)")
+-            self.runner.write_bytes(old.stdout)
++            self.runner.write_bytes(historical_bytes("v122-upgrade"))
+         (self.framework / "VERSION").write_text("1.22.0\n")
+         (self.framework / "MANIFEST").write_bytes(self.OLD_MANIFEST)
+         (self.framework / "seeds").mkdir()

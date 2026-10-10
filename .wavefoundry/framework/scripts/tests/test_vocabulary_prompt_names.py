@@ -119,12 +119,13 @@ def crashing(root, point, index):
             raise Crash()
     patches = []
     if point == "after_copy":
-        original = ras._write_review_carrier_text
-        def wrapper(path, content, *, exclusive=False, **kwargs):
-            original(path, content, exclusive=exclusive, **kwargs)
-            if exclusive and isinstance(content, bytes):
+        original = ras._write_move_target
+        def wrapper(path, content, **kwargs):
+            identity = original(path, content, **kwargs)
+            if isinstance(content, bytes):
                 hit()
-        patches.append(("_write_review_carrier_text", wrapper))
+            return identity
+        patches.append(("_write_move_target", wrapper))
     elif point == "after_move":
         original_move = ras._move_prompt_pair
         def wrapper(repo_root, pair):
@@ -209,19 +210,18 @@ for job in jobs:
     elif action == "unlink_fail":
         # The first prompt-file unlink (a move's source) raises, as a locked
         # file does on Windows; every later unlink (the rollback) succeeds.
-        import pathlib
-        original_unlink = pathlib.Path.unlink
+        original_unlink = ras.contained_files.unlink_contained
         failed = []
-        def failing_unlink(self, *args, **kwargs):
-            if not failed and self.name.endswith(".prompt.md"):
-                failed.append(self.relative_to(root.resolve()).as_posix())
-                raise PermissionError(13, "locked by another process", str(self))
-            return original_unlink(self, *args, **kwargs)
-        pathlib.Path.unlink = failing_unlink
+        def failing_unlink(repo_root, path, *args, **kwargs):
+            if not failed and path.name.endswith(".prompt.md"):
+                failed.append(path.relative_to(root.resolve()).as_posix())
+                raise PermissionError(13, "locked by another process", str(path))
+            return original_unlink(repo_root, path, *args, **kwargs)
+        ras.contained_files.unlink_contained = failing_unlink
         try:
             result = render(root)
         finally:
-            pathlib.Path.unlink = original_unlink
+            ras.contained_files.unlink_contained = original_unlink
         out.append({"result": result, "failed": failed})
     elif action == "ensure_manifest":
         import docs_gardener
@@ -319,6 +319,25 @@ def build_fixture(default_scripts: Path, root: Path, *, close_change: bool = Tru
     if not close_change:
         entries = [e for e in entries if e["doc"] != "docs/prompts/close-change.prompt.md"]
         (prompts / "close-change.prompt.md").unlink()
+    # Stage the synthetic first profile without changing the shipped default
+    # key table: the final container profile reuses these neutral item names.
+    staged = {"implement-change": ("implement-parcel", "Implement parcel"),
+              "close-change": ("close-parcel", "Close parcel")}
+    for key, (old_slug, old_shortcut) in staged.items():
+        for folder in (prompts, prompts / "agents"):
+            source = folder / f"{key}.prompt.md"
+            if source.exists():
+                source.rename(folder / f"{old_slug}.prompt.md")
+        for host in (".claude", ".codex", ".agents"):
+            source = root / host / "skills" / f"wf-{key}"
+            if source.exists():
+                source.rename(source.with_name(f"wf-{old_slug}"))
+        for entry in entries:
+            if entry["doc"] == f"docs/prompts/{key}.prompt.md":
+                entry.update(doc=f"docs/prompts/{old_slug}.prompt.md", shortcut=old_shortcut)
+    link.write_text(link.read_text(encoding="utf-8").replace(
+        "../prompts/implement-change.prompt.md", "../prompts/implement-parcel.prompt.md"), encoding="utf-8")
+    manifest["prompt_names"] = {key: row[0] for key, row in staged.items()}
     manifest["public_prompt_surface"] = entries
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return root
@@ -516,16 +535,22 @@ class ValidationTests(unittest.TestCase):
     def test_a_chain_validates(self) -> None:
         self.assertEqual(vocabulary_profile.prompt_name_errors(OVERRIDES), [])
         chain = vocabulary_profile.derive_prompt_names(OVERRIDES)
-        # The container prompt takes the slug the item prompt gives up.
-        self.assertEqual(chain["implement-wave"]["slug"], "implement-change")
+        # A synthetic first profile gives the item the neutral name that the
+        # final container profile takes; production key identity is unchanged.
+        first = {key: dict(row) for key, row in vocabulary_profile.DEFAULT_PROMPT_NAMES.items()}
+        first["implement-change"] = {"slug": "implement-parcel", "shortcut": "Implement parcel", "aliases": ()}
+        first["close-change"] = {"slug": "close-parcel", "shortcut": "Close parcel", "aliases": ()}
+        with mock.patch.object(vocabulary_profile, "DEFAULT_PROMPT_NAMES", first):
+            self.assertEqual(vocabulary_profile.prompt_name_errors(OVERRIDES), [])
+            self.assertEqual(first["implement-change"]["slug"], chain["implement-wave"]["slug"])
+            self.assertEqual(first["close-change"]["slug"], chain["close-wave"]["slug"])
+        self.assertEqual(chain["implement-wave"]["slug"], "implement-parcel")
         self.assertEqual(chain["implement-change"]["slug"], "do-task")
         self.assertEqual(chain["prepare-wave"]["aliases"], ("Gather items",))
 
     def test_example_names_are_neutral(self) -> None:
-        """Change 200ex: no example override value names a container or item
-        vocabulary a distribution may ship, except the chain's reuse of the
-        shipped item names; the asset keeps a chain and an alias and renames
-        all eleven prompts."""
+        """Neutral values rename all eleven prompts and retain an alias;
+        build_fixture stages the independent neutral reuse chain."""
         import re
 
         self.assertEqual(set(OVERRIDES), set(vocabulary_profile.DEFAULT_PROMPT_NAMES))
@@ -534,12 +559,11 @@ class ValidationTests(unittest.TestCase):
         for key, spec in OVERRIDES.items():
             for value in (spec["slug"], spec["shortcut"], *spec.get("aliases", ())):
                 with self.subTest(key=key, value=value):
-                    if value in shipped:
-                        continue
+                    self.assertNotIn(value, shipped)
                     self.assertIsNone(re.search(r"(?i)(?:^|[^a-z])(set|wave)(?:$|[^a-z])", value))
         self.assertTrue(any(spec.get("aliases") for spec in OVERRIDES.values()))
         default_slugs = {entry["slug"] for entry in vocabulary_profile.DEFAULT_PROMPT_NAMES.values()}
-        self.assertTrue(any(spec["slug"] in default_slugs for spec in OVERRIDES.values()))
+        self.assertFalse(any(spec["slug"] in default_slugs for spec in OVERRIDES.values()))
 
     def test_fixed_skill_names_match_the_registry(self) -> None:
         import render_agent_surfaces as ras
@@ -586,50 +610,51 @@ class ProfileConsumerTests(unittest.TestCase):
         self.assertEqual(out["context_destination"], "docs/prompts/create-batch.prompt.md")
         self.assertEqual(out["baselines"][0], ["docs/prompts/create-batch.prompt.md", "create-wave.prompt.md"])
         self.assertIn(["docs/prompts/finish-task.prompt.md", "close-change.prompt.md"], out["baselines"])
-        self.assertIn(["docs/prompts/close-change.prompt.md", "close-wave.prompt.md"], out["baselines"])
+        self.assertIn(["docs/prompts/close-parcel.prompt.md", "close-wave.prompt.md"], out["baselines"])
         self.assertEqual(out["close_change"], ["docs/prompts/finish-task.prompt.md", "Finish task"])
         self.assertEqual(sorted(out["carriers"]) , sorted(set(out["carriers"])))
         for path in ("docs/prompts/prepare-batch.prompt.md", "docs/prompts/review-batch.prompt.md",
                      "docs/prompts/agents/review-batch.prompt.md", "docs/prompts/create-batch.prompt.md"):
             self.assertIn(path, out["carriers"])
         self.assertNotIn("docs/prompts/prepare-wave.prompt.md", out["carriers"])
-        self.assertIn("docs/prompts/implement-change.prompt.md", out["known"])
+        self.assertIn("docs/prompts/implement-parcel.prompt.md", out["known"])
         self.assertIn("**Review batch**", out["known_text"])
         self.assertIn("`Prepare batch`", out["known_text"])
-        self.assertEqual(out["lifecycle_map"]["wf_close_wave"], "docs/prompts/close-change.prompt.md")
+        self.assertEqual(out["lifecycle_map"]["wf_close_wave"], "docs/prompts/close-parcel.prompt.md")
         self.assertEqual(out["surface_files"][1:4], [
             "docs/prompts/plan-task.prompt.md", "docs/prompts/do-task.prompt.md",
             "docs/prompts/finish-task.prompt.md"])
-        self.assertEqual(out["close_or_wave"], "Finish task (one change) or Close change (the wave)")
-        self.assertIn("docs/prompts/close-change.prompt.md", out["finalize"])
+        self.assertEqual(out["close_or_wave"], "Finish task (one change) or Close parcel (the wave)")
+        self.assertIn("docs/prompts/close-parcel.prompt.md", out["finalize"])
         self.assertIn(["wf-plan-feature", "wf-plan-task"], out["change_patterns"])
-        self.assertIn("(**Plan task**, **Implement change**, **Close change**, etc.)", out["cursor"])
-        self.assertIn("(Plan task, Implement change, Close change, Prepare batch, etc.)", out["guru"])
+        self.assertIn("(**Plan task**, **Implement parcel**, **Close parcel**, etc.)", out["cursor"])
+        self.assertIn("(Plan task, Implement parcel, Close parcel, Prepare batch, etc.)", out["guru"])
         blocks = out["blocks"]
         self.assertIn("\nPrepare Batch is the single readiness authority.", blocks["docs/prompts/prepare-batch.prompt.md"])
-        self.assertIn("\nClose Change consumes", blocks["docs/prompts/close-change.prompt.md"])
+        self.assertIn("\nClose Parcel consumes", blocks["docs/prompts/close-parcel.prompt.md"])
         self.assertIn("docs/prompts/agents/review-batch.prompt.md", blocks)
 
     def test_skill_registry_renders_derived_names(self) -> None:
         skills = self.out["skills"]
-        for name in ("wf-plan-task", "wf-prepare-batch", "wf-implement-change", "wf-review-batch",
-                     "wf-close-change", "wf-finish-task", "wf-pause-batch"):
+        for name in ("wf-plan-task", "wf-prepare-batch", "wf-implement-parcel", "wf-review-batch",
+                     "wf-close-parcel", "wf-finish-task", "wf-pause-batch"):
             self.assertIn(name, skills)
         for name in ("wf-plan-change", "wf-prepare-wave", "wf-implement-wave", "wf-close-wave"):
             self.assertNotIn(name, skills)
         self.assertIn("The Prepare batch / Gather items workflow.", skills["wf-prepare-batch"][0])
         self.assertIn("`docs/prompts/prepare-batch.prompt.md`", skills["wf-prepare-batch"][1])
         self.assertIn("Single-change variant: Do task (`docs/prompts/do-task.prompt.md`).",
-                      skills["wf-implement-change"][1])
+                      skills["wf-implement-parcel"][1])
         self.assertIn("The Finish task workflow.", skills["wf-finish-task"][0])
-        self.assertIn("Close change (`wf-close-change`) remains the only wave close", skills["wf-finish-task"][1])
+        self.assertIn("Close parcel (`wf-close-parcel`) remains the only wave close", skills["wf-finish-task"][1])
         self.assertIn("use `wf-review-batch` for", skills["wf-review-plan"][1])
         self.assertIn("(`wf-review-batch`)", skills["wf-council"][1])
         stale = set(self.out["stale"])
         self.assertIn(".claude/skills/wf-prepare-wave/SKILL.md", stale)
         self.assertIn(".codex/skills/wf-implement-wave/SKILL.md", stale)
         self.assertIn(".claude/skills/wf-close-wave/SKILL.md", stale)
-        self.assertNotIn(".claude/skills/wf-close-change/SKILL.md", stale)  # reused by the chain
+        self.assertIn(".claude/skills/wf-close-change/SKILL.md", stale)
+        self.assertNotIn(".claude/skills/wf-close-parcel/SKILL.md", stale)  # neutral chain name
 
     def test_localized_heading_and_shortcut_line(self) -> None:
         localized = self.out["localized"]
@@ -687,33 +712,33 @@ class ProfileMigrationTests(unittest.TestCase):
         root = self._copy(self.fixture, "migrate-only")
         before = {rel: (root / rel).read_bytes() for rel in (
             "docs/prompts/plan-change.prompt.md", "docs/prompts/implement-wave.prompt.md",
-            "docs/prompts/implement-change.prompt.md", "docs/prompts/close-wave.prompt.md",
-            "docs/prompts/close-change.prompt.md", "docs/prompts/agents/implement-wave.prompt.md",
-            "docs/prompts/agents/implement-change.prompt.md", "docs/prompts/prepare-wave.prompt.md")}
+            "docs/prompts/implement-parcel.prompt.md", "docs/prompts/close-wave.prompt.md",
+            "docs/prompts/close-parcel.prompt.md", "docs/prompts/agents/implement-wave.prompt.md",
+            "docs/prompts/agents/implement-parcel.prompt.md", "docs/prompts/prepare-wave.prompt.md")}
         (out,), _ = _drive(self.profiled, [{"action": "migrate", "root": str(root)}])
         self.assertNotIn("error", out)
         prompts = root / "docs" / "prompts"
         self.assertEqual((prompts / "plan-task.prompt.md").read_bytes(), before["docs/prompts/plan-change.prompt.md"])
         # The chain: the container prompt now holds the item's old name, and
         # the item prompt (CRLF) moves on first.
-        self.assertEqual((prompts / "implement-change.prompt.md").read_bytes(),
+        self.assertEqual((prompts / "implement-parcel.prompt.md").read_bytes(),
                          before["docs/prompts/implement-wave.prompt.md"])
         self.assertEqual((prompts / "do-task.prompt.md").read_bytes(), IMPLEMENT_CHANGE_BYTES)
-        self.assertEqual((prompts / "close-change.prompt.md").read_bytes(), before["docs/prompts/close-wave.prompt.md"])
-        self.assertEqual((prompts / "finish-task.prompt.md").read_bytes(), before["docs/prompts/close-change.prompt.md"])
+        self.assertEqual((prompts / "close-parcel.prompt.md").read_bytes(), before["docs/prompts/close-wave.prompt.md"])
+        self.assertEqual((prompts / "finish-task.prompt.md").read_bytes(), before["docs/prompts/close-parcel.prompt.md"])
         self.assertEqual((prompts / "prepare-batch.prompt.md").read_bytes(), before["docs/prompts/prepare-wave.prompt.md"])
-        self.assertEqual((prompts / "agents/implement-change.prompt.md").read_bytes(),
+        self.assertEqual((prompts / "agents/implement-parcel.prompt.md").read_bytes(),
                          before["docs/prompts/agents/implement-wave.prompt.md"])
         self.assertEqual((prompts / "agents/do-task.prompt.md").read_bytes(),
-                         before["docs/prompts/agents/implement-change.prompt.md"])
+                         before["docs/prompts/agents/implement-parcel.prompt.md"])
         for gone in ("plan-change", "implement-wave", "close-wave", "prepare-wave", "pause-wave"):
             self.assertFalse((prompts / f"{gone}.prompt.md").exists(), gone)
         manifest = self._manifest(root)
         self.assertEqual(manifest["prompt_names"], {key: spec["slug"] for key, spec in OVERRIDES.items()})
         entries = {e["doc"]: e["shortcut"] for e in manifest["public_prompt_surface"]}
         self.assertEqual(entries["docs/prompts/do-task.prompt.md"], "Do task")
-        self.assertEqual(entries["docs/prompts/implement-change.prompt.md"], "Implement change")
-        self.assertEqual(entries["docs/prompts/close-change.prompt.md"], "Close change")
+        self.assertEqual(entries["docs/prompts/implement-parcel.prompt.md"], "Implement parcel")
+        self.assertEqual(entries["docs/prompts/close-parcel.prompt.md"], "Close parcel")
         self.assertEqual(entries["docs/prompts/finish-task.prompt.md"], "Finish task")
         self.assertEqual(entries["docs/prompts/prepare-batch.prompt.md"], "Prepare batch")
         self.assertEqual(len(manifest["public_prompt_surface"]), len(self._manifest(self.fixture)["public_prompt_surface"]))
@@ -734,16 +759,16 @@ class ProfileMigrationTests(unittest.TestCase):
             for gone in ("wf-plan-change", "wf-prepare-wave", "wf-implement-wave", "wf-review-wave",
                          "wf-close-wave", "wf-pause-wave"):
                 self.assertFalse((skills / gone).exists(), f"{host} {gone}")
-            for present in ("wf-plan-task", "wf-prepare-batch", "wf-implement-change", "wf-finish-task",
+            for present in ("wf-plan-task", "wf-prepare-batch", "wf-implement-parcel", "wf-finish-task",
                             "wf-pause-batch"):
                 self.assertTrue((skills / present / "SKILL.md").is_file(), f"{host} {present}")
-            reused = (skills / "wf-close-change" / "SKILL.md").read_text(encoding="utf-8")
-            self.assertIn("name: wf-close-change", reused)
+            reused = (skills / "wf-close-parcel" / "SKILL.md").read_text(encoding="utf-8")
+            self.assertIn("name: wf-close-parcel", reused)
             self.assertIn("# Close a wave", reused)
         # No baseline over a moved prompt: the item prompts keep their moved bytes.
         self.assertEqual((root / "docs/prompts/do-task.prompt.md").read_bytes(), IMPLEMENT_CHANGE_BYTES)
         self.assertEqual((root / "docs/prompts/finish-task.prompt.md").read_bytes(),
-                         (self.fixture / "docs/prompts/close-change.prompt.md").read_bytes())
+                         (self.fixture / "docs/prompts/close-parcel.prompt.md").read_bytes())
         # AC-8: lint passes after the render; the pending check is silent.
         self.assertEqual(lint["pending"], [])
         self.assertEqual(lint["rc"], 0, lint["output"][-3000:])
@@ -817,6 +842,7 @@ class ProfileMigrationTests(unittest.TestCase):
         copy is removed, the source kept, and no key is recorded."""
         root = self._copy(self.fixture, "locked-source")
         before = _tree_digest(root)
+        names_before = self._manifest(root)["prompt_names"]
         (out,), _ = _drive(self.profiled, [{"action": "unlink_fail", "root": str(root)}])
         self.assertEqual(len(out["failed"]), 1)
         source = out["failed"][0]
@@ -830,7 +856,7 @@ class ProfileMigrationTests(unittest.TestCase):
         self.assertNotIn(str(root), error)
         self.assertNotIn(str(root.resolve()), error)
         self.assertTrue((root / source).is_file())
-        self.assertNotIn("prompt_names", self._manifest(root))
+        self.assertEqual(self._manifest(root)["prompt_names"], names_before)
         # Nothing else changed: no target copy and no temporary file remains.
         self.assertEqual(_tree_digest(root), before)
         (rerun,), _ = _drive(self.profiled, [{"action": "render", "root": str(root)}])
@@ -846,7 +872,7 @@ class ProfileMigrationTests(unittest.TestCase):
         root = self._copy(self.fixture, "conflict-cycle")
         (root / "docs/prompts/do-task.prompt.md").write_text(_authored("Do Task"), encoding="utf-8")
         manifest = self._manifest(root)
-        manifest["prompt_names"] = {"implement-wave": "do-task"}
+        manifest["prompt_names"].update({"implement-wave": "do-task"})
         (root / "docs/prompts/prompt-surface-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n",
                                                                          encoding="utf-8")
         cases["cycle"] = (root, ["rename cycle"])
@@ -870,18 +896,21 @@ class ProfileMigrationTests(unittest.TestCase):
             self.assertIn(f"`{key}`", lint["pending"][0])
         self.assertIn("wf render-surfaces", lint["pending"][0])
         self.assertIn("docs/prompts/plan-task.prompt.md", lint["output"])  # required at the derived path
-        (default_lint,), _ = _drive(self.default, [{"action": "lint", "root": str(self.fixture)}])
+        control = self._copy(self.fixture, "default-lint-control")
+        (rendered, default_lint), _ = _drive(self.default, [
+            {"action": "render", "root": str(control)}, {"action": "lint", "root": str(control)}])
+        self.assertNotIn("error", rendered)
         self.assertEqual(default_lint["pending"], [])
 
     def test_scan_reports_default_tokens_but_not_chain_tokens(self) -> None:
         root = self._copy(self.fixture, "scan")
         (root / "docs/references/names.md").write_text(
-            _authored("Names") + "\nRun **Prepare wave**, then `Implement change`, then **Close change**.\n"
+            _authored("Names") + "\nRun **Prepare wave**, then `Implement parcel`, then **Close parcel**.\n"
             "Use `wf-prepare-wave` and see docs/prompts/agents/prepare-wave.prompt.md.\n",
             encoding="utf-8")
         guru = root / ".claude/agents/guru.md"
         guru.parent.mkdir(parents=True, exist_ok=True)
-        guru.write_text("---\nname: guru\ndescription: Not for Plan change or Implement change.\n---\n\nBody.\n",
+        guru.write_text("---\nname: guru\ndescription: Not for Plan change or Implement parcel.\n---\n\nBody.\n",
                         encoding="utf-8")
         (out,), _ = _drive(self.profiled, [{"action": "scan", "root": str(root)}])
         names = [row for row in out if row[0] == "docs/references/names.md"]
@@ -891,8 +920,8 @@ class ProfileMigrationTests(unittest.TestCase):
                        "docs/prompts/agents/prepare-wave.prompt.md", "docs/prompts/agents/prepare-batch.prompt.md"],
                       names)
         matched = {row[3] for row in names}
-        self.assertNotIn("`Implement change`", matched)  # a chain token: the container's current name
-        self.assertNotIn("**Close change**", matched)
+        self.assertNotIn("`Implement parcel`", matched)  # a chain token: the container's current name
+        self.assertNotIn("**Close parcel**", matched)
         guru_rows = [row for row in out if row[0] == ".claude/agents/guru.md"]
         self.assertEqual(guru_rows, [[".claude/agents/guru.md", 3, "Plan change (guru agent description)",
                                       "Plan change", "Plan task"]])
@@ -1146,19 +1175,19 @@ class AtomicPromptCopyTests(unittest.TestCase):
         pair = self.ras._PromptMovePair("plan", "prompts/old.prompt.md", "prompts/plan-task.prompt.md")
         self.folder.mkdir(parents=True)
         (repo / pair.source).write_bytes(b"prompt\n")
-        with mock.patch.object(self.ras, "_read_move_source",
+        with mock.patch.object(self.ras, "_read_move_source_identity",
                                side_effect=OSError(5, sentinel, str(repo / pair.source))), \
                 self.assertRaises(RuntimeError) as raised:
             self.ras._move_prompt_pair(repo, pair)
         messages = [str(raised.exception)]
-        real_unlink = Path.unlink
+        real_unlink = self.ras.contained_files.unlink_contained
 
-        def failing_unlink(path_self, *args, **kwargs):
+        def failing_unlink(root, path_self, *args, **kwargs):
             if path_self.name == "old.prompt.md":
                 raise PermissionError(13, sentinel, str(path_self))
-            return real_unlink(path_self, *args, **kwargs)
+            return real_unlink(root, path_self, *args, **kwargs)
 
-        with mock.patch.object(Path, "unlink", failing_unlink), self.assertRaises(RuntimeError) as raised:
+        with mock.patch.object(self.ras.contained_files, "unlink_contained", failing_unlink), self.assertRaises(RuntimeError) as raised:
             self.ras._move_prompt_pair(repo, pair)
         messages.append(str(raised.exception))
         for message, cls in zip(messages, ("(OSError)", "(PermissionError)")):
@@ -1233,8 +1262,8 @@ class ProfileInstallingUpgradeTests(unittest.TestCase):
             mod.phase_surface_rendering(root)
         prompts = root / "docs" / "prompts"
         self.assertEqual((prompts / "do-task.prompt.md").read_bytes(), IMPLEMENT_CHANGE_BYTES)
-        self.assertTrue((prompts / "implement-change.prompt.md").is_file())
-        self.assertNotEqual((prompts / "implement-change.prompt.md").read_bytes(), IMPLEMENT_CHANGE_BYTES)
+        self.assertTrue((prompts / "implement-parcel.prompt.md").is_file())
+        self.assertNotEqual((prompts / "implement-parcel.prompt.md").read_bytes(), IMPLEMENT_CHANGE_BYTES)
         self.assertFalse((prompts / "implement-wave.prompt.md").exists())
         manifest = json.loads((prompts / "prompt-surface-manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["prompt_names"], {key: spec["slug"] for key, spec in OVERRIDES.items()})
@@ -1251,6 +1280,7 @@ class DefaultRenderIdentityTests(unittest.TestCase):
 
     def test_render_of_this_repository_writes_nothing(self) -> None:
         import render_agent_surfaces as ras
+        from declaration_support import base_declaration
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1263,7 +1293,9 @@ class DefaultRenderIdentityTests(unittest.TestCase):
             shutil.copytree(REPO_ROOT / "docs", root / "docs", symlinks=True,
                             ignore=shutil.ignore_patterns("waves", "memory", "history", "reports"))
             before = _tree_digest(root)
-            with contextlib.redirect_stderr(io.StringIO()) as err:
+            # The copied surfaces are stock, even when this suite is running
+            # with a distribution declaration that adds its own skills.
+            with base_declaration(), contextlib.redirect_stderr(io.StringIO()) as err:
                 written = ras.render_agent_surfaces(root)
             self.assertEqual(written, [], err.getvalue())
             self.assertEqual(_tree_digest(root), before)

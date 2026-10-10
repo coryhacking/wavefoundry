@@ -1,0 +1,1623 @@
+{
+  "context_id": "wf-integrated-arch-docs-delivery-20261009-01",
+  "reviewer_role_disclosure": "One fresh independent agent did not implement any repair or conduct earlier C5 reviews. It separately judged architecture-reviewer and docs-contract-reviewer remits. Supplied other-lane candidates entered only after own40case first pass; they were independently expanded/replayed against literal expectations and CommonMark reference. Two lane payloads do not represent two independent agents.",
+  "verdicts": {
+    "204mp": {
+      "architecture-reviewer": "require_changes",
+      "docs-contract-reviewer": "require_changes"
+    },
+    "207lx": {
+      "architecture-reviewer": "approve",
+      "docs-contract-reviewer": "approve"
+    },
+    "207t4": {
+      "architecture-reviewer": "approve",
+      "docs-contract-reviewer": "approve"
+    }
+  },
+  "review_depth": "full",
+  "budget": {
+    "seconds": 1800,
+    "started_utc": "2026-10-09 05:41 UTC",
+    "completed_utc": "2026-10-09 05:57:42 UTC",
+    "bounded_probe_families": [
+      "C1-C3 distribution/prompt contracts",
+      "C4 actor policy/replay/reload/authority",
+      "C5 original/adjacent installing and reinstall transformation matrix",
+      "C5 public-path preview/refusal/history/error controls",
+      "phase producer-to-consumer transition matrix",
+      "graph transactional reset/caller/reader matrix",
+      "graph structural corruption and public identity/order/limit response matrix",
+      "retained Rust provenance integration"
+    ],
+    "candidate_extension_rationale": "New C5 supplied candidates and independently discovered native-pair/guidance cases extend the same admitted deterministic-migration fixture family; no unrestricted syntax fuzzing or unrelated sweep."
+  },
+  "mcp_retrieval": {
+    "tools_loaded_callable": true,
+    "live_disk_validation": [
+      "code_read",
+      "code_outline",
+      "code_keyword",
+      "code_definition"
+    ],
+    "indexed_readiness": "indeterminate; not used for conclusions",
+    "fallback_needed": false,
+    "gapfill": null,
+    "lookup_note": "A wrong guessed seed209 basename returned file_not_found; corrected to canonical209-agent-harness-core.prompt.md. No retrieval fallback was necessary."
+  },
+  "independent_references": [
+    "Admitted acceptance criteria and required project-content ownership/migration contracts read independently",
+    "CommonMark0.31.2 normative block, escaping and HTML behavior: https://spec.commonmark.org/0.31.2/",
+    "Existing independent MarkdownIt(commonmark) parser in /Users/coryhacking/.wavefoundry/venv/bin/python; no install",
+    "Literal exact-byte metamorphic preservation and install/reinstall fixed-point expectations",
+    "Canonical lifecycle producer/consumer and graph publication schema/transaction contracts"
+  ],
+  "fingerprints": {
+    "count": 39,
+    "before": {
+      ".wavefoundry/framework/scripts/graph_cluster.py": "54638186c4e15abc413f6b1e76b9d231b798a153",
+      ".wavefoundry/framework/scripts/graph_indexer.py": "15042cd748a46d24cbb22dc0f1bde7c1ded178fb",
+      ".wavefoundry/framework/scripts/indexer.py": "ca3c080364aebdafe18f51fea5236feaf3d5f530",
+      ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "9acc50b3cfab00c559010baf20919f203e48828f",
+      ".wavefoundry/framework/scripts/lifecycle_gates.py": "207a2c0c84c7e582efb9ad695367dff4072b5f87",
+      ".wavefoundry/framework/scripts/render_agent_surfaces.py": "5e1c9b9094a97acaf7b6f77fb581dbe6c9cea54b",
+      ".wavefoundry/framework/scripts/review_evidence.py": "54b806ae9a9409cb26be6a5653a1bb6adb9ac45e",
+      ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "e99355979ac908aefa5d2c4ee66dec6ab7c4c7f0",
+      ".wavefoundry/framework/scripts/tests/fixtures/lifecycle-gate-golden.json": "27c62ab52e6f3620f551fdc6b2178f5e9dbe7e0b",
+      ".wavefoundry/framework/scripts/tests/fixtures/profiles/prompt-names.json": "2be75d0d053b7f66c066934ebef6ab484d081c66",
+      ".wavefoundry/framework/scripts/tests/framework_text_ownership.py": "f460fdf00e3669ee04ca6d5b702b715e9d890d8c",
+      ".wavefoundry/framework/scripts/tests/record_layout_support.py": "5e2a500a063fa9423b2063b0e6d46e5bad731268",
+      ".wavefoundry/framework/scripts/tests/test_council_signoff_keys.py": "934a5d7cb982f03fd6adeb98c7cb226979502aa3",
+      ".wavefoundry/framework/scripts/tests/test_distribution_seams.py": "a53ed1662178217727f5f1d9d35f26e12e47e8e3",
+      ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": "7f1188b4486c2e193294e686d2d11b297f1dd1cf",
+      ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": "e3c932fadf23e0d44603e572c37beae6876e3949",
+      ".wavefoundry/framework/scripts/tests/test_indexer.py": "20b217f99dbd79823177940105b5aeb326429143",
+      ".wavefoundry/framework/scripts/tests/test_legacy_council_actors.py": "09c6bff158ba0e001ed344cb8ad0ca4cba62fb18",
+      ".wavefoundry/framework/scripts/tests/test_lifecycle_gates.py": "f497ffaf555aff15b0eb909a00bc8fdef3874a73",
+      ".wavefoundry/framework/scripts/tests/test_lifecycle_golden.py": "78375f503090b8b4fc064599e70fc6059a0972eb",
+      ".wavefoundry/framework/scripts/tests/test_phase_gates.py": "e09464efe152022abf28514af4e3b3bf5e5a0e95",
+      ".wavefoundry/framework/scripts/tests/test_profile_support.py": "82e5060e3a85029052d1c876c28aed28eb583710",
+      ".wavefoundry/framework/scripts/tests/test_readiness_convergence.py": "fd675ca2c67e52c831b4fe61e9dc1287c1f10d77",
+      ".wavefoundry/framework/scripts/tests/test_review_evidence.py": "6ea8a4f58b280e68e42ba2f37ec357ce7f386aa3",
+      ".wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py": "01583b714ead53c5a5a286ced02613501f25c0d7",
+      ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "2b69eecb3aa83fc89c7c037f86612cee3fec9102",
+      ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py": "776c7c2df9d89a00be456ec597359669ca3c8168",
+      ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "71e627b00922d37056d3fad4055f14483b418aea",
+      ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "42f7785097f2491dd6231fc84673c54ee1df4db1",
+      ".wavefoundry/framework/scripts/upgrade_extensions.py": "e20de384cc4119f3e7146ae93406a39042b0359b",
+      ".wavefoundry/framework/scripts/vocabulary_profile.py": "f9a4d28c30b3645ebf9336853d17e7b78cd2b02d",
+      ".wavefoundry/framework/scripts/wf_server/server_impl.py": "a9bf342af0c05c6a69a05adc4e112b13f535cee0",
+      "CHANGELOG.md": "bb18586b3933d91d35730771f15d8b5116a17173",
+      "docs/ARCHITECTURE.md": "71d11346469e141def3f5cd1bb01156f2d639c28",
+      "docs/architecture/cross-cutting-concerns.md": "c25b6a1a1c691ee046364d3e53355822cba27e48",
+      "docs/architecture/data-and-control-flow.md": "5a773042c3d898191fc53f5cbeb44dc3f113ad4e",
+      "docs/architecture/domain-map.md": "887fdfe9b73cc7fdaf83d4250ec5e033401c3321",
+      "docs/architecture/testing-architecture.md": "235de8aa6603d17c866c6741c3718499a1452bb9",
+      "docs/specs/mcp-tool-surface.md": "b7e5f21b737ac76f7cb604f775bdfcc88acc45db"
+    },
+    "after": {
+      ".wavefoundry/framework/scripts/graph_cluster.py": "54638186c4e15abc413f6b1e76b9d231b798a153",
+      ".wavefoundry/framework/scripts/graph_indexer.py": "15042cd748a46d24cbb22dc0f1bde7c1ded178fb",
+      ".wavefoundry/framework/scripts/indexer.py": "ca3c080364aebdafe18f51fea5236feaf3d5f530",
+      ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "9acc50b3cfab00c559010baf20919f203e48828f",
+      ".wavefoundry/framework/scripts/lifecycle_gates.py": "207a2c0c84c7e582efb9ad695367dff4072b5f87",
+      ".wavefoundry/framework/scripts/render_agent_surfaces.py": "5e1c9b9094a97acaf7b6f77fb581dbe6c9cea54b",
+      ".wavefoundry/framework/scripts/review_evidence.py": "54b806ae9a9409cb26be6a5653a1bb6adb9ac45e",
+      ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "e99355979ac908aefa5d2c4ee66dec6ab7c4c7f0",
+      ".wavefoundry/framework/scripts/tests/fixtures/lifecycle-gate-golden.json": "27c62ab52e6f3620f551fdc6b2178f5e9dbe7e0b",
+      ".wavefoundry/framework/scripts/tests/fixtures/profiles/prompt-names.json": "2be75d0d053b7f66c066934ebef6ab484d081c66",
+      ".wavefoundry/framework/scripts/tests/framework_text_ownership.py": "f460fdf00e3669ee04ca6d5b702b715e9d890d8c",
+      ".wavefoundry/framework/scripts/tests/record_layout_support.py": "5e2a500a063fa9423b2063b0e6d46e5bad731268",
+      ".wavefoundry/framework/scripts/tests/test_council_signoff_keys.py": "934a5d7cb982f03fd6adeb98c7cb226979502aa3",
+      ".wavefoundry/framework/scripts/tests/test_distribution_seams.py": "a53ed1662178217727f5f1d9d35f26e12e47e8e3",
+      ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": "7f1188b4486c2e193294e686d2d11b297f1dd1cf",
+      ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": "e3c932fadf23e0d44603e572c37beae6876e3949",
+      ".wavefoundry/framework/scripts/tests/test_indexer.py": "20b217f99dbd79823177940105b5aeb326429143",
+      ".wavefoundry/framework/scripts/tests/test_legacy_council_actors.py": "09c6bff158ba0e001ed344cb8ad0ca4cba62fb18",
+      ".wavefoundry/framework/scripts/tests/test_lifecycle_gates.py": "f497ffaf555aff15b0eb909a00bc8fdef3874a73",
+      ".wavefoundry/framework/scripts/tests/test_lifecycle_golden.py": "78375f503090b8b4fc064599e70fc6059a0972eb",
+      ".wavefoundry/framework/scripts/tests/test_phase_gates.py": "e09464efe152022abf28514af4e3b3bf5e5a0e95",
+      ".wavefoundry/framework/scripts/tests/test_profile_support.py": "82e5060e3a85029052d1c876c28aed28eb583710",
+      ".wavefoundry/framework/scripts/tests/test_readiness_convergence.py": "fd675ca2c67e52c831b4fe61e9dc1287c1f10d77",
+      ".wavefoundry/framework/scripts/tests/test_review_evidence.py": "6ea8a4f58b280e68e42ba2f37ec357ce7f386aa3",
+      ".wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py": "01583b714ead53c5a5a286ced02613501f25c0d7",
+      ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "2b69eecb3aa83fc89c7c037f86612cee3fec9102",
+      ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py": "776c7c2df9d89a00be456ec597359669ca3c8168",
+      ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "71e627b00922d37056d3fad4055f14483b418aea",
+      ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "42f7785097f2491dd6231fc84673c54ee1df4db1",
+      ".wavefoundry/framework/scripts/upgrade_extensions.py": "e20de384cc4119f3e7146ae93406a39042b0359b",
+      ".wavefoundry/framework/scripts/vocabulary_profile.py": "f9a4d28c30b3645ebf9336853d17e7b78cd2b02d",
+      ".wavefoundry/framework/scripts/wf_server/server_impl.py": "a9bf342af0c05c6a69a05adc4e112b13f535cee0",
+      "CHANGELOG.md": "bb18586b3933d91d35730771f15d8b5116a17173",
+      "docs/ARCHITECTURE.md": "71d11346469e141def3f5cd1bb01156f2d639c28",
+      "docs/architecture/cross-cutting-concerns.md": "c25b6a1a1c691ee046364d3e53355822cba27e48",
+      "docs/architecture/data-and-control-flow.md": "5a773042c3d898191fc53f5cbeb44dc3f113ad4e",
+      "docs/architecture/domain-map.md": "887fdfe9b73cc7fdaf83d4250ec5e033401c3321",
+      "docs/architecture/testing-architecture.md": "235de8aa6603d17c866c6741c3718499a1452bb9",
+      "docs/specs/mcp-tool-surface.md": "b7e5f21b737ac76f7cb604f775bdfcc88acc45db"
+    },
+    "all39_equal_packet": true,
+    "scope_sha256_before": {
+      "public": {
+        ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "65c9d11276eadefb0b6a5e72ae16400ec94f813006a9f3da1dc6a6f23d3f21c3",
+        ".wavefoundry/framework/scripts/render_agent_surfaces.py": "7ae9da161df0716050f8c0f931911b7c3a068fc3488151528008bd4b8ef5f605",
+        ".wavefoundry/framework/scripts/review_evidence.py": "7696b2ba0c4e151ed383b39c76273ea1f5fe286dcab95969562e9daaacd78cbc",
+        ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "7c766dc1385416beb80f8f6063d7dc194c281aec236569997850e4aa8236da5c",
+        ".wavefoundry/framework/scripts/tests/fixtures/profiles/prompt-names.json": "68aa7cd256da36493a8250d147685c99cb36c16056179d7cd36e9a988ad9395a",
+        ".wavefoundry/framework/scripts/tests/framework_text_ownership.py": "2d4257cd4f6a3981f8f38d978b6646cc4d059dea7f1e86c16b7cb9a75c92dc18",
+        ".wavefoundry/framework/scripts/tests/record_layout_support.py": "286c3cfa93851c18c3fe56a390fc178923aaaf1c9658542f594aa630a0fdeb49",
+        ".wavefoundry/framework/scripts/tests/test_council_signoff_keys.py": "2053e10a2734e186588d6cb28ef4ad2bdfb4d90f199c8b5eb596decfe4fdd2e5",
+        ".wavefoundry/framework/scripts/tests/test_distribution_seams.py": "b25c4d0c6c61beb2c961087d1c119d74fc9b1c39db1c3f344a209be1881c7c4c",
+        ".wavefoundry/framework/scripts/tests/test_legacy_council_actors.py": "2b52ff5294874c58fc870e1a1260e5d301615e73e5a55e2c3c50a8ef35934fb1",
+        ".wavefoundry/framework/scripts/tests/test_profile_support.py": "bca8cabaafb7d8c3b264d1577e639f6466aaa73d9c93fe13bca31bb4cbbbcb88",
+        ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py": "0da7557197c9ca7d823578789dba5417a971f9ac7ce948c5c16fdf7558f23cf6",
+        ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "207cc3e15d288cae8f6d99dd47447d60a6b55e5b6de9ce72778ac83ee0837fdb",
+        ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "f852874bb308acc363973dc33919327cf8133311f73cd5731de56219971d347a",
+        ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+        ".wavefoundry/framework/scripts/vocabulary_profile.py": "5a1f4a5902eddc99137664f176cb5706ab266014b3bf9f54cb68a86dbb1e03b4",
+        "CHANGELOG.md": "f23cc3ddfde9b1198bc7a9b6b8f66b98bad4aa0d08ee1940984116bc11255a0c",
+        "docs/ARCHITECTURE.md": "599f3b205bd75c3c9b0a6766f47e0924c3a52cf7ece61052f5b30ba573d12b15",
+        "docs/architecture/cross-cutting-concerns.md": "374319b418416993f1927ae4bda814fba513bdaf6e5bc70170dd7e0030382c8f",
+        "docs/architecture/data-and-control-flow.md": "65aef7155f31ea3a65ddc72b11de52c5c2320c6d7ec2ccba41ab80bb252c420a",
+        "docs/architecture/domain-map.md": "c05f3e2226e19ca567ac7e3157dd31fa63fda6d5accb495fe92d22eed6acfba9",
+        "docs/architecture/testing-architecture.md": "c6960a2fea0a9fc021c7e07c3e113d37e6099c0c198729d395d39fdc765f7a65",
+        "docs/specs/mcp-tool-surface.md": "46abe7a4f05010e692897f90c599778a25284d48df93d19fda27abde7550337c"
+      },
+      "phase": {
+        ".wavefoundry/framework/scripts/review_evidence.py": "7696b2ba0c4e151ed383b39c76273ea1f5fe286dcab95969562e9daaacd78cbc",
+        ".wavefoundry/framework/scripts/lifecycle_gates.py": "155e7f0f786f0f4e16e9e861357e31e35e6518d4dc888440c7d1b7b094bc2b8e",
+        ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "65c9d11276eadefb0b6a5e72ae16400ec94f813006a9f3da1dc6a6f23d3f21c3",
+        ".wavefoundry/framework/scripts/wf_server/server_impl.py": "ea4dac9211bb747a025e9df200e89ac6e284c792b1c9790b99fc16e1eae0dd48",
+        ".wavefoundry/framework/scripts/tests/test_review_evidence.py": "44bc30c2999a91f405669c187fc2c1e4cc26e5dcb24cd20efc2750271ed8c7a3",
+        ".wavefoundry/framework/scripts/tests/test_lifecycle_gates.py": "3a503cdadff6df671e6be74fc8ec3f4d47979252873cb7ae736a77d9b379d016",
+        ".wavefoundry/framework/scripts/tests/test_phase_gates.py": "eecba79b4b1351aaeec91b98e86297b30ea5fb366b060a9d8d65c8bc9dcbac58",
+        ".wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py": "b1b984f6458481b6bdc0218ad9cbbe8382fde0a1cf4be62b537aa253854d47cc",
+        ".wavefoundry/framework/scripts/tests/test_lifecycle_golden.py": "3722fc8bb3cf835b461e051ee6415a20841feeee45b30701a1e9573ffc92bb2e",
+        ".wavefoundry/framework/scripts/tests/test_readiness_convergence.py": "a3a923f78fb2d9401c8f0417f74a339eca7f9f491fe43be3bbb39883b22666ed",
+        ".wavefoundry/framework/scripts/tests/fixtures/lifecycle-gate-golden.json": "01698151de7919965d1b2dc27f814eb80e28f8cb00877c5a4f2d42eeeaac5e80",
+        "docs/specs/mcp-tool-surface.md": "46abe7a4f05010e692897f90c599778a25284d48df93d19fda27abde7550337c"
+      },
+      "graph": {
+        ".wavefoundry/framework/scripts/indexer.py": "3e1c935ccfe460a82c288c46d61f49460351f8d953a5084641681dac700c7605",
+        ".wavefoundry/framework/scripts/graph_indexer.py": "0f193c0b4e9f8eedf7ce113a9fd3bd6caa9970f36dca98d2ad385500d23fcd3c",
+        ".wavefoundry/framework/scripts/graph_cluster.py": "c861d84f039c323c755842f355ad159fa2ac1c0133beea537dcca2a6bcd3b0fe",
+        ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": "19736b0bc4a031fc2605994b062f566ac4054355157befacbb49f347dbe7ccac",
+        ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": "b6fcf1e5ac291408182cdeb7696537849f9a479c44b6fa12621aaaa95c488da9",
+        ".wavefoundry/framework/scripts/tests/test_indexer.py": "5d89b3ef32d48b726df97258c53330f99fc0799a9b09feaaae35e728a185e22f",
+        ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "0e292d7d5643fe2339167cd8fdca3507c6aeeb9ab1a78cc5779f1ba5bb920992",
+        "docs/architecture/data-and-control-flow.md": "65aef7155f31ea3a65ddc72b11de52c5c2320c6d7ec2ccba41ab80bb252c420a",
+        "docs/architecture/testing-architecture.md": "c6960a2fea0a9fc021c7e07c3e113d37e6099c0c198729d395d39fdc765f7a65"
+      }
+    },
+    "scope_sha256_after": {
+      "public": {
+        ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "65c9d11276eadefb0b6a5e72ae16400ec94f813006a9f3da1dc6a6f23d3f21c3",
+        ".wavefoundry/framework/scripts/render_agent_surfaces.py": "7ae9da161df0716050f8c0f931911b7c3a068fc3488151528008bd4b8ef5f605",
+        ".wavefoundry/framework/scripts/review_evidence.py": "7696b2ba0c4e151ed383b39c76273ea1f5fe286dcab95969562e9daaacd78cbc",
+        ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "7c766dc1385416beb80f8f6063d7dc194c281aec236569997850e4aa8236da5c",
+        ".wavefoundry/framework/scripts/tests/fixtures/profiles/prompt-names.json": "68aa7cd256da36493a8250d147685c99cb36c16056179d7cd36e9a988ad9395a",
+        ".wavefoundry/framework/scripts/tests/framework_text_ownership.py": "2d4257cd4f6a3981f8f38d978b6646cc4d059dea7f1e86c16b7cb9a75c92dc18",
+        ".wavefoundry/framework/scripts/tests/record_layout_support.py": "286c3cfa93851c18c3fe56a390fc178923aaaf1c9658542f594aa630a0fdeb49",
+        ".wavefoundry/framework/scripts/tests/test_council_signoff_keys.py": "2053e10a2734e186588d6cb28ef4ad2bdfb4d90f199c8b5eb596decfe4fdd2e5",
+        ".wavefoundry/framework/scripts/tests/test_distribution_seams.py": "b25c4d0c6c61beb2c961087d1c119d74fc9b1c39db1c3f344a209be1881c7c4c",
+        ".wavefoundry/framework/scripts/tests/test_legacy_council_actors.py": "2b52ff5294874c58fc870e1a1260e5d301615e73e5a55e2c3c50a8ef35934fb1",
+        ".wavefoundry/framework/scripts/tests/test_profile_support.py": "bca8cabaafb7d8c3b264d1577e639f6466aaa73d9c93fe13bca31bb4cbbbcb88",
+        ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py": "0da7557197c9ca7d823578789dba5417a971f9ac7ce948c5c16fdf7558f23cf6",
+        ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "207cc3e15d288cae8f6d99dd47447d60a6b55e5b6de9ce72778ac83ee0837fdb",
+        ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "f852874bb308acc363973dc33919327cf8133311f73cd5731de56219971d347a",
+        ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+        ".wavefoundry/framework/scripts/vocabulary_profile.py": "5a1f4a5902eddc99137664f176cb5706ab266014b3bf9f54cb68a86dbb1e03b4",
+        "CHANGELOG.md": "f23cc3ddfde9b1198bc7a9b6b8f66b98bad4aa0d08ee1940984116bc11255a0c",
+        "docs/ARCHITECTURE.md": "599f3b205bd75c3c9b0a6766f47e0924c3a52cf7ece61052f5b30ba573d12b15",
+        "docs/architecture/cross-cutting-concerns.md": "374319b418416993f1927ae4bda814fba513bdaf6e5bc70170dd7e0030382c8f",
+        "docs/architecture/data-and-control-flow.md": "65aef7155f31ea3a65ddc72b11de52c5c2320c6d7ec2ccba41ab80bb252c420a",
+        "docs/architecture/domain-map.md": "c05f3e2226e19ca567ac7e3157dd31fa63fda6d5accb495fe92d22eed6acfba9",
+        "docs/architecture/testing-architecture.md": "c6960a2fea0a9fc021c7e07c3e113d37e6099c0c198729d395d39fdc765f7a65",
+        "docs/specs/mcp-tool-surface.md": "46abe7a4f05010e692897f90c599778a25284d48df93d19fda27abde7550337c"
+      },
+      "phase": {
+        ".wavefoundry/framework/scripts/review_evidence.py": "7696b2ba0c4e151ed383b39c76273ea1f5fe286dcab95969562e9daaacd78cbc",
+        ".wavefoundry/framework/scripts/lifecycle_gates.py": "155e7f0f786f0f4e16e9e861357e31e35e6518d4dc888440c7d1b7b094bc2b8e",
+        ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "65c9d11276eadefb0b6a5e72ae16400ec94f813006a9f3da1dc6a6f23d3f21c3",
+        ".wavefoundry/framework/scripts/wf_server/server_impl.py": "ea4dac9211bb747a025e9df200e89ac6e284c792b1c9790b99fc16e1eae0dd48",
+        ".wavefoundry/framework/scripts/tests/test_review_evidence.py": "44bc30c2999a91f405669c187fc2c1e4cc26e5dcb24cd20efc2750271ed8c7a3",
+        ".wavefoundry/framework/scripts/tests/test_lifecycle_gates.py": "3a503cdadff6df671e6be74fc8ec3f4d47979252873cb7ae736a77d9b379d016",
+        ".wavefoundry/framework/scripts/tests/test_phase_gates.py": "eecba79b4b1351aaeec91b98e86297b30ea5fb366b060a9d8d65c8bc9dcbac58",
+        ".wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py": "b1b984f6458481b6bdc0218ad9cbbe8382fde0a1cf4be62b537aa253854d47cc",
+        ".wavefoundry/framework/scripts/tests/test_lifecycle_golden.py": "3722fc8bb3cf835b461e051ee6415a20841feeee45b30701a1e9573ffc92bb2e",
+        ".wavefoundry/framework/scripts/tests/test_readiness_convergence.py": "a3a923f78fb2d9401c8f0417f74a339eca7f9f491fe43be3bbb39883b22666ed",
+        ".wavefoundry/framework/scripts/tests/fixtures/lifecycle-gate-golden.json": "01698151de7919965d1b2dc27f814eb80e28f8cb00877c5a4f2d42eeeaac5e80",
+        "docs/specs/mcp-tool-surface.md": "46abe7a4f05010e692897f90c599778a25284d48df93d19fda27abde7550337c"
+      },
+      "graph": {
+        ".wavefoundry/framework/scripts/indexer.py": "3e1c935ccfe460a82c288c46d61f49460351f8d953a5084641681dac700c7605",
+        ".wavefoundry/framework/scripts/graph_indexer.py": "0f193c0b4e9f8eedf7ce113a9fd3bd6caa9970f36dca98d2ad385500d23fcd3c",
+        ".wavefoundry/framework/scripts/graph_cluster.py": "c861d84f039c323c755842f355ad159fa2ac1c0133beea537dcca2a6bcd3b0fe",
+        ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": "19736b0bc4a031fc2605994b062f566ac4054355157befacbb49f347dbe7ccac",
+        ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": "b6fcf1e5ac291408182cdeb7696537849f9a479c44b6fa12621aaaa95c488da9",
+        ".wavefoundry/framework/scripts/tests/test_indexer.py": "5d89b3ef32d48b726df97258c53330f99fc0799a9b09feaaae35e728a185e22f",
+        ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "0e292d7d5643fe2339167cd8fdca3507c6aeeb9ab1a78cc5779f1ba5bb920992",
+        "docs/architecture/data-and-control-flow.md": "65aef7155f31ea3a65ddc72b11de52c5c2320c6d7ec2ccba41ab80bb252c420a",
+        "docs/architecture/testing-architecture.md": "c6960a2fea0a9fc021c7e07c3e113d37e6099c0c198729d395d39fdc765f7a65"
+      }
+    },
+    "all_scope_sha256_equal_packet": true,
+    "additional_guidance_read_sha256": "65d90ad14057ba5eb2f0d447b61632946a6b2d397efce3d8e310f58f1fe51af3",
+    "additional_guidance_not_part_of39packet": true
+  },
+  "test_runs": [
+    {
+      "group": "C5 actual owner",
+      "tests": 17,
+      "skips": 0,
+      "seconds": 54.6,
+      "log": "/tmp/wf-arch-docs-c5-owner.log"
+    },
+    {
+      "group": "Graph transaction/public owners",
+      "tests": 14,
+      "skips": 0,
+      "seconds": 2.595,
+      "log": "/tmp/wf-arch-docs-graph-owner.log"
+    },
+    {
+      "group": "Phase/independence/readiness/actor owners",
+      "tests": 49,
+      "skips": 0,
+      "seconds": 4.928,
+      "log": "/tmp/wf-arch-docs-phase-owner.log"
+    },
+    {
+      "group": "Real phase producer/public consumer",
+      "tests": 3,
+      "skips": 0,
+      "seconds": 2.121,
+      "log": "/tmp/wf-arch-docs-phase-public.log"
+    },
+    {
+      "group": "C1-C3 distribution/prompt oracles",
+      "tests": 107,
+      "skips": 0,
+      "seconds": 51.864,
+      "log": "/tmp/wf-arch-docs-c1-c3.log"
+    },
+    {
+      "group": "Retained Rust integration",
+      "tests": 21,
+      "skips": 0,
+      "seconds": 1.971,
+      "log": "/tmp/wf-arch-docs-rust-integration.log"
+    },
+    {
+      "group": "Original and adjacent independent C5 replay",
+      "cases": 40,
+      "failures": 0,
+      "seconds": 31.484,
+      "artifact": "/tmp/wf-arch-docs-c5-probe-results.json"
+    },
+    {
+      "group": "Candidate-expanded own actual C5 matrix",
+      "cases": 15,
+      "failures": 11,
+      "seconds": 13.345,
+      "artifact": "/tmp/wf-arch-docs-c5-candidates-results.json"
+    },
+    {
+      "group": "Independent literal graph public response matrix",
+      "tests": 3,
+      "skips": 0,
+      "seconds": 0.927,
+      "log": "/tmp/wf-arch-docs-graph-own-response.log",
+      "artifact": "/tmp/wf-arch-docs-graph-own-response-results.json",
+      "fixture_correction": "Initial subclass run correctly failed setup because the inherited missing-member selector named the old fixture path. Scratch fixture selector was corrected to own literal artifact; all three behavior tests then ran green. No reviewed tests were edited."
+    }
+  ],
+  "mutations": {
+    "executed": [
+      {
+        "mutant": "c5-paragraph-regions",
+        "path": "render_agent_surfaces.py",
+        "selected_test": "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_inline_block_boundaries_and_escapes",
+        "returncode": 1,
+        "detected_at_behavior_assertion": true,
+        "seconds": 32.94701495906338,
+        "log": "/tmp/wf-arch-docs-mutants/c5-paragraph-regions.log"
+      },
+      {
+        "mutant": "c5-opening-escape",
+        "path": "render_agent_surfaces.py",
+        "selected_test": "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_inline_block_boundaries_and_escapes",
+        "returncode": 1,
+        "detected_at_behavior_assertion": true,
+        "seconds": 33.96947562485002,
+        "log": "/tmp/wf-arch-docs-mutants/c5-opening-escape.log"
+      },
+      {
+        "mutant": "c5-setext",
+        "path": "render_agent_surfaces.py",
+        "selected_test": "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_inline_block_boundaries_and_escapes",
+        "returncode": 1,
+        "detected_at_behavior_assertion": true,
+        "seconds": 33.22928662505001,
+        "log": "/tmp/wf-arch-docs-mutants/c5-setext.log"
+      },
+      {
+        "mutant": "c5-lazy-containers",
+        "path": "render_agent_surfaces.py",
+        "selected_test": "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_classifies_quote_and_list_code_columns",
+        "returncode": 1,
+        "detected_at_behavior_assertion": true,
+        "seconds": 27.195214790990576,
+        "log": "/tmp/wf-arch-docs-mutants/c5-lazy-containers.log"
+      },
+      {
+        "mutant": "graph-reset-baseline",
+        "path": "graph_cluster.py",
+        "selected_test": "test_graph_transactional_state.ClusterPublicationStateTests.test_reset_recompute_replaces_unchanged_members_and_preserves_ids",
+        "returncode": 1,
+        "detected_at_behavior_assertion": true,
+        "seconds": 0.8845949999522418,
+        "log": "/tmp/wf-arch-docs-mutants/graph-reset-baseline.log"
+      },
+      {
+        "mutant": "graph-completeness",
+        "path": "graph_cluster.py",
+        "selected_test": "test_graph_transactional_state.ClusterPublicationStateTests.test_same_fingerprint_structural_corruption_recomputes_and_repairs",
+        "returncode": 1,
+        "detected_at_behavior_assertion": true,
+        "seconds": 0.8604698341805488,
+        "log": "/tmp/wf-arch-docs-mutants/graph-completeness.log"
+      },
+      {
+        "mutant": "graph-build-reset-caller",
+        "path": "indexer.py",
+        "selected_test": "test_graph_transactional_state.GraphBuildResetTests.test_public_graph_build_version_reset_restores_all_unchanged_members",
+        "returncode": 1,
+        "detected_at_behavior_assertion": true,
+        "seconds": 1.8191867920104414,
+        "log": "/tmp/wf-arch-docs-mutants/graph-build-reset-caller.log"
+      },
+      {
+        "mutant": "graph-orphan-reset-caller",
+        "path": "indexer.py",
+        "selected_test": "test_graph_transactional_state.GraphBuildResetTests.test_actual_orphan_reconciliation_reset_caller_restores_members",
+        "returncode": 1,
+        "detected_at_behavior_assertion": true,
+        "seconds": 1.7030629999935627,
+        "log": "/tmp/wf-arch-docs-mutants/graph-orphan-reset-caller.log"
+      },
+      {
+        "mutant": "phase-readiness-exemption",
+        "path": "review_evidence.py",
+        "selected_test": "test_phase_gates.PhaseLaneTests.test_delivery_findings_allow_real_readiness_admission_but_block_close",
+        "returncode": 1,
+        "detected_at_behavior_assertion": true,
+        "seconds": 1.152662041829899,
+        "log": "/tmp/wf-arch-docs-mutants/phase-readiness-exemption.log"
+      },
+      {
+        "mutant": "phase-origin-guard",
+        "path": "review_evidence.py",
+        "selected_test": "test_phase_gates.PhaseLaneTests.test_readiness_finding_keeps_recorded_approval_withheld_in_every_consumer",
+        "returncode": 1,
+        "detected_at_behavior_assertion": true,
+        "seconds": 1.1387467079330236,
+        "log": "/tmp/wf-arch-docs-mutants/phase-origin-guard.log"
+      },
+      {
+        "mutant": "actor-current-role-collision",
+        "path": "lifecycle_gate_support.py",
+        "selected_test": "test_legacy_council_actors.LegacyActorDeclarationTests.test_declared_alias_lifecycle_replay_authority_and_runtime_role_collisions",
+        "returncode": 1,
+        "detected_at_behavior_assertion": true,
+        "seconds": 1.6518592920619994,
+        "log": "/tmp/wf-arch-docs-mutants/actor-current-role-collision.log"
+      }
+    ],
+    "count": 11,
+    "survivors": [],
+    "whole_file_survivor_sweeps": [],
+    "rule_followed": "Selected targeted checks per mutant; every mutant killed at behavior assertion, so no whole-file survivor sweep necessary. No assertion weakening or reviewed-source changes."
+  },
+  "inventory": {
+    "tracked_framework_paths": 519,
+    "explicit_owned_untracked_paths": 5,
+    "verified": 524,
+    "initial_read_only_check": "Graph-only explicit inclusion left four other newly admitted owned paths unaccounted; corrected inclusion list covered all5, no source defect.",
+    "final_result": "Verified524paths; no tracked missing paths"
+  },
+  "findings": [
+    {
+      "provisional_id": "ARCH-DOC-204MP-03",
+      "severity": "medium",
+      "file": ".wavefoundry/framework/scripts/render_agent_surfaces.py",
+      "line": 3161,
+      "summary": "Container reference definitions are silently omitted after confirmed role moves.",
+      "confidence": "high",
+      "required_contract": "204mn requirements1\u20132 and required AC-2",
+      "selected_cases": [
+        "quote_reference",
+        "list_reference",
+        "recursive_reference"
+      ],
+      "observed": "3 valid live reference destinations remain wave-council.md after install and reinstall; roles move. No report names these definitions. Root reference control repairs.",
+      "recommended_fix": "Recognize reference definitions in their actual container content columns while retaining source offsets; also align unsupported diagnostics with the same block classification.",
+      "caller_payloads": [
+        {
+          "wave_id": "204mp",
+          "event": "finding",
+          "finding_id": "ARCH-DOC-204MP-03",
+          "actor": "architecture-reviewer",
+          "context_id": "wf-integrated-arch-docs-delivery-20261009-01",
+          "fresh_context": true,
+          "independent": true,
+          "judgment": {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": true,
+            "contract_relevance": "required_ac",
+            "supported_reachability": true,
+            "attacker_reachability": false,
+            "authority_domain": "integrity",
+            "authority_delta": "none",
+            "observable_impact": "material",
+            "containment": "none",
+            "fix_risk": "lower",
+            "optional_value": "none",
+            "repair_scope_bounded": true,
+            "repair_safety": "safe",
+            "benefit_vs_fix_risk": "greater",
+            "rejection_basis": "none",
+            "repair_execution_state": "pending"
+          },
+          "evidence": {
+            "proposition": "Ordinary reference-definition destinations inside quote/list containers resolving to a confirmed moved role are repaired; surrounding bytes and suffixes are preserved.",
+            "failure_condition": "Container reference definitions are silently omitted after confirmed role moves.",
+            "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces subprocess -> render_agent_surfaces.migrate_council_role_renames",
+            "command_or_fixture": "PYTHONDONTWRITEBYTECODE=1 python3 -B /tmp/wf-arch-docs-c5-candidates.py",
+            "expected": "Ordinary reference-definition destinations inside quote/list containers resolving to a confirmed moved role are repaired; surrounding bytes and suffixes are preserved.",
+            "observed": "3 valid live reference destinations remain wave-council.md after install and reinstall; roles move. No report names these definitions. Root reference control repairs.",
+            "artifact_or_test_id": "/tmp/wf-arch-docs-c5-candidates-results.json",
+            "known_bad_detection_method": "Current-tree defective baseline detected by independent literal expected-byte assertions through actual incoming installing and reinstall drivers, adjacent legitimate controls, and independent CommonMark parser/spec classification.",
+            "limitations": "One fresh independent reviewer transparently performs both architecture and docs-contract remits; these are two judgments, not two independent people. No unrestricted CommonMark certification, native Windows run, live downstream Waveforge/Tensorwell qualification, new whole suite, setup or live-index change. Indexed host readiness remains indeterminate; code_read/outline were live disk reads.",
+            "safety_and_authorization": "Authorized isolated local copied targets; no reviewed source, lifecycle, ledger or live-index writes.",
+            "disposition_rationale": "Required C5 destination/preservation or migration-documentation contract is false on an executed supported local path. Repair the bounded mechanism without changing scope or history ownership."
+          },
+          "source_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "blocking_required_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "approval_recheck_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "review_boundaries_changed": [],
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "Current-tree defective baseline detected by independent literal expected-byte assertions through actual incoming installing and reinstall drivers, adjacent legitimate controls, and independent CommonMark parser/spec classification."
+          }
+        },
+        {
+          "wave_id": "204mp",
+          "event": "finding",
+          "finding_id": "ARCH-DOC-204MP-03",
+          "actor": "docs-contract-reviewer",
+          "context_id": "wf-integrated-arch-docs-delivery-20261009-01",
+          "fresh_context": true,
+          "independent": true,
+          "judgment": {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": true,
+            "contract_relevance": "required_ac",
+            "supported_reachability": true,
+            "attacker_reachability": false,
+            "authority_domain": "integrity",
+            "authority_delta": "none",
+            "observable_impact": "material",
+            "containment": "none",
+            "fix_risk": "lower",
+            "optional_value": "none",
+            "repair_scope_bounded": true,
+            "repair_safety": "safe",
+            "benefit_vs_fix_risk": "greater",
+            "rejection_basis": "none",
+            "repair_execution_state": "pending"
+          },
+          "evidence": {
+            "proposition": "Ordinary reference-definition destinations inside quote/list containers resolving to a confirmed moved role are repaired; surrounding bytes and suffixes are preserved.",
+            "failure_condition": "Container reference definitions are silently omitted after confirmed role moves.",
+            "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces subprocess -> render_agent_surfaces.migrate_council_role_renames",
+            "command_or_fixture": "PYTHONDONTWRITEBYTECODE=1 python3 -B /tmp/wf-arch-docs-c5-candidates.py",
+            "expected": "Ordinary reference-definition destinations inside quote/list containers resolving to a confirmed moved role are repaired; surrounding bytes and suffixes are preserved.",
+            "observed": "3 valid live reference destinations remain wave-council.md after install and reinstall; roles move. No report names these definitions. Root reference control repairs.",
+            "artifact_or_test_id": "/tmp/wf-arch-docs-c5-candidates-results.json",
+            "known_bad_detection_method": "Current-tree defective baseline detected by independent literal expected-byte assertions through actual incoming installing and reinstall drivers, adjacent legitimate controls, and independent CommonMark parser/spec classification.",
+            "limitations": "One fresh independent reviewer transparently performs both architecture and docs-contract remits; these are two judgments, not two independent people. No unrestricted CommonMark certification, native Windows run, live downstream Waveforge/Tensorwell qualification, new whole suite, setup or live-index change. Indexed host readiness remains indeterminate; code_read/outline were live disk reads.",
+            "safety_and_authorization": "Authorized isolated local copied targets; no reviewed source, lifecycle, ledger or live-index writes.",
+            "disposition_rationale": "Required C5 destination/preservation or migration-documentation contract is false on an executed supported local path. Repair the bounded mechanism without changing scope or history ownership."
+          },
+          "source_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "blocking_required_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "approval_recheck_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "review_boundaries_changed": [],
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "Current-tree defective baseline detected by independent literal expected-byte assertions through actual incoming installing and reinstall drivers, adjacent legitimate controls, and independent CommonMark parser/spec classification."
+          }
+        }
+      ]
+    },
+    {
+      "provisional_id": "ARCH-DOC-204MP-04",
+      "severity": "medium",
+      "file": ".wavefoundry/framework/scripts/render_agent_surfaces.py",
+      "line": 2994,
+      "summary": "HTML pre/comment literal content is rewritten as a live Markdown destination.",
+      "confidence": "high",
+      "required_contract": "204mn requirements1\u20132 and required AC-2",
+      "selected_cases": [
+        "pre_preservation",
+        "comment_preservation",
+        "quoted_pre_preservation"
+      ],
+      "observed": "3 HTML-block cases rewrite literal [CODE](wave-council.md) to council-chair.md. Independent parser returns html_block; adjacent live links correctly repair; reinstall stable.",
+      "recommended_fix": "Mask supported HTML blocks (including quote-contained blocks) before link matching; preserve original offsets and adjacent live-link behavior.",
+      "caller_payloads": [
+        {
+          "wave_id": "204mp",
+          "event": "finding",
+          "finding_id": "ARCH-DOC-204MP-04",
+          "actor": "architecture-reviewer",
+          "context_id": "wf-integrated-arch-docs-delivery-20261009-01",
+          "fresh_context": true,
+          "independent": true,
+          "judgment": {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": true,
+            "contract_relevance": "required_ac",
+            "supported_reachability": true,
+            "attacker_reachability": false,
+            "authority_domain": "integrity",
+            "authority_delta": "none",
+            "observable_impact": "material",
+            "containment": "none",
+            "fix_risk": "lower",
+            "optional_value": "none",
+            "repair_scope_bounded": true,
+            "repair_safety": "safe",
+            "benefit_vs_fix_risk": "greater",
+            "rejection_basis": "none",
+            "repair_execution_state": "pending"
+          },
+          "evidence": {
+            "proposition": "Project-owned HTML literal/code and comment bytes remain unchanged while adjacent genuine Markdown links repair.",
+            "failure_condition": "HTML pre/comment literal content is rewritten as a live Markdown destination.",
+            "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces subprocess -> render_agent_surfaces.migrate_council_role_renames",
+            "command_or_fixture": "PYTHONDONTWRITEBYTECODE=1 python3 -B /tmp/wf-arch-docs-c5-candidates.py",
+            "expected": "Project-owned HTML literal/code and comment bytes remain unchanged while adjacent genuine Markdown links repair.",
+            "observed": "3 HTML-block cases rewrite literal [CODE](wave-council.md) to council-chair.md. Independent parser returns html_block; adjacent live links correctly repair; reinstall stable.",
+            "artifact_or_test_id": "/tmp/wf-arch-docs-c5-candidates-results.json",
+            "known_bad_detection_method": "Current-tree defective baseline detected by independent literal expected-byte assertions through actual incoming installing and reinstall drivers, adjacent legitimate controls, and independent CommonMark parser/spec classification.",
+            "limitations": "One fresh independent reviewer transparently performs both architecture and docs-contract remits; these are two judgments, not two independent people. No unrestricted CommonMark certification, native Windows run, live downstream Waveforge/Tensorwell qualification, new whole suite, setup or live-index change. Indexed host readiness remains indeterminate; code_read/outline were live disk reads.",
+            "safety_and_authorization": "Authorized isolated local copied targets; no reviewed source, lifecycle, ledger or live-index writes.",
+            "disposition_rationale": "Required C5 destination/preservation or migration-documentation contract is false on an executed supported local path. Repair the bounded mechanism without changing scope or history ownership."
+          },
+          "source_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "blocking_required_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "approval_recheck_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "review_boundaries_changed": [],
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "Current-tree defective baseline detected by independent literal expected-byte assertions through actual incoming installing and reinstall drivers, adjacent legitimate controls, and independent CommonMark parser/spec classification."
+          }
+        },
+        {
+          "wave_id": "204mp",
+          "event": "finding",
+          "finding_id": "ARCH-DOC-204MP-04",
+          "actor": "docs-contract-reviewer",
+          "context_id": "wf-integrated-arch-docs-delivery-20261009-01",
+          "fresh_context": true,
+          "independent": true,
+          "judgment": {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": true,
+            "contract_relevance": "required_ac",
+            "supported_reachability": true,
+            "attacker_reachability": false,
+            "authority_domain": "integrity",
+            "authority_delta": "none",
+            "observable_impact": "material",
+            "containment": "none",
+            "fix_risk": "lower",
+            "optional_value": "none",
+            "repair_scope_bounded": true,
+            "repair_safety": "safe",
+            "benefit_vs_fix_risk": "greater",
+            "rejection_basis": "none",
+            "repair_execution_state": "pending"
+          },
+          "evidence": {
+            "proposition": "Project-owned HTML literal/code and comment bytes remain unchanged while adjacent genuine Markdown links repair.",
+            "failure_condition": "HTML pre/comment literal content is rewritten as a live Markdown destination.",
+            "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces subprocess -> render_agent_surfaces.migrate_council_role_renames",
+            "command_or_fixture": "PYTHONDONTWRITEBYTECODE=1 python3 -B /tmp/wf-arch-docs-c5-candidates.py",
+            "expected": "Project-owned HTML literal/code and comment bytes remain unchanged while adjacent genuine Markdown links repair.",
+            "observed": "3 HTML-block cases rewrite literal [CODE](wave-council.md) to council-chair.md. Independent parser returns html_block; adjacent live links correctly repair; reinstall stable.",
+            "artifact_or_test_id": "/tmp/wf-arch-docs-c5-candidates-results.json",
+            "known_bad_detection_method": "Current-tree defective baseline detected by independent literal expected-byte assertions through actual incoming installing and reinstall drivers, adjacent legitimate controls, and independent CommonMark parser/spec classification.",
+            "limitations": "One fresh independent reviewer transparently performs both architecture and docs-contract remits; these are two judgments, not two independent people. No unrestricted CommonMark certification, native Windows run, live downstream Waveforge/Tensorwell qualification, new whole suite, setup or live-index change. Indexed host readiness remains indeterminate; code_read/outline were live disk reads.",
+            "safety_and_authorization": "Authorized isolated local copied targets; no reviewed source, lifecycle, ledger or live-index writes.",
+            "disposition_rationale": "Required C5 destination/preservation or migration-documentation contract is false on an executed supported local path. Repair the bounded mechanism without changing scope or history ownership."
+          },
+          "source_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "blocking_required_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "approval_recheck_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "review_boundaries_changed": [],
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "Current-tree defective baseline detected by independent literal expected-byte assertions through actual incoming installing and reinstall drivers, adjacent legitimate controls, and independent CommonMark parser/spec classification."
+          }
+        }
+      ]
+    },
+    {
+      "provisional_id": "ARCH-DOC-204MP-05",
+      "severity": "medium",
+      "file": ".wavefoundry/framework/scripts/render_agent_surfaces.py",
+      "line": 3079,
+      "summary": "A backtick-containing fence info string is incorrectly treated as a code fence, masking live links.",
+      "confidence": "high",
+      "required_contract": "204mn requirements1\u20132 and required AC-2",
+      "selected_cases": [
+        "bad_backtick_info",
+        "quote_bad_backtick_info"
+      ],
+      "observed": "2 valid live destinations remain old with no link diagnostic. Independent parser yields paragraph/link tokens, not fence. Legitimate tilde fence containing a backtick remains unchanged with live peer repaired.",
+      "recommended_fix": "Apply the fence-opening info-string restriction before entering fence state; retain legitimate fence and container controls.",
+      "caller_payloads": [
+        {
+          "wave_id": "204mp",
+          "event": "finding",
+          "finding_id": "ARCH-DOC-204MP-05",
+          "actor": "architecture-reviewer",
+          "context_id": "wf-integrated-arch-docs-delivery-20261009-01",
+          "fresh_context": true,
+          "independent": true,
+          "judgment": {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": true,
+            "contract_relevance": "required_ac",
+            "supported_reachability": true,
+            "attacker_reachability": false,
+            "authority_domain": "integrity",
+            "authority_delta": "none",
+            "observable_impact": "material",
+            "containment": "none",
+            "fix_risk": "lower",
+            "optional_value": "none",
+            "repair_scope_bounded": true,
+            "repair_safety": "safe",
+            "benefit_vs_fix_risk": "greater",
+            "rejection_basis": "none",
+            "repair_execution_state": "pending"
+          },
+          "evidence": {
+            "proposition": "A line whose backtick-fence info contains a backtick is ordinary Markdown under CommonMark; adjacent live destinations repair.",
+            "failure_condition": "A backtick-containing fence info string is incorrectly treated as a code fence, masking live links.",
+            "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces subprocess -> render_agent_surfaces.migrate_council_role_renames",
+            "command_or_fixture": "PYTHONDONTWRITEBYTECODE=1 python3 -B /tmp/wf-arch-docs-c5-candidates.py",
+            "expected": "A line whose backtick-fence info contains a backtick is ordinary Markdown under CommonMark; adjacent live destinations repair.",
+            "observed": "2 valid live destinations remain old with no link diagnostic. Independent parser yields paragraph/link tokens, not fence. Legitimate tilde fence containing a backtick remains unchanged with live peer repaired.",
+            "artifact_or_test_id": "/tmp/wf-arch-docs-c5-candidates-results.json",
+            "known_bad_detection_method": "Current-tree defective baseline detected by independent literal expected-byte assertions through actual incoming installing and reinstall drivers, adjacent legitimate controls, and independent CommonMark parser/spec classification.",
+            "limitations": "One fresh independent reviewer transparently performs both architecture and docs-contract remits; these are two judgments, not two independent people. No unrestricted CommonMark certification, native Windows run, live downstream Waveforge/Tensorwell qualification, new whole suite, setup or live-index change. Indexed host readiness remains indeterminate; code_read/outline were live disk reads.",
+            "safety_and_authorization": "Authorized isolated local copied targets; no reviewed source, lifecycle, ledger or live-index writes.",
+            "disposition_rationale": "Required C5 destination/preservation or migration-documentation contract is false on an executed supported local path. Repair the bounded mechanism without changing scope or history ownership."
+          },
+          "source_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "blocking_required_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "approval_recheck_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "review_boundaries_changed": [],
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "Current-tree defective baseline detected by independent literal expected-byte assertions through actual incoming installing and reinstall drivers, adjacent legitimate controls, and independent CommonMark parser/spec classification."
+          }
+        },
+        {
+          "wave_id": "204mp",
+          "event": "finding",
+          "finding_id": "ARCH-DOC-204MP-05",
+          "actor": "docs-contract-reviewer",
+          "context_id": "wf-integrated-arch-docs-delivery-20261009-01",
+          "fresh_context": true,
+          "independent": true,
+          "judgment": {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": true,
+            "contract_relevance": "required_ac",
+            "supported_reachability": true,
+            "attacker_reachability": false,
+            "authority_domain": "integrity",
+            "authority_delta": "none",
+            "observable_impact": "material",
+            "containment": "none",
+            "fix_risk": "lower",
+            "optional_value": "none",
+            "repair_scope_bounded": true,
+            "repair_safety": "safe",
+            "benefit_vs_fix_risk": "greater",
+            "rejection_basis": "none",
+            "repair_execution_state": "pending"
+          },
+          "evidence": {
+            "proposition": "A line whose backtick-fence info contains a backtick is ordinary Markdown under CommonMark; adjacent live destinations repair.",
+            "failure_condition": "A backtick-containing fence info string is incorrectly treated as a code fence, masking live links.",
+            "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces subprocess -> render_agent_surfaces.migrate_council_role_renames",
+            "command_or_fixture": "PYTHONDONTWRITEBYTECODE=1 python3 -B /tmp/wf-arch-docs-c5-candidates.py",
+            "expected": "A line whose backtick-fence info contains a backtick is ordinary Markdown under CommonMark; adjacent live destinations repair.",
+            "observed": "2 valid live destinations remain old with no link diagnostic. Independent parser yields paragraph/link tokens, not fence. Legitimate tilde fence containing a backtick remains unchanged with live peer repaired.",
+            "artifact_or_test_id": "/tmp/wf-arch-docs-c5-candidates-results.json",
+            "known_bad_detection_method": "Current-tree defective baseline detected by independent literal expected-byte assertions through actual incoming installing and reinstall drivers, adjacent legitimate controls, and independent CommonMark parser/spec classification.",
+            "limitations": "One fresh independent reviewer transparently performs both architecture and docs-contract remits; these are two judgments, not two independent people. No unrestricted CommonMark certification, native Windows run, live downstream Waveforge/Tensorwell qualification, new whole suite, setup or live-index change. Indexed host readiness remains indeterminate; code_read/outline were live disk reads.",
+            "safety_and_authorization": "Authorized isolated local copied targets; no reviewed source, lifecycle, ledger or live-index writes.",
+            "disposition_rationale": "Required C5 destination/preservation or migration-documentation contract is false on an executed supported local path. Repair the bounded mechanism without changing scope or history ownership."
+          },
+          "source_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "blocking_required_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "approval_recheck_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "review_boundaries_changed": [],
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "Current-tree defective baseline detected by independent literal expected-byte assertions through actual incoming installing and reinstall drivers, adjacent legitimate controls, and independent CommonMark parser/spec classification."
+          }
+        }
+      ]
+    },
+    {
+      "provisional_id": "ARCH-DOC-204MP-06",
+      "severity": "medium",
+      "file": ".wavefoundry/framework/scripts/render_agent_surfaces.py",
+      "line": 3159,
+      "summary": "Single-character lookbehind mistakes even backslashes and an escaped image marker for non-links.",
+      "confidence": "high",
+      "required_contract": "204mn requirements1\u20132 and required AC-2",
+      "selected_cases": [
+        "even_opening_slash",
+        "four_opening_slash",
+        "escaped_bang"
+      ],
+      "observed": "3 independently parsed live links remain old after move/retry. Unsupported diagnostics are present, but required ordinary inline-link repair is absent. Actual image and odd-escaped opening-bracket controls stay unchanged.",
+      "recommended_fix": "Use escape parity and actual unescaped image-prefix recognition at the opening bracket; preserve image and escaped-bracket controls.",
+      "caller_payloads": [
+        {
+          "wave_id": "204mp",
+          "event": "finding",
+          "finding_id": "ARCH-DOC-204MP-06",
+          "actor": "architecture-reviewer",
+          "context_id": "wf-integrated-arch-docs-delivery-20261009-01",
+          "fresh_context": true,
+          "independent": true,
+          "judgment": {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": true,
+            "contract_relevance": "required_ac",
+            "supported_reachability": true,
+            "attacker_reachability": false,
+            "authority_domain": "integrity",
+            "authority_delta": "none",
+            "observable_impact": "material",
+            "containment": "detect_only",
+            "fix_risk": "lower",
+            "optional_value": "none",
+            "repair_scope_bounded": true,
+            "repair_safety": "safe",
+            "benefit_vs_fix_risk": "greater",
+            "rejection_basis": "none",
+            "repair_execution_state": "pending"
+          },
+          "evidence": {
+            "proposition": "An inline link preceded by an even backslash run or an escaped exclamation mark remains a genuine link and its exact local destination repairs.",
+            "failure_condition": "Single-character lookbehind mistakes even backslashes and an escaped image marker for non-links.",
+            "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces subprocess -> render_agent_surfaces.migrate_council_role_renames",
+            "command_or_fixture": "PYTHONDONTWRITEBYTECODE=1 python3 -B /tmp/wf-arch-docs-c5-candidates.py",
+            "expected": "An inline link preceded by an even backslash run or an escaped exclamation mark remains a genuine link and its exact local destination repairs.",
+            "observed": "3 independently parsed live links remain old after move/retry. Unsupported diagnostics are present, but required ordinary inline-link repair is absent. Actual image and odd-escaped opening-bracket controls stay unchanged.",
+            "artifact_or_test_id": "/tmp/wf-arch-docs-c5-candidates-results.json",
+            "known_bad_detection_method": "Current-tree defective baseline detected by independent literal expected-byte assertions through actual incoming installing and reinstall drivers, adjacent legitimate controls, and independent CommonMark parser/spec classification.",
+            "limitations": "One fresh independent reviewer transparently performs both architecture and docs-contract remits; these are two judgments, not two independent people. No unrestricted CommonMark certification, native Windows run, live downstream Waveforge/Tensorwell qualification, new whole suite, setup or live-index change. Indexed host readiness remains indeterminate; code_read/outline were live disk reads.",
+            "safety_and_authorization": "Authorized isolated local copied targets; no reviewed source, lifecycle, ledger or live-index writes.",
+            "disposition_rationale": "Required C5 destination/preservation or migration-documentation contract is false on an executed supported local path. Repair the bounded mechanism without changing scope or history ownership."
+          },
+          "source_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "blocking_required_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "approval_recheck_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "review_boundaries_changed": [],
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "Current-tree defective baseline detected by independent literal expected-byte assertions through actual incoming installing and reinstall drivers, adjacent legitimate controls, and independent CommonMark parser/spec classification."
+          }
+        },
+        {
+          "wave_id": "204mp",
+          "event": "finding",
+          "finding_id": "ARCH-DOC-204MP-06",
+          "actor": "docs-contract-reviewer",
+          "context_id": "wf-integrated-arch-docs-delivery-20261009-01",
+          "fresh_context": true,
+          "independent": true,
+          "judgment": {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": true,
+            "contract_relevance": "required_ac",
+            "supported_reachability": true,
+            "attacker_reachability": false,
+            "authority_domain": "integrity",
+            "authority_delta": "none",
+            "observable_impact": "material",
+            "containment": "detect_only",
+            "fix_risk": "lower",
+            "optional_value": "none",
+            "repair_scope_bounded": true,
+            "repair_safety": "safe",
+            "benefit_vs_fix_risk": "greater",
+            "rejection_basis": "none",
+            "repair_execution_state": "pending"
+          },
+          "evidence": {
+            "proposition": "An inline link preceded by an even backslash run or an escaped exclamation mark remains a genuine link and its exact local destination repairs.",
+            "failure_condition": "Single-character lookbehind mistakes even backslashes and an escaped image marker for non-links.",
+            "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces subprocess -> render_agent_surfaces.migrate_council_role_renames",
+            "command_or_fixture": "PYTHONDONTWRITEBYTECODE=1 python3 -B /tmp/wf-arch-docs-c5-candidates.py",
+            "expected": "An inline link preceded by an even backslash run or an escaped exclamation mark remains a genuine link and its exact local destination repairs.",
+            "observed": "3 independently parsed live links remain old after move/retry. Unsupported diagnostics are present, but required ordinary inline-link repair is absent. Actual image and odd-escaped opening-bracket controls stay unchanged.",
+            "artifact_or_test_id": "/tmp/wf-arch-docs-c5-candidates-results.json",
+            "known_bad_detection_method": "Current-tree defective baseline detected by independent literal expected-byte assertions through actual incoming installing and reinstall drivers, adjacent legitimate controls, and independent CommonMark parser/spec classification.",
+            "limitations": "One fresh independent reviewer transparently performs both architecture and docs-contract remits; these are two judgments, not two independent people. No unrestricted CommonMark certification, native Windows run, live downstream Waveforge/Tensorwell qualification, new whole suite, setup or live-index change. Indexed host readiness remains indeterminate; code_read/outline were live disk reads.",
+            "safety_and_authorization": "Authorized isolated local copied targets; no reviewed source, lifecycle, ledger or live-index writes.",
+            "disposition_rationale": "Required C5 destination/preservation or migration-documentation contract is false on an executed supported local path. Repair the bounded mechanism without changing scope or history ownership."
+          },
+          "source_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "blocking_required_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "approval_recheck_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "review_boundaries_changed": [],
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "Current-tree defective baseline detected by independent literal expected-byte assertions through actual incoming installing and reinstall drivers, adjacent legitimate controls, and independent CommonMark parser/spec classification."
+          }
+        }
+      ]
+    },
+    {
+      "provisional_id": "ARCH-DOC-204MP-07",
+      "severity": "medium",
+      "file": ".wavefoundry/framework/scripts/render_agent_surfaces.py",
+      "line": 3220,
+      "summary": "The existing Codex directory-changing role rename pair is treated as a future unsupported pair.",
+      "confidence": "high",
+      "required_contract": "204mn requirements1\u20132 and required AC-2",
+      "selected_cases": [
+        "existing_codex_pair"
+      ],
+      "observed": "Incoming driver moves .codex/skills/agent-role-wave-council/SKILL.md to agent-role-council-chair/SKILL.md, but ordinary exact link from current specialist doc stays old and broken. Same-directory peer repairs; preview reports unsupported; reinstall stable.",
+      "recommended_fix": "Repair the changed path component(s) for the declared Codex pair while preserving prefix spelling, suffix/encoding and exact-target containment; pin the real native pair through incoming driver.",
+      "caller_payloads": [
+        {
+          "wave_id": "204mp",
+          "event": "finding",
+          "finding_id": "ARCH-DOC-204MP-07",
+          "actor": "architecture-reviewer",
+          "context_id": "wf-integrated-arch-docs-delivery-20261009-01",
+          "fresh_context": true,
+          "independent": true,
+          "judgment": {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": true,
+            "contract_relevance": "required_ac",
+            "supported_reachability": true,
+            "attacker_reachability": false,
+            "authority_domain": "integrity",
+            "authority_delta": "none",
+            "observable_impact": "material",
+            "containment": "detect_only",
+            "fix_risk": "lower",
+            "optional_value": "none",
+            "repair_scope_bounded": true,
+            "repair_safety": "safe",
+            "benefit_vs_fix_risk": "greater",
+            "rejection_basis": "none",
+            "repair_execution_state": "pending"
+          },
+          "evidence": {
+            "proposition": "Derive link repair from every confirmed COUNCIL_ROLE_RENAMES pair, including the existing Codex skill-directory move.",
+            "failure_condition": "The existing Codex directory-changing role rename pair is treated as a future unsupported pair.",
+            "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces subprocess -> render_agent_surfaces.migrate_council_role_renames",
+            "command_or_fixture": "PYTHONDONTWRITEBYTECODE=1 python3 -B /tmp/wf-arch-docs-c5-native-pair.py",
+            "expected": "Derive link repair from every confirmed COUNCIL_ROLE_RENAMES pair, including the existing Codex skill-directory move.",
+            "observed": "Incoming driver moves .codex/skills/agent-role-wave-council/SKILL.md to agent-role-council-chair/SKILL.md, but ordinary exact link from current specialist doc stays old and broken. Same-directory peer repairs; preview reports unsupported; reinstall stable.",
+            "artifact_or_test_id": "/tmp/wf-arch-docs-c5-native-pair-results.json",
+            "known_bad_detection_method": "Actual installing/reinstall driver moves the existing Codex rename pair while an independently literal expected destination remains broken; ordinary same-directory link is repaired beside it.",
+            "limitations": "One fresh independent reviewer transparently performs both architecture and docs-contract remits; these are two judgments, not two independent people. No unrestricted CommonMark certification, native Windows run, live downstream Waveforge/Tensorwell qualification, new whole suite, setup or live-index change. Indexed host readiness remains indeterminate; code_read/outline were live disk reads.",
+            "safety_and_authorization": "Authorized isolated local copied targets; no reviewed source, lifecycle, ledger or live-index writes.",
+            "disposition_rationale": "Required C5 destination/preservation or migration-documentation contract is false on an executed supported local path. Repair the bounded mechanism without changing scope or history ownership."
+          },
+          "source_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "blocking_required_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "approval_recheck_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "review_boundaries_changed": [],
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "Actual installing/reinstall driver moves the existing Codex rename pair while an independently literal expected destination remains broken; ordinary same-directory link is repaired beside it."
+          }
+        },
+        {
+          "wave_id": "204mp",
+          "event": "finding",
+          "finding_id": "ARCH-DOC-204MP-07",
+          "actor": "docs-contract-reviewer",
+          "context_id": "wf-integrated-arch-docs-delivery-20261009-01",
+          "fresh_context": true,
+          "independent": true,
+          "judgment": {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": true,
+            "contract_relevance": "required_ac",
+            "supported_reachability": true,
+            "attacker_reachability": false,
+            "authority_domain": "integrity",
+            "authority_delta": "none",
+            "observable_impact": "material",
+            "containment": "detect_only",
+            "fix_risk": "lower",
+            "optional_value": "none",
+            "repair_scope_bounded": true,
+            "repair_safety": "safe",
+            "benefit_vs_fix_risk": "greater",
+            "rejection_basis": "none",
+            "repair_execution_state": "pending"
+          },
+          "evidence": {
+            "proposition": "Derive link repair from every confirmed COUNCIL_ROLE_RENAMES pair, including the existing Codex skill-directory move.",
+            "failure_condition": "The existing Codex directory-changing role rename pair is treated as a future unsupported pair.",
+            "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces subprocess -> render_agent_surfaces.migrate_council_role_renames",
+            "command_or_fixture": "PYTHONDONTWRITEBYTECODE=1 python3 -B /tmp/wf-arch-docs-c5-native-pair.py",
+            "expected": "Derive link repair from every confirmed COUNCIL_ROLE_RENAMES pair, including the existing Codex skill-directory move.",
+            "observed": "Incoming driver moves .codex/skills/agent-role-wave-council/SKILL.md to agent-role-council-chair/SKILL.md, but ordinary exact link from current specialist doc stays old and broken. Same-directory peer repairs; preview reports unsupported; reinstall stable.",
+            "artifact_or_test_id": "/tmp/wf-arch-docs-c5-native-pair-results.json",
+            "known_bad_detection_method": "Actual installing/reinstall driver moves the existing Codex rename pair while an independently literal expected destination remains broken; ordinary same-directory link is repaired beside it.",
+            "limitations": "One fresh independent reviewer transparently performs both architecture and docs-contract remits; these are two judgments, not two independent people. No unrestricted CommonMark certification, native Windows run, live downstream Waveforge/Tensorwell qualification, new whole suite, setup or live-index change. Indexed host readiness remains indeterminate; code_read/outline were live disk reads.",
+            "safety_and_authorization": "Authorized isolated local copied targets; no reviewed source, lifecycle, ledger or live-index writes.",
+            "disposition_rationale": "Required C5 destination/preservation or migration-documentation contract is false on an executed supported local path. Repair the bounded mechanism without changing scope or history ownership."
+          },
+          "source_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "blocking_required_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "approval_recheck_lanes": [
+            "architecture-reviewer",
+            "docs-contract-reviewer"
+          ],
+          "review_boundaries_changed": [],
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "Actual installing/reinstall driver moves the existing Codex rename pair while an independently literal expected destination remains broken; ordinary same-directory link is repaired beside it."
+          }
+        }
+      ]
+    },
+    {
+      "provisional_id": "ARCH-DOC-204MP-08",
+      "severity": "low",
+      "file": ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
+      "line": 491,
+      "summary": "Canonical council-role upgrade guidance still promises each remaining old-path link is reported and only describes manual link repair.",
+      "confidence": "high",
+      "required_contract": "204mn requirements1\u20134 and AC-2; documentation task",
+      "selected_cases": [
+        "retained_report_control"
+      ],
+      "observed": "Fresh incoming install auto-repairs eligible active link. docs/reports retained exact old-path link stays byte-identical and is absent from all remaining link reports, contradicting seed160 line491; C5 migration-documentation task remains unmet.",
+      "recommended_fix": "Reconcile the canonical council-role migration paragraph to eligible automatic repair and explicit history exclusions, exact pair/retry/unsupported behavior. Preserve histories; do not broaden lifecycle migrations.",
+      "caller_payloads": [
+        {
+          "wave_id": "204mp",
+          "event": "finding",
+          "finding_id": "ARCH-DOC-204MP-08",
+          "actor": "docs-contract-reviewer",
+          "context_id": "wf-integrated-arch-docs-delivery-20261009-01",
+          "fresh_context": true,
+          "independent": true,
+          "judgment": {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "introduced_or_worsened_by_wave": true,
+            "contract_relevance": "public_contract",
+            "supported_reachability": true,
+            "attacker_reachability": false,
+            "authority_domain": "none",
+            "authority_delta": "none",
+            "observable_impact": "low",
+            "containment": "none",
+            "fix_risk": "lower",
+            "optional_value": "none",
+            "repair_scope_bounded": true,
+            "repair_safety": "safe",
+            "benefit_vs_fix_risk": "greater",
+            "rejection_basis": "none",
+            "repair_execution_state": "pending"
+          },
+          "evidence": {
+            "proposition": "Canonical upgrade guidance accurately states eligible automatic destination repair, preview/retry behavior and intentionally excluded history records.",
+            "failure_condition": "Canonical council-role upgrade guidance still promises each remaining old-path link is reported and only describes manual link repair.",
+            "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces subprocess -> render_agent_surfaces.migrate_council_role_renames",
+            "command_or_fixture": "PYTHONDONTWRITEBYTECODE=1 python3 -B /tmp/wf-arch-docs-c5-guidance.py",
+            "expected": "Canonical upgrade guidance accurately states eligible automatic destination repair, preview/retry behavior and intentionally excluded history records.",
+            "observed": "Fresh incoming install auto-repairs eligible active link. docs/reports retained exact old-path link stays byte-identical and is absent from all remaining link reports, contradicting seed160 line491; C5 migration-documentation task remains unmet.",
+            "artifact_or_test_id": "/tmp/wf-arch-docs-c5-guidance-results.json",
+            "known_bad_detection_method": "Canonical-guidance current-tree claim refuted against executed installing-driver control: active link is auto-repaired, retained report link stays old and no remaining diagnostic names it.",
+            "limitations": "One fresh independent reviewer transparently performs both architecture and docs-contract remits; these are two judgments, not two independent people. No unrestricted CommonMark certification, native Windows run, live downstream Waveforge/Tensorwell qualification, new whole suite, setup or live-index change. Indexed host readiness remains indeterminate; code_read/outline were live disk reads.",
+            "safety_and_authorization": "Authorized isolated local copied targets; no reviewed source, lifecycle, ledger or live-index writes.",
+            "disposition_rationale": "Required C5 destination/preservation or migration-documentation contract is false on an executed supported local path. Repair the bounded mechanism without changing scope or history ownership."
+          },
+          "source_lanes": [
+            "docs-contract-reviewer"
+          ],
+          "blocking_required_lanes": [
+            "docs-contract-reviewer"
+          ],
+          "approval_recheck_lanes": [
+            "docs-contract-reviewer"
+          ],
+          "review_boundaries_changed": [],
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true,
+            "known_bad_detection_method": "Canonical-guidance current-tree claim refuted against executed installing-driver control: active link is auto-repaired, retained report link stays old and no remaining diagnostic names it."
+          }
+        }
+      ]
+    }
+  ],
+  "original_reverification": [
+    {
+      "finding_id": "ARCH-DOC-204MP-01",
+      "actor": "architecture-reviewer",
+      "verdict": "not_cleared",
+      "exact_mechanism": "fixed in independently replayed original/adjacent fixtures",
+      "broad_proposition": "still false due fresh C5 replacement defects",
+      "evidence": "/tmp/wf-arch-docs-c5-probe-results.json; /tmp/wf-arch-docs-mutants/results.json; /tmp/wf-arch-docs-c5-candidates-results.json",
+      "guidance": "Leave current required lanes unchanged/open for fresh post-batch reverification; do not mint conforming, terminal or approval claims.",
+      "fresh_context": true,
+      "independent": true,
+      "context_id": "wf-integrated-arch-docs-delivery-20261009-01",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "Original40cases exact-byte incoming/reinstall replay passed; paragraph-region/opening-escape/setext/lazy-container production mutants failed actual-driver behavior assertions; independently executed current-tree replacement defects remain detected."
+      }
+    },
+    {
+      "finding_id": "ARCH-DOC-204MP-01",
+      "actor": "docs-contract-reviewer",
+      "verdict": "not_cleared",
+      "exact_mechanism": "fixed in independently replayed original/adjacent fixtures",
+      "broad_proposition": "still false due fresh C5 replacement defects",
+      "evidence": "/tmp/wf-arch-docs-c5-probe-results.json; /tmp/wf-arch-docs-mutants/results.json; /tmp/wf-arch-docs-c5-candidates-results.json",
+      "guidance": "Leave current required lanes unchanged/open for fresh post-batch reverification; do not mint conforming, terminal or approval claims.",
+      "fresh_context": true,
+      "independent": true,
+      "context_id": "wf-integrated-arch-docs-delivery-20261009-01",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "Original40cases exact-byte incoming/reinstall replay passed; paragraph-region/opening-escape/setext/lazy-container production mutants failed actual-driver behavior assertions; independently executed current-tree replacement defects remain detected."
+      }
+    },
+    {
+      "finding_id": "ARCH-DOC-204MP-02",
+      "actor": "architecture-reviewer",
+      "verdict": "not_cleared",
+      "exact_mechanism": "fixed in independently replayed original/adjacent fixtures",
+      "broad_proposition": "still false due fresh C5 replacement defects",
+      "evidence": "/tmp/wf-arch-docs-c5-probe-results.json; /tmp/wf-arch-docs-mutants/results.json; /tmp/wf-arch-docs-c5-candidates-results.json",
+      "guidance": "Leave current required lanes unchanged/open for fresh post-batch reverification; do not mint conforming, terminal or approval claims.",
+      "fresh_context": true,
+      "independent": true,
+      "context_id": "wf-integrated-arch-docs-delivery-20261009-01",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "Original40cases exact-byte incoming/reinstall replay passed; paragraph-region/opening-escape/setext/lazy-container production mutants failed actual-driver behavior assertions; independently executed current-tree replacement defects remain detected."
+      }
+    },
+    {
+      "finding_id": "ARCH-DOC-204MP-02",
+      "actor": "docs-contract-reviewer",
+      "verdict": "not_cleared",
+      "exact_mechanism": "fixed in independently replayed original/adjacent fixtures",
+      "broad_proposition": "still false due fresh C5 replacement defects",
+      "evidence": "/tmp/wf-arch-docs-c5-probe-results.json; /tmp/wf-arch-docs-mutants/results.json; /tmp/wf-arch-docs-c5-candidates-results.json",
+      "guidance": "Leave current required lanes unchanged/open for fresh post-batch reverification; do not mint conforming, terminal or approval claims.",
+      "fresh_context": true,
+      "independent": true,
+      "context_id": "wf-integrated-arch-docs-delivery-20261009-01",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "Original40cases exact-byte incoming/reinstall replay passed; paragraph-region/opening-escape/setext/lazy-container production mutants failed actual-driver behavior assertions; independently executed current-tree replacement defects remain detected."
+      }
+    }
+  ],
+  "approval_payloads": [
+    {
+      "wave_id": "207lx",
+      "event": "approval",
+      "actor": "architecture-reviewer",
+      "signoff_key": "architecture-reviewer",
+      "approval_phase": "delivery",
+      "context_id": "wf-integrated-arch-docs-delivery-20261009-01",
+      "fresh_context": true,
+      "independent": true,
+      "evidence": {
+        "proposition": "For every declared readiness lane in exercised canonical producer-built states, delivery-origin findings do not withhold readiness; readiness/unknown origins, operator authority, sealed origins, terminal chronology, receipts and independence retain their protections and truthful status projections.",
+        "failure_condition": "A selected required transition or expected public response differs, or a documented claimed protection is absent.",
+        "public_path": "canonical lifecycle producers -> review_authority_projection/review_lane_results -> public readiness admission and close/diagnostic consumers",
+        "command_or_fixture": "Focused modules/classes named in test_runs plus scratch mutation table",
+        "expected": "For every declared readiness lane in exercised canonical producer-built states, delivery-origin findings do not withhold readiness; readiness/unknown origins, operator authority, sealed origins, terminal chronology, receipts and independence retain their protections and truthful status projections.",
+        "observed": "49 focused owner cases and 3 real producer/public-consumer cases passed without skips. Delivery-origin finding permitted readiness admission but still blocked close; readiness-origin finding withheld recorded approval across consumers; absent/stale/withheld projections remained distinct. Both phase guard mutants failed intended behavior assertions. Docs accurately retain legacy compatibility and canonical-origin limits.",
+        "artifact_or_test_id": "/tmp/wf-arch-docs-phase-owner.log; /tmp/wf-arch-docs-phase-public.log; /tmp/wf-arch-docs-mutants/phase-readiness-exemption.log; /tmp/wf-arch-docs-mutants/phase-origin-guard.log",
+        "known_bad_detection_method": "Two scratch production-source mutants: restore council-only exemption and exempt readiness findings regardless of origin. Actual producer/public-consumer assertions rejected both.",
+        "limitations": "One fresh independent reviewer transparently performs both architecture and docs-contract remits; these are two judgments, not two independent people. No unrestricted CommonMark certification, native Windows run, live downstream Waveforge/Tensorwell qualification, new whole suite, setup or live-index change. Indexed host readiness remains indeterminate; code_read/outline were live disk reads.",
+        "safety_and_authorization": "Authorized read-only review and isolated local scratch targets; no lifecycle writes."
+      },
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "Two scratch production-source mutants: restore council-only exemption and exempt readiness findings regardless of origin. Actual producer/public-consumer assertions rejected both."
+      }
+    },
+    {
+      "wave_id": "207lx",
+      "event": "approval",
+      "actor": "docs-contract-reviewer",
+      "signoff_key": "docs-contract-reviewer",
+      "approval_phase": "delivery",
+      "context_id": "wf-integrated-arch-docs-delivery-20261009-01",
+      "fresh_context": true,
+      "independent": true,
+      "evidence": {
+        "proposition": "For every declared readiness lane in exercised canonical producer-built states, delivery-origin findings do not withhold readiness; readiness/unknown origins, operator authority, sealed origins, terminal chronology, receipts and independence retain their protections and truthful status projections.",
+        "failure_condition": "A selected required transition or expected public response differs, or a documented claimed protection is absent.",
+        "public_path": "canonical lifecycle producers -> review_authority_projection/review_lane_results -> public readiness admission and close/diagnostic consumers",
+        "command_or_fixture": "Focused modules/classes named in test_runs plus scratch mutation table",
+        "expected": "For every declared readiness lane in exercised canonical producer-built states, delivery-origin findings do not withhold readiness; readiness/unknown origins, operator authority, sealed origins, terminal chronology, receipts and independence retain their protections and truthful status projections.",
+        "observed": "49 focused owner cases and 3 real producer/public-consumer cases passed without skips. Delivery-origin finding permitted readiness admission but still blocked close; readiness-origin finding withheld recorded approval across consumers; absent/stale/withheld projections remained distinct. Both phase guard mutants failed intended behavior assertions. Docs accurately retain legacy compatibility and canonical-origin limits.",
+        "artifact_or_test_id": "/tmp/wf-arch-docs-phase-owner.log; /tmp/wf-arch-docs-phase-public.log; /tmp/wf-arch-docs-mutants/phase-readiness-exemption.log; /tmp/wf-arch-docs-mutants/phase-origin-guard.log",
+        "known_bad_detection_method": "Two scratch production-source mutants: restore council-only exemption and exempt readiness findings regardless of origin. Actual producer/public-consumer assertions rejected both.",
+        "limitations": "One fresh independent reviewer transparently performs both architecture and docs-contract remits; these are two judgments, not two independent people. No unrestricted CommonMark certification, native Windows run, live downstream Waveforge/Tensorwell qualification, new whole suite, setup or live-index change. Indexed host readiness remains indeterminate; code_read/outline were live disk reads.",
+        "safety_and_authorization": "Authorized read-only review and isolated local scratch targets; no lifecycle writes."
+      },
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "Two scratch production-source mutants: restore council-only exemption and exempt readiness findings regardless of origin. Actual producer/public-consumer assertions rejected both."
+      }
+    },
+    {
+      "wave_id": "207t4",
+      "event": "approval",
+      "actor": "architecture-reviewer",
+      "signoff_key": "architecture-reviewer",
+      "approval_phase": "delivery",
+      "context_id": "wf-integrated-arch-docs-delivery-20261009-01",
+      "fresh_context": true,
+      "independent": true,
+      "evidence": {
+        "proposition": "An exercised reset publishes the complete replacement graph/community generation even on valid reuse; completeness gates detect structural/catalog/member-identity corruption and both callers propagate reset, while old-generation IDs remap separately from an empty write baseline.",
+        "failure_condition": "A selected required transition or expected public response differs, or a documented claimed protection is absent.",
+        "public_path": "GraphIndexSession extraction/classification and canonical GraphPublication producer -> update_graph_clusters -> transaction publication -> wf_graph_report_response; actual graph build and orphan-reconciliation entry paths",
+        "command_or_fixture": "Focused modules/classes named in test_runs plus scratch mutation table",
+        "expected": "An exercised reset publishes the complete replacement graph/community generation even on valid reuse; completeness gates detect structural/catalog/member-identity corruption and both callers propagate reset, while old-generation IDs remap separately from an empty write baseline.",
+        "observed": "14 transaction/public owner tests plus 3 own literal response tests passed without skips; reset reuse avoided analysis, forced reset recompute retained IDs, both public callers restored unchanged members, rollback/readers/layer/source/schema contracts held, 15 structural corruption variants defeated reuse. Public responses have two production and two evidence identities/hubs/counts in expected order, each independently limited1/2, after reuse/recompute reset and missing-member repair. Four reset/completeness/caller mutants failed actual assertions. 21 retained Rust integration tests passed. Docs explicitly disclaim semantic partition certification.",
+        "artifact_or_test_id": "/tmp/wf-arch-docs-graph-owner.log; /tmp/wf-arch-docs-graph-own-response-results.json; /tmp/wf-arch-docs-rust-integration.log; /tmp/wf-arch-docs-mutants/results.json",
+        "known_bad_detection_method": "Four scratch production-source mutants: nonempty reset baseline, bypass structural completeness, omit reset in main graph-build caller, omit reset in orphan-reconciliation caller. Actual publication/public caller assertions rejected each.",
+        "limitations": "One fresh independent reviewer transparently performs both architecture and docs-contract remits; these are two judgments, not two independent people. No unrestricted CommonMark certification, native Windows run, live downstream Waveforge/Tensorwell qualification, new whole suite, setup or live-index change. Indexed host readiness remains indeterminate; code_read/outline were live disk reads.",
+        "safety_and_authorization": "Authorized read-only review and isolated local scratch targets; no lifecycle writes."
+      },
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "Four scratch production-source mutants: nonempty reset baseline, bypass structural completeness, omit reset in main graph-build caller, omit reset in orphan-reconciliation caller. Actual publication/public caller assertions rejected each."
+      }
+    },
+    {
+      "wave_id": "207t4",
+      "event": "approval",
+      "actor": "docs-contract-reviewer",
+      "signoff_key": "docs-contract-reviewer",
+      "approval_phase": "delivery",
+      "context_id": "wf-integrated-arch-docs-delivery-20261009-01",
+      "fresh_context": true,
+      "independent": true,
+      "evidence": {
+        "proposition": "An exercised reset publishes the complete replacement graph/community generation even on valid reuse; completeness gates detect structural/catalog/member-identity corruption and both callers propagate reset, while old-generation IDs remap separately from an empty write baseline.",
+        "failure_condition": "A selected required transition or expected public response differs, or a documented claimed protection is absent.",
+        "public_path": "GraphIndexSession extraction/classification and canonical GraphPublication producer -> update_graph_clusters -> transaction publication -> wf_graph_report_response; actual graph build and orphan-reconciliation entry paths",
+        "command_or_fixture": "Focused modules/classes named in test_runs plus scratch mutation table",
+        "expected": "An exercised reset publishes the complete replacement graph/community generation even on valid reuse; completeness gates detect structural/catalog/member-identity corruption and both callers propagate reset, while old-generation IDs remap separately from an empty write baseline.",
+        "observed": "14 transaction/public owner tests plus 3 own literal response tests passed without skips; reset reuse avoided analysis, forced reset recompute retained IDs, both public callers restored unchanged members, rollback/readers/layer/source/schema contracts held, 15 structural corruption variants defeated reuse. Public responses have two production and two evidence identities/hubs/counts in expected order, each independently limited1/2, after reuse/recompute reset and missing-member repair. Four reset/completeness/caller mutants failed actual assertions. 21 retained Rust integration tests passed. Docs explicitly disclaim semantic partition certification.",
+        "artifact_or_test_id": "/tmp/wf-arch-docs-graph-owner.log; /tmp/wf-arch-docs-graph-own-response-results.json; /tmp/wf-arch-docs-rust-integration.log; /tmp/wf-arch-docs-mutants/results.json",
+        "known_bad_detection_method": "Four scratch production-source mutants: nonempty reset baseline, bypass structural completeness, omit reset in main graph-build caller, omit reset in orphan-reconciliation caller. Actual publication/public caller assertions rejected each.",
+        "limitations": "One fresh independent reviewer transparently performs both architecture and docs-contract remits; these are two judgments, not two independent people. No unrestricted CommonMark certification, native Windows run, live downstream Waveforge/Tensorwell qualification, new whole suite, setup or live-index change. Indexed host readiness remains indeterminate; code_read/outline were live disk reads.",
+        "safety_and_authorization": "Authorized read-only review and isolated local scratch targets; no lifecycle writes."
+      },
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "Four scratch production-source mutants: nonempty reset baseline, bypass structural completeness, omit reset in main graph-build caller, omit reset in orphan-reconciliation caller. Actual publication/public caller assertions rejected each."
+      }
+    }
+  ],
+  "original_finding_payload_policy": "No clearing payload is issued for01/02. Broad recorded propositions remain false; current lanes stay open. Root must obtain fresh post-batch reverification.",
+  "new_finding_payload_policy": "caller_payloads contain exact caller-authored judgment/evidence/integrity and lane facts. Root deduplicates hypotheses and combines with canonical wf_review_wave state_args (run_kind/cycle/supersession). No state-derived transition is guessed here.",
+  "qualification_context": {
+    "supplied_only_not_my_execution": {
+      "graph_setup_log": "/tmp/wf-207t4-canonical-graph-setup.log",
+      "original_graph_response_log": "/tmp/wf-207t4-original-evidence-responses.log",
+      "framework_suite_log": "/tmp/wf-integrated-canonical-suite.log",
+      "framework_receipt": {
+        "inputs_hash": "bc0585890c0363e65becec360079a59b697a2c26fa7e7c31ec05bcc6e12a8ee1",
+        "ran_at": "2026-10-09T05:40:02.702939+00:00",
+        "test_count": 11967,
+        "result": "ok",
+        "durations_s": {
+          "test_accel_embedder.py": 2.119,
+          "test_agent_surface_integrity.py": 1.298,
+          "test_ann_reference_eval.py": 0.425,
+          "test_archive_memory_backfill.py": 0.9,
+          "test_archive_root.py": 3.048,
+          "test_build_epoch_recovery.py": 0.948,
+          "test_build_pack.py": 15.198,
+          "test_bytecode_cache.py": 21.395,
+          "test_change_doc_checklist.py": 0.241,
+          "test_change_id_path_guard.py": 2.3,
+          "test_change_kinds.py": 12.585,
+          "test_check_version.py": 0.102,
+          "test_chunk_tags.py": 6.995,
+          "test_chunker.py": 5.901,
+          "test_cli_stdio.py": 0.087,
+          "test_close_change.py": 0.929,
+          "test_code_reader_lock_guard.py": 3.197,
+          "test_commit_provenance.py": 4.51,
+          "test_contained_files.py": 0.278,
+          "test_contained_repo_access.py": 3.09,
+          "test_context_efficiency.py": 2.799,
+          "test_council_signoff_keys.py": 1.971,
+          "test_dashboard_server.py": 29.93,
+          "test_dashboard_terminology.py": 0.997,
+          "test_declaration_support.py": 0.999,
+          "test_declared_extension_skills.py": 2.8,
+          "test_declared_wave_fixtures.py": 1.905,
+          "test_design_system_backfill.py": 0.147,
+          "test_design_system_governance_validators.py": 0.172,
+          "test_design_system_surface_validators.py": 0.204,
+          "test_design_system_validators.py": 0.559,
+          "test_design_token_build.py": 0.429,
+          "test_distribution_seams.py": 8.388,
+          "test_doc_drift.py": 31.146,
+          "test_docs_constants_lint.py": 4.623,
+          "test_docs_gardener.py": 0.562,
+          "test_docs_lint.py": 159.678,
+          "test_events_only_residue_census.py": 1.307,
+          "test_extension_public_helpers.py": 1.751,
+          "test_extension_tool_modules.py": 67.428,
+          "test_fixture_fidelity_guidance.py": 0.301,
+          "test_fts_lexical_layer.py": 3.627,
+          "test_fts_query_honesty.py": 6.395,
+          "test_gen_codebase_map.py": 5.035,
+          "test_graph_call_census.py": 0.266,
+          "test_graph_call_integrity.py": 4.498,
+          "test_graph_cluster.py": 0.24,
+          "test_graph_incremental_merge.py": 17.38,
+          "test_graph_indexer.py": 29.243,
+          "test_graph_quality_eval.py": 1.904,
+          "test_graph_query.py": 3.755,
+          "test_graph_rust_provenance.py": 1.792,
+          "test_graph_snapshot_readers.py": 11.957,
+          "test_graph_transactional_state.py": 1.704,
+          "test_handler_modules.py": 28.036,
+          "test_history_paths.py": 0.474,
+          "test_index_build_lock_process_hold.py": 2.052,
+          "test_index_build_retry.py": 7.56,
+          "test_index_compatibility.py": 4.248,
+          "test_index_handler_identity.py": 0.144,
+          "test_index_optimize_contract.py": 2.485,
+          "test_index_source_guard.py": 2.199,
+          "test_index_state_store.py": 10.948,
+          "test_index_upgrade_guard.py": 0.484,
+          "test_indexer.py": 222.883,
+          "test_indexer_secrets_scope.py": 3.57,
+          "test_install_log_lib.py": 0.347,
+          "test_install_resume_integration.py": 4.093,
+          "test_label_reader_census.py": 0.23,
+          "test_legacy_council_actors.py": 4.005,
+          "test_lexical_ranking_eval.py": 0.862,
+          "test_lifecycle_document_names.py": 0.257,
+          "test_lifecycle_gates.py": 31.563,
+          "test_lifecycle_gates_structure.py": 23.352,
+          "test_lifecycle_golden.py": 5.75,
+          "test_lifecycle_id.py": 0.598,
+          "test_lifecycle_lock_links.py": 1.555,
+          "test_lifecycle_mutation_lock.py": 9.473,
+          "test_marker_namespaces.py": 0.804,
+          "test_mcp_tool_registry.py": 5.131,
+          "test_memory_backfill.py": 6.473,
+          "test_memory_eval.py": 5.416,
+          "test_memory_records.py": 6.723,
+          "test_model_bundle.py": 1.104,
+          "test_navigation_glob.py": 1.335,
+          "test_navigation_walker_runtime.py": 4.99,
+          "test_onnxruntime_telemetry.py": 2.634,
+          "test_operator_identity.py": 0.234,
+          "test_path_containment.py": 4.934,
+          "test_pathlib_predicate_guards.py": 0.532,
+          "test_per_area_agents_context.py": 1.728,
+          "test_perf_budget_policy.py": 0.063,
+          "test_phase_gates.py": 11.963,
+          "test_process_info.py": 0.402,
+          "test_process_info_callers.py": 7.589,
+          "test_profile_literal_census.py": 4.148,
+          "test_profile_support.py": 16.342,
+          "test_prune_framework.py": 0.106,
+          "test_python_diagnostic_windows.py": 0.068,
+          "test_python_parse_diagnostics.py": 3.598,
+          "test_readiness_convergence.py": 1.538,
+          "test_reconcile_scan.py": 2.781,
+          "test_record_discovery_fail_closed.py": 2.857,
+          "test_record_document_read_rule.py": 3.022,
+          "test_record_layout_census.py": 0.301,
+          "test_record_layout_cold_sites.py": 0.412,
+          "test_record_layout_lifecycle.py": 3.674,
+          "test_record_layout_nested.py": 8.736,
+          "test_record_paths.py": 0.218,
+          "test_render_agent_surfaces.py": 13.069,
+          "test_render_platform_surfaces.py": 32.569,
+          "test_repair_ppol_memory_staging.py": 0.329,
+          "test_retired_change_kinds.py": 1.742,
+          "test_retrieval_candidate_generation.py": 5.782,
+          "test_retrieval_eval.py": 3.995,
+          "test_review_evidence.py": 1.776,
+          "test_review_operator_integration.py": 4.125,
+          "test_review_policy.py": 4.4,
+          "test_run_tests_cache.py": 0.771,
+          "test_run_tests_lock.py": 1.148,
+          "test_run_tests_repo_guard.py": 5.085,
+          "test_runtime_advisory.py": 0.857,
+          "test_runtime_lock.py": 1.382,
+          "test_scan_secrets.py": 0.442,
+          "test_scanner_skips.py": 0.216,
+          "test_secret_scan_cache.py": 4.609,
+          "test_secrets_lock_exclusion.py": 1.47,
+          "test_secrets_prefix_collapse.py": 284.174,
+          "test_secrets_validators.py": 8.7,
+          "test_sensor_runner.py": 0.62,
+          "test_server_context_efficiency.py": 5.888,
+          "test_server_env_file.py": 4.794,
+          "test_server_package.py": 25.029,
+          "test_server_startup_guards.py": 0.564,
+          "test_server_stdout_isolation.py": 0.268,
+          "test_server_tools.py": 221.117,
+          "test_server_tools_lifecycle.py": 187.444,
+          "test_server_tools_retrieval.py": 186.078,
+          "test_session_start_hook.py": 2.021,
+          "test_setup_index.py": 86.813,
+          "test_setup_readiness.py": 10.768,
+          "test_setup_readiness_integration.py": 5.91,
+          "test_setup_reconciliation.py": 17.058,
+          "test_setup_stamp_writers.py": 2.921,
+          "test_setup_wavefoundry.py": 18.281,
+          "test_shipped_reference_docs.py": 1.091,
+          "test_sqlite_event_eval.py": 0.278,
+          "test_sqlite_publication.py": 3.09,
+          "test_sqlite_publication_optimization.py": 2.03,
+          "test_sqlite_serving.py": 17.574,
+          "test_sqlite_storage_migration.py": 134.37,
+          "test_startup_install.py": 30.945,
+          "test_storage_identity.py": 0.196,
+          "test_storage_upgrade_resume.py": 84.735,
+          "test_subprocess_util.py": 6.556,
+          "test_techdocs_audit_lib.py": 25.329,
+          "test_tool_surface_golden.py": 35.278,
+          "test_tree_kill_routing.py": 32.48,
+          "test_tree_sitter_cache.py": 0.161,
+          "test_upgrade_protocol.py": 12.187,
+          "test_upgrade_reload_runner.py": 2.045,
+          "test_upgrade_wavefoundry.py": 90.806,
+          "test_vector_backend_eval.py": 0.186,
+          "test_vector_public_compare.py": 0.109,
+          "test_vector_public_eval.py": 0.078,
+          "test_vector_public_filter_smoke.py": 0.08,
+          "test_vendored_integrity.py": 1.199,
+          "test_venv_bootstrap.py": 2.919,
+          "test_verify_vendored_scripts.py": 0.563,
+          "test_vocabulary_census.py": 2.111,
+          "test_vocabulary_profile.py": 0.916,
+          "test_vocabulary_prompt_names.py": 40.902,
+          "test_vocabulary_second_profile.py": 9.394,
+          "test_vocabulary_writers.py": 3.799,
+          "test_wave_gate.py": 0.09,
+          "test_wf_cli.py": 4.267,
+          "test_workflow_include_prefixes.py": 0.546
+        }
+      }
+    },
+    "reviewed_log_claims": "Full11967/177files/20knownskips489.549s green receipt; fresh graph410s succeeded; original8graph-response tests0skips green. These supplied green artifacts do not override my reproduced C5 failures. Graph-only setup did not certify all-core setup readiness."
+  },
+  "limitations": "One fresh independent reviewer transparently performs both architecture and docs-contract remits; these are two judgments, not two independent people. No unrestricted CommonMark certification, native Windows run, live downstream Waveforge/Tensorwell qualification, new whole suite, setup or live-index change. Indexed host readiness remains indeterminate; code_read/outline were live disk reads.",
+  "changes": {
+    "repository_source": false,
+    "repository_docs": false,
+    "lifecycle_or_events": false,
+    "setup_or_live_index": false,
+    "full_suite": false,
+    "commit_close_push": false,
+    "delegation": false,
+    "only_writes": "scratch scripts/logs/results under /tmp and fixture temp roots"
+  }
+}

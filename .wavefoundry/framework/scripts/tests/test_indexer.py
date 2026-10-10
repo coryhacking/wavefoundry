@@ -9357,3 +9357,299 @@ class WalkStatDenialReconcileTests(_OrphanStoreCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OperationalEvidencePolicyTests(_EpochBuildCase):
+    """20aqf: real mixed-corpus publication, old-policy migration and faults."""
+
+    def setUp(self):
+        super().setUp()
+        import record_paths
+        self.layout = patch.multiple(record_paths, WAVES_ROOT="records/live",
+            PLANS_ROOT="records/plans", ARCHIVE_ROOT="records/archive", NESTED=True, MAX_DEPTH=4)
+        self.layout.start()
+        self.addCleanup(self.layout.stop)
+        self.live = "records/live/group/abc scope"
+        self.archived = "records/archive/group/def scope"
+        import vocabulary_profile
+        self.evidence = [self.live + "/evidence/capture.md",
+                         self.live + "/evidence-run/payload.py",
+                         self.archived + "/evidence/old.py"]
+        self.kept = ["src/main.py", self.live + "/" + _record_name(),
+                     self.live + "/abc-enh change.md", "docs/evidence/curated.md",
+                     self.live + "/evidenceish/near.py",
+                     "records/live/group/nonrecord/evidence/near.py"]
+        _make_repo(self.root, {
+            self.kept[0]: 'def eligible_source():\n    """sourcequartz documentation."""\n    return 2\n',
+            self.kept[1]: "# Scope summary\n\nwavequartz decision retained.\n",
+            self.kept[2]: "# Admitted change\n\nplanquartz accepted.\n",
+            self.kept[3]: "# Curated proof\n\ncuratedquartz retained.\n",
+            self.kept[4]: "def near_miss():\n    return 3\n",
+            self.kept[5]: "def non_record():\n    return 4\n",
+            self.archived + "/" + vocabulary_profile.archive_profile().RECORD_FILENAME: "# Archive\n",
+            self.evidence[0]: "# Capture\n\nopcapturequartz routine output.\n",
+            self.evidence[1]: 'def operational_payload():\n    """opcapturequartz captured source."""\n    return 99\n',
+            self.evidence[2]: "def archived_capture():\n    return 9\n",
+        })
+        self.calls = []
+        self.embed_patch = patch.object(self.bi, "_get_embedder",
+            side_effect=lambda *a, **k: _make_embedder_mock(calls=self.calls))
+        self.embed_patch.start()
+        self.addCleanup(self.embed_patch.stop)
+        self.gi = self.bi._get_graph_indexer()
+
+    def _build(self, **kwargs):
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            return self.bi.build_index(self.root, content=kwargs.pop("content", "all"), **kwargs)
+
+    def _old(self, content="all"):
+        import operational_evidence
+        if self.index_dir.exists():
+            shutil.rmtree(self.index_dir)
+        # Inject the prior discovery behavior through the real public producer.
+        with patch.object(self.bi, "WALKER_VERSION", "16"), \
+             patch.object(operational_evidence, "discover_operational_evidence", return_value=(set(), set())), \
+             patch.object(self.bi, "_discover_operational_evidence", return_value=(set(), set())):
+            result = self._build(full=True, content=content)
+        self.assertFalse(result.get("failed"), result)
+        self.calls.clear()
+
+    def _paths(self, table, column="path"):
+        conn = self.iss.open_read_only(self.index_dir)
+        try:
+            return {r[0] for r in conn.execute(f"SELECT DISTINCT {column} FROM {table}")}
+        finally:
+            conn.close()
+
+    def _semantic_paths(self):
+        return self._paths("chunks_docs") | self._paths("chunks_code")
+
+    def _query(self, term):
+        conn = self.iss.open_read_only(self.index_dir)
+        try:
+            return {r[0] for layer in ("docs", "code") for r in conn.execute(
+                f"SELECT path FROM fts_{layer} WHERE fts_{layer} MATCH ?", (term,))}
+        finally:
+            conn.close()
+
+    def test_mixed_corpus_and_explicit_inputs_exclude_only_record_owned_evidence(self):
+        result = self._build(full=True)
+        self.assertFalse(result.get("failed"), result)
+        self.assertTrue(set(self.kept) <= self._semantic_paths())
+        self.assertFalse(set(self.evidence) & self._semantic_paths())
+        self.assertEqual(self._query("opcapturequartz"), set())
+        self.assertEqual(self._query("sourcequartz"), {self.kept[0]})
+        self.assertFalse(set(self.evidence) & self._paths("graph_nodes", "source_file"))
+        # Explicit source inputs cannot reintroduce excluded paths.
+        result = self._build(files=[self.root / p for p in self.evidence + self.kept])
+        self.assertFalse(result.get("failed"), result)
+        self.assertFalse(set(self.evidence) & self._semantic_paths())
+        # Standalone graph input/record_file cannot bypass the same boundary.
+        payload = self.gi.update_graph_index(root=self.root, index_dir=self.index_dir,
+            layer="project", files=[self.root / p for p in self.evidence + self.kept],
+            current_file_meta={}, changed=set(self.evidence + self.kept), removed=set(),
+            walker_version=self.bi.WALKER_VERSION, chunker_version=self.bi._get_chunker().CHUNKER_VERSION)
+        self.assertFalse(set(self.evidence) & {n.get("source_file") for n in payload["nodes"]})
+
+    def test_compatible_prior_policy_removes_all_residents_without_source_work(self):
+        self._old()
+        self.assertTrue(set(self.evidence) <= self._semantic_paths())
+        self.assertTrue(self._query("opcapturequartz"))
+        recorded = []
+        original = self.gi.GraphIndexSession.record_file
+        def record(session, rel, text):
+            recorded.append(rel)
+            return original(session, rel, text)
+        started = time.monotonic()
+        with patch.object(self.gi.GraphIndexSession, "record_file", record):
+            result = self._build()
+        elapsed = time.monotonic() - started
+        self.assertFalse(result.get("failed"), result)
+        self.assertEqual(self.calls, [], "unchanged source must not embed")
+        self.assertEqual(recorded, [], "unchanged source must not re-extract")
+        self.assertEqual(result["operational_evidence_transition"]["removed_paths"], 3)
+        self.assertTrue(result["operational_evidence_transition"]["graph_communities_recomputed"])
+        for table, column in (("chunks_docs", "path"), ("chunks_code", "path"),
+                ("fts_docs", "path"), ("fts_code", "path"), ("layer_path_state", "path"),
+                ("build_file_meta", "path"), ("graph_file_state", "path"),
+                ("graph_merge_state", "path"), ("graph_nodes", "source_file"),
+                ("graph_edges", "source_file")):
+            self.assertFalse(set(self.evidence) & self._paths(table, column), table)
+        conn = self.iss.open_read_only(self.index_dir)
+        try:
+            for layer in ("docs", "code"):
+                self.assertEqual(conn.execute(f"SELECT COUNT(*) FROM vectors_{layer} v LEFT JOIN chunks_{layer} c ON c.id=v.chunk_id WHERE c.id IS NULL").fetchone()[0], 0)
+            self.assertEqual(conn.execute("SELECT value FROM meta WHERE key='graph:walker_version'").fetchone()[0], self.bi.WALKER_VERSION)
+        finally:
+            conn.close()
+        self.assertEqual(self._query("opcapturequartz"), set())
+        self.assertEqual(self._query("sourcequartz"), {self.kept[0]})
+        self.assertEqual(_read_meta_store(self.index_dir)["walker_version"], self.bi.WALKER_VERSION)
+        self.assertEqual(self.iss.read_build_state(self.index_dir)["status"], "complete")
+        self.observed = dict(elapsed_seconds=elapsed, embeddings=0, extractions=0, removed_paths=3)
+
+    def test_unknown_or_changed_policy_does_not_take_removal_transition(self):
+        for defect in ("unknown", "chunker", "model", "config", "flags"):
+            with self.subTest(defect=defect):
+                self._old()
+                meta = _read_meta_store(self.index_dir)
+                if defect == "unknown": meta["walker_version"] = "15"
+                if defect == "chunker": meta["chunker_versions"]["docs"] = "42"
+                if defect == "model":
+                    # Mutate identity independently of the provider's precision;
+                    # a full/int8 conversion has its own publication refusal.
+                    precision = meta["model_versions"]["docs"].rsplit("@", 2)[1]
+                    meta["model_versions"]["docs"] = f"old@{precision}@old"
+                if defect in {"unknown", "chunker", "model"}: _seed_meta_store(self.index_dir, meta)
+                if defect == "config":
+                    cfg = self.root / "docs/workflow-config.json"
+                    cfg.write_text(cfg.read_text() + " ")
+                result = self._build(include_tests=defect == "flags")
+                self.assertFalse(result.get("failed"), result)
+                self.assertNotIn("operational_evidence_transition", result)
+                self.assertTrue(self.calls, defect + " must retain existing rebuild behavior")
+
+    def test_failed_publication_retains_old_rows_and_retry_removes(self):
+        self._old()
+        before = self._semantic_paths()
+        with patch.object(self.gi.GraphPublication, "apply", side_effect=RuntimeError("injected publication failure")):
+            result = self._build()
+        self.assertTrue(result.get("failed"), result)
+        self.assertEqual(self._semantic_paths(), before)
+        self.assertEqual(_read_meta_store(self.index_dir)["walker_version"], "16")
+        result = self._build()
+        self.assertFalse(result.get("failed"), result)
+        self.assertFalse(set(self.evidence) & self._semantic_paths())
+        self.assertEqual(self.calls, [])
+
+    def test_missing_and_unreadable_wave_roots_preserve_previously_indexed_rows(self):
+        import record_paths
+        self._old()
+        before = self._semantic_paths()
+        live_root = self.root / "records/live"
+        moved = self.root / ".parked"
+        live_root.rename(moved)
+        result = self._build()
+        self.assertFalse(result.get("failed"), result)
+        self.assertTrue({p for p in before if p.startswith("records/live/")} <= self._semantic_paths())
+        self.assertFalse(self.evidence[2] in self._semantic_paths())
+        moved.rename(live_root)
+        result = self._build()
+        self.assertFalse(result.get("failed"), result)
+        self.assertFalse(set(self.evidence) & self._semantic_paths())
+        self.assertEqual(self.calls, [])
+        self._old()
+        with patch.object(record_paths, "discover_wave_dirs", side_effect=record_paths.RecordRootUnreadable(record_paths.RECORD_ROOT_UNREADABLE_CODE, "records/live", PermissionError("denied"))):
+            result = self._build()
+        self.assertFalse(result.get("failed"), result)
+        self.assertTrue({p for p in before if p.startswith("records/live/")} <= self._semantic_paths())
+        self.assertEqual(self.calls, [])
+
+
+    def test_registered_review_read_and_typed_history_retain_evidence(self):
+        import asyncio
+        from server_tools_support import load_server, load_thin_runner
+        srv = load_server()
+        runner = load_thin_runner()
+        # Server-test loading replaces some modules; apply the fork layout to
+        # the actual module the registered handlers now use.
+        with patch.multiple(sys.modules["record_paths"], WAVES_ROOT="records/live",
+                PLANS_ROOT="records/plans", ARCHIVE_ROOT="records/archive", NESTED=True, MAX_DEPTH=4), \
+             patch.object(srv, "_trigger_background_index_refresh_for_paths"), \
+             patch.object(srv, "_attach_lint_to_response", side_effect=lambda envelope, *a: envelope):
+            mcp = runner.build_server(self.root)
+            tools = mcp._tool_manager._tools
+            created = asyncio.run(tools["wf_create_wave"].run({"slug": "retained-proof", "mode": "create"}))
+            self.assertEqual(created["status"], "ok", created)
+            wave_id = created["data"]["wave_id"]
+            event = asyncio.run(tools["wf_review_event"].run({
+                "wave_id": wave_id, "event": "run", "actor": "qa-reviewer",
+                "context_id": "operational-evidence-control", "mode": "create",
+                "run_kind": "initial_delivery", "cycle": 0}))
+            self.assertEqual(event["status"], "ok", event)
+            result = self._build(full=True)
+            self.assertFalse(result.get("failed"), result)
+            read = asyncio.run(tools["code_read"].run({"path": self.evidence[0], "with_line_numbers": False}))
+            self.assertEqual(read["status"], "ok", read)
+            self.assertIn("opcapturequartz", read["data"]["content"])
+            history = asyncio.run(tools["wf_review_event"].run({"wave_id": wave_id,
+                "event": "list", "actor": "qa-reviewer", "context_id": "read-proof"}))
+            self.assertEqual(history["status"], "ok", history)
+            self.assertIn("operational-evidence-control", json.dumps(history["data"]))
+            with patch.object(runner._get_handler().index, "search_docs",
+                    side_effect=srv.SemanticModelUnavailableOfflineError("fixture offline")):
+                excluded = asyncio.run(tools["docs_search"].run({"query": "opcapturequartz"}))
+                kept = asyncio.run(tools["docs_search"].run({"query": "sourcequartz"}))
+            self.assertEqual(excluded["data"]["search_mode"], "lexical_fallback")
+            self.assertEqual(excluded["data"]["results"], [])
+            self.assertTrue(kept["data"]["results"], kept)
+            self.assertFalse(set(self.evidence) & self._semantic_paths())
+            self.assertFalse(any(p.endswith("events.jsonl") for p in self._semantic_paths()))
+            self.assertEqual(list(self.index_dir.glob("*.sqlite")), [self.index_dir / "index.sqlite"])
+
+
+    def test_no_removal_transition_advances_currency_without_source_or_analysis_work(self):
+        for rel in self.evidence:
+            (self.root / rel).unlink()
+        self._old()
+        recorded = []
+        original = self.gi.GraphIndexSession.record_file
+        def record(session, rel, text):
+            recorded.append(rel)
+            return original(session, rel, text)
+        with patch.object(self.gi.GraphIndexSession, "record_file", record), \
+             patch.object(self.gi, "GraphPublication", wraps=self.gi.GraphPublication) as publication:
+            result = self._build()
+        self.assertFalse(result.get("failed"), result)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(recorded, [])
+        self.assertEqual(_read_meta_store(self.index_dir)["walker_version"], self.bi.WALKER_VERSION)
+        conn = self.iss.open_read_only(self.index_dir)
+        try:
+            self.assertEqual(conn.execute("SELECT value FROM meta WHERE key='graph:walker_version'").fetchone()[0], self.bi.WALKER_VERSION)
+        finally:
+            conn.close()
+        self.assertEqual(self.iss.read_build_state(self.index_dir)["status"], "complete")
+
+
+    def test_independent_graph_identity_change_requires_fresh_extraction(self):
+        self._old()
+        conn = self.iss.IndexStateStore(self.index_dir)
+        try:
+            conn._conn.execute("UPDATE meta SET value=? WHERE key='graph:builder_version'",
+                (str(int(self.gi.GRAPH_BUILDER_VERSION) - 1),))
+        finally:
+            conn.close()
+        recorded = []
+        original = self.gi.GraphIndexSession.record_file
+        def record(session, rel, text):
+            recorded.append(rel)
+            return original(session, rel, text)
+        with patch.object(self.gi.GraphIndexSession, "record_file", record):
+            result = self._build()
+        self.assertFalse(result.get("failed"), result)
+        self.assertTrue(recorded, "incompatible graph builder must re-extract")
+        self.assertEqual(self.calls, [], "compatible semantic vectors still need no new embeddings")
+        self.assertFalse(set(self.evidence) & self._paths("graph_nodes", "source_file"))
+
+
+    def test_scoped_prior_policy_keeps_absent_siblings_absent_without_source_work(self):
+        for content in ("docs", "code", "graph"):
+            with self.subTest(content=content):
+                self._old(content=content)
+                prior_layers = _read_meta_store(self.index_dir)["content"]
+                recorded = []
+                original = self.gi.GraphIndexSession.record_file
+                def record(session, rel, text):
+                    recorded.append(rel)
+                    return original(session, rel, text)
+                with patch.object(self.gi.GraphIndexSession, "record_file", record):
+                    result = self._build(content=content)
+                self.assertFalse(result.get("failed"), result)
+                self.assertEqual(self.calls, [])
+                self.assertEqual(recorded, [])
+                self.assertEqual(_read_meta_store(self.index_dir)["content"], prior_layers)
+                self.assertFalse(set(self.evidence) & self._semantic_paths())
+                self.assertFalse(set(self.evidence) & self._paths("graph_nodes", "source_file"))
+                for layer in {"docs", "code"} - set(prior_layers):
+                    self.assertEqual(self._paths("chunks_" + layer), set(), layer)

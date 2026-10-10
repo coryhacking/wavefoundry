@@ -2447,6 +2447,11 @@ def _exclusive_open(parent: Path, dir_fd: "int | None", name: str, flags: int) -
 
 
 def _write_text_exclusive(path: Path, content: str, *, root: Path, mode: "int | None" = None) -> None:
+    _write_text_exclusive_identity(path, content, root=root, mode=mode)
+
+
+def _write_text_exclusive_identity(path: Path, content: str, *, root: Path,
+                                   mode: "int | None" = None) -> "tuple[Path, tuple[int, int]]":
     """Create ``path`` with ``O_EXCL|O_NOFOLLOW`` (relative to the contained
     parent's descriptor where supported) and write ``content`` verbatim; an
     existing entry of any kind refuses the write."""
@@ -2462,14 +2467,21 @@ def _write_text_exclusive(path: Path, content: str, *, root: Path, mode: "int | 
             ) from None
         if mode is not None and hasattr(os, "fchmod"):
             os.fchmod(fd, mode)
+        created = os.fstat(fd)
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
             handle.write(content)
+        return parent / name, (created.st_dev, created.st_ino)
     finally:
         if dir_fd is not None:
             os.close(dir_fd)
 
 
 def _write_bytes_atomic_exclusive(path: Path, content: bytes, *, root: Path, mode: "int | None" = None) -> None:
+    _write_bytes_atomic_exclusive_identity(path, content, root=root, mode=mode)
+
+
+def _write_bytes_atomic_exclusive_identity(path: Path, content: bytes, *, root: Path,
+                                           mode: "int | None" = None) -> "tuple[Path, tuple[int, int]]":
     """Publish ``content`` at ``path`` whole or not at all, refusing an existing path.
 
     The bytes go to a temporary file in the destination folder first, so an
@@ -2517,6 +2529,7 @@ def _write_bytes_atomic_exclusive(path: Path, content: bytes, *, root: Path, mod
                 if mode is not None and hasattr(os, "fchmod"):
                     os.fchmod(handle.fileno(), mode)
                 os.fsync(handle.fileno())
+                published = os.fstat(handle.fileno())
             try:
                 if dir_fd is not None:
                     os.link(temp, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd, follow_symlinks=False)
@@ -2525,7 +2538,7 @@ def _write_bytes_atomic_exclusive(path: Path, content: bytes, *, root: Path, mod
             except FileExistsError:
                 raise RuntimeError(f"review carrier write refused for {label}: the target exists") from None
             except OSError:
-                if os.name == "nt":
+                if contained_files._windows():
                     try:
                         os.rename(parent / temp, parent / name)
                     except OSError as exc:
@@ -2539,6 +2552,7 @@ def _write_bytes_atomic_exclusive(path: Path, content: bytes, *, root: Path, mod
                     except OSError as exc:
                         raise RuntimeError(f"review carrier write refused for {label}: {type(exc).__name__}") from None
                     created = os.fstat(out)
+                    published = created
                     try:
                         if mode is not None and hasattr(os, "fchmod"):
                             os.fchmod(out, mode)
@@ -2568,9 +2582,23 @@ def _write_bytes_atomic_exclusive(path: Path, content: bytes, *, root: Path, mod
     finally:
         if dir_fd is not None:
             os.close(dir_fd)
+    return parent / name, (published.st_dev, published.st_ino)
+
+
+def _write_move_target(path: Path, content: "str | bytes", *, root: Path,
+                       mode: int) -> "tuple[Path, tuple[int, int]]":
+    """Publish exclusively and retain the actual file identity for rollback."""
+    if isinstance(content, bytes):
+        return _write_bytes_atomic_exclusive_identity(path, content, root=root, mode=mode)
+    return _write_text_exclusive_identity(path, content, root=root, mode=mode)
 
 
 def _read_move_source(repo_root: Path, rel: str) -> "tuple[bytes, int]":
+    data, mode, _resolved, _identity = _read_move_source_identity(repo_root, rel)
+    return data, mode
+
+
+def _read_move_source_identity(repo_root: Path, rel: str) -> "tuple[bytes, int, Path, tuple[int, int]]":
     """``(bytes, permission bits)`` of a prompt-move source (wave 200ey, change
     1zyv2): read through the contained read, never through a path resolved in
     an earlier step. The source must still be the regular file (not a link)
@@ -2584,14 +2612,16 @@ def _read_move_source(repo_root: Path, rel: str) -> "tuple[bytes, int]":
     if not stat.S_ISREG(entry.st_mode) or contained_files._is_windows_link(str(lexical)):
         raise contained_files.ContainedFileRefused(f"{_display_name(rel)} {contained_files.CAUSE_NOT_REGULAR}")
     try:
-        data, opened = contained_files.read_contained(
+        judged_source, judged_identity = contained_files.judge_contained_file(repo_root, lexical)
+        data, opened, resolved = contained_files.read_contained_identity(
             repo_root, lexical, max_bytes=contained_files.DEFAULT_MAX_BYTES
         )
     except contained_files.ContainedFileRefused as exc:
         raise contained_files.ContainedFileRefused(f"{_display_name(rel)} {exc.cause}") from None
-    if (opened.st_dev, opened.st_ino) != (entry.st_dev, entry.st_ino):
+    if (resolved != judged_source or (opened.st_dev, opened.st_ino) != judged_identity
+            or judged_identity != (entry.st_dev, entry.st_ino)):
         raise contained_files.ContainedFileRefused(f"{_display_name(rel)} {contained_files.CAUSE_CHANGED}")
-    return data, stat.S_IMODE(opened.st_mode)
+    return data, stat.S_IMODE(opened.st_mode), resolved, (opened.st_dev, opened.st_ino)
 
 
 def migrate_review_plan_prompt(repo_root: Path) -> list[str]:
@@ -2631,7 +2661,7 @@ def migrate_review_plan_prompt(repo_root: Path) -> list[str]:
             f"preserve and resolve {REVIEW_PLAN_OLD_PROMPT} before retrying."
         )
     try:
-        raw, source_mode = _read_move_source(repo_root, REVIEW_PLAN_OLD_PROMPT)
+        raw, source_mode, judged_source, source_identity = _read_move_source_identity(repo_root, REVIEW_PLAN_OLD_PROMPT)
         original = raw.decode("utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise RuntimeError(
@@ -2698,12 +2728,12 @@ def migrate_review_plan_prompt(repo_root: Path) -> list[str]:
         migrate_physical_line(content, ending)
         for content, ending in map(line_content_and_ending, physical_lines)
     )
-    _write_review_carrier_text(new_path, migrated, exclusive=True, mode=source_mode, root=repo_root)
+    judged_target, target_identity = _write_move_target(new_path, migrated, mode=source_mode, root=repo_root)
     try:
-        old_path.unlink()
+        contained_files.unlink_contained(repo_root, judged_source, expected_identity=source_identity)
     except OSError as exc:
         try:
-            new_path.unlink()
+            contained_files.unlink_contained(repo_root, judged_target, expected_identity=target_identity)
         except OSError:
             pass
         raise RuntimeError(
@@ -2947,18 +2977,18 @@ def migrate_change_prompt_renames(repo_root: Path) -> ChangePromptMigration:
         old_path = _contained_review_carrier_path(repo_root, old_rel)
         new_path = _contained_review_carrier_path(repo_root, new_rel)
         try:
-            original, source_mode = _read_move_source(repo_root, old_rel)
+            original, source_mode, judged_source, source_identity = _read_move_source_identity(repo_root, old_rel)
         except OSError as exc:
             raise RuntimeError(
                 f"change prompt migration blocked: {_display_name(old_rel)} could not be read; "
                 f"it was preserved ({_failure_class(exc)})"
             ) from None
-        _write_review_carrier_text(new_path, original, exclusive=True, mode=source_mode, root=repo_root)
+        judged_target, target_identity = _write_move_target(new_path, original, mode=source_mode, root=repo_root)
         try:
-            old_path.unlink()
+            contained_files.unlink_contained(repo_root, judged_source, expected_identity=source_identity)
         except OSError as exc:
             try:
-                new_path.unlink()
+                contained_files.unlink_contained(repo_root, judged_target, expected_identity=target_identity)
                 new_outcome = f"{_display_name(new_rel)} was removed"
             except OSError:
                 new_outcome = f"{_display_name(new_rel)} could not be removed and must be deleted by hand"
@@ -2980,7 +3010,7 @@ def migrate_change_prompt_renames(repo_root: Path) -> ChangePromptMigration:
 # ``review_protocol_carriers`` adopts when present move byte-for-byte (content
 # is never rewritten; the review-protocol pass then reconciles the moved doc's
 # managed region). Both paths present is a conflict that changes neither, and
-# markdown links to a moved doc are reported, never rewritten.
+# current project Markdown destinations to confirmed role moves are repaired.
 COUNCIL_ROLE_RENAMES: "tuple[tuple[str, str], ...]" = (
     ("docs/agents/specialists/wave-council.md", "docs/agents/specialists/council-chair.md"),
     (".claude/agents/wave-council.md", ".claude/agents/council-chair.md"),
@@ -2991,7 +3021,487 @@ COUNCIL_ROLE_RENAMES: "tuple[tuple[str, str], ...]" = (
 )
 
 
-def migrate_council_role_renames(repo_root: Path) -> ChangePromptMigration:
+def _role_link_current_doc(repo_root: Path, path: Path, roots) -> bool:
+    """Current docs only; record roots are independent of history components."""
+    rel = path.relative_to(repo_root).as_posix()
+    excluded = [roots.waves_rel, roots.plans_rel, roots.archive_rel,
+                "docs/reports", "docs/architecture/decisions", "docs/decisions", "docs/adr"]
+    return not is_history_path(rel) and not any(
+        prefix and (rel == prefix or rel.startswith(prefix + "/")) for prefix in excluded
+    )
+
+
+def _role_link_destination(text: str, at: int, kind: str):
+    """Return destination offsets and the end of its validated metadata."""
+    start = at + (1 if text[at:at + 1] == "<" else 0)
+    angle = start != at
+    pos, depth = start, 0
+    while pos < len(text):
+        char = text[pos]
+        if char == "\\" and pos + 1 < len(text):
+            pos += 2
+            continue
+        if angle:
+            if char == ">" or char in "\r\n":
+                break
+        else:
+            if char.isspace() or (char == ")" and depth == 0):
+                break
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+        pos += 1
+    if pos == start or depth or (angle and text[pos:pos + 1] != ">"):
+        return None
+    tail = pos + (1 if angle else 0)
+    rest = text[tail:].splitlines()[0] if tail < len(text) else ""
+    title = r'(?:"[^"\n]*"|\x27[^\x27\n]*\x27|\([^()\n]*\))'
+    ending = r"[ \t]*(?:" + title + r"[ \t]*)?" + (r"\)" if kind == "inline" else r"$")
+    match = re.match(ending, rest)
+    return (start, pos, tail + match.end()) if match else None
+
+
+def _role_link_mask_code(text: str, reference_starts=None) -> str:
+    """Mask code and literal inline tokens, retaining offsets and newlines."""
+    chars = list(text)
+    fence = None
+    html = None
+    indented = False
+    block_boundary = True
+    containers = []  # (quote, 0) or (list, relative content width), in order
+    inline_regions = []
+    reference_metadata = []
+    inline_start = None
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        # Classify in actual recursive container order, retaining the original
+        # characters for masking. Expanded tabs describe columns, not offsets.
+        content = line.rstrip("\r\n").expandtabs(4)
+        paragraph = not block_boundary and not indented and fence is None and html is None
+        lazy = False
+        closed_container = False
+        new_container = False
+        for index, (kind, width) in enumerate(containers):
+            if kind == "quote":
+                prefix = re.match(r"^ {0,3}> ?", content)
+                if prefix:
+                    content = content[prefix.end():]
+                    continue
+            elif not content.strip():
+                content = ""
+                continue
+            elif content.startswith(" " * width):
+                content = content[width:]
+                continue
+            # A missing inner marker can be a lazy continuation of the SAME
+            # paragraph. It must not reset block state or turn indentation into
+            # code. A real new block closes the unmatched container suffix.
+            item = re.match(r"^ {0,3}([-+*]|[0-9]{1,9}[.)])(?: +|$)", content)
+            interrupts = bool(
+                re.match(r"^ {0,3}(?:>|#{1,6}(?: |$)|`{3,}|~{3,})", content)
+                or re.fullmatch(r" {0,3}(?:(?:\* *){3,}|(?:- *){3,}|(?:_ *){3,})", content)
+                or (item and (kind == "list" or not item[1][0].isdigit() or item[1][:-1] == "1")
+                    and content[item.end():].strip())
+            )
+            if paragraph and content.strip() and not interrupts:
+                lazy = True
+            else:
+                containers = containers[:index]
+                fence = None
+                html = None
+                indented = False
+                block_boundary = True
+                closed_container = True
+            break
+        # New containers can alternate arbitrarily (list -> quote -> list,
+        # quote -> list -> quote). Never parse a fenced code body's markers.
+        if not lazy and fence is None and html is None:
+            while content.strip():
+                quote = re.match(r"^ {0,3}> ?", content)
+                if quote:
+                    containers.append(("quote", 0))
+                    new_container = True
+                    content = content[quote.end():]
+                    indented = False
+                    block_boundary = True
+                    continue
+                thematic = re.fullmatch(r" {0,3}(?:(?:\* *){3,}|(?:- *){3,}|(?:_ *){3,})", content)
+                item = None if thematic else re.match(r"^( {0,3})([-+*]|[0-9]{1,9}[.)])( +|$)", content)
+                if item and not block_boundary and not closed_container:
+                    if (item[2][0].isdigit() and item[2][:-1] != "1") or not content[item.end():].strip():
+                        item = None  # These markers cannot interrupt a paragraph.
+                if not item:
+                    break
+                padding = len(item[3]) if 1 <= len(item[3]) <= 4 else 1
+                width = len(item[1]) + len(item[2]) + padding
+                containers.append(("list", width))
+                new_container = True
+                content = content[width:]
+                indented = False
+                block_boundary = True
+        mark = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", content)
+        # Backticks are forbidden in a backtick fence's opening info string.
+        # A closing fence is judged separately against the active fence.
+        if fence is None and mark and mark[1][0] == "`" and "`" in mark[2]:
+            mark = None
+        heading = bool(re.match(r"^ {0,3}#{1,6}(?:[ \t]|$)", content))
+        thematic = bool(re.fullmatch(r" {0,3}(?:(?:\* *){3,}|(?:- *){3,}|(?:_ *){3,})", content))
+        setext = bool(paragraph and not lazy and not new_container and not closed_container
+                      and re.fullmatch(r" {0,3}(?:=+|-+) *", content))
+        if html is not None:
+            masked = bool(content.strip()) or html != "blank"
+            if (html == "blank" and not content.strip()) or (
+                html != "blank" and re.search(html, content, re.I)
+            ):
+                html = None
+                block_boundary = True
+        elif fence is not None:
+            masked = True
+            if mark and mark[1][0] == fence[0] and len(mark[1]) >= fence[1] and not mark[2].strip():
+                fence = None
+                block_boundary = True
+        elif not content.strip():
+            masked = indented
+            block_boundary = True
+        elif re.match(r"^(?: {4}| {0,3}\t)", content) and (indented or block_boundary):
+            # Tabs reach the next four-column stop. Indented code cannot
+            # interrupt a paragraph, but may continue across blank lines.
+            masked = True
+            indented = True
+        else:
+            indented = False
+            # HTML blocks contain literal text, not Markdown destinations.
+            # Explicit terminators span blank lines; ordinary block tags end
+            # at a blank line. Inline tags within paragraphs remain Markdown.
+            html_open = None
+            if re.match(r"^ {0,3}<(?:script|pre|style|textarea)(?:[ \t>]|$)", content, re.I):
+                html_open = r"</(?:script|pre|style|textarea)>"
+            elif re.match(r"^ {0,3}<!--", content):
+                html_open = r"-->"
+            elif re.match(r"^ {0,3}<\?", content):
+                html_open = r"\?>"
+            elif re.match(r"^ {0,3}<![A-Z]", content):
+                html_open = r">"
+            elif re.match(r"^ {0,3}<!\[CDATA\[", content):
+                html_open = r"\]\]>"
+            elif re.match(
+                r"^ {0,3}</?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:[ \t\r\n/>]|$)",
+                content, re.I,
+            ):
+                html_open = "blank"
+            elif (not paragraph or new_container or closed_container) and re.fullmatch(
+                r" {0,3}(?:</[A-Za-z][A-Za-z0-9-]*[ \t]*>|<[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t]*=[ \t]*(?:[^ \t\"'=<>`]+|\"[^\"]*\"|'[^']*'))?)*[ \t]*/?>)[ \t]*",
+                content,
+            ):
+                html_open = "blank"
+            masked = bool(mark or html_open)
+            if html_open:
+                html = html_open
+                if html != "blank" and re.search(html, content, re.I):
+                    html = None
+            if mark:
+                fence = (mark[1][0], len(mark[1]))
+            block_boundary = bool(mark or html_open or heading or thematic or setext)
+        definition = None
+        if not masked and (not paragraph or new_container or closed_container):
+            prefix = re.match(r" {0,3}\[([^\]\n]+)\]:[ \t]*", content)
+            if prefix and _role_link_destination(content, prefix.end(), "reference"):
+                definition = prefix
+                # Definitions are block metadata, not paragraph continuation.
+                # Consecutive definitions remain eligible; their title ticks
+                # do not open inline code in a later paragraph.
+                block_boundary = True
+            if definition:
+                # Container stripping uses columns; publish the corresponding
+                # original character offset, including tabs, for the scanner.
+                column = len(line.rstrip("\r\n").expandtabs(4)) - len(content) + content.index("[")
+                consumed = 0
+                for index, char in enumerate(line):
+                    if consumed == column:
+                        absolute = offset + index
+                        if reference_starts is not None:
+                            reference_starts.add(absolute)
+                        raw_prefix = re.compile(r"\[([^\]\n]+)\]:[ \t]*").match(text, absolute)
+                        parsed = _role_link_destination(text, raw_prefix.end(), "reference")
+                        if parsed:
+                            metadata_start = parsed[1] + (text[parsed[1]:parsed[1] + 1] == ">")
+                            reference_metadata.append((metadata_start, parsed[2]))
+                        break
+                    consumed += 4 - consumed % 4 if char == "\t" else 1
+        # Inline delimiters pair inside a paragraph or heading, never across
+        # a blank line, code block, heading, or newly opened container block.
+        separator = not content.strip() or thematic or setext or definition is not None
+        if inline_start is not None and (masked or separator or heading or new_container or closed_container):
+            inline_regions.append((inline_start, offset))
+            inline_start = None
+        if not masked and not separator:
+            if heading:
+                inline_regions.append((offset, offset + len(line)))
+            elif inline_start is None:
+                inline_start = offset
+        if masked:
+            chars[offset:offset + len(line)] = [c if c in "\r\n" else " " for c in line]
+        offset += len(line)
+    if inline_start is not None:
+        inline_regions.append((inline_start, len(text)))
+    for start, end in reference_metadata:
+        for pos in range(start, end):
+            if chars[pos] not in "\r\n":
+                chars[pos] = " "
+    masked = "".join(chars)
+    # Inline HTML, autolinks and code have left-to-right precedence. Link destinations
+    # and titles are consumed metadata once their label is traversed; a code
+    # span opened earlier can still close inside apparent HTML or metadata.
+    whitespace = r"[ \t]*(?:\r?\n[ \t]*)?"
+    attribute_space = r"(?:[ \t]+(?:\r?\n[ \t]*)?|\r?\n[ \t]*)"
+    attribute = (attribute_space + r"[A-Za-z_:][A-Za-z0-9_.:-]*"
+                 + r"(?:" + whitespace + "=" + whitespace
+                 + r"""(?:[^ \t\r\n"'=<>`]+|"[^"]*"|'[^']*'))?""")
+    inline_html = re.compile(
+        r"<[A-Za-z][A-Za-z0-9-]*(?:" + attribute + ")*" + whitespace + r"/?>"
+        + r"|</[A-Za-z][A-Za-z0-9-]*" + whitespace + ">"
+        + r"|<!--(?:>|->|.*?-->)|<\?.*?\?>|<![A-Za-z][^>]*>|<!\[CDATA\[.*?\]\]>"
+        # URI/email autolinks are atomic external URLs, not Markdown in their
+        # labels; their literal backticks cannot open a neighboring code span.
+        + r"|<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\x00-\x20<>]*>"
+        + r"|<[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*>",
+        re.S,
+    )
+    inline_tails = {}
+    for match in re.finditer(r"\[[^\]\n]*\]\(\s*", masked):
+        before = match.start() - 1
+        while before >= 0 and masked[before] == "\\":
+            before -= 1
+        if (match.start() - 1 - before) % 2:
+            continue
+        parsed = _role_link_destination(masked, match.end(), "inline")
+        if parsed:
+            inline_tails[match.end()] = parsed
+    for first, last in inline_regions:
+        runs = list(re.compile(r"`+").finditer(masked, first, last))
+        run_indices = {run.start(): index for index, run in enumerate(runs)}
+        at = first
+        i = 0
+        while at < last:
+            if at in inline_tails and inline_tails[at][2] <= last:
+                _start, destination_end, metadata_end = inline_tails[at]
+                metadata_start = destination_end + (masked[destination_end:destination_end + 1] == ">")
+                for pos in range(metadata_start, metadata_end - 1):
+                    if chars[pos] not in "\r\n":
+                        chars[pos] = " "
+                at = metadata_end
+                continue
+            before = at - 1
+            while before >= first and masked[before] == "\\":
+                before -= 1
+            if masked[at] == "<" and not (at - 1 - before) % 2:
+                tag = inline_html.match(masked, at, last)
+                if tag:
+                    for pos in range(at, tag.end()):
+                        if chars[pos] not in "\r\n":
+                            chars[pos] = " "
+                    at = tag.end()
+                    continue
+            if at not in run_indices:
+                at += 1
+                continue
+            i = run_indices[at]
+            opening = runs[i]
+            before = opening.start() - 1
+            while before >= first and masked[before] == "\\":
+                before -= 1
+            opening_start = opening.start()
+            opening_length = len(opening[0])
+            if (opening_start - 1 - before) % 2:
+                # An escape consumes one punctuation character, not the
+                # unescaped suffix of a longer delimiter run.
+                opening_start += 1
+                opening_length -= 1
+                if not opening_length:
+                    at = opening.end()
+                    continue
+            j = i + 1
+            while j < len(runs) and len(runs[j][0]) != opening_length:
+                j += 1
+            if j == len(runs):
+                at = opening.end()
+                continue
+            for at in range(opening_start, runs[j].end()):
+                if chars[at] not in "\r\n":
+                    chars[at] = " "
+            at = runs[j].end()
+    return "".join(chars)
+
+def _role_link_destination_spans(masked: str, reference_starts=None):
+    """Supported Markdown destinations, with image references excluded.
+
+    Balanced parentheses and escaped punctuation in bare destinations are
+    supported. Malformed/ambiguous forms are left for the diagnostic pass.
+    """
+    candidates = []
+    def escaped(at):
+        before = at - 1
+        while before >= 0 and masked[before] == "\\":
+            before -= 1
+        return (at - 1 - before) % 2 != 0
+
+    for m in re.finditer(r"\[[^\]\n]*\]\(\s*", masked):
+        if escaped(m.start()):
+            continue
+        image = m.start() > 0 and masked[m.start() - 1] == "!" and not escaped(m.start() - 1)
+        candidates.append((m.end(), "inline", None, image))
+    definitions = (re.finditer(r"(?m)^ {0,3}\[([^\]\n]+)\]:[ \t]*", masked)
+                   if reference_starts is None else
+                   (re.compile(r"\[([^\]\n]+)\]:[ \t]*").match(masked, at)
+                    for at in sorted(reference_starts)))
+    for m in definitions:
+        if m is None:
+            continue
+        candidates.append((m.end(), "reference", m[1], False))
+    image_refs = {" ".join((m[2] or m[1]).split()).casefold()
+                  for m in re.finditer(r"!\[([^\]\n]*)\]\[([^\]\n]*)\]", masked)
+                  if not escaped(m.start())}
+    # Shortcut image references share a definition too.
+    image_refs.update(" ".join(m[1].split()).casefold()
+                      for m in re.finditer(r"!\[([^\]\n]+)\](?![\[(])", masked)
+                      if not escaped(m.start()))
+    consumed_end = -1
+    for at, kind, label, image in sorted(candidates):
+        if at < consumed_end:
+            continue
+        parsed = _role_link_destination(masked, at, kind)
+        if parsed:
+            consumed_end = parsed[2]
+            if not image and not (label and " ".join(label.split()).casefold() in image_refs):
+                yield parsed[:2]
+
+
+def _role_link_replacement(raw: str, doc_rel: str, pairs) -> "str | None":
+    """Replace changed path components, preserving the remaining spelling."""
+    import posixpath
+    from urllib.parse import unquote
+    path_part = re.split(r"[?#]", raw, maxsplit=1)[0]
+    decoded = unquote(re.sub(r"\\([!\"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])", r"\1", path_part))
+    if not decoded or re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", decoded) or decoded.startswith("//"):
+        return None
+    if decoded.startswith("/"):
+        target = posixpath.normpath(decoded.lstrip("/"))
+    elif decoded.startswith("docs/"):
+        target = posixpath.normpath(decoded)
+    else:
+        target = posixpath.normpath(posixpath.join(posixpath.dirname(doc_rel), decoded))
+    new_rel = dict(pairs).get(target)
+    if new_rel is None:
+        return None
+    old_parts, new_parts = target.split("/"), new_rel.split("/")
+    # Existing native wrappers change a directory component, while role docs
+    # change the filename. Match changed suffix components at their original
+    # offsets; ambiguous encodings/depth relocations remain diagnostic-only.
+    if len(old_parts) != len(new_parts):
+        return None
+    raw_parts = path_part.split("/")
+    for index, (old_name, new_name) in enumerate(zip(old_parts, new_parts)):
+        if old_name == new_name:
+            continue
+        at = len(raw_parts) - len(old_parts) + index
+        if at < 0:
+            return None
+        component = raw_parts[at]
+        if unquote(re.sub(r"\\(.)", r"\1", component)) != old_name:
+            return None
+        # Preserve escape/percent style of each changed component; unchanged
+        # prefix, suffix, labels, titles and line endings retain their bytes.
+        encoded_chars = {chr(int(m[1], 16)): m[0] for m in re.finditer(r"%([0-9A-Fa-f]{2})", component)}
+        escaped_chars = {m[1] for m in re.finditer(r"\\(.)", component)}
+        all_encoded = bool(component) and re.fullmatch(r"(?:%[0-9A-Fa-f]{2})+", component)
+        raw_parts[at] = "".join(
+            encoded_chars.get(c, "%" + format(ord(c), "02x" if any(ch in "abcdef" for ch in component) else "02X")) if all_encoded or c in encoded_chars
+            else "\\" + c if c in escaped_chars else c for c in new_name
+        )
+    return "/".join(raw_parts) + raw[len(path_part):]
+
+
+def _council_role_link_plan(repo_root: Path, pairs):
+    roots = record_paths.load_record_roots(repo_root)
+    edits, reports = [], []
+    docs = repo_root / "docs"
+    if not docs.exists():
+        return edits, reports
+    for path in sorted(docs.rglob("*.md")):
+        if not _role_link_current_doc(repo_root, path, roots):
+            continue
+        rel = path.relative_to(repo_root).as_posix()
+        try:
+            data, mode = _read_move_source(repo_root, rel)
+            text = data.decode("utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise RuntimeError(f"council role link repair refused: {_display_name(rel)} ({_failure_class(exc)}); restore a contained readable regular document and rerun") from None
+        reference_starts = set()
+        masked = _role_link_mask_code(text, reference_starts)
+        replacements = []
+        for start, end in _role_link_destination_spans(masked, reference_starts):
+            new = _role_link_replacement(text[start:end], rel, pairs)
+            if new is not None:
+                replacements.append((start, end, new))
+        rewritten = text
+        for start, end, new in reversed(replacements):
+            rewritten = rewritten[:start] + new + rewritten[end:]
+        if replacements:
+            edits.append((dict(pairs).get(rel, rel), rewritten.encode("utf-8"), mode))
+            reports.extend(f"{rel}:{text.count(chr(10), 0, start) + 1}: would repair council role link" for start, _end, _new in replacements)
+        # Visible legacy destinations not covered by supported spans remain
+        # actionable, including ambiguous image/reference definitions.
+        covered = [(start, end) for start, end, _ in replacements]
+        # Native wrappers retain SKILL.md; only their changed directory name
+        # identifies a legacy destination. Do not flag an already-new link.
+        old_names = {old_part for old, new in pairs
+                     for old_part, new_part in zip(old.split("/"), new.split("/"))
+                     if old_part != new_part}
+        reference_lines = {text.rfind("\n", 0, at) + 1 for at in reference_starts}
+        from urllib.parse import unquote
+        visible = list(masked)
+        for start, end in covered:
+            visible[start:end] = [" " for _ in range(start, end)]
+        line_start = 0
+        for number, line in enumerate("".join(visible).splitlines(keepends=True), 1):
+            # Normalize only for diagnostics, after removing supported edits.
+            # Encoded/escaped legacy destinations stay unchanged and visible;
+            # this recognition never grants authority to rewrite them.
+            decoded = unquote(re.sub(r"\\([!\"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])", r"\1", line))
+            if "](" in line or line_start in reference_lines:
+                for name in old_names:
+                    for _match in re.finditer(re.escape(name), decoded):
+                        reports.append(f"{rel}:{number}: unchanged unsupported or unrelated council role destination")
+            line_start += len(line)
+    return edits, reports
+
+
+def _confirmed_council_role_pairs(repo_root: Path):
+    pairs = []
+    for old, new in COUNCIL_ROLE_RENAMES:
+        if (repo_root / old).exists() or (repo_root / old).is_symlink():
+            pairs.append((old, new))
+            continue
+        if not ((repo_root / new).exists() or (repo_root / new).is_symlink()):
+            continue
+        data, _mode = _read_move_source(repo_root, new)
+        text = data.decode("utf-8")
+        tokens = {Path(old).stem, Path(new).stem}
+        if new.endswith("/SKILL.md"):
+            tokens = {Path(old).parent.name.removeprefix("agent-role-"), Path(new).parent.name.removeprefix("agent-role-")}
+        roles = re.findall(r"(?m)^Role:[ \t]*`?([a-z][a-z0-9-]*)`?[ \t]*\r?$", text)
+        # Native wrappers identify their role through the canonical docs pointer.
+        pointers = any(doc in text for doc, _dest in COUNCIL_ROLE_RENAMES if doc.startswith("docs/")) or any(
+            dest in text for _doc, dest in COUNCIL_ROLE_RENAMES if dest.startswith("docs/"))
+        if any(role in tokens for role in roles) or (not new.startswith("docs/") and pointers):
+            pairs.append((old, new))
+        elif new.startswith("docs/"):
+            raise RuntimeError(f"council role link repair refused: {_display_name(new)} does not confirm the renamed role identity; verify its Role metadata before retry")
+    return pairs
+
+
+def migrate_council_role_renames(repo_root: Path, *, apply: bool = True) -> ChangePromptMigration:
     """Move the council role doc and native wrappers to the ``council-chair`` names.
 
     Every pair is preflighted before any write: when any pair conflicts (both
@@ -3000,7 +3510,10 @@ def migrate_council_role_renames(repo_root: Path) -> ChangePromptMigration:
     is written. Otherwise each present old file is copied byte-for-byte to its
     new path through the exclusive publish (permission bits kept) and then
     removed; an old wrapper folder left empty is removed too. A second render
-    finds nothing to move and writes nothing.
+    reconciles remaining exact links when the new document proves its role
+    identity. Preview (`apply=False`) reports moves and link edits without
+    writes. Each file is published separately: interruptions may leave a move
+    or some link edits complete, and retry repairs the remainder.
     """
 
     conflicts = [
@@ -3017,6 +3530,12 @@ def migrate_council_role_renames(repo_root: Path) -> ChangePromptMigration:
             "the old file, and rerun the upgrade."
         )
 
+    pairs = _confirmed_council_role_pairs(repo_root)
+    edits, reports = _council_role_link_plan(repo_root, pairs)
+    if not apply:
+        moves = [f"would move {old} -> {new}" for old, new in pairs if (repo_root / old).exists()]
+        return ChangePromptMigration((), tuple(moves + reports))
+
     written: list[str] = []
     for old_rel, new_rel in COUNCIL_ROLE_RENAMES:
         old_lexical = repo_root / old_rel
@@ -3025,18 +3544,18 @@ def migrate_council_role_renames(repo_root: Path) -> ChangePromptMigration:
         old_path = _contained_review_carrier_path(repo_root, old_rel)
         new_path = _contained_review_carrier_path(repo_root, new_rel)
         try:
-            original, source_mode = _read_move_source(repo_root, old_rel)
+            original, source_mode, judged_source, source_identity = _read_move_source_identity(repo_root, old_rel)
         except OSError as exc:
             raise RuntimeError(
                 f"council role migration blocked: {_display_name(old_rel)} could not be read; "
                 f"it was preserved ({_failure_class(exc)})"
             ) from None
-        _write_review_carrier_text(new_path, original, exclusive=True, mode=source_mode, root=repo_root)
+        judged_target, target_identity = _write_move_target(new_path, original, mode=source_mode, root=repo_root)
         try:
-            old_path.unlink()
+            contained_files.unlink_contained(repo_root, judged_source, expected_identity=source_identity)
         except OSError as exc:
             try:
-                new_path.unlink()
+                contained_files.unlink_contained(repo_root, judged_target, expected_identity=target_identity)
                 new_outcome = f"{_display_name(new_rel)} was removed"
             except OSError:
                 new_outcome = f"{_display_name(new_rel)} could not be removed and must be deleted by hand"
@@ -3052,9 +3571,14 @@ def migrate_council_role_renames(repo_root: Path) -> ChangePromptMigration:
                 pass
         written.extend([old_rel, new_rel])
 
-    moved = tuple(old_rel for old_rel, _new_rel in COUNCIL_ROLE_RENAMES if old_rel in written)
-    link_report = _moved_prompt_link_report(repo_root, moved) if moved else ()
-    return ChangePromptMigration(written=tuple(written), link_report=link_report)
+    for rel, data, mode in edits:
+        try:
+            _write_review_carrier_text(repo_root / rel, data, mode=mode, root=repo_root)
+        except (OSError, RuntimeError) as exc:
+            raise RuntimeError(f"council role link repair stopped at {_display_name(rel)} ({_failure_class(exc)}); earlier moves or edits may be complete; restore access and rerun") from None
+        written.append(rel)
+    remaining = tuple(line for line in reports if ": would repair " not in line)
+    return ChangePromptMigration(written=tuple(written), link_report=remaining)
 
 
 # Wave 204hi: project-owned lifecycle guides move before policy reconciliation.
@@ -3099,18 +3623,18 @@ def migrate_lifecycle_document_renames(repo_root: Path) -> ChangePromptMigration
         old_path = _contained_review_carrier_path(repo_root, old_rel)
         new_path = _contained_review_carrier_path(repo_root, new_rel)
         try:
-            original, source_mode = _read_move_source(repo_root, old_rel)
+            original, source_mode, judged_source, source_identity = _read_move_source_identity(repo_root, old_rel)
         except OSError as exc:
             raise RuntimeError(
                 f"lifecycle document migration blocked: {_display_name(old_rel)} could not be read; "
                 f"it was preserved ({_failure_class(exc)})"
             ) from None
-        _write_review_carrier_text(new_path, original, exclusive=True, mode=source_mode, root=repo_root)
+        judged_target, target_identity = _write_move_target(new_path, original, mode=source_mode, root=repo_root)
         try:
-            old_path.unlink()
+            contained_files.unlink_contained(repo_root, judged_source, expected_identity=source_identity)
         except OSError as exc:
             try:
-                new_path.unlink()
+                contained_files.unlink_contained(repo_root, judged_target, expected_identity=target_identity)
                 new_outcome = f"{_display_name(new_rel)} was removed"
             except OSError:
                 new_outcome = f"{_display_name(new_rel)} could not be removed and must be deleted by hand"
@@ -3322,7 +3846,7 @@ def _move_prompt_pair(repo_root: Path, pair: _PromptMovePair) -> "list[str]":
     source_path = _contained_review_carrier_path(repo_root, pair.source)
     target_path = _contained_review_carrier_path(repo_root, pair.target)
     try:
-        original, source_mode = _read_move_source(repo_root, pair.source)
+        original, source_mode, judged_source, source_identity = _read_move_source_identity(repo_root, pair.source)
     except OSError as exc:
         raise RuntimeError(
             f"prompt name migration blocked: {_display_name(pair.source)} could not be read; "
@@ -3344,15 +3868,15 @@ def _move_prompt_pair(repo_root: Path, pair: _PromptMovePair) -> "list[str]":
                 f"{_display_name(pair.source)} was preserved"
             )
     else:
-        _write_review_carrier_text(target_path, original, exclusive=True, mode=source_mode, root=repo_root)
+        judged_target, target_identity = _write_move_target(target_path, original, mode=source_mode, root=repo_root)
         copied = True
     try:
-        source_path.unlink()
+        contained_files.unlink_contained(repo_root, judged_source, expected_identity=source_identity)
     except OSError as exc:
         outcome = f"{_display_name(pair.target)} was kept"
         if copied:
             try:
-                target_path.unlink()
+                contained_files.unlink_contained(repo_root, judged_target, expected_identity=target_identity)
                 outcome = f"{_display_name(pair.target)} was removed"
             except OSError:
                 outcome = f"{_display_name(pair.target)} could not be removed and must be deleted by hand"
@@ -4230,7 +4754,7 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     for location in council_migration.link_report:
         print(
             "render_agent_surfaces: NOTICE - markdown link targets the moved council role doc "
-            f"(edit it to the council-chair path, then rerun the docs gate): {_display_name(location)}",
+            f"(review the unchanged destination, then rerun the docs gate): {_display_name(location)}",
             file=sys.stderr,
         )
     # Migrate project guides before managed policy regions use the new paths.

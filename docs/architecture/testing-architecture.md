@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-08
+Last verified: 2026-10-10
 
 ## Test Tiers
 
@@ -42,6 +42,23 @@ Last verified: 2026-10-08
 | Standing production retrieval evaluation (wave 1seaw, 1sear) | Generation-frozen, cached/offline evaluation of the current public `code_ask`, `code_search`, `docs_search`, and `code_lexical` response paths over a versioned calibration/holdout corpus. Reports Recall@k, nDCG@k, agentic MRR@10, abstention, warm p95, cold start, and serialized-envelope size, and binds each report to the production-module identity digest, run timestamps, and the resolved declaration spans behind symbol anchors (declaration-span intersection, never a same-file mention); it is intentionally outside the hermetic default test run because it requires a published index and cached models. | `.wavefoundry/framework/scripts/retrieval_eval.py`; `docs/evals/retrieval-quality-golden.json`; former standing baseline `docs/reports/retrieval-quality-1yxyw-e3.json` (wave `1yxyw`, a single-run baseline on the final tree with the evaluator bytes of that wave; the removal is measured by `1yxyw-e2c` against `1yxyw-e1`, with no quality violations and operator review for latency only; there is no signed comparison against the `1yzd0` receipts; it was the reference only until the next evaluator edit, and that edit has happened: `retrieval_eval.py` changed after it was measured, including wave `1z8ox`'s routing of its git probes, so its recorded `evaluator_identity.source_sha256` no longer matches the current evaluator and `retrieval_eval.py` refuses it as a `--baseline`. No committed report currently binds the current evaluator; the next measurement records its own baseline run first and compares against that) | `python3 -B .wavefoundry/framework/scripts/retrieval_eval.py --root . --fixtures docs/evals/retrieval-quality-golden.json --out docs/reports/retrieval-quality-<change-id>.json --baseline <report whose evaluator_identity matches the current evaluator>` (not `--baseline docs/reports/retrieval-quality-1yxyw-e3.json`) |
 | Manual docs gate | MCP **`wf_validate_docs`** succeeds, **or** `wf docs-lint` passes | MCP / repo root | `wf_validate_docs` / `wf docs-lint` |
 | Manual gardener | MCP **`wf_garden_docs`**, **or** `wf docs-gardener` | MCP / repo root | `wf_garden_docs` / `wf docs-gardener` |
+
+### Profile qualification fixtures (wave 2071n)
+
+Evidence classification, report partitioning and node lookup tests extract a
+bounded scratch corpus and publish it through the canonical graph/store
+producers. They read the published SQLite snapshot, require indexed positive
+and ordinary negative controls, and retain independent ranking and lookup
+expectations. They do not require the operator's local index. Curated community
+membership verifies report partitioning; it does not qualify clustering.
+
+Historical compatibility fixtures retain byte-exact documents and entry scripts
+from pinned revisions, with source paths, explicit historical absence and
+SHA-256 checks. The review-policy cases use historical documents with the
+current reconciler; the upgrade and storage-reader cases use historical entry
+scripts with current sibling modules. Missing or corrupt fixtures fail rather
+than skipping or substituting current source. Tests and fixture bundles are
+excluded from distribution packs.
 
 ### Unified SQLite conversion (wave 1xjmm)
 
@@ -180,6 +197,14 @@ subprocess-scan seams; no `TestCase`, no `test_*` names, no module-level
 mutable server state). The split preserved the exact frozen
 `(class, test_method)` identity set and per-class AST fingerprints (mechanical
 proof in the wave's `verify_shards.py` evidence).
+
+### Framework-owned distribution oracles (wave 204mp)
+
+The actor census reads the sorted framework-relative inventory at `tests/fixtures/framework-text-ownership.json`, including zero-hit production files, framework tests/fixtures and the inventory itself. Ordinary test runs never add files found in a downstream checkout; an absent owned file, unexpected owned occurrence or stale occurrence allowance fails. Maintainers update/check ownership from the upstream tracked tree with `python3 -B .wavefoundry/framework/scripts/tests/framework_text_ownership.py --update` or `--check`. Stage new owned files first, or supply each new path with `--include <framework-relative-path>` to both commands. A zero-hit owned omission is detected by that explicit tracked-set comparison.
+
+Reconcile expectations use literal canonical keys. The hook-contract test reads the shipped journal seed rather than a checkout-owned spec. Council digest tests derive earlier spellings from the legacy table and built-in actor but encode the tiny historical payload through an independent test-local frozen reference (explicit schema/evaluator/fields/body hash, JSON and hashlib); shipped-default and no-phases goldens cross-check it. Renamed trees keep the historical assertion without a profile skip. Neutral parcel/task examples stage real prior slug ownership to retain two-stage prompt reuse, collision, rollback, retry and first-render coverage.
+
+`test_legacy_council_actors` loads copied declarations and real lifecycle producers to verify canonical writes, byte-preserved replay, request conflicts, authority refusals, runtime role collisions and actual MCP reload. Its repair controls preserve both council actor equivalence and a legitimate distinct-reviewer case. Fixture gardening and post-write lint are stubbed in this actor owner; role-link upgrade tests separately use the real docs gate. Local subprocess and scratch-tree results do not qualify native Windows execution or a downstream merge.
 
 ### Profile-Aware Fixtures and the Second-Profile Run (wave 1zim5)
 
@@ -642,6 +667,32 @@ its predicate moves and is quoted only with the predicate that produced it; a
 figure carried forward from an earlier predicate is a stale claim, not evidence.
 Seeds 180, 190, 209, 214, 221, and 239 carry the rules.
 
+
+## Rust Graph Identity, Location and Coverage (wave 206og)
+
+`test_graph_rust_provenance.py` uses small generic Rust sources and the real
+extraction, merge, row-publication and public `code_callgraph_response` path.
+Expected spans are derived independently from exact fixture expressions. A
+UTF-8 prefix and an earlier same-name call inside a macro distinguish byte
+coordinates from character coordinates and prevent a correct relationship from
+borrowing the wrong location. A neighboring function provides a caller-boundary
+control; repeated calls verify occurrence multiplicity separately from edge
+counts.
+
+The tests compare fresh and incremental occurrences, retain a coherent pin
+across a publication, and mutate a returned occurrence to verify shared snapshot
+isolation. A predecessor-builder cache without provenance must re-extract even
+with no changed paths; an injected failure in the real query rebuild path must
+return not-ready and preserve the old generation. Legacy/no-provenance and
+non-Rust controls retain relationship targets and confidence while rejecting
+invented precise lines.
+
+`test_graph_call_integrity.py` independently covers distinct trait-qualified
+method nodes, supported array-loop relationships, lexical shadowing and unknown
+receivers, together with the existing `.collect()` controls. Target identity,
+source-span accuracy and retained expected relationships are separate assertions.
+Fewer edges or a faster parser cannot substitute for any of these checks.
+
 ## Graph Fidelity Corpus and Declared Gaps (wave 1wpie)
 
 `graph_quality_eval.py` scores the fixed corpus at
@@ -827,3 +878,40 @@ Agent-memory supply or validation changes additionally require:
 - install and upgrade carrier checks; and
 - a bounded real-wave backfill report whose activated records are individually
   checked against evidence and the current target.
+
+
+## Graph community publication controls (wave 207t4)
+
+`test_graph_transactional_state.py` exercises actual build/version-reset and
+orphan-reconciliation paths, complete replacement after recomputation and valid
+analysis reuse, real SQLite rollback and concurrent WAL readers, source/schema
+refusals, normal layer isolation versus intentional global reset, supported ID
+stability, valid empty graphs, historical stamps and bounded membership deltas.
+Corruption controls independently remove community/member rows, substitute an
+unknown identity without changing counts, introduce duplicate/orphan memberships,
+and contradict catalog metadata or fixed-category assignment. Valid unchanged
+reuse forbids expensive analysis and writes no memberships.
+
+`ControlledCommunityPublicationResponseTests` in
+`test_server_tools_retrieval.py` extracts four controlled JSON artifacts through
+the real graph producer: two production and two larger generated-evidence
+communities. Literal independent identity, count, hub and order assertions at
+limits one and two run after reset recomputation, reset reuse and same-fingerprint
+membership repair. The fixture does not copy this checkout's graph. The formerly
+live partition tests now use the hermetic published fixture described above
+(wave 2071n). Any executed live setup or graph smoke check remains separately
+labeled qualification; these fixture tests do not establish it.
+
+Known-bad source controls must reach actual publication or stored-response
+assertions: dropping reset propagation/preparation or bypassing completeness must
+fail for lost rows, missing repair publication or incorrect public IDs/hubs,
+without import errors or unintended skips. A full canonical suite and live setup
+qualification remain separate from these focused tests and from plan readiness.
+
+## Compact qualification and review working material
+
+`run_tests.py --qualification-report .wavefoundry/cache/qualification/<name>.json` opts into one bounded report from executed unittest worker callbacks. It includes module-qualified skipped-test identities/reasons and terminal/count/completeness checks; console lookalikes cannot supply a skip identity. Ordinary runs create no report. Focused/profile reports remain diagnostic/qualification detail, independently of the default complete canonical green receipt; a profile child exports its detail before temporary-tree cleanup and never writes the source receipt. A cache hit may reuse only matching executed report identities; missing detail is explicitly unavailable and exact qualification needs an uncached run.
+
+The report directory is outside framework input hashes and pack payloads. Linked, special, protected and unowned destinations are refused; an owned report is atomically replaced. Compare reports with `qualification_report.py --compare <default> <candidate> --profile second|declared`; second-profile extras require execution-associated default-profile-only markers, while declared skips must match exactly. Missing workers, duplicates, contradictory observations and changed reasons refuse qualification. No consumer upgrade invokes this source-release facility.
+
+Routine review working packets and green transcripts stay temporary. Final evidence, source/profile identities, disagreements, reproducible commands, limits and retained unique-proof references belong in wave.md, with typed authority in immutable events.jsonl. Reuse a matching current receipt after bookkeeping and source freeze; independent required review and fresh full documentation gates remain mandatory.

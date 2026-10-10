@@ -1,0 +1,148 @@
+--- docs/waves/2071p bounded-reconciliation-reporting/evidence/implementation/test_reconcile_scan.py.baseline.txt
+
++++ .wavefoundry/framework/scripts/tests/test_reconcile_scan.py
+
+@@ -43,6 +43,132 @@
+
+     sys.modules[name] = mod
+     spec.loader.exec_module(mod)
+     return mod
++
++
++class BoundedReconciliationTests(unittest.TestCase):
++    """2073u: finite scope/work with non-vacuous live controls."""
++
++    def setUp(self):
++        self.scan = _load("reconcile_scan", RECONCILE_PATH)
++
++    def test_root_generated_pruned_nested_and_near_miss_live(self):
++        from unittest.mock import patch
++        import os
++        with tempfile.TemporaryDirectory() as td:
++            root = Path(td)
++            for rel in (".local/x.md", "target/x.md", "nested/target/x.md",
++                        "targeted/x.md", ".claude/settings.local.json"):
++                p = root / rel
++                p.parent.mkdir(parents=True, exist_ok=True)
++                p.write_text(".wavefoundry/bin/docs-lint", encoding="utf-8")
++            original = self.scan._scan_directory
++            def guarded(scan_root, directory):
++                self.assertNotIn(directory, (root / ".local", root / "target"))
++                return original(scan_root, directory)
++            with patch.object(self.scan, "_scan_directory", side_effect=guarded):
++                refs = self.scan.scan_repo(root)
++            self.assertEqual({r.file for r in refs}, {
++                "nested/target/x.md", "targeted/x.md", ".claude/settings.local.json"})
++
++    def test_partial_result_and_legacy_wrapper_are_truthful(self):
++        with tempfile.TemporaryDirectory() as td:
++            root = Path(td)
++            (root / "huge.md").write_text("x" * 100, encoding="utf-8")
++            limits = self.scan.ScanLimits(file_bytes=8)
++            result = self.scan.scan_repo_result(root, limits=limits)
++            self.assertEqual(result.state, "incomplete")
++            self.assertIn("file_bytes", result.reasons)
++            with self.assertRaises(self.scan.ScanIncomplete):
++                self.scan.scan_repo(root, limits=limits)
++
++    def test_each_corpus_work_cap_is_explicit(self):
++        with tempfile.TemporaryDirectory() as td:
++            root = Path(td)
++            for index in range(3):
++                (root / f"{index}.md").write_text(".wavefoundry/bin/docs-lint\n", encoding="utf-8")
++            for values, reason in (({"entries": 1}, "entries"), ({"files": 1}, "files"),
++                                   ({"total_bytes": 30}, "total_bytes"),
++                                   ({"candidates": 1}, "candidates"),
++                                   ({"findings": 1}, "findings"), ({"seconds": 0}, "deadline")):
++                with self.subTest(reason=reason):
++                    result = self.scan.scan_repo_result(root, limits=self.scan.ScanLimits(**values))
++                    self.assertEqual(result.state, "incomplete")
++                    self.assertIn(reason, result.reasons)
++                    self.assertLessEqual(len(result.findings), 1 if reason == "findings" else 3)
++                    self.assertLessEqual(result.read_bytes, values.get("total_bytes", 128 * 1024 * 1024))
++
++    def test_links_special_files_and_read_errors_are_visible(self):
++        import os
++        from unittest.mock import patch
++        with tempfile.TemporaryDirectory() as td:
++            root = Path(td)
++            (root / "live.md").write_text(".wavefoundry/bin/docs-lint", encoding="utf-8")
++            (root / "linked.md").symlink_to(root / "live.md")
++            if hasattr(os, "mkfifo"):
++                os.mkfifo(root / "pipe.md")
++            result = self.scan.scan_repo_result(root)
++            self.assertEqual(result.state, "incomplete")
++            self.assertIn("link_refused", result.reasons)
++            self.assertEqual([ref.file for ref in result.findings], ["live.md"])
++            with patch.object(self.scan.os, "scandir", side_effect=PermissionError):
++                self.assertEqual(self.scan.scan_repo_result(root).state, "error")
++                with self.assertRaises(self.scan.ScanIncomplete):
++                    self.scan.scan_repo_channels(root)
++
++    def test_anchor_free_and_dense_candidates_have_bounded_work(self):
++        with tempfile.TemporaryDirectory() as td:
++            root = Path(td)
++            (root / "noise.md").write_text("a/" * 250_000, encoding="utf-8")
++            result = self.scan.scan_repo_result(root, limits=self.scan.ScanLimits(seconds=3))
++            self.assertEqual(result.state, "complete")
++            self.assertEqual(result.candidates, 0)
++            (root / "noise.md").write_text(" docs/prompts/absent.md" * 100, encoding="utf-8")
++            result = self.scan.scan_repo_result(root, limits=self.scan.ScanLimits(candidates=5))
++            self.assertEqual(result.candidates, 5)
++            self.assertIn("candidates", result.reasons)
++
++    def test_progress_has_last_relative_input_and_no_contents(self):
++        with tempfile.TemporaryDirectory() as td:
++            root = Path(td)
++            (root / "live.md").write_text("SECRET_BODY .wavefoundry/bin/docs-lint", encoding="utf-8")
++            progress = []
++            result = self.scan.scan_repo_result(root, progress=progress.append)
++            self.assertEqual(result.state, "complete")
++            self.assertTrue(any(point["last_path"] == "live.md" and point["last_stage"] == "pattern" for point in progress))
++            self.assertNotIn("SECRET_BODY", json.dumps(progress))
++
++    def test_exact_byte_boundary_and_hardlink_refusal(self):
++        import os
++        with tempfile.TemporaryDirectory() as td:
++            root = Path(td)
++            (root / "live.md").write_bytes(b"x" * 8)
++            result = self.scan.scan_repo_result(root, limits=self.scan.ScanLimits(file_bytes=8, total_bytes=8))
++            self.assertEqual(result.state, "complete", result.reasons)
++            self.assertEqual(result.read_bytes, 8)
++            os.link(root / "live.md", root / "alias.md")
++            result = self.scan.scan_repo_result(root)
++            self.assertEqual(result.state, "incomplete")
++            self.assertIn("special_file_refused", result.reasons)
++
++    def test_final_link_swap_cannot_open_the_replacement(self):
++        import os
++        from unittest.mock import patch
++        with tempfile.TemporaryDirectory() as td:
++            root = Path(td)
++            live = root / "live.md"
++            live.write_text("safe", encoding="utf-8")
++            replacement = root / "replacement.md"
++            replacement.write_text(".wavefoundry/bin/docs-lint", encoding="utf-8")
++            original = os.open
++            def swap(path, *args, **kwargs):
++                if path == "live.md" and "dir_fd" in kwargs:
++                    live.unlink()
++                    live.symlink_to(replacement)
++                return original(path, *args, **kwargs)
++            with patch.object(self.scan.os, "open", side_effect=swap):
++                result = self.scan.scan_repo_result(root)
++            self.assertEqual(result.state, "incomplete")
++            self.assertNotIn("live.md", [ref.file for ref in result.findings])
+ 
+ 
+ class RetiredSurfaceMapTests(unittest.TestCase):
+@@ -1301,7 +1427,7 @@
+
+                 if (
+                     isinstance(inner, _ast.Call)
+                     and isinstance(inner.func, _ast.Name)
+-                    and inner.func.id == "_run_reconciliation_scan"
++                    and inner.func.id == "_collect_reconciliation_report"
+                 ):
+                     callers.add(node.name)
+         self.assertEqual(

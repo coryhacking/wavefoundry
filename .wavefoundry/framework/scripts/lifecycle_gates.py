@@ -348,15 +348,7 @@ def _evaluate_shared_delivery_state(
                 recovery_usage=f"wf_review_wave(wave_id={wave_id!r})",
             )
         )
-    lane_results = [
-        {
-            "lane": lane,
-            "recorded_signoff": authority.signoff_current(
-                lane, approval_phase="delivery"
-            ),
-        }
-        for lane in required_lanes
-    ]
+    lane_results = review_lane_results(authority, required_lanes, approval_phase="delivery")
     missing_lanes = [
         row["lane"] for row in lane_results if not row["recorded_signoff"]
     ]
@@ -365,7 +357,8 @@ def _evaluate_shared_delivery_state(
             lifecycle_gate_support._diagnostic(
                 "missing_required_lane",
                 "Required delivery lanes without a current approval: "
-                + ", ".join(missing_lanes),
+                + (review_lane_failure_message(lane_results) if authority.typed
+                   else ", ".join(missing_lanes)),
                 recovery_tools=["wf_review_event", "wf_review_wave"],
                 # Wave 1zime (1ziml repair): a declared wave names the delivery
                 # review phase explicitly; legacy recovery is unchanged.
@@ -756,6 +749,41 @@ def lint_gate(ctx: GateContext, *, review_phase: str = "prepare") -> GateResult:
     return GateResult(diagnostics)
 
 
+def review_lane_results(authority, required_lanes, *, approval_phase: str):
+    """Present lane currency from the canonical authority, preserving prose compatibility."""
+    lanes = tuple(required_lanes)
+    if authority.typed:
+        projection = review_evidence.review_authority_projection(
+            authority.records, lanes, approval_phase=approval_phase
+        )
+        facts = {
+            review_evidence.canonical_signoff_key(row["signoff_key"]): row
+            for row in projection["approval_facts"]
+        }
+        return [
+            dict(facts[review_evidence.canonical_signoff_key(lane)],
+                 lane=lane, signoff_key=lane,
+                 recorded_signoff=facts[review_evidence.canonical_signoff_key(lane)]["approval_current"])
+            for lane in lanes
+        ]
+    return [
+        {"lane": lane, "recorded_signoff": authority.signoff_current(
+            lane, section="prepare" if approval_phase == "readiness" else "review",
+            approval_phase=approval_phase)}
+        for lane in lanes
+    ]
+
+
+def review_lane_failure_message(lane_results):
+    """Render facts; do not infer authority or remedies from their prose."""
+    return "; ".join(
+        f"{row['lane']} ({row['approval_state']}; approval recorded: "
+        f"{'yes' if row['approval_recorded'] else 'no'}): {row['why']}. "
+        f"Next action: {row['next_action']}"
+        for row in lane_results if not row["recorded_signoff"]
+    )
+
+
 def review_lanes_gate(ctx: GateContext, *, review_phase: str = "prepare",
                       authority=None, required_lanes=()) -> GateResult:
     if review_phase != "prepare":
@@ -763,7 +791,7 @@ def review_lanes_gate(ctx: GateContext, *, review_phase: str = "prepare",
     if authority is None:
         authority = resolve_review_authority(ctx.root, ctx.wave_md, wave_text=ctx.wave_text)
     diagnostics = []
-    lane_results = [{"lane": lane, "recorded_signoff": authority.signoff_current(lane, section="prepare", approval_phase="readiness")} for lane in required_lanes]
+    lane_results = review_lane_results(authority, required_lanes, approval_phase="readiness")
     missing = [entry["lane"] for entry in lane_results if not entry["recorded_signoff"]]
     if missing:
         # Wave 1to78 delivery repair (DF2, message-only): remediation
@@ -774,9 +802,9 @@ def review_lanes_gate(ctx: GateContext, *, review_phase: str = "prepare",
         # wording on prose fixtures.
         if authority.typed:
             _prepare_lane_message = (
-                f"Prepare-phase review lanes without a current typed approval: {', '.join(missing)}. "
-                "Record a typed approval event per lane via wf_review_event(event='approval', "
-                "signoff_key=<lane name above>, mode='create') before running wf_implement_wave."
+                "Prepare-phase review lanes without a current typed approval: "
+                + review_lane_failure_message(lane_results)
+                + ". Follow wf_review_wave(phase='prepare') for phase-correct evidence via wf_review_event."
             )
         else:
             _prepare_lane_message = (

@@ -1028,5 +1028,179 @@ class UpgradeProtocolTests(unittest.TestCase):
             self.assertTrue((outside / "framework").is_dir())
 
 
+class JournalIncomingRunnerTests(unittest.TestCase):
+    """206is: real unchanged older runner, zip loader, extraction and dispatcher.
+
+    This stops at the journal boundary rather than running setup/index phases.
+    The runner file is copied before extraction and never rewritten or mocked.
+    """
+
+    TRIGGER = "EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER"
+    NAMES = ("c6_dependency", "c6_package", "c6_package.child", "c6_package.new_child", "mcp_tool_extensions")
+
+    def setUp(self):
+        import importlib.util
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.base = Path(self.tmp.name)
+        self.root = self.base / "target"
+        self.root.mkdir()
+        self.old = self.base / "old-scripts"
+        self.old.mkdir()
+        self.incoming = self.root / ".wavefoundry/framework/scripts"
+        self.incoming.mkdir(parents=True)
+        self.saved_path = list(sys.path)
+        self.saved_modules = {name: sys.modules.get(name) for name in self.NAMES}
+        self.addCleanup(self._restore_host)
+        runner_path = self.old / "upgrade_wavefoundry.py"
+        runner_path.write_bytes((SCRIPTS / "upgrade_wavefoundry.py").read_bytes())
+        spec = importlib.util.spec_from_file_location("_c6_older_runner", runner_path)
+        self.runner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.runner)
+        self.assertEqual(Path(self.runner.__file__).parent, self.old)
+        (self.root / "docs/agents/journals").mkdir(parents=True)
+        (self.root / "docs/agents/journals/note.md").write_bytes(b"operator note\x00")
+        (self.root / ".wavefoundry/upgrade-in-progress.json").write_text('{"review_sidecar_cleanup": {}}')
+        # Import genuine old-tree dependencies before the incoming extraction.
+        # The disk copies also make a wrong sys.path order observable after purge.
+        (self.old / "c6_dependency.py").write_text("VALUE = 'old-on-disk'\n")
+        (self.old / "mcp_tool_extensions.py").write_text("VALUE = 'old-declaration'\n")
+        (self.old / "c6_package").mkdir()
+        (self.old / "c6_package/__init__.py").write_text("VALUE = 'old-on-disk'\n")
+        (self.old / "c6_package/child.py").write_text("VALUE = 'old-on-disk'\n")
+        (self.old / "c6_package/new_child.py").write_text("VALUE = 'old-on-disk'\n")
+        sys.path.insert(0, str(self.old))
+        sys.path.append(str(self.incoming))
+        for name in self.NAMES:
+            sys.modules.pop(name, None)
+        import importlib
+
+        self.cached = {name: importlib.import_module(name) for name in self.NAMES
+                       if name != "c6_package.new_child"}
+        for name, module in self.cached.items():
+            self.assertTrue(Path(module.__file__).is_relative_to(self.old), name)
+        self.before_path = list(sys.path)
+        self.package = self.base / "incoming.zip"
+
+    def _restore_host(self):
+        sys.path[:] = self.saved_path
+        for name, module in self.saved_modules.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
+
+    def _pack(self, *, fail=""):
+        import re
+
+        declaration = (SCRIPTS / "mcp_tool_extensions.py").read_text(encoding="utf-8")
+        for name, value in (
+            ("EXTENSION_HELPER_MODULES", ("acme_journal_hooks",)),
+            ("EXTENSION_JOURNAL_PRE_MIGRATION_HOOK", "acme_journal_hooks:prepare"),
+            (self.TRIGGER, "journals_present"),
+        ):
+            declaration, count = re.subn(
+                rf"(?m)^({name}(?:[ \t]*:[^=\n]*)?[ \t]*=[ \t]*)[^\n]*$",
+                lambda match, value=value: match.group(1) + repr(value), declaration,
+            )
+            self.assertEqual(count, 1)
+        declaration += (
+            "\nimport c6_dependency\nimport c6_package.child\n"
+            "assert c6_dependency.VALUE == 'incoming', 'declaration got old dependency'\n"
+            "assert c6_package.child.VALUE == 'incoming-child', 'declaration got old child'\n"
+        )
+        hook = (
+            "from pathlib import Path\nimport c6_dependency\nimport c6_package.child\n"
+            "assert c6_dependency.VALUE == 'incoming', 'hook import got old dependency'\n"
+            "assert c6_package.child.VALUE == 'incoming-child', 'hook import got old child'\n"
+            "def prepare(root):\n"
+            "    import c6_dependency\n    import c6_package.new_child\n"
+            "    assert c6_dependency.VALUE == 'incoming', 'hook call got old dependency'\n"
+            "    assert c6_package.new_child.VALUE == 'incoming-new', 'hook call got old descendant'\n"
+            "    root = Path(root)\n"
+            "    with (root / 'invocations.txt').open('a') as stream:\n        stream.write('called\\n')\n"
+            "    effect = root / 'idempotent-effect.txt'\n"
+            "    if not effect.exists():\n        effect.write_text('once')\n"
+        )
+        if fail == "import":
+            hook += "\nraise RuntimeError('secret-import-' + str(Path(__file__)))\n"
+        elif fail == "call":
+            hook += "    raise RuntimeError('secret-call-' + str(root))\n"
+        overrides = {
+            "mcp_tool_extensions.py": declaration,
+            "acme_journal_hooks.py": hook,
+            "c6_dependency.py": "VALUE = 'incoming'\n",
+            "c6_package/__init__.py": "VALUE = 'incoming-package'\n",
+            "c6_package/child.py": "VALUE = 'incoming-child'\n",
+            "c6_package/new_child.py": "VALUE = 'incoming-new'\n",
+        }
+        with zipfile.ZipFile(self.package, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for source in framework_source_files(include_aliases=True):
+                rel = source.relative_to(SCRIPTS).as_posix()
+                if rel not in overrides:
+                    archive.writestr(".wavefoundry/framework/scripts/" + rel, source.read_bytes())
+            for rel, source in overrides.items():
+                archive.writestr(".wavefoundry/framework/scripts/" + rel, source)
+
+    def _dispatch(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+            extension = self.runner._load_extension_module(self.package)
+            self.assertIsNotNone(extension, "the actual older-runner archive loader must load the extension")
+            with zipfile.ZipFile(self.package) as archive:
+                self.runner._extract_feature_members(archive, self.root)
+            self.assertEqual((self.incoming / "upgrade_wavefoundry.py").read_bytes(), (SCRIPTS / "upgrade_wavefoundry.py").read_bytes())
+            loads = []
+            original = extension._exec_module_from_file
+
+            def count(name, path):
+                loads.append(name)
+                return original(name, path)
+
+            with patch.object(extension, "_exec_module_from_file", side_effect=count), \
+                    patch.object(extension, "_migrate_journals", side_effect=AssertionError("later-version builtin ran")):
+                self.runner._run_hook("pre_docs_gate", types.SimpleNamespace(root=self.root, from_version="1.29.0", zip_path=self.package), extension)
+        self.assertEqual(loads.count(extension._JOURNAL_DECLARATION_MODULE), 1)
+        self.assertEqual(loads.count(extension._JOURNAL_HOOK_MODULE_PREFIX + "acme_journal_hooks"), 1)
+        return output.getvalue()
+
+    def _assert_restored(self):
+        self.assertEqual(sys.path, self.before_path)
+        for name, module in self.cached.items():
+            self.assertIs(sys.modules.get(name), module, name)
+        self.assertNotIn("c6_package.new_child", sys.modules)
+        self.assertFalse(any(name.startswith("acme_journal_hooks.") or name == "acme_journal_hooks" for name in sys.modules))
+
+    def test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry(self):
+        self._pack()
+        for attempt in (1, 2):
+            self._dispatch()
+            self._assert_restored()
+            self.assertEqual((self.root / "invocations.txt").read_text().splitlines(), ["called"] * attempt)
+            self.assertEqual((self.root / "idempotent-effect.txt").read_text(), "once")
+            self.assertEqual((self.root / "docs/agents/journals/note.md").read_bytes(), b"operator note\x00")
+
+    def test_call_failure_restores_modules_path_and_reports_partial_effect_truthfully(self):
+        self._pack(fail="call")
+        output = self._dispatch()
+        self._assert_restored()
+        self.assertEqual((self.root / "invocations.txt").read_text().splitlines(), ["called"])
+        self.assertEqual((self.root / "idempotent-effect.txt").read_text(), "once")
+        self.assertIn("RuntimeError", output)
+        self.assertNotIn("secret-call", output)
+        self.assertNotIn(str(self.root), output)
+        self.assertNotIn("Journals were left in place", output)
+
+    def test_import_failure_restores_modules_path_and_uses_actual_runner_refusal(self):
+        self._pack(fail="import")
+        with self.assertRaises(SystemExit) as raised:
+            self._dispatch()
+        self.assertEqual(raised.exception.code, 3)
+        self._assert_restored()
+        self.assertFalse((self.root / "invocations.txt").exists())
+        self.assertFalse((self.root / "idempotent-effect.txt").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

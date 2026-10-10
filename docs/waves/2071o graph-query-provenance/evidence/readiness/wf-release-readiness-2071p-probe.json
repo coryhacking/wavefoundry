@@ -1,0 +1,62 @@
+{
+  "fixture_root": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-release-readiness-2071p-ih8di09d",
+  "cells": [
+    {
+      "cell": "old-schema",
+      "elapsed_s": 0.1341204580385238,
+      "index_update": "not run \u2014 call with --update-index after editing pass",
+      "schema": 1,
+      "lock_unchanged": true,
+      "flat_fields_preserved": true,
+      "permissions_changed": 1
+    },
+    {
+      "cell": "observed-publication",
+      "elapsed_s": 0.13509225007146597,
+      "index_update": "docs and code layers complete",
+      "schema": 1,
+      "lock_unchanged": true,
+      "flat_fields_preserved": true,
+      "permissions_changed": 1
+    },
+    {
+      "cell": "publication-failed",
+      "elapsed_s": 0.13494512485340238,
+      "index_update": "publication failed: semantic index epoch incomplete; run index_build, then confirm with index_health",
+      "schema": 1,
+      "lock_unchanged": true,
+      "flat_fields_preserved": true,
+      "permissions_changed": 1
+    },
+    {
+      "cell": "actual-fallback-defect",
+      "scan_calls_after_delegate_failure": 1,
+      "sentinels": 1,
+      "marker": "timeout_after_300s",
+      "index_update": "docs and code layers complete",
+      "schema_omitted": true,
+      "exception_result": [
+        [],
+        [],
+        []
+      ],
+      "clean_empty_claim_refuted": true
+    },
+    {
+      "cell": "baseline-scope",
+      "actual": [
+        ".claude/settings.json",
+        ".local-notes/live.md",
+        ".local/profile.json",
+        "docs/.local/live.md",
+        "docs/current.md",
+        "docs/target/live.md",
+        "target-notes/live.md",
+        "target/output.json"
+      ],
+      "root-generated-still-scanned": true,
+      "ignored-host-included": true,
+      "nested-near-miss-included": true
+    }
+  ]
+}

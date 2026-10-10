@@ -1,0 +1,273 @@
+{
+  "wave_id": "206is",
+  "change_id": "204mo-enh version-independent-journal-hook",
+  "phase": "readiness",
+  "receipt_id": "review-policy-f6e0dc3d0a917fb40463",
+  "identity_context": "Fresh delegated context, one agent performing both fixed QA council seat and qa-reviewer required specialist lane. These are one assessment, not two independent confirmations. No implementation/recheck context retained; did not author or repair source or plan. Runtime model identity unknown.",
+  "primer_read": "Actual first full primer /tmp/wf-206is-readiness-primer.json read before verdict, as coordinator instructed.",
+  "pre_primer_read": "Unavailable: coordinator explicitly requested primer first, so no artifact-only prior was formed before the primer. Any claimed pre-primer read would be false.",
+  "primer_effect": "Extended: the incoming sibling-cache issue sharpened AC-4 verification; I independently executed that defect through the gate and additionally found the frozen declaration registry scope omission by reading and exercising its current census.",
+  "fixed_seat_verdict": "blocked",
+  "specialist_verdict": "blocked",
+  "approval_withheld": true,
+  "findings": [
+    {
+      "finding_id": "QA-206IS-01",
+      "phase": "readiness",
+      "source_lanes": [
+        "qa-reviewer"
+      ],
+      "blocking_required_lanes": [
+        "qa-reviewer"
+      ],
+      "severity": "medium",
+      "title": "Declared source scope omits the frozen declaration fixture registry",
+      "proposition": "Implementing the named EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER as written within the eight frozen paths leaves the framework declaration census red and profile/declaration helpers unaware of the new constant.",
+      "reachability": "Requirement 1 necessarily adds an EXTENSION_* module assignment in mcp_tool_extensions.py. Existing test_profile_support.DefaultProfileOnlyMarkerTests.test_declaration_snapshot_covers_every_declaration_constant compares exactly all those assignments against SHIPPED_DECLARATION. The registry owner is tests/record_layout_support.py, outside files_in_scope.",
+      "impact": "The mandatory canonical suite cannot be green after the required declaration is added; declaration_support base/profile helpers also reject unknown declarations and do not preserve the new trigger during their reset/overlay.",
+      "current_tree_evidence": [
+        "record_layout_support.SHIPPED_DECLARATION",
+        "test_profile_support.DefaultProfileOnlyMarkerTests.test_declaration_snapshot_covers_every_declaration_constant",
+        "declaration_support.DECLARATION_CONSTANTS",
+        "declaration_support.base_declaration_source"
+      ],
+      "execution_status": "executed",
+      "expected": "Original source accepted; proposed trigger with registry omitted rejected; identical proposed trigger with registry key legacy_cutover accepted.",
+      "observed": {
+        "probe": "declaration_registry_scope",
+        "baseline": "accepted",
+        "omitted_new_constant": "rejected",
+        "error": "Items in the second set but not the first:\n'EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER'",
+        "repair_control": "accepted with registry key",
+        "production_test": "test_profile_support.DefaultProfileOnlyMarkerTests.test_declaration_snapshot_covers_every_declaration_constant"
+      },
+      "counterexample_or_failure_condition": "If the actual census accepts the added trigger with the unchanged registry, or the registry owner is already authorized by the declared packet, this finding is false.",
+      "precise_repair": "Add .wavefoundry/framework/scripts/tests/record_layout_support.py to the change source/test scope and serialization targets, explicitly require SHIPPED_DECLARATION[\"EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER\"] = \"legacy_cutover\", and re-publish readiness packet. No product source edit is needed to repair readiness. Delivery verifies the existing exact census plus base declaration/profile overlay compatibility, including a non-default profile trigger.",
+      "containing_authority": "Within C6 contract/fixtures task; small necessary fixture registry scope repair. Does not add recursive scan, new roots or callable seam.",
+      "artifact_or_test_id": "/tmp/wf-206is-qa-probe-results.json#declaration_registry_scope",
+      "command_or_fixture": "python3 -B /tmp/wf-206is-qa-probes.py",
+      "public_path": "Actual checked-in declaration snapshot unittest, executed with a scratch scripts directory; real pre_docs_gate and public migrate_journals boundaries for adjacent controls.",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "known_bad_detection_method": "readiness-safe-control: deliberately omit the known required declaration registry key; exact production census rejects it; registry-addition control accepts it.",
+      "limitations": [
+        "The new trigger is a scratch source addition solely for feasibility/census, not product implementation. The repair control patches only the in-memory test registry. No repository mutation."
+      ],
+      "safety_and_authorization": "Delegated independent readiness assessment; all target execution used temporary repositories and the checked-in tests, with Python bytecode writes disabled.",
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "universal_claim": false,
+      "verification_context": {
+        "actor": "qa-reviewer",
+        "context_id": "c6_readiness_qa-20261009-full",
+        "fresh_context": true,
+        "independent": true
+      }
+    }
+  ],
+  "strongest_challenge_response": "Confirmed independently: hook code from the extracted scripts can still import OLD from sys.modules. My real pre_docs_gate failure/retry probe observes OLD with cached sibling and INCOMING after cache removal. Requirement 5 and AC-4 require resolving this; current absence of the future repair is not itself a readiness blocker. Delivery must prove import-time and call-time incoming dependencies and restore prior module/path state after failure.",
+  "primer_question_responses": [
+    "QA requires explicit assertions for absent/default, literal legacy_cutover, literal journals_present, invalid literal/type, and nonliteral/conditional declarations. Preview must distinguish static invalid from unknown without imports. The plan allows implementation design here but the final contract must choose/report the nonliteral apply policy; do not silently treat unknown as absent. Preserve no-import behavior for absent/default later upgrades.",
+    "Use an actual old-runner upgrade fixture with preloaded old hook and sibling modules, a pack containing materially different incoming values, and independent output assertions. Test sibling import at load time and during call, then failure restoration. My existing gate probe is bounded baseline evidence, not old-runner delivery approval.",
+    "Cover before/at/after 1.15.0 crossed with opt-in/default and qualifying/absent/README/nested/links, assert exact hook count per invocation and exact builtin count. First failure must stop dependent migration; retry may execute once again if qualifying journals remain. Warnings and docs must state idempotence and avoid across-crash exactly-once promises."
+  ],
+  "ac_review": {
+    "AC-1": {
+      "readiness": "Clear bounded source and version contract, finite automatable matrix",
+      "delivery_required": "3 version boundaries; empty/missing/README/nested regular/symlinked ancestor/symlinked journal/hardlinked Markdown; one and many valid journals; count exactly one or zero per apply. Retain direct files only."
+    },
+    "AC-2": {
+      "readiness": "Default semantics and separate builtin gate directly testable; current version baseline reproduced",
+      "delivery_required": "Absent/explicit legacy retain pre-cutover behavior including legacy hooks with no source; later default no declaration import; later journals_present hook does not grant builtin migration."
+    },
+    "AC-3": {
+      "readiness": "Read-only noexec and failure order directly testable; current public preview marker/byte controls and gate failure stop verified",
+      "delivery_required": "Dry-run and public preview byte snapshot plus import/hook sentinels; invalid versus unknown policy diagnostics; failure path count/order and path-free diagnostic."
+    },
+    "AC-4": {
+      "readiness": "Feasible real cached dependency counterexample and repeat invocation check; fixture registry omission blocks scope readiness",
+      "delivery_required": "Actual old-runner zip upgrade with cached old dependencies and incoming sibling resolution; idempotent relocate/remove then retry no repeat, failure with source remaining then retry once; module/path restoration success/failure."
+    }
+  },
+  "executable_evidence": {
+    "execution_status": "executed",
+    "public_path": "Existing pre_docs_gate lifecycle extension boundary, public migrate_journals preview, actual checked-in declaration census and six existing regression tests",
+    "command_or_fixture": "python3 -B /tmp/wf-206is-qa-probes.py",
+    "artifact_or_test_id": "/tmp/wf-206is-qa-probe-results.json",
+    "expected": "Existing behavior reproduced; omitted registry detected; repaired registry accepted; selected controls green without skips",
+    "observed": [
+      {
+        "probe": "declaration_registry_scope",
+        "baseline": "accepted",
+        "omitted_new_constant": "rejected",
+        "error": "Items in the second set but not the first:\n'EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER'",
+        "repair_control": "accepted with registry key",
+        "production_test": "test_profile_support.DefaultProfileOnlyMarkerTests.test_declaration_snapshot_covers_every_declaration_constant"
+      },
+      {
+        "probe": "current_gate_version_baseline",
+        "version": "1.14.9",
+        "calls": 1,
+        "declaration_executed": true,
+        "journal_bytes": "role journal kept\n"
+      },
+      {
+        "probe": "current_gate_version_baseline",
+        "version": "1.15.0",
+        "calls": 0,
+        "declaration_executed": false,
+        "journal_bytes": "role journal kept\n"
+      },
+      {
+        "probe": "current_gate_version_baseline",
+        "version": "1.29.0",
+        "calls": 0,
+        "declaration_executed": false,
+        "journal_bytes": "role journal kept\n"
+      },
+      {
+        "probe": "public_preview_noexec",
+        "trigger": "\"journals_present\"",
+        "target_bytes_unchanged": true,
+        "calls": 0,
+        "declaration_executed": false,
+        "report": {
+          "deleted": [],
+          "moved": [],
+          "left": [
+            "docs/agents/journals/kept.md"
+          ],
+          "warnings": []
+        },
+        "limit": "Current preview ignores proposed trigger; no future trigger diagnostic proven"
+      },
+      {
+        "probe": "public_preview_noexec",
+        "trigger": "\"typo\"",
+        "target_bytes_unchanged": true,
+        "calls": 0,
+        "declaration_executed": false,
+        "report": {
+          "deleted": [],
+          "moved": [],
+          "left": [
+            "docs/agents/journals/kept.md"
+          ],
+          "warnings": []
+        },
+        "limit": "Current preview ignores proposed trigger; no future trigger diagnostic proven"
+      },
+      {
+        "probe": "public_preview_noexec",
+        "trigger": "str(\"journals_present\")",
+        "target_bytes_unchanged": true,
+        "calls": 0,
+        "declaration_executed": false,
+        "report": {
+          "deleted": [],
+          "moved": [],
+          "left": [
+            "docs/agents/journals/kept.md"
+          ],
+          "warnings": []
+        },
+        "limit": "Current preview ignores proposed trigger; no future trigger diagnostic proven"
+      },
+      {
+        "probe": "failure_retry_cached_dependency",
+        "failed_attempt_calls": 1,
+        "retry_total_calls": 2,
+        "dependent_migration_after_failure": 0,
+        "dependent_migration_after_retry": 1,
+        "cached_observed": "OLD",
+        "uncached_observed": "INCOMING",
+        "warning": "journal migration WARNING: skipped; the pre-migration hook acme_journal_hooks:prepare raised RuntimeError. Journals were left in place; later upgrades do not retry the migration or call the hook again. Run the Migrate journals prompt to finish the work.\n",
+        "limit": "Existing pre_docs_gate boundary, no actual old-runner full upgrade; unrelated fixture mechanisms already completed"
+      },
+      {
+        "probe": "selected_regression_tests",
+        "tests": [
+          "JournalMigrationTests.test_pre_docs_gate_version_gates_journal_migration",
+          "JournalDeclarationMigrationTests.test_hook_is_not_called_after_1_15_or_by_the_preview",
+          "JournalDeclarationMigrationTests.test_invalid_declaration_leaves_the_memory_naming_migration_unapplied",
+          "JournalDeclarationMigrationTests.test_declaration_module_is_executed_once_per_gate",
+          "JournalStaticPreviewTests.test_unreadable_declaration_warns_once_and_leaves_template_journals",
+          "UpgradeExtensionSearchPathTests.test_pre_docs_gate_holds_the_path_across_the_hook_load_and_call"
+        ],
+        "run": 6,
+        "skips": [],
+        "log": "test_pre_docs_gate_version_gates_journal_migration (test_upgrade_wavefoundry.JournalMigrationTests.test_pre_docs_gate_version_gates_journal_migration) ... ok\ntest_hook_is_not_called_after_1_15_or_by_the_preview (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_hook_is_not_called_after_1_15_or_by_the_preview)\nAC-4. ... ok\ntest_invalid_declaration_leaves_the_memory_naming_migration_unapplied (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_invalid_declaration_leaves_the_memory_naming_migration_unapplied)\nDEL-4d: the declaration is validated first inside the 1.15.0 gate. ... ok\ntest_declaration_module_is_executed_once_per_gate (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_declaration_module_is_executed_once_per_gate)\nDEL-4d: the loaded templates are always passed on, so the ... ok\ntest_unreadable_declaration_warns_once_and_leaves_template_journals (test_upgrade_wavefoundry.JournalStaticPreviewTests.test_unreadable_declaration_warns_once_and_leaves_template_journals) ... ok\ntest_pre_docs_gate_holds_the_path_across_the_hook_load_and_call (test_upgrade_wavefoundry.UpgradeExtensionSearchPathTests.test_pre_docs_gate_holds_the_path_across_the_hook_load_and_call) ... ok\n\n----------------------------------------------------------------------\nRan 6 tests in 0.374s\n\nOK\n"
+      }
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true
+    },
+    "known_bad_detection_method": "readiness-safe-control: omitted proposed declaration registry detected by exact production census; baseline and key-addition controls accept",
+    "independent_reference": "Independently read requirement 1 plus current production fixture declaration census, not implementer-authored desired-value oracle; pre_docs_gate and preview production boundaries and actual file/module sentinels provide independent behavioral observations",
+    "budget": "Five bounded probe families: declaration census; 3-cell version baseline; 3-cell preview; failure/retry/cache; six selected existing regression tests. No extra fuzzing or full-suite run."
+  },
+  "implementation_notes": [
+    "Update hook failure warning conditionally: the current later-upgrades-never-retry promise applies to legacy trigger only; an opted-in retry is conditional on source eligibility and hook idempotence.",
+    "Do not count baseline 39 tests as opt-in qualification. Its one native-Windows-only skip is disclosed. My selected six tests ran with zero skips.",
+    "Seed limit assertions currently require the unconditional legacy wording; revise tests to pin default versus opt-in wording without weakening preview no-hook or builtin legacy gate.",
+    "SHIPPED_DECLARATION includes new legacy_cutover default for portable fixtures; preserve mcp_tool_extensions.declared() exclusion of journal fields so the nonempty default does not activate extension mode."
+  ],
+  "retrieval": {
+    "tools": [
+      "mcp__wavefoundry__code_outline",
+      "mcp__wavefoundry__code_read",
+      "mcp__wavefoundry__code_keyword graph=false",
+      "mcp__wavefoundry__code_ask"
+    ],
+    "gapfill": "Live MCP outline/read/keyword successfully inspected current files. Contrary to packet expectation, one code_ask returned status ok with index_freshness stale; indexed/graph results were not used as proof, and targeted live reads were repeated. No setup/rebuild was run. Python execution and scratch census source reads supply executable evidence.",
+    "runtime_setup": "Unknown/unready; live outline reported setup_inputs_changed. No setup readiness certification or host restart."
+  },
+  "packet_integrity": {
+    "before_scope_sha256": {
+      ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+      ".wavefoundry/framework/scripts/mcp_tool_extensions.py": "44d8e720cec410bb86524700a68fef5f76d5434c725e3490a2c9b90cbc922edd",
+      ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a",
+      ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "d2b38f6bd06692447f808bb0b9625f0fb782f9bd9d9b2b5496758f17e269e871",
+      ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md": "a4f1319834042e25316845f15f7ff9a119e80158ce89fb65dc7550cf475e598d",
+      "docs/specs/mcp-tool-surface.md": "46abe7a4f05010e692897f90c599778a25284d48df93d19fda27abde7550337c",
+      "docs/architecture/data-and-control-flow.md": "65aef7155f31ea3a65ddc72b11de52c5c2320c6d7ec2ccba41ab80bb252c420a",
+      "docs/waves/206is journal-hook-follow-up/204mo-enh version-independent-journal-hook.md": "42e49ab26aaa927d3255735b5135df7ff074d3ae32f1dc8b2d4e6678bcba2dc0"
+    },
+    "after_scope_sha256": {
+      ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+      ".wavefoundry/framework/scripts/mcp_tool_extensions.py": "44d8e720cec410bb86524700a68fef5f76d5434c725e3490a2c9b90cbc922edd",
+      ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a",
+      ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "d2b38f6bd06692447f808bb0b9625f0fb782f9bd9d9b2b5496758f17e269e871",
+      ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md": "a4f1319834042e25316845f15f7ff9a119e80158ce89fb65dc7550cf475e598d",
+      "docs/specs/mcp-tool-surface.md": "46abe7a4f05010e692897f90c599778a25284d48df93d19fda27abde7550337c",
+      "docs/architecture/data-and-control-flow.md": "65aef7155f31ea3a65ddc72b11de52c5c2320c6d7ec2ccba41ab80bb252c420a",
+      "docs/waves/206is journal-hook-follow-up/204mo-enh version-independent-journal-hook.md": "42e49ab26aaa927d3255735b5135df7ff074d3ae32f1dc8b2d4e6678bcba2dc0"
+    },
+    "scope_unchanged": true,
+    "paths": 8
+  },
+  "limitations": [
+    "No new implementation or delivery behavior claimed; no full canonical suite, true old-runner upgrade, native Windows, release/archive, live downstream integration, or fixture profile matrix executed.",
+    "Frozen packet hashes prove the eight scoped files unchanged, not the entire checkout. No repo/code/doc/ledger write, approval event, closure, commit, push or index setup.",
+    "Fixed-seat artifact-before-primer prior cannot honestly be supplied because primer-first briefing instruction was followed. Shared primer is hypothesis input, not substitute evidence.",
+    "Current source and all planned mechanisms still require delivery verification after readiness repair/implementation."
+  ],
+  "dispatch_source_grounding": {
+    "pack_loader": "upgrade_wavefoundry._load_extension_module reads upgrade_extensions.py from the incoming zip before extraction, returning a fresh types.ModuleType via compile/exec; it does not replace stale arbitrary sibling modules.",
+    "dispatch": "upgrade_wavefoundry._run_hook(\"pre_docs_gate\", ctx, ext_mod) invokes the incoming extension first, then any convention hook; extension exceptions become exit 3. Main calls this at the actual pre-docs-gate span (line 6339 in frozen current source).",
+    "context": "upgrade_wavefoundry.UpgradeContext(root, from_version, to_version, zip_path, yes, dry_run=False) provides root and incoming zip to the extension; supported older context shapes are exercised separately by protocol fixtures.",
+    "required_finite_delivery_fixture": "Stage/cache materially different old sibling before incoming zip extension load; actual runner main/registered pre_docs_gate dispatch after extraction of new declaration/helper/dependency; assert incoming sentinel at both hook module import and function call. At minimum before/at/after 1.15 source-present trigger, one failure/retry cell, one default-later no-import cell. The loader must not return None/silently skip. Snapshot source bytes and module/path state before/after.",
+    "shipped_default_surface": "mcp_tool_extensions.declared excludes journal and renderer-only skill declarations; adding nonempty legacy_cutover as the shipped trigger must not make declared() truthy or activate MCP extension checks."
+  }
+}

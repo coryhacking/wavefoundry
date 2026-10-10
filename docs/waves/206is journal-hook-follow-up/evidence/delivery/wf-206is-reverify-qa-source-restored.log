@@ -1,0 +1,6 @@
+test_no_source_read_of_a_moved_flat_path (test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 3.363s
+
+OK

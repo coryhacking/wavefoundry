@@ -2850,6 +2850,129 @@ class ReviewStatusProjectionTests(unittest.TestCase):
         self.assertIn("F-1", table)
 
 
+class ReadinessDeliveryIsolationTests(unittest.TestCase):
+    """207lx: the selected approval phase, not the lane name, owns isolation."""
+
+    LANES = ("code-reviewer", "qa-reviewer", "architecture-reviewer",
+             "security-reviewer", "custom-reviewer", subject.COUNCIL_READINESS_SIGNOFF_KEY)
+
+    def fixture(self, origin="initial_delivery"):
+        receipt = LapsedApprovalReasonTests._receipt("a" * 64, list(self.LANES))
+        rows = [receipt]
+        for phase in ("readiness", "delivery"):
+            for key in self.LANES:
+                rows.append(executable_evidence(
+                    f"{phase}-{key}", f"approval:{key}", claim_kind="approval",
+                    actor="council-chair" if subject.is_council_signoff_key(key) else key,
+                    required_for_approval=True, approval_phase=phase,
+                    policy_receipt_id=receipt["receipt_id"]))
+        head = synthesis(contract_relevance="required_ac", supported_reachability=True,
+                         optional_value="none", blocking_required_lanes=list(self.LANES),
+                         approval_recheck_lanes=list(self.LANES))
+        derive(head)
+        if origin is not None:
+            rows.append(review_run(kind=origin))
+        rows.append(head)
+        return rows
+
+    def project(self, rows, phase):
+        return subject.review_authority_projection(rows, self.LANES, approval_phase=phase)
+
+    def test_delivery_origin_exempts_every_readiness_lane_but_not_delivery(self):
+        rows = self.fixture()
+        before = copy.deepcopy(rows)
+        readiness = self.project(rows, "readiness")
+        delivery = self.project(rows, "delivery")
+        self.assertEqual({r["state"] for r in readiness["status_rows"]}, {"approved"})
+        self.assertEqual({r["state"] for r in delivery["status_rows"]}, {"withheld"})
+        self.assertEqual(readiness["finding_facts"][0]["affected_signoff_keys"], ())
+        self.assertEqual(rows, before)
+        # Mixed presentation retains council-readiness's phase and the others' delivery default.
+        mixed = subject.review_authority_projection(rows, self.LANES)
+        states = {r["signoff_key"]: r["state"] for r in mixed["status_rows"]}
+        self.assertEqual(states.pop(subject.COUNCIL_READINESS_SIGNOFF_KEY), "approved")
+        self.assertEqual(set(states.values()), {"withheld"})
+
+    def test_readiness_and_unknown_origins_remain_conservative_despite_mutable_phase(self):
+        for origin in ("readiness", None):
+            with self.subTest(origin=origin):
+                rows = self.fixture(origin)
+                rows[-1]["phase"] = "delivery"
+                rows.append(executable_evidence(rows[-1]["evidence_record_id"], "finding-1",
+                                                phase="delivery"))
+                self.assertEqual({r["state"] for r in self.project(rows, "readiness")["status_rows"]},
+                                 {"withheld"})
+        rows = self.fixture()
+        rows[-1]["phase"] = "readiness"
+        rows.append(executable_evidence(rows[-1]["evidence_record_id"], "finding-1", phase="readiness"))
+        self.assertEqual({r["state"] for r in self.project(rows, "readiness")["status_rows"]}, {"approved"})
+
+    def test_terminal_delivery_repair_requires_only_fresh_delivery_approval(self):
+        rows = self.fixture()
+        done = dict(rows[-1], record_id="repair-done", supersedes_record_id=rows[-1]["record_id"],
+                    repair_execution_state="completed", blocking_required_lanes=[], cycle=1)
+        rows.append(done)
+        self.assertEqual({r["state"] for r in self.project(rows, "readiness")["status_rows"]}, {"approved"})
+        self.assertEqual({r["state"] for r in self.project(rows, "delivery")["status_rows"]}, {"withheld"})
+        for row in list(rows):
+            if row.get("approval_phase") == "delivery":
+                fresh = copy.deepcopy(row)
+                fresh["evidence_record_id"] += "-after-repair"
+                rows.append(fresh)
+        self.assertEqual({r["state"] for r in self.project(rows, "delivery")["status_rows"]}, {"approved"})
+
+    def test_legacy_council_aliases_and_operator_keep_phase_authority(self):
+        rows = self.fixture()
+        for alias, canonical in subject.LEGACY_COUNCIL_SIGNOFF_KEYS.items():
+            if canonical != subject.COUNCIL_READINESS_SIGNOFF_KEY:
+                continue
+            with self.subTest(alias=alias):
+                historical = copy.deepcopy(rows)
+                for row in historical:
+                    if row.get("claim_id") == f"approval:{canonical}":
+                        row["claim_id"] = f"approval:{alias}"
+                        row["verification_context"]["actor"] = subject.LEGACY_COUNCIL_ACTORS[0]
+                projection = subject.review_authority_projection(historical, [alias])
+                self.assertEqual(projection["status_rows"][0]["state"], "approved")
+        operator = executable_evidence("operator-before", "approval:operator-signoff",
+                                       claim_kind="approval", actor="operator",
+                                       required_for_approval=True, approval_phase="delivery")
+        rows.insert(1, operator)
+        projection = subject.review_authority_projection(rows, ["operator-signoff"],
+                                                        approval_phase="delivery")
+        self.assertEqual(projection["status_rows"][0]["state"], "withheld")
+
+    def test_delivery_exemption_does_not_launder_invalid_or_stale_readiness(self):
+        for defect, expected in (("actor", "invalid"), ("independent", "invalid"),
+                                 ("fresh_context", "invalid"), ("receipt", "stale")):
+            with self.subTest(defect=defect):
+                rows = self.fixture()
+                approval = rows[1]
+                if defect == "receipt":
+                    approval["policy_receipt_id"] = "obsolete"
+                elif defect == "actor":
+                    approval["verification_context"]["actor"] = "implementer"
+                else:
+                    approval["verification_context"][defect] = False
+                projection = self.project(rows, "readiness")
+                fact = projection["approval_facts"][0]
+                self.assertEqual(fact["approval_state"], expected)
+                self.assertEqual(projection["status_rows"][0]["state"], "pending")
+
+    def test_structured_approval_states_share_status_reason_and_remedy(self):
+        for origin, expected in (("initial_delivery", "approved"), ("readiness", "withheld")):
+            with self.subTest(origin=origin):
+                projection = self.project(self.fixture(origin), "readiness")
+                for fact, row in zip(projection["approval_facts"], projection["status_rows"]):
+                    self.assertEqual(fact["approval_state"], expected)
+                    self.assertEqual(fact["why"], row["why"])
+                    self.assertEqual(fact["next_action"], row["next_action"])
+                    if expected == "approved":
+                        self.assertNotIn("finding-1", row["next_action"])
+        absent = self.project([], "readiness")
+        self.assertEqual({fact["approval_state"] for fact in absent["approval_facts"]}, {"absent"})
+
+
 class LapsedApprovalReasonTests(unittest.TestCase):
     """1v0lz: a lapsed approval's reason names the failed conjunct.
 
@@ -5192,9 +5315,9 @@ class AttestedByReviewEvidenceTests(unittest.TestCase):
             ({"operator": {"handle": "alice", "source": "explicit"}},
              "current executed approval by alice" + suffix),
             ({"attested_by": "Ada Lovelace"},
-             "current executed approval by Ada Lovelace" + suffix),
+             "current executed approval by Ada Lovelace (self-attested)" + suffix),
             ({"attested_by": "Ada Lovelace", "operator": {"handle": "alice", "source": "explicit"}},
-             "current executed approval by Ada Lovelace (alice)" + suffix),
+             "current executed approval by Ada Lovelace (self-attested) (alice)" + suffix),
         )
         for extra, expected in cases:
             with self.subTest(extra=extra):
@@ -5204,6 +5327,24 @@ class AttestedByReviewEvidenceTests(unittest.TestCase):
                 row = subject.review_status_rows(variant, ["qa-reviewer"])[0]
                 self.assertEqual(row["state"], "approved")
                 self.assertEqual(row["why"], expected)
+
+    def test_attested_name_cannot_render_as_handle_only_or_mutate_ledger(self) -> None:
+        rows, errors = subject.build_identified_review_event(
+            [], "1zyc1 fixture", self.event("approval"), attested_by="bob"
+        )
+        self.assertEqual(errors, ())
+        before = json.dumps(rows, sort_keys=True)
+        row = subject.review_status_rows(rows, ["qa-reviewer"])[0]
+        self.assertEqual(row["state"], "approved")
+        self.assertIn("by bob (self-attested)", row["why"])
+        self.assertNotIn("by bob,", row["why"])
+        self.assertEqual(json.dumps(rows, sort_keys=True), before)
+        plain, errors = subject.build_identified_review_event(
+            [], "1zyc1 fixture", self.event("approval")
+        )
+        self.assertEqual(errors, ())
+        self.assertEqual(rows[0][subject.REQUEST_DIGEST_FIELD], plain[0][subject.REQUEST_DIGEST_FIELD])
+        self.assertEqual(rows[0][subject.EVENT_IDENTITY_FIELD], plain[0][subject.EVENT_IDENTITY_FIELD])
 
     def test_brackets_in_an_attested_name_are_replaced_on_display_only(self) -> None:
         """Wave 200ey (200ev) AC-3: every Ps/Pe character of a stored name is
@@ -5223,15 +5364,15 @@ class AttestedByReviewEvidenceTests(unittest.TestCase):
                  "�y� �z� �w�")
         suffix = ", not receipt-bound, follows every affected repair"
         row = subject.review_status_rows(rows, ["qa-reviewer"])[0]
-        self.assertEqual(row["why"], f"current executed approval by {shown} (alice){suffix}")
+        self.assertEqual(row["why"], f"current executed approval by {shown} (self-attested) (alice){suffix}")
         self.assertEqual(rows[0]["verification_context"]["attested_by"], name)
         name_only = copy.deepcopy(rows)
         del name_only[0]["verification_context"]["operator"]
         self.assertFalse(subject.validate_review_evidence_records(name_only))
         row = subject.review_status_rows(name_only, ["qa-reviewer"])[0]
-        self.assertEqual(row["why"], f"current executed approval by {shown}{suffix}")
+        self.assertEqual(row["why"], f"current executed approval by {shown} (self-attested){suffix}")
         for char in "()（）❨❩{}":
-            self.assertNotIn(char, row["why"].removesuffix(suffix).removeprefix("current executed approval by "))
+            self.assertNotIn(char, row["why"].removesuffix(suffix).removesuffix(" (self-attested)").removeprefix("current executed approval by "))
 
 
 class EphemeralArtifactTokensTests(unittest.TestCase):

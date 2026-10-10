@@ -443,6 +443,33 @@ class LifecycleGoldenTests(unittest.TestCase):
         for name, responses in after['fixtures'].items():
             for route, response in responses.items():
                 old_response = before['fixtures'][name][route]
+                # Wave 207lx adds typed authority facts only to specialist
+                # lane rows. These fixtures have no findings or delivery
+                # approvals: their absent delivery state is pinned explicitly.
+                for row in response.get('data', {}).get('lane_results', []):
+                    if 'approval_state' not in row:
+                        continue
+                    self.assertEqual(route, 'review:implementation')
+                    self.assertEqual(row['lane'], 'code-reviewer')
+                    self.assertEqual(row['signoff_key'], row['lane'])
+                    self.assertEqual(row['approval_phase'], 'delivery')
+                    self.assertEqual(row['approval_state'], 'absent')
+                    self.assertFalse(row['approval_recorded'])
+                    self.assertFalse(row['approval_current'])
+                    self.assertFalse(row['recorded_signoff'])
+                    self.assertEqual(row['state'], 'pending')
+                    self.assertEqual(row['expected_actor'], row['lane'])
+                    self.assertEqual(row['blocking_finding_ids'], [])
+                    self.assertEqual(row['unresolved_required_lanes'], [])
+                    self.assertFalse(row['has_unresolved_blocking_findings'])
+                    self.assertEqual(row['why'], 'no current executed approval')
+                    self.assertEqual(row['next_action'], 'record approval evidence for code-reviewer')
+                    for key in ('signoff_key', 'approval_phase', 'approval_state',
+                                'approval_recorded', 'approval_current', 'state',
+                                'expected_actor', 'blocking_finding_ids',
+                                'unresolved_required_lanes', 'has_unresolved_blocking_findings',
+                                'why', 'next_action'):
+                        row.pop(key)
                 if route.startswith('prepare:'):
                     self.assertIn('pending_readiness_lanes', response['data'])
                     response['data'].pop('pending_readiness_lanes')

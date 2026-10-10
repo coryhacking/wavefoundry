@@ -1,0 +1,32 @@
+test_no_live_file_references_a_retired_wrapper (test_wf_cli.NoLiveReferenceToRetiredWrapperTests.test_no_live_file_references_a_retired_wrapper) ... FAIL
+
+======================================================================
+FAIL: test_no_live_file_references_a_retired_wrapper (test_wf_cli.NoLiveReferenceToRetiredWrapperTests.test_no_live_file_references_a_retired_wrapper)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_wf_cli.py", line 745, in test_no_live_file_references_a_retired_wrapper
+    self.assertEqual(
+    ~~~~~~~~~~~~~~~~^
+        offenders,
+        ^^^^^^^^^^
+    ...<2 lines>...
+        + "\n".join(offenders),
+        ^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+AssertionError: Lists differ: ['docs/agents/session-handoff.md:19 (docs/[762 chars]e))'] != []
+
+First list contains 4 additional elements.
+First extra element 0:
+'docs/agents/session-handoff.md:19 (docs/agents/journals -> the journal system is retired; capture durable lessons as typed memory records under docs/agents/memory/ (memory_add / memory_propose))'
+
+Diff is 874 characters long. Set self.maxDiff to None to see it. : live editable docs/config/scripts must not name a retired or renamed surface:
+docs/agents/session-handoff.md:19 (docs/agents/journals -> the journal system is retired; capture durable lessons as typed memory records under docs/agents/memory/ (memory_add / memory_propose))
+docs/agents/session-handoff.md:106 (docs/agents/journals -> the journal system is retired; capture durable lessons as typed memory records under docs/agents/memory/ (memory_add / memory_propose))
+docs/architecture/data-and-control-flow.md:180 (docs/agents/journals/ -> the journal system is retired; capture durable lessons as typed memory records under docs/agents/memory/ (memory_add / memory_propose))
+docs/specs/mcp-tool-surface.md:567 (docs/agents/journals/ -> the journal system is retired; capture durable lessons as typed memory records under docs/agents/memory/ (memory_add / memory_propose))
+
+----------------------------------------------------------------------
+Ran 1 test in 1.396s
+
+FAILED (failures=1)

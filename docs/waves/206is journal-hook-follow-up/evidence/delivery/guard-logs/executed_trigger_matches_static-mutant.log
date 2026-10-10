@@ -1,0 +1,63 @@
+RESULT_JSON {"run": 1, "failures": 2, "errors": 0, "skips": 0}
+test_loaded_trigger_must_match_static_selection_before_dependents (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_trigger_must_match_static_selection_before_dependents) ... 
+  test_loaded_trigger_must_match_static_selection_before_dependents (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_trigger_must_match_static_selection_before_dependents) (version='1.14.9') ... FAIL
+  test_loaded_trigger_must_match_static_selection_before_dependents (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_trigger_must_match_static_selection_before_dependents) (version='1.29.0') ... FAIL
+
+======================================================================
+FAIL: test_loaded_trigger_must_match_static_selection_before_dependents (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_trigger_must_match_static_selection_before_dependents) (version='1.14.9')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 15060, in test_loaded_trigger_must_match_static_selection_before_dependents
+    self.ext.pre_docs_gate(types.SimpleNamespace(root=self.root, from_version=version))
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2683, in pre_docs_gate
+    templates, hook_name, hook = _load_journal_declaration(
+                                 ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        ctx.root, load_hook=eligible, expected_trigger=trigger
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 1829, in _load_journal_declaration
+    function = _load_journal_hook(scripts, hook) if hook and load_hook else None
+               ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1241, in _execute_mock_call
+    raise effect
+AssertionError: mismatched trigger loaded hook
+
+======================================================================
+FAIL: test_loaded_trigger_must_match_static_selection_before_dependents (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_trigger_must_match_static_selection_before_dependents) (version='1.29.0')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 15060, in test_loaded_trigger_must_match_static_selection_before_dependents
+    self.ext.pre_docs_gate(types.SimpleNamespace(root=self.root, from_version=version))
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 2683, in pre_docs_gate
+    templates, hook_name, hook = _load_journal_declaration(
+                                 ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        ctx.root, load_hook=eligible, expected_trigger=trigger
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py", line 1829, in _load_journal_declaration
+    function = _load_journal_hook(scripts, hook) if hook and load_hook else None
+               ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1241, in _execute_mock_call
+    raise effect
+AssertionError: mismatched trigger loaded hook
+
+----------------------------------------------------------------------
+Ran 1 test in 0.379s
+
+FAILED (failures=2)

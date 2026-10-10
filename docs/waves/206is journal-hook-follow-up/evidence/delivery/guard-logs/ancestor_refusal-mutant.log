@@ -1,0 +1,7 @@
+RESULT_JSON {"run": 1, "failures": 0, "errors": 0, "skips": 0}
+test_linked_source_ancestor_is_not_followed (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.131s
+
+OK

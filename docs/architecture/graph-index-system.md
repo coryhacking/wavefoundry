@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-08
+Last verified: 2026-10-10
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
@@ -200,6 +200,22 @@ GRAPH_BUILDER_VERSION = "53"   # 53: unowned member calls stay external; 52: cal
 The community-clustering layer (`graph_cluster.py`) carries its own `CLUSTER_BUILDER_VERSION = "12"` (10: seeded-RNG determinism + grab-bag split; 11: build-time betweenness section + `input_fingerprint` key, wave `1p9q3`).
 
 A full re-extraction is forced whenever any of `schema_version`, `builder_version`, `walker_version`, or `chunker_version` changes — detected when the session opens the per-file state store (`GraphStateStore.ensure_current()`, wave `1p9q2`): any version-key mismatch resets the whole store (file records + merge sidecar), `_load_state()` then reports an empty `files` set, and `update_graph_index()` expands the changed set to the full corpus.
+
+The exact operational-evidence policy transition `16` → `17` is an exception to
+walker-triggered re-extraction. The index coordinator first proves unchanged published
+semantic identities and recorded corpus options/input hashes; `GraphStateStore` then
+requires unchanged graph schema, builder, chunker and layer before retaining extraction
+fragments. Removed paths still invalidate graph rows and derived memberships; community
+analysis may recompute even when source extraction makes zero calls. A zero-removal
+transition publishes only walker metadata and reuses graph analysis. Other version
+mismatches keep the existing reset/re-extraction path, and publication failure retains the
+previous committed rows.
+
+`operational_evidence.py` filters record-owned evidence directories from explicit graph
+inputs and `GraphIndexSession.record_file` as well as ordinary discovery. Missing or
+unreadable live/archive record roots preserve known paths through the existing outage
+boundary. This predicate affects retrieval only; it does not change direct file reads,
+typed event history or machine-authority/reconciliation classification.
 
 ### Entry Point
 

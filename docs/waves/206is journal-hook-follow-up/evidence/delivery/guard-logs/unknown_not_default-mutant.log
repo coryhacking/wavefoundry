@@ -1,0 +1,24 @@
+RESULT_JSON {"run": 1, "failures": 1, "errors": 0, "skips": 0}
+test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... 
+  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding="'journals_present'", extra='\ndef broken(:\n') ... FAIL
+
+======================================================================
+FAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding="'journals_present'", extra='\ndef broken(:\n')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 14943, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution
+    self.assertEqual((metadata["status"], metadata["policy"]), (status, policy))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Tuples differ: ('valid', 'legacy_cutover') != ('unknown', None)
+
+First differing element 0:
+'valid'
+'unknown'
+
+- ('valid', 'legacy_cutover')
++ ('unknown', None)
+
+----------------------------------------------------------------------
+Ran 1 test in 2.168s
+
+FAILED (failures=1)

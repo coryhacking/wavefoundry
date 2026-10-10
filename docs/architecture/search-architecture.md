@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-10-10
 
 ## The Problem
 
@@ -151,6 +151,20 @@ or model name mismatches" safety net is no longer needed for the docs/code index
 **It keeps the two concerns separate.** The semantic index is for concepts; the filesystem is for facts. Blurring this boundary would require the index to be rebuilt on every code edit and kept perfectly in sync — a reliability problem that adds complexity without benefit.
 
 All file walks reuse the same ignore/exclusion rules as the indexer (`walk_repo()`, `.gitignore`, `.aiignore`, hardcoded excludes) to keep results consistent.
+
+**Record-owned operational evidence (wave `2087n`, `20aqf`).** Default indexed docs,
+code/lexical and graph retrieval omit descendants of the immediate `evidence` and
+`evidence-*` directories owned by discovered live/archive records. Configured nested
+record discovery applies; wave summaries, admitted docs, curated proof and near-miss
+folders keep their existing eligibility. The shared retrieval predicate lives in
+`operational_evidence.py`, separate from machine authority and reconciliation. Direct
+`code_read` and typed `wf_review_event(event="list")` still reach retained proof/history.
+Compatible walker `16` → `17` removal converges the existing SQLite publication with no
+unchanged-source embeddings or extraction; required derived graph analysis is counted
+separately. Unknown or independently incompatible identities keep existing safe recovery,
+and absent/unreadable wave roots cannot authorize deletion of old rows. See
+[the indexing pipeline](chunking-and-indexing-pipeline.md#version-triggered-convergence)
+for the exact transition boundary.
 
 **The walk-exclusion contract (wave `1wfsl`, `1wfsn`).** The exclusion surface is consolidated
 behind one documented story — the "CORPUS EXCLUSION STORY" banner above the constants in

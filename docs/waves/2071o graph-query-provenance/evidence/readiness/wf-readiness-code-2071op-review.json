@@ -1,0 +1,146 @@
+{
+  "reviews": [
+    {
+      "actor": "code-reviewer",
+      "phase": "readiness",
+      "context_id": "code-readiness-2071op-20261009-independent-01",
+      "fresh_context": true,
+      "independent": true,
+      "selected_model": "gpt-6.1-sol",
+      "selected_effort": "high",
+      "observed_runtime_model": "unknown",
+      "observed_runtime_effort": "unknown",
+      "verdict": "approve_with_notes",
+      "blocking_findings": [],
+      "fingerprint_artifact": "/private/tmp/wf-readiness-code-2071op-fingerprint.json",
+      "fingerprint": "751399d9b86e17b62c68572834e1f67e9bed483407235de659e005b798d05335",
+      "plan_fingerprints": "/private/tmp/wf-readiness-code-2071op-plan-hashes.json",
+      "execution_status": "executed",
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "universal_claim": false,
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "known_bad_detection_method": "readiness-safe-control",
+      "safety_and_authorization": "Authorized finite readiness probes in isolated local temporary repositories; no repository source, plans or ledger edits; no network or downstream scan.",
+      "limitations": "Readiness premises only; no implemented repair, full suite, downstream/native Windows, old released binary qualification, whole-upgrade deadline, or fresh-index claim. code_ask/definition diagnostic reported setup_inputs_changed; final judgments use live code_read plus fresh subprocesses. Initial replay launch used nonexistent .wavefoundry/tool-venv; corrected to ~/.wavefoundry/venv. Initial unittest launch lacked scripts PYTHONPATH; corrected and all 10 selected tests completed.",
+      "commands_and_results": [
+        {
+          "command": "env -u PYTHONPYCACHEPREFIX /Users/coryhacking/.wavefoundry/venv/bin/python -B /private/tmp/wf-readiness-code-2071op-replay.py",
+          "exit_code": 0,
+          "artifact": "/private/tmp/wf-readiness-code-2071op-replay.json"
+        },
+        {
+          "command": "env -u PYTHONPYCACHEPREFIX /Users/coryhacking/.wavefoundry/venv/bin/python -B /private/tmp/wf-readiness-code-2071op-adjacent.py",
+          "exit_code": 0,
+          "artifact": "/private/tmp/wf-readiness-code-2071op-adjacent.json"
+        },
+        {
+          "command": "env -u PYTHONPYCACHEPREFIX PYTHONPATH=/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts:/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests /Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest test_upgrade_wavefoundry.DelegatedSummaryContractTests",
+          "exit_code": 0,
+          "result": "10 tests in 2.227s, OK, no skips"
+        }
+      ],
+      "wave_id": "2071o graph-query-provenance",
+      "change_ids": [
+        "2073s",
+        "2073t"
+      ],
+      "proposition": "The graph plans address reproduced hierarchy provenance loss and Rust non-exact lookup failure using existing persisted coordinates and binding, with implementable compatibility-preserving requirements.",
+      "counterexample_or_failure_condition": "Stored provenance absent or incapable of identifying the reproduced edge, exact-ID adjacent control fails, or plan requires guessed positions/schema migration/arbitrary resolver selection.",
+      "public_path": "code_callhierarchy_response and code_impact_response on canonically published isolated fixture via TestCodeCallhierarchy._write_graph",
+      "command_or_fixture": "/private/tmp/wf-readiness-code-2071op-replay.py",
+      "expected": "Reproduce line-3 persisted provenance versus line-2 served wrong location and bare-symbol NameError; exact node succeeds.",
+      "observed": "Stored site line 3/source_file src/fixture.rs/start_byte69/end_byte78; one incoming edge served line2 iterator .collect() with RECEIVER_RESOLVED. Bare collect impact raises NameError re undefined; exact src/fixture.rs::collect returns status ok.",
+      "artifact_or_test_id": "/private/tmp/wf-readiness-code-2071op-replay.json; code_callhierarchy_response._attach_edge_trust; GraphQueryIndex.resolve_symbol",
+      "adjacent_controls": [
+        "Exact-ID impact returns ok",
+        "Persisted graph traversal retains intended site",
+        "One edge remains one caller"
+      ],
+      "notes": [
+        "Nullable snippets are simplest permitted design when current stored artifacts cannot prove source freshness. Java name scan remains filter-only; no attribution authority. Implement stable valid-site normalization on copies, not shared graph snapshots. Preserve outgoing definition line/snippet fields."
+      ]
+    },
+    {
+      "actor": "code-reviewer",
+      "phase": "readiness",
+      "context_id": "code-readiness-2071op-20261009-independent-01",
+      "fresh_context": true,
+      "independent": true,
+      "selected_model": "gpt-6.1-sol",
+      "selected_effort": "high",
+      "observed_runtime_model": "unknown",
+      "observed_runtime_effort": "unknown",
+      "verdict": "approve_with_notes",
+      "blocking_findings": [],
+      "fingerprint_artifact": "/private/tmp/wf-readiness-code-2071op-fingerprint.json",
+      "fingerprint": "751399d9b86e17b62c68572834e1f67e9bed483407235de659e005b798d05335",
+      "plan_fingerprints": "/private/tmp/wf-readiness-code-2071op-plan-hashes.json",
+      "execution_status": "executed",
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "universal_claim": false,
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "known_bad_detection_method": "readiness-safe-control",
+      "safety_and_authorization": "Authorized finite readiness probes in isolated local temporary repositories; no repository source, plans or ledger edits; no network or downstream scan.",
+      "limitations": "Readiness premises only; no implemented repair, full suite, downstream/native Windows, old released binary qualification, whole-upgrade deadline, or fresh-index claim. code_ask/definition diagnostic reported setup_inputs_changed; final judgments use live code_read plus fresh subprocesses. Initial replay launch used nonexistent .wavefoundry/tool-venv; corrected to ~/.wavefoundry/venv. Initial unittest launch lacked scripts PYTHONPATH; corrected and all 10 selected tests completed.",
+      "commands_and_results": [
+        {
+          "command": "env -u PYTHONPYCACHEPREFIX /Users/coryhacking/.wavefoundry/venv/bin/python -B /private/tmp/wf-readiness-code-2071op-replay.py",
+          "exit_code": 0,
+          "artifact": "/private/tmp/wf-readiness-code-2071op-replay.json"
+        },
+        {
+          "command": "env -u PYTHONPYCACHEPREFIX /Users/coryhacking/.wavefoundry/venv/bin/python -B /private/tmp/wf-readiness-code-2071op-adjacent.py",
+          "exit_code": 0,
+          "artifact": "/private/tmp/wf-readiness-code-2071op-adjacent.json"
+        },
+        {
+          "command": "env -u PYTHONPYCACHEPREFIX PYTHONPATH=/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts:/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests /Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest test_upgrade_wavefoundry.DelegatedSummaryContractTests",
+          "exit_code": 0,
+          "result": "10 tests in 2.227s, OK, no skips"
+        }
+      ],
+      "wave_id": "2071p bounded-reconciliation-reporting",
+      "change_ids": [
+        "2073u",
+        "2073v"
+      ],
+      "proposition": "The scanner/reporting plans explicitly close reproduced generated-scope, unbounded matching and fallback/error-erasure defects while preserving feasible legacy summary and resource ownership boundaries.",
+      "counterexample_or_failure_condition": "Plan promises cooperative scanner checks alone enforce blocked I/O, requires incompatible schema/argv or erases completed parent facts, or hides partial/error scans as complete empty channels.",
+      "public_path": "_emit_primary_summary_via_delegate_or_fallback; _delegated_summary_payload; _run_reconciliation_scan; scan_repo_channels boundary; _bounded_upgrade_summary",
+      "command_or_fixture": "/private/tmp/wf-readiness-code-2071op-replay.py and /private/tmp/wf-readiness-code-2071op-adjacent.py; DelegatedSummaryContractTests",
+      "expected": "Reproduce one fallback rescan after timeout and exception-to-empty; retain legitimate nested/near-miss/host scope; existing bounder preserves compact flat additive fields and rejects unknown schema.",
+      "observed": "Fallback after timeout calls scanner once and emits one sentinel; injected scanner error yields three empty lists. Anchor-free 1024/2048/4096/8192 characters measured 0.001141/0.004546/0.017698/0.071113s. Nested .local/target, targeting, reports-overview and settings.local stay live. One twin-backed relative stale prompt found; correct .prompt.md/missing twin not flagged. Compact status/reason/elapsed/schema/index flags survive bounder; unknown schema999 rejected. 10 pinned contract tests OK without skips.",
+      "artifact_or_test_id": "/private/tmp/wf-readiness-code-2071op-replay.json; /private/tmp/wf-readiness-code-2071op-adjacent.json; DelegatedSummaryContractTests",
+      "adjacent_controls": [
+        "Actual nested and near-miss scope controls",
+        "Twin existence and .prompt.md controls",
+        "Flat additive fields through existing summary bounder",
+        "Unknown schema refused",
+        "Pinned summary contract test class"
+      ],
+      "notes": [
+        "contained_files.read_contained_bytes accepts an in-root final symlink: scanner must lstat/refuse lexical links independently before helper use to meet explicit no-follow requirement. Existing helper is bounded containment, not scanner no-follow proof.",
+        "30s shared reporting budget must start before child startup and bound diagnostics/rendering/recovery; owned run_with_tree_kill enforces potentially blocked work. Keep 300s pinned outer constant and old argv.",
+        "No retroactive repair of unchanged old-parent failure fallback; wave watchpoint correctly scopes that residual."
+      ]
+    }
+  ]
+}

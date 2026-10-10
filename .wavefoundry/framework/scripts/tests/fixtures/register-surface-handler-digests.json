@@ -1,6 +1,6 @@
 {
   "captured_at": "f4063a85",
-  "description": "SHA-256 of each @mcp.tool handler's exact source (decorators through last line, dedented) inside register_mcp_surface, captured before wave 1y0h1 edited server_impl.py. Wave 1ypxw updates only wf_review_wave and wf_review_event for approved receipt-currency docstrings; all other captured hashes are retained. Wave 1z8tz updates only docs_search and code_search for the restored tag vocabulary (memory) and the rechunk remedy in their docstrings. Wave 1zlu1 adds wf_close_change and updates only wf_create_wave for its new optional parent parameter. Wave 1zyc3 updates only wf_review_event for its new optional attested_by parameter. Wave 1zyc5 updates only seed_get, wf_get_prompt and wf_help for the renamed planning help goal and prompt examples in their docstrings. Wave 1zyb4 (change 1zxnx) updates only wf_review_event for the council-delivery signoff key example in its docstring. Wave 203pu updates only wf_graph_report for the call_edge_counts docstring.",
+  "description": "SHA-256 of each @mcp.tool handler's exact source (decorators through last line, dedented) inside register_mcp_surface, captured before wave 1y0h1 edited server_impl.py. Wave 1ypxw updates only wf_review_wave and wf_review_event for approved receipt-currency docstrings; all other captured hashes are retained. Wave 1z8tz updates only docs_search and code_search for the restored tag vocabulary (memory) and the rechunk remedy in their docstrings. Wave 1zlu1 adds wf_close_change and updates only wf_create_wave for its new optional parent parameter. Wave 1zyc3 updates only wf_review_event for its new optional attested_by parameter. Wave 1zyc5 updates only seed_get, wf_get_prompt and wf_help for the renamed planning help goal and prompt examples in their docstrings. Wave 1zyb4 (change 1zxnx) updates only wf_review_event for the council-delivery signoff key example in its docstring. Wave 203pu updates only wf_graph_report for the call_edge_counts docstring. Wave 2087n updates only memory_propose for explicit source-event selection; all other captured hashes are retained.",
   "handlers": {
     "code_ask": "d893cd2791ad0ade83b0a5d07997aa5afe049b7d5fd19a5b74cc890a31ae0ad9",
     "code_callgraph": "5fc05322e7ac0234ee2d14eb298175dd112fab1c21f66f032cba1db9928fa958",
@@ -31,7 +31,7 @@
     "memory_backfill": "0133d4dcbc4f47f6670b9da5ea46dd039bea46d0e1141b8ef888b028507e3a2e",
     "memory_brief": "32030c2f4792d978bc9e65025cd30c6e928430ec1502806966e5f00325c43227",
     "memory_consolidate": "0701a71a0c602327594f6c5c80bd5db42e150057c493bc86ac2e497320d129b1",
-    "memory_propose": "be8d41fdd43256ea04fa6ef1ec974586f03313ddad5446e239be37bc716856d9",
+    "memory_propose": "352bf2334557cd6fd4a41e83544850fbaea5871f4ed9ebc885dd78fff1be158d",
     "memory_purge": "44cf8ffb231a487d6d2b522dd6bd30803e0e1f7b7a72974a6922f0fc4a3ad96b",
     "memory_reconcile": "f5d103bb529978a5a0635863350433f9398fea543ffba4455ab87caaef1889d1",
     "memory_search": "c652f31680c0dbc57f24331c22b01f5f285f7cfee28a0188a876265946bcb601",

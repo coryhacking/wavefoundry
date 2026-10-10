@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-07
+Last verified: 2026-10-10
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -219,6 +219,17 @@ sniff, or machine-authority layers. After the walk, two filters narrow the list:
 The output of this stage is two lists of absolute file paths — one for docs files and one for
 code files — for the single project index.
 
+**Operational evidence (wave `2087n`, `20aqf`).** `operational_evidence.py` discovers
+live and archived records through `record_paths.py`, including configured nested layouts.
+Only descendants of each discovered record's immediate `evidence` or `evidence-*`
+directories are omitted from docs/code discovery, explicit `files=` inputs and graph
+extraction. Wave summaries, admitted change docs, eligible source and curated proof outside
+those directories retain their existing eligibility. An unrelated directory named `evidence`
+has no effect. This retrieval-only predicate is separate from `machine_authority.py`;
+`code_read` and typed review-history access retain their files and ledger access.
+Missing/unreadable configured record roots or unlistable wave folders carry their prior
+indexed paths through the existing unreadable-path protection instead of proving deletion.
+
 **Hard size guard (wave 1p5c4).** During the walk, any file whose size exceeds
 `indexing.max_file_bytes` (default 5 MB) is skipped entirely — never read, never parsed — and
 logged once. This stops a pathologically large file (e.g. a multi-GB SQL backup) from being read
@@ -317,9 +328,17 @@ recorded in the persisted store log.
 Version differences trigger convergence, but they do not all require new embeddings:
 
 - An embedding-model name/version mismatch within the same precision class forces a full rebuild and re-embed. A recognized `full`/`int8` precision change instead requires an explicit full request; an ordinary update refuses before embedding or changing the published epoch, including when an untouched sibling would cause scope expansion.
-- A `WALKER_VERSION` mismatch (currently `"15"`) forces a full rebuild because the eligible file
-  set may have changed (e.g. version 6 folded the framework seeds + `README` into the docs table;
-  12 and 13 landed the wave-`1wfsl` exclusion and known-text changes).
+- A `WALKER_VERSION` mismatch (currently `"17"`) normally forces a full rebuild because the
+  eligible file set may have changed. The exact `16` → `17` operational-evidence removal
+  transition is selective: unchanged published model/precision/fingerprint, chunker and
+  recorded corpus options/input hashes allow reuse. The complete walk derives actual removals
+  from prior path state and converges extant semantic layers before recording walker currency.
+  Unknown policies, changed options/configuration, independent model/chunker incompatibility
+  and explicit rebuilds keep their existing recovery. Removed vectors, FTS, layer hashes and
+  graph state publish consistently; unchanged eligible source is neither embedded nor
+  extracted. Required graph membership/community analysis is separate recomputation.
+  The Python build result reports removed path count and whether communities recomputed;
+  this is a bounded one-time transition, not a universal upgrade-speed guarantee.
 - A `CHUNKER_VERSION` mismatch (currently `"42"`) selects `rechunk_all`: every eligible file is
   reprocessed into the new chunk shape, while content-identical chunks reuse embeddings by hash.
   Versions `40` and `41` (wave `1wpif`, `1wngv`) are such boundaries: `40` changed flat-emitter

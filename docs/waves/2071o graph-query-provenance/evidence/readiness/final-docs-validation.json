@@ -1,0 +1,14 @@
+{
+  "status": "ok",
+  "data": {
+    "passed": true,
+    "errors": [],
+    "warnings": [],
+    "output": "docs-lint: ok\n"
+  },
+  "diagnostics": [],
+  "next_tools": [
+    "wf_garden_docs"
+  ],
+  "usage": "wf_garden_docs()"
+}

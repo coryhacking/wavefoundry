@@ -1,0 +1,693 @@
+{
+  "wave_id": "206is",
+  "change_ids": [
+    "204mo-enh version-independent-journal-hook"
+  ],
+  "phase": "readiness",
+  "review_round": "one focused verification after one bounded plan repair",
+  "receipt_id": "review-policy-0461c07cde4e57b46259",
+  "assessment_context": {
+    "context_id": "c6-focused-code-qa-20261009-independent-one-assessment",
+    "fresh_context": true,
+    "independent": true,
+    "roles": [
+      "code-reviewer",
+      "qa-reviewer"
+    ],
+    "correlation_disclosure": "ONE independent assessment with two explicit specialist remits and the fixed QA seat remit; not two independent corroborations. No implementation or previous recheck context retained. Mandatory orientation and supplied historical reports informed scope; own current-tree/plan reads and executed probes determine judgment.",
+    "pre_primer_read": "Cannot truthfully claim artifact-before-primer independent prior: parent supplied primer/history in initial scope and a batched read exposed excerpts. This is a focused replay, not a second full isolated council."
+  },
+  "lane_verdicts": {
+    "code-reviewer": {
+      "verdict": "pass_readiness",
+      "blocking_findings": [],
+      "clearances": [
+        "ARCH-C6-RDY-01",
+        "QA-206IS-01"
+      ],
+      "evidence": {
+        "claim_id": "approval:code-reviewer",
+        "claim_kind": "approval",
+        "required_for_approval": false,
+        "phase": "readiness",
+        "proposition": "Current repaired plan is implementable with resolved static choices and admitted fixture owner; scoped incoming import requirements are executable and falsifiable.",
+        "counterexample_or_failure_condition": "The repaired plan omits a required decision/owner or the selected production negative control accepts known-bad input.",
+        "execution_status": "executed",
+        "public_path": "Current repaired plan and ten-path packet; actual pre_docs_gate and public migrate_journals boundary; production test_profile_support.DefaultProfileOnlyMarkerTests.test_declaration_snapshot_covers_every_declaration_constant; actual journal_declaration_problems positional API.",
+        "command_or_fixture": [
+          "python3 -B /tmp/wf-206is-focused-qa-probes.py",
+          "python3 -B /tmp/wf-206is-focused-code-probes.py"
+        ],
+        "expected": "Resolved plan requirements, current census failure/control and cache failure/control.",
+        "observed": "Requirements 5 and AC-4 specify journal-only selected declaration/load/call ownership, incoming top-level/package descendant key shadowing, restoration of prior identities/removal of new affected modules/path on success/failure, precedence when incoming directory already exists later, and unchanged generic helper. Actual old-runner pack fixture is required at import and call; probe baseline OLD:OLD versus scratch INCOMING:INCOMING shows the finite oracle can fail. Scope remains standard direct regular singly linked Markdown excluding README and links; builtin permission remains separate.",
+        "artifact_or_test_id": "/tmp/wf-206is-focused-code-probe-results.json",
+        "adjacent_controls": [
+          "Stock declaration census accepts; added-key scratch census accepts",
+          "At/after cutover default no-import controls",
+          "Three public preview byte/noexec controls",
+          "Failure/retry dependent-migration counts 0 then 1",
+          "Six selected existing regressions, run=6 skips=0",
+          "Three-positional validator helper_modules remains valid",
+          "Stock declared() remains false with scratch nonempty journal trigger"
+        ],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true
+        },
+        "known_bad_detection_method": "readiness-safe-control: omitted registry rejected; cached old module observed OLD:OLD versus INCOMING:INCOMING after scratch key isolation.",
+        "independent_reference": "Independently inspected current plan Requirements 1-6/static decision table/AC-4 against live current source: pre_docs_gate, _scripts_on_sys_path, _load_journal_declaration, _static_module_literal, declared, journal_declaration_problems; existing exact production census and public boundary file/module sentinels. Original findings and primer are questions, not proof.",
+        "limitations": [
+          "Readiness feasibility and contract review only; new product behavior remains unimplemented.",
+          "Scratch eviction demonstrates feasibility, not the final journal context or actual old-runner upgrade.",
+          "Plan-table reading proves decisions are resolved, not parser implementation correctness.",
+          "Shared code and QA context is one assessment, not two independent corroborations."
+        ],
+        "safety_and_authorization": "Delegated read-only focused readiness; execution in temporary targets and in-memory safe controls with -B; no repository/code/docs/ledger mutation.",
+        "probe_class": "local_safe",
+        "authorization_status": "authorized",
+        "safe_boundary": false,
+        "unexecuted_remainder_prohibited": false,
+        "universal_claim": false,
+        "verification_context": {
+          "actor": "code-reviewer",
+          "context_id": "c6-focused-code-qa-20261009-independent-one-assessment",
+          "fresh_context": true,
+          "independent": true
+        }
+      }
+    },
+    "qa-reviewer": {
+      "verdict": "pass_readiness",
+      "blocking_findings": [],
+      "clearances": [
+        "QA-206IS-01"
+      ],
+      "evidence": {
+        "claim_id": "approval:qa-reviewer",
+        "claim_kind": "approval",
+        "required_for_approval": false,
+        "phase": "readiness",
+        "proposition": "The repaired plan supplies finite non-vacuous coverage requirements and the exact necessary declaration registry scope.",
+        "counterexample_or_failure_condition": "The repaired plan omits a required decision/owner or the selected production negative control accepts known-bad input.",
+        "execution_status": "executed",
+        "public_path": "Current repaired plan and ten-path packet; actual pre_docs_gate and public migrate_journals boundary; production test_profile_support.DefaultProfileOnlyMarkerTests.test_declaration_snapshot_covers_every_declaration_constant; actual journal_declaration_problems positional API.",
+        "command_or_fixture": [
+          "python3 -B /tmp/wf-206is-focused-qa-probes.py",
+          "python3 -B /tmp/wf-206is-focused-code-probes.py"
+        ],
+        "expected": "Known omitted-owner defect reproduced then accepted with scratch registry control; six selected regressions execute without skips.",
+        "observed": [
+          {
+            "probe": "declaration_registry_scope",
+            "baseline": "accepted",
+            "omitted_new_constant": "rejected",
+            "error": "Items in the second set but not the first:\n'EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER'",
+            "repair_control": "accepted with registry key",
+            "production_test": "test_profile_support.DefaultProfileOnlyMarkerTests.test_declaration_snapshot_covers_every_declaration_constant"
+          },
+          {
+            "probe": "current_gate_version_baseline",
+            "version": "1.14.9",
+            "calls": 1,
+            "declaration_executed": true,
+            "journal_bytes": "role journal kept\n"
+          },
+          {
+            "probe": "current_gate_version_baseline",
+            "version": "1.15.0",
+            "calls": 0,
+            "declaration_executed": false,
+            "journal_bytes": "role journal kept\n"
+          },
+          {
+            "probe": "current_gate_version_baseline",
+            "version": "1.29.0",
+            "calls": 0,
+            "declaration_executed": false,
+            "journal_bytes": "role journal kept\n"
+          },
+          {
+            "probe": "public_preview_noexec",
+            "trigger": "\"journals_present\"",
+            "target_bytes_unchanged": true,
+            "calls": 0,
+            "declaration_executed": false,
+            "report": {
+              "deleted": [],
+              "moved": [],
+              "left": [
+                "docs/agents/journals/kept.md"
+              ],
+              "warnings": []
+            },
+            "limit": "Current preview ignores proposed trigger; no future trigger diagnostic proven"
+          },
+          {
+            "probe": "public_preview_noexec",
+            "trigger": "\"typo\"",
+            "target_bytes_unchanged": true,
+            "calls": 0,
+            "declaration_executed": false,
+            "report": {
+              "deleted": [],
+              "moved": [],
+              "left": [
+                "docs/agents/journals/kept.md"
+              ],
+              "warnings": []
+            },
+            "limit": "Current preview ignores proposed trigger; no future trigger diagnostic proven"
+          },
+          {
+            "probe": "public_preview_noexec",
+            "trigger": "str(\"journals_present\")",
+            "target_bytes_unchanged": true,
+            "calls": 0,
+            "declaration_executed": false,
+            "report": {
+              "deleted": [],
+              "moved": [],
+              "left": [
+                "docs/agents/journals/kept.md"
+              ],
+              "warnings": []
+            },
+            "limit": "Current preview ignores proposed trigger; no future trigger diagnostic proven"
+          },
+          {
+            "probe": "failure_retry_cached_dependency",
+            "failed_attempt_calls": 1,
+            "retry_total_calls": 2,
+            "dependent_migration_after_failure": 0,
+            "dependent_migration_after_retry": 1,
+            "cached_observed": "OLD",
+            "uncached_observed": "INCOMING",
+            "warning": "journal migration WARNING: skipped; the pre-migration hook acme_journal_hooks:prepare raised RuntimeError. Journals were left in place; later upgrades do not retry the migration or call the hook again. Run the Migrate journals prompt to finish the work.\n",
+            "limit": "Existing pre_docs_gate boundary, no actual old-runner full upgrade; unrelated fixture mechanisms already completed"
+          },
+          {
+            "probe": "selected_regression_tests",
+            "tests": [
+              "JournalMigrationTests.test_pre_docs_gate_version_gates_journal_migration",
+              "JournalDeclarationMigrationTests.test_hook_is_not_called_after_1_15_or_by_the_preview",
+              "JournalDeclarationMigrationTests.test_invalid_declaration_leaves_the_memory_naming_migration_unapplied",
+              "JournalDeclarationMigrationTests.test_declaration_module_is_executed_once_per_gate",
+              "JournalStaticPreviewTests.test_unreadable_declaration_warns_once_and_leaves_template_journals",
+              "UpgradeExtensionSearchPathTests.test_pre_docs_gate_holds_the_path_across_the_hook_load_and_call"
+            ],
+            "run": 6,
+            "skips": [],
+            "log": "test_pre_docs_gate_version_gates_journal_migration (test_upgrade_wavefoundry.JournalMigrationTests.test_pre_docs_gate_version_gates_journal_migration) ... ok\ntest_hook_is_not_called_after_1_15_or_by_the_preview (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_hook_is_not_called_after_1_15_or_by_the_preview)\nAC-4. ... ok\ntest_invalid_declaration_leaves_the_memory_naming_migration_unapplied (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_invalid_declaration_leaves_the_memory_naming_migration_unapplied)\nDEL-4d: the declaration is validated first inside the 1.15.0 gate. ... ok\ntest_declaration_module_is_executed_once_per_gate (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_declaration_module_is_executed_once_per_gate)\nDEL-4d: the loaded templates are always passed on, so the ... ok\ntest_unreadable_declaration_warns_once_and_leaves_template_journals (test_upgrade_wavefoundry.JournalStaticPreviewTests.test_unreadable_declaration_warns_once_and_leaves_template_journals) ... ok\ntest_pre_docs_gate_holds_the_path_across_the_hook_load_and_call (test_upgrade_wavefoundry.UpgradeExtensionSearchPathTests.test_pre_docs_gate_holds_the_path_across_the_hook_load_and_call) ... ok\n\n----------------------------------------------------------------------\nRan 6 tests in 0.384s\n\nOK\n"
+          }
+        ],
+        "artifact_or_test_id": "/tmp/wf-206is-focused-qa-probe-results.json",
+        "adjacent_controls": [
+          "Stock declaration census accepts; added-key scratch census accepts",
+          "At/after cutover default no-import controls",
+          "Three public preview byte/noexec controls",
+          "Failure/retry dependent-migration counts 0 then 1",
+          "Six selected existing regressions, run=6 skips=0",
+          "Three-positional validator helper_modules remains valid",
+          "Stock declared() remains false with scratch nonempty journal trigger"
+        ],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true
+        },
+        "known_bad_detection_method": "readiness-safe-control: exact production declaration census rejects omitted new key and accepts the registry-addition control.",
+        "independent_reference": "Independently inspected current plan Requirements 1-6/static decision table/AC-4 against live current source: pre_docs_gate, _scripts_on_sys_path, _load_journal_declaration, _static_module_literal, declared, journal_declaration_problems; existing exact production census and public boundary file/module sentinels. Original findings and primer are questions, not proof.",
+        "limitations": [
+          "Readiness feasibility and contract review only; new product behavior remains unimplemented.",
+          "Scratch eviction demonstrates feasibility, not the final journal context or actual old-runner upgrade.",
+          "Plan-table reading proves decisions are resolved, not parser implementation correctness.",
+          "Shared code and QA context is one assessment, not two independent corroborations."
+        ],
+        "safety_and_authorization": "Delegated read-only focused readiness; execution in temporary targets and in-memory safe controls with -B; no repository/code/docs/ledger mutation.",
+        "probe_class": "local_safe",
+        "authorization_status": "authorized",
+        "safe_boundary": false,
+        "unexecuted_remainder_prohibited": false,
+        "universal_claim": false,
+        "verification_context": {
+          "actor": "qa-reviewer",
+          "context_id": "c6-focused-code-qa-20261009-independent-one-assessment",
+          "fresh_context": true,
+          "independent": true
+        }
+      }
+    }
+  },
+  "individual_finding_clearances": [
+    {
+      "finding_id": "ARCH-C6-RDY-01",
+      "lane": "code-reviewer",
+      "verdict": "cleared_in_own_lane",
+      "repair_execution_state": "completed",
+      "judgment": "The explicit grammar and static table resolve the substantive decision. Missing/absent is legacy; exactly one direct literal or annotated assignment selects; invalid/nonliteral/conditional/duplicate refuses before execution; unreadable/unparseable is unknown, later noexec skip and pre-cutover validated load/refusal preserved.",
+      "evidence": {
+        "claim_id": "ARCH-C6-RDY-01",
+        "claim_kind": "finding",
+        "required_for_approval": false,
+        "phase": "readiness",
+        "proposition": "Current plan resolves static invalid versus unknown and preserves legacy later no-import without delegating the choice to implementation.",
+        "counterexample_or_failure_condition": "The repaired plan omits a required decision/owner or the selected production negative control accepts known-bad input.",
+        "execution_status": "executed",
+        "public_path": "Current repaired plan and ten-path packet; actual pre_docs_gate and public migrate_journals boundary; production test_profile_support.DefaultProfileOnlyMarkerTests.test_declaration_snapshot_covers_every_declaration_constant; actual journal_declaration_problems positional API.",
+        "command_or_fixture": [
+          "python3 -B /tmp/wf-206is-focused-qa-probes.py",
+          "python3 -B /tmp/wf-206is-focused-code-probes.py"
+        ],
+        "expected": "Explicit resolved policy and falsifiable finite delivery matrix.",
+        "observed": "Requirements 1/4 and static table state all policies; replay observed dynamic/conditional ValueError and duplicate last-literal acceptance in existing reader, so merely reusing the reader cannot satisfy the new duplicate requirement. At/after 1.15 gate observed no declaration execution.",
+        "artifact_or_test_id": "/tmp/wf-206is-focused-code-probe-results.json#actual_static_literal_reader",
+        "adjacent_controls": [
+          "Stock declaration census accepts; added-key scratch census accepts",
+          "At/after cutover default no-import controls",
+          "Three public preview byte/noexec controls",
+          "Failure/retry dependent-migration counts 0 then 1",
+          "Six selected existing regressions, run=6 skips=0",
+          "Three-positional validator helper_modules remains valid",
+          "Stock declared() remains false with scratch nonempty journal trigger"
+        ],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true
+        },
+        "known_bad_detection_method": "readiness-safe-control: independently reproduced current duplicate-binding acceptance contrary to promised future grammar; explicit repaired plan forbids it, with delivery assertion required.",
+        "independent_reference": "Independently inspected current plan Requirements 1-6/static decision table/AC-4 against live current source: pre_docs_gate, _scripts_on_sys_path, _load_journal_declaration, _static_module_literal, declared, journal_declaration_problems; existing exact production census and public boundary file/module sentinels. Original findings and primer are questions, not proof.",
+        "limitations": [
+          "Readiness feasibility and contract review only; new product behavior remains unimplemented.",
+          "Scratch eviction demonstrates feasibility, not the final journal context or actual old-runner upgrade.",
+          "Plan-table reading proves decisions are resolved, not parser implementation correctness.",
+          "Shared code and QA context is one assessment, not two independent corroborations."
+        ],
+        "safety_and_authorization": "Delegated read-only focused readiness; execution in temporary targets and in-memory safe controls with -B; no repository/code/docs/ledger mutation.",
+        "probe_class": "local_safe",
+        "authorization_status": "authorized",
+        "safe_boundary": false,
+        "unexecuted_remainder_prohibited": false,
+        "universal_claim": false,
+        "verification_context": {
+          "actor": "code-reviewer",
+          "context_id": "c6-focused-code-qa-20261009-independent-one-assessment",
+          "fresh_context": true,
+          "independent": true
+        }
+      }
+    },
+    {
+      "finding_id": "QA-206IS-01",
+      "lane": "code-reviewer",
+      "verdict": "cleared_in_own_lane",
+      "repair_execution_state": "completed",
+      "judgment": "Requirement 6 names tests/record_layout_support.py SHIPPED_DECLARATION and exact legacy_cutover default; owner is admitted in ten-path packet and serialization list. AC-4 now requires exact census/base/profile overlays, existing third helper_modules positional argument and declared() exclusion.",
+      "evidence": {
+        "claim_id": "QA-206IS-01",
+        "claim_kind": "finding",
+        "required_for_approval": false,
+        "phase": "readiness",
+        "proposition": "Current admitted plan contains the necessary registry owner/default and compatibility assertions; its planned source addition is feasible against the real declaration census.",
+        "counterexample_or_failure_condition": "The repaired plan omits a required decision/owner or the selected production negative control accepts known-bad input.",
+        "execution_status": "executed",
+        "public_path": "Current repaired plan and ten-path packet; actual pre_docs_gate and public migrate_journals boundary; production test_profile_support.DefaultProfileOnlyMarkerTests.test_declaration_snapshot_covers_every_declaration_constant; actual journal_declaration_problems positional API.",
+        "command_or_fixture": [
+          "python3 -B /tmp/wf-206is-focused-qa-probes.py",
+          "python3 -B /tmp/wf-206is-focused-code-probes.py"
+        ],
+        "expected": "Omitted registry rejects, registry-key addition accepts; added owner is in current scope; positional API and stock declared() remain compatible.",
+        "observed": {
+          "probe": "declaration_registry_scope",
+          "baseline": "accepted",
+          "omitted_new_constant": "rejected",
+          "error": "Items in the second set but not the first:\n'EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER'",
+          "repair_control": "accepted with registry key",
+          "production_test": "test_profile_support.DefaultProfileOnlyMarkerTests.test_declaration_snapshot_covers_every_declaration_constant",
+          "third_positional_helper_modules": [],
+          "declared_with_scratch_nonempty_trigger": false,
+          "packet_owner_admitted": true
+        },
+        "artifact_or_test_id": "/tmp/wf-206is-focused-qa-probe-results.json#declaration_registry_scope",
+        "adjacent_controls": [
+          "Stock declaration census accepts; added-key scratch census accepts",
+          "At/after cutover default no-import controls",
+          "Three public preview byte/noexec controls",
+          "Failure/retry dependent-migration counts 0 then 1",
+          "Six selected existing regressions, run=6 skips=0",
+          "Three-positional validator helper_modules remains valid",
+          "Stock declared() remains false with scratch nonempty journal trigger"
+        ],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true
+        },
+        "known_bad_detection_method": "readiness-safe-control: same added trigger with required registry omitted rejects exact production census, identical scratch trigger with registry key added accepts.",
+        "independent_reference": "Independently inspected current plan Requirements 1-6/static decision table/AC-4 against live current source: pre_docs_gate, _scripts_on_sys_path, _load_journal_declaration, _static_module_literal, declared, journal_declaration_problems; existing exact production census and public boundary file/module sentinels. Original findings and primer are questions, not proof.",
+        "limitations": [
+          "Readiness feasibility and contract review only; new product behavior remains unimplemented.",
+          "Scratch eviction demonstrates feasibility, not the final journal context or actual old-runner upgrade.",
+          "Plan-table reading proves decisions are resolved, not parser implementation correctness.",
+          "Shared code and QA context is one assessment, not two independent corroborations."
+        ],
+        "safety_and_authorization": "Delegated read-only focused readiness; execution in temporary targets and in-memory safe controls with -B; no repository/code/docs/ledger mutation.",
+        "probe_class": "local_safe",
+        "authorization_status": "authorized",
+        "safe_boundary": false,
+        "unexecuted_remainder_prohibited": false,
+        "universal_claim": false,
+        "verification_context": {
+          "actor": "code-reviewer",
+          "context_id": "c6-focused-code-qa-20261009-independent-one-assessment",
+          "fresh_context": true,
+          "independent": true
+        }
+      }
+    },
+    {
+      "finding_id": "QA-206IS-01",
+      "lane": "qa-reviewer",
+      "verdict": "cleared_in_own_lane",
+      "repair_execution_state": "completed",
+      "judgment": "Requirement 6 names tests/record_layout_support.py SHIPPED_DECLARATION and exact legacy_cutover default; owner is admitted in ten-path packet and serialization list. AC-4 now requires exact census/base/profile overlays, existing third helper_modules positional argument and declared() exclusion.",
+      "evidence": {
+        "claim_id": "QA-206IS-01",
+        "claim_kind": "finding",
+        "required_for_approval": false,
+        "phase": "readiness",
+        "proposition": "Current admitted plan contains the necessary registry owner/default and compatibility assertions; its planned source addition is feasible against the real declaration census.",
+        "counterexample_or_failure_condition": "The repaired plan omits a required decision/owner or the selected production negative control accepts known-bad input.",
+        "execution_status": "executed",
+        "public_path": "Current repaired plan and ten-path packet; actual pre_docs_gate and public migrate_journals boundary; production test_profile_support.DefaultProfileOnlyMarkerTests.test_declaration_snapshot_covers_every_declaration_constant; actual journal_declaration_problems positional API.",
+        "command_or_fixture": [
+          "python3 -B /tmp/wf-206is-focused-qa-probes.py",
+          "python3 -B /tmp/wf-206is-focused-code-probes.py"
+        ],
+        "expected": "Omitted registry rejects, registry-key addition accepts; added owner is in current scope; positional API and stock declared() remain compatible.",
+        "observed": {
+          "probe": "declaration_registry_scope",
+          "baseline": "accepted",
+          "omitted_new_constant": "rejected",
+          "error": "Items in the second set but not the first:\n'EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER'",
+          "repair_control": "accepted with registry key",
+          "production_test": "test_profile_support.DefaultProfileOnlyMarkerTests.test_declaration_snapshot_covers_every_declaration_constant",
+          "third_positional_helper_modules": [],
+          "declared_with_scratch_nonempty_trigger": false,
+          "packet_owner_admitted": true
+        },
+        "artifact_or_test_id": "/tmp/wf-206is-focused-qa-probe-results.json#declaration_registry_scope",
+        "adjacent_controls": [
+          "Stock declaration census accepts; added-key scratch census accepts",
+          "At/after cutover default no-import controls",
+          "Three public preview byte/noexec controls",
+          "Failure/retry dependent-migration counts 0 then 1",
+          "Six selected existing regressions, run=6 skips=0",
+          "Three-positional validator helper_modules remains valid",
+          "Stock declared() remains false with scratch nonempty journal trigger"
+        ],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true
+        },
+        "known_bad_detection_method": "readiness-safe-control: same added trigger with required registry omitted rejects exact production census, identical scratch trigger with registry key added accepts.",
+        "independent_reference": "Independently inspected current plan Requirements 1-6/static decision table/AC-4 against live current source: pre_docs_gate, _scripts_on_sys_path, _load_journal_declaration, _static_module_literal, declared, journal_declaration_problems; existing exact production census and public boundary file/module sentinels. Original findings and primer are questions, not proof.",
+        "limitations": [
+          "Readiness feasibility and contract review only; new product behavior remains unimplemented.",
+          "Scratch eviction demonstrates feasibility, not the final journal context or actual old-runner upgrade.",
+          "Plan-table reading proves decisions are resolved, not parser implementation correctness.",
+          "Shared code and QA context is one assessment, not two independent corroborations."
+        ],
+        "safety_and_authorization": "Delegated read-only focused readiness; execution in temporary targets and in-memory safe controls with -B; no repository/code/docs/ledger mutation.",
+        "probe_class": "local_safe",
+        "authorization_status": "authorized",
+        "safe_boundary": false,
+        "unexecuted_remainder_prohibited": false,
+        "universal_claim": false,
+        "verification_context": {
+          "actor": "qa-reviewer",
+          "context_id": "c6-focused-code-qa-20261009-independent-one-assessment",
+          "fresh_context": true,
+          "independent": true
+        }
+      }
+    }
+  ],
+  "fixed_qa_seat": {
+    "verdict": "pass",
+    "strongest_challenge_response": "Requirements 5 and AC-4 specify journal-only selected declaration/load/call ownership, incoming top-level/package descendant key shadowing, restoration of prior identities/removal of new affected modules/path on success/failure, precedence when incoming directory already exists later, and unchanged generic helper. Actual old-runner pack fixture is required at import and call; probe baseline OLD:OLD versus scratch INCOMING:INCOMING shows the finite oracle can fail. Scope remains standard direct regular singly linked Markdown excluding README and links; builtin permission remains separate.",
+    "primer_question_responses": [
+      "Explicit static-decision table resolves supported literal grammar, invalid refusal and unreadable/parse-unknown behavior; no later legacy imports. Duplicate current reader acceptance is an implementation obligation, not an unaddressed decision.",
+      "AC-4 requires an actual older-runner upgrade with incoming pack and cached old modules, independent incoming sentinels at load and call, failure/success identity/path restoration; current scratch/control demonstrates feasibility only.",
+      "AC-1/2/3/4 and task require before/at/after versions crossed with qualifying/absent/README/nested/symlink/hardlink, separate exact hook and builtin counters, dry-run/preview noexec byte snapshots, failure dependent migration suppression, and once-per-invocation/idempotent retry."
+    ],
+    "best_alternative_weighed": "A fresh child gives stronger cache isolation but changes process/exception/API behavior and adds interpreter/error plumbing. The explicitly scoped in-process context remains feasible; real old-runner/restoration tests must disprove it before expanding scope.",
+    "material_conditions": []
+  },
+  "repair_effect_assessment": "Requirements 5 and AC-4 specify journal-only selected declaration/load/call ownership, incoming top-level/package descendant key shadowing, restoration of prior identities/removal of new affected modules/path on success/failure, precedence when incoming directory already exists later, and unchanged generic helper. Actual old-runner pack fixture is required at import and call; probe baseline OLD:OLD versus scratch INCOMING:INCOMING shows the finite oracle can fail. Scope remains standard direct regular singly linked Markdown excluding README and links; builtin permission remains separate.",
+  "findings": [],
+  "remaining_blockers": [],
+  "implementation_notes": [
+    "Pin duplicate/nonliteral/conditional policies rather than trusting current _static_module_literal; it accepts last duplicate today.",
+    "Include package descendants and incoming-already-later path precedence cases in finite context matrix.",
+    "Use production old-runner/main incoming zip fixture; scratch load/eviction controls are not delivery approval.",
+    "Update opt-in failure/retry wording while retaining legacy default behavior; no rollback or across-crash exactly-once claim."
+  ],
+  "executable_results": {
+    "qa": [
+      {
+        "probe": "declaration_registry_scope",
+        "baseline": "accepted",
+        "omitted_new_constant": "rejected",
+        "error": "Items in the second set but not the first:\n'EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER'",
+        "repair_control": "accepted with registry key",
+        "production_test": "test_profile_support.DefaultProfileOnlyMarkerTests.test_declaration_snapshot_covers_every_declaration_constant"
+      },
+      {
+        "probe": "current_gate_version_baseline",
+        "version": "1.14.9",
+        "calls": 1,
+        "declaration_executed": true,
+        "journal_bytes": "role journal kept\n"
+      },
+      {
+        "probe": "current_gate_version_baseline",
+        "version": "1.15.0",
+        "calls": 0,
+        "declaration_executed": false,
+        "journal_bytes": "role journal kept\n"
+      },
+      {
+        "probe": "current_gate_version_baseline",
+        "version": "1.29.0",
+        "calls": 0,
+        "declaration_executed": false,
+        "journal_bytes": "role journal kept\n"
+      },
+      {
+        "probe": "public_preview_noexec",
+        "trigger": "\"journals_present\"",
+        "target_bytes_unchanged": true,
+        "calls": 0,
+        "declaration_executed": false,
+        "report": {
+          "deleted": [],
+          "moved": [],
+          "left": [
+            "docs/agents/journals/kept.md"
+          ],
+          "warnings": []
+        },
+        "limit": "Current preview ignores proposed trigger; no future trigger diagnostic proven"
+      },
+      {
+        "probe": "public_preview_noexec",
+        "trigger": "\"typo\"",
+        "target_bytes_unchanged": true,
+        "calls": 0,
+        "declaration_executed": false,
+        "report": {
+          "deleted": [],
+          "moved": [],
+          "left": [
+            "docs/agents/journals/kept.md"
+          ],
+          "warnings": []
+        },
+        "limit": "Current preview ignores proposed trigger; no future trigger diagnostic proven"
+      },
+      {
+        "probe": "public_preview_noexec",
+        "trigger": "str(\"journals_present\")",
+        "target_bytes_unchanged": true,
+        "calls": 0,
+        "declaration_executed": false,
+        "report": {
+          "deleted": [],
+          "moved": [],
+          "left": [
+            "docs/agents/journals/kept.md"
+          ],
+          "warnings": []
+        },
+        "limit": "Current preview ignores proposed trigger; no future trigger diagnostic proven"
+      },
+      {
+        "probe": "failure_retry_cached_dependency",
+        "failed_attempt_calls": 1,
+        "retry_total_calls": 2,
+        "dependent_migration_after_failure": 0,
+        "dependent_migration_after_retry": 1,
+        "cached_observed": "OLD",
+        "uncached_observed": "INCOMING",
+        "warning": "journal migration WARNING: skipped; the pre-migration hook acme_journal_hooks:prepare raised RuntimeError. Journals were left in place; later upgrades do not retry the migration or call the hook again. Run the Migrate journals prompt to finish the work.\n",
+        "limit": "Existing pre_docs_gate boundary, no actual old-runner full upgrade; unrelated fixture mechanisms already completed"
+      },
+      {
+        "probe": "selected_regression_tests",
+        "tests": [
+          "JournalMigrationTests.test_pre_docs_gate_version_gates_journal_migration",
+          "JournalDeclarationMigrationTests.test_hook_is_not_called_after_1_15_or_by_the_preview",
+          "JournalDeclarationMigrationTests.test_invalid_declaration_leaves_the_memory_naming_migration_unapplied",
+          "JournalDeclarationMigrationTests.test_declaration_module_is_executed_once_per_gate",
+          "JournalStaticPreviewTests.test_unreadable_declaration_warns_once_and_leaves_template_journals",
+          "UpgradeExtensionSearchPathTests.test_pre_docs_gate_holds_the_path_across_the_hook_load_and_call"
+        ],
+        "run": 6,
+        "skips": [],
+        "log": "test_pre_docs_gate_version_gates_journal_migration (test_upgrade_wavefoundry.JournalMigrationTests.test_pre_docs_gate_version_gates_journal_migration) ... ok\ntest_hook_is_not_called_after_1_15_or_by_the_preview (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_hook_is_not_called_after_1_15_or_by_the_preview)\nAC-4. ... ok\ntest_invalid_declaration_leaves_the_memory_naming_migration_unapplied (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_invalid_declaration_leaves_the_memory_naming_migration_unapplied)\nDEL-4d: the declaration is validated first inside the 1.15.0 gate. ... ok\ntest_declaration_module_is_executed_once_per_gate (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_declaration_module_is_executed_once_per_gate)\nDEL-4d: the loaded templates are always passed on, so the ... ok\ntest_unreadable_declaration_warns_once_and_leaves_template_journals (test_upgrade_wavefoundry.JournalStaticPreviewTests.test_unreadable_declaration_warns_once_and_leaves_template_journals) ... ok\ntest_pre_docs_gate_holds_the_path_across_the_hook_load_and_call (test_upgrade_wavefoundry.UpgradeExtensionSearchPathTests.test_pre_docs_gate_holds_the_path_across_the_hook_load_and_call) ... ok\n\n----------------------------------------------------------------------\nRan 6 tests in 0.384s\n\nOK\n"
+      }
+    ],
+    "code": [
+      {
+        "probe": "actual_cached_sibling_baseline",
+        "expected_under_AC4": "INCOMING:INCOMING",
+        "observed": "OLD:OLD",
+        "known_bad_detected": true
+      },
+      {
+        "probe": "explicit_scratch_eviction_feasibility_control",
+        "expected": "INCOMING:INCOMING",
+        "observed": "INCOMING:INCOMING",
+        "old_identity_restored": true,
+        "path_restored": true
+      },
+      {
+        "probe": "scratch_failure_restoration_control",
+        "dependent_migration_allowed": false,
+        "old_identity_restored": true,
+        "path_restored": true,
+        "diagnostic": "journal migration WARNING: skipped; the pre-migration hook code_review_hooks:prepare raised RuntimeError. Journals were left in place; later upgrades do not retry the migration or call the hook again. Run the Migrate journals prompt to finish the work."
+      },
+      {
+        "probe": "current_later_gate_no_import_baseline",
+        "from_version": "1.15.0",
+        "declaration_executed": false,
+        "journal_unchanged": true
+      },
+      {
+        "probe": "current_later_gate_no_import_baseline",
+        "from_version": "1.29.0",
+        "declaration_executed": false,
+        "journal_unchanged": true
+      },
+      {
+        "probe": "actual_static_literal_reader",
+        "case": "absent",
+        "observed": "()"
+      },
+      {
+        "probe": "actual_static_literal_reader",
+        "case": "literal",
+        "observed": "'journals_present'"
+      },
+      {
+        "probe": "actual_static_literal_reader",
+        "case": "invalid_literal",
+        "observed": "'typo'"
+      },
+      {
+        "probe": "actual_static_literal_reader",
+        "case": "dynamic",
+        "observed": "ValueError"
+      },
+      {
+        "probe": "actual_static_literal_reader",
+        "case": "conditional",
+        "observed": "ValueError"
+      },
+      {
+        "probe": "actual_static_literal_reader",
+        "case": "duplicate_literal",
+        "observed": "'journals_present'"
+      },
+      {
+        "probe": "pure_validator_three_positional_api",
+        "observed": [],
+        "third_parameter": "helper_modules"
+      }
+    ],
+    "declared_scratch_default_probe": {
+      "trigger": "legacy_cutover",
+      "observed": false
+    }
+  },
+  "packet_integrity": {
+    "before_scope_sha256": {
+      ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+      ".wavefoundry/framework/scripts/mcp_tool_extensions.py": "44d8e720cec410bb86524700a68fef5f76d5434c725e3490a2c9b90cbc922edd",
+      ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a",
+      ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "d2b38f6bd06692447f808bb0b9625f0fb782f9bd9d9b2b5496758f17e269e871",
+      ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md": "a4f1319834042e25316845f15f7ff9a119e80158ce89fb65dc7550cf475e598d",
+      "docs/specs/mcp-tool-surface.md": "929c2e26c897bf2d4037c120240822a4d97a36b701c4d769ef984606b08689a5",
+      "docs/architecture/data-and-control-flow.md": "ec5bff5e439a3b47f2bf9a7191e51895d6ebd09a17438be5776aa40bbb058740",
+      "docs/waves/206is journal-hook-follow-up/204mo-enh version-independent-journal-hook.md": "4a24e2c026c81b9a9833e957acce2d63dc43c67e39831e02a0e6cf0ffed9e265",
+      ".wavefoundry/framework/scripts/tests/record_layout_support.py": "286c3cfa93851c18c3fe56a390fc178923aaaf1c9658542f594aa630a0fdeb49",
+      "docs/architecture/layering-rules.md": "fc0ed24463fc9a83c11fdc80ed9171d844d0feb045e28e8d173109d9be66345b"
+    },
+    "after_scope_sha256": {
+      ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+      ".wavefoundry/framework/scripts/mcp_tool_extensions.py": "44d8e720cec410bb86524700a68fef5f76d5434c725e3490a2c9b90cbc922edd",
+      ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a",
+      ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "d2b38f6bd06692447f808bb0b9625f0fb782f9bd9d9b2b5496758f17e269e871",
+      ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md": "a4f1319834042e25316845f15f7ff9a119e80158ce89fb65dc7550cf475e598d",
+      "docs/specs/mcp-tool-surface.md": "929c2e26c897bf2d4037c120240822a4d97a36b701c4d769ef984606b08689a5",
+      "docs/architecture/data-and-control-flow.md": "ec5bff5e439a3b47f2bf9a7191e51895d6ebd09a17438be5776aa40bbb058740",
+      "docs/waves/206is journal-hook-follow-up/204mo-enh version-independent-journal-hook.md": "4a24e2c026c81b9a9833e957acce2d63dc43c67e39831e02a0e6cf0ffed9e265",
+      ".wavefoundry/framework/scripts/tests/record_layout_support.py": "286c3cfa93851c18c3fe56a390fc178923aaaf1c9658542f594aa630a0fdeb49",
+      "docs/architecture/layering-rules.md": "fc0ed24463fc9a83c11fdc80ed9171d844d0feb045e28e8d173109d9be66345b"
+    },
+    "scope_unchanged": true,
+    "matches_current_packet": true,
+    "paths": 10
+  },
+  "retrieval": {
+    "mcp_first": true,
+    "tools": [
+      "code_outline",
+      "code_read",
+      "code_keyword graph=false"
+    ],
+    "validation": "MCP outline/read grounded live code; no semantic/graph response used as proof. Initial outline reported setup_inputs_changed. No setup/rebuild/restart performed.",
+    "Gapfill": "Code keyword produced no documentation results due code retrieval exclusions; directly inspected named documentation journal paragraphs and repaired plan from disk. No broad search/census claim."
+  },
+  "budget": "Bounded original two probe scripts replayed with current packet path and unique result paths; one scratch nonempty-trigger declared() check; no additional sweep.",
+  "limits": [
+    "No product source implemented or mutated; no actual old-runner new-trigger upgrade/full canonical/native Windows qualification; these are delivery work.",
+    "Ten hashes prove reviewed packet unchanged, not whole checkout.",
+    "No typed approval, ledger write, implementation, commit, closure, push or delegation.",
+    "At focused end any remaining blocker would require root operator escalation without automatic second repair; none found in these remits."
+  ]
+}

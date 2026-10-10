@@ -1,0 +1,43 @@
+{
+  "flat_fields_survive_pre_registration_bounder": true,
+  "oversized_nested_details_known_bad": true,
+  "plan_omission_controls_detected": [
+    "outgoing top-level line remains the callee definition line",
+    "Preserve the pinned delegated parent timeout constant (300 seconds)"
+  ],
+  "actual_hierarchy_prefixed_exact_id_baseline": {
+    "stored_line": 3,
+    "served_line": 2,
+    "callers": 1,
+    "edge_confidence": "RECEIVER_RESOLVED"
+  },
+  "actual_outgoing_definition_contract": {
+    "line": 5,
+    "snippet": null
+  },
+  "current_timeout_fallback_baseline": {
+    "scan_reentries": 1,
+    "sentinels": 1,
+    "marker": "timeout_after_300s"
+  },
+  "current_exception_to_empty_baseline": true,
+  "mixed_language_bare_symbol_baseline": "NameError",
+  "source_fingerprints_match_after": 14,
+  "selected_contract_tests": {
+    "tests": 18,
+    "seconds": 4.114,
+    "result": "OK",
+    "skips": 0
+  },
+  "context_id": "docs-contract-readiness-2071op-20261009-fresh-01",
+  "selected_model_effort": "gpt-6.1-sol/high",
+  "observed_runtime_identity": "unknown",
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "readiness-safe-control"
+  }
+}

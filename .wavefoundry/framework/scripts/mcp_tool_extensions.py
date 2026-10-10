@@ -135,18 +135,26 @@ EXTENSION_SKILLS: Mapping[str, Mapping[str, object]] = {}
 # and {{date}} (YYYY-MM-DD); every occurrence of one placeholder must match the
 # same text. A template is the distribution's assertion that a journal equal
 # to it carries zero operator content, so keep it exact. Read only by the
-# upgrade, inside its pre-1.15.0 migration gate; an invalid entry refuses that
-# upgrade (see ``journal_declaration_problems``) and never stops the server.
+# upgrade; built-in deletion remains inside the pre-1.15.0 migration gate.
+# A selected later journal hook also validates the declaration; an invalid
+# entry refuses that upgrade and never stops the server.
 EXTENSION_JOURNAL_TEMPLATES: tuple[str, ...] = ()
 
 # ``"module:function"`` called once as ``function(root)``, with the repository
-# root ``pathlib.Path``, right before the journal migration applies (wave
+# root ``pathlib.Path``, at the pre_docs_gate journal boundary (wave
 # 1zyb3, change 1zxnv). ``module`` must be declared in EXTENSION_HELPER_MODULES,
 # so the server also loads and hashes it: it must import cleanly there, and its
 # ``register``, if any, is never called. What the function does on each
 # platform is the distribution's responsibility. If it raises, the migration is
-# skipped for that upgrade and journals stay in place.
+# skipped for that upgrade. Hook-owned partial effects are not rolled back.
 EXTENSION_JOURNAL_PRE_MIGRATION_HOOK: str = ""
+
+# Upgrade-only scheduling, outside the MCP extension activation contract.
+# Declare exactly one module-level literal string (plain or annotated).
+# The default preserves the pre-1.15 cutover. Opt in to "journals_present"
+# for a once-per-invocation hook while standard qualifying journals remain;
+# that policy never grants permission for the built-in legacy migration.
+EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER: str = "legacy_cutover"
 
 # ------------------------------------------------------------------------------
 
@@ -205,7 +213,7 @@ RESERVED_MODULE_NAMES = frozenset({
 # census test pins this set to the directory, less the names the declaration
 # lists.
 FRAMEWORK_SCRIPT_MODULE_NAMES = frozenset({
-    '_tag_utils', 'accel_embedder', 'agent_surface_integrity', 'ann_reference_eval', 'build_pack',
+    '_tag_utils', 'accel_embedder', 'advisory_lint_identity', 'agent_surface_integrity', 'ann_reference_eval', 'build_pack',
     'build_scan_allowlist', 'bytecode_cache', 'change_doc_checklist', 'check_version', 'chunker', 'cli_stdio',
     'commit_provenance', 'contained_files', 'context_efficiency', 'dashboard_handlers', 'dashboard_lib',
     'dashboard_server', 'design_token_build', 'docs_gardener', 'docs_lint', 'eval_chunker',
@@ -216,9 +224,9 @@ FRAMEWORK_SCRIPT_MODULE_NAMES = frozenset({
     'lexical_ranking_eval', 'lifecycle_gate_support', 'lifecycle_gates', 'lifecycle_id',
     'lifecycle_lock', 'machine_authority', 'marker_namespaces', 'mcp_tool_extensions',
     'mcp_tool_roster', 'memory_backfill', 'memory_cli', 'memory_eval', 'memory_records',
-    'memory_supply', 'model_bundle', 'operator_identity', 'path_containment', 'process_info',
+    'memory_supply', 'model_bundle', 'operational_evidence', 'operator_identity', 'path_containment', 'process_info',
     'project_context_efficiency', 'provider_policy', 'prune_framework', 'public_contract',
-    'publication_control', 'reconcile_scan', 'record_paths', 'render_agent_surfaces',
+    'publication_control', 'qualification_report', 'qualification_worker', 'reconcile_scan', 'record_paths', 'render_agent_surfaces',
     'render_platform_surfaces', 'repair_ppol_memory_staging', 'repo_root', 'retrieval_eval',
     'review_evidence', 'review_policy', 'review_policy_reconcile', 'review_policy_upgrade',
     'run_secrets_scan', 'run_tests', 'runtime_advisory', 'runtime_lock', 'scan_secrets',
@@ -927,10 +935,12 @@ def _journal_template_problems(label: str, template: object) -> list[str]:
 
 
 def journal_declaration_problems(templates: object = None, hook: object = None,
-                                 helper_modules: object = None) -> list[str]:
+                                 helper_modules: object = None, *,
+                                 trigger: object = None) -> list[str]:
     """Every problem with the journal migration declaration
     (``EXTENSION_JOURNAL_TEMPLATES``, ``EXTENSION_JOURNAL_PRE_MIGRATION_HOOK``
-    and, for the hook's module, ``EXTENSION_HELPER_MODULES``, each read now
+    ``EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER`` and, for the hook's module,
+    ``EXTENSION_HELPER_MODULES``, each read now
     when its argument is None), one message per problem; empty means valid.
     Imports nothing: whether the hook function exists and takes one
     positional argument is checked when the upgrade loads it."""
@@ -940,7 +950,13 @@ def journal_declaration_problems(templates: object = None, hook: object = None,
         hook = EXTENSION_JOURNAL_PRE_MIGRATION_HOOK
     if helper_modules is None:
         helper_modules = EXTENSION_HELPER_MODULES
+    if trigger is None:
+        trigger = EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER
     problems: list[str] = []
+    if not isinstance(trigger, str) or trigger not in ("legacy_cutover", "journals_present"):
+        problems.append(
+            "EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER must be 'legacy_cutover' or 'journals_present'"
+        )
     if not isinstance(templates, (tuple, list)):
         problems.append(
             f"EXTENSION_JOURNAL_TEMPLATES must be a tuple of template strings, not {type(templates).__name__}"

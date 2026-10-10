@@ -1,0 +1,74 @@
+{
+  "phase": "readiness",
+  "lane": "release-reviewer",
+  "verdict": "approved_with_notes",
+  "plan_blockers": [],
+  "context_id": "release-readiness-2071p-20261009-independent-01",
+  "fresh_context": true,
+  "independent": true,
+  "selected_model": "gpt-6.1-sol",
+  "selected_reasoning_effort": "high",
+  "observed_runtime_identity": "unknown",
+  "source_packet": "docs/waves/2071p bounded-reconciliation-reporting/evidence/readiness/source-packet.json",
+  "source_path_count": 14,
+  "source_check_artifact": "/private/tmp/wf-release-readiness-2071p-source-check.json",
+  "source_fingerprint": "edfb226fb42f737e9ee1738146b3a73755e4eca49457079feba5c7efa08099b6",
+  "fingerprint_algorithm": "SHA-256 of JSON sorted-key compact array of independently recomputed {path,git_blob,sha256,match} in packet order; all match=true",
+  "proposition": "The two unimplemented plans have a feasible bounded reporting/scan boundary and preserve the pinned fielded-producer compatibility contract, with delivery verification still required.",
+  "counterexample_or_failure_condition": "A plan requires changing the sentinel/schema/old argv/default outer deadline, disguising partial/error scan as clean empty, dropping observed publication/consent facts, rescanning during current-parent fallback, or treating old-parent fallback/whole-upgrade timing as repaired.",
+  "execution_status": "executed",
+  "public_path": "Real staged upgrade_wavefoundry.py --emit-summary --root child; actual parent delegate/emitter; actual existing server parser/bounder; real scanner APIs; run_with_tree_kill process group boundary.",
+  "commands": [
+    "cd .wavefoundry/framework/scripts/tests && env -u PYTHONPYCACHEPREFIX PYTHONPATH=.. /Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest test_upgrade_wavefoundry.DelegatedSummaryContractTests test_upgrade_wavefoundry.DelegatedSummaryDegradationTests test_upgrade_wavefoundry.DelegatedSummarySchemaDivergentTests -v",
+    "cd .wavefoundry/framework/scripts/tests && env -u PYTHONPYCACHEPREFIX PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.. /Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest test_reconcile_scan.ScanResultShapeTests test_reconcile_scan.ExclusionTests test_reconcile_scan.HostPermissionChannelTests test_reconcile_scan.RendererProvenanceChannelTests test_reconcile_scan.FindingSpecificDispositionTests -v",
+    "env -u PYTHONPYCACHEPREFIX PYTHONDONTWRITEBYTECODE=1 /Users/coryhacking/.wavefoundry/venv/bin/python -B /private/tmp/wf-release-readiness-2071p-probe.py",
+    "cd .wavefoundry/framework/scripts/tests && env -u PYTHONPYCACHEPREFIX PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.. /Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest test_subprocess_util.RunWithTreeKillTests.test_timeout_kills_the_grandchild_and_returns_promptly -v",
+    "cd .wavefoundry/framework/scripts/tests && env -u PYTHONPYCACHEPREFIX PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.. /Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest test_subprocess_util.RunWithTreeKillTests.test_only_the_childs_own_group_is_signalled test_subprocess_util.RunWithTreeKillTests.test_a_command_that_finishes_matches_isolated_run -v"
+  ],
+  "observed": {
+    "delegate_tests": "18 tests, OK, 4.384s, zero skips",
+    "scanner_tests": "30 tests, OK, 0.213s, zero skips",
+    "owned_timeout": "1 test, OK, 5.005s, grandchild gone",
+    "owned_adjacent": "2 tests, OK, 0.583s, own process group only/ordinary return parity",
+    "compatibility_probe": "Three real current-child/older-lock controls completed in about0.135s each, schema1, source lock unchanged, consent delta1 and skipped location preserved in raw summary, observed publication/failure/not-run distinct; compact candidate incomplete status/count scalars survived a300-item findings payload. Current fallback timeout emits one marked tokenless sentinel, reenters scan once and preserves publication fact; injected scanner exception yields three empties, refuting clean-empty inference. Baseline root-generated inclusion and ignored-host/nested/near-miss controls match plan premises.",
+    "stdlib_child": "Actual staged child invoked with tool-venv Python -B -S exits0, exactly1sentinel; site initialization disabled."
+  },
+  "notes": [
+    "Older parent failure fallback remains unbounded and unchanged; the new child can bound itself but cannot repair that old parent. The30s budget applies to new reporting work, not the300s pinned outer default or whole-upgrade runtime.",
+    "Large finding collections consume the old parser collection budget: later list fields may be wholly omitted with aggregate omission metadata. Preserve raw lock/payload facts and keep completeness/failure state as compact flat scalars; do not promise unlimited list preservation through old response bounds.",
+    "Delivery must independently prove current-parent no-rescan, shared remaining-time propagation, all scan limits/regex families/retention, cleanup despite reporting failure, current-vs-old behavior and parent-fact contradictions. This approval proves plan/compatibility premises only.",
+    "The permanent contract test currently asserts the outer timeout is positive, rather than exactly300; strengthen that pin during admitted implementation if the requirement remains unchanged."
+  ],
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "readiness-safe-control: actual baseline fallback/exception probe refutes clean-empty and no-rescan assumptions; existing actual unknown-schema, malformed sentinel, nonzero/old-flag and deadline child controls select marked degradation."
+  },
+  "limitations": [
+    "No implemented repair or delivery approval; no full suite, pack/build, Git finalization, external/downstream scan, artifact deletion, network or lifecycle mutation.",
+    "MCP code_ask reported stale index, used only for navigation; live code_read/outline/definition and on-disk execution validated source.",
+    "Actual runtime model identity unavailable. -S verifies the current staged import surface, not every older Python/tool-venv version or native Windows.",
+    "First test invocation lacked scripts PYTHONPATH and produced3 import errors before correction; all selected18 tests subsequently completed. Probe first guessed a consent key; corrected to actual constant. A stress oracle originally demanded exact bounded list retention and failed; source confirmed list omission is part of existing bounds, compact scalar/raw payload assertions then passed."
+  ],
+  "artifacts": [
+    "/private/tmp/wf-release-readiness-2071p-probe.py",
+    "/private/tmp/wf-release-readiness-2071p-probe.json",
+    "/private/tmp/wf-release-readiness-2071p-stdlib.json",
+    "/private/tmp/wf-release-readiness-2071p-source-check.json"
+  ],
+  "verification_context": {
+    "actor": "release-reviewer",
+    "context_id": "release-readiness-2071p-20261009-independent-01",
+    "fresh_context": true,
+    "independent": true
+  },
+  "safety_and_authorization": "Parent assigned independent read-only readiness review and finite scratch child controls; own fixtures/processes only; no source/plan/ledger edits.",
+  "probe_class": "local_safe",
+  "authorization_status": "authorized",
+  "safe_boundary": false,
+  "unexecuted_remainder_prohibited": false,
+  "universal_claim": false
+}

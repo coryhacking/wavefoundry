@@ -57,5 +57,9 @@ Follow seed 180's **Builder-lane allocation** for implementation lane selection 
 
 ## Completion
 
+Keep routine briefings, per-seat reports, probe captures, source baselines and green logs in task context or temporary storage outside the repository. Consolidate final outcomes and evidence in the existing wave/change records under seed 209's Review Artifact Discipline; preserve cited and unique proof, explaining retained exceptions inline in `wave.md`.
+
+Consume successful typed-write continuation actions and confirm current readiness/delivery authority without repeating unchanged review or list calls. Batch final bookkeeping before the final quiet canonical suite; reuse only a successful receipt matching current inputs. Required lanes, focused independent repair review and final full docs validation remain unchanged. An operator-authorized close uses one canonical mutation; dry-run resolves uncertain checks and is not a compulsory extra gate.
+
 Implementation is complete only when the admitted behavior, docs, tests, and
 review evidence agree. It does not authorize commit, release, or wave closure.

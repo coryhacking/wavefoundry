@@ -1,0 +1,222 @@
+test_anchor_free_and_dense_candidates_have_bounded_work (test_reconcile_scan.BoundedReconciliationTests.test_anchor_free_and_dense_candidates_have_bounded_work) ... ok
+test_each_corpus_work_cap_is_explicit (test_reconcile_scan.BoundedReconciliationTests.test_each_corpus_work_cap_is_explicit) ... ok
+test_exact_byte_boundary_and_hardlink_refusal (test_reconcile_scan.BoundedReconciliationTests.test_exact_byte_boundary_and_hardlink_refusal) ... ok
+test_final_link_swap_cannot_open_the_replacement (test_reconcile_scan.BoundedReconciliationTests.test_final_link_swap_cannot_open_the_replacement) ... ok
+test_links_special_files_and_read_errors_are_visible (test_reconcile_scan.BoundedReconciliationTests.test_links_special_files_and_read_errors_are_visible) ... ok
+test_partial_result_and_legacy_wrapper_are_truthful (test_reconcile_scan.BoundedReconciliationTests.test_partial_result_and_legacy_wrapper_are_truthful) ... ok
+test_progress_has_last_relative_input_and_no_contents (test_reconcile_scan.BoundedReconciliationTests.test_progress_has_last_relative_input_and_no_contents) ... ok
+test_root_generated_pruned_nested_and_near_miss_live (test_reconcile_scan.BoundedReconciliationTests.test_root_generated_pruned_nested_and_near_miss_live) ... ok
+test_actual_worker_preserves_partial_live_findings (test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_actual_worker_preserves_partial_live_findings) ... ok
+test_cleanup_attempts_verified_pack_even_when_optional_emitter_raises (test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_cleanup_attempts_verified_pack_even_when_optional_emitter_raises) ... ok
+test_contradictory_publication_and_consent_facts_degrade (test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_contradictory_publication_and_consent_facts_degrade) ... ok
+test_delegate_failure_never_scans_or_runs_diagnostics_again (test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_delegate_failure_never_scans_or_runs_diagnostics_again) ... ok
+test_owned_worker_timeout_retains_progress_and_cleans_temporary (test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_owned_worker_timeout_retains_progress_and_cleans_temporary) ... ok
+test_scan_error_is_never_empty_success (test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_scan_error_is_never_empty_success) ... ok
+test_verified_pack_cleanup_refuses_unproven_prefix_and_changed_identity (test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_verified_pack_cleanup_refuses_unproven_prefix_and_changed_identity) ...   Private pack retained — verified ownership/identity is not proven.
+  Private pack retained — verified ownership/identity is not proven.
+ok
+test_checkpoint_pause_recovery_cleanup_carries_the_schema_token (test_upgrade_wavefoundry.DelegatedSummaryContractTests.test_checkpoint_pause_recovery_cleanup_carries_the_schema_token)
+Wave 1uf68 requirement 6(a) / AC-1: the FAILURE branch of ... ok
+test_cleanup_reports_a_recorded_dependency_failure (test_upgrade_wavefoundry.DelegatedSummaryContractTests.test_cleanup_reports_a_recorded_dependency_failure)
+Wave 1zfd9: the --cleanup branch reads dependency_provisioning_failed from the lock. ... ok
+test_contract_constants_are_frozen (test_upgrade_wavefoundry.DelegatedSummaryContractTests.test_contract_constants_are_frozen) ... ok
+test_nominal_cleanup_carries_the_schema_token_on_both_lock_shapes (test_upgrade_wavefoundry.DelegatedSummaryContractTests.test_nominal_cleanup_carries_the_schema_token_on_both_lock_shapes)
+Wave 1uf68 requirement 6(b) / AC-1: the ordinary success branch ... ok
+test_real_child_envelope_and_old_schema_lock_tolerance (test_upgrade_wavefoundry.DelegatedSummaryContractTests.test_real_child_envelope_and_old_schema_lock_tolerance) ... ok
+test_real_child_reads_nonempty_skipped_scan_locations_from_lock (test_upgrade_wavefoundry.DelegatedSummaryContractTests.test_real_child_reads_nonempty_skipped_scan_locations_from_lock) ... ok
+test_sentinel_prefix_value_is_frozen (test_upgrade_wavefoundry.DelegatedSummaryContractTests.test_sentinel_prefix_value_is_frozen) ... ok
+test_shared_builder_never_carries_the_schema_token (test_upgrade_wavefoundry.DelegatedSummaryContractTests.test_shared_builder_never_carries_the_schema_token)
+Wave 1uf68 requirement 6(c) / AC-2: the token lives at the EMIT site, ... ok
+test_spawned_argv_shape_is_frozen_and_payload_reemitted_verbatim (test_upgrade_wavefoundry.DelegatedSummaryContractTests.test_spawned_argv_shape_is_frozen_and_payload_reemitted_verbatim) ... ok
+test_unrecognized_version_token_routes_to_degradation (test_upgrade_wavefoundry.DelegatedSummaryContractTests.test_unrecognized_version_token_routes_to_degradation) ... ok
+test_entry_point_absent_is_marker_carrying_degradation (test_upgrade_wavefoundry.DelegatedSummaryDegradationTests.test_entry_point_absent_is_marker_carrying_degradation) ... ok
+test_malformed_or_absent_sentinel_degrades (test_upgrade_wavefoundry.DelegatedSummaryDegradationTests.test_malformed_or_absent_sentinel_degrades) ... ok
+test_nonzero_child_exit_degrades (test_upgrade_wavefoundry.DelegatedSummaryDegradationTests.test_nonzero_child_exit_degrades) ... ok
+test_old_key_parent_against_new_key_payload_degrades_marked (test_upgrade_wavefoundry.DelegatedSummaryDegradationTests.test_old_key_parent_against_new_key_payload_degrades_marked) ... ok
+test_old_pack_rejecting_the_flag_degrades_with_exit_status (test_upgrade_wavefoundry.DelegatedSummaryDegradationTests.test_old_pack_rejecting_the_flag_degrades_with_exit_status) ... ok
+test_successful_delegate_forbids_the_fallback (test_upgrade_wavefoundry.DelegatedSummaryDegradationTests.test_successful_delegate_forbids_the_fallback) ... ok
+test_timeout_degrades_with_injected_deadline (test_upgrade_wavefoundry.DelegatedSummaryDegradationTests.test_timeout_degrades_with_injected_deadline) ... ok
+test_probe_field_transports_through_the_parents_real_emit_path (test_upgrade_wavefoundry.DelegatedSummarySchemaDivergentTests.test_probe_field_transports_through_the_parents_real_emit_path) ... ok
+test_a_failed_checkpoint_after_the_gate_stays_resumable (test_upgrade_wavefoundry.ResumeAfterGateTests.test_a_failed_checkpoint_after_the_gate_stays_resumable) ... ok
+test_a_real_memory_pause_is_not_treated_as_a_crash (test_upgrade_wavefoundry.ResumeAfterGateTests.test_a_real_memory_pause_is_not_treated_as_a_crash) ... ok
+test_a_sidecar_cleanup_failure_after_the_gate_keeps_its_own_label (test_upgrade_wavefoundry.ResumeAfterGateTests.test_a_sidecar_cleanup_failure_after_the_gate_keeps_its_own_label) ... ok
+test_index_and_cleanup_refuse_a_post_docs_gate_failure_with_a_pointer (test_upgrade_wavefoundry.ResumeAfterGateTests.test_index_and_cleanup_refuse_a_post_docs_gate_failure_with_a_pointer) ... ok
+test_projector_is_retired_without_replacement (test_upgrade_wavefoundry.ResumeAfterGateTests.test_projector_is_retired_without_replacement) ... ok
+test_resume_nonzero_on_repeated_failure (test_upgrade_wavefoundry.ResumeAfterGateTests.test_resume_nonzero_on_repeated_failure) ... ok
+test_resume_recovers_a_post_docs_gate_failure (test_upgrade_wavefoundry.ResumeAfterGateTests.test_resume_recovers_a_post_docs_gate_failure) ... ok
+test_resume_recovers_the_pre_1_28_label_with_and_without_a_run_id (test_upgrade_wavefoundry.ResumeAfterGateTests.test_resume_recovers_the_pre_1_28_label_with_and_without_a_run_id) ... ok
+test_resume_refuses_non_gate_failure (test_upgrade_wavefoundry.ResumeAfterGateTests.test_resume_refuses_non_gate_failure) ... ok
+test_resume_refuses_sidecar_cleanup_failure (test_upgrade_wavefoundry.ResumeAfterGateTests.test_resume_refuses_sidecar_cleanup_failure) ... ok
+test_resume_refuses_when_no_lock (test_upgrade_wavefoundry.ResumeAfterGateTests.test_resume_refuses_when_no_lock) ... ok
+test_resume_runs_only_the_docs_gate_and_clears_marker_on_pass (test_upgrade_wavefoundry.ResumeAfterGateTests.test_resume_runs_only_the_docs_gate_and_clears_marker_on_pass) ... ok
+test_the_summary_reports_the_gate_passed_and_finalize_points_at_resume (test_upgrade_wavefoundry.ResumeAfterGateTests.test_the_summary_reports_the_gate_passed_and_finalize_points_at_resume) ... ok
+test_tree_already_at_no_version_file (test_upgrade_wavefoundry.ResumeAfterGateTests.test_tree_already_at_no_version_file) ... ok
+test_tree_already_at_target (test_upgrade_wavefoundry.ResumeAfterGateTests.test_tree_already_at_target) ... ok
+test_cleanup_branch_derives_outcome_fields_from_lock (test_upgrade_wavefoundry.Phase4PublisherGrantTests.test_cleanup_branch_derives_outcome_fields_from_lock) ... ok
+test_detached_child_suppressed_even_when_bridge_exported_token (test_upgrade_wavefoundry.Phase4PublisherGrantTests.test_detached_child_suppressed_even_when_bridge_exported_token) ... 
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+  Phase 4b: updating graph index (blocking) ...
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+ok
+test_docs_child_failure_is_observed_not_swallowed (test_upgrade_wavefoundry.Phase4PublisherGrantTests.test_docs_child_failure_is_observed_not_swallowed) ... 
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+  Phase 4b: updating graph index (blocking) ...
+  ⚠  Graph index update exited 7 — continuing (first-query rebuild remains the safety net).
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+ok
+test_failed_publication_reaches_cleanup_sentinel (test_upgrade_wavefoundry.Phase4PublisherGrantTests.test_failed_publication_reaches_cleanup_sentinel) ... 
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+  Phase 4b: updating graph index (blocking) ...
+  ⚠  Graph index update exited 7 — continuing (first-query rebuild remains the safety net).
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+ok
+test_failed_publication_reaches_primary_sentinel (test_upgrade_wavefoundry.Phase4PublisherGrantTests.test_failed_publication_reaches_primary_sentinel) ... 
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+  Phase 4b: updating graph index (blocking) ...
+  ⚠  Graph index update exited 7 — continuing (first-query rebuild remains the safety net).
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+ok
+test_memory_bound_docs_child_failure_still_raises (test_upgrade_wavefoundry.Phase4PublisherGrantTests.test_memory_bound_docs_child_failure_still_raises) ... 
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+ok
+test_no_lock_means_no_grant_and_no_lock_creation (test_upgrade_wavefoundry.Phase4PublisherGrantTests.test_no_lock_means_no_grant_and_no_lock_creation) ... 
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+  Phase 4b: updating graph index (blocking) ...
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+ok
+test_rebuild_children_granted_and_detached_child_suppressed (test_upgrade_wavefoundry.Phase4PublisherGrantTests.test_rebuild_children_granted_and_detached_child_suppressed) ... 
+── Phase 4: Index rebuild (full) ──
+  Phase 4a: rebuilding docs and code index layers (blocking) ...
+  Phase 4b: rebuilding graph index (blocking) ...
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+ok
+test_rebuild_docs_child_failure_is_observed_not_swallowed (test_upgrade_wavefoundry.Phase4PublisherGrantTests.test_rebuild_docs_child_failure_is_observed_not_swallowed) ... 
+── Phase 4: Index rebuild (full) ──
+  Phase 4a: rebuilding docs and code index layers (blocking) ...
+  Phase 4b: rebuilding graph index (blocking) ...
+  ⚠  Graph index rebuild exited 7 — continuing (first-query rebuild remains the safety net).
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+ok
+test_update_children_granted_and_detached_child_suppressed (test_upgrade_wavefoundry.Phase4PublisherGrantTests.test_update_children_granted_and_detached_child_suppressed) ... 
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+  Phase 4b: updating graph index (blocking) ...
+  Phase 4c: skipped — the foreground setup pass already published one complete docs+code semantic epoch.
+ok
+test_ambiguous_memory_id_resume_fails_loud_and_restores_phase (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_ambiguous_memory_id_resume_fails_loud_and_restores_phase) ... ok
+test_backstop_refuses_denied_lstat_on_every_platform (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_backstop_refuses_denied_lstat_on_every_platform)
+Platform-independent: ``os.lstat`` denial on the waves root or a ... ok
+test_backstop_refuses_untraversable_waves_parent_path_free (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_backstop_refuses_untraversable_waves_parent_path_free) ... ok
+test_backstop_refuses_untraversable_waves_root_candidate_path_free (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_backstop_refuses_untraversable_waves_root_candidate_path_free) ... ok
+test_backstop_scopes_restart_from_lock_carried_from_version (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_backstop_scopes_restart_from_lock_carried_from_version)
+Wave 1to78 AC-3 (call path 3): the deferred backstop cannot ... ERROR: Historical memory is complete (0 pending) but not yet marked indexed; index/cleanup is refused. Recover in order: --resume-after-memory first (it exits zero while the upgrade is still non-terminal), then --cleanup, then index_build; confirm with index_health.
+ERROR: Historical memory is complete (0 pending) but not yet marked indexed; index/cleanup is refused. Recover in order: --resume-after-memory first (it exits zero while the upgrade is still non-terminal), then --cleanup, then index_build; confirm with index_health.
+ok
+test_cleanup_cannot_remove_lock_after_memory_indexed_but_docs_failed (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_cleanup_cannot_remove_lock_after_memory_indexed_but_docs_failed)
+An indexed memory run does not authorize cleanup around a failed docs gate. ... ok
+test_default_path_failure_keeps_the_dependency_flag_beside_the_failed_phase (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_default_path_failure_keeps_the_dependency_flag_beside_the_failed_phase) ... ERROR: Upgrade failed during phase 'index_update'. The upgrade lock has been RETAINED with a failure marker so dashboard restart intent and any partially replaced tree remain visible. Inspect .wavefoundry/upgrade-in-progress.json. Resolve the failure, then re-run the full upgrade to restore a clean state.
+ok
+test_default_upgrade_clears_docs_failure_and_runs_canonical_bounded_batch (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_default_upgrade_clears_docs_failure_and_runs_canonical_bounded_batch) ... ok
+test_default_upgrade_marks_indexed_after_phase_four (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_default_upgrade_marks_indexed_after_phase_four) ... ok
+test_docs_gate_resume_establishes_memory_checkpoint_and_composes (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_docs_gate_resume_establishes_memory_checkpoint_and_composes)
+External pfq6 reproduction: the successful docs recovery used to ... 
+── Resume: re-running the docs gate against the already-extracted tree ──
+  Review-state projection and docs gate PASSED on resume; the historical-memory checkpoint is ready. Run wf_upgrade(phase='resume_after_memory') to publish the index.
+Historical memory validated; Phase 4 index publication complete.
+ok
+test_indexed_memory_resume_retries_storage_verification_without_republishing (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_indexed_memory_resume_retries_storage_verification_without_republishing) ... ERROR: Historical memory index publication failed: fresh verifier interrupted
+Historical memory index publication is already complete.
+ok
+test_new_code_sidecar_refusal_is_not_misreported_as_memory_action (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_new_code_sidecar_refusal_is_not_misreported_as_memory_action)
+A cleanup backstop refusal is rc1 recovery, never rc4 memory work. ... ok
+test_old_shaped_lock_bootstraps_new_migrations_before_update_index (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_old_shaped_lock_bootstraps_new_migrations_before_update_index) ... ERROR: Historical memory validation is pending; index/cleanup is refused. Run bounded memory backfill + validation, then --resume-after-memory.
+ERROR: Historical memory validation is pending; index/cleanup is refused. Run bounded memory backfill + validation, then --resume-after-memory.
+ok
+test_pending_resume_restores_memory_recovery_publication_phase (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_pending_resume_restores_memory_recovery_publication_phase)
+Action-required may not strand the tools needed to clear the action. ... ok
+test_publication_verbs_cannot_bypass_failed_review_or_docs_gate (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_publication_verbs_cannot_bypass_failed_review_or_docs_gate)
+Both incremental and full publication stop before the new-code backstop. ... ok
+test_resume_accepts_publication_checkpoint_and_clears_compatibility_lease (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_resume_accepts_publication_checkpoint_and_clears_compatibility_lease) ... Historical memory validated; Phase 4 index publication complete.
+ok
+test_resume_after_memory_cannot_bypass_failed_review_or_docs_gate (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_resume_after_memory_cannot_bypass_failed_review_or_docs_gate)
+The memory resume must not publish while the earlier typed gate is failed. ... ok
+test_resume_after_memory_repairs_same_version_stale_memory_id (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_resume_after_memory_repairs_same_version_stale_memory_id)
+The public recovery command must not depend on the <1.15 migration gate. ... Historical memory validated; Phase 4 index publication complete.
+ok
+test_resume_after_memory_restages_receipt_to_trailing_graph_attempt (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_resume_after_memory_restages_receipt_to_trailing_graph_attempt)
+External pfqq reproduction: the content child writes a staging ... 
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+  Phase 4b: updating graph index (blocking) ...
+  Phase 4c: skipped — child preparation finished; epoch publication is pending the parent.
+Historical memory validated; Phase 4 index publication complete.
+ok
+test_resume_already_complete_clears_retained_index_marker (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_resume_already_complete_clears_retained_index_marker)
+The idempotent re-run recovers a stale marker for the phase that ... Historical memory validated; Phase 4 index publication complete.
+Historical memory index publication is already complete.
+ok
+test_resume_handles_a_migration_reader_failure_as_a_dependency_failure (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_resume_handles_a_migration_reader_failure_as_a_dependency_failure) ... ok
+test_resume_publishes_before_marking_indexed_and_is_idempotent (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_resume_publishes_before_marking_indexed_and_is_idempotent) ... Historical memory validated; Phase 4 index publication complete.
+Historical memory index publication is already complete.
+ok
+test_resume_recovers_published_epoch_without_second_index_pass (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_resume_recovers_published_epoch_without_second_index_pass) ... ERROR: Historical memory index publication failed: checkpoint unavailable
+Historical memory index publication is already complete.
+ok
+test_resume_requeues_history_changed_at_index_finalize (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_resume_requeues_history_changed_at_index_finalize) ... ERROR: Historical memory index publication failed: index child did not produce a valid staging receipt; authoritative index state remains unpublished
+ok
+test_resume_success_clears_only_its_own_failure_marker (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_resume_success_clears_only_its_own_failure_marker)
+1t49m field report: a failed resume left a marker that no later ... Historical memory validated; Phase 4 index publication complete.
+ok
+test_resume_success_preserves_marker_naming_a_different_phase (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_resume_success_preserves_marker_naming_a_different_phase)
+A later success must not launder an earlier unrecovered failure. ... Historical memory validated; Phase 4 index publication complete.
+ok
+test_standalone_gate_pending_refusal_keeps_validation_routing (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_standalone_gate_pending_refusal_keeps_validation_routing)
+1u44n: with genuinely pending memory work the gate keeps routing to ... ok
+test_standalone_gate_zero_pending_refusal_states_ordered_recovery (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_standalone_gate_zero_pending_refusal_states_ordered_recovery)
+1u44n (AC-2, third refusal surface): the zero-pending field ... ok
+test_update_index_cannot_bypass_ready_memory_gate (test_upgrade_wavefoundry.HistoricalMemoryUpgradeGateTests.test_update_index_cannot_bypass_ready_memory_gate) ... ok
+test_a_distribution_module_needs_no_row_for_a_routed_call_only (test_tree_kill_routing.ClassificationTests.test_a_distribution_module_needs_no_row_for_a_routed_call_only) ... ok
+test_binding_census_ignores_direct_calls (test_tree_kill_routing.ClassificationTests.test_binding_census_ignores_direct_calls) ... ok
+test_binding_census_sees_a_planted_runner_alias (test_tree_kill_routing.ClassificationTests.test_binding_census_sees_a_planted_runner_alias) ... ok
+test_binding_census_sees_planted_aliases_of_every_subprocess_api (test_tree_kill_routing.ClassificationTests.test_binding_census_sees_planted_aliases_of_every_subprocess_api) ... ok
+test_census_flags_a_timed_call_to_an_unnamed_callee (test_tree_kill_routing.ClassificationTests.test_census_flags_a_timed_call_to_an_unnamed_callee) ... ok
+test_census_sees_a_planted_timed_check_output (test_tree_kill_routing.ClassificationTests.test_census_sees_a_planted_timed_check_output) ... ok
+test_census_sees_a_planted_unclassified_call (test_tree_kill_routing.ClassificationTests.test_census_sees_a_planted_unclassified_call) ... ok
+test_every_exclusion_has_a_reason (test_tree_kill_routing.ClassificationTests.test_every_exclusion_has_a_reason) ... ok
+test_every_timed_call_is_routed_or_classified (test_tree_kill_routing.ClassificationTests.test_every_timed_call_is_routed_or_classified) ... ok
+test_resolver_sites_are_in_the_resolver_modules (test_tree_kill_routing.ClassificationTests.test_resolver_sites_are_in_the_resolver_modules) ... ok
+test_runners_are_bound_to_names_only_in_the_resolvers (test_tree_kill_routing.ClassificationTests.test_runners_are_bound_to_names_only_in_the_resolvers) ... ok
+test_exited_child_with_a_descendant_holding_the_pipe_ends_the_group (test_tree_kill_routing.ExitedUnreapedChildTests.test_exited_child_with_a_descendant_holding_the_pipe_ends_the_group) ... ok
+test_convention_hook_timeout_ends_the_tree_and_aborts (test_tree_kill_routing.GrandchildTests.test_convention_hook_timeout_ends_the_tree_and_aborts) ... ERROR: Convention hook 'post-docs-gate' timed out after 5.0s — aborting upgrade.
+ok
+test_parent_interrupt_ends_the_tree_through_a_setup_install_step (test_tree_kill_routing.GrandchildTests.test_parent_interrupt_ends_the_tree_through_a_setup_install_step) ... ok
+test_setup_install_step_timeout_ends_the_tree (test_tree_kill_routing.GrandchildTests.test_setup_install_step_timeout_ends_the_tree) ... ok
+test_reaped_child_is_not_group_signalled (test_tree_kill_routing.ReapGuardTests.test_reaped_child_is_not_group_signalled) ... ok
+test_unreaped_child_is_group_signalled (test_tree_kill_routing.ReapGuardTests.test_unreaped_child_is_group_signalled) ... ok
+test_windows_branch_follows_the_same_rule (test_tree_kill_routing.ReapGuardTests.test_windows_branch_follows_the_same_rule) ... ok
+test_gitignored_paths_timeout_ends_the_fake_gits_descendant (test_tree_kill_routing.RoutedGitSiteTests.test_gitignored_paths_timeout_ends_the_fake_gits_descendant) ... ok
+test_each_module_resolver_calls_the_helper (test_tree_kill_routing.RoutingSpyTests.test_each_module_resolver_calls_the_helper) ... ok
+test_graph_quality_git_value_calls_the_helper_with_its_timeout (test_tree_kill_routing.RoutingSpyTests.test_graph_quality_git_value_calls_the_helper_with_its_timeout) ... ok
+test_graph_quality_git_value_falls_back_without_the_helper (test_tree_kill_routing.RoutingSpyTests.test_graph_quality_git_value_falls_back_without_the_helper) ... ok
+test_routed_module_falls_back_without_the_helper (test_tree_kill_routing.RoutingSpyTests.test_routed_module_falls_back_without_the_helper) ... ok
+test_setup_falls_back_without_the_helper (test_tree_kill_routing.RoutingSpyTests.test_setup_falls_back_without_the_helper) ... ok
+test_setup_install_step_calls_the_helper (test_tree_kill_routing.RoutingSpyTests.test_setup_install_step_calls_the_helper) ... ok
+test_store_git_strip_vars_calls_the_helper (test_tree_kill_routing.RoutingSpyTests.test_store_git_strip_vars_calls_the_helper) ... ok
+test_store_run_git_calls_the_helper_with_the_sanitized_env (test_tree_kill_routing.RoutingSpyTests.test_store_run_git_calls_the_helper_with_the_sanitized_env) ... ok
+test_techdocs_worker_calls_the_helper_with_its_input (test_tree_kill_routing.RoutingSpyTests.test_techdocs_worker_calls_the_helper_with_its_input) ... ok
+test_large_input_to_a_slow_reader_completes (test_tree_kill_routing.SlicedWaitTests.test_large_input_to_a_slow_reader_completes) ... ok
+test_no_timeout_still_completes (test_tree_kill_routing.SlicedWaitTests.test_no_timeout_still_completes) ... ok
+test_output_larger_than_a_pipe_buffer_is_whole (test_tree_kill_routing.SlicedWaitTests.test_output_larger_than_a_pipe_buffer_is_whole) ... ok
+test_timeout_is_the_callers (test_tree_kill_routing.SlicedWaitTests.test_timeout_is_the_callers) ... ok
+test_waits_in_slices (test_tree_kill_routing.SlicedWaitTests.test_waits_in_slices) ... ok
+
+----------------------------------------------------------------------
+Ran 120 tests in 38.058s
+
+OK

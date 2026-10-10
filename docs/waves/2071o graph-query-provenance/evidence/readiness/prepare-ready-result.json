@@ -1,0 +1,39 @@
+{
+  "status": "ok",
+  "wave_id": "2071o graph-query-provenance",
+  "mode": "ready",
+  "readied": true,
+  "transitioned_to_active": false,
+  "lint_passed": true,
+  "garden_passed": true,
+  "pending_readiness_lanes": [],
+  "receipt": {
+    "council_seats": [
+      "red-team",
+      "security-reviewer"
+    ],
+    "delivery_council_required": true,
+    "delivery_mode": "targeted",
+    "evaluator_version": 7,
+    "policy_input_digest": "dfbb9780ba353534c2b908de2742990b890598871c6be43b0289dca236dfdd2e",
+    "primer_depth": "standard",
+    "receipt_id": "review-policy-e9a75dedfaade92ebcdd",
+    "record_type": "review_policy_receipt",
+    "requested_lanes": [
+      "code-reviewer",
+      "qa-reviewer",
+      "architecture-reviewer",
+      "performance-reviewer",
+      "docs-contract-reviewer"
+    ],
+    "required_lanes": [
+      "code-reviewer",
+      "qa-reviewer",
+      "architecture-reviewer",
+      "docs-contract-reviewer",
+      "performance-reviewer"
+    ],
+    "schema_version": 1
+  },
+  "diagnostics": []
+}

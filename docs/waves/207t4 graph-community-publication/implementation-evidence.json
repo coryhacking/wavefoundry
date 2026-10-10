@@ -1,0 +1,149 @@
+{
+  "wave": "207t4 graph-community-publication",
+  "change": "207t3-bug graph-community-reset-publication",
+  "phase": "implementation qualification, not delivery approval",
+  "frozen_at_utc": "2026-10-09T05:18:22.214046+00:00",
+  "scope_sha256": {
+    ".wavefoundry/framework/scripts/indexer.py": "3e1c935ccfe460a82c288c46d61f49460351f8d953a5084641681dac700c7605",
+    ".wavefoundry/framework/scripts/graph_indexer.py": "0f193c0b4e9f8eedf7ce113a9fd3bd6caa9970f36dca98d2ad385500d23fcd3c",
+    ".wavefoundry/framework/scripts/graph_cluster.py": "c861d84f039c323c755842f355ad159fa2ac1c0133beea537dcca2a6bcd3b0fe",
+    ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": "19736b0bc4a031fc2605994b062f566ac4054355157befacbb49f347dbe7ccac",
+    ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": "b6fcf1e5ac291408182cdeb7696537849f9a479c44b6fa12621aaaa95c488da9",
+    ".wavefoundry/framework/scripts/tests/test_indexer.py": "5d89b3ef32d48b726df97258c53330f99fc0799a9b09feaaae35e728a185e22f",
+    ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "0e292d7d5643fe2339167cd8fdca3507c6aeeb9ab1a78cc5779f1ba5bb920992",
+    "docs/architecture/data-and-control-flow.md": "65aef7155f31ea3a65ddc72b11de52c5c2320c6d7ec2ccba41ab80bb252c420a",
+    "docs/architecture/testing-architecture.md": "c6960a2fea0a9fc021c7e07c3e113d37e6099c0c198729d395d39fdc765f7a65"
+  },
+  "changed_this_implementation": [
+    ".wavefoundry/framework/scripts/indexer.py",
+    ".wavefoundry/framework/scripts/graph_indexer.py",
+    ".wavefoundry/framework/scripts/graph_cluster.py",
+    ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py",
+    ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py",
+    "docs/architecture/data-and-control-flow.md",
+    "docs/architecture/testing-architecture.md"
+  ],
+  "preserved_pending_edits": "graph_indexer Rust changes retained; graph wave adds only GraphCommunityPublication.analysis_recomputed default. Existing architecture paragraphs retained.",
+  "focused_tests": [
+    {
+      "owner": "transaction and cluster",
+      "command": "PYTHONPATH=.wavefoundry/framework/scripts:.wavefoundry/framework/scripts/tests /Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest test_graph_transactional_state test_graph_cluster -q",
+      "tests": 94,
+      "skips": 0,
+      "seconds": 2.27,
+      "result": "ok"
+    },
+    {
+      "owner": "controlled public responses",
+      "cwd": ".wavefoundry/framework/scripts/tests",
+      "command": "/Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest -v test_server_tools_retrieval.ControlledCommunityPublicationResponseTests",
+      "tests": 3,
+      "skips": 0,
+      "seconds": 0.864,
+      "result": "ok"
+    },
+    {
+      "owner": "whole indexer",
+      "cwd": ".wavefoundry/framework/scripts/tests",
+      "command": "/Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest test_indexer",
+      "tests": 398,
+      "skips": 0,
+      "seconds": 182.223,
+      "result": "ok",
+      "log": "/tmp/wf-207t4-indexer-owner.log"
+    }
+  ],
+  "total_tests": 495,
+  "total_skips": 0,
+  "ac_evidence": {
+    "AC-1": [
+      "test_reset_recompute_replaces_unchanged_members_and_preserves_ids",
+      "test_valid_same_fingerprint_reset_republishes_without_expensive_analysis",
+      "test_public_graph_build_version_reset_restores_all_unchanged_members",
+      "test_actual_orphan_reconciliation_reset_caller_restores_members"
+    ],
+    "AC-2": [
+      "test_same_fingerprint_structural_corruption_recomputes_and_repairs",
+      "test_same_fingerprint_missing_member_repairs_both_public_rankings"
+    ],
+    "AC-3": [
+      "test_valid_empty_projection_reuses_and_reset_publishes_empty_replacement",
+      "test_valid_history_fixed_categories_and_exclusions_reuse_without_writes",
+      "test_incremental_membership_delta_writes_only_one_added_member",
+      "test_reset_valid_reuse_preserves_both_public_rankings_without_analysis"
+    ],
+    "AC-4": [
+      "test_actual_wal_reader_keeps_old_generation_until_commit_and_after_sql_failure",
+      "test_source_recheck_and_newer_schema_reject_reset_without_destroying_rows",
+      "test_normal_layer_diff_isolated_and_reset_remains_global"
+    ],
+    "AC-5": [
+      "test_reset_recomputed_clusters_preserve_both_public_rankings",
+      "test_reset_valid_reuse_preserves_both_public_rankings_without_analysis",
+      "test_same_fingerprint_missing_member_repairs_both_public_rankings"
+    ]
+  },
+  "transaction_tests": [
+    "test_valid_empty_projection_reuses_and_reset_publishes_empty_replacement",
+    "test_reset_recompute_replaces_unchanged_members_and_preserves_ids",
+    "test_valid_same_fingerprint_reset_republishes_without_expensive_analysis",
+    "test_valid_history_fixed_categories_and_exclusions_reuse_without_writes",
+    "test_same_fingerprint_structural_corruption_recomputes_and_repairs",
+    "test_incremental_membership_delta_writes_only_one_added_member",
+    "test_actual_wal_reader_keeps_old_generation_until_commit_and_after_sql_failure",
+    "test_source_recheck_and_newer_schema_reject_reset_without_destroying_rows",
+    "test_normal_layer_diff_isolated_and_reset_remains_global",
+    "test_public_graph_build_version_reset_restores_all_unchanged_members",
+    "test_actual_orphan_reconciliation_reset_caller_restores_members"
+  ],
+  "known_bad_controls": {
+    "transaction": {
+      "root": "/tmp/wf207t4-mutants-gsrf_h1u",
+      "mutants": [
+        "reset_baseline",
+        "valid_reset_skip",
+        "completeness_skip",
+        "orphan_reset_input",
+        "build_reset_input",
+        "reuse_reported_recompute",
+        "fixed_category_only",
+        "exact_universe_only",
+        "catalog_metadata_only"
+      ],
+      "result": "all nine killed at substantive assertions, not import errors or skips"
+    },
+    "public_consumer": {
+      "driver": "/tmp/wf-207t4-consumer-mutants.py",
+      "logs": [
+        "/tmp/wf-207t4-consumer-mutant-reset.log",
+        "/tmp/wf-207t4-consumer-mutant-reuse.log"
+      ],
+      "result": "reset baseline and completeness bypass both killed at substantive public response/recovery assertions"
+    }
+  },
+  "limits": {
+    "consumer": "two production and two larger evidence artifacts, limits 1 and 2, literal independent identities/order/counts/hubs",
+    "completeness": "structural catalog/metadata/eligible identity/fixed-category completeness; no exact historical production repartition certification",
+    "baseline": "actual pre-fix publication and real build probes in readiness packet; helpers did not execute pre-fix new fixtures before core landed",
+    "qualification": "no canonical test receipt or live graph/setup refresh claimed; root owns both after C5 repair",
+    "review": "all independent delivery approvals pending; no self-approval"
+  },
+  "pending": [
+    "root canonical setup and original live EvidencePartitionResponseTests",
+    "root whole canonical suite and matching receipt",
+    "fresh independent code/QA/architecture/docs/performance delivery review",
+    "root C1 maintained upstream test inventory",
+    "operator close/commit/push not authorized"
+  ],
+  "helpers": "graph_transaction_tests and graph_consumer_tests finished; no running test/helper processes",
+  "docs_validation": {
+    "tool": "wf_validate_docs",
+    "passed": true,
+    "errors": [],
+    "warnings": []
+  },
+  "diff_check": {
+    "scoped": true,
+    "passed": true
+  }
+}

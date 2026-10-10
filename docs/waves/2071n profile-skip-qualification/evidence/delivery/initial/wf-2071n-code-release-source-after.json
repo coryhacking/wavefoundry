@@ -1,0 +1,77 @@
+[
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_graph_quality_eval.py",
+    "sha256": "32191794772a6acaa691d0b219a3ddb098b86154590bc61cc95f2fe349a1e3c8",
+    "git_blob": "4313d65b529f62fa325a5f715cdc73fa47f7ed24"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py",
+    "sha256": "ee0821b1eae4ffd5d722cb5ce9cbaa25129ee9ddb7e95af15bd18abd160fbd8e",
+    "git_blob": "606f109a6fd5049c5cc874fe09a327ffb87def8f"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_change_id_path_guard.py",
+    "sha256": "5576b5ae4c34512625f30a22333decfee15610887d9fc3199f42addcb240930b",
+    "git_blob": "c15676c6eb6fddcfdb8920b5ed33e8184988aee2"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_review_policy.py",
+    "sha256": "f4b1043267d9f9ae18caadba57deaf4fa9a0dd208b0cca7ab23ef5abd4c371ed",
+    "git_blob": "5f5c9a48defb8f2f0e2b4e78e4150ca99740e25e"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_storage_upgrade_resume.py",
+    "sha256": "4bd68eb3d40f6697e8a2e9a9f8ce72ee49bd29f09fc0a3be837da0ddea5aaaf5",
+    "git_blob": "55f91c1b226d25314e2b7ea706bfd0adff7585e4"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py",
+    "sha256": "2317a5c2301a0ddb65ee6e90994be58346ab1c1625fa95b244b7538b1dafc1a3",
+    "git_blob": "7aa1776ca4f837997dc050c050c9cf03ef433013"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/graph_fixture_support.py",
+    "sha256": "995922d6e62457bb11a35771640441600d1acdf63194206958be96472197605f",
+    "git_blob": "b7a5c94c96e1b5d98d91c2a03c77eabce0de5ecc"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/record_layout_support.py",
+    "sha256": "82325f6a3f403ef98ffd25ce6e7479e12f482d5d0569272d3f75c85b667189d4",
+    "git_blob": "8d7e9e0cc1ab5db789e7dbf71001a18b4941927f"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_profile_support.py",
+    "sha256": "fb20210e94d036447b68a24120ee85cd1e0e18c265972355dd8a267819b9c8f2",
+    "git_blob": "ce2d1d8213f41008d49caa726ad317c9864a3d66"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/historical_fixture_support.py",
+    "sha256": "8cd98a1687be7e7ec7ff9e34c05167b42d6b099d041585a815692addb884d4f4",
+    "git_blob": "6dc7ee4cf6a6a4e73d407a46e28e06d018efa791"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_historical_fixture_support.py",
+    "sha256": "0746f6a8aea1cf575f9c0ab32c048c902ac6bb757a084d155da445585847122a",
+    "git_blob": "79fa07b4725034a40deec35064221313f202fdc2"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/fixtures/historical_sources.json",
+    "sha256": "dd51106bf6121ae1d22cfcdb5b2e5231200a90b334d14a0e65c403449e18671f",
+    "git_blob": "b4a53e0288752ba4776bafc4f3ba56a4bf1cee97"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json",
+    "sha256": "53aaa1592d01e968df2edb819cf8468626f75fe4afc47d043844cc1d64f6021d",
+    "git_blob": "b19e8e04800305efce9fa02a6f9c3de09ca3e5c2"
+  },
+  {
+    "path": "docs/architecture/testing-architecture.md",
+    "sha256": "a01d81392fc25746de8c5002e27ea572a9f2f8b8279b1be316fec8f82633471d",
+    "git_blob": "69244c525f33f3fc54d5b4d23724bc992325bada"
+  },
+  {
+    "path": "docs/contributing/build-and-verification.md",
+    "sha256": "3b1ee60d04310c2f0d9f4e55a575f3f7101d62947d6afd1639f21594ce1232f5",
+    "git_blob": "86e353e5a1384d4c67d157e61930357d98a39ca5"
+  }
+]

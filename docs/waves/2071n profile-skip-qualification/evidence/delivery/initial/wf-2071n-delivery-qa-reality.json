@@ -1,0 +1,549 @@
+{
+  "wave_id": "2071n",
+  "phase": "delivery",
+  "tree_fingerprint": "da24daa9327940e665629ca6029223d4dad8d413d202aee7c80e2cd4b599385e",
+  "source_fingerprint_before": "da24daa9327940e665629ca6029223d4dad8d413d202aee7c80e2cd4b599385e",
+  "source_fingerprint_after": "da24daa9327940e665629ca6029223d4dad8d413d202aee7c80e2cd4b599385e",
+  "source_integrity_checks": [
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_graph_quality_eval.py",
+      "sha256_matches": true,
+      "git_blob_matches": true
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py",
+      "sha256_matches": true,
+      "git_blob_matches": true
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_change_id_path_guard.py",
+      "sha256_matches": true,
+      "git_blob_matches": true
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_review_policy.py",
+      "sha256_matches": true,
+      "git_blob_matches": true
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_storage_upgrade_resume.py",
+      "sha256_matches": true,
+      "git_blob_matches": true
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py",
+      "sha256_matches": true,
+      "git_blob_matches": true
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/graph_fixture_support.py",
+      "sha256_matches": true,
+      "git_blob_matches": true
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/record_layout_support.py",
+      "sha256_matches": true,
+      "git_blob_matches": true
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_profile_support.py",
+      "sha256_matches": true,
+      "git_blob_matches": true
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/historical_fixture_support.py",
+      "sha256_matches": true,
+      "git_blob_matches": true
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_historical_fixture_support.py",
+      "sha256_matches": true,
+      "git_blob_matches": true
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/fixtures/historical_sources.json",
+      "sha256_matches": true,
+      "git_blob_matches": true
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json",
+      "sha256_matches": true,
+      "git_blob_matches": true
+    },
+    {
+      "path": "docs/architecture/testing-architecture.md",
+      "sha256_matches": true,
+      "git_blob_matches": true
+    },
+    {
+      "path": "docs/contributing/build-and-verification.md",
+      "sha256_matches": true,
+      "git_blob_matches": true
+    }
+  ],
+  "packet_match_before": true,
+  "packet_match_after": true,
+  "frozen_tree_method": "Independently verified each of15 packet SHA256 values during initial/after probes and both SHA256 plus git hash-object at report completion; retained canonical supplied fingerprint serialization because every path matches.",
+  "qa": {
+    "verification_context": {
+      "actor": "qa-reviewer",
+      "context_id": "2071n-delivery-qa-independent-20261009",
+      "fresh_context": true,
+      "independent": true
+    },
+    "pre_primer_read": "The bounded published graph and pinned historical fixtures appear capable of removing checkout-dependent skips, but I expect qualification to remain unproven until I execute negative controls and reconcile every full-profile skip identity/reason.",
+    "primer_effect": "Extended: the primer sharpened the need to distinguish source provenance from original historical execution, while my later independent second-profile reproduction demonstrated a concrete regression that prevents approval.",
+    "verdict": "needs more evidence; QA-2071N-01 must repair",
+    "findings": [
+      {
+        "finding_id": "QA-2071N-01",
+        "file": ".wavefoundry/framework/scripts/tests/test_profile_support.py",
+        "lines": "278-287",
+        "class": "profile-regression-derived-state-mismatch",
+        "summary": "New declared-tools marker regression fails under the second profile because its simulated stock vocabulary leaves MEMBER_ID_LABEL_RE computed from the second-profile label.",
+        "reachability": "reachable",
+        "confidence": "high",
+        "severity": "medium",
+        "recommended_fix": "Make the regression's simulated stock vocabulary internally consistent by explicitly recomputing MEMBER_ID_LABEL_RE from the patched MEMBER_ID_LABEL, or execute the probe in a genuinely imported stock-vocabulary context. Retain the real corpus test's >100 and acceptance assertions; do not default-mark or broadly skip the new regression.",
+        "source_lanes": [
+          "qa-reviewer"
+        ],
+        "blocking_required_lanes": [
+          "qa-reviewer"
+        ],
+        "phase": "delivery",
+        "disposition": "do_now",
+        "judgment": {
+          "proposition_valid": true,
+          "impact": "Required second-profile qualification deterministically fails in a new regression; delivery approval must wait for repair and current full-profile rerun.",
+          "authority": "QA required lane for admitted bug fix",
+          "containment": "Test-only regression setup; production marker and real second-profile intentional corpus skip remain correct."
+        },
+        "executable_evidence": {
+          "proposition": "The new declared-tools regression passes under each packaging profile without weakening real corpus assertions.",
+          "counterexample_or_failure_condition": "Actual second-profile imported derived regex remains Wave ID while the regression patches the base label to Change ID; corpus discovery obtains zero IDs and fails.",
+          "execution_status": "executed",
+          "public_path": "run_tests.py profile second -> unittest test_profile_support -> actual IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository -> record_paths discovery and lifecycle_gate_support.is_change_id",
+          "command_or_fixture": "Independent -B interpreter on actual copied second tree, invoke original new regression and original corpus; then recompute only MEMBER_ID_LABEL_RE in memory under the same _loaded context.",
+          "expected": "The nested corpus executes with >100 IDs, no rejects, no errors/failures/skips.",
+          "observed": "379 stock wave.md directories present; patched MEMBER_ID_LABEL Change ID versus derived MEMBER_ID_LABEL_RE Wave\\ ID; stale regex matches0 IDs, recomputed regex matches1105 with0 rejects; original corpus baseline1 failure/0 errors/0 skips; single-derived-regex control1 pass/0 errors/0 skips.",
+          "artifact_or_test_id": "/private/tmp/wf-2071n-qa-marker-diagnosis.json; DefaultProfileOnlyMarkerTests.test_repository_corpus_runs_under_declared_tools; IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository",
+          "adjacent_controls": [
+            "Same actual copied tree and original corpus assertion with only the derived regex recomputed; no source mutation",
+            "All15 source SHA256 values reverified against frozen packet"
+          ],
+          "integrity_checks": {
+            "test_ran_without_unintended_skip": true,
+            "public_path_reached": true,
+            "boundary_values_realistic": true,
+            "assertions_non_vacuous": true,
+            "known_bad_detected": true
+          },
+          "known_bad_detection_method": "Actual current-tree reproduction plus controlled in-memory single-property repair: the unchanged original >100 assertion catches the inconsistent setup, then passes when only the stale derived regex is recomputed.",
+          "limitations": "This proves the named regression defect, not whole second-profile completion; full suites and remaining delivery probes pending.",
+          "safety_and_authorization": "Authorized local read-only independent delivery probes; -B interpreter; copied-tree reads and /private/tmp outputs only.",
+          "probe_class": "local_safe",
+          "authorization_status": "authorized",
+          "safe_boundary": false,
+          "unexecuted_remainder_prohibited": false,
+          "universal_claim": false,
+          "verification_context": {
+            "actor": "qa-reviewer",
+            "context_id": "2071n-delivery-qa-independent-20261009",
+            "fresh_context": true,
+            "independent": true
+          }
+        },
+        "source_fingerprint_before": "da24daa9327940e665629ca6029223d4dad8d413d202aee7c80e2cd4b599385e",
+        "source_fingerprint_after": "da24daa9327940e665629ca6029223d4dad8d413d202aee7c80e2cd4b599385e",
+        "packet_match_before": true,
+        "packet_match_after": true
+      }
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true
+    },
+    "known_bad_detection_method": "Nine in-memory graph mutations and actual corpus predicate removal fail the original affected assertions; permissive historical source loader fails exact corrupt/size/substitution assertions; current reader substituted into original old-reader refusal test fails. The actual second-profile regression is reproduced and a single derived-regex repair control succeeds."
+  },
+  "reality": {
+    "verification_context": {
+      "actor": "reality-checker",
+      "context_id": "2071n-delivery-reality-independent-20261009",
+      "fresh_context": true,
+      "independent": true
+    },
+    "pre_primer_read": "The delivery claim may hold for focused fixtures, but aggregate green totals alone cannot establish that the same frozen source executes all original checks across both profiles.",
+    "primer_effect": "Confirmed: the completed focused checks support retained behavior, but the actual second-profile regression and unfinished exact profile census mean green canonical totals cannot establish delivery qualification.",
+    "verdict": "delivery not proven; return QA blocker to owning lane",
+    "findings": [],
+    "null_finding_declaration": "No distinct findings in my lane: original observable graph and historical contracts execute with meaningful negative controls; the newly observed regression is attributed once to QA.",
+    "named_assumptions": [
+      {
+        "assumption": "Curated fixture retains required graph checks",
+        "status": "executed",
+        "evidence": "baseline21 and nine targeted mutants, independent link identity/presence probe"
+      },
+      {
+        "assumption": "Historical source identity implies original historical execution",
+        "status": "executed for named four seams only",
+        "evidence": "13 Git byte comparisons plus12 no-ref tests and current-reader substitution"
+      },
+      {
+        "assumption": "Second/declared copied suites satisfy exact qualification contract",
+        "status": "unverified and second currently falsified",
+        "evidence": "actual second marker regression fails; final all-profile census pending"
+      },
+      {
+        "assumption": "No loaded-runtime/cache/platform gap remains",
+        "status": "unverified",
+        "evidence": "No fresh-host or native-Windows/cache-authentication claim made"
+      }
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true
+    }
+  },
+  "shared_context_disclosure": "QA and reality roles are performed by one fresh worker with separate named role contexts and common executed evidence; they are not independent confirmations of one another. No implementation or readiness context retained.",
+  "primer_answers": [
+    {
+      "question": 1,
+      "answer": "Complete all-profile accounting remains unverified: captured default178files/12040tests/13skips is green; my sampled-in-time second174files/11136tests/21skip entries has one actual new marker-regression failure, and declared output has not begun. All visible second extras carry default-profile-only reasons, but neither final totals nor exact completed-profile deltas are claimed. Raw logs are retained; final approval withheld."
+    },
+    {
+      "question": 2,
+      "answer": "Actual21 affected graph cases execute with0skips. Independent expected owners/counts31,21 versus62,52 are tested by the existing precise ranking assertion; docs/design/controls.md references both the machine artifact and ordinary evaluator through EXTRACTED doc_references_doc edges. Source and child control presence, ordinary domains, ignored-path absence, evidence reasons, disjoint/full partitions and lookup membership are non-vacuous. Nine focused mutants fail the affected actual assertions; no standalone live-index/clustering qualification is claimed."
+    },
+    {
+      "question": 3,
+      "answer": "Original two v1.14 carrier/current-reconciler tests, old v1.22 main/current siblings resume test, and pinned version-one reader/current siblings refusal test all execute with0skips in a fresh framework copy lacking any Git repository. Eight loader integrity tests also execute. Independently verified13 source bodies against original Git objects and one recorded absence. Current-reader substitution fails the actual old-reader refusal assertion; removed digest/size checking fails three integrity assertions. Fresh-host/runtime/cache/native-Windows certification remains unproven."
+    }
+  ],
+  "strongest_challenge_response": "Accepted as an evidence obligation. The graph and historical focused obligations are now directly exercised against original tests and independent references; exact full-profile completion is unfinished and the second regression is a real blocker.",
+  "best_alternative_response": "Retain bounded hermetic fixtures and exact consumer expectations; complete external per-test profile reconciliation after the minimal regression repair. A mutable operator-index copy or blanket default-only marker would reduce qualification reliability.",
+  "ac_matrix": [
+    {
+      "ac": "AC-1",
+      "priority": "required",
+      "status": "executed focused behavior; qualification pending",
+      "evidence": "21 actual affected graphcases0skip with real canonical extractor/publication/query producers; source control presence independently checked"
+    },
+    {
+      "ac": "AC-2",
+      "priority": "required",
+      "status": "original marker behavior executed; new regression defect blocks all-profile qualification",
+      "evidence": "stock declared6 pass0skip; renamed corpus explicitly skips before body; second new regression leaves derived regex stale and fails"
+    },
+    {
+      "ac": "AC-3",
+      "priority": "required",
+      "status": "executed",
+      "evidence": "nine graph mutants caught by affected assertions; is_change_id=False fails actual corpus acceptance test; empty graph/evidence and removed controls fail"
+    },
+    {
+      "ac": "AC-4",
+      "priority": "required",
+      "status": "executed finite named historical seams",
+      "evidence": "original4 historical tests plus8loader integrity tests12pass0skip in no-Git copy;13 byte matches/1 absence; permissive loader3fails and substituted current reader1fails"
+    }
+  ],
+  "executed_probes": {
+    "graph": {
+      "baseline21": {
+        "tests": 21,
+        "skips": [],
+        "failures": [],
+        "errors": []
+      },
+      "classification_false": {
+        "tests": 2,
+        "skips": [],
+        "failures": [
+          [
+            "test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_machine_result_control_is_classified_as_evidence",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_graph_quality_eval.py\", line 382, in test_the_machine_result_control_is_classified_as_evidence\n    self.assertTrue(modules[0].get(\"evidence_data\"),\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n                    f\"{modules[0].get('id')} must be Evidence/Data\")\n                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None is not true : docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/machine-result-control.json must be Evidence/Data\n"
+          ],
+          [
+            "test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_communities_do_not_appear_in_the_production_ranking",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py\", line 5474, in test_evidence_communities_do_not_appear_in_the_production_ranking\n    self.assertTrue(\n    ~~~~~~~~~~~~~~~^\n        evidence,\n        ^^^^^^^^^\n        \"no evidence communities were returned, so disjointness is vacuous; \"\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        \"this tree is known to carry classified machine-result artifacts\")\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: set() is not true : no evidence communities were returned, so disjointness is vacuous; this tree is known to carry classified machine-result artifacts\n"
+          ]
+        ],
+        "errors": []
+      },
+      "classification_true": {
+        "tests": 1,
+        "skips": [],
+        "failures": [
+          [
+            "test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_legitimate_controls_stay_in_their_ordinary_domains (control='design-tokens-control.json', node='docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/design-tokens-control.json')",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_graph_quality_eval.py\", line 414, in test_the_legitimate_controls_stay_in_their_ordinary_domains\n    self.assertFalse(\n    ~~~~~~~~~~~~~~~~^\n        node.get(\"evidence_data\"),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^\n        f\"{node.get('id')} is legitimate {path.stem} data and \"\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        \"must NOT be classified as Evidence/Data\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nAssertionError: True is not false : docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/design-tokens-control.json is legitimate design-tokens-control data and must NOT be classified as Evidence/Data\n"
+          ],
+          [
+            "test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_legitimate_controls_stay_in_their_ordinary_domains (control='design-tokens-control.json', node='docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/design-tokens-control.json::colors')",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_graph_quality_eval.py\", line 419, in test_the_legitimate_controls_stay_in_their_ordinary_domains\n    self.assertFalse(\n    ~~~~~~~~~~~~~~~~^\n        resolver.is_evidence_node(node[\"id\"]),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        f\"{node.get('id')} must not RESOLVE as evidence either\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nAssertionError: True is not false : docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/design-tokens-control.json::colors must not RESOLVE as evidence either\n"
+          ],
+          [
+            "test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_legitimate_controls_stay_in_their_ordinary_domains (control='design-tokens-control.json', node='docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/design-tokens-control.json::colors.primary')",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_graph_quality_eval.py\", line 419, in test_the_legitimate_controls_stay_in_their_ordinary_domains\n    self.assertFalse(\n    ~~~~~~~~~~~~~~~~^\n        resolver.is_evidence_node(node[\"id\"]),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        f\"{node.get('id')} must not RESOLVE as evidence either\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nAssertionError: True is not false : docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/design-tokens-control.json::colors.primary must not RESOLVE as evidence either\n"
+          ],
+          [
+            "test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_legitimate_controls_stay_in_their_ordinary_domains (control='design-tokens-control.json', node='docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/design-tokens-control.json::spacing')",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_graph_quality_eval.py\", line 419, in test_the_legitimate_controls_stay_in_their_ordinary_domains\n    self.assertFalse(\n    ~~~~~~~~~~~~~~~~^\n        resolver.is_evidence_node(node[\"id\"]),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        f\"{node.get('id')} must not RESOLVE as evidence either\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nAssertionError: True is not false : docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/design-tokens-control.json::spacing must not RESOLVE as evidence either\n"
+          ],
+          [
+            "test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_legitimate_controls_stay_in_their_ordinary_domains (control='service-config-control.json', node='docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/service-config-control.json')",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_graph_quality_eval.py\", line 414, in test_the_legitimate_controls_stay_in_their_ordinary_domains\n    self.assertFalse(\n    ~~~~~~~~~~~~~~~~^\n        node.get(\"evidence_data\"),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^\n        f\"{node.get('id')} is legitimate {path.stem} data and \"\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        \"must NOT be classified as Evidence/Data\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nAssertionError: True is not false : docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/service-config-control.json is legitimate service-config-control data and must NOT be classified as Evidence/Data\n"
+          ],
+          [
+            "test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_legitimate_controls_stay_in_their_ordinary_domains (control='service-config-control.json', node='docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/service-config-control.json::port')",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_graph_quality_eval.py\", line 419, in test_the_legitimate_controls_stay_in_their_ordinary_domains\n    self.assertFalse(\n    ~~~~~~~~~~~~~~~~^\n        resolver.is_evidence_node(node[\"id\"]),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        f\"{node.get('id')} must not RESOLVE as evidence either\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nAssertionError: True is not false : docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/service-config-control.json::port must not RESOLVE as evidence either\n"
+          ],
+          [
+            "test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_legitimate_controls_stay_in_their_ordinary_domains (control='service-config-control.json', node='docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/service-config-control.json::service')",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_graph_quality_eval.py\", line 419, in test_the_legitimate_controls_stay_in_their_ordinary_domains\n    self.assertFalse(\n    ~~~~~~~~~~~~~~~~^\n        resolver.is_evidence_node(node[\"id\"]),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        f\"{node.get('id')} must not RESOLVE as evidence either\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nAssertionError: True is not false : docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/service-config-control.json::service must not RESOLVE as evidence either\n"
+          ],
+          [
+            "test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_legitimate_controls_stay_in_their_ordinary_domains (control='user-authored-data-control.json', node='docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/user-authored-data-control.json')",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_graph_quality_eval.py\", line 414, in test_the_legitimate_controls_stay_in_their_ordinary_domains\n    self.assertFalse(\n    ~~~~~~~~~~~~~~~~^\n        node.get(\"evidence_data\"),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^\n        f\"{node.get('id')} is legitimate {path.stem} data and \"\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        \"must NOT be classified as Evidence/Data\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nAssertionError: True is not false : docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/user-authored-data-control.json is legitimate user-authored-data-control data and must NOT be classified as Evidence/Data\n"
+          ],
+          [
+            "test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_legitimate_controls_stay_in_their_ordinary_domains (control='user-authored-data-control.json', node='docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/user-authored-data-control.json::names')",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_graph_quality_eval.py\", line 419, in test_the_legitimate_controls_stay_in_their_ordinary_domains\n    self.assertFalse(\n    ~~~~~~~~~~~~~~~~^\n        resolver.is_evidence_node(node[\"id\"]),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        f\"{node.get('id')} must not RESOLVE as evidence either\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nAssertionError: True is not false : docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/user-authored-data-control.json::names must not RESOLVE as evidence either\n"
+          ],
+          [
+            "test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_legitimate_controls_stay_in_their_ordinary_domains (control='user-authored-data-control.json', node='docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/user-authored-data-control.json::purpose')",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_graph_quality_eval.py\", line 419, in test_the_legitimate_controls_stay_in_their_ordinary_domains\n    self.assertFalse(\n    ~~~~~~~~~~~~~~~~^\n        resolver.is_evidence_node(node[\"id\"]),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        f\"{node.get('id')} must not RESOLVE as evidence either\",\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\nAssertionError: True is not false : docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/user-authored-data-control.json::purpose must not RESOLVE as evidence either\n"
+          ]
+        ],
+        "errors": []
+      },
+      "partition_overlap": {
+        "tests": 1,
+        "skips": [],
+        "failures": [
+          [
+            "test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_communities_do_not_appear_in_the_production_ranking",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py\", line 5479, in test_evidence_communities_do_not_appear_in_the_production_ranking\n    self.assertEqual(set(), production & evidence,\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n                     \"a community belongs to exactly one half\")\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Items in the second set but not the first:\n'project:docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/machine-result-control.json'\n'project:artifacts/results.json'\n'project:artifacts/trace.json' : a community belongs to exactly one half\n"
+          ]
+        ],
+        "errors": []
+      },
+      "ranking_reverse": {
+        "tests": 1,
+        "skips": [],
+        "failures": [
+          [
+            "test_server_tools_retrieval.EvidencePartitionResponseTests.test_the_limit_applies_independently_to_each_half",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py\", line 5505, in test_the_limit_applies_independently_to_each_half\n    self.assertEqual(\n    ~~~~~~~~~~~~~~~~^\n        [(f\"project:{owner}\", owner, count) for owner, count in expected],\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        [(row[\"community_id\"], row[\"hub_node_id\"], row[\"node_count\"])\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n         for row in data[section]])\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [('project:src/payments/ledger.json', 'src/payments/ledg[77 chars] 21)] != [('project:src/search/ranking.json', 'src/search/ranking[77 chars] 31)]\n\nFirst differing element 0:\n('project:src/payments/ledger.json', 'src/payments/ledger.json', 31)\n('project:src/search/ranking.json', 'src/search/ranking.json', 21)\n\n- [('project:src/payments/ledger.json', 'src/payments/ledger.json', 31),\n-  ('project:src/search/ranking.json', 'src/search/ranking.json', 21)]\n? ^                                                                  ^\n\n+ [('project:src/search/ranking.json', 'src/search/ranking.json', 21),\n? ^                                                                  ^\n\n+  ('project:src/payments/ledger.json', 'src/payments/ledger.json', 31)]\n"
+          ]
+        ],
+        "errors": []
+      },
+      "empty_evidence": {
+        "tests": 1,
+        "skips": [],
+        "failures": [
+          [
+            "test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_rows_carry_their_type_and_a_nonempty_reason",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py\", line 5459, in test_evidence_rows_carry_their_type_and_a_nonempty_reason\n    self.assertTrue(rows, \"the fixture must return classified evidence communities\")\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: [] is not true : the fixture must return classified evidence communities\n"
+          ]
+        ],
+        "errors": []
+      },
+      "lookup_empty_nodes": {
+        "tests": 1,
+        "skips": [],
+        "failures": [
+          [
+            "test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_communities_remain_queryable_by_id",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py\", line 5537, in test_evidence_communities_remain_queryable_by_id\n    self.assertIn(\"artifacts/results.json\", {node[\"id\"] for node in resp[\"data\"][\"nodes\"]})\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'artifacts/results.json' not found in set()\n"
+          ]
+        ],
+        "errors": []
+      },
+      "empty_graph": {
+        "tests": 1,
+        "skips": [],
+        "failures": [
+          [
+            "test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_control_directory_is_indexed_at_all",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_graph_quality_eval.py\", line 351, in setUp\n    self.assertTrue(self.graph.get(\"nodes\"), \"the published fixture is empty\")\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: [] is not true : the published fixture is empty\n"
+          ]
+        ],
+        "errors": []
+      },
+      "missing_ordinary_control": {
+        "tests": 1,
+        "skips": [],
+        "failures": [
+          [
+            "test_graph_quality_eval.LiveGraphEvidenceControlTests.test_retrieval_eval_remains_ordinary_framework_code",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_graph_quality_eval.py\", line 430, in test_retrieval_eval_remains_ordinary_framework_code\n    self.assertTrue(nodes, \"retrieval_eval.py is missing from the graph\")\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: [] is not true : retrieval_eval.py is missing from the graph\n"
+          ]
+        ],
+        "errors": []
+      },
+      "crossing_removed": {
+        "tests": 1,
+        "skips": [],
+        "failures": [
+          [
+            "test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_cross_boundary_edges_survive_the_partition",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py\", line 18142, in test_cross_boundary_edges_survive_the_partition\n    self.assertTrue(crossing,\n    ~~~~~~~~~~~~~~~^^^^^^^^^^\n                    \"every cross-boundary edge was discarded\")\n                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: [] is not true : every cross-boundary edge was discarded\n"
+          ]
+        ],
+        "errors": []
+      },
+      "frozen_paths_match": true
+    },
+    "graph_presence": {
+      "nodes": 184,
+      "edges": 177,
+      "expected_controls_present": true,
+      "independent_link_identities": [
+        {
+          "source": "docs/design/controls.md",
+          "target": ".wavefoundry/framework/scripts/retrieval_eval.py",
+          "relation": "doc_references_doc",
+          "confidence": "EXTRACTED"
+        },
+        {
+          "source": "docs/design/controls.md",
+          "target": "docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/machine-result-control.json",
+          "relation": "doc_references_doc",
+          "confidence": "EXTRACTED"
+        }
+      ],
+      "ignored_nodes_absent": true
+    },
+    "history": {
+      "git_provenance": {
+        "present_matches": [
+          "v114:seed:160",
+          "v114:baseline:implement",
+          "v114:baseline:review",
+          "v114:baseline:agent-review",
+          "v114:baseline:council",
+          "v114:baseline:prepare",
+          "v114:docs/references/project-overview.md",
+          "v114:docs/contributing/build-and-verification.md",
+          "v114:docs/contributing/review-and-evals.md",
+          "v114:docs/specs/mcp-tool-surface.md",
+          "v114:docs/references/dashboard-adapter-model.md",
+          "v122-upgrade",
+          "v1-receipt-reader"
+        ],
+        "recorded_absences": [
+          "v114:docs/contributing/lifecycle-overview.md"
+        ]
+      },
+      "no_git_repository": true,
+      "no_ref_tests": {
+        "tests": 12,
+        "skips": [],
+        "failures": [],
+        "errors": []
+      },
+      "frozen_paths_match": true
+    },
+    "historical_mutants": {
+      "source_guard_removed": {
+        "tests": 3,
+        "skips": [],
+        "failures": [
+          [
+            "test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_source_digest_is_checked_even_if_bundle_digest_is_recomputed",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_historical_fixture_support.py\", line 56, in test_source_digest_is_checked_even_if_bundle_digest_is_recomputed\n    with self.assertRaisesRegex(AssertionError, \"source integrity mismatch\"):\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: AssertionError not raised\n"
+          ],
+          [
+            "test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_source_size_is_checked_even_when_its_bytes_and_digest_match",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_historical_fixture_support.py\", line 62, in test_source_size_is_checked_even_when_its_bytes_and_digest_match\n    with self.assertRaisesRegex(AssertionError, \"source integrity mismatch\"):\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: AssertionError not raised\n"
+          ],
+          [
+            "test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_substituting_current_source_does_not_make_an_old_fixture_valid",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_historical_fixture_support.py\", line 70, in test_substituting_current_source_does_not_make_an_old_fixture_valid\n    with self.assertRaisesRegex(AssertionError, \"source integrity mismatch\"):\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: AssertionError not raised\n"
+          ]
+        ],
+        "errors": []
+      },
+      "current_reader_substituted": {
+        "tests": 1,
+        "skips": [],
+        "failures": [
+          [
+            "test_sqlite_storage_migration.SchemaEightKindTests.test_version_one_code_refuses_a_version_two_receipt_and_creates_nothing",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py\", line 1954, in test_version_one_code_refuses_a_version_two_receipt_and_creates_nothing\n    self.assertNotEqual(child.returncode, 0)\n    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 0 == 0\n"
+          ]
+        ],
+        "errors": []
+      }
+    },
+    "corpus": {
+      "stock_declared_baseline6": {
+        "tests": 6,
+        "skips": [],
+        "failures": [],
+        "errors": []
+      },
+      "corpus_acceptance_removed": {
+        "tests": 1,
+        "skips": [],
+        "failures": [
+          [
+            "test_change_id_path_guard.IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository",
+            "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/record_layout_support.py\", line 956, in wrapper\n    return func(*args, **kwargs)\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_change_id_path_guard.py\", line 238, in test_accepts_every_admitted_id_in_this_repository\n    self.assertEqual(rejected, [])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^\nAssertionError: Lists differ: ['12926-feat wavefoundry-mcp-index', '1293[53217 chars]ion'] != []\n\nFirst list contains 1105 additional elements.\nFirst extra element 0:\n'12926-feat wavefoundry-mcp-index'\n\nDiff is 56608 characters long. Set self.maxDiff to None to see it.\n"
+          ]
+        ],
+        "errors": []
+      },
+      "renamed_skip_before_body": {
+        "tests": 1,
+        "skips": [
+          [
+            "test_change_id_path_guard.IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository",
+            "default-profile-only: this repository's admitted-ID corpus uses the shipped vocabulary and layout (loaded record_paths.WAVES_ROOT differ from the shipped defaults)"
+          ]
+        ],
+        "failures": [],
+        "errors": []
+      }
+    },
+    "marker_diagnosis": {
+      "directories": 379,
+      "base_label": "Change ID",
+      "derived_label": "Wave\\ ID",
+      "old_regex_matches": 0,
+      "recomputed_regex_matches": 1105,
+      "rejected_ids": [],
+      "baseline": {
+        "tests": 1,
+        "skips": 0,
+        "errors": 0,
+        "failures": 1
+      },
+      "derived_regex_control": {
+        "tests": 1,
+        "skips": 0,
+        "errors": 0,
+        "failures": 0
+      }
+    }
+  },
+  "full_profile_census": "/private/tmp/wf-2071n-qa-skip-census-pending.json",
+  "independent_reference": "Independently read admitted requiredACs and original scoped pre-change test assertions, original named Git objects, concrete source-link identities and fixed owner/count tuples; expected behavior was not derived from earlier writer verdicts.",
+  "limitations": [
+    "Finite affected graph fixture checks do not qualify arbitrary live topology or clustering algorithm.",
+    "Exact full second/declared profile outcomes pending; no approval until completed identity/reason comparison on current source.",
+    "Provenance hashes authenticate retained source bytes, not executable loaded/cache/runtime identity. -B probes prevent writes; no broad cached-bytecode authentication asserted.",
+    "No fresh downstream host, native Windows, network, release, commit or wave closure qualification.",
+    "Only scoped source/diff and risk-selected probes performed; no broader suite launched by this worker."
+  ],
+  "writes": "Only /private/tmp probe scripts and JSON outputs; no repository/source/docs/ledger/commit/close mutations."
+}

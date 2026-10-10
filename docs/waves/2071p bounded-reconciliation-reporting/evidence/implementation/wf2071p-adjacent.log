@@ -1,0 +1,10 @@
+[wavefoundry] Embedding model already cached: Snowflake/snowflake-arctic-embed-s
+[wavefoundry][GPU] WARNING: isolated CoreML reranker probe failed; using the safe CPU/fallback path for this process. Cause: exit code -11; stderr tail: 2026-10-09 18:10:18.815 Python[56500:133904212] IOSurfaceSharedEventAddEventListener failed: 10000003
+[wavefoundry] reranker prewarmed: cross-encoder/ms-marco-MiniLM-L-6-v2 (CPUExecutionProvider)
+[wavefoundry][GPU] WARNING: isolated CoreML reranker probe failed; using the safe CPU/fallback path for this process. Cause: exit code -11; stderr tail: 2026-10-09 18:10:19.567 Python[56513:133904352] IOSurfaceSharedEventAddEventListener failed: 10000003
+[wavefoundry] reranker prewarmed: cross-encoder/ms-marco-MiniLM-L-6-v2 (CPUExecutionProvider)
+ERROR: Convention hook 'post-docs-gate' timed out after 5.0s — aborting upgrade.
+----------------------------------------------------------------------
+Ran 79 tests in 36.027s
+
+OK

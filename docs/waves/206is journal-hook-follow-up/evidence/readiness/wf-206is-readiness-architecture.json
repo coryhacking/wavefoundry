@@ -1,0 +1,215 @@
+{
+  "wave_id": "206is",
+  "phase": "readiness",
+  "receipt_id": "review-policy-f6e0dc3d0a917fb40463",
+  "identity_context": "Fresh delegated ARCHITECTURE fixed seat, also architecture-reviewer specialist; dual remit disclosed. No other seat and no implementation authoring. Runtime model identity unavailable.",
+  "verification_context": {
+    "actor": "architecture-reviewer",
+    "context_id": "c6_readiness_architecture_initial_20261009",
+    "fresh_context": true,
+    "independent": true
+  },
+  "pre_primer_read": "Artifact emphasis: one bounded hook seam must preserve separate eligibility and builtin authority. This is not claimed as an isolated prior; the completed primer was read before assessment, per the Prepare packet sequence.",
+  "pre_primer_isolation": false,
+  "pre_primer_limitation": "Actual sequence: frozen packet and completed primer were read together, followed by independent current-source retrieval and executable scratch probes before verdict. Prepare Phase2 requires receiving the completed primer; this sequence is disclosed and is not treated as a missing required step.",
+  "primer_effect": "Extended the architecture assessment by identifying cache collisions as a two-stage load-and-call boundary; independently executed both stages and an uncached control before relying on that claim.",
+  "seat_hypothesis": "Use one pre_docs_gate scheduling boundary and one existing hook seam, while treating static selection, contained source presence, trusted incoming execution and legacy builtin permission as four distinct predicates.",
+  "strongest_challenge_disposition": "Confirmed by own executable baseline: fresh hook path-loading plus sys.path insertion still yields OLD:OLD_CALL with cached siblings. Existing defect is explicitly in AC-4 repair scope, so absence of future implementation is not a readiness blocker.",
+  "strongest_alternative": {
+    "alternative": "Run the hook in a fresh incoming-scripts subprocess rather than mutating shared sys.modules.",
+    "advantage": "Naturally avoids cached old framework/helper modules and confines import state and restoration to process lifetime.",
+    "tradeoff": "Adds interpreter startup, process exit and diagnostic plumbing to the existing in-process callable contract. A bounded import context is simpler if it proves actual incoming dependency resolution during both import and call and restores prior state in finally; a path insertion or hook-only eviction does not suffice.",
+    "judgment": "Do not mandate subprocess as an architectural expansion now. Require the finite old-runner/cache/restoration fixture before accepting an in-process implementation. No feasibility or correctness claim for either future mechanism is made."
+  },
+  "primer_questions_disposition": [
+    {
+      "question": 1,
+      "disposition": "Unresolved substantive plan contract; blocking ARCH-C6-RDY-01 below. Literal opt-in is statically feasible; absent, invalid literal and conditional/nonliteral bindings have different observable statuses. Decide apply semantics before implementation."
+    },
+    {
+      "question": 2,
+      "disposition": "Current cache collision independently confirmed at hook import and call. AC-4 already covers the fix, with explicit implementation notes to test both cached siblings, hook exception, old object identities, removed new helper modules and original sys.path after success/failure. Current path restores; cached imported modules persist. Actual old-runner upgrade remains delivery evidence."
+    },
+    {
+      "question": 3,
+      "disposition": "Plan separates source eligibility and builtin version authority correctly. Baseline faithfully executes pre_docs_gate: before1.15 declaration/hook/builtin run; at/after1.15 none run. Delivery must cover qualifying direct regular singly-linked Markdown excludingREADME; absent/README/nested/symlink/hardlink folder and file cases; old/at/new versions; retry idempotence; hook-failure prevents builtin. No future property claimed."
+    }
+  ],
+  "specialist_verdict": "NOT READY: resolve ARCH-C6-RDY-01; remaining cached dependency repair is already admitted and is not itself a readiness blocker.",
+  "council_seat_verdict": "NOT READY",
+  "blockers": [
+    {
+      "finding_id": "ARCH-C6-RDY-01",
+      "severity": "medium",
+      "source_lanes": [
+        "architecture-review"
+      ],
+      "blocking_required_lanes": [
+        "architecture-review"
+      ],
+      "summary": "Trigger declaration-language and apply-time unknown handling are unspecified, creating incompatible implementations of requirements1,3,4.",
+      "evidence": "Plan Requirements1 and3 require invalid policies fail and legacy defaults persist. Requirement4 permits preview uncertainty. The existing _static_module_literal returns() for absent, a string for invalid literal, and raisesValueError for dynamic and conditional bindings; executing the declaration to resolve unknowns would violate the later no-import compatibility baseline independently observed at1.15 and1.29.",
+      "why_blocking": "A substantive unresolved choice affects whether a distribution with a nonliteral trigger is supported, refused or skipped; this changes executable apply behavior and default import side effects, rather than wording preference. No claim that unimplemented code is defective.",
+      "proposed_plan_repair": "Add a declaration policy table: missing constant selects legacy_cutover; supported opt-in values are direct module-level literal strings legacy_cutover and journals_present; explicit invalid literals and nonliteral/conditional bindings are refused clearly before declaration execution and journal mutation. For unreadable/unparseable source distinguish unknown from invalid: later-version apply must not execute unknown declaration code merely to discover opt-in; preserve legacy dormant behavior by skipping hook with a clear uncertainty diagnostic, while the original pre1.15 path retains its existing validated apply-time import/refusal. Preview never imports and reports these same static statuses. If another policy is selected, spell it out and preserve absent/default later no-import behavior explicitly.",
+      "verification": "Focused static-selection controls include absent, both valid literals, invalid literal, direct nonliteral and conditional binding; later-version raising declaration markers prove no execution for absent/default/unknown paths; selected literal apply validates actual declaration once. Public preview remains no-import and target-byte-identical."
+    }
+  ],
+  "implementation_notes": [
+    "Update docs/architecture/layering-rules.md boundary invariant row28 alongside already planned data-and-control-flow.md. It currently limits all journal declaration and helper loading to pre1.15; describe static discovery vs selected apply-time hook loading and independently gated builtin migration. Add this documentation path to review targets before the implementation packet freezes.",
+    "Keep mcp_tool_extensions stdlib-only and no framework import; its validator validates policy data without loading hook modules. Do not reuse server lifecycle publication logic as an incidental helper-import mechanism.",
+    "Bound incoming import state to the hook load AND call. Snapshot and restore identities for affected cached names, remove newly introduced affected names, and restore sys.path on both normal return and exceptions. Test actual framework sibling collisions as well as custom helpers; generic eviction of all runtime modules risks unrelated lock/process identities.",
+    "Clarify singly-linked in AC-1 or its fixture checklist, preserving the existing migration scope. Hook eligibility is an observation, not a security sandbox around trusted distribution hook code.",
+    "Include .wavefoundry/framework/scripts/tests/record_layout_support.py in declared source/review scope if introducing the trigger constant: SHIPPED_DECLARATION enumerates expected shipped declaration values in the test profile oracle; update it with mcp_tool_extensions.py so profile fixtures and declaration assertions include the new default."
+  ],
+  "evidence": {
+    "execution_status": "executed",
+    "probe_class": "local_safe",
+    "authorization_status": "authorized",
+    "safe_boundary": true,
+    "unexecuted_remainder_prohibited": true,
+    "universal_claim": false,
+    "public_path": "pre_docs_gate lifecycle faithful boundary with unrelated scaffold/graph work patched and builtin destructive migration replaced by a counter; actual hook loader/call boundary for cache controls",
+    "command_or_fixture": "python3 -B /tmp/wf-206is-architecture-probes.py",
+    "artifact_or_test_id": "/tmp/wf-206is-architecture-probe-results.json",
+    "expected": "Current cached sibling fixture should expose OLD:OLD_CALL against AC4 PACK:PACK_CALL; uncached control PACK:PACK_CALL; pre1.15 all journal actions, at/after none; path restored after exceptions; nonliteral static selection explicitly unreadable.",
+    "observed": [
+      {
+        "case": "cached_both_import_and_call",
+        "expected_current": "OLD:OLD_CALL",
+        "observed": "OLD:OLD_CALL",
+        "expected_required_ac4": "PACK:PACK_CALL",
+        "known_bad_detected": true,
+        "sys_path_restored": true
+      },
+      {
+        "case": "uncached_control",
+        "expected_current": "PACK:PACK_CALL",
+        "observed": "PACK:PACK_CALL",
+        "expected_required_ac4": "PACK:PACK_CALL",
+        "known_bad_detected": false,
+        "sys_path_restored": true
+      },
+      {
+        "case": "current_failure_restoration_boundary",
+        "hook_return": false,
+        "sys_path_restored": true,
+        "imported_module_remains_cached": true
+      },
+      {
+        "case": "current_pre_docs_gate_baseline",
+        "from_version": "1.14.9",
+        "observed": {
+          "declaration": true,
+          "hook": true,
+          "builtin": true
+        },
+        "journal_bytes_preserved": true,
+        "future_optin_not_claimed": true
+      },
+      {
+        "case": "current_pre_docs_gate_baseline",
+        "from_version": "1.15.0",
+        "observed": {
+          "declaration": false,
+          "hook": false,
+          "builtin": false
+        },
+        "journal_bytes_preserved": true,
+        "future_optin_not_claimed": true
+      },
+      {
+        "case": "current_pre_docs_gate_baseline",
+        "from_version": "1.29.0",
+        "observed": {
+          "declaration": false,
+          "hook": false,
+          "builtin": false
+        },
+        "journal_bytes_preserved": true,
+        "future_optin_not_claimed": true
+      },
+      {
+        "case": "static_selection_feasibility",
+        "input": "absent",
+        "observed": "()"
+      },
+      {
+        "case": "static_selection_feasibility",
+        "input": "literal",
+        "observed": "'journals_present'"
+      },
+      {
+        "case": "static_selection_feasibility",
+        "input": "invalid_literal",
+        "observed": "'invalid'"
+      },
+      {
+        "case": "static_selection_feasibility",
+        "input": "dynamic",
+        "observed": "ValueError"
+      },
+      {
+        "case": "static_selection_feasibility",
+        "input": "conditional",
+        "observed": "ValueError"
+      }
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true
+    },
+    "known_bad_detection_method": "pre-fix: actual existing hook loader with cached old siblings refutes incoming-only dependency resolution; uncached adjacent control proves correct incoming source exists. Readiness-safe static feasibility exposes the unresolved plan policy.",
+    "adjacent_controls": [
+      "Uncached hook import and call use actual PACK siblings.",
+      "Current old/at/new version boundary preserves journal bytes.",
+      "Failure boundary verifies original sys.path and persistent imported-module cache."
+    ],
+    "safety_and_authorization": "Readiness probes are local temporary fixtures under/tmp; no actual repository source, plan, lifecycle state, ledger or journal is mutated. Destructive builtin migration is replaced by a counter at the lifecycle boundary."
+  },
+  "source_anchors": [
+    "_scripts_on_sys_path .wavefoundry/framework/scripts/upgrade_extensions.py:98-105",
+    "_load_journal_hook upgrade_extensions.py:1683-1738",
+    "_load_journal_declaration upgrade_extensions.py:1741-1772",
+    "_static_module_literal upgrade_extensions.py:1816-1850",
+    "migrate_journals upgrade_extensions.py:1886-1958",
+    "pre_docs_gate upgrade_extensions.py:2486-2501",
+    "_run_journal_pre_migration_hook upgrade_extensions.py:2194-2217",
+    "journal_declaration_problems mcp_tool_extensions.py:929-967",
+    "docs/architecture/layering-rules.md:28 prose boundary invariant",
+    "SHIPPED_DECLARATION .wavefoundry/framework/scripts/tests/record_layout_support.py:197-216 module-level shipped declaration test oracle"
+  ],
+  "retrieval": {
+    "method": "MCP-first code_ask, code_outline, targeted live code_read, code_keyword and own scratch execution",
+    "actual_status": "Tools returned successfully despite frozen packet earlier runtime-stale limitation. index_health reports current index and semantic_ready, setup_readiness action_required/setup_inputs_changed. No setup or rebuild performed; no full setup readiness asserted."
+  },
+  "before_sha256": {
+    ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+    ".wavefoundry/framework/scripts/mcp_tool_extensions.py": "44d8e720cec410bb86524700a68fef5f76d5434c725e3490a2c9b90cbc922edd",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "d2b38f6bd06692447f808bb0b9625f0fb782f9bd9d9b2b5496758f17e269e871",
+    ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md": "a4f1319834042e25316845f15f7ff9a119e80158ce89fb65dc7550cf475e598d",
+    "docs/specs/mcp-tool-surface.md": "46abe7a4f05010e692897f90c599778a25284d48df93d19fda27abde7550337c",
+    "docs/architecture/data-and-control-flow.md": "65aef7155f31ea3a65ddc72b11de52c5c2320c6d7ec2ccba41ab80bb252c420a",
+    "docs/waves/206is journal-hook-follow-up/204mo-enh version-independent-journal-hook.md": "42e49ab26aaa927d3255735b5135df7ff074d3ae32f1dc8b2d4e6678bcba2dc0"
+  },
+  "after_sha256": {
+    ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+    ".wavefoundry/framework/scripts/mcp_tool_extensions.py": "44d8e720cec410bb86524700a68fef5f76d5434c725e3490a2c9b90cbc922edd",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "d2b38f6bd06692447f808bb0b9625f0fb782f9bd9d9b2b5496758f17e269e871",
+    ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md": "a4f1319834042e25316845f15f7ff9a119e80158ce89fb65dc7550cf475e598d",
+    "docs/specs/mcp-tool-surface.md": "46abe7a4f05010e692897f90c599778a25284d48df93d19fda27abde7550337c",
+    "docs/architecture/data-and-control-flow.md": "65aef7155f31ea3a65ddc72b11de52c5c2320c6d7ec2ccba41ab80bb252c420a",
+    "docs/waves/206is journal-hook-follow-up/204mo-enh version-independent-journal-hook.md": "42e49ab26aaa927d3255735b5135df7ff074d3ae32f1dc8b2d4e6678bcba2dc0"
+  },
+  "packet_sha256_match": true,
+  "scope_freeze_unchanged": true,
+  "limits": [
+    "No future behavior implementation or delivery approval.",
+    "No actual full old-runner upgrade, full suite, native Windows, downstream live qualification, setup/rebuild, ledger/doc/code edit, commit, push or closure.",
+    "Finite selected fixtures are not exhaustive import-language, journal-race or all-platform certification."
+  ]
+}

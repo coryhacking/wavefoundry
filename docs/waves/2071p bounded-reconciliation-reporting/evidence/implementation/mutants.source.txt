@@ -1,0 +1,29 @@
+import test_reconcile_scan as ts, test_upgrade_wavefoundry as tu, unittest, io
+from unittest.mock import patch
+
+def run(test, mutate):
+    test.setUp(); test.setUp=lambda: None
+    with mutate(test):
+        output=io.StringIO(); result=unittest.TextTestRunner(stream=output).run(unittest.TestSuite([test]))
+    print(test.id(), 'MUTANT_KILLED' if not result.wasSuccessful() else 'SURVIVED')
+    print(output.getvalue())
+    if result.wasSuccessful(): raise SystemExit('mutant survived')
+
+def remove_prune(t):
+    original=t.scan._directory_excluded
+    return patch.object(t.scan, '_directory_excluded', side_effect=lambda rel, dirs, **kwargs: False if rel.split('/')[0] in ('.local','target') else original(rel, dirs, **kwargs))
+def loosen_filecap(t):
+    original=t.scan.scan_repo_result
+    return patch.object(t.scan, 'scan_repo_result', side_effect=lambda root, **kwargs: original(root, limits=t.scan.ScanLimits()))
+def restore_rescan(t):
+    original=t.mod._emit_primary_phase_summary
+    def emit(*args, **kwargs):
+        if kwargs.get('degradation_marker'):
+            t.mod._run_reconciliation_scan(args[4])
+        return original(*args, **kwargs)
+    return patch.object(t.mod, '_emit_primary_phase_summary', side_effect=emit)
+run(ts.BoundedReconciliationTests('test_root_generated_pruned_nested_and_near_miss_live'),remove_prune)
+run(ts.BoundedReconciliationTests('test_partial_result_and_legacy_wrapper_are_truthful'),loosen_filecap)
+run(tu.BoundedUpgradeReportingTests('test_delegate_failure_never_scans_or_runs_diagnostics_again'),restore_rescan)
+run(tu.BoundedUpgradeReportingTests('test_scan_error_is_never_empty_success'),lambda t:patch.object(t.mod,'_run_reconciliation_scan',return_value=([],[],[])))
+run(tu.BoundedUpgradeReportingTests('test_verified_pack_cleanup_refuses_unproven_prefix_and_changed_identity'),lambda t:patch.object(t.mod,'_cleanup_verified_pack',side_effect=lambda path, proof:path.unlink(missing_ok=True)))

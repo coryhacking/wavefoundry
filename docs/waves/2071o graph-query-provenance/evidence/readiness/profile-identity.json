@@ -1,0 +1,6 @@
+{
+  "path": ".local/reference/2026-10-07-final/runs/worker-1791378231027544000-63264-8/cache/ort-profile_2026-10-07_09-03-52_119.json",
+  "bytes": 31681348,
+  "sha256": "13f74e12464ba615c3072d342c2fc5ee1f2cfe3a9011c08724b4a1242abe1e0a",
+  "upstream_check": "Read-only byte count and streaming SHA-256 match; cost timings attributed to Tensorwell, not repeated."
+}

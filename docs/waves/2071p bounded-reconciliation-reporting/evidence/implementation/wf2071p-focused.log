@@ -1,0 +1,9 @@
+  Private pack retained — verified ownership/identity is not proven.
+  Private pack retained — verified ownership/identity is not proven.
+⚠  Failed upgrade lock detected (PID not running) — preserving dashboard restart intent for the recovery run.
+⚠  Stale upgrade lock contains pre-extract reconciliation evidence — preserving it until the requested target is known.
+ERROR: Dashboard restart failed; upgrade lock retained for recovery: dashboard restart returned an error
+----------------------------------------------------------------------
+Ran 158 tests in 17.325s
+
+OK

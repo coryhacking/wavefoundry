@@ -93,29 +93,35 @@ class LifecycleDocumentMoveTests(unittest.TestCase):
 
     def test_destination_race_is_exclusive(self):
         self.seed()
-        publish = ras._write_review_carrier_text
+        publish = ras._write_move_target
         destination = self.root / PAIRS[0][1]
         def race(path, content, **kwargs):
             destination.write_bytes(b'Concurrent destination\n')
             return publish(path, content, **kwargs)
-        with patch.object(ras, '_write_review_carrier_text', side_effect=race):
+        with patch.object(ras, '_write_move_target', side_effect=race) as publication:
             with self.assertRaises(RuntimeError):
                 ras.migrate_lifecycle_document_renames(self.root)
+        publication.assert_called_once()
+        self.assertEqual(publication.call_args.args[0], destination.resolve())
         self.assertEqual(destination.read_bytes(), b'Concurrent destination\n')
         self.assertEqual((self.root / PAIRS[0][0]).read_bytes(), b'# Customized guide\r\n\r\nLocal prose.\r\n')
 
     def test_unlink_failure_removes_only_new_copy(self):
         self.seed()
-        unlink = Path.unlink
+        unlink = ras.contained_files.unlink_contained
         old = self.root / PAIRS[0][0]
-        def refuse(path, *args, **kwargs):
+        def refuse(root, path, *args, **kwargs):
             if path == old.resolve():
                 raise PermissionError('fixture refusal')
-            return unlink(path, *args, **kwargs)
-        with patch.object(Path, 'unlink', refuse):
+            return unlink(root, path, *args, **kwargs)
+        with patch.object(ras.contained_files, 'unlink_contained', side_effect=refuse) as removal:
             with self.assertRaisesRegex(RuntimeError, 'preserved'):
                 ras.migrate_lifecycle_document_renames(self.root)
+        self.assertEqual(removal.call_count, 2, 'source refusal must reach the real rollback')
+        self.assertEqual(removal.call_args_list[0].args[1], old.resolve())
+        self.assertEqual(removal.call_args_list[1].args[1], (self.root / PAIRS[0][1]).resolve())
         self.assertTrue(old.is_file())
+        self.assertEqual(old.read_bytes(), b'# Customized guide\r\n\r\nLocal prose.\r\n')
         self.assertFalse((self.root / PAIRS[0][1]).exists())
 
     def test_links_reported_without_rewriting_history(self):

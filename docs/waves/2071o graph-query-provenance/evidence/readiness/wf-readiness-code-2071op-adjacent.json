@@ -1,0 +1,24 @@
+{
+  "legitimate_scope_controls": [
+    ".claude/settings.local.json",
+    "docs/reports-overview.md",
+    "nested/.local/live.md",
+    "nested/target/live.md",
+    "targeting/live.md"
+  ],
+  "prompt_twin_controls": [
+    "../../docs/prompts/plan-change.md"
+  ],
+  "contained_helper_symlink_limitation": "Existing read helper accepts an in-root final symlink; scanner must independently reject lexical links before helper use.",
+  "flat_summary_control": {
+    "reconciliation_status": "incomplete",
+    "reconciliation_reason": "work_deadline",
+    "reconciliation_elapsed_seconds": 0.1,
+    "summary_schema_version": 1,
+    "index_update_failed": false
+  },
+  "invalid_schema_rejected": {
+    "payload": null,
+    "reason": "unrecognized_schema_token_999"
+  }
+}

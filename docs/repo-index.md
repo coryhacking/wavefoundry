@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-08
+Last verified: 2026-10-10
 
 ## Repository Summary
 
@@ -35,29 +35,29 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 19436 |
-| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1540 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 491 |
-| graph | `.wavefoundry/framework/scripts` | code | 394 |
-| upgrade | `.wavefoundry/framework/scripts` | code | 360 |
-| indexer | `.wavefoundry/framework/scripts` | code | 303 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 19718 |
+| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1625 |
+| setup | `.wavefoundry/framework/scripts` | code | 634 |
+| framework/scripts — IndexStateStore | `.wavefoundry/framework/scripts` | code | 474 |
+| framework/scripts — update_graph_index | `.wavefoundry/framework/scripts` | code | 415 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 404 |
+| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 321 |
+| graph_eval | `.wavefoundry/framework/scripts` | code | 293 |
 | chunker | `.wavefoundry/framework/scripts` | code | 283 |
-| setup | `.wavefoundry/framework/scripts` | code | 263 |
-| scripts/render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 262 |
-| workflow-config | `.wavefoundry/framework/scripts` | code | 254 |
-| framework index | `.wavefoundry/framework/scripts` | code | 235 |
+| indexer | `.wavefoundry/framework/scripts` | code | 263 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 225 |
-| scripts/workflow-config | `.wavefoundry/framework/scripts` | code | 194 |
-| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 149 |
-| run_tests | `.wavefoundry/framework/scripts` | code | 131 |
-| upgrade_extensions | `.wavefoundry/framework/scripts` | code | 111 |
-| retrieval_eval | `.wavefoundry/framework/scripts` | code | 104 |
+| build_pack | `.wavefoundry/framework/scripts` | code | 146 |
+| eval | `.wavefoundry/framework/scripts` | code | 117 |
+| upgrade_extensions | `.wavefoundry/framework/scripts` | code | 117 |
+| run_tests | `.wavefoundry/framework/scripts` | code | 96 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 52 |
-| graph_cluster | `.wavefoundry/framework/scripts` | code | 46 |
+| record_paths | `.wavefoundry/framework/scripts` | code | 52 |
+| graph_cluster | `.wavefoundry/framework/scripts` | code | 47 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
 | evidence | `docs/waves/1yzd0 server-package-boundary/evidence` | code | 36 |
 | m | `docs/waves/1yzd0 server-package-boundary/evidence/m` | code | 36 |
 | r | `docs/waves/1yxyw retire-optional-server-aliases/evidence/r` | code | 33 |
+| design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
 | configuration | `(root)` | config | 27 |
 <!-- wave:repo-index-modules end -->
 

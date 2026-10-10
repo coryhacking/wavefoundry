@@ -2729,6 +2729,732 @@ class ChangePromptRenameInstallingUpgradeTests(unittest.TestCase):
         self.assertTrue((self.root / vocabulary_profile.prompt_doc("close-change")).is_file())
 
 
+class CouncilRoleLinkRepairUpgradeTests(unittest.TestCase):
+    """C5 uses real extracted surface-rendering and the strict docs gate."""
+
+    def setUp(self):
+        import render_agent_surfaces as ras
+        import test_docs_lint
+        self.ras = ras
+        self.root = test_docs_lint.DocsLintFixtureTests.copy_fixture(None)
+        self.addCleanup(shutil.rmtree, self.root, True)
+        framework = self.root / ".wavefoundry/framework"
+        shutil.copytree(SCRIPTS_ROOT, framework / "scripts", dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns("tests", "benchmarks", "__pycache__"))
+        shutil.copytree(SCRIPTS_ROOT.parent / "install", framework / "install", dirs_exist_ok=True)
+        shutil.copytree(SCRIPTS_ROOT.parent / "seeds", framework / "seeds", dirs_exist_ok=True)
+        self.scripts = framework / "scripts"
+        self.mod = load_upgrade_module()
+        self.old_rel, self.new_rel = ras.COUNCIL_ROLE_RENAMES[0]
+        self.old = self.root / self.old_rel
+        self.new = self.root / self.new_rel
+        self.old.parent.mkdir(parents=True, exist_ok=True)
+        if self.new.exists():
+            self.new.unlink()
+        self.old.write_text("# Council\n\nOwner: Engineering\nStatus: active\n"
+                            f"Role: {self.old.stem}\nCategory: specialist\nLast verified: 2026-10-08\n\nCustomized chair.\n", encoding="utf-8")
+        self.peer = self.old.parent / "researcher.md"
+        self.peer.write_text("# Researcher\n\nOwner: Engineering\nStatus: active\nRole: researcher\n"
+                             "Category: specialist\nLast verified: 2026-10-08\n\n"
+                             f"Project-owned prose: [chair]({self.old.name}).\n", encoding="utf-8")
+
+    def _surface(self, *, fail=False):
+        import venv_bootstrap
+        with patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                patch.object(self.mod, "SCRIPTS_DIR", self.scripts), \
+                patch.object(self.mod, "_preferred_python", return_value=sys.executable), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            if fail:
+                with self.assertRaises(SystemExit):
+                    self.mod.phase_surface_rendering(self.root)
+            else:
+                self.mod.phase_surface_rendering(self.root)
+
+    def _tree(self):
+        return {p.relative_to(self.root).as_posix(): (p.read_bytes(), stat.S_IMODE(p.stat().st_mode))
+                for p in self.root.rglob("*") if p.is_file()}
+
+    def test_installing_upgrade_customized_specialist_passes_real_docs_gate(self):
+        before = self.peer.read_bytes()
+        self._surface()
+        self.assertFalse(self.old.exists())
+        self.assertIn(b"Customized chair.", self.new.read_bytes())
+        self.assertEqual(self.peer.read_bytes(), before.replace(self.old.name.encode(), self.new.name.encode()))
+        with patch.object(self.mod, "SCRIPTS_DIR", self.scripts), \
+                patch.object(self.mod, "_preferred_python", return_value=sys.executable):
+            self.mod.phase_docs_gate(self.root)
+        peer_after = self.peer.read_bytes()
+        self._surface()
+        self.assertEqual(self.peer.read_bytes(), peer_after)
+        self.assertEqual(self.ras.migrate_council_role_renames(self.root).written, ())
+
+    def test_destinations_preserve_suffixes_encoding_titles_and_history(self):
+        old, new = self.old.name, self.new.name
+        escaped_old, escaped_new = old.replace("-", "\\-"), new.replace("-", "\\-")
+        encoded_old = old.replace("-", "%2D")
+        encoded_new = new.replace("-", "%2D")
+        text = (f"[inline]({old}#chair)\r\n[angle](<{old}?view=1#chair> \"title\")\r\n"
+                f"[escape]({escaped_old})\r\n[encoded]({encoded_old})\r\n"
+                f"[absolute](/docs/agents/specialists/{old})\r\n"
+                f"[reference][chair]\r\n\r\n[chair]: <{old}#role> 'retained title'\r\n"
+                f"[unrelated](elsewhere/{old})\r\n[external](https://example.test/{old})\r\n"
+                f"![image]({old})\r\n`[code]({old})`\r\n````markdown\r\n[code]({old})\r\n````\r\n"
+                f"Plain {old}\r\n")
+        self.peer.write_bytes(text.encode())
+        self.peer.chmod(0o440)
+        frozen = ["docs/agents/journals/past.md", "docs/agents/snapshots/past.md",
+                  "docs/reports/past.md", "docs/architecture/decisions/past.md"]
+        roots = self.ras.record_paths.load_record_roots(self.root)
+        frozen += [roots.waves_rel + "/past.md", roots.plans_rel + "/past.md"]
+        for rel in frozen:
+            p = self.root / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_bytes(text.encode())
+        with patch.object(self.ras.record_paths, "ARCHIVE_ROOT", "docs/frozen-records"):
+            p = self.root / "docs/frozen-records/past.md"; p.parent.mkdir(parents=True); p.write_bytes(text.encode())
+            frozen.append("docs/frozen-records/past.md")
+            self.ras.migrate_council_role_renames(self.root)
+        expected = text
+        for a, b in [(f"({old}#", f"({new}#"), (f"<{old}?", f"<{new}?"),
+                     (escaped_old, escaped_new), (encoded_old, encoded_new),
+                     (f"specialists/{old}", f"specialists/{new}"), (f"<{old}#", f"<{new}#")]:
+            expected = expected.replace(a, b)
+        self.assertEqual(self.peer.read_bytes(), expected.encode())
+        if os.name != "nt":
+            self.assertEqual(stat.S_IMODE(self.peer.stat().st_mode), 0o440)
+        for rel in frozen:
+            self.assertEqual((self.root / rel).read_bytes(), text.encode(), rel)
+
+    def test_installing_upgrade_preserves_indented_code_and_live_links(self):
+        old, new = self.old.name, self.new.name
+        header = self.peer.read_text().split("Project-owned prose:")[0]
+        text = header + (f"Project-owned prose: [chair]({old}).\n"
+                         f"    [paragraph continuation]({old})\n\n"
+                         f"    [space code]({old})\n"
+                         f"\t[tab code]({old})\n\n"
+                         f"  \t[mixed code]({old})\n\n"
+                         f"[live after block]({old})\n\n"
+                         f"`[inline code]({old})`\n\n"
+                         f"```markdown\n[fenced code]({old})\n```\n"
+                         f"    [code after fence]({old})\n\n"
+                         f"# Heading\n    [code after heading]({old})\n")
+        text = text.replace("\n", "\r\n")
+        expected = text
+        for label in ("chair", "paragraph continuation", "live after block"):
+            expected = expected.replace(f"[{label}]({old})", f"[{label}]({new})")
+        self.peer.write_bytes(text.encode())
+        self._surface()
+        self.assertFalse(self.old.exists())
+        self.assertTrue(self.new.is_file())
+        self.assertEqual(self.peer.read_bytes(), expected.encode())
+        self._surface()
+        self.assertEqual(self.peer.read_bytes(), expected.encode())
+
+    def test_installing_upgrade_classifies_quote_and_list_code_columns(self):
+        # CommonMark containers remove their own indentation before code is
+        # classified. These expected bytes are independent of the mask helper.
+        cases = [
+            "> Quote\n>\n>     [code]({old})\n>\n> [live]({old})\n",
+            "> Quote\n>\n> \t\t[code]({old})\n>\n> [live]({old})\n",
+            "> > Quote\n> >\n> >     [code]({old})\n> >\n> > [live]({old})\n",
+            "> ~~~markdown\n> [code]({old})\n> ~~~~\n>\n> [live]({old})\n",
+            "> ```markdown\n> [code]({old})\n> ````\n>\n> [live]({old})\n",
+            "- Item\n\n      [code]({old})\n\n  [live]({old})\n",
+            "- Outer\n  - Inner\n\n        [code]({old})\n\n    [live]({old})\n",
+            "> - Item\n>\n>       [code]({old})\n>\n>   [live]({old})\n",
+            "  - Item\n\n    [live]({old})\n",
+            "10. Item\n\n        [code]({old})\n\n    [live]({old})\n",
+            "-     [code]({old})\n\n  [live]({old})\n",
+            "- Item\n  ~~~markdown\n  [code]({old})\n  ~~~~\n\n  [live]({old})\n",
+            "- Item\n\n\t\t[code]({old})\n\n\t[live]({old})\n",
+            "Paragraph\n2. example\n\n    [code]({old})\n\n[live]({old})\n",
+            "> Quote paragraph\n    [live]({old})\n",
+            "> > Quote paragraph\n>     [live]({old})\n",
+            "> > > Quote paragraph\n> >     [live]({old})\n",
+            "- > ~~~markdown\n  > [code]({old})\n  > ~~~\n\n  [live]({old})\n",
+            "- > Quote\n  >\n  >     [code]({old})\n  >\n  > [live]({old})\n",
+            "- Outer\n  - Inner\n    > ```markdown\n    > [code]({old})\n    > ````\n\n    [live]({old})\n",
+            "- Outer\n  - Inner\n    >\n    >     [code]({old})\n\n    [live]({old})\n",
+            "100. Item\n\n     > ~~~markdown\n     > [code]({old})\n     > ~~~\n\n     [live]({old})\n",
+            "- - Inner\n\n        [code]({old})\n\n    [live]({old})\n",
+            "> - - Inner\n>\n>         [code]({old})\n>\n>     [live]({old})\n",
+            "> - > ~~~markdown\n>   > - [code]({old})\n>   > ~~~\n>\n>   [live]({old})\n",
+            "> - > ~~~markdown\n>   > - [code]({old})\n>   > ~~~\n>   > [live]({old})\n",
+            "- > > Quote paragraph\n  >     [live]({old})\n",
+            "- Outer\n  - Inner\n[live]({old})\n",
+        ]
+        for body in cases:
+            with self.subTest(body=body):
+                target = type(self)("runTest")
+                target.setUp()
+                try:
+                    text = body.format(old=target.old.name).replace("\n", "\r\n")
+                    expected = text.replace(f"[live]({target.old.name})", f"[live]({target.new.name})")
+                    target.peer.write_bytes(text.encode())
+                    target._surface()
+                    self.assertFalse(target.old.exists())
+                    self.assertTrue(target.new.is_file())
+                    self.assertEqual(target.peer.read_bytes(), expected.encode())
+                    target._surface()
+                    self.assertEqual(target.peer.read_bytes(), expected.encode())
+                finally:
+                    target.doCleanups()
+
+    def test_installing_upgrade_respects_inline_block_boundaries_and_escapes(self):
+        # Independent literal bytes exercise the actual incoming upgrade twice.
+        # Delimiters must not cross Markdown blocks; escapes apply outside code.
+        cases = {
+            'quote_list_quote_list_indent': '> - > - inner\n>   >\n>   >       [CODE](OLD)\n>   >\n>   >   [LIVE](OLD)\n',
+            'list_quote_list_quote_fence': '- > - > ~~~md\n  >   > [CODE](OLD)\n  >   > ~~~\n  >   > [LIVE](OLD)\n',
+            'quote_list_quote_list_fence': '> - > - ```md\n>   >   [CODE](OLD)\n>   >   ```\n>   >   [LIVE](OLD)\n',
+            'five_recursive_indent': '- > - > - item\n  >   >\n  >   >       [CODE](OLD)\n  >   >\n  >   >   [LIVE](OLD)\n',
+            'wide_order_list_quote_indent': '321) > 22. item\n     >\n     >         [CODE](OLD)\n     >\n     >     [LIVE](OLD)\n',
+            'partial_quote_inside_list_lazy': '- > > > paragraph\n  > >     [LIVE](OLD)\n',
+            'partial_many_quotes_lazy': '> > > > paragraph\n> >       [LIVE](OLD)\n',
+            'omit_outer_list_lazy': '- > > paragraph\n      [LIVE](OLD)\n',
+            'omit_inner_list_lazy': '> - - paragraph\n>   [LIVE](OLD)\n',
+            'list_quote_lazy_ordered_two': '- > paragraph\n  2. [LIVE](OLD)\n',
+            'list_quote_blank_closes_inner': '- > paragraph\n\n      [CODE](OLD)\n\n  [LIVE](OLD)\n',
+            'quote_list_fence_missing_inner_quote': '> - > ~~~md\n>   > [CODE](OLD)\n>   [LIVE](OLD)\n',
+            'fence_body_ordered_container': '- > ~~~md\n  > 1. > [CODE](OLD)\n  > ~~~\n  > [LIVE](OLD)\n',
+            'indented_body_list_marker': '> - item\n>\n>       - [CODE](OLD)\n>       > [CODE](OLD)\n>\n>   [LIVE](OLD)\n',
+            'code_span_same_paragraph': '`start\n[LIVE_IN_CODE](OLD)\nend`\n\n[LIVE](OLD)\n',
+            'code_span_blank_boundary': 'Unmatched ` opener\n\n[LIVE](OLD)\n\nUnmatched ` closer\n',
+            'code_span_heading_boundary': 'Unmatched ` opener\n# [LIVE](OLD)\nUnmatched ` closer\n',
+            'code_span_quote_boundary': 'Unmatched ` opener\n> [LIVE](OLD)\n\nUnmatched ` closer\n',
+            'code_span_list_boundary': 'Unmatched ` opener\n- [LIVE](OLD)\n\nUnmatched ` closer\n',
+            'escaped_backticks_live': '\\` [LIVE](OLD) \\`\n',
+            'setext_heading_then_code': 'Heading\n===\n    [CODE](OLD)\n\n[LIVE](OLD)\n',
+            'quote_setext_then_code': '> Heading\n> ===\n>     [CODE](OLD)\n>\n> [LIVE](OLD)\n',
+            'ordinary_code_span_then_continuation': '`[CODE](OLD)`\n    [LIVE](OLD)\n',
+            'quote_code_span_then_continuation': '> `[CODE](OLD)`\n>     [LIVE](OLD)\n',
+            'list_code_span_then_continuation': '- `[CODE](OLD)`\n      [LIVE](OLD)\n',
+            'escaped_prefix_suffix_delimiter': '\\``[CODE](OLD)` [LIVE](OLD)\n',
+            'even_escape_opener': '\\\\`[CODE](OLD)` [LIVE](OLD)\n',
+            'backslash_inside_span': '`[CODE](OLD)\\` [LIVE](OLD)\n',
+            'heading_inline_span': '# `[CODE](OLD)`\n[LIVE](OLD)\n',
+            'setext_inline_then_code': '`[CODE](OLD)`\n===\n    [CODE](OLD)\n\n[LIVE](OLD)\n',
+            'setext_tick_boundary': 'Unmatched `\n===\n[LIVE](OLD)\nAnother `\n',
+            'sibling_list_boundary': '- Unmatched `\n- [LIVE](OLD)\n- Another `\n',
+            'quote_multiline_span': '> start `\n> [CODE](OLD)\n> finish`\n> [LIVE](OLD)\n',
+            'lazy_quote_multiline_span': '> start `\n    [CODE](OLD)\n> finish`\n\n[LIVE](OLD)\n',
+            'empty_double_quote_closes': '> > Unmatched `\n>\n> [LIVE](OLD)\n> Another `\n',
+        }
+        for name, body in cases.items():
+            with self.subTest(case=name):
+                target = type(self)("runTest")
+                target.setUp()
+                try:
+                    old, new = target.old.name, target.new.name
+                    text = ("[CONTROL](OLD)\n\n" + body + "\n[AFTER](OLD)\n").replace("OLD", old).replace("\n", "\r\n")
+                    expected = text
+                    for label in ("CONTROL", "AFTER", "LIVE"):
+                        expected = expected.replace(f"[{label}]({old})", f"[{label}]({new})")
+                    target.peer.write_bytes(text.encode())
+                    target._surface()
+                    self.assertFalse(target.old.exists())
+                    self.assertTrue(target.new.is_file())
+                    self.assertEqual(target.peer.read_bytes(), expected.encode())
+                    target._surface()
+                    self.assertEqual(target.peer.read_bytes(), expected.encode())
+                finally:
+                    target.doCleanups()
+
+    def _preview_incoming_role_links(self):
+        import upgrade_extensions as extension
+        from types import SimpleNamespace
+        package = self.root.parent / (self.root.name + "-role-links.zip")
+        self.addCleanup(package.unlink, missing_ok=True)
+        with zipfile.ZipFile(package, "w") as archive:
+            for path in self.scripts.rglob("*.py"):
+                archive.write(path, ".wavefoundry/framework/scripts/" + path.relative_to(self.scripts).as_posix())
+        before = self._tree()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            extension._preview_council_role_links(SimpleNamespace(root=self.root, zip_path=package))
+        self.assertNotIn("preview failed", out.getvalue())
+        self.assertEqual(self._tree(), before)
+        return out.getvalue()
+
+    def _assert_incoming_role_link_cases(self, cases):
+        # Explicit input/expected literals do not use the production classifier.
+        # Every case exercises the incoming pack preview, install and reinstall.
+        for name, (body, expected_body) in cases.items():
+            with self.subTest(case=name):
+                target = type(self)("runTest")
+                target.setUp()
+                try:
+                    def content(value):
+                        return value.replace("OLD", target.old.name).replace("NEW", target.new.name).replace("\n", "\r\n").encode()
+                    original, expected = content(body), content(expected_body)
+                    target.peer.write_bytes(original)
+                    target.peer.chmod(0o640)
+                    preview = target._preview_incoming_role_links()
+                    target._surface()
+                    self.assertFalse(target.old.exists())
+                    self.assertTrue(target.new.is_file())
+                    self.assertEqual(target.peer.read_bytes(), expected)
+                    self.assertIn("would repair council role link", preview)
+                    if os.name != "nt":
+                        self.assertEqual(stat.S_IMODE(target.peer.stat().st_mode), 0o640)
+                    target._surface()
+                    self.assertEqual(target.peer.read_bytes(), expected)
+                    if os.name != "nt":
+                        self.assertEqual(stat.S_IMODE(target.peer.stat().st_mode), 0o640)
+                finally:
+                    target.doCleanups()
+
+    def test_installing_upgrade_repairs_container_reference_definitions(self):
+        self._assert_incoming_role_link_cases({
+            "quote": (
+                '> [entry][chair]\n>\n> [chair]: OLD#scope "title"\n',
+                '> [entry][chair]\n>\n> [chair]: NEW#scope "title"\n'),
+            "wide_ordered_list": (
+                "1234. [entry][chair]\n\n      [chair]: OLD?mode=1#scope 'retained title'\n",
+                "1234. [entry][chair]\n\n      [chair]: NEW?mode=1#scope 'retained title'\n"),
+            "list_quote": (
+                '- > [entry][chair]\n  >\n  > [chair]: <OLD?mode=1#scope> "title"\n',
+                '- > [entry][chair]\n  >\n  > [chair]: <NEW?mode=1#scope> "title"\n'),
+            "quote_list_quote": (
+                '> - > [entry][chair]\n>   >\n>   > [chair]: OLD#scope\n',
+                '> - > [entry][chair]\n>   >\n>   > [chair]: NEW#scope\n'),
+            "nested_quote": (
+                '> > [entry][chair]\n> >\n> > [chair]: <OLD#scope> (title)\n',
+                '> > [entry][chair]\n> >\n> > [chair]: <NEW#scope> (title)\n'),
+            "root_control": (
+                '[entry][chair]\n\n[chair]: OLD "title"\n',
+                '[entry][chair]\n\n[chair]: NEW "title"\n'),
+        })
+
+    def test_installing_upgrade_preserves_html_literal_blocks(self):
+        self._assert_incoming_role_link_cases({
+            "pre": (
+                '<pre>\n[CODE](OLD)\n</pre>\n\n[LIVE](OLD)\n',
+                '<pre>\n[CODE](OLD)\n</pre>\n\n[LIVE](NEW)\n'),
+            "comment": (
+                '<!--\n[CODE](OLD)\n-->\n\n[LIVE](OLD)\n',
+                '<!--\n[CODE](OLD)\n-->\n\n[LIVE](NEW)\n'),
+            "nested_quote_pre": (
+                '> > <pre>\n> > [CODE](OLD)\n> > </pre>\n> >\n> > [LIVE](OLD)\n',
+                '> > <pre>\n> > [CODE](OLD)\n> > </pre>\n> >\n> > [LIVE](NEW)\n'),
+            "nested_quote_comment": (
+                '> > <!--\n> > [CODE](OLD)\n> > -->\n> >\n> > [LIVE](OLD)\n',
+                '> > <!--\n> > [CODE](OLD)\n> > -->\n> >\n> > [LIVE](NEW)\n'),
+            "list_quote_pre": (
+                '- > <pre>\n  > [CODE](OLD)\n  > </pre>\n  >\n  > [LIVE](OLD)\n',
+                '- > <pre>\n  > [CODE](OLD)\n  > </pre>\n  >\n  > [LIVE](NEW)\n'),
+        })
+
+    def test_installing_upgrade_distinguishes_backtick_and_tilde_info(self):
+        self._assert_incoming_role_link_cases({
+            "invalid_root_backtick_info": (
+                '```bad`info\n[LIVE](OLD)\n',
+                '```bad`info\n[LIVE](NEW)\n'),
+            "invalid_quote_backtick_info": (
+                '> ```bad`info\n> [LIVE](OLD)\n',
+                '> ```bad`info\n> [LIVE](NEW)\n'),
+            "valid_tilde_info_with_backtick": (
+                '~~~bad`info\n[CODE](OLD)\n~~~\n\n[LIVE](OLD)\n',
+                '~~~bad`info\n[CODE](OLD)\n~~~\n\n[LIVE](NEW)\n'),
+        })
+
+    def test_installing_upgrade_respects_link_and_image_escape_parity(self):
+        cases = {}
+        for count in (1, 2, 3, 4):
+            prefix = "\\" * count
+            cases[f"bracket_{count}_slashes"] = (
+                prefix + '[candidate](OLD)\n\n[LIVE](OLD)\n',
+                prefix + ('[candidate](OLD)' if count % 2 else '[candidate](NEW)') + '\n\n[LIVE](NEW)\n')
+        for count in (0, 1, 2, 3):
+            prefix = "\\" * count
+            cases[f"image_{count}_slashes"] = (
+                prefix + '![candidate](OLD)\n\n[LIVE](OLD)\n',
+                prefix + ('![candidate](NEW)' if count % 2 else '![candidate](OLD)') + '\n\n[LIVE](NEW)\n')
+        self._assert_incoming_role_link_cases(cases)
+
+    def test_installing_upgrade_repairs_native_skill_directory_destinations(self):
+        old_rel, new_rel = next((old, new) for old, new in self.ras.COUNCIL_ROLE_RENAMES
+                                if old.endswith("/SKILL.md"))
+        old, new = self.root / old_rel, self.root / new_rel
+        self.assertEqual(old.name, new.name)
+        self.assertNotEqual(old.parent, new.parent)
+        old.parent.mkdir(parents=True, exist_ok=True)
+        native = f'# Native role\r\n\r\nSee {self.old.relative_to(self.root).as_posix()}\r\n'.encode()
+        old.write_bytes(native)
+        old.chmod(0o640)
+        old_destination, new_destination = "../../../" + old_rel, "../../../" + new_rel
+        escaped_old, escaped_new = (value.replace("-", "\\-") for value in (old_destination, new_destination))
+        encoded_old, encoded_new = (value.replace("-", "%2d") for value in (old_destination, new_destination))
+        original = (f'[native](<{old_destination}?view=1#scope> "retained title")\r\n'
+                    f'[escaped]({escaped_old}#scope)\r\n[encoded]({encoded_old}?view=1#scope)\r\n'
+                    f'[LIVE]({self.old.name})\r\n').encode()
+        expected = (f'[native](<{new_destination}?view=1#scope> "retained title")\r\n'
+                    f'[escaped]({escaped_new}#scope)\r\n[encoded]({encoded_new}?view=1#scope)\r\n'
+                    f'[LIVE]({self.new.name})\r\n').encode()
+        self.peer.write_bytes(original)
+        self.peer.chmod(0o640)
+        preview = self._preview_incoming_role_links()
+        self.assertIn(f"would move {old_rel} -> {new_rel}", preview)
+        self._surface()
+        self.assertFalse(old.exists())
+        self.assertTrue(new.is_file())
+        self.assertTrue(new.read_bytes().startswith(native))
+        self.assertEqual(self.peer.read_bytes(), expected)
+        if os.name != "nt":
+            self.assertEqual(stat.S_IMODE(self.peer.stat().st_mode), 0o640)
+            self.assertEqual(stat.S_IMODE(new.stat().st_mode), 0o640)
+        after = new.read_bytes()
+        # Capture the real incoming renderer's diagnostics rather than replacing
+        # the child or relying on an in-process migration report.
+        actual_run = self.mod.subprocess_util.isolated_run
+        runs = []
+
+        def capture_run(*args, **kwargs):
+            result = actual_run(*args, **kwargs, capture_output=True, text=True)
+            runs.append(result)
+            return result
+
+        with patch.object(self.mod.subprocess_util, "isolated_run", side_effect=capture_run):
+            self._surface()
+        self.assertEqual(len(runs), 1)
+        self.assertNotIn("markdown link targets the moved council role doc", runs[0].stderr)
+        self.assertNotIn("unchanged unsupported or unrelated council role destination", runs[0].stderr)
+        self.assertFalse(old.exists())
+        self.assertEqual(self.peer.read_bytes(), expected)
+        self.assertEqual(new.read_bytes(), after)
+        if os.name != "nt":
+            self.assertEqual(stat.S_IMODE(self.peer.stat().st_mode), 0o640)
+            self.assertEqual(stat.S_IMODE(new.stat().st_mode), 0o640)
+        # An image still targeting the legacy native path remains deliberately
+        # unsupported and must retain its actionable remaining-link diagnostic.
+        unsupported = f'![unsupported-native]({old_destination})\r\n'.encode()
+        self.peer.write_bytes(expected + unsupported)
+        runs.clear()
+        with patch.object(self.mod.subprocess_util, "isolated_run", side_effect=capture_run):
+            self._surface()
+        self.assertEqual(len(runs), 1)
+        self.assertIn("markdown link targets the moved council role doc", runs[0].stderr)
+        self.assertIn("unchanged unsupported or unrelated council role destination", runs[0].stderr)
+        self.assertEqual(self.peer.read_bytes(), expected + unsupported)
+        self.assertEqual(new.read_bytes(), after)
+
+    def test_installing_upgrade_preserves_inline_html_and_code_precedence(self):
+        self._assert_incoming_role_link_cases({
+            "attribute_link_literal": (
+                'Paragraph <span data-note="[CODE](OLD)"> [LIVE](OLD)\n',
+                'Paragraph <span data-note="[CODE](OLD)"> [LIVE](NEW)\n'),
+            "comment_link_literal": (
+                'Paragraph <!-- [CODE](OLD) --> [LIVE](OLD)\n',
+                'Paragraph <!-- [CODE](OLD) --> [LIVE](NEW)\n'),
+            "processing_instruction_literal": (
+                'Paragraph <?wave [CODE](OLD) ?> [LIVE](OLD)\n',
+                'Paragraph <?wave [CODE](OLD) ?> [LIVE](NEW)\n'),
+            "attribute_tick_then_unmatched_tick": (
+                'Paragraph <span note="`"> [LIVE](OLD) final `\n',
+                'Paragraph <span note="`"> [LIVE](NEW) final `\n'),
+            "quote_attribute_ticks": (
+                '> Paragraph <span note="`"> [LIVE](OLD) <span note="`">\n',
+                '> Paragraph <span note="`"> [LIVE](NEW) <span note="`">\n'),
+            "multiline_attribute_ticks": (
+                'Paragraph <span\ndata-note="`"> [LIVE](OLD) <span data-note="`">\n',
+                'Paragraph <span\ndata-note="`"> [LIVE](NEW) <span data-note="`">\n'),
+            "comment_ticks": (
+                'Paragraph <!-- ` --> [LIVE](OLD) <!-- ` -->\n',
+                'Paragraph <!-- ` --> [LIVE](NEW) <!-- ` -->\n'),
+            "code_opens_before_apparent_tag": (
+                'Paragraph ` <span note="`"> [LIVE](OLD)\n',
+                'Paragraph ` <span note="`"> [LIVE](NEW)\n'),
+            "code_opens_before_apparent_comment": (
+                'Paragraph ` <!-- [CODE](OLD) ` --> [LIVE](OLD)\n',
+                'Paragraph ` <!-- [CODE](OLD) ` --> [LIVE](NEW)\n'),
+        })
+
+    def test_installing_upgrade_consumes_link_metadata_before_code_ticks(self):
+        self._assert_incoming_role_link_cases({
+            "two_titled_links": (
+                '[A](OLD "`") [LIVE](OLD) [B](elsewhere "`")\n',
+                '[A](NEW "`") [LIVE](NEW) [B](elsewhere "`")\n'),
+            "one_title_then_unmatched_tick": (
+                '[A](OLD "`") [LIVE](OLD) ending `\n',
+                '[A](NEW "`") [LIVE](NEW) ending `\n'),
+            "destination_query_ticks": (
+                '[A](OLD?note=`) [LIVE](OLD) [B](elsewhere?note=`)\n',
+                '[A](NEW?note=`) [LIVE](NEW) [B](elsewhere?note=`)\n'),
+            "angle_destination_query_ticks": (
+                '[A](<OLD?note=`>) [LIVE](OLD) [B](<elsewhere?note=`>)\n',
+                '[A](<NEW?note=`>) [LIVE](NEW) [B](<elsewhere?note=`>)\n'),
+            "destination_query_contains_link_literal": (
+                '[A](OLD?value=[CODE](OLD)) [LIVE](OLD)\n',
+                '[A](NEW?value=[CODE](OLD)) [LIVE](NEW)\n'),
+            "title_contains_link_literal": (
+                '[A](OLD "[CODE](OLD)") [LIVE](OLD)\n',
+                '[A](NEW "[CODE](OLD)") [LIVE](NEW)\n'),
+            "title_image_reference_is_literal": (
+                '[A](elsewhere "![icon][ref]")\n\n[ref]: OLD\n\n[LIVE](OLD)\n',
+                '[A](elsewhere "![icon][ref]")\n\n[ref]: NEW\n\n[LIVE](NEW)\n'),
+            "code_opens_before_apparent_link_title": (
+                'Paragraph ` [A](OLD "`") [LIVE](OLD)\n',
+                'Paragraph ` [A](OLD "`") [LIVE](NEW)\n'),
+        })
+
+    def test_installing_upgrade_preserves_autolink_atoms_and_code_precedence(self):
+        self._assert_incoming_role_link_cases({
+            "uri_link_literal": (
+                'Paragraph <https://example.invalid/[CODE](OLD)> [LIVE](OLD)\n',
+                'Paragraph <https://example.invalid/[CODE](OLD)> [LIVE](NEW)\n'),
+            "custom_scheme_query_link_literal": (
+                'Paragraph <custom+protocol://example.invalid/?x=[CODE](OLD)> [LIVE](OLD)\n',
+                'Paragraph <custom+protocol://example.invalid/?x=[CODE](OLD)> [LIVE](NEW)\n'),
+            "uri_tick_is_literal": (
+                'Paragraph <https://example.invalid/?x=`> [LIVE](OLD) tail `\n',
+                'Paragraph <https://example.invalid/?x=`> [LIVE](NEW) tail `\n'),
+            "email_tick_is_literal": (
+                'Paragraph <a`@example.invalid> [LIVE](OLD) tail `\n',
+                'Paragraph <a`@example.invalid> [LIVE](NEW) tail `\n'),
+            "code_opens_before_apparent_uri": (
+                'Paragraph ` <https://example.invalid/[CODE](OLD)?x=`> [LIVE](OLD)\n',
+                'Paragraph ` <https://example.invalid/[CODE](OLD)?x=`> [LIVE](NEW)\n'),
+            "code_opens_before_apparent_email": (
+                'Paragraph ` <a`@example.invalid> [LIVE](OLD)\n',
+                'Paragraph ` <a`@example.invalid> [LIVE](NEW)\n'),
+        })
+
+    def test_installing_upgrade_respects_reference_definition_context(self):
+        self._assert_incoming_role_link_cases({
+            "paragraph_continuation": (
+                'ordinary paragraph\n[ref]: OLD\n\n[LIVE](OLD)\n',
+                'ordinary paragraph\n[ref]: OLD\n\n[LIVE](NEW)\n'),
+            "quote_paragraph_continuation": (
+                '> ordinary paragraph\n> [ref]: OLD\n>\n> [LIVE](OLD)\n',
+                '> ordinary paragraph\n> [ref]: OLD\n>\n> [LIVE](NEW)\n'),
+            "list_paragraph_continuation": (
+                '- ordinary paragraph\n  [ref]: OLD\n\n  [LIVE](OLD)\n',
+                '- ordinary paragraph\n  [ref]: OLD\n\n  [LIVE](NEW)\n'),
+            "adjacent_standalone_definitions": (
+                '[a]: OLD\n[ref]: OLD?view=1#scope "retained title"\n\n[LIVE](OLD)\n',
+                '[a]: NEW\n[ref]: NEW?view=1#scope "retained title"\n\n[LIVE](NEW)\n'),
+            "definition_after_heading": (
+                '# heading\n[ref]: OLD\n\n[LIVE](OLD)\n',
+                '# heading\n[ref]: NEW\n\n[LIVE](NEW)\n'),
+            "reference_title_tick_is_metadata": (
+                '[ref]: OLD "`"\n[LIVE](OLD)\n\nOther `\n',
+                '[ref]: NEW "`"\n[LIVE](NEW)\n\nOther `\n'),
+        })
+
+    def test_installing_upgrade_reports_encoded_unsupported_image_destinations(self):
+        # Independent declared-pair paths identify both ordinary documents and
+        # native wrappers; unsupported image bytes must remain unchanged.
+        for native in (False, True):
+            for style in ("raw", "escaped", "percent"):
+                for reference in (False, True):
+                    with self.subTest(native=native, style=style, reference=reference):
+                        target = type(self)("runTest")
+                        target.setUp()
+                        try:
+                            native_old, native_new = next(pair for pair in target.ras.COUNCIL_ROLE_RENAMES
+                                                          if pair[0].endswith("/SKILL.md"))
+                            native_path = target.root / native_old
+                            if native:
+                                native_path.parent.mkdir(parents=True, exist_ok=True)
+                                native_path.write_text(f'See {target.old.relative_to(target.root).as_posix()}\n')
+                            destination = "../../../" + native_old if native else target.old.name
+                            if style == "escaped":
+                                destination = destination.replace("-", "\\-")
+                            elif style == "percent":
+                                destination = destination.replace("-", "%2D")
+                            image = (f'![picture][id]\r\n\r\n[id]: {destination}\r\n' if reference
+                                     else f'![picture]({destination})\r\n')
+                            original = (image + f'\r\n[LIVE]({target.old.name})\r\n').encode()
+                            expected = (image + f'\r\n[LIVE]({target.new.name})\r\n').encode()
+                            target.peer.write_bytes(original)
+                            target.peer.chmod(0o640)
+                            preview = target._preview_incoming_role_links()
+                            actual_run = target.mod.subprocess_util.isolated_run
+                            runs = []
+
+                            def capture_run(*args, **kwargs):
+                                result = actual_run(*args, **kwargs, capture_output=True, text=True)
+                                runs.append(result)
+                                return result
+
+                            for _ in range(2):
+                                runs.clear()
+                                with patch.object(target.mod.subprocess_util, "isolated_run", side_effect=capture_run):
+                                    target._surface()
+                                self.assertFalse(target.old.exists())
+                                self.assertTrue(target.new.is_file())
+                                self.assertEqual(target.peer.read_bytes(), expected)
+                                self.assertEqual(len(runs), 1)
+                                self.assertIn("unchanged unsupported", runs[0].stderr)
+                                if os.name != "nt":
+                                    self.assertEqual(stat.S_IMODE(target.peer.stat().st_mode), 0o640)
+                            self.assertIn("unchanged unsupported", preview)
+                            if native:
+                                self.assertFalse(native_path.exists())
+                                self.assertTrue((target.root / native_new).is_file())
+                        finally:
+                            target.doCleanups()
+
+    def test_role_self_link_moves_without_recreating_legacy_document(self):
+        self.old.write_text(self.old.read_text() + f"See [self]({self.old.name}).\n")
+        self.ras.migrate_council_role_renames(self.root)
+        self.assertFalse(self.old.exists())
+        self.assertIn(f"See [self]({self.new.name}).", self.new.read_text())
+
+    def test_percent_case_and_escaped_opening_are_preserved(self):
+        encoded = self.old.name.replace("-", "%2d")
+        raw = f"[encoded]({encoded})\n\\[literal]({self.old.name})\n"
+        self.peer.write_text(raw)
+        self.ras.migrate_council_role_renames(self.root)
+        self.assertEqual(self.peer.read_text(), raw.replace(encoded, self.new.name.replace("-", "%2d")))
+
+    def test_upgrade_driver_dry_run_reports_without_target_writes(self):
+        package = self.root.parent / (self.root.name + ".zip")
+        self.addCleanup(package.unlink, missing_ok=True)
+        with zipfile.ZipFile(package, "w") as archive:
+            archive.writestr(".wavefoundry/framework/VERSION", "1.29.0+preview")
+            for path in self.scripts.rglob("*.py"):
+                archive.write(path, ".wavefoundry/framework/scripts/" + path.relative_to(self.scripts).as_posix())
+        before = self._tree()
+        out = io.StringIO()
+        with patch.object(self.mod, "_find_zip", return_value=package), \
+                patch.object(self.mod, "_read_installed_revision", return_value="1.28.0"), \
+                patch.object(self.mod, "_detect_dashboard", return_value=(False, None, None)), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            self.assertEqual(self.mod.phase_dry_run(self.root), 0)
+        self.assertIn("would repair council role link", out.getvalue())
+        self.assertIn(f"would move {self.old_rel} -> {self.new_rel}", out.getvalue())
+        self.assertNotIn("preview failed", out.getvalue())
+        self.assertEqual(self._tree(), before)
+
+    def test_preview_child_uses_incoming_isolation_and_utf8_environment(self):
+        import upgrade_extensions as extension
+        from types import SimpleNamespace
+        incoming = extension._incoming_framework_module("subprocess_util")
+        actual_popen = subprocess.Popen
+        spawns = []
+
+        def record_spawn(*args, **kwargs):
+            spawns.append((args[0], kwargs))
+            return actual_popen(*args, **kwargs)
+
+        context = SimpleNamespace(root=self.root, zip_path=None)
+        before = self._tree()
+        with patch.object(extension, "_incoming_framework_module", return_value=incoming) as load, \
+                patch.object(incoming, "windowless_pythonw", return_value=sys.executable) as interpreter, \
+                patch.object(subprocess, "Popen", side_effect=record_spawn), \
+                patch.dict(os.environ, {"PYTHONIOENCODING": "cp1252", "PYTHONPYCACHEPREFIX": str(self.root / "planted-cache")}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            extension._preview_council_role_links(context)
+        load.assert_called_once_with("subprocess_util", None)
+        interpreter.assert_called_once_with()
+        self.assertEqual(len(spawns), 1)
+        command, kwargs = spawns[0]
+        self.assertEqual(command[:2], [sys.executable, "-B"])
+        self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
+        self.assertEqual(kwargs["encoding"], "utf-8")
+        self.assertEqual(kwargs["errors"], "replace")
+        self.assertEqual(kwargs["env"]["PYTHONUTF8"], "1")
+        self.assertEqual(kwargs["env"]["PYTHONIOENCODING"], "utf-8")
+        self.assertEqual(kwargs["env"]["PYTHONDONTWRITEBYTECODE"], "1")
+        self.assertNotIn("PYTHONPYCACHEPREFIX", kwargs["env"])
+        if os.name == "nt":
+            self.assertTrue(kwargs["creationflags"] & subprocess.CREATE_NO_WINDOW)
+            self.assertTrue(kwargs["creationflags"] & subprocess.CREATE_NEW_PROCESS_GROUP)
+        else:
+            self.assertTrue(kwargs["start_new_session"])
+        self.assertEqual(self._tree(), before)
+
+    def test_preview_unavailable_helper_reports_without_child_or_target_writes(self):
+        import upgrade_extensions as extension
+        from types import SimpleNamespace
+        before = self._tree()
+        error = io.StringIO()
+        with patch.object(extension, "_incoming_framework_module",
+                          side_effect=extension._IncomingModuleUnavailable("KeyError")), \
+                patch.object(subprocess, "Popen") as spawn, contextlib.redirect_stderr(error):
+            extension._preview_council_role_links(SimpleNamespace(root=self.root, zip_path=None))
+        spawn.assert_not_called()
+        self.assertIn("incoming subprocess_util unavailable (KeyError)", error.getvalue())
+        self.assertIn("verify the pack scripts and retry preview", error.getvalue())
+        self.assertIn("no target files were written by the role-link preview", error.getvalue())
+        self.assertNotIn(str(self.root), error.getvalue())
+        self.assertEqual(self._tree(), before)
+
+    def test_preview_does_not_hide_unrelated_loader_failures(self):
+        import upgrade_extensions as extension
+        from types import SimpleNamespace
+        before = self._tree()
+        with patch.object(extension, "_incoming_framework_module",
+                          side_effect=RuntimeError("unexpected loader failure")), \
+                self.assertRaisesRegex(RuntimeError, "unexpected loader failure"):
+            extension._preview_council_role_links(SimpleNamespace(root=self.root, zip_path=None))
+        self.assertEqual(self._tree(), before)
+
+    def test_interrupted_driver_after_move_retries_remaining_links(self):
+        renderer = self.scripts / "render_agent_surfaces.py"
+        source = renderer.read_text()
+        needle = "_write_review_carrier_text(repo_root / rel, data, mode=mode, root=repo_root)"
+        self.assertEqual(source.count(needle), 1)
+        renderer.write_text(source.replace(needle, 'raise RuntimeError("injected link write interruption")'))
+        before = self.peer.read_bytes()
+        self._surface(fail=True)
+        self.assertFalse(self.old.exists())
+        self.assertTrue(self.new.is_file())
+        self.assertEqual(self.peer.read_bytes(), before)
+        renderer.write_text(source)
+        self._surface()
+        self.assertEqual(self.peer.read_bytes(), before.replace(self.old.name.encode(), self.new.name.encode()))
+        self.assertIn(b"Customized chair.", self.new.read_bytes())
+
+    def test_driver_collision_preserves_old_new_and_peer(self):
+        self.new.write_bytes(b"Project-owned other chair\n")
+        before = {p: p.read_bytes() for p in (self.old, self.new, self.peer)}
+        self._surface(fail=True)
+        self.assertEqual({p: p.read_bytes() for p in before}, before)
+
+    def test_all_pairs_preflight_before_any_role_move(self):
+        old, new = self.ras.COUNCIL_ROLE_RENAMES[1]
+        for rel in (old, new):
+            p = self.root / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_bytes(rel.encode())
+        paths = [self.old, self.peer, self.root / old, self.root / new]
+        before = {p: p.read_bytes() for p in paths}
+        with self.assertRaises(RuntimeError):
+            self.ras.migrate_council_role_renames(self.root)
+        self.assertEqual({p: p.read_bytes() for p in paths}, before)
+        self.assertFalse(self.new.exists())
+
+    def test_linked_peer_refusal_preserves_role_and_outside_content(self):
+        with tempfile.TemporaryDirectory() as temp:
+            outside = Path(temp) / "outside.md"; outside.write_bytes(self.peer.read_bytes())
+            self.peer.unlink()
+            try:
+                self.peer.symlink_to(outside)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {type(exc).__name__}")
+            with self.assertRaisesRegex(RuntimeError, "council role link repair refused"):
+                self.ras.migrate_council_role_renames(self.root)
+            self.assertTrue(self.old.is_file()); self.assertFalse(self.new.exists())
+            self.assertIn(self.old.name.encode(), outside.read_bytes())
+
+    def test_retry_requires_new_document_role_identity(self):
+        self.old.rename(self.new)
+        self.new.write_text("Role: unrelated-role\n")
+        before = self.peer.read_bytes()
+        with self.assertRaisesRegex(RuntimeError, "does not confirm the renamed role identity"):
+            self.ras.migrate_council_role_renames(self.root)
+        self.assertEqual(self.peer.read_bytes(), before)
+
+    def test_unsupported_and_image_reference_syntax_is_reported_unchanged(self):
+        for usage in ("![picture][chair]", "![picture][chair]\n[normal][chair]",
+                      "![chair][]\n[normal][chair]", "![chair]\n[normal][chair]"):
+            with self.subTest(usage=usage):
+                text = (f"[malformed](<{self.old.name}\n"
+                        f"{usage}\n[chair]: ../specialists/{self.old.name}\n")
+                self.peer.write_text(text)
+                result = self.ras.migrate_council_role_renames(self.root)
+                self.assertEqual(self.peer.read_text(), text)
+                self.assertTrue(any("unchanged unsupported" in row for row in result.link_report))
+
+
 class LifecycleDocumentInstallingUpgradeTests(unittest.TestCase):
     """Fresh extracted renderer owns the new document migration on its installing upgrade."""
 
@@ -6700,6 +7426,63 @@ class MultiVersionTransitionDetectionTests(unittest.TestCase):
         self._write_graph_state({"builder_version": "40"})  # retired layout, superseded
         self.assertEqual(self.mod._read_installed_graph_builder_version(self.root), "42")
 
+    def test_identity_probe_discards_planted_prefix_before_startup_and_changes_no_cache(self) -> None:
+        import py_compile
+        scripts = self.root / ".wavefoundry" / "framework" / "scripts"
+        shutil.copyfile(SCRIPTS_ROOT / "bytecode_cache.py", scripts / "bytecode_cache.py")
+        source = scripts / "graph_indexer.py"
+        source.write_text("def read_state_builder_version(index): return '42'\n", encoding="utf-8")
+        cache = self.root / ".wavefoundry" / "cache" / "pycache"
+        cache.mkdir(parents=True)
+        marker = self.root / "payload-executed"
+        payload = self.root / "payload.py"
+        payload.write_text(f"from pathlib import Path\nPath({str(marker)!r}).write_text('executed')\n"
+                           "def read_state_builder_version(index): return 'PLANTED'\n", encoding="utf-8")
+        previous_prefix = sys.pycache_prefix
+        try:
+            sys.pycache_prefix = str(cache)
+            cfile = Path(importlib.util.cache_from_source(str(source)))
+            mirror = cfile.parent
+        finally:
+            sys.pycache_prefix = previous_prefix
+        cfile.parent.mkdir(parents=True)
+        py_compile.compile(str(payload), cfile=str(cfile), doraise=True,
+                           invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH)
+        bootstrap_payload = self.root / "bootstrap-payload.py"
+        bootstrap_payload.write_text(f"from pathlib import Path\nPath({str(marker)!r}).write_text('startup')\n"
+                                     "def configure(**kwargs): return None\n", encoding="utf-8")
+        py_compile.compile(str(bootstrap_payload),
+                           cfile=str(mirror / f"bytecode_cache.{sys.implementation.cache_tag}.pyc"),
+                           doraise=True, invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH)
+        control_env = dict(os.environ, PYTHONPYCACHEPREFIX=str(cache), PYTHONDONTWRITEBYTECODE="1")
+        control = subprocess.run([sys.executable, "-B", "-c", self.mod._GRAPH_BUILDER_PROBE,
+                                  str(scripts), str(self.root)], env=control_env,
+                                 capture_output=True, text=True, timeout=60)
+        self.assertEqual(control.returncode, 0, control.stderr)
+        self.assertEqual(control.stdout, "PLANTED")
+        self.assertTrue(marker.exists())
+        marker.unlink()
+        (cache / "framework-version.stamp").write_text("old-version\n", encoding="utf-8")
+        before = {str(p): p.read_bytes() for p in cache.rglob("*") if p.is_file()}
+        calls = []
+        actual = self.mod.subprocess_util.run_with_tree_kill
+
+        def record(cmd, **kwargs):
+            calls.append((cmd, kwargs))
+            return actual(cmd, **kwargs)
+
+        with patch.object(self.mod, "SCRIPTS_DIR", scripts), \
+                patch.object(self.mod.venv_bootstrap, "tool_venv_python", return_value=Path(sys.executable)), \
+                patch.object(self.mod.subprocess_util, "run_with_tree_kill", side_effect=record), \
+                patch.dict(os.environ, {"PYTHONPYCACHEPREFIX": str(cache)}):
+            self.assertEqual(self.mod._read_installed_graph_builder_version(self.root), "42")
+        self.assertFalse(marker.exists())
+        self.assertEqual({str(p): p.read_bytes() for p in cache.rglob("*") if p.is_file()}, before)
+        self.assertEqual(calls[0][0][1], "-B")
+        self.assertNotIn("PYTHONPYCACHEPREFIX", calls[0][1]["env"])
+        self.assertEqual(calls[0][1]["env"]["PYTHONDONTWRITEBYTECODE"], "1")
+        self.assertEqual(list(scripts.rglob("__pycache__")), [])
+
     def test_probe_returns_empty_without_a_tool_venv(self) -> None:
         # Stdlib-only rule: the value is read through the tool venv, so an
         # absent venv is a fail-safe empty, never an upgrade abort.
@@ -7761,7 +8544,8 @@ class PrimaryPhaseSummaryTests(unittest.TestCase):
                     "matched": ".wavefoundry/bin/docs-lint", "suggested": "wf docs-lint"}]
         # 1p8o5/1u2az: _run_reconciliation_scan returns (reconciliation,
         # host_permission_flags, renderer_provenance_flags).
-        with patch.object(self.mod, "_run_reconciliation_scan", return_value=(finding, [], [])):
+        with patch.object(self.mod, "_collect_reconciliation_report", return_value={
+                **self.mod._empty_reporting("complete", ""), "reconciliation": finding}):
             out = self._emit_primary("ignored-root-uses-stub", "1.8.0", "1.9.0")
         summary = self._parse_sentinel(out)[0]
         self.assertEqual(summary["reconciliation"], finding)
@@ -7785,7 +8569,8 @@ class PrimaryPhaseSummaryTests(unittest.TestCase):
         finding = [{"file": "x.md", "line": 1, "retired_surface": "docs-lint",
                     "matched": ".wavefoundry/bin/docs-lint", "suggested": "wf docs-lint"}]
         # 1p8o5/1u2az: stub returns the three-channel tuple.
-        with patch.object(self.mod, "_run_reconciliation_scan", return_value=(finding, [], [])) as scan:
+        with patch.object(self.mod, "_collect_reconciliation_report", return_value={
+                **self.mod._empty_reporting("complete", ""), "reconciliation": finding}) as scan:
             out = self._emit_primary("some-root", "1.9.4", "1.9.5")
         summary = self._parse_sentinel(out)[0]
         scan.assert_called_once()
@@ -7996,29 +8781,13 @@ class DelegatedSummaryPg1aReproductionTests(unittest.TestCase):
         return [json.loads(line[len(sentinel):])
                 for line in out.splitlines() if line.startswith(sentinel)]
 
-    def test_mismatched_scan_shape_yields_silent_empty_channels_in_process(self):
-        # The pg1a mechanism, reproduced: the in-process caller unpacks a fixed
-        # channel arity from `reconcile_scan.scan_repo_channels`; a module with a
-        # DIFFERENT arity (here a future 4-channel shape) raises ValueError at the
-        # unpack, and the blanket except swallows it into empty channels. The
-        # findings the stub carries are silently lost; no error, no marker.
+    def test_mismatched_scan_shape_is_explicit_in_process(self):
+        # The former pg1a exception-to-empty behavior is intentionally retired.
+        # A skewed scanner cannot claim successful absence of its finding.
         stub = _mismatched_reconcile_scan_stub([self.FINDING])
         with patch.dict(sys.modules, {"reconcile_scan": stub}):
-            result = self.mod._run_reconciliation_scan(Path("."))
-        self.assertEqual(result, ([], [], []),
-                         "shape skew must reproduce the silent empty channels")
-        # And end to end through the retained in-process emitter: the sentinel
-        # reports [] although the scan module had a finding.
-        with patch.dict(sys.modules, {"reconcile_scan": stub}):
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                self.mod._emit_primary_phase_summary(
-                    from_version="1.14.0", to_version="1.15.0", zip_path=None,
-                    pruned_count=0, root=Path("."), index_published=True,
-                )
-        summary = self._parse_sentinel(buf.getvalue())[0]
-        self.assertEqual(summary["reconciliation"], [],
-                         "the in-process path swallows the skew into []")
+            with self.assertRaises(ValueError):
+                self.mod._run_reconciliation_scan(Path("."))
 
     def test_delegated_path_repairs_the_empty_channel(self):
         # AC-3 repair: with the SAME mismatched module poisoning the parent's
@@ -8033,6 +8802,7 @@ class DelegatedSummaryPg1aReproductionTests(unittest.TestCase):
             _stage_extracted_tree(root)
             lib = _load_upgrade_lib()
             lib.write_upgrade_lock(root, from_version="1.14.0", to_version="1.15.0")
+            lib.update_upgrade_lock(root, index_rebuilt_at="2026-10-09T00:00:00Z")
             stub = _mismatched_reconcile_scan_stub([self.FINDING])
             buf = io.StringIO()
             with patch.dict(sys.modules, {"reconcile_scan": stub}), \
@@ -8063,6 +8833,175 @@ def _write_stub_producer(root: Path, body: str) -> Path:
     script = scripts / "upgrade_wavefoundry.py"
     script.write_text(body, encoding="utf-8")
     return script
+
+
+class BoundedUpgradeReportingTests(unittest.TestCase):
+    """2073v: owned reporting deadline and facts-only recovery."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+
+    def _stage_verified_fixture(self, root):
+        import upgrade_protocol
+        selected = root / "selected.zip"
+        with zipfile.ZipFile(selected, "w") as archive:
+            archive.writestr(upgrade_protocol.PROTOCOL_METADATA_ARCNAME, json.dumps(
+                upgrade_protocol.build_protocol_metadata(release_version="1.29.0", build_id="fixture", artifact_type="feature")))
+            for name in upgrade_protocol.MANDATORY_FEATURE_MODULES:
+                body = ""
+                if name == "upgrade_protocol.py":
+                    body = "UPGRADE_PROTOCOL_VERSION=2\nMINIMUM_RUNNER_PROTOCOL=2\n"
+                elif name == "upgrade_extensions.py":
+                    body = "def post_preflight(ctx):\n    return 'bridge_release_required'\n"
+                archive.writestr(".wavefoundry/framework/scripts/" + name, body)
+        return self.mod._stage_pack_for_consumption(selected)
+
+    def test_progress_persistence_is_bounded_without_losing_coordinates(self):
+        import reconcile_scan
+        writes = []
+
+        def scan(root, *, limits, progress):
+            value = {"last_path": "live.md", "last_stage": "context", "elapsed": 0.,
+                     "visited_entries": 1, "eligible_files": 1, "read_files": 1,
+                     "read_bytes": 400000, "candidates": 1}
+            for n in range(10000):
+                progress(dict(value, elapsed=n / 10000))
+            # A changed file/stage must publish even inside the time interval.
+            progress(dict(value, elapsed=1., last_path="next.md", last_stage="read"))
+            progress(dict(value, elapsed=1.001, last_stage="dispositions"))
+            return reconcile_scan.ScanResult()
+
+        with patch.dict(os.environ, {self.mod._REPORTING_PROGRESS_ENV: "/unused/progress.json"}), \
+             patch.object(reconcile_scan, "scan_repo_result", side_effect=scan), \
+             patch.object(reconcile_scan, "disposition_diagnostics", return_value=[]), \
+             patch.object(self.mod, "_run_renderer_warning_scan", return_value=[]), \
+             patch.object(Path, "write_text", side_effect=lambda text, **kw: writes.append(json.loads(text))), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(self.mod._produce_reconciliation_report(Path("/unused")), 0)
+        self.assertGreaterEqual(len(writes), 10)
+        self.assertLessEqual(len(writes), 13)
+        self.assertEqual(writes[0]["last_stage"], "context")
+        self.assertEqual(writes[-2]["last_path"], "next.md")
+        self.assertEqual(writes[-1]["last_stage"], "dispositions")
+        self.assertEqual(writes[-1]["read_bytes"], 400000)
+
+    def test_delegate_failure_never_scans_or_runs_diagnostics_again(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write_stub_producer(root, "import time; time.sleep(5)\n")
+            buf = io.StringIO()
+            started = time.monotonic()
+            with patch.object(self.mod, "_preferred_python", return_value=sys.executable), \
+                 patch.object(self.mod, "_run_reconciliation_scan", side_effect=AssertionError("second scan")), \
+                 patch.object(self.mod, "_run_renderer_warning_scan", side_effect=AssertionError("diagnostics")), \
+                 contextlib.redirect_stdout(buf):
+                self.mod._emit_primary_summary_via_delegate_or_fallback(
+                    root, "1.28.0", "1.29.0", None, 7,
+                    index_published=True, timeout_s=.15)
+            self.assertLess(time.monotonic() - started, 2)
+            lines = [line for line in buf.getvalue().splitlines()
+                     if line.startswith(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL)]
+            self.assertEqual(len(lines), 1)
+            summary = json.loads(lines[0].split(":", 1)[1])
+            self.assertEqual(summary["reconciliation_state"], "incomplete")
+            self.assertEqual(summary["index_update"], "docs and code layers complete")
+            self.assertEqual(summary["pruned_count"], 7)
+
+    def test_scan_error_is_never_empty_success(self):
+        with patch.dict(sys.modules, {"reconcile_scan": types.SimpleNamespace(
+                scan_repo_channels=lambda root: (_ for _ in ()).throw(RuntimeError("secret")))}):
+            with self.assertRaises(RuntimeError):
+                self.mod._run_reconciliation_scan(Path("/unused"))
+
+    def test_owned_worker_timeout_retains_progress_and_cleans_temporary(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            stub = root / "worker.py"
+            stub.write_text("import os,json,time\nfrom pathlib import Path\n"
+                            "Path(os.environ['WAVEFOUNDRY_REPORTING_PROGRESS']).write_text(json.dumps({'last_path':'docs/live.md','last_stage':'read','read_bytes':9}))\n"
+                            "time.sleep(5)\n", encoding="utf-8")
+            started = time.monotonic()
+            with patch.object(self.mod, "__file__", str(stub)), \
+                 patch.object(self.mod, "_preferred_python", return_value=sys.executable):
+                result = self.mod._collect_reconciliation_report(root, budget_s=.2)
+            self.assertLess(time.monotonic() - started, 2)
+            self.assertEqual(result["reconciliation_state"], "incomplete")
+            self.assertEqual(result["reconciliation_reason"], "reporting_timeout")
+            self.assertEqual(result["reconciliation_last_path"], "docs/live.md")
+            self.assertEqual(result["reconciliation_last_stage"], "read")
+
+    def test_actual_worker_preserves_partial_live_findings(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "live.md").write_text(".wavefoundry/bin/docs-lint\n", encoding="utf-8")
+            with (root / "huge.md").open("wb") as stream:
+                stream.truncate(17 * 1024 * 1024)
+            result = self.mod._collect_reconciliation_report(root, budget_s=3)
+            self.assertEqual(result["reconciliation_state"], "incomplete", result)
+            self.assertIn("file_bytes", result["reconciliation_reason"])
+            self.assertEqual([ref["file"] for ref in result["reconciliation"]], ["live.md"])
+
+    def test_contradictory_publication_and_consent_facts_degrade(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            payload = {"summary_schema_version": 1, "index_update": "not run",
+                       "permissions_added": ["invented"]}
+            _write_stub_producer(root, "print('WAVE_UPGRADE_SUMMARY_JSON:' + " + repr(json.dumps(payload)) + ")\n")
+            buf = io.StringIO()
+            delta = {"file": ".claude/settings.json", "added": ["observed"], "removed": [], "unmanaged_present": 0}
+            with patch.object(self.mod, "_preferred_python", return_value=sys.executable), \
+                 patch.object(self.mod, "_PERMISSIONS_DELTA", delta), \
+                 contextlib.redirect_stdout(buf):
+                self.mod._emit_primary_summary_via_delegate_or_fallback(
+                    root, "1.28.0", "1.29.0", None, 0, index_published=True)
+            summary = json.loads(buf.getvalue().split(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL)[1].splitlines()[0])
+            self.assertEqual(summary["summary_source_degraded"], "parent_fact_mismatch")
+            self.assertEqual(summary["index_update"], "docs and code layers complete")
+            self.assertEqual(summary["permissions_added"], ["observed"])
+
+    def test_cleanup_attempts_verified_pack_even_when_optional_emitter_raises(self):
+        lib = _load_upgrade_lib()
+        import sqlite_storage_migration
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            lib.write_upgrade_lock(root, "1.28.0", "1.29.0")
+            owned = self._stage_verified_fixture(root)
+            proof = self.mod._VERIFIED_PACK_IDENTITIES[str(owned)]
+            lib.update_upgrade_lock(root, verified_pack_identity=proof)
+            # A fresh runner represents the separate --cleanup/resume process.
+            self.mod = load_upgrade_module()
+            unowned = root / "operator.zip"
+            unowned.write_bytes(b"operator")
+            with patch.object(sqlite_storage_migration, "cleanup_legacy"), \
+                 patch.object(self.mod, "_record_setup_baseline", return_value={}), \
+                 patch.object(self.mod, "_regenerate_codebase_map_on_upgrade"), \
+                 patch.object(self.mod, "_ensure_lifecycle_policy_backstop"), \
+                 patch.object(self.mod, "_print_operator_summary", side_effect=RuntimeError("optional")), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                self.mod.phase_cleanup(root, "1.28.0", "1.29.0", owned, 0, True)
+            self.assertFalse(owned.exists())
+            self.assertEqual(unowned.read_bytes(), b"operator")
+            self.assertIsNone(lib.read_upgrade_lock(root))
+
+    def test_verified_pack_cleanup_refuses_unproven_prefix_and_changed_identity(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            owned = self._stage_verified_fixture(root)
+            proof = self.mod._VERIFIED_PACK_IDENTITIES[str(owned)]
+            fd, unproven_name = tempfile.mkstemp(prefix="wf-verified-pack-", suffix=".zip")
+            os.close(fd)
+            unproven = Path(unproven_name)
+            try:
+                self.mod._cleanup_verified_pack(unproven, None)
+                self.assertTrue(unproven.exists())
+                replacement = root / "replacement.zip"
+                replacement.write_bytes(b"operator-owned replacement")
+                os.replace(replacement, owned)
+                self.mod._cleanup_verified_pack(owned, proof)
+                self.assertEqual(owned.read_bytes(), b"operator-owned replacement")
+            finally:
+                unproven.unlink(missing_ok=True)
+                owned.unlink(missing_ok=True)
 
 
 class DelegatedSummaryContractTests(unittest.TestCase):
@@ -8144,8 +9083,10 @@ class DelegatedSummaryContractTests(unittest.TestCase):
             self.assertEqual(cmd[2], "--emit-summary")
             self.assertEqual(cmd[3], "--root")
             self.assertEqual(cmd[4], str(root))
-            # The pinned timeout constant is what the spawn actually uses.
-            self.assertEqual(captured["timeout"], self.mod._SUMMARY_DELEGATE_TIMEOUT_S)
+            # Current parents enforce the remaining 30-second work budget.
+            # The helper default stays pinned at300 for fielded old parents.
+            self.assertGreater(captured["timeout"], 0)
+            self.assertLessEqual(captured["timeout"], self.mod._REPORTING_WORK_SECONDS)
             # Byte-verbatim re-emit under the parent's own sentinel constant.
             lines = [
                 l for l in buf.getvalue().splitlines()
@@ -12539,19 +13480,39 @@ class JournalDeclarationMigrationTests(_JournalDeclarationFixture, unittest.Test
         for fragment in (str(self.root), str(self.root.resolve()), "/", "\\"):
             self.assertNotIn(fragment, warning)
 
+    def _assert_hook_contract(self, text):
+        text = " ".join(text.split())
+        self.assertIn("only on an upgrade from a release before 1.15.0", text)
+        self.assertIn("never retried", text)
+        self.assertIn("never called by the Migrate journals prompt", text)
+
     def test_hook_contract_documents_the_1_15_0_limit(self):
-        """Wave 200ey (200ev) AC-4: seed 210 and, where present, the MCP tool
-        surface spec state that the hook runs only on an upgrade from before
-        1.15.0, is never retried and is never called by the prompt."""
+        """The shipped seed owns this contract, not a consuming checkout spec."""
         seed = SCRIPTS_ROOT.parent / "seeds" / "210-migrate-journals.prompt.md"
-        spec = SCRIPTS_ROOT.parents[2] / "docs" / "specs" / "mcp-tool-surface.md"
-        documents = [seed] + ([spec] if spec.is_file() else [])
-        for document in documents:
-            with self.subTest(document.name):
-                text = " ".join(document.read_text(encoding="utf-8").split())
-                self.assertIn("only on an upgrade from a release before 1.15.0", text)
-                self.assertIn("never retried", text)
-                self.assertIn("never called by the Migrate journals prompt", text)
+        self._assert_hook_contract(seed.read_text(encoding="utf-8"))
+
+    def test_hook_contract_refuses_a_missing_limit(self):
+        seed = SCRIPTS_ROOT.parent / "seeds" / "210-migrate-journals.prompt.md"
+        text = seed.read_text(encoding="utf-8")
+        self.assertIn("only on an upgrade from a release before 1.15.0", " ".join(text.split()))
+        with self.assertRaises(AssertionError):
+            self._assert_hook_contract(" ".join(text.split()).replace(
+                "only on an upgrade from a release before 1.15.0", "on any upgrade"))
+
+    def test_checkout_spec_is_not_a_hook_contract_input(self):
+        seed = SCRIPTS_ROOT.parent / "seeds" / "210-migrate-journals.prompt.md"
+        original_read = Path.read_text
+        reads = []
+
+        def read(path, *args, **kwargs):
+            reads.append(path)
+            if path.name == "mcp-tool-surface.md":
+                raise AssertionError("checkout spec must not be read")
+            return original_read(path, *args, **kwargs)
+
+        with patch.object(Path, "read_text", read):
+            self.test_hook_contract_documents_the_1_15_0_limit()
+        self.assertEqual(reads, [seed])
 
     def test_old_or_missing_declaration_module_migrates_as_before(self):
         """AC-7: no extracted module, then one that predates the constants."""
@@ -14023,6 +14984,378 @@ class DocsGateProjectRootPinTests(unittest.TestCase):
         )
         self.assertTrue(seen_file.exists(), "non-vacuity: the hook ran its docs-lint child")
         self.assertEqual(Path(seen_file.read_text()).resolve(), root.resolve())
+
+
+
+class JournalTriggerPolicyTests(_JournalDeclarationFixture, unittest.TestCase):
+    """206is/204mo: independent policy, presence and builtin permission oracles."""
+
+    TRIGGER = "EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER"
+    SENTINEL = (
+        "\nfrom pathlib import Path as _TriggerSentinelPath\n"
+        "_TriggerSentinelPath(__file__).with_name('trigger-executed.txt').write_text('bad')\n"
+    )
+
+    def _policy(self, binding="'journals_present'", *, extra="", hook_body="pass"):
+        self._declare(hook="acme_journal_hooks:prepare", helpers=("acme_journal_hooks",),
+                      helper_source=self._hook_source(hook_body))
+        path = self.scripts / "mcp_tool_extensions.py"
+        text, count = re.subn(
+            rf"(?m)^{self.TRIGGER}(?:[ \t]*:[^=\n]*)?[ \t]*=[^\n]*\n?", "",
+            path.read_text(encoding="utf-8"),
+        )
+        self.assertEqual(count, 1, "the shipped constant must be registered exactly once")
+        if binding is not None:
+            text += f"\n{self.TRIGGER} = {binding}\n"
+        else:
+            # An older declaration's validator predates the trigger field;
+            # removing only the assignment from today's validator is not that fixture.
+            text = text.replace("trigger = EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER",
+                                "trigger = 'legacy_cutover'")
+        path.write_text(text + extra, encoding="utf-8")
+
+    def _bytes(self):
+        return sorted((p.relative_to(self.root).as_posix(), p.read_bytes() if p.is_file() else None)
+                      for p in self.root.rglob("*") if not p.is_symlink())
+
+    def _preview(self, *, zip_path=None):
+        before = self._bytes()
+        with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("preview loaded declaration")), \
+                patch.object(self.ext, "_run_journal_pre_migration_hook", side_effect=AssertionError("preview ran hook")):
+            report = self.ext.migrate_journals(self.root, apply=False, zip_path=zip_path)
+        self.assertEqual(self._bytes(), before)
+        self.assertFalse((self.scripts / "trigger-executed.txt").exists())
+        self.assertEqual(self._hook_calls(), [])
+        metadata = report["hook_preview"]
+        self.assertIs(metadata["hook_executed"], False)
+        self.assertEqual(metadata["invocation"], "upgrade_apply_only")
+        return metadata
+
+    def test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion(self):
+        for version in ("1.14.9", "1.15.0", "1.29.0"):
+            with self.subTest(version=version):
+                self._policy()
+                self._write_journal("a.md", "opaque operator note")
+                self._write_journal("b.md", "another note")
+                with patch.object(self.ext, "_migrate_journals") as builtin, \
+                        patch.object(self.ext, "_load_journal_declaration", wraps=self.ext._load_journal_declaration) as load:
+                    before = len(self._hook_calls())
+                    self._gate(version)
+                self.assertEqual(len(self._hook_calls()) - before, 1)
+                self.assertEqual(load.call_count, 1)
+                self.assertEqual(builtin.call_count, int(version == "1.14.9"))
+                self.assertEqual((self.journals / "a.md").read_text(), "opaque operator note")
+
+    def test_legacy_absent_and_explicit_defaults_keep_no_source_cutover(self):
+        for binding in (None, "'legacy_cutover'"):
+            for version in ("1.14.9", "1.15.0", "1.29.0"):
+                with self.subTest(binding=binding, version=version):
+                    self._policy(binding)
+                    before = len(self._hook_calls())
+                    with patch.object(self.ext, "_migrate_journals") as builtin:
+                        self._gate(version)
+                    self.assertEqual(len(self._hook_calls()) - before, int(version == "1.14.9"))
+                    self.assertEqual(builtin.call_count, int(version == "1.14.9"))
+        self._policy(None, extra=self.SENTINEL)
+        with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("later legacy import")):
+            self._gate("1.29.0")
+        self.assertFalse((self.scripts / "trigger-executed.txt").exists())
+
+    def test_nonqualifying_direct_sources_never_call_opted_in_hook(self):
+        shapes = ("missing", "empty", "readme", "nested", "directory", "symlink", "hardlink", "ancestor")
+        outside = self.root / "outside-journals"
+        outside.mkdir()
+        (outside / "note.md").write_text("outside")
+        for shape in shapes:
+            with self.subTest(shape=shape):
+                if self.journals.is_symlink():
+                    self.journals.unlink()
+                elif self.journals.exists():
+                    shutil.rmtree(self.journals)
+                self.journals.mkdir()
+                self._policy()
+                if shape == "missing":
+                    self.journals.rmdir()
+                elif shape == "readme":
+                    (self.journals / "README.md").write_text("index")
+                elif shape == "nested":
+                    (self.journals / "nested").mkdir()
+                    (self.journals / "nested" / "note.md").write_text("nested")
+                elif shape == "directory":
+                    (self.journals / "note.md").mkdir()
+                elif shape in ("symlink", "ancestor"):
+                    try:
+                        if shape == "symlink":
+                            (self.journals / "note.md").symlink_to(outside / "note.md")
+                        else:
+                            self.journals.rmdir()
+                            self.journals.symlink_to(outside, target_is_directory=True)
+                    except (OSError, NotImplementedError) as exc:
+                        self.skipTest(f"symlinks unavailable: {exc}")
+                elif shape == "hardlink":
+                    try:
+                        os.link(outside / "note.md", self.journals / "note.md")
+                    except OSError as exc:
+                        self.skipTest(f"hardlinks unavailable: {exc}")
+                with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("ineligible loaded declaration")), \
+                        patch.object(self.ext, "_migrate_journals", side_effect=AssertionError("later builtin migration")):
+                    self._gate("1.29.0")
+                self.assertEqual(self._hook_calls(), [])
+                self.assertEqual((outside / "note.md").read_text(), "outside")
+
+    def test_linked_source_ancestor_is_not_followed(self):
+        self._policy()
+        self._write_journal("note.md", "outside operator note")
+        docs = self.root / "docs"
+        outside = self.root / "linked-docs-target"
+        docs.rename(outside)
+        try:
+            docs.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:
+            outside.rename(docs)
+            self.skipTest(f"symlinks unavailable: {exc}")
+        with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("linked ancestor selected")):
+            self._gate("1.29.0")
+        self.assertEqual(self._hook_calls(), [])
+        self.assertEqual((outside / "agents/journals/note.md").read_text(), "outside operator note")
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO fixture needs native POSIX")
+    def test_fifo_named_markdown_is_not_opened_or_selected(self):
+        self._policy()
+        os.mkfifo(self.journals / "blocked.md")
+        with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("FIFO selected")):
+            self._gate("1.29.0")
+        self.assertEqual(self._hook_calls(), [])
+
+    def test_presence_does_not_read_content_or_use_public_preview_left_entries(self):
+        self._policy()
+        self._write_journal("unmatched.md", "\x00not a migration journal")
+        with patch.object(self.ext, "_read_journal_bytes", side_effect=AssertionError("presence read content")), \
+                patch.object(self.ext, "migrate_journals", side_effect=AssertionError("presence used migration report")), \
+                patch.object(self.ext, "_migrate_journals", side_effect=AssertionError("later builtin")):
+            self._gate("1.29.0")
+        self.assertEqual(len(self._hook_calls()), 1)
+
+    def test_static_preview_decision_table_and_apply_invalid_refusal_before_execution(self):
+        cases = (
+            (None, "", "valid", "legacy_cutover"),
+            ("'legacy_cutover'", "", "valid", "legacy_cutover"),
+            ("'journals_present'", "", "valid", "journals_present"),
+            ("''", "", "invalid", None),
+            ("7", "", "invalid", None),
+            ("'unsupported'", "", "invalid", None),
+            ("str('journals_present')", "", "invalid", None),
+            (None, f"\nif True:\n    {self.TRIGGER} = 'journals_present'\n", "invalid", None),
+            ("'journals_present'", f"\n{self.TRIGGER} = 'journals_present'\n", "invalid", None),
+            ("'journals_present'", f"\n{self.TRIGGER} += ''\n", "invalid", None),
+            ("'journals_present'", "\ndef broken(:\n", "unknown", None),
+        )
+        self._write_journal("note.md", "retained")
+        for binding, extra, status, policy in cases:
+            with self.subTest(binding=binding, extra=extra):
+                self._policy(binding, extra=self.SENTINEL + extra)
+                metadata = self._preview()
+                self.assertEqual((metadata["status"], metadata["policy"]), (status, policy))
+                self.assertIs(metadata["qualifying_journals"], True)
+                package = self.root / "policy-preview.zip"
+                with zipfile.ZipFile(package, "w") as archive:
+                    archive.writestr(".wavefoundry/framework/scripts/mcp_tool_extensions.py",
+                                     (self.scripts / "mcp_tool_extensions.py").read_bytes())
+                    for helper in ("path_containment", "contained_files"):
+                        archive.writestr(f".wavefoundry/framework/scripts/{helper}.py",
+                                         source_path(f"{helper}.py").read_bytes())
+                before = self._bytes()
+                output = io.StringIO()
+                with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("dry-run declaration")), \
+                        patch.object(self.ext, "_run_journal_pre_migration_hook", side_effect=AssertionError("dry-run hook")), \
+                        contextlib.redirect_stdout(output):
+                    self.ext.post_extract(types.SimpleNamespace(root=self.root, from_version="1.29.0", to_version="1.30.0", zip_path=package, dry_run=True))
+                lines = [line for line in output.getvalue().splitlines() if line.startswith("journal hook preview: ")]
+                self.assertEqual(len(lines), 1)
+                proposed = json.loads(lines[0].split(": ", 1)[1])
+                self.assertEqual((proposed["status"], proposed["policy"]), (status, policy))
+                self.assertIs(proposed["hook_executed"], False)
+                self.assertIs(proposed["qualifying_journals"], True)
+                self.assertEqual(self._bytes(), before)
+                if status == "invalid":
+                    for version in ("1.14.9", "1.29.0"):
+                        with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("invalid executed declaration")), \
+                                patch.object(self.ext, "_migrate_memory_naming", side_effect=AssertionError("invalid ran memory")), \
+                                patch.object(self.ext, "_migrate_journals", side_effect=AssertionError("invalid ran builtin")), \
+                                self.assertRaises(self.ext.JournalDeclarationError) as raised:
+                            self.ext.pre_docs_gate(types.SimpleNamespace(root=self.root, from_version=version))
+                        self.assertIn(self.TRIGGER, str(raised.exception))
+                        self.assertNotIn(str(self.root), str(raised.exception))
+                elif status == "unknown":
+                    with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("unknown later import")):
+                        warning = self._gate("1.29.0")
+                    self.assertIn("unknown", warning.lower())
+                    self.assertNotIn(str(self.root), warning)
+                    with self.assertRaises(self.ext.JournalDeclarationError):
+                        self._gate("1.14.9")
+                self.assertEqual((self.journals / "note.md").read_text(), "retained")
+                self.assertEqual(self._hook_calls(), [])
+
+    def test_annotated_literal_and_missing_module_static_controls(self):
+        self._policy(None)
+        with (self.scripts / "mcp_tool_extensions.py").open("a") as stream:
+            stream.write(f"\n{self.TRIGGER}: str = 'journals_present'\n")
+        self.assertEqual(self._preview()["policy"], "journals_present")
+        (self.scripts / "mcp_tool_extensions.py").unlink()
+        self.assertEqual(self._preview()["policy"], "legacy_cutover")
+
+    def test_refused_static_source_is_unknown_without_execution(self):
+        self._policy(extra=self.SENTINEL)
+        source = self.scripts / "mcp_tool_extensions.py"
+        outside_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(outside_tmp.cleanup)
+        outside = Path(outside_tmp.name) / "outside-declaration.py"
+        source.replace(outside)
+        try:
+            source.symlink_to(outside)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+        self.assertEqual(self._preview()["status"], "unknown")
+        with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("refused imported")):
+            output = self._gate("1.29.0")
+        self.assertNotIn(str(self.root), output)
+        self.assertFalse((outside.parent / "trigger-executed.txt").exists())
+
+    def test_zip_preview_uses_incoming_policy_and_writes_no_report(self):
+        self._policy("'legacy_cutover'", extra=self.SENTINEL)
+        disk_source = (self.scripts / "mcp_tool_extensions.py").read_text()
+        incoming = disk_source.replace(f"{self.TRIGGER} = 'legacy_cutover'", f"{self.TRIGGER} = 'journals_present'")
+        package = self.root / "incoming.zip"
+        with zipfile.ZipFile(package, "w") as archive:
+            archive.writestr(".wavefoundry/framework/scripts/mcp_tool_extensions.py", incoming)
+        self._write_journal("note.md", "operator note")
+        self.assertEqual(self._preview()["policy"], "legacy_cutover")
+        self.assertEqual(self._preview(zip_path=package)["policy"], "journals_present")
+        before = self._bytes()
+        output = io.StringIO()
+        with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("dry-run import")), \
+                patch.object(self.ext, "_run_journal_pre_migration_hook", side_effect=AssertionError("dry-run hook")), \
+                contextlib.redirect_stdout(output):
+            self.ext.post_extract(types.SimpleNamespace(root=self.root, from_version="1.29.0", to_version="1.30.0", zip_path=package, dry_run=True))
+        lines = [line for line in output.getvalue().splitlines() if line.startswith("journal hook preview: ")]
+        self.assertEqual(len(lines), 1)
+        metadata = json.loads(lines[0].split(": ", 1)[1])
+        self.assertEqual(metadata["policy"], "journals_present")
+        self.assertIs(metadata["hook_executed"], False)
+        self.assertEqual(self._bytes(), before)
+
+    def test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration(self):
+        self._policy(hook_body="(Path(root) / 'hook-owned-effect.txt').write_text('partial'); raise RuntimeError(str(root) + '/secret')")
+        self._write_pristine("1zff0 kept", "kept", "2026-01-05")
+        with patch.object(self.ext, "_migrate_journals", side_effect=AssertionError("failed hook migrated")):
+            output = self._gate("1.14.9")
+        self.assertIn("RuntimeError", output)
+        self.assertNotIn(str(self.root), output)
+        self.assertNotIn("secret", output)
+        self.assertNotIn("Journals were left in place", output)
+        self.assertNotIn("do not retry", output)
+        self.assertEqual((self.root / "hook-owned-effect.txt").read_text(), "partial")
+        self.assertEqual(len(list(self.journals.iterdir())), 1)
+
+    def test_loaded_trigger_must_match_static_selection_before_dependents(self):
+        self._write_journal("note.md", "retained operator content")
+        for version in ("1.14.9", "1.29.0"):
+            with self.subTest(version=version):
+                sentinel = self.scripts / "trigger-executed.txt"
+                sentinel.unlink(missing_ok=True)
+                self._policy(extra=self.SENTINEL + f"\nglobals()[{self.TRIGGER!r}] = 'legacy_cutover'\n")
+                metadata = self._preview()
+                self.assertEqual((metadata["status"], metadata["policy"]), ("valid", "journals_present"))
+                before = self._journal_tree()
+                with patch.object(self.ext, "_load_journal_hook", side_effect=AssertionError("mismatched trigger loaded hook")), \
+                        patch.object(self.ext, "_run_journal_pre_migration_hook", side_effect=AssertionError("mismatched trigger called hook")), \
+                        patch.object(self.ext, "_migrate_memory_naming", side_effect=AssertionError("mismatched trigger migrated memory")), \
+                        patch.object(self.ext, "_migrate_journals", side_effect=AssertionError("mismatched trigger migrated journals")), \
+                        self.assertRaises(self.ext.JournalDeclarationError) as raised:
+                    self.ext.pre_docs_gate(types.SimpleNamespace(root=self.root, from_version=version))
+                self.assertIn("does not match the static trigger selection", str(raised.exception))
+                self.assertNotIn(str(self.root), str(raised.exception))
+                self.assertTrue(sentinel.exists(), "the selected declaration must really have executed")
+                self.assertEqual(self._hook_calls(), [])
+                self.assertEqual(self._journal_tree(), before)
+
+    def test_loaded_invalid_trigger_is_refused_by_framework_policy_guard(self):
+        # An older/custom validator can ignore the new field. Framework refusal
+        # must not depend on that validator or on the invalid object's equality.
+        invalid_values = (
+            "'unsupported'", "[]",
+            "type('_TriggerSpoof', (), {'__eq__': lambda self, other: True, "
+            "'__ne__': lambda self, other: False})()",
+        )
+        self._write_journal("note.md", "retained operator content")
+        for value in invalid_values:
+            for version in ("1.14.9", "1.29.0"):
+                with self.subTest(value=value, version=version):
+                    sentinel = self.scripts / "trigger-executed.txt"
+                    sentinel.unlink(missing_ok=True)
+                    self._policy(extra=self.SENTINEL + f"\nglobals()[{self.TRIGGER!r}] = {value}\n")
+                    path = self.scripts / "mcp_tool_extensions.py"
+                    source = path.read_text().replace(
+                        "trigger = EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER", "trigger = 'legacy_cutover'"
+                    )
+                    path.write_text(source)
+                    metadata = self._preview()
+                    self.assertEqual((metadata["status"], metadata["policy"]), ("valid", "journals_present"))
+                    before = self._journal_tree()
+                    with patch.object(self.ext, "_load_journal_hook", side_effect=AssertionError("invalid loaded trigger loaded hook")), \
+                            patch.object(self.ext, "_run_journal_pre_migration_hook", side_effect=AssertionError("invalid loaded trigger called hook")), \
+                            patch.object(self.ext, "_migrate_memory_naming", side_effect=AssertionError("invalid loaded trigger migrated memory")), \
+                            patch.object(self.ext, "_migrate_journals", side_effect=AssertionError("invalid loaded trigger migrated journals")), \
+                            self.assertRaises(self.ext.JournalDeclarationError) as raised:
+                        self.ext.pre_docs_gate(types.SimpleNamespace(root=self.root, from_version=version))
+                    self.assertIn("must be 'legacy_cutover' or 'journals_present'", str(raised.exception))
+                    self.assertNotIn(str(self.root), str(raised.exception))
+                    self.assertTrue(sentinel.exists(), "the invalid value must come from the actual loaded declaration")
+                    self.assertEqual(self._hook_calls(), [])
+                    self.assertEqual(self._journal_tree(), before)
+
+    def test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution(self):
+        bindings = (
+            f"def {self.TRIGGER}(root):\n    pass\n",
+            f"class {self.TRIGGER}:\n    pass\n",
+            f"try:\n    pass\nexcept Exception as {self.TRIGGER}:\n    pass\n",
+            f"match 0:\n    case {self.TRIGGER}:\n        pass\n",
+            f"match []:\n    case [*{self.TRIGGER}]:\n        pass\n",
+            f"match {{}}:\n    case {{'x': _, **{self.TRIGGER}}}:\n        pass\n",
+        )
+        self._write_journal("note.md", "retained operator content")
+        for binding in bindings:
+            with self.subTest(binding=binding):
+                self._policy(extra=self.SENTINEL + "\n" + binding)
+                metadata = self._preview()
+                self.assertEqual((metadata["status"], metadata["policy"]), ("invalid", None))
+                for version in ("1.14.9", "1.29.0"):
+                    with patch.object(self.ext, "_load_journal_declaration", side_effect=AssertionError("unsupported binding executed declaration")), \
+                            patch.object(self.ext, "_run_journal_pre_migration_hook", side_effect=AssertionError("unsupported binding called hook")), \
+                            patch.object(self.ext, "_migrate_memory_naming", side_effect=AssertionError("unsupported binding migrated memory")), \
+                            patch.object(self.ext, "_migrate_journals", side_effect=AssertionError("unsupported binding migrated journals")), \
+                            self.assertRaises(self.ext.JournalDeclarationError) as raised:
+                        self.ext.pre_docs_gate(types.SimpleNamespace(root=self.root, from_version=version))
+                    self.assertIn(self.TRIGGER, str(raised.exception))
+                self.assertFalse((self.scripts / "trigger-executed.txt").exists())
+                self.assertEqual(self._hook_calls(), [])
+                self.assertEqual((self.journals / "note.md").read_text(), "retained operator content")
+
+    def test_registry_base_profiles_positional_validator_and_activation_are_compatible(self):
+        import mcp_tool_extensions as declaration
+        from declaration_support import DECLARATION_CONSTANTS, base_declaration
+        from record_layout_support import SHIPPED_DECLARATION, expected_profile
+
+        self.assertEqual(SHIPPED_DECLARATION[self.TRIGGER], "legacy_cutover")
+        self.assertIn(self.TRIGGER, DECLARATION_CONSTANTS)
+        for profile in ("default", "second", "prompt-names", "declared"):
+            environ = {} if profile == "default" else {"WAVEFOUNDRY_TEST_PROFILE": profile}
+            with self.subTest(profile=profile):
+                self.assertEqual(expected_profile(environ).declaration()[self.TRIGGER], "legacy_cutover")
+        with base_declaration(EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER="journals_present"):
+            self.assertEqual(declaration.journal_declaration_problems((), "acme_journal_hooks:prepare", ("acme_journal_hooks",)), [])
+            self.assertFalse(declaration.declared())
+            self.assertTrue(declaration.journal_declaration_problems((), "", (), trigger="bad"))
 
 
 if __name__ == "__main__":

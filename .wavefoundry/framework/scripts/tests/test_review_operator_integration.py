@@ -220,7 +220,7 @@ class AttestedByIntegrationTests(unittest.TestCase):
         first = self.call(context='named', operator_handle='alice', attested_by='  Ada Lovelace ')
         self.assertEqual(first['status'], 'ok', first)
         self.assertEqual(self.contexts(first)[0]['attested_by'], 'Ada Lovelace')
-        self.assertIn('by Ada Lovelace (alice)', self.review_row())
+        self.assertIn('by Ada Lovelace (self-attested) (alice)', self.review_row())
         before = self.ledger.read_bytes()
         replay = self.call(context='named', operator_handle='bob', attested_by='Grace Hopper')
         self.assertEqual(replay['status'], 'ok', replay)
@@ -251,7 +251,7 @@ class AttestedByIntegrationTests(unittest.TestCase):
         self.assertIn(name, stored)
         shown = 'Ada �bob� �carol� �dave�'
         row = self.review_row()
-        self.assertIn(f'by {shown} (alice)', row)
+        self.assertIn(f'by {shown} (self-attested) (alice)', row)
         for char in '（）❨❩':
             self.assertNotIn(char, row)
         self.assertNotIn('(bob)', row)
@@ -263,12 +263,33 @@ class AttestedByIntegrationTests(unittest.TestCase):
         self.assertNotIn('attested_by_replay_mismatch',
                          [d['code'] for d in replay['diagnostics'] or []])
 
-    def test_name_without_handle_renders_name_only(self):
+    def test_name_without_handle_renders_self_attested(self):
         self.map.unlink()
         result = self.call(context='name-only', attested_by='Ada Lovelace')
         self.assertEqual(result['status'], 'ok', result)
         self.assertNotIn('operator', self.contexts(result)[0])
-        self.assertIn('current executed approval by Ada Lovelace, not receipt-bound', self.review_row())
+        self.assertIn('current executed approval by Ada Lovelace (self-attested), not receipt-bound', self.review_row())
+
+    def test_registered_name_only_label_preserves_ledger_on_replay(self):
+        self.map.unlink()
+        tool = load_thin_runner().build_server(self.root)._tool_manager._tools['wf_review_event']
+        args = dict(wave_id=self.wave_id, event='approval', actor='qa-reviewer',
+                    context_id='registered-name', mode='create', signoff_key='qa-reviewer',
+                    approval_phase='delivery', fresh_context=True, independent=True,
+                    integrity_checks=integrity_checks(), attested_by='bob',
+                    evidence={'observed': 'passed', 'artifact_or_test_id': 'test:registered-attribution'})
+        first = tool.fn(**args)
+        self.assertEqual(first['status'], 'ok', first)
+        self.assertNotIn('operator', self.contexts(first)[0])
+        self.assertIn('by bob (self-attested)', self.review_row())
+        self.assertNotIn('by bob,', self.review_row())
+        before = self.ledger.read_bytes()
+        replay = tool.fn(**dict(args, attested_by='different name'))
+        self.assertEqual(replay['status'], 'ok', replay)
+        self.assertTrue(replay['data']['replayed'])
+        self.assertEqual(replay['data']['appended_records'], first['data']['appended_records'])
+        self.assertEqual(self.ledger.read_bytes(), before)
+        self.assertIn('by bob (self-attested)', self.review_row())
 
     def test_no_name_records_nothing_and_renders_as_before(self):
         for event in ('approval', 'finding', 'run'):

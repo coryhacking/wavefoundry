@@ -1,0 +1,314 @@
+{
+  "wave_id": "2071n",
+  "change_id": "205jp-bug profile-skip-qualification",
+  "phase": "delivery",
+  "repair_cycle": 1,
+  "created_utc": "2026-10-09T21:38:36.239401+00:00",
+  "contexts": {
+    "architecture-reviewer": {
+      "actor": "architecture-reviewer",
+      "context_id": "2071n-reverify-architecture-independent-20261009",
+      "fresh_context": true,
+      "independent": true
+    },
+    "security-reviewer": {
+      "actor": "security-reviewer",
+      "context_id": "2071n-reverify-security-independent-20261009",
+      "fresh_context": true,
+      "independent": true
+    }
+  },
+  "roles_share_one_disclosed_fresh_independent_agent_context": true,
+  "pre_primer_priors": {
+    "architecture-reviewer": "Before reading the full primer, I expect a tests-only hermetic publication fixture can preserve the production query boundary, but architecture approval depends on independently proving that documentation does not claim live repository partition coverage from that fixture.",
+    "security-reviewer": "Before reading the full primer, I expect the strongest risk is test-fixture integrity across historical executable entry points, so I will require confined authenticated fixture inputs and preservation of the old-entry/current-sibling seam rather than infer attacker reachability from trusted operator content."
+  },
+  "prior_artifact": "/private/tmp/wf-2071n-reverify-priors-arch-security.json",
+  "primer_opened_after_recording_priors": true,
+  "primer_depth": "full",
+  "primer_effect": {
+    "architecture-reviewer": "Extended: the primer added exact profile skip reconciliation and independent output expectations to my original requirement to distinguish hermetic query behavior from live repository coverage; the repaired coverage boundary itself remains the decisive architecture question.",
+    "security-reviewer": "Confirmed and extended: historical source provenance is insufficient without executing the old-entry/current-sibling seam, and the primer made runtime/cache/fresh-host limitations explicit without supplying a less-trusted controlling actor."
+  },
+  "verdicts": {
+    "architecture-reviewer": "own repaired boundary resolved; final delivery approval pending frozen full qualification",
+    "security-reviewer": "no demonstrated security blocker; final delivery approval pending frozen full qualification"
+  },
+  "approvals_ready_to_record": false,
+  "overall_wave_approval": false,
+  "final_full_qualification": "PENDING; root must rerun after review probes and supply actual canonical, second and declared full results plus exact skip identities/reasons",
+  "finding_reverification": {
+    "finding_id": "ARCH-2071N-02",
+    "original_defect_real": true,
+    "original_disposition": "do_now",
+    "repair_execution_state": "completed",
+    "own_lane_cleared": "architecture-reviewer",
+    "other_lane_authority": "release-validator must clear its own lane independently; this report cannot clear that lane",
+    "expected": "Coverage prose must name the hermetic published fixture and reserve live setup/graph smoke qualification for separately executed evidence.",
+    "observed": "All 17 selected tests across EvidencePartitionResponseTests, EvidenceNodesStayQueryableTests and EvidencePairDocumentationTests pass without skips; 14 observed graph-producing calls allocate previously unindexed roots outside the repository. The actual producer publishes 184 nodes/177 edges; public report and community lookup assertions execute. The revised hand-authored paragraph900\u2013903 explicitly describes this fixture and says these tests do not establish live qualification.",
+    "exact_reproduction": "Read original/current scoped diff removing _repo_index_copy_root/_require_published_repo_graph; independently run each named consumer class while observing fixture-root/index absence, then evaluate revised paragraph against those measured roots. A deliberately restored equivalent false live-partition claim is rejected by the same bounded coverage assertion.",
+    "census_boundary": "Profile qualification fixtures section and Graph community publication controls895\u2013909; both now agree with the three named consumers. No second present-tense live-coverage contradiction observed in this bounded family.",
+    "semantic_judgment": "The original false coverage proposition is corrected without changing production query/runtime ownership or the historical/current-sibling contract.",
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true
+    },
+    "known_bad_detection_method": "focused-mutation of real graph_indexer.classify_evidence_payload plus an injected old/equivalent false documentation claim evaluated against executed scratch-root/public-response observations",
+    "artifact_or_test_id": [
+      "docs/architecture/testing-architecture.md:900 (hand-authored coverage prose)",
+      "EvidencePartitionResponseTests",
+      "EvidenceNodesStayQueryableTests",
+      "EvidencePairDocumentationTests",
+      "/private/tmp/wf-2071n-reverify-arch-security-probe.json"
+    ]
+  },
+  "new_findings": [],
+  "architecture": {
+    "source_basis": [
+      "docs/architecture/layering-rules.md",
+      "graph_fixture_support.publish_evidence_fixture",
+      "graph_fixture_support.publish_graph",
+      "test_server_tools_retrieval._published_evidence_root",
+      "historical_fixture_support.historical_bytes"
+    ],
+    "boundaries_touched": [
+      "tests to canonical graph walker/extractor/publication/snapshot/query",
+      "pinned historical data to temporary old entry/current siblings",
+      "loaded stock test constants to admitted-ID corpus",
+      "published testing coverage claim"
+    ],
+    "invariants": "Test helpers depend on runtime producers/readers; no runtime dependency on new tests or fixture bundle. Extraction/classification and SQLite generation publication remain real; communities are curated by owner only to qualify query partition/ranking. Historical documents use current reconciler and old executable entry points use current siblings. No new architecture/ownership integration edge or ADR required.",
+    "independent_reference": "Literal owner/count sequence31/21 versus62/52, independent source classifications and exact docs/design/controls.md\u2192machine control doc_references_doc/EXTRACTED edge; these expectations are not copied from fixture membership or response ordering.",
+    "shared_marker_repair": "Live source inspection confirms simulated shipped defaults now also restore the derived MEMBER_ID_LABEL_RE with re.escape(base label); loaded production regex construction is unchanged. Root-produced second diagnostic log independently inspected:76 tests/0 skips/0 failures. Root-produced copied-tree deleted-derived-regex control:1 failure,0 skips, with admitted corpus count0 rather than>100. This is attributed support, not this seat\u2019s own mutation execution."
+  },
+  "security": {
+    "source_basis": [
+      "docs/architecture/threat-model.md",
+      "docs/agents/security-reviewer.md",
+      "historical_fixture_support.historical_bytes",
+      "StorageUpgradeProcessResumeTests.setUp",
+      "StorageUpgradeProcessResumeTests.attempt",
+      "SchemaEightKindTests.test_version_one_code_refuses_a_version_two_receipt_and_creates_nothing"
+    ],
+    "overall_severity": "none demonstrated",
+    "actor_classification": "Operator-owned tests/content and same-user local processes are trusted in the current single-user model. New fixture helpers are development-only, not an MCP caller-input tool or shipped new execution surface.",
+    "credible_threat_gate": {
+      "less_trusted_actor": "none evidenced in admitted test-fixture surface",
+      "controlled_surface": "trusted pinned bundle and literal fixture source paths",
+      "supported_product_path": "existing real public queries and existing historical-entry/current-sibling test boundaries",
+      "authority_delta": "none demonstrated",
+      "concrete_security_impact": "none demonstrated"
+    },
+    "confinement": "Observed fixture roots start outside the primary repo without indexes. All four observed historical child invocations use argv lists, shell false, scratch cwd and -B. Their tests execute while Git show/rev-parse dependency is explicitly denied. Consumers write pinned bytes to their own TemporaryDirectory roots; historical paths in the bundle are provenance metadata, not dynamically executed filesystem destinations.",
+    "input_integrity": "8 actual integrity tests execute missing bundle, tampered metadata, altered body despite recomputed bundle hash, size mismatch, current-source substitution, unknown/required absence and oversize controls. Own incorrect bundle pin causes2 subtest failures. Independent Git comparisons match13 stored bodies and1 actual absence.",
+    "regex_and_credentials": "New simulated-stock regex is re.escape(base label); no new shell interpolation, credentials or external-network probe. Production confinement and dynamic-regex paths are outside this tests-only repair and unchanged by2071n.",
+    "chains": [],
+    "strongest_unselected_alternative": {
+      "name": "Complete frozen historical runtime executed in an isolated scrubbed child",
+      "benefit": "Reduces hybrid dependency uncertainty and can establish a clearer wholly historical runtime identity.",
+      "weakness": "It tests old entries with old dependencies rather than the required forward-compatibility fence against current siblings, enlarges the executable archive and maintenance surface, and still needs cache/platform qualification.",
+      "selected_reason": "Pinned bounded old entries preserve the original compatibility seam; actual fixed-argv scratch execution plus missing/corrupt/current-substitution controls provide evidence for that seam without claiming full historical runtime authenticity."
+    }
+  },
+  "primer_strongest_challenge_response": "Accepted as an evidence boundary, not a demonstrated residual implementation defect: hermetic classification/partition/query checks use real producers with independent owner/count and cross-edge expectations, and actual old/current execution is distinct from source hash provenance. Exact full-profile outcome reconciliation remains pending, so neither lane claims whole delivery approval.",
+  "primer_question_answers": [
+    {
+      "question": 1,
+      "answer": "For the repaired c7bd packet, exact default/second/declared full-suite skip identities and reasons remain PENDING root reruns. This seat neither substitutes initial da24 results nor focused76-test green for final evidence. The documented contract requires every second-only skip to name default_profile_only and declared to add none; final approval awaits that exact comparison."
+    },
+    {
+      "question": 2,
+      "answer": "17 actual public/snapshot/documentation consumer tests pass without skips; presence and negative ordinary controls execute on14 previously unindexed temp roots. Literal production owner/count sequence31/21 and evidence62/52, community lookup to project:artifacts/results.json with62 nodes, five exact evidence array pairs and the directly asserted extracted cross-boundary edge are independent properties. Own real extractor erasure causes2 actual assertion failures. Curated membership qualifies query behavior rather than clustering or arbitrary live topology."
+    },
+    {
+      "question": 3,
+      "answer": "All four historical behavior tests pass without skips while historical Git-ref lookup is denied: two old carrier/current reconciler-renderer tests, old upgrade entry/current sibling resume, and old receipt-reader/current sibling refusal creating no retired store. Own13-body Git comparisons and1 absence verify provenance;8 actual integrity tests reject missing/corrupt/current substitutions. Source bytes do not authenticate bytecode or host runtime; -B/unset prefix is the current controlled boundary, while cache authenticity, native Windows, fresh-host/downstream and setup-readiness qualification remain unproven."
+    }
+  ],
+  "alternative_weighed": "The primer\u2019s independent consumer-contract/outcome census is stronger than aggregate green totals and is required before final approval. Its benefit is making coverage loss observable; its upkeep cost is bounded by affected identities/profile deltas. Existing independent literal query expectations plus separate final skip reconciliation retain hermetic fixtures without reinstating mutable checkout prerequisites.",
+  "executable_evidence": {
+    "classification": "executed",
+    "expected": "17 graph/query/doc+4 historical behavior+8 integrity tests green,0 skips; focused real classification erasure and incorrect historical pin fail assertions; old live coverage claim rejected against observed hermetic roots.",
+    "observed": {
+      "graph_baseline": {
+        "tests": 17,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "failed_ids": [],
+        "diagnostics": ".................\n----------------------------------------------------------------------\nRan 17 tests in 2.703s\n\nOK\n"
+      },
+      "direct_query": {
+        "nodes": 184,
+        "edges": 177,
+        "ranking_counts": [
+          [
+            31,
+            21
+          ],
+          [
+            62,
+            52
+          ]
+        ],
+        "cross_boundary_identity": "docs/waves/1wpih index-quality-evaluation-and-ranking/evidence/machine-result-control.json",
+        "relation": "doc_references_doc",
+        "confidence": "EXTRACTED"
+      },
+      "documentation_control": {
+        "current_contract_matches_executed_paths": true,
+        "original_false_live_claim_rejected": true,
+        "old_claim": "Existing live partition tests remain a separate qualification after canonical setup."
+      },
+      "historical_behavior": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "failed_ids": [],
+        "diagnostics": "....\n----------------------------------------------------------------------\nRan 4 tests in 6.202s\n\nOK\n"
+      },
+      "historical_child_calls": [
+        {
+          "argv_type": "list",
+          "shell": false,
+          "cwd_scratch": true,
+          "bytecode_disabled": true
+        },
+        {
+          "argv_type": "list",
+          "shell": false,
+          "cwd_scratch": true,
+          "bytecode_disabled": true
+        },
+        {
+          "argv_type": "list",
+          "shell": false,
+          "cwd_scratch": true,
+          "bytecode_disabled": true
+        },
+        {
+          "argv_type": "list",
+          "shell": false,
+          "cwd_scratch": true,
+          "bytecode_disabled": true
+        }
+      ],
+      "historical_integrity": {
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "failed_ids": [],
+        "diagnostics": "........\n----------------------------------------------------------------------\nRan 8 tests in 0.044s\n\nOK\n"
+      },
+      "pack_boundary": {
+        "collect_files": 241,
+        "historical_bundle_excluded": true,
+        "graph_fixture_excluded": true,
+        "production_graph_included": true,
+        "zip_built": false
+      }
+    },
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true
+    },
+    "known_bad_detection_method": "focused-mutation: in-memory real extractor classification(False,[]) and wrong immutable bundle pin; bounded injected-equivalent-original documentation claim checked against executed roots. No primary source mutation.",
+    "mutation_table": [
+      {
+        "name": "real extractor erases evidence",
+        "selected_tests": 2,
+        "observed": {
+          "tests": 2,
+          "failures": 2,
+          "errors": 0,
+          "skips": 0,
+          "failed_ids": [
+            "test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_rows_carry_their_type_and_a_nonempty_reason",
+            "test_server_tools_retrieval.EvidencePartitionResponseTests.test_the_limit_applies_independently_to_each_half"
+          ],
+          "diagnostics": "FF\n======================================================================\nFAIL: test_evidence_rows_carry_their_type_and_a_nonempty_reason (test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_rows_carry_their_type_and_a_nonempty_reason)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py\", line 5459, in test_evidence_rows_carry_their_type_and_a_nonempty_reason\n    self.assertTrue(rows, \"the fixture must return classified evidence communities\")\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: [] is not true : the fixture must return classified evidence communities\n\n======================================================================\nFAIL: test_the_limit_applies_independently_to_each_half (test_server_tools_retrieval.EvidencePartitionResponseTests.test_the_limit_applies_independently_to_each_half)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py\", line 5494, in test_the_limit_applies_independently_to_each_half\n    self.assertEqual(2, len(data.get(\"evidence_communities\", [])),\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n                     \"the evidence half did not fill independently to the \"\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n                     \"same limit; that is what 'independent' means\")\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 2 != 0 : the evidence half did not fill independently to the same limit; that is what 'independent' means\n\n----------------------------------------------------------------------\nRan 2 tests in 0.253s\n\nFAILED (failures=2)\n"
+        },
+        "detected": true,
+        "whole_file_sweep": "not needed; targeted mutant failed load-bearing assertions"
+      },
+      {
+        "name": "incorrect pinned bundle digest",
+        "selected_tests": 1,
+        "observed": {
+          "tests": 1,
+          "failures": 2,
+          "errors": 0,
+          "skips": 0,
+          "failed_ids": [
+            "test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_old_python_bytes_match_the_independently_recorded_source_digests (key='v122-upgrade')",
+            "test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_old_python_bytes_match_the_independently_recorded_source_digests (key='v1-receipt-reader')"
+          ],
+          "diagnostics": "FF\n======================================================================\nFAIL: test_old_python_bytes_match_the_independently_recorded_source_digests (test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_old_python_bytes_match_the_independently_recorded_source_digests) (key='v122-upgrade')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_historical_fixture_support.py\", line 34, in test_old_python_bytes_match_the_independently_recorded_source_digests\n    source = subject.historical_bytes(key)\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/historical_fixture_support.py\", line 31, in historical_bytes\n    raise AssertionError(\"historical fixture bundle integrity mismatch\")\nAssertionError: historical fixture bundle integrity mismatch\n\n======================================================================\nFAIL: test_old_python_bytes_match_the_independently_recorded_source_digests (test_historical_fixture_support.HistoricalFixtureIntegrityTests.test_old_python_bytes_match_the_independently_recorded_source_digests) (key='v1-receipt-reader')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_historical_fixture_support.py\", line 34, in test_old_python_bytes_match_the_independently_recorded_source_digests\n    source = subject.historical_bytes(key)\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/historical_fixture_support.py\", line 31, in historical_bytes\n    raise AssertionError(\"historical fixture bundle integrity mismatch\")\nAssertionError: historical fixture bundle integrity mismatch\n\n----------------------------------------------------------------------\nRan 1 test in 0.003s\n\nFAILED (failures=2)\n"
+        },
+        "detected": true,
+        "whole_file_sweep": "not needed; targeted mutant failed two subtest byte assertions"
+      },
+      {
+        "name": "restored false existing-live-partition claim",
+        "selected_tests": "bounded measured-root/documentation assertion",
+        "observed": "rejected; current repaired text accepted",
+        "detected": true,
+        "limitation": "This is a bounded independent claim check, not a generic natural-language documentation validator."
+      }
+    ],
+    "artifact_or_test_id": [
+      "/private/tmp/wf-2071n-reverify-arch-security-probe.py",
+      "/private/tmp/wf-2071n-reverify-arch-security-probe.json",
+      "HistoricalFixtureIntegrityTests",
+      "EvidencePartitionResponseTests.test_the_limit_applies_independently_to_each_half",
+      "EvidenceNodesStayQueryableTests.test_cross_boundary_edges_survive_the_partition"
+    ],
+    "safety_and_authorization": "Authorized delivery-only independent review; canonical worker Python -B with PYTHONPYCACHEPREFIX removed, temporary fixtures/in-memory mutations, report/probes only/private/tmp; no primary source/docs/ledger edit,commit,close,pack,setup or network.",
+    "probe_class": "local_safe",
+    "authorization_status": "authorized",
+    "safe_boundary": false,
+    "unexecuted_remainder_prohibited": false,
+    "universal_claim": false
+  },
+  "fingerprint_before": "c7bd807a8edbe7878841b4e2971e6405f5bc7418e60ed86658125e770bc039d0",
+  "fingerprint_after": "c7bd807a8edbe7878841b4e2971e6405f5bc7418e60ed86658125e770bc039d0",
+  "packet_match_before": true,
+  "packet_match_after": true,
+  "packet_match_at_report": true,
+  "all_15_sha256_and_git_blob_identities_checked": true,
+  "initial_13_paths_unchanged": true,
+  "repair_changed_paths": [
+    ".wavefoundry/framework/scripts/tests/test_profile_support.py",
+    "docs/architecture/testing-architecture.md"
+  ],
+  "fingerprint_method": "Independently compute every scoped SHA-256 before/after and at report; verify all15 git hash-object identities. Retain packet fingerprint only because each constituent path/hash exactly matches; no alternative fingerprint serialization invented.",
+  "actual_source_navigation": {
+    "mcp_first": true,
+    "tools_confirmed_callable": [
+      "code_outline",
+      "code_read",
+      "code_keyword"
+    ],
+    "indexed_retrieval_used": false,
+    "index_health_or_setup_called": false,
+    "area_agents": "Codebase map orientation consulted; no scripts/tests area AGENTS.md found.",
+    "own_scoped_diff": "/private/tmp/wf-2071n-reverify-own-diff.txt"
+  },
+  "no_primary_source_docs_ledger_commit_close_writes": true,
+  "limitations": [
+    "Finite29-test baseline plus direct assertions and two focused source/input controls; no universal correctness.",
+    "Curated communities do not qualify clustering, arbitrary live topology or live setup.",
+    "Final canonical/second/declared full suites and exact skips pending; no green receipt/currency or whole-wave approval claimed.",
+    "Historical byte provenance differs from runtime/cache authenticity.",
+    "Native Windows/fresh downstream host/setup-readiness/restart not exercised.",
+    "Root\u2019s repaired76-test/meta-mutant evidence is explicitly attributed; this seat owns the29-test behavioral evidence above."
+  ]
+}

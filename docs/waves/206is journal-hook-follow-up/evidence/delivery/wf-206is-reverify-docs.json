@@ -1,0 +1,311 @@
+{
+  "phase": "delivery",
+  "actor": "docs-contract-reviewer",
+  "verification_context": {
+    "actor": "docs-contract-reviewer",
+    "context_id": "c6-qualification-reverify-docs-20261009-independent",
+    "fresh_context": true,
+    "independent": true
+  },
+  "verdict": "approve",
+  "finding_reverified": "DOC-206IS-C6-01",
+  "new_findings": [],
+  "tree_fingerprint": "baf1cf4c3c0df2a99582886d78366a79675e6f0e12338e0d2322c4cd2a1e4d21",
+  "time_budget": "10 minutes; completed within finite selected matrix",
+  "sweep_rule": "Targeted test per mutation; no survivor requiring whole-owner expansion. Six explicit copied-store/docs controls plus current named census; all18 C6 bounded runtime fixtures rerun to substantiate carried contract.",
+  "source_hashes_before": [
+    {
+      "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+      "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c",
+      "git_blob": "355c32bc53cb6f4fa3bc5c6591eeb229aaa9f107"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/mcp_tool_extensions.py",
+      "sha256": "b19a7e12e2cb7e0a843abc655a32b3b8801c2bc510fed98d210f7e065ff0dad1",
+      "git_blob": "c7bd2be760e21e262eace9124af436aa58229746"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+      "sha256": "18dbe7e6ff243fce9c93b39b08551148a1352aadd50aa13b7598d30b659f0c29",
+      "git_blob": "435843e35f091afa8ce161122d8f9463b1634b4c"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py",
+      "sha256": "a98ab97f0706c12d24ad64f6803a5c8454be01aa73f89f9df95f1e51394404a8",
+      "git_blob": "35910552de632fe0f949cca2f85b88c8fd0e1475"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/record_layout_support.py",
+      "sha256": "82325f6a3f403ef98ffd25ce6e7479e12f482d5d0569272d3f75c85b667189d4",
+      "git_blob": "8d7e9e0cc1ab5db789e7dbf71001a18b4941927f"
+    },
+    {
+      "path": ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md",
+      "sha256": "18b97d8d6d9487889700cc2345fc47046adb0674f66c9aae3a815e5145e754ce",
+      "git_blob": "2ad24bcefc95e24703e8adb96c334e86a572cbe2"
+    },
+    {
+      "path": "docs/specs/mcp-tool-surface.md",
+      "sha256": "3a99e045b721c0140b9bae0034852838fc7999f5c312d32838502277095df0c0",
+      "git_blob": "fbd9444ad3874388a47ec70d044c79d9690e5ccd"
+    },
+    {
+      "path": "docs/architecture/data-and-control-flow.md",
+      "sha256": "fde3312da48d0a8bb6c720b3d375460810f27e0c2a20bdd472fb62ffdb100bc5",
+      "git_blob": "085cc83c01cb874348b38ad4c722806890c5676b"
+    },
+    {
+      "path": "docs/architecture/layering-rules.md",
+      "sha256": "b0b0e2800fde4df05610a2aef04c8fde76ea2d0e14fd0e4cde7f260e9b0c1856",
+      "git_blob": "7b2fe1d80f32adc5bdb13e72b910528f72254a6a"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_extension_tool_modules.py",
+      "sha256": "9309f0acde3bc6048ef7001617f395b61590d56cb9ce11661d89f99f4415c3ad",
+      "git_blob": "e4dc916943c7654937554ffaa3187fef94e0dc53"
+    },
+    {
+      "path": "docs/reconcile-dispositions.json",
+      "sha256": "2d74ec472e8c5e7e0ad799f767b46198bcfd2bb39fdce73af7288f10d55bb98f",
+      "git_blob": "9e149cf2e89fa4c927243c334e60bfdba3634ef1"
+    }
+  ],
+  "source_hashes_after": [
+    {
+      "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+      "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c",
+      "git_blob": "355c32bc53cb6f4fa3bc5c6591eeb229aaa9f107"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/mcp_tool_extensions.py",
+      "sha256": "b19a7e12e2cb7e0a843abc655a32b3b8801c2bc510fed98d210f7e065ff0dad1",
+      "git_blob": "c7bd2be760e21e262eace9124af436aa58229746"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+      "sha256": "18dbe7e6ff243fce9c93b39b08551148a1352aadd50aa13b7598d30b659f0c29",
+      "git_blob": "435843e35f091afa8ce161122d8f9463b1634b4c"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py",
+      "sha256": "a98ab97f0706c12d24ad64f6803a5c8454be01aa73f89f9df95f1e51394404a8",
+      "git_blob": "35910552de632fe0f949cca2f85b88c8fd0e1475"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/record_layout_support.py",
+      "sha256": "82325f6a3f403ef98ffd25ce6e7479e12f482d5d0569272d3f75c85b667189d4",
+      "git_blob": "8d7e9e0cc1ab5db789e7dbf71001a18b4941927f"
+    },
+    {
+      "path": ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md",
+      "sha256": "18b97d8d6d9487889700cc2345fc47046adb0674f66c9aae3a815e5145e754ce",
+      "git_blob": "2ad24bcefc95e24703e8adb96c334e86a572cbe2"
+    },
+    {
+      "path": "docs/specs/mcp-tool-surface.md",
+      "sha256": "3a99e045b721c0140b9bae0034852838fc7999f5c312d32838502277095df0c0",
+      "git_blob": "fbd9444ad3874388a47ec70d044c79d9690e5ccd"
+    },
+    {
+      "path": "docs/architecture/data-and-control-flow.md",
+      "sha256": "fde3312da48d0a8bb6c720b3d375460810f27e0c2a20bdd472fb62ffdb100bc5",
+      "git_blob": "085cc83c01cb874348b38ad4c722806890c5676b"
+    },
+    {
+      "path": "docs/architecture/layering-rules.md",
+      "sha256": "b0b0e2800fde4df05610a2aef04c8fde76ea2d0e14fd0e4cde7f260e9b0c1856",
+      "git_blob": "7b2fe1d80f32adc5bdb13e72b910528f72254a6a"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_extension_tool_modules.py",
+      "sha256": "9309f0acde3bc6048ef7001617f395b61590d56cb9ce11661d89f99f4415c3ad",
+      "git_blob": "e4dc916943c7654937554ffaa3187fef94e0dc53"
+    },
+    {
+      "path": "docs/reconcile-dispositions.json",
+      "sha256": "2d74ec472e8c5e7e0ad799f767b46198bcfd2bb39fdce73af7288f10d55bb98f",
+      "git_blob": "9e149cf2e89fa4c927243c334e60bfdba3634ef1"
+    }
+  ],
+  "hashes_unchanged": true,
+  "packet_hashes_match": true,
+  "mutation_table": [
+    {
+      "mutation": "none/current valid exact3",
+      "named_test": "test_exact_current_judgments_suppress_only_reported_channel",
+      "observed": "reported0/raw3",
+      "result": "legitimate baseline retained"
+    },
+    {
+      "mutation": "omit actual judgment",
+      "named_test": "test_omitted_judgment_is_reported",
+      "observed": "reported1",
+      "result": "known bad detected"
+    },
+    {
+      "mutation": "change full logical line",
+      "named_test": "test_modified_logical_line_is_reported",
+      "observed": "reported1",
+      "result": "known bad detected"
+    },
+    {
+      "mutation": "change nearest heading",
+      "named_test": "test_modified_heading_is_reported",
+      "observed": "reported1",
+      "result": "known bad detected"
+    },
+    {
+      "mutation": "append new ongoing-journal directive",
+      "named_test": "test_new_ongoing_journal_directive_is_reported",
+      "observed": "reported1",
+      "result": "known bad detected"
+    },
+    {
+      "mutation": "append ongoing directive to judged line",
+      "named_test": "test_same_line_ongoing_directive_invalidates_exact_judgment",
+      "observed": "reported2",
+      "result": "known bad detected"
+    }
+  ],
+  "source_context_classification": [
+    {
+      "file": "docs/agents/session-handoff.md",
+      "line": 110,
+      "key": "v2:fd27233375f1797e9fd992b66e99b344",
+      "heading": "## Historical qualification checkpoint \u2014 before C6 implementation",
+      "classification": "dated historical checkpoint"
+    },
+    {
+      "file": "docs/architecture/data-and-control-flow.md",
+      "line": 180,
+      "key": "v2:77092f48819f91b56970ac9791132db6",
+      "heading": "### Upgrade journal hook selection and migration (wave 206is)",
+      "classification": "truthful retained legacy migration input; not ongoing journal authoring"
+    },
+    {
+      "file": "docs/specs/mcp-tool-surface.md",
+      "line": 567,
+      "key": "v2:419ee3cd412c68570df0edb3e5729b72",
+      "heading": "## Distribution Extension Tools",
+      "classification": "truthful retained legacy migration input; not ongoing journal authoring"
+    }
+  ],
+  "contract_validation": "Live MCP role/source reads confirm literal opt-in/default/unknown/static refusal rows; metadata-only contained direct regular singly-linked source; independent pre1.15 mechanical gate; at-most-once per invocation/idempotent retry, no partial rollback; preview nonexecution; incoming dependency/path identity restoration; unchanged declared() activation and positional validator. Own18 tests exercise these documented contracts. Existing command-exemption rival was rejected by prior actual readiness controls; current exact judgments do not introduce that broad exemption.",
+  "retrieval": "Actual ALL_TOOLS exposed deferred MCP code_read/code_keyword; called both successfully before repository investigation. Briefed specialists/docs-contract-reviewer.md was absent; real role located with MCP keyword and read at docs/agents/docs-contract-reviewer.md. Bounded attempted seed range beyond EOF corrected with full live read. No setup/rebuild or reliance on indexed answer prose.",
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "focused-mutation: omit one actual v2 judgment, alter full logical line, alter nearest heading, append new ongoing-journal directive, and append directive on an existing judged line; actual public scan must re-report each"
+  },
+  "evidence": {
+    "proposition": "The C6 repair records only the three exact correct retained-input/historical contexts, makes the actual current retired-wrapper census green, preserves all three raw audit findings and detection of changed or new ongoing-journal instructions. Current seed/spec/dataflow/layering match the selected hook and separate mechanical-migration behavior.",
+    "failure_condition": "Current named census still rejects legitimate retained input, a raw reference disappears, or an omitted/changed/new live instruction is silenced by the exact judgments.",
+    "public_path": "test_wf_cli.NoLiveReferenceToRetiredWrapperTests.test_no_live_file_references_a_retired_wrapper; reconcile_scan.scan_repo_channels and scan_repo on current repo and copied actual docs/store; upgrade pre_docs_gate/public migration preview and actual older-runner registered hook fixtures",
+    "command_or_fixture": "env PYTHONPATH=.wavefoundry/framework/scripts:.wavefoundry/framework/scripts/tests /Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest -v test_wf_cli.NoLiveReferenceToRetiredWrapperTests.test_no_live_file_references_a_retired_wrapper; /Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/wf-206is-reverify-docs-probe.py; same PYTHONPATH and interpreter -m unittest -v test_upgrade_wavefoundry.JournalTriggerPolicyTests test_upgrade_protocol.JournalIncomingRunnerTests",
+    "expected": "Named current census passes without skips; raw audit3/current reported0; exact scratch reported0/raw3, omitted1/changedline1/changedheading1/newdirective1/same-line directive at least1; all18 C6 runtime fixtures green, reviewed11 hashes unchanged.",
+    "observed": "Actual census1 test/1.433s/0 skips OK. Own exact/context public-scan suite6 tests/0.877s/0 skips OK: current/raw3, reported0; omitted1, modified line1, modified heading1, new directive1, same-line directive2. Actual three store keys match file, token, full logical line and nearest heading; status historical-record and honest agent attribution. Own 18 C6 policy/actual older-runner controls3.849s/0 skips OK. All11 SHA256 and git-blob identities unchanged before/after.",
+    "artifact_or_test_id": "/tmp/wf-206is-reverify-docs-census.log; /tmp/wf-206is-reverify-docs-probe.py; /tmp/wf-206is-reverify-docs-probe.json; /tmp/wf-206is-reverify-docs-probe.log; /tmp/wf-206is-reverify-docs-runtime.log; /tmp/wf-206is-reverify-docs.json",
+    "known_bad_detection_method": "focused-mutation: omit one actual v2 judgment, alter full logical line, alter nearest heading, append new ongoing-journal directive, and append directive on an existing judged line; actual public scan must re-report each",
+    "limitations": "Finite local docs recheck and 18 C6 policy/real old-runner tests; no canonical whole-suite receipt, native Windows, live downstream upgrade, release pack, crash/exactly-once or universal parser certification. The prior canonical 11995-test run was red and a fresh full run remains coordinator-owned. No repo/source/store/ledger edits or lifecycle events were performed by this independent lane.",
+    "safety_and_authorization": "Authorized independent read-only cycle2 docs reverification. Only /tmp probe/report and disposable scratch copies written; actual public scanner reads repository. No network, credentials, destructive repository operation, ledger publication, setup/rebuild, close, commit or push.",
+    "disposition_rationale": "Original qualification regression is real and introduced/worsened by the C6 retained-input contract edits. The bounded repair now completes it using shipped exact contextual judgments; truthful source path and scanner/census logic remain intact. Detection is neither broadly excluded nor rewritten away; historical classification covers one dated handoff plus two retained legacy-source contracts, with all changed/new instructions still visible."
+  },
+  "limitations": "Finite local docs recheck and 18 C6 policy/real old-runner tests; no canonical whole-suite receipt, native Windows, live downstream upgrade, release pack, crash/exactly-once or universal parser certification. The prior canonical 11995-test run was red and a fresh full run remains coordinator-owned. No repo/source/store/ledger edits or lifecycle events were performed by this independent lane.",
+  "reverification_payload": {
+    "wave_id": "206is journal-hook-follow-up",
+    "event": "finding",
+    "actor": "docs-contract-reviewer",
+    "context_id": "c6-qualification-reverify-docs-20261009-independent",
+    "finding_id": "DOC-206IS-C6-01",
+    "run_kind": "reverification",
+    "cycle": 2,
+    "judgment": {
+      "validation_status": "real",
+      "scope_relation": "admitted",
+      "introduced_or_worsened_by_wave": true,
+      "contract_relevance": "public_contract",
+      "supported_reachability": true,
+      "attacker_reachability": false,
+      "authority_domain": "none",
+      "authority_delta": "none",
+      "observable_impact": "material",
+      "containment": "detect_only",
+      "disposition": "do_now",
+      "fix_risk": "lower",
+      "optional_value": "positive",
+      "repair_scope_bounded": true,
+      "repair_safety": "safe",
+      "benefit_vs_fix_risk": "greater",
+      "rejection_basis": "none",
+      "repair_execution_state": "completed"
+    },
+    "evidence": {
+      "proposition": "The C6 repair records only the three exact correct retained-input/historical contexts, makes the actual current retired-wrapper census green, preserves all three raw audit findings and detection of changed or new ongoing-journal instructions. Current seed/spec/dataflow/layering match the selected hook and separate mechanical-migration behavior.",
+      "failure_condition": "Current named census still rejects legitimate retained input, a raw reference disappears, or an omitted/changed/new live instruction is silenced by the exact judgments.",
+      "public_path": "test_wf_cli.NoLiveReferenceToRetiredWrapperTests.test_no_live_file_references_a_retired_wrapper; reconcile_scan.scan_repo_channels and scan_repo on current repo and copied actual docs/store; upgrade pre_docs_gate/public migration preview and actual older-runner registered hook fixtures",
+      "command_or_fixture": "env PYTHONPATH=.wavefoundry/framework/scripts:.wavefoundry/framework/scripts/tests /Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest -v test_wf_cli.NoLiveReferenceToRetiredWrapperTests.test_no_live_file_references_a_retired_wrapper; /Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/wf-206is-reverify-docs-probe.py; same PYTHONPATH and interpreter -m unittest -v test_upgrade_wavefoundry.JournalTriggerPolicyTests test_upgrade_protocol.JournalIncomingRunnerTests",
+      "expected": "Named current census passes without skips; raw audit3/current reported0; exact scratch reported0/raw3, omitted1/changedline1/changedheading1/newdirective1/same-line directive at least1; all18 C6 runtime fixtures green, reviewed11 hashes unchanged.",
+      "observed": "Actual census1 test/1.433s/0 skips OK. Own exact/context public-scan suite6 tests/0.877s/0 skips OK: current/raw3, reported0; omitted1, modified line1, modified heading1, new directive1, same-line directive2. Actual three store keys match file, token, full logical line and nearest heading; status historical-record and honest agent attribution. Own 18 C6 policy/actual older-runner controls3.849s/0 skips OK. All11 SHA256 and git-blob identities unchanged before/after.",
+      "artifact_or_test_id": "/tmp/wf-206is-reverify-docs-census.log; /tmp/wf-206is-reverify-docs-probe.py; /tmp/wf-206is-reverify-docs-probe.json; /tmp/wf-206is-reverify-docs-probe.log; /tmp/wf-206is-reverify-docs-runtime.log; /tmp/wf-206is-reverify-docs.json",
+      "known_bad_detection_method": "focused-mutation: omit one actual v2 judgment, alter full logical line, alter nearest heading, append new ongoing-journal directive, and append directive on an existing judged line; actual public scan must re-report each",
+      "limitations": "Finite local docs recheck and 18 C6 policy/real old-runner tests; no canonical whole-suite receipt, native Windows, live downstream upgrade, release pack, crash/exactly-once or universal parser certification. The prior canonical 11995-test run was red and a fresh full run remains coordinator-owned. No repo/source/store/ledger edits or lifecycle events were performed by this independent lane.",
+      "safety_and_authorization": "Authorized independent read-only cycle2 docs reverification. Only /tmp probe/report and disposable scratch copies written; actual public scanner reads repository. No network, credentials, destructive repository operation, ledger publication, setup/rebuild, close, commit or push.",
+      "disposition_rationale": "Original qualification regression is real and introduced/worsened by the C6 retained-input contract edits. The bounded repair now completes it using shipped exact contextual judgments; truthful source path and scanner/census logic remain intact. Detection is neither broadly excluded nor rewritten away; historical classification covers one dated handoff plus two retained legacy-source contracts, with all changed/new instructions still visible."
+    },
+    "source_lanes": [
+      "docs-contract-reviewer"
+    ],
+    "blocking_required_lanes": [],
+    "approval_recheck_lanes": [
+      "docs-contract-reviewer"
+    ],
+    "review_boundaries_changed": [],
+    "fresh_context": true,
+    "independent": true,
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "focused-mutation: omit one actual v2 judgment, alter full logical line, alter nearest heading, append new ongoing-journal directive, and append directive on an existing judged line; actual public scan must re-report each"
+    }
+  },
+  "delivery_approval_payload": {
+    "wave_id": "206is journal-hook-follow-up",
+    "event": "approval",
+    "actor": "docs-contract-reviewer",
+    "context_id": "c6-qualification-reverify-docs-20261009-independent",
+    "signoff_key": "docs-contract-reviewer",
+    "approval_phase": "delivery",
+    "evidence": {
+      "proposition": "The C6 repair records only the three exact correct retained-input/historical contexts, makes the actual current retired-wrapper census green, preserves all three raw audit findings and detection of changed or new ongoing-journal instructions. Current seed/spec/dataflow/layering match the selected hook and separate mechanical-migration behavior.",
+      "failure_condition": "Current named census still rejects legitimate retained input, a raw reference disappears, or an omitted/changed/new live instruction is silenced by the exact judgments.",
+      "public_path": "test_wf_cli.NoLiveReferenceToRetiredWrapperTests.test_no_live_file_references_a_retired_wrapper; reconcile_scan.scan_repo_channels and scan_repo on current repo and copied actual docs/store; upgrade pre_docs_gate/public migration preview and actual older-runner registered hook fixtures",
+      "command_or_fixture": "env PYTHONPATH=.wavefoundry/framework/scripts:.wavefoundry/framework/scripts/tests /Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest -v test_wf_cli.NoLiveReferenceToRetiredWrapperTests.test_no_live_file_references_a_retired_wrapper; /Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/wf-206is-reverify-docs-probe.py; same PYTHONPATH and interpreter -m unittest -v test_upgrade_wavefoundry.JournalTriggerPolicyTests test_upgrade_protocol.JournalIncomingRunnerTests",
+      "expected": "Named current census passes without skips; raw audit3/current reported0; exact scratch reported0/raw3, omitted1/changedline1/changedheading1/newdirective1/same-line directive at least1; all18 C6 runtime fixtures green, reviewed11 hashes unchanged.",
+      "observed": "Actual census1 test/1.433s/0 skips OK. Own exact/context public-scan suite6 tests/0.877s/0 skips OK: current/raw3, reported0; omitted1, modified line1, modified heading1, new directive1, same-line directive2. Actual three store keys match file, token, full logical line and nearest heading; status historical-record and honest agent attribution. Own 18 C6 policy/actual older-runner controls3.849s/0 skips OK. All11 SHA256 and git-blob identities unchanged before/after.",
+      "artifact_or_test_id": "/tmp/wf-206is-reverify-docs-census.log; /tmp/wf-206is-reverify-docs-probe.py; /tmp/wf-206is-reverify-docs-probe.json; /tmp/wf-206is-reverify-docs-probe.log; /tmp/wf-206is-reverify-docs-runtime.log; /tmp/wf-206is-reverify-docs.json",
+      "known_bad_detection_method": "focused-mutation: omit one actual v2 judgment, alter full logical line, alter nearest heading, append new ongoing-journal directive, and append directive on an existing judged line; actual public scan must re-report each",
+      "limitations": "Finite local docs recheck and 18 C6 policy/real old-runner tests; no canonical whole-suite receipt, native Windows, live downstream upgrade, release pack, crash/exactly-once or universal parser certification. The prior canonical 11995-test run was red and a fresh full run remains coordinator-owned. No repo/source/store/ledger edits or lifecycle events were performed by this independent lane.",
+      "safety_and_authorization": "Authorized independent read-only cycle2 docs reverification. Only /tmp probe/report and disposable scratch copies written; actual public scanner reads repository. No network, credentials, destructive repository operation, ledger publication, setup/rebuild, close, commit or push.",
+      "disposition_rationale": "Original qualification regression is real and introduced/worsened by the C6 retained-input contract edits. The bounded repair now completes it using shipped exact contextual judgments; truthful source path and scanner/census logic remain intact. Detection is neither broadly excluded nor rewritten away; historical classification covers one dated handoff plus two retained legacy-source contracts, with all changed/new instructions still visible."
+    },
+    "fresh_context": true,
+    "independent": true,
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "focused-mutation: omit one actual v2 judgment, alter full logical line, alter nearest heading, append new ongoing-journal directive, and append directive on an existing judged line; actual public scan must re-report each"
+    }
+  },
+  "repository_mutations": [],
+  "canonical_green_claimed": false,
+  "operator_approval_claimed": false
+}

@@ -6,6 +6,7 @@ import index_compatibility
 index_compatibility.register_loaded_source()
 
 import ast
+import bisect
 import functools
 import gzip
 import importlib
@@ -40,7 +41,7 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "53"
+GRAPH_BUILDER_VERSION = "54"
 # 52 (1xtnq): callable identity, receiver provenance and lexical Java scope.
 # 52 (1xtns): structural callee leaves and malformed-external refusal.
 # 53 (201wg): unowned member calls stay external (`unowned_member_call`).
@@ -563,6 +564,16 @@ def _merge_call_evidence(
     elif (previous.get(_UNOWNED_MEMBER_KEY) and edge.get("receiver_unknown")
           and not edge.get(_UNOWNED_MEMBER_KEY)):
         edge_map[key] = edge
+    chosen = edge_map[key]
+    if previous is None:
+        if edge.get("call_sites"):
+            edge_map[key] = {**edge, "call_sites": list(edge["call_sites"])}
+    elif previous.get("call_sites") or edge.get("call_sites"):
+        # Append in amortized linear time. Final output normalization performs
+        # the deterministic dedup/sort once, after every resolution/re-key pass.
+        sites = previous.setdefault("call_sites", [])
+        sites.extend(edge.get("call_sites", ()))
+        edge_map[key] = {**chosen, "call_sites": sites}
 
 
 def _is_json_config_node_id(node_id: str) -> bool:
@@ -1618,6 +1629,17 @@ class GraphStateStore:
             "layer": self.layer,
         }
 
+    def evidence_transition_current(self) -> bool:
+        """The caller proved semantic/options identity; verify graph identity too."""
+        from operational_evidence import PRIOR_WALKER_VERSION, WALKER_VERSION
+        meta = self.meta_all()
+        expected = self._expected_versions()
+        return (getattr(self, "evidence_transition", False)
+                and self.walker_version == WALKER_VERSION
+                and meta.get("walker_version") == PRIOR_WALKER_VERSION
+                and all(meta.get(key) == expected[key]
+                        for key in self._VERSION_KEYS if key != "walker_version"))
+
     def versions_current(self) -> bool:
         meta = self.meta_all()
         expected = self._expected_versions()
@@ -1634,7 +1656,7 @@ class GraphStateStore:
         """
         index_compatibility.check_connection(self._conn,
             {self.meta_key(k): v for k, v in self._expected_versions().items() if k != "layer"})
-        if self.versions_current():
+        if self.versions_current() or self.evidence_transition_current():
             return True
         self.reset_pending = True
         return False
@@ -1855,6 +1877,8 @@ class GraphCommunityPublication:
         self.member_inserts = member_inserts
         self.member_deletes = member_deletes
         self.analysis_row = analysis_row
+        # Reset can require complete row publication while reusing valid analysis.
+        self.analysis_recomputed = True
 
     def row_count(self) -> int:
         return (len(self.community_puts) + len(self.community_deletes)
@@ -3329,6 +3353,9 @@ def _ts_name_candidates(node, source_bytes: bytes, mode: str | None = None) -> l
             if candidate not in candidates:
                 candidates.append(candidate)
         return [candidate for candidate in candidates if candidate]
+    if getattr(node, "type", "") == "impl_item":
+        owner, trait = _rust_impl_parts(node, source_bytes)
+        return [f"<{owner} as {trait}>" if trait else owner] if owner else []
     field_candidate = _ts_name_from_fields(node, source_bytes)
     if field_candidate:
         candidates.append(field_candidate)
@@ -5158,15 +5185,205 @@ def _rust_walk_use_tree(node, prefix: str, source_bytes: bytes, out: list[tuple[
     # use_wildcard (`::*`) and punctuation: skip — no specific imported symbol.
 
 
+def _rust_type_text(node, source_bytes: bytes) -> str | None:
+    """A named type only; generic/dynamic types never supply receiver proof."""
+    if node is None or node.type not in ("type_identifier", "scoped_type_identifier", "identifier"):
+        return None
+    return re.sub(r"\s*::\s*", "::", source_bytes[node.start_byte:node.end_byte].decode("utf-8", "replace").strip())
+
+
+def _rust_impl_parts(node, source_bytes: bytes) -> tuple[str | None, str | None]:
+    # Identity preserves the explicit grammar fields, including unsupported
+    # generic forms. Receiver inference separately accepts named types only.
+    def spelling(field):
+        part = node.child_by_field_name(field)
+        if part is None:
+            return None
+        text = source_bytes[part.start_byte:part.end_byte].decode("utf-8", "replace")
+        return re.sub(r"\s*::\s*", "::", re.sub(r"\s+", " ", text).strip())
+    return spelling("type"), spelling("trait")
+
+
+def _rust_method_alias(qname: str) -> str | None:
+    """Trait-qualified identity -> implementing-type alias, never trait alias."""
+    match = re.fullmatch(r"(.*)<([^<>]+) as [^<>]+>\.([^.]+)", qname)
+    if match:
+        return f"{match[1]}{match[2]}.{match[3]}".replace("::", ".")
+    return qname.replace("::", ".") if "::" in qname and "<" not in qname else None
+
+
+class _RustLexicalFacts:
+    """One file walk records lexical bindings and explicitly typed arrays.
+
+    Lookups walk ancestors and preceding bindings, never sibling subtrees.
+    Unknown bindings are records too: they shadow an outer known type.
+    """
+    def __init__(self, root, source_bytes: bytes):
+        self.source = source_bytes
+        self.bindings: dict[tuple[int, int], dict[str, list]] = {}
+        self.constants: dict[tuple[str, str], list[str | None]] = {}
+        self.binding_positions: dict[tuple[int, int], dict[str, list[int]]] = {}
+        stack = [root]
+        while stack:
+            node = stack.pop()
+            if node.type in ("let_declaration", "parameter"):
+                pattern = node.child_by_field_name("pattern")
+                scope = node.parent
+                while scope is not None and scope.type not in ("block", "function_item", "closure_expression"):
+                    scope = scope.parent
+                self._bind(scope, pattern, node)
+            elif node.type == "for_expression":
+                self._bind(node.child_by_field_name("body"), node.child_by_field_name("pattern"), node)
+            elif node.type == "const_item":
+                owner = _find_enclosing_rust_impl_type(node, source_bytes)
+                name = node.child_by_field_name("name")
+                if owner and name is not None:
+                    key = (owner, self.text(name))
+                    self.constants.setdefault(key, []).append(self.array_element(node.child_by_field_name("type"), node))
+            stack.extend(reversed(node.named_children))
+        for scope, names in self.bindings.items():
+            positions = self.binding_positions.setdefault(scope, {})
+            for name, declarations in names.items():
+                declarations.sort(key=self.visible_at)
+                positions[name] = [self.visible_at(declaration) for declaration in declarations]
+
+    @staticmethod
+    def visible_at(declaration):
+        # A let's own initializer sees the prior binding, even with an
+        # explicit annotation on the new binding. Loop bindings are stored
+        # in the body scope only; parameters precede the function body.
+        return declaration.end_byte if declaration.type == "let_declaration" else declaration.start_byte
+
+    def text(self, node):
+        return self.source[node.start_byte:node.end_byte].decode("utf-8", "replace")
+
+    def _bind(self, scope, pattern, declaration):
+        if scope is None or pattern is None:
+            return
+        # Destructuring names still block outer declarations; only a simple
+        # identifier pattern may provide a type below.
+        stack = [pattern]
+        while stack:
+            part = stack.pop()
+            if part.type == "identifier":
+                self.bindings.setdefault((scope.start_byte, scope.end_byte), {}).setdefault(self.text(part), []).append(declaration)
+            stack.extend(part.named_children)
+
+    def named_type(self, node, context):
+        if node is not None and node.type == "reference_type":
+            node = _rust_reference_inner_type(node)
+        value = _rust_type_text(node, self.source)
+        return _find_enclosing_rust_impl_type(context, self.source) if value == "Self" else value
+
+    def array_element(self, node, context):
+        if node is None or node.type != "array_type" or node.child_by_field_name("length") is None:
+            return None
+        return self.named_type(node.child_by_field_name("element"), context)
+
+    def declaration(self, name, ref):
+        scope = ref.parent
+        while scope is not None:
+            key = (scope.start_byte, scope.end_byte)
+            entries = self.bindings.get(key, {}).get(name, ())
+            positions = self.binding_positions.get(key, {}).get(name, ())
+            position = bisect.bisect_right(positions, ref.start_byte) - 1
+            if position >= 0:
+                return entries[position]
+            if scope.type in ("function_item", "closure_expression"):
+                break
+            scope = scope.parent
+        return None
+
+    def iterable_element(self, value, context):
+        if value is None:
+            return None
+        if value.type == "identifier":
+            decl = self.declaration(self.text(value), context)
+            if decl is not None:
+                return self.array_element(decl.child_by_field_name("type"), decl)
+        elif value.type == "scoped_identifier":
+            path, name = value.child_by_field_name("path"), value.child_by_field_name("name")
+            owner = _rust_type_text(path, self.source)
+            if owner == "Self":
+                owner = _find_enclosing_rust_impl_type(context, self.source)
+            if owner and name is not None:
+                candidates = self.constants.get((owner, self.text(name)), ())
+                if len(candidates) == 1:
+                    return candidates[0]
+        return None
+
+    def resolve(self, name, ref):
+        declaration = self.declaration(name, ref)
+        if declaration is None:
+            return name if name[:1].isupper() else None
+        pattern = declaration.child_by_field_name("pattern")
+        if pattern is None or pattern.type != "identifier":
+            return None
+        if declaration.type == "for_expression":
+            return self.iterable_element(declaration.child_by_field_name("value"), declaration)
+        annotation = declaration.child_by_field_name("type")
+        if annotation is not None:
+            return self.named_type(annotation, declaration)
+        value = declaration.child_by_field_name("value")
+        inferred = _rust_value_type(value, self.source) if value is not None else None
+        return _find_enclosing_rust_impl_type(declaration, self.source) if inferred == "Self" else inferred
+
+
+def _rust_macro_calls(tree, source_bytes: bytes):
+    """Parse expression-shaped macro arguments without expanding macros.
+
+    Blank macro prefixes in a same-length source buffer. AST byte/point
+    coordinates and enclosing lexical scopes therefore remain original.
+    Only calls inside an original token tree are accepted; malformed argument
+    syntax and calls under ERROR nodes are not evidence.
+    """
+    edited = bytearray(source_bytes)
+    spans = []
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if node.type == "macro_invocation":
+            token = next((c for c in node.named_children if c.type == "token_tree"), None)
+            if token is not None:
+                spans.append((token.start_byte, token.end_byte))
+                for offset in range(node.start_byte, token.start_byte):
+                    if edited[offset] not in (10, 13):
+                        edited[offset] = 32
+                edited[token.start_byte], edited[token.end_byte - 1] = ord("("), ord(")")
+        stack.extend(node.named_children)
+    if not spans:
+        return []
+    parsed = _ts_parse("rust", edited.decode("utf-8", "replace"))
+    if parsed is None:
+        return []
+    spans.sort()
+    starts = [start for start, _ in spans]
+    result = []
+    stack = [parsed.root_node]
+    while stack:
+        node = stack.pop()
+        if node.type == "ERROR":
+            continue
+        if node.type == "call_expression":
+            position = bisect.bisect_right(starts, node.start_byte) - 1
+            if position >= 0 and spans[position][0] < node.start_byte and node.end_byte < spans[position][1]:
+                result.append(node)
+        stack.extend(reversed(node.named_children))
+    return result
+
+
+def _call_site(node, source_file: str) -> dict[str, Any]:
+    return {"source_file": source_file, "start_byte": node.start_byte, "end_byte": node.end_byte,
+            "line": node.start_point[0] + 1, "column": node.start_point[1] + 1,
+            "end_line": node.end_point[0] + 1, "end_column": node.end_point[1] + 1}
+
+
 def _find_enclosing_rust_impl_type(node, source_bytes: bytes) -> str | None:
     """Walk up to enclosing impl_item; return its target type."""
     cur = getattr(node, "parent", None)
     while cur is not None:
         if getattr(cur, "type", "") == "impl_item":
-            for child in (getattr(cur, "children", []) or []):
-                if getattr(child, "type", "") == "type_identifier":
-                    return source_bytes[child.start_byte:child.end_byte].decode("utf-8", errors="replace")
-            return None
+            return _rust_type_text(cur.child_by_field_name("type"), source_bytes)
         cur = getattr(cur, "parent", None)
     return None
 
@@ -5231,78 +5448,16 @@ def _rust_reference_inner_type(ref_node):
     return None
 
 
-def _search_rust_declarations_in_scope(scope_node, name: str, source_bytes: bytes) -> str | None:
-    """Search Rust scope for `let name: Type = ...` or function parameter."""
-    stack = [scope_node]
-    while stack:
-        n = stack.pop()
-        n_type = getattr(n, "type", "")
-        if n_type == "let_declaration":
-            # let_declaration: let identifier <name> : type_identifier <Type> = ...
-            name_child = None
-            type_child = None
-            for child in (getattr(n, "children", []) or []):
-                ct = getattr(child, "type", "")
-                if ct == "identifier" and name_child is None:
-                    name_child = child
-                elif ct == "type_identifier":
-                    type_child = child
-                elif ct == "reference_type" and type_child is None:
-                    type_child = _rust_reference_inner_type(child)
-            if name_child is not None:
-                var_name = source_bytes[name_child.start_byte:name_child.end_byte].decode("utf-8", errors="replace")
-                if var_name == name:
-                    if type_child is not None:
-                        return source_bytes[type_child.start_byte:type_child.end_byte].decode("utf-8", errors="replace")
-                    # Wave 1p4eu: no explicit annotation — infer from the value
-                    # (`let x = Bar{..}` / `let x = Bar::new()`).
-                    try:
-                        value_node = n.child_by_field_name("value")
-                    except Exception:
-                        value_node = None
-                    if value_node is not None:
-                        inferred = _rust_value_type(value_node, source_bytes)
-                        if inferred:
-                            return inferred
-        elif n_type == "parameter":
-            # parameter: identifier <name> : type_identifier <Type>
-            name_child = None
-            type_child = None
-            for child in (getattr(n, "children", []) or []):
-                ct = getattr(child, "type", "")
-                if ct == "identifier" and name_child is None:
-                    name_child = child
-                elif ct == "type_identifier":
-                    type_child = child
-                elif ct == "reference_type" and type_child is None:
-                    type_child = _rust_reference_inner_type(child)
-            if name_child is not None and type_child is not None:
-                param_name = source_bytes[name_child.start_byte:name_child.end_byte].decode("utf-8", errors="replace")
-                if param_name == name:
-                    return source_bytes[type_child.start_byte:type_child.end_byte].decode("utf-8", errors="replace")
-        # Don't descend into nested function bodies.
-        if n_type == "function_item" and n is not scope_node:
-            continue
-        stack.extend(reversed(getattr(n, "children", []) or []))
-    return None
+def _resolve_rust_identifier_type(name: str, ref_node, source_bytes: bytes, facts=None) -> str | None:
+    if facts is None:
+        root = ref_node
+        while root.parent is not None:
+            root = root.parent
+        facts = _RustLexicalFacts(root, source_bytes)
+    return facts.resolve(name, ref_node)
 
 
-def _resolve_rust_identifier_type(name: str, ref_node, source_bytes: bytes) -> str | None:
-    cur = getattr(ref_node, "parent", None)
-    while cur is not None:
-        cur_type = getattr(cur, "type", "")
-        if cur_type == "function_item":
-            resolved = _search_rust_declarations_in_scope(cur, name, source_bytes)
-            if resolved is not None:
-                return resolved
-            break
-        cur = getattr(cur, "parent", None)
-    if name and name[:1].isupper():
-        return name
-    return None
-
-
-def _resolve_rust_receiver_type(call_node, source_bytes: bytes) -> str | None:
+def _resolve_rust_receiver_type(call_node, source_bytes: bytes, facts=None) -> str | None:
     """Resolve Rust call_expression receiver type.
 
     Shape: call_expression → field_expression (`h.method`) or identifier (bare).
@@ -5328,11 +5483,20 @@ def _resolve_rust_receiver_type(call_node, source_bytes: bytes) -> str | None:
             text = source_bytes[receiver.start_byte:receiver.end_byte].decode("utf-8", errors="replace")
             if text == "self":
                 return _find_enclosing_rust_impl_type(call_node, source_bytes)
-            return _resolve_rust_identifier_type(text, call_node, source_bytes)
+            return _resolve_rust_identifier_type(text, call_node, source_bytes, facts)
     return None
 
 
-def _resolve_rust_call_target(call_node, source_bytes: bytes, symbol_lookup: dict[str, str]) -> str | None:
+def _rust_unsupported_self_call(node, source_bytes: bytes) -> bool:
+    callee = node.child_by_field_name("function")
+    if callee is None or _find_enclosing_rust_impl_type(node, source_bytes) is not None:
+        return False
+    receiver = (callee.child_by_field_name("value") if callee.type == "field_expression"
+                else callee.child_by_field_name("path") if callee.type == "scoped_identifier" else None)
+    return receiver is not None and source_bytes[receiver.start_byte:receiver.end_byte] in (b"self", b"Self")
+
+
+def _resolve_rust_call_target(call_node, source_bytes: bytes, symbol_lookup: dict[str, str], facts=None) -> str | None:
     if call_node is None or getattr(call_node, "type", "") != "call_expression":
         return None
     children = list(getattr(call_node, "children", []) or [])
@@ -5356,21 +5520,29 @@ def _resolve_rust_call_target(call_node, source_bytes: bytes, symbol_lookup: dic
     # None (stays external) — never mis-keyed as a type method (faithfulness).
     if callee_type == "scoped_identifier":
         _txt = source_bytes[callee.start_byte:callee.end_byte].decode("utf-8", errors="replace")
+        _ufcs = re.fullmatch(r"<(.+) as (.+)>::([A-Za-z_][A-Za-z_0-9]*)", _txt)
+        if _ufcs:
+            qualified = f"<{_ufcs[1]} as {_ufcs[2]}>.{_ufcs[3]}"
+            return symbol_lookup.get(qualified, f"external::{qualified}")
         _parts = _txt.split("::")
         if len(_parts) >= 2 and _parts[-1] != "new" and _parts[-2][:1].isupper():
-            _rt, _fn = _parts[-2], _parts[-1]
-            _q = f"{_rt}.{_fn}"
-            return symbol_lookup[_q] if _q in symbol_lookup else f"external::{_rt}.{_fn}"
+            _rt, _fn = "::".join(_parts[:-1]), _parts[-1]
+            if _rt == "Self":
+                _rt = _find_enclosing_rust_impl_type(call_node, source_bytes)
+                if _rt is None:
+                    return None
+            _q = f"{_rt.replace('::', '.')}.{_fn}"
+            return symbol_lookup[_q] if _q in symbol_lookup else f"external::{_q}"
         return None
     if not method_name:
         return None
-    receiver_type = _resolve_rust_receiver_type(call_node, source_bytes)
+    receiver_type = _resolve_rust_receiver_type(call_node, source_bytes, facts)
     if receiver_type is None:
         return None
-    qualified = f"{receiver_type}.{method_name}"
+    qualified = f"{receiver_type.replace('::', '.')}.{method_name}"
     if qualified in symbol_lookup:
         return symbol_lookup[qualified]
-    return f"external::{receiver_type}.{method_name}"
+    return f"external::{qualified}"
 
 
 # =============================================================================
@@ -10771,6 +10943,17 @@ def _build_candidate_indexes(
                 suffix = ".".join(parts[i:])
                 if "." in suffix:
                     qualified_index.setdefault(suffix, []).append(node_id)
+    # Rust trait implementations can share a label within one file. They
+    # must all contribute candidates before the unique-match decision.
+    for node_id, node in node_map.items():
+        file_part, sep, qualified = node_id.partition("::")
+        if not sep or not file_part.endswith(".rs") or not node.get("rust_callable"):
+            continue
+        simple_name_index.setdefault(str(node.get("label") or qualified.rsplit(".", 1)[-1]), []).append(node_id)
+        qualified_index.setdefault(qualified, []).append(node_id)
+        alias = _rust_method_alias(qualified)
+        if alias:
+            qualified_index.setdefault(alias, []).append(node_id)
     # Wave 13129 (1312l): dedupe entries — suffix-indexing can re-add the same
     # node under its direct qualified key; without dedupe `len(candidates)==1`
     # fails for legit single-candidate matches. Order preserved (stable).
@@ -11868,6 +12051,7 @@ class GraphIndexSession:
         doc_link_repair_plan: dict[str, Any] | None = None,
         state_conn=None,
         selected_paths: set[str] | None = None,
+        evidence_transition: bool = False,
     ) -> None:
         if layer not in GRAPH_FILENAMES:
             raise ValueError(f"Unsupported graph layer: {layer}")
@@ -11876,14 +12060,19 @@ class GraphIndexSession:
         self._doc_scan_exclude_prefixes = _doc_scan_exclude_prefixes(root)
         self.index_dir = index_dir
         self.layer = layer
+        from operational_evidence import discover_operational_evidence, is_operational_evidence_path
+        self._evidence_prefixes, evidence_unreadable = discover_operational_evidence(root)
+        files = [p for p in files if not is_operational_evidence_path(
+            p.relative_to(root).as_posix(), self._evidence_prefixes)]
         self.files = files
+        self.evidence_transition = evidence_transition
         self.current_file_meta = current_file_meta
         self.verbose = verbose
         self.walker_version = walker_version
         self.chunker_version = chunker_version
         # Wave 1x54z (1u8o3): directories the indexer's walk could not read
         # this build; their known paths count as current in the merge's prune.
-        self.unreadable_dirs: set[str] = set(unreadable_dirs or ())
+        self.unreadable_dirs: set[str] = set(unreadable_dirs or ()) | evidence_unreadable
         self._doc_link_repair_plan = doc_link_repair_plan
         # Wave 1p9q3 (1p9q2): `state_path` is the LEGACY monolithic JSON state
         # (discarded one-time when the store opens); the live state is the
@@ -11997,6 +12186,7 @@ class GraphIndexSession:
                 walker_version=self.walker_version,
                 chunker_version=self.chunker_version,
             )
+            self._store.evidence_transition = self.evidence_transition
             self._store.ensure_current()
         return self._store
 
@@ -12073,7 +12263,8 @@ class GraphIndexSession:
     def record_file(self, rel_path: str, source_text: str) -> None:
         """Record the current contents of a changed file."""
         rel = _repo_rel(rel_path)
-        if _is_minified_file(rel):
+        from operational_evidence import is_operational_evidence_path
+        if _is_minified_file(rel) or is_operational_evidence_path(rel, self._evidence_prefixes):
             return
         kind = _kind_for_path(rel)
         source_hash = _sha256_text(source_text)
@@ -13218,6 +13409,10 @@ class GraphIndexSession:
         import_aliases: dict[str, str] = {}
 
         callable_wins_collisions: list[dict[str, str]] = []
+        rust_call_edges: list[dict[str, Any]] = []
+        rust_callers: dict[tuple[int, int], str] = {}
+        current_call_site: dict[str, Any] | None = None
+        rust_facts = _RustLexicalFacts(tree.root_node, source_bytes) if lang_key == "rust" else None
 
         def add_node(node_id: str, label: str, kind: str, source_location: str) -> None:
             previous = node_map.get(node_id)
@@ -13247,7 +13442,11 @@ class GraphIndexSession:
                 edge["receiver_unknown"] = True
             if unowned_member:
                 edge[_UNOWNED_MEMBER_KEY] = True
-            _merge_call_evidence(edge_map, key, edge)
+            if lang_key == "rust" and relation == "calls" and current_call_site is not None:
+                edge["call_sites"] = [current_call_site]
+                rust_call_edges.append(edge)
+            else:
+                _merge_call_evidence(edge_map, key, edge)
 
         # Wave 1p2q3 (1p2td): per-overload signature accumulator. Maps qualified
         # node id to the set of parameter signatures observed across all
@@ -13467,8 +13666,12 @@ class GraphIndexSession:
                     orm_entity_class_nodes.append((module_id, _orm_entity_carrier))
                 return module_id
             node_id = f"{rel_path}::{qname}"
+            if lang_key == "rust" and node.type == "function_item":
+                rust_callers[(node.start_byte, node.end_byte)] = node_id
             label = qname.rsplit(".", 1)[-1]
             add_node(node_id, label, kind, self._source_location(source_text, node.start_point[0] + 1))
+            if lang_key == "rust" and node.type == "function_item":
+                node_map[node_id]["rust_callable"] = True
             # Wave 130rj — field feedback §2.3: capture annotation tails on Java and
             # attribute tails on C# so code_callhierarchy can emit
             # `caller_pattern: "advice"` when incoming is empty for an AOP-
@@ -13773,6 +13976,11 @@ class GraphIndexSession:
             if is_definition:
                 candidates = _ts_name_candidates(node, source_bytes, mode)
                 name = _ts_pick_symbol_name(candidates, mode, node_type)
+                if lang_key == "rust" and node_type == "impl_item":
+                    owner, trait = _rust_impl_parts(node, source_bytes)
+                    if owner is None:
+                        return  # unsupported impl must not collapse onto a child token
+                    name = f"<{owner} as {trait}>" if trait else owner
                 # Wave 1p61v: never register a parser-artifact name (the reserved
                 # word `function` from an anonymous function expression, or a
                 # non-identifier route-path token like `/`). Gated to TS/JS — the
@@ -13989,6 +14197,32 @@ class GraphIndexSession:
             if len(items) == 1:
                 symbol_lookup.setdefault(name, items[0])
 
+        if lang_key == "rust":
+            aliases: dict[str, set[str]] = {}
+            for symbol_id in defined_symbols:
+                qname = symbol_id.split("::", 1)[-1]
+                alias = _rust_method_alias(qname)
+                if alias:
+                    aliases.setdefault(alias, set()).add(symbol_id)
+            for alias, ids in aliases.items():
+                if alias in symbol_lookup:
+                    ids.add(symbol_lookup[alias])
+                if len(ids) == 1:
+                    symbol_lookup[alias] = next(iter(ids))
+                else:
+                    symbol_lookup.pop(alias, None)
+            # Supplemental macro parsing retains byte positions and enclosing
+            # function identity; only existing callers may own these calls.
+            for macro_call in _rust_macro_calls(tree, source_bytes):
+                enclosing = macro_call.parent
+                while enclosing is not None and enclosing.type != "function_item":
+                    enclosing = enclosing.parent
+                if enclosing is None:
+                    continue
+                caller = rust_callers.get((enclosing.start_byte, enclosing.end_byte))
+                if caller is not None:
+                    buffered_calls.append((caller, macro_call, "call_expression", []))
+
         # Wave 131bt (1319s): symbol kind lookup for scope-aware construction
         # resolution. Maps a simple name to the kind of the symbol it resolves
         # to (e.g. "class", "function") so the construction helper can reject
@@ -14032,6 +14266,7 @@ class GraphIndexSession:
             source_symbol = _src_symbol
             node = _call_node
             node_type = _call_node_type
+            current_call_site = _call_site(node, rel_path) if lang_key == "rust" else None
             scope_signatures = _scope_signatures
             # Wave 1p7dh: capture OTel TypeInstrumentation target strings as the
             # enclosing class's `instruments` property. Scoped to the SPI
@@ -14105,7 +14340,7 @@ class GraphIndexSession:
             elif lang_key == "go" and node_type == "call_expression":
                 java_resolved_target = _resolve_go_call_target(node, source_bytes, symbol_lookup)
             elif lang_key == "rust" and node_type == "call_expression":
-                java_resolved_target = _resolve_rust_call_target(node, source_bytes, symbol_lookup)
+                java_resolved_target = _resolve_rust_call_target(node, source_bytes, symbol_lookup, rust_facts)
             elif lang_key == "scala" and node_type == "call_expression":
                 java_resolved_target = _resolve_scala_call_target(node, source_bytes, symbol_lookup)
             elif lang_key == "swift" and node_type == "call_expression":
@@ -14132,6 +14367,8 @@ class GraphIndexSession:
             else:
                 receiver_unknown = _ts_call_has_receiver(node)
                 unowned_member = receiver_unknown and _ts_call_receiver_unowned(node, lang_key)
+                if lang_key == "rust" and _rust_unsupported_self_call(node, source_bytes):
+                    receiver_unknown = unowned_member = True
                 for target in _ts_relation_candidates(node, source_bytes, "call", mode, profile):
                     if unowned_member:
                         # Wave 203pu (201wg): no same-file or import-alias
@@ -14193,6 +14430,7 @@ class GraphIndexSession:
                         receiver_unknown=receiver_unknown,
                     )
 
+        current_call_site = None
         # Wave 1p9qh (1p9qa): drain buffered supertype facts → `extends` /
         # `implements` edges. A same-file supertype binds directly at
         # RECEIVER_RESOLVED (declaration-derived; kind-gated so a same-named
@@ -14266,7 +14504,7 @@ class GraphIndexSession:
             "source_hash": _sha256_text(source_text),
             "nodes": sorted(node_map.values(), key=lambda item: str(item.get("id") or "")),
             "edges": sorted(
-                edge_map.values(),
+                [*edge_map.values(), *rust_call_edges],
                 key=lambda item: (
                     str(item.get("source") or ""),
                     str(item.get("target") or ""),
@@ -14854,6 +15092,14 @@ class GraphIndexSession:
                     # work repeated by this zero-change build.
                     stats.update({key: payload.get("call_integrity", {}).get(key, [] if key.endswith("details") else 0)
                                   for key in _CALL_INTEGRITY_STATS_KEYS})
+                    if store.evidence_transition_current():
+                        # A zero-removal transition still owes walker currency,
+                        # but neither source extraction nor graph analysis.
+                        self.publication = GraphPublication(
+                            layer=self.layer,
+                            meta={"walker_version": self.walker_version},
+                        )
+                        payload["_publication"] = self.publication
                     payload["merge_stats"] = stats
                     return payload
             # Fall through: the published rows do not vouch for a complete
@@ -15906,6 +16152,11 @@ class GraphIndexSession:
                 stats["non_callable_call_targets"] += 1
             _merge_call_evidence(_downgraded_edge_map, _new_key, _new_edge)
         edge_map = _downgraded_edge_map
+        for edge in edge_map.values():
+            if "call_sites" in edge:
+                sites = {(site["source_file"], site["start_byte"], site["end_byte"]): site
+                         for site in edge["call_sites"]}
+                edge["call_sites"] = [sites[key] for key in sorted(sites)]
 
         from datetime import UTC, datetime
 
@@ -15925,6 +16176,11 @@ class GraphIndexSession:
         for _ek in sorted(edge_map.keys()):
             _fp.update("\x1f".join(_ek).encode("utf-8"))
             _fp.update(b"\0")
+            # Occurrence-only edits must invalidate shared query snapshots too.
+            if edge_map[_ek].get("call_sites"):
+                _fp.update(json.dumps(edge_map[_ek]["call_sites"], sort_keys=True,
+                                      separators=(",", ":")).encode("utf-8"))
+                _fp.update(b"\0")
         input_fingerprint = _fp.hexdigest()
 
         graph_payload = {
@@ -16442,6 +16698,7 @@ def update_graph_index(
     doc_link_repair_plan: dict[str, Any] | None = None,
     state_conn=None,
     selected_paths: set[str] | None = None,
+    evidence_transition: bool = False,
 ) -> dict[str, Any]:
     """Extract, merge and PREPARE this layer's graph rows.
 
@@ -16477,7 +16734,9 @@ def update_graph_index(
         doc_link_repair_plan=doc_link_repair_plan,
         state_conn=state_conn,
         selected_paths=selected_paths,
+        evidence_transition=evidence_transition,
     )
+    files = session.files
     try:
         changed_set = {str(rel).replace("\\", "/") for rel in changed}
         removed_set = {str(rel).replace("\\", "/") for rel in removed}

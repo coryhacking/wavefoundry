@@ -1,0 +1,56 @@
+ERROR: Historical memory is complete (0 pending) but not yet marked indexed; index/cleanup is refused. Recover in order: --resume-after-memory first (it exits zero while the upgrade is still non-terminal), then --cleanup, then index_build; confirm with index_health.
+ERROR: Historical memory is complete (0 pending) but not yet marked indexed; index/cleanup is refused. Recover in order: --resume-after-memory first (it exits zero while the upgrade is still non-terminal), then --cleanup, then index_build; confirm with index_health.
+ERROR: Upgrade failed during phase 'index_update'. The upgrade lock has been RETAINED with a failure marker so dashboard restart intent and any partially replaced tree remain visible. Inspect .wavefoundry/upgrade-in-progress.json. Resolve the failure, then re-run the full upgrade to restore a clean state.
+
+── Resume: re-running the docs gate against the already-extracted tree ──
+  Review-state projection and docs gate PASSED on resume; the historical-memory checkpoint is ready. Run wf_upgrade(phase='resume_after_memory') to publish the index.
+Historical memory validated; Phase 4 index publication complete.
+ERROR: Historical memory index publication failed: fresh verifier interrupted
+Historical memory index publication is already complete.
+ERROR: Historical memory validation is pending; index/cleanup is refused. Run bounded memory backfill + validation, then --resume-after-memory.
+ERROR: Historical memory validation is pending; index/cleanup is refused. Run bounded memory backfill + validation, then --resume-after-memory.
+Historical memory validated; Phase 4 index publication complete.
+Historical memory validated; Phase 4 index publication complete.
+
+── Phase 4: Index update ──
+  Phase 4a: updating docs and code index layers (blocking) ...
+  Phase 4b: updating graph index (blocking) ...
+  Phase 4c: skipped — child preparation finished; epoch publication is pending the parent.
+Historical memory validated; Phase 4 index publication complete.
+Historical memory validated; Phase 4 index publication complete.
+Historical memory index publication is already complete.
+Historical memory validated; Phase 4 index publication complete.
+Historical memory index publication is already complete.
+ERROR: Historical memory index publication failed: checkpoint unavailable
+Historical memory index publication is already complete.
+ERROR: Historical memory index publication failed: index child did not produce a valid staging receipt; authoritative index state remains unpublished
+Historical memory validated; Phase 4 index publication complete.
+Historical memory validated; Phase 4 index publication complete.
+fixture pause
+fixture pause
+ERROR: Upgrade failed during phase 'index_update'.
+fixture pause
+ERROR: Upgrade failed during phase 'index_update'.
+ERROR: Upgrade failed during phase 'index_update'.
+fixture pause
+fixture pause
+ERROR: Upgrade failed during phase 'index_update'.
+ERROR: Extension hook 'pre_index_update' raised: boom
+ERROR: Upgrade failed during phase 'index_update'.
+fixture pause
+fixture pause
+ERROR: Upgrade failed during phase 'index_update'.
+fixture pause
+ERROR: Upgrade failed during phase 'index_update'.
+ERROR: Upgrade failed during phase 'index_update'.
+fixture pause
+fixture pause
+ERROR: Upgrade failed during phase 'index_update'.
+ERROR: Extension hook 'pre_index_update' raised: boom
+ERROR: Upgrade failed during phase 'index_update'.
+fixture pause
+fixture pause
+----------------------------------------------------------------------
+Ran 34 tests in 2.115s
+
+OK

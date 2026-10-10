@@ -1,0 +1,203 @@
+{
+  "wave_id": "206is",
+  "change_ids": [
+    "204mo-enh version-independent-journal-hook"
+  ],
+  "phase": "readiness-focused",
+  "receipt_id": "review-policy-0461c07cde4e57b46259",
+  "review_round": "one focused verification after one bounded plan repair",
+  "identity_context": "Fresh independent architecture-reviewer specialist and fixed architecture council seat in this one disclosed context. Did not author original plan, repair, code, or ledger. No other specialist/seat authority claimed. Runtime model identity not asserted.",
+  "verification_context": {
+    "actor": "architecture-reviewer",
+    "context_id": "c6_focused_architecture_fresh_20261009_206is",
+    "fresh_context": true,
+    "independent": true
+  },
+  "specialist_verdict": "APPROVE readiness within architecture remit",
+  "council_seat_verdict": "APPROVE within fixed architecture remit",
+  "approval": true,
+  "blockers": [],
+  "remaining_blockers": [],
+  "finding_clearance": [
+    {
+      "finding_id": "ARCH-C6-RDY-01",
+      "original_phase": "readiness",
+      "lane": "architecture-reviewer",
+      "clearance": "cleared for architecture-reviewer only",
+      "expected": "The adopted bounded challenge requires an explicit grammar and status/apply/preview decision table preserving later absent/default noexec and unknown distinction.",
+      "observed": "Requirements1/4 and all5 Static trigger decisions rows explicitly adopt those choices. Present literal grammar permits exactly one direct plain/annotated assignment of legacy_cutover or journals_present; invalid/dynamic/conditional/duplicate refuse before execution. Unknown source later skips without execution and retains pre1.15 validated load/refusal. Requirement5/AC4 name incoming package descendants, load-and-call scope, path precedence, finally restoration; AC2 forbids opt-in granting builtin authority.",
+      "known_bad_detection_method": "readiness-safe-control",
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "evidence": {
+        "phase": "readiness",
+        "required_for_approval": true,
+        "proposition": "The current repaired plan explicitly resolves the architecture static-trigger decision gap and admits required boundary documentation while retaining separate hook eligibility, incoming execution, and legacy builtin authority.",
+        "counterexample_or_failure_condition": "Any missing static decision row, unbounded or hook-only import context, broadened builtin authority, later default declaration execution, or omitted authoritative layering target.",
+        "execution_status": "executed",
+        "public_path": "Current admitted plan and frozen scope census; replayed pre_docs_gate lifecycle boundary and actual _load_journal_hook load/call boundary. Unrelated scaffold/graph work patched; destructive builtin migration replaced with counter in scratch target.",
+        "command_or_fixture": "python3 -B /tmp/wf-206is-architecture-probes.py; finite plan/schema checks recorded in /tmp/wf-206is-focused-architecture-probe-results.json",
+        "expected": "Five explicit static rows; single direct plain/annotated literal grammar; absent/default later noexec; invalid refusal before execution; unknown later skip/pre1.15 existing validated import; bounded incoming context spanning declaration, hook import and call; restoration and builtin independent gate; layering target admitted. Current cached baseline OLD:OLD_CALL, uncached PACK:PACK_CALL; pre1.15 all three actions, at/after none.",
+        "observed": "All seven finite plan checks passed. Deliberately removing the static table from a scratch plan copy was rejected. Replayed cached baseline OLD:OLD_CALL; uncached PACK:PACK_CALL. Failure returned false and restored path while newly imported helper stayed cached, confirming the planned module cleanup obligation. Version1.14.9 declaration/hook/builtin counters true;1.15.0 and1.29.0 false; scratch journal bytes preserved. Current AST feasibility returns () for absent, journals_present string for literal, invalid string for invalid literal and ValueError for dynamic/conditional. No future trigger implementation claimed.",
+        "artifact_or_test_id": "/tmp/wf-206is-focused-architecture-probe-results.json; /tmp/wf-206is-focused-architecture-before.json; /tmp/wf-206is-focused-architecture-after.json; source anchors upgrade_extensions._static_module_literal, _scripts_on_sys_path, _load_journal_hook, _load_journal_declaration, pre_docs_gate, migrate_journals; mcp_tool_extensions.journal_declaration_problems; layering-rules.md boundary invariant row28.",
+        "adjacent_controls": [
+          "Uncached incoming import/call control",
+          "1.14.9 versus1.15.0/1.29.0 pre_docs_gate counters",
+          "Failure path restoration and persisted module baseline",
+          "Absent/literal/invalid/dynamic/conditional AST feasibility",
+          "Scratch plan missing-table rejection"
+        ],
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true
+        },
+        "known_bad_detection_method": "readiness-safe-control",
+        "limitations": [
+          "Current code remains intentionally unchanged and exhibits the admitted cache defect. No implementation, actual full old-runner upgrade, full suite, native/downstream/archive qualification or general dependency-closure proof.",
+          "MCP code_outline/code_read callable and used first; direct live-source reads and disk scratch execution support conclusions. Semantic/index/setup freshness is not certified: code_read emitted setup_inputs_changed/inputs_changed warning. No setup/index/rebuild performed.",
+          "Finite table checks are contract completeness evidence, not universal declaration-language or import isolation certification. No pre-primer isolated prior: original primer and review history read as requested; own current plan/source/probes supplied judgment."
+        ],
+        "safety_and_authorization": "Authorized read-only focused readiness review and finite scratch probes; temporary roots only; builtin destructive migration replaced with counter; no repository source, seed, ledger, approval, commit, closure, push or setup mutation.",
+        "probe_class": "local_safe",
+        "authorization_status": "authorized",
+        "safe_boundary": false,
+        "unexecuted_remainder_prohibited": false,
+        "universal_claim": false,
+        "verification_context": {
+          "actor": "architecture-reviewer",
+          "context_id": "c6_focused_architecture_fresh_20261009_206is",
+          "fresh_context": true,
+          "independent": true
+        }
+      }
+    }
+  ],
+  "related_finding_recheck": {
+    "finding_id": "DOC-C6-LAYERING-CENSUS",
+    "judgment": "Required authoritative layering-rules.md target is explicitly admitted in current10-path packet and named with dataflow/spec/seed; row28 currently describes unchanged pre1.15 baseline and must change during implementation. This is an architecture corroboration, not a docs-contract lane clearance.",
+    "architecture_source": "docs/architecture/layering-rules.md row28; current Affected Architecture Docs and declared paths."
+  },
+  "primer_effect": "Strongest original challenge independently reproduced OLD:OLD_CALL at both load and call. It directs the finite incoming/restoration obligation, now explicit in Requirement5/AC4; no readiness defect is invented from absent future code.",
+  "primer_questions_disposition": [
+    {
+      "question": 1,
+      "result": "Resolved by explicit literal grammar and5-row decision table; later unknown skips noexec, invalid refuses before execution, default compatibility preserved."
+    },
+    {
+      "question": 2,
+      "result": "Repair explicitly requires actual older-runner upgrade, cached dependencies at load/call, package descendant restoration and incoming path precedence without changing generic helper. Existing baseline independently replayed; implementation proof remains delivery."
+    },
+    {
+      "question": 3,
+      "result": "AC1 distinguishes direct regular singly linked qualifying files from migration preview left entries, names absence/README/nested/link negatives. AC2 retains builtin permission separately; AC3/4 state partial effects, per-invocation count and hook-owned idempotence honestly."
+    }
+  ],
+  "strongest_challenge_disposition": "Accepted as a current executable baseline and planned implementation obligation, not remaining readiness blocker. Path insertion/private hook loading alone is expressly insufficient.",
+  "strongest_alternative": {
+    "alternative": "Fresh incoming-scripts subprocess for selected hook",
+    "observed_basis": "Independent current cached in-process replay observes OLD:OLD_CALL while uncached control observes PACK:PACK_CALL; original rotating-seat child evidence was briefing context, not independently rerun child evidence here.",
+    "merit": "Fresh process removes inherited sys.modules ambiguity and naturally bounds process import state.",
+    "cost": "Introduces interpreter/process-failure/report transport beyond current callable seam.",
+    "decision": "Retained journal-only incoming context is admissible because its exact scope/restoration/path-precedence and actual old-runner evidence obligations are now explicit. No implementation correctness or equivalence claimed; subprocess remains fallback if finite delivery proof fails."
+  },
+  "implementation_notes": [
+    "Keep no-import validator stdlib-only, third positional helper_modules argument unchanged and journal declarations outside MCP declared().",
+    "Do not broaden generic _scripts_on_sys_path, publication or locking reload behavior; implementation must prove actual incoming framework/custom sibling and package descendant restoration.",
+    "Update authoritative row28, dataflow, spec, seed and applicable existing local surface together; no new local prompt invented."
+  ],
+  "evidence": {
+    "phase": "readiness",
+    "required_for_approval": true,
+    "proposition": "The current repaired plan explicitly resolves the architecture static-trigger decision gap and admits required boundary documentation while retaining separate hook eligibility, incoming execution, and legacy builtin authority.",
+    "counterexample_or_failure_condition": "Any missing static decision row, unbounded or hook-only import context, broadened builtin authority, later default declaration execution, or omitted authoritative layering target.",
+    "execution_status": "executed",
+    "public_path": "Current admitted plan and frozen scope census; replayed pre_docs_gate lifecycle boundary and actual _load_journal_hook load/call boundary. Unrelated scaffold/graph work patched; destructive builtin migration replaced with counter in scratch target.",
+    "command_or_fixture": "python3 -B /tmp/wf-206is-architecture-probes.py; finite plan/schema checks recorded in /tmp/wf-206is-focused-architecture-probe-results.json",
+    "expected": "Five explicit static rows; single direct plain/annotated literal grammar; absent/default later noexec; invalid refusal before execution; unknown later skip/pre1.15 existing validated import; bounded incoming context spanning declaration, hook import and call; restoration and builtin independent gate; layering target admitted. Current cached baseline OLD:OLD_CALL, uncached PACK:PACK_CALL; pre1.15 all three actions, at/after none.",
+    "observed": "All seven finite plan checks passed. Deliberately removing the static table from a scratch plan copy was rejected. Replayed cached baseline OLD:OLD_CALL; uncached PACK:PACK_CALL. Failure returned false and restored path while newly imported helper stayed cached, confirming the planned module cleanup obligation. Version1.14.9 declaration/hook/builtin counters true;1.15.0 and1.29.0 false; scratch journal bytes preserved. Current AST feasibility returns () for absent, journals_present string for literal, invalid string for invalid literal and ValueError for dynamic/conditional. No future trigger implementation claimed.",
+    "artifact_or_test_id": "/tmp/wf-206is-focused-architecture-probe-results.json; /tmp/wf-206is-focused-architecture-before.json; /tmp/wf-206is-focused-architecture-after.json; source anchors upgrade_extensions._static_module_literal, _scripts_on_sys_path, _load_journal_hook, _load_journal_declaration, pre_docs_gate, migrate_journals; mcp_tool_extensions.journal_declaration_problems; layering-rules.md boundary invariant row28.",
+    "adjacent_controls": [
+      "Uncached incoming import/call control",
+      "1.14.9 versus1.15.0/1.29.0 pre_docs_gate counters",
+      "Failure path restoration and persisted module baseline",
+      "Absent/literal/invalid/dynamic/conditional AST feasibility",
+      "Scratch plan missing-table rejection"
+    ],
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true
+    },
+    "known_bad_detection_method": "readiness-safe-control",
+    "limitations": [
+      "Current code remains intentionally unchanged and exhibits the admitted cache defect. No implementation, actual full old-runner upgrade, full suite, native/downstream/archive qualification or general dependency-closure proof.",
+      "MCP code_outline/code_read callable and used first; direct live-source reads and disk scratch execution support conclusions. Semantic/index/setup freshness is not certified: code_read emitted setup_inputs_changed/inputs_changed warning. No setup/index/rebuild performed.",
+      "Finite table checks are contract completeness evidence, not universal declaration-language or import isolation certification. No pre-primer isolated prior: original primer and review history read as requested; own current plan/source/probes supplied judgment."
+    ],
+    "safety_and_authorization": "Authorized read-only focused readiness review and finite scratch probes; temporary roots only; builtin destructive migration replaced with counter; no repository source, seed, ledger, approval, commit, closure, push or setup mutation.",
+    "probe_class": "local_safe",
+    "authorization_status": "authorized",
+    "safe_boundary": false,
+    "unexecuted_remainder_prohibited": false,
+    "universal_claim": false,
+    "verification_context": {
+      "actor": "architecture-reviewer",
+      "context_id": "c6_focused_architecture_fresh_20261009_206is",
+      "fresh_context": true,
+      "independent": true
+    }
+  },
+  "packet_sha256_before": {
+    ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+    ".wavefoundry/framework/scripts/mcp_tool_extensions.py": "44d8e720cec410bb86524700a68fef5f76d5434c725e3490a2c9b90cbc922edd",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "d2b38f6bd06692447f808bb0b9625f0fb782f9bd9d9b2b5496758f17e269e871",
+    ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md": "a4f1319834042e25316845f15f7ff9a119e80158ce89fb65dc7550cf475e598d",
+    "docs/specs/mcp-tool-surface.md": "929c2e26c897bf2d4037c120240822a4d97a36b701c4d769ef984606b08689a5",
+    "docs/architecture/data-and-control-flow.md": "ec5bff5e439a3b47f2bf9a7191e51895d6ebd09a17438be5776aa40bbb058740",
+    "docs/waves/206is journal-hook-follow-up/204mo-enh version-independent-journal-hook.md": "4a24e2c026c81b9a9833e957acce2d63dc43c67e39831e02a0e6cf0ffed9e265",
+    ".wavefoundry/framework/scripts/tests/record_layout_support.py": "286c3cfa93851c18c3fe56a390fc178923aaaf1c9658542f594aa630a0fdeb49",
+    "docs/architecture/layering-rules.md": "fc0ed24463fc9a83c11fdc80ed9171d844d0feb045e28e8d173109d9be66345b"
+  },
+  "packet_sha256_after": {
+    ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+    ".wavefoundry/framework/scripts/mcp_tool_extensions.py": "44d8e720cec410bb86524700a68fef5f76d5434c725e3490a2c9b90cbc922edd",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "d2b38f6bd06692447f808bb0b9625f0fb782f9bd9d9b2b5496758f17e269e871",
+    ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md": "a4f1319834042e25316845f15f7ff9a119e80158ce89fb65dc7550cf475e598d",
+    "docs/specs/mcp-tool-surface.md": "929c2e26c897bf2d4037c120240822a4d97a36b701c4d769ef984606b08689a5",
+    "docs/architecture/data-and-control-flow.md": "ec5bff5e439a3b47f2bf9a7191e51895d6ebd09a17438be5776aa40bbb058740",
+    "docs/waves/206is journal-hook-follow-up/204mo-enh version-independent-journal-hook.md": "4a24e2c026c81b9a9833e957acce2d63dc43c67e39831e02a0e6cf0ffed9e265",
+    ".wavefoundry/framework/scripts/tests/record_layout_support.py": "286c3cfa93851c18c3fe56a390fc178923aaaf1c9658542f594aa630a0fdeb49",
+    "docs/architecture/layering-rules.md": "fc0ed24463fc9a83c11fdc80ed9171d844d0feb045e28e8d173109d9be66345b"
+  },
+  "packet_sha256_match": true,
+  "scope_freeze_unchanged": true,
+  "scope_count": 10,
+  "focused_end_rule": "No remaining architecture blocker. Any blocker retained by another required lane must be escalated at this focused-round end; no second automatic repair/review round. This report cannot clear other lanes or synthesize overall council approval.",
+  "limits": [
+    "Current code remains intentionally unchanged and exhibits the admitted cache defect. No implementation, actual full old-runner upgrade, full suite, native/downstream/archive qualification or general dependency-closure proof.",
+    "MCP code_outline/code_read callable and used first; direct live-source reads and disk scratch execution support conclusions. Semantic/index/setup freshness is not certified: code_read emitted setup_inputs_changed/inputs_changed warning. No setup/index/rebuild performed.",
+    "Finite table checks are contract completeness evidence, not universal declaration-language or import isolation certification. No pre-primer isolated prior: original primer and review history read as requested; own current plan/source/probes supplied judgment."
+  ]
+}

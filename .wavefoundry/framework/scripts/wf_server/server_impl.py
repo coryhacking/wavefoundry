@@ -94,6 +94,7 @@ for _wll_key in list(sys.modules):
             "index_source_guard",
             "path_containment",
             "contained_files",  # wave 200ey: contained repository reads and writes
+            "advisory_lint_identity",
             "mcp_tool_extensions",
             # Wave 1zls8: the roster validates through the declaration module
             # it imported, so it is purged with it and never validates an
@@ -3680,13 +3681,44 @@ def _docs_lint_hook_timeout_default() -> float:
 
 # Review-fix (1p9pe follow-up hardening): defensive mirror of
 # wave_lint_lib.cli.INCREMENTAL_FULL_FALLBACK_FILES, used only when the sibling package cannot
-# be imported. The canonical trigger list lives in wave_lint_lib/cli.py next to the fallback
-# logic it drives.
-_INCREMENTAL_FULL_FALLBACK_FILES_MIRROR = (
-    "docs/workflow-config.json",
-    "docs/prompts/prompt-surface-manifest.json",
-    "docs/repo-profile.json",
-)
+# be imported. The canonical trigger list is exported by advisory_lint_identity and
+# re-exported by wave_lint_lib.cli next to the fallback logic it drives.
+from advisory_lint_identity import INCREMENTAL_FULL_FALLBACK_FILES as _INCREMENTAL_FULL_FALLBACK_FILES_MIRROR
+
+# One exact proof per root, bounded and process-local. It carries no changed-doc
+# verdict and is never consumed by run_validate or a lifecycle gate.
+_ADVISORY_LINT_PROOF_CAP = 8
+_advisory_lint_proofs: dict[str, str] = {}
+_advisory_lint_proof_lock = threading.Lock()
+
+
+def _advisory_lint_snapshot(root: Path) -> str | None:
+    from advisory_lint_identity import advisory_lint_identity
+
+    return advisory_lint_identity(root, SCRIPTS_DIR)
+
+
+def _advisory_lint_proof(root: Path, identity: str | None) -> str | None:
+    key = str(root.resolve())
+    with _advisory_lint_proof_lock:
+        if identity is None or _advisory_lint_proofs.get(key) != identity:
+            _advisory_lint_proofs.pop(key, None)
+            return None
+        return identity
+
+
+def _remember_advisory_lint_proof(root: Path, before: str | None, result: dict) -> None:
+    key = str(root.resolve())
+    after = _advisory_lint_snapshot(root)
+    completed = (result["passed"] and not result["errors"] and not result["warnings"]
+                 and "docs-lint: scope full" in result["output"].splitlines()
+                 and "docs-lint: ok" in result["output"].splitlines())
+    with _advisory_lint_proof_lock:
+        _advisory_lint_proofs.pop(key, None)
+        if completed and before is not None and before == after:
+            _advisory_lint_proofs[key] = before
+            while len(_advisory_lint_proofs) > _ADVISORY_LINT_PROOF_CAP:
+                _advisory_lint_proofs.pop(next(iter(_advisory_lint_proofs)))
 
 
 def _incremental_full_fallback_trigger_files() -> tuple[str, ...]:
@@ -5093,6 +5125,7 @@ def run_validate(root: Path) -> dict:
     import subprocess
 
     script = SCRIPTS_DIR / "docs_lint.py"
+    before = _advisory_lint_snapshot(root)
     # Wave 1p9iu makes the timeout configurable via docs/workflow-config.json ``docs_lint.full_scan_
     # timeout_seconds`` (default DOCS_LINT_FULL_SCAN_TIMEOUT_DEFAULT) because the old hardcoded 30s was
     # too short for a large field repo's full-corpus scan. This is a FULL scan (no --changed flag) —
@@ -5118,24 +5151,28 @@ def run_validate(root: Path) -> dict:
             f"{DOCS_LINT_FULL_SCAN_TIMEOUT_DEFAULT:g}s) if this repo's docs corpus legitimately needs "
             f"longer, or investigate a stalled docs_lint.py."
         )
-        return {
+        failure = {
             "passed": False,
             "errors": [message],
             "warnings": [],
             "output": message,
         }
+        _remember_advisory_lint_proof(root, before, failure)
+        return failure
     lines = (result.stdout + result.stderr).strip().splitlines()
     errors = [l for l in lines if l.startswith("ERROR:")]
     warnings = [l for l in lines if l.startswith("WARNING:")]
     if not errors and result.returncode != 0:
         errors = [_docs_lint_verdict_gap_error(result.returncode, result.stdout + result.stderr, root)]
     passed = result.returncode == 0
-    return {
+    verdict = {
         "passed": passed,
         "errors": errors,
         "warnings": warnings,
         "output": result.stdout + result.stderr,
     }
+    _remember_advisory_lint_proof(root, before, verdict)
+    return verdict
 
 
 def run_validate_changed(root: Path) -> dict:
@@ -5159,6 +5196,12 @@ def run_validate_changed(root: Path) -> dict:
     result from a checked-nothing no-op. The six full-corpus lifecycle gates keep
     calling ``run_validate`` — this helper is only for the post-write attachment.
 
+    Wave 2087n: a stable, completed green full check may establish bounded
+    process-local trigger/rule proof. Only identical proof exempts the three
+    dirty triggers; current changed docs and dependencies still execute. The
+    child rechecks the content identity, and an unpredicted full fallback is
+    refused under the hook bound instead of silently starting heavier work.
+
     ``PROJECT_ROOT`` is forwarded explicitly so the subprocess lints the correct tree
     even when the caller's environment already has ``PROJECT_ROOT`` set to a
     different path (e.g. in multi-project MCP setups).
@@ -5166,14 +5209,21 @@ def run_validate_changed(root: Path) -> dict:
     import subprocess
 
     script = SCRIPTS_DIR / "docs_lint.py"
-    fallback_predicted = _predict_incremental_full_fallback(root)
+    before = _advisory_lint_snapshot(root)
+    proof = _advisory_lint_proof(root, before)
+    fallback_predicted = _predict_incremental_full_fallback(root) and proof is None
     if fallback_predicted:
         timeout_s = docs_lint_full_scan_timeout_seconds(root)
     else:
         timeout_s = docs_lint_hook_timeout_seconds(root)
     try:
+        argv = [_preferred_python(), str(script), "--changed"]
+        if not fallback_predicted:
+            argv.append("--advisory-incremental-only")
+        if proof is not None:
+            argv.extend(["--advisory-trigger-proof", proof])
         result = _mcp_subprocess_run(
-            [_preferred_python(), str(script), "--changed"],
+            argv,
             cwd=str(root),
             env={**os.environ, "PROJECT_ROOT": str(root)},
             timeout=timeout_s,
@@ -5195,13 +5245,15 @@ def run_validate_changed(root: Path) -> dict:
                 f"{_docs_lint_hook_timeout_default():g}s) if the changed-set scan legitimately needs "
                 f"longer, or investigate a stalled docs_lint.py."
             )
-        return {
+        failure = {
             "passed": False,
             "errors": [message],
             "warnings": [],
             "output": message,
             "mode": "full-fallback" if fallback_predicted else "incremental",
         }
+        _remember_advisory_lint_proof(root, before, failure)
+        return failure
     lines = (result.stdout + result.stderr).strip().splitlines()
     errors = [l for l in lines if l.startswith("ERROR:")]
     warnings = [l for l in lines if l.startswith("WARNING:")]
@@ -5213,13 +5265,31 @@ def run_validate_changed(root: Path) -> dict:
         mode = "skipped"
     else:
         mode = "incremental"
-    return {
+    if "docs-lint: scope full" in lines:
+        mode = "full-fallback"
+    elif "docs-lint: scope incremental" in lines and mode != "skipped":
+        mode = "incremental"
+    verdict = {
         "passed": result.returncode == 0,
         "errors": errors,
         "warnings": warnings,
         "output": result.stdout + result.stderr,
         "mode": mode,
     }
+    after = _advisory_lint_snapshot(root)
+    if before != after:
+        with _advisory_lint_proof_lock:
+            _advisory_lint_proofs.pop(str(root.resolve()), None)
+        message = "ERROR: advisory lint trigger/rule identity moved during validation; retry full validation"
+        verdict["passed"] = False
+        verdict["errors"].append(message)
+        verdict["output"] += "\n" + message
+    elif mode == "full-fallback":
+        _remember_advisory_lint_proof(root, before, verdict)
+    elif not verdict["passed"] and "advisory lint trigger/rule identity" in verdict["output"]:
+        with _advisory_lint_proof_lock:
+            _advisory_lint_proofs.pop(str(root.resolve()), None)
+    return verdict
 
 
 
@@ -6683,17 +6753,20 @@ def _parse_wave_address(address: str) -> Optional[dict[str, Any]]:
 
 
 def _read_map_excerpt(
+    root: Path,
     path: Path,
     line_start: Optional[int],
     line_end: Optional[int],
     max_chars: int = 1600,
 ) -> str:
-    if not path.is_file():
-        return ""
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        data = contained_files.read_contained_bytes(
+            root, path, max_bytes=contained_files.DEFAULT_MAX_BYTES
+        )
     except OSError:
         return ""
+    # Preserve read_text's replacement decoding and universal newlines.
+    text = data.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
     if line_start is not None and line_end is not None:
         lines = text.splitlines()
         s_idx = max(1, line_start) - 1
@@ -6758,7 +6831,7 @@ def wf_map_response(root: Path, address: str, index: WaveIndex) -> dict[str, Any
     if chunk:
         excerpt = str(chunk.get("text") or "")[:1600]
     if not excerpt:
-        excerpt = _read_map_excerpt(resolved, parsed.get("line_start"), parsed.get("line_end"))
+        excerpt = _read_map_excerpt(root, root / parsed["path"], parsed.get("line_start"), parsed.get("line_end"))
     data: dict[str, Any] = {
         "address": addr,
         "scheme": parsed["scheme"],
@@ -11699,8 +11772,9 @@ def _prepare_lane_review_state(root: Path, wave_md: Path, wave_text: str):
     required_lanes = wave_lanes + [lane for lane in project_lanes if lane not in wave_lanes]
     authority = resolve_review_authority(root, wave_md, wave_text=wave_text)
     missing_lanes = [
-        lane for lane in required_lanes
-        if not authority.signoff_current(lane, section="prepare", approval_phase="readiness")
+        row["lane"] for row in lifecycle_gates.review_lane_results(
+            authority, required_lanes, approval_phase="readiness"
+        ) if not row["recorded_signoff"]
     ]
     return authority, missing_lanes
 
@@ -11751,6 +11825,9 @@ def _attach_prepare_readiness_advisories(root: Path, wave_id: str, response: dic
         if not authority.ledger_errors:
             data["pending_readiness_lanes"] = list(missing_lanes)
         if not authority.ledger_errors and missing_lanes:
+            lane_results = lifecycle_gates.review_lane_results(
+                authority, missing_lanes, approval_phase="readiness"
+            )
             # Wave 1zime (1ziml): a lane with no readiness approval at all is a
             # first pass; a lane whose approval lapsed with a superseded
             # receipt keeps the re-review wording.
@@ -11772,12 +11849,16 @@ def _attach_prepare_readiness_advisories(root: Path, wave_id: str, response: dic
                 )
             diagnostic = _diagnostic(
                 "readiness_lane_approvals_missing",
-                " ".join(parts),
+                ("Readiness lanes without a current typed approval: "
+                 + lifecycle_gates.review_lane_failure_message(lane_results)
+                 if authority.typed else " ".join(parts)),
                 recovery_tools=["wf_review_wave"],
                 recovery_usage=f"wf_review_wave(wave_id={wave_id!r}, phase='prepare')",
                 advisory=True,
             )
             diagnostic["missing_lanes"] = missing_lanes
+            if authority.typed:
+                diagnostic["lane_results"] = lane_results
             response.setdefault("diagnostics", []).append(diagnostic)
     except (OSError, ValueError, record_paths.RecordLayoutInvalid, record_paths.AmbiguousWaveId):
         # Observation must not replace an existing refusal or change success.
@@ -12971,10 +13052,13 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
         # Tests assert the typed wording on a declared fixture and the
         # legacy wording on prose fixtures.
         if _gate2_authority.typed:
+            _gate2_lane_results = lifecycle_gates.review_lane_results(
+                _gate2_authority, missing_lanes, approval_phase="readiness"
+            )
             _gate2_message = (
-                f"Prepare-phase lane review incomplete; lanes without a current typed approval: {', '.join(missing_lanes)}. "
-                "Run wf_review_wave(phase='prepare') and record a typed approval event per lane via "
-                "wf_review_event(event='approval', signoff_key=<lane name above>, mode='create') "
+                "Prepare-phase lane review incomplete; lanes without a current typed approval: "
+                + lifecycle_gates.review_lane_failure_message(_gate2_lane_results) + ". "
+                "Follow wf_review_wave(phase='prepare') for phase-correct evidence via wf_review_event "
                 "before calling wf_implement_wave."
             )
         else:
@@ -12982,12 +13066,15 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
                 f"Prepare-phase lane review incomplete — missing signoffs in `## Prepare Review Evidence`: {', '.join(missing_lanes)}. "
                 "Run wf_review_wave(phase='prepare') and record each lane signoff before calling wf_implement_wave."
             )
-        diagnostics.append(_diagnostic(
+        _gate2_diagnostic = _diagnostic(
             "prepare_review_incomplete",
             _gate2_message,
             recovery_tools=["wf_review_wave", "wf_current_wave"],
             recovery_usage=f"wf_review_wave(wave_id={wave_id!r}, phase='prepare')",
-        ))
+        )
+        if _gate2_authority.typed:
+            _gate2_diagnostic["lane_results"] = _gate2_lane_results
+        diagnostics.append(_gate2_diagnostic)
 
     # Wave 1zxo0 (1zxns): a member line whose id fails the allow-list blocks
     # opening the wave; no path is built from it.
@@ -13358,79 +13445,31 @@ def _replace_wave_summary_section(text: str, summary: str) -> str:
 
 
 def _auto_populate_memory_for_wave(root: Path, wave_id: str) -> dict[str, Any]:
-    """Fail-isolated close fallback: create candidates, never semantic verdicts."""
-    try:
-        result = memory_propose_response(
-            root, wave_id=wave_id, mode="create", limit=MEMORY_PROPOSE_CAP
-        )
-        data = result.get("data") or {}
-        written = list(data.get("written") or [])
-        if not written:
-            return {}
-        return {
-            "drafted": len(written), "promoted": 0,
-            "candidate": len(written), "validation_required": len(written),
-            "records": written,
-        }
-    except Exception:
-        return {}
+    """Compatibility no-op: close never creates unselected memory candidates."""
+    return {}
 
 
 def _memory_validation_diagnostics(root: Path, wave_id: str) -> list[dict[str, Any]]:
-    """Block close until every structurally eligible source has an agent verdict."""
+    """Validate every actual wave-linked candidate, regardless of draft eligibility."""
     try:
         supply = _load_script("memory_supply")
-        mem = _memory_mod()
-        # Closure is an exhaustive gate, not a display page.
-        drafts = supply.draft_candidates(root, wave_id, limit=None)
-        if not drafts:
+        wave_dir, error = supply.resolve_wave_dir(root, wave_id)
+        if error or wave_dir is None:
+            raise ValueError("wave source could not be resolved")
+        profile = supply.wave_profile(root, wave_dir)
+        changes = set(supply._admitted_change_ids(wave_dir, profile))
+        pending = [str(record["memory_id"]) for record in _memory_mod().load_memory_records(root)
+                   if supply.memory_record_belongs_to_wave(record, wave_dir.name, changes)
+                   and record.get("validation") in (None, "pending")]
+        if not pending:
             return []
-        by_source: dict[str, list[dict[str, Any]]] = {}
-        for record in mem.load_memory_records(root):
-            source = str(record.get("source_event") or "")
-            if source:
-                by_source.setdefault(source, []).append(record)
-        missing = [
-            draft["source_event"] for draft in drafts
-            if draft["source_event"] not in by_source
-        ]
-        pending = [
-            record["memory_id"]
-            for draft in drafts
-            for record in by_source.get(draft["source_event"], [])
-            if record.get("validation") in (None, "pending")
-        ]
-        diagnostics: list[dict[str, Any]] = []
-        if missing:
-            diagnostics.append(_diagnostic(
-                "memory_validation_candidates_missing",
-                f"{len(missing)} evidence-derived memory source(s) need candidate "
-                "records before close. Zero-memory waves remain valid when drafting "
-                "finds no material source.",
-                recovery_tools=["memory_propose"],
-                recovery_usage=f"memory_propose(wave_id={wave_id!r}, mode='create')",
-            ))
-        if pending:
-            diagnostics.append(_diagnostic(
-                "memory_validation_required",
-                f"{len(pending)} evidence-derived memory candidate(s) need focused "
-                "agent validation before close: " + ", ".join(pending[:10]),
-                recovery_tools=["memory_validate", "memory_search"],
-                recovery_usage=(
-                    "memory_validate(memory_id=<id>, verdict='promote|retain|"
-                    "reject|rewrite', action_delta=..., rationale=..., "
-                    "evidence_verified=True, current_target_verified=True, "
-                    "canonical_overlap='none|supplements|duplicates')"
-                ),
-            ))
-        return diagnostics
+        return [_diagnostic("memory_validation_required",
+            f"{len(pending)} selected memory candidate(s) need focused validation before close: " + ", ".join(pending[:10]),
+            recovery_tools=["memory_validate", "memory_reconcile", "memory_search"],
+            recovery_usage="Review each pending candidate: memory_validate(memory_id=<id>, verdict='promote|retain|reject|rewrite', action_delta=..., rationale=..., evidence_verified=True, current_target_verified=True, canonical_overlap='none|supplements|duplicates') for evidence-derived records; memory_reconcile(memory_id=<manual-id>, status='active|rejected') for manually selected records.")]
     except Exception as exc:
-        return [_diagnostic(
-            "memory_validation_check_failed",
-            f"Memory validation readiness could not be established: {exc}",
-            recovery_tools=["memory_propose", "wf_validate_docs"],
-            recovery_usage=f"memory_propose(wave_id={wave_id!r}, mode='dry_run')",
-        )]
+        return [_diagnostic("memory_validation_check_failed", f"Memory validation readiness could not be established: {exc}",
+            recovery_tools=["memory_propose", "wf_validate_docs"], recovery_usage=f"memory_propose(wave_id={wave_id!r}, mode='dry_run')")]
 
 
 # Wave 1wur7 (1wuui Requirement 5): close VERIFIES the existing framework test
@@ -24707,7 +24746,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def memory_propose(wave_id: str = "", mode: str = "dry_run",
-                            limit: int = MEMORY_PROPOSE_CAP, **kwargs: Any) -> dict[str, Any]:
+                            limit: int = MEMORY_PROPOSE_CAP,
+                            source_events: Optional[list[str]] = None, **kwargs: Any) -> dict[str, Any]:
         """Draft candidate memory records from a wave's own typed review evidence.
 
         Fills the memory corpus from work a wave already did instead of waiting
@@ -24729,12 +24769,18 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             mode: "dry_run" (default) returns drafts only; "create" writes the
                 candidate records through the existing candidate write path.
             limit: Max drafts per run (capped).
+            source_events: Explicit reviewed source-event IDs for create; omitted
+                creates nothing and requests selection. Empty selection is a no-op.
+                Unknown/ineligible IDs refuse the entire batch before writes.
+
+        Review concrete future action and canonical overlap before selection.
+        Reconnect after upgrade if the client caches the old tool schema.
         """
         bad = _ensure_no_extra_args("memory_propose", kwargs)
         if bad is not None:
             return bad
         return memory_propose_response(
-            get_handler().root, wave_id=wave_id, mode=mode, limit=limit)
+            get_handler().root, wave_id=wave_id, mode=mode, limit=limit, source_events=source_events)
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def memory_backfill(

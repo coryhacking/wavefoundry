@@ -21,7 +21,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from test_close_change import A, WAVE_ID, _CloseChangeCase, srv
-from record_layout_support import RecordTreeBuilder
+from record_layout_support import RecordTreeBuilder, default_profile_only
 
 _OUTSIDE_DOC = (
     "# Outside\n\n## Acceptance Criteria\n\n- [ ] AC-1: Outside criterion.\n\n"
@@ -168,10 +168,6 @@ _REJECTED_CLASSES = [
 ]
 
 
-def _same_profile_run() -> bool:
-    return not os.environ.get("WAVEFOUNDRY_TEST_PROFILE")
-
-
 @contextlib.contextmanager
 def _filesystem_spy(marker: str):
     """Record every stat, lstat or open whose path argument contains ``marker``."""
@@ -221,7 +217,7 @@ class IsChangeIdTests(unittest.TestCase):
         self.assertEqual(lgs._CHANGE_ID_SLUG_FRAGMENT, lint_constants.SLUG_PATTERN)
         self.assertEqual(lgs._CHANGE_ID_KIND_SHAPE_FRAGMENT, vp._EXTRA_CHANGE_KIND_RE.pattern)
 
-    @unittest.skipUnless(_same_profile_run(), "this repository's records use the shipped profile")
+    @default_profile_only("this repository's admitted-ID corpus uses the shipped vocabulary and layout")
     def test_accepts_every_admitted_id_in_this_repository(self) -> None:
         repo = Path(__file__).resolve().parents[4]
         roots = record_paths.load_record_roots(repo)

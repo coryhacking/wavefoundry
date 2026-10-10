@@ -1,0 +1,40 @@
+{
+  "packet_paths_checked": 8,
+  "packet_paths_changed": 0,
+  "fingerprint": "02bfe86fd4c8045b262dbcf7d2f9841fd5284666858077efea69812ade795cd0",
+  "default_targeted_skips": 7,
+  "declared_targeted_skips": 22,
+  "history_targeted_skips": 4,
+  "exact_declared_extra_census": 19,
+  "negative_controls": {
+    "omitted_known_site_detected": [
+      "test_server_tools_retrieval.EvidencePartitionResponseTests.test_a_classified_community_keeps_its_compatibility_fields"
+    ],
+    "equal_total_wrong_identity_detected": "test_server_tools_retrieval.EvidencePartitionResponseTests.test_a_classified_community_keeps_its_compatibility_fields"
+  },
+  "extra_skip_identities": {
+    "test_server_tools_retrieval.EvidencePartitionResponseTests.test_a_classified_community_keeps_its_compatibility_fields": "'this repository has no published graph generation (its index predates the current resident schema); run the standard upgrade or a graph build'",
+    "test_server_tools_retrieval.EvidencePartitionResponseTests.test_every_pair_is_present_including_its_evidence_half": "'this repository has no published graph generation (its index predates the current resident schema); run the standard upgrade or a graph build'",
+    "test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_communities_do_not_appear_in_the_production_ranking": "'this repository has no published graph generation (its index predates the current resident schema); run the standard upgrade or a graph build'",
+    "test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_communities_remain_queryable_by_id": "'this repository has no published graph generation (its index predates the current resident schema); run the standard upgrade or a graph build'",
+    "test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_rows_are_not_erased_by_exclude_generated": "'this repository has no published graph generation (its index predates the current resident schema); run the standard upgrade or a graph build'",
+    "test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_rows_carry_their_type_and_a_nonempty_reason": "'this repository has no published graph generation (its index predates the current resident schema); run the standard upgrade or a graph build'",
+    "test_server_tools_retrieval.EvidencePartitionResponseTests.test_the_evidence_array_ships_even_when_the_section_was_not_requested": "'this repository has no published graph generation (its index predates the current resident schema); run the standard upgrade or a graph build'",
+    "test_server_tools_retrieval.EvidencePartitionResponseTests.test_the_limit_applies_independently_to_each_half": "'this repository has no published graph generation (its index predates the current resident schema); run the standard upgrade or a graph build'",
+    "test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_a_non_evidence_node_is_not_swept_up_by_its_neighbours": "'no persisted project graph in this tree'",
+    "test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_an_evidence_file_is_still_listed_among_graph_nodes": "'no persisted project graph in this tree'",
+    "test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_an_evidence_node_keeps_its_reasons_on_lookup": "'no persisted project graph in this tree'",
+    "test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_cross_boundary_edges_survive_the_partition": "'no persisted project graph in this tree'",
+    "test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_the_control_is_classified_before_anything_else_is_asserted": "'no persisted project graph in this tree'",
+    "test_server_tools_retrieval.EvidencePairDocumentationTests.test_the_pair_list_matches_what_the_report_actually_emits": "'this repository has no published graph generation (its index predates the current resident schema); run the standard upgrade or a graph build'",
+    "test_change_id_path_guard.IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository": "\"this repository's records use the shipped profile\"",
+    "test_review_policy.ReviewPolicyReconcilerTests.test_real_v114_carrier_family_reconciles_and_retries_byte_stably": "'v1.14.0 tag unavailable in this source distribution'",
+    "test_review_policy.ReviewPolicyReconcilerTests.test_real_v114_carriers_render_policy_and_pass_production_validator": "'v1.14.0 tag unavailable in this source distribution'",
+    "test_storage_upgrade_resume.StorageUpgradeProcessResumeTests.test_old_main_pause_then_fresh_installed_main_relocated_pack_and_retry": "'v1.22.0 tag unavailable (historical-runner integration requires full history)'",
+    "test_sqlite_storage_migration.SchemaEightKindTests.test_version_one_code_refuses_a_version_two_receipt_and_creates_nothing": "'version-1 reader commit unavailable in this checkout'"
+  },
+  "limitations": [
+    "Targeted supplied logs independently parsed; not a full-suite exact skip census.",
+    "No implementation or future delivery behavior exercised."
+  ]
+}

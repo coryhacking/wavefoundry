@@ -1,0 +1,53 @@
+test_the_refusal_driver_resets_every_declaration_constant (test_extension_tool_modules.DeclarationConstantCensusTests.test_the_refusal_driver_resets_every_declaration_constant) ... FAIL
+test_no_source_read_of_a_moved_flat_path (test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path) ... FAIL
+test_no_live_file_references_a_retired_wrapper (test_wf_cli.NoLiveReferenceToRetiredWrapperTests.test_no_live_file_references_a_retired_wrapper) ... FAIL
+
+======================================================================
+FAIL: test_the_refusal_driver_resets_every_declaration_constant (test_extension_tool_modules.DeclarationConstantCensusTests.test_the_refusal_driver_resets_every_declaration_constant)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_extension_tool_modules.py", line 4446, in test_the_refusal_driver_resets_every_declaration_constant
+    self.assertIn(f"{name}=", empty_line, name)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER=' not found in 'empty = dict(EXTENSION_MODULES=(), EXTENSION_HELPER_MODULES=(), EXTENSION_TOOL_PREFIXES=(), EXTENSION_TOOL_TIERS={}, EXTENSION_OVERRIDES={},\n                     EXTENSION_TOOL_ALIASES={}, EXTENSION_TOOL_PARAMETERS={}, EXTENSION_HIDDEN_TOOLS=(),\n                     EXTENSION_LIFECYCLE_TOOLS=(), EXTENSION_ARTIFACT_PATH_FIELDS={}, EXTENSION_SKILLS={},\n                     EXTENSION_JOURNAL_TEMPLATES=(), EXTENSION_JOURNAL_PRE_MIGRATION_HOOK="",\n                     EXTENSION_REPLACEMENTS={}' : EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER
+
+======================================================================
+FAIL: test_no_source_read_of_a_moved_flat_path (test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_server_package.py", line 439, in test_no_source_read_of_a_moved_flat_path
+    self.assertEqual(found, {}, "read moved-module sources through framework_files.source_path")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: {'test_upgrade_wavefoundry.py': ["SCRIPTS_ROOT / f'{helper}.py'"]} != {}
+- {'test_upgrade_wavefoundry.py': ["SCRIPTS_ROOT / f'{helper}.py'"]}
++ {} : read moved-module sources through framework_files.source_path
+
+======================================================================
+FAIL: test_no_live_file_references_a_retired_wrapper (test_wf_cli.NoLiveReferenceToRetiredWrapperTests.test_no_live_file_references_a_retired_wrapper)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_wf_cli.py", line 745, in test_no_live_file_references_a_retired_wrapper
+    self.assertEqual(
+    ~~~~~~~~~~~~~~~~^
+        offenders,
+        ^^^^^^^^^^
+    ...<2 lines>...
+        + "\n".join(offenders),
+        ^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+AssertionError: Lists differ: ['docs/agents/session-handoff.md:110 (docs[564 chars]e))'] != []
+
+First list contains 3 additional elements.
+First extra element 0:
+'docs/agents/session-handoff.md:110 (docs/agents/journals -> the journal system is retired; capture durable lessons as typed memory records under docs/agents/memory/ (memory_add / memory_propose))'
+
+Diff is 661 characters long. Set self.maxDiff to None to see it. : live editable docs/config/scripts must not name a retired or renamed surface:
+docs/agents/session-handoff.md:110 (docs/agents/journals -> the journal system is retired; capture durable lessons as typed memory records under docs/agents/memory/ (memory_add / memory_propose))
+docs/architecture/data-and-control-flow.md:180 (docs/agents/journals/ -> the journal system is retired; capture durable lessons as typed memory records under docs/agents/memory/ (memory_add / memory_propose))
+docs/specs/mcp-tool-surface.md:567 (docs/agents/journals/ -> the journal system is retired; capture durable lessons as typed memory records under docs/agents/memory/ (memory_add / memory_propose))
+
+----------------------------------------------------------------------
+Ran 3 tests in 4.595s
+
+FAILED (failures=3)

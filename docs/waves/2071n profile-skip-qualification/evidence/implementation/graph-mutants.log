@@ -1,0 +1,13 @@
+classifier false-negative DETECTED failures 1 errors 0
+classifier erases both public evidence halves DETECTED failures 1 errors 0
+classifier false-positive DETECTED failures 10 errors 0
+lookup loses file attribution DETECTED failures 1 errors 0
+lookup loses child inheritance DETECTED failures 1 errors 0
+community partition suppressed before ranking DETECTED failures 1 errors 0
+community lookup wrong identity despite success DETECTED failures 1 errors 0
+empty quality fixture DETECTED failures 1 errors 0
+empty response fixture DETECTED failures 1 errors 0
+ignored evidence leaks through actual walker DETECTED failures 1 errors 0
+cross-boundary edges removed DETECTED
+ordinary negative-control presence erased DETECTED
+12 mutations detected; no source mutation and no skip

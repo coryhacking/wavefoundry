@@ -1,0 +1,68 @@
+--- initial-plan
++++ docs/waves/206is journal-hook-follow-up/204mo-enh version-independent-journal-hook.md
+@@ -13,11 +13,22 @@
+ 
+ ## Requirements
+ 
+-1. Introduce an opt-in trigger policy for the existing pre-migration hook: legacy_cutover by default and journals_present for version-independent relocation. Name the empty-default-compatible declaration EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER, with default legacy_cutover; invalid policies fail clearly.
++1. Introduce EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER for the existing hook, with the shipped legacy_cutover default and journals_present opt-in. An absent constant means legacy_cutover. A present constant must have exactly one direct module-level literal string assignment, plain or annotated. Only these two strings are supported; empty/non-string/invalid literals, nonliteral expressions, conditional or duplicate bindings are refused clearly before declaration execution or dependent migration.
+ 2. Call the opted-in hook during upgrade apply when supported source journals exist, independent of from-version. The source is the standard docs/agents/journals directory, confirmed by the operator; retain direct regular *.md journal files excluding README.md, without following linked paths or scanning recursively. No configurable source-root declaration is needed. Schedule at the existing pre_docs_gate journal boundary, at most once per invocation; repeated upgrade attempts require an idempotent hook. No exactly-once-across-crashes promise.
+ 3. Keep the existing built-in pre-1.15 migration gate and existing declarations’ default semantics. A hook failure prevents dependent migration and yields a clear diagnostic.
+-4. Keep dry-run and public migrate_journals preview free of hook execution and repository-module imports. Explain the proposed trigger statically when possible, including uncertainty.
+-5. Resolve hook code and dependencies from the extracted pack, including calls made by an older runner. Update the shipped journal seed and project contract together.
++4. Keep dry-run and public migrate_journals preview free of declaration, hook and distribution-helper execution. Trusted shipped read-only framework helpers may supply bounded source reads. Report the proposed trigger and eligibility statically, distinguishing invalid declarations from unknown source. Unreadable or unparseable source is unknown, not an absent declaration: later-version apply skips the hook with a path-free uncertainty diagnostic and no declaration execution; the original pre-1.15 path retains its validated apply-time load/refusal. Absent or literal legacy_cutover remains dormant on later upgrades.
++5. Resolve hook code and dependencies from the extracted pack, including calls made by an older runner. Use a journal-only incoming import context spanning selected declaration validation and hook loading/call, shadowing incoming top-level module/package names and their descendant keys. Restore prior sys.modules identities, remove newly introduced affected modules, and restore sys.path on success and failure. Give the incoming directory precedence even if it was already later on sys.path; do not change the generic _scripts_on_sys_path helper. Update the shipped journal seed and all named project contracts together.
++6. Register EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER = legacy_cutover in tests/record_layout_support.py's SHIPPED_DECLARATION so base declarations and profile overlays include the new constant. Preserve the journal validator's existing third positional helper_modules argument and keep journal declarations outside declared() MCP-extension activation.
++
++### Static trigger decisions
++
++| Declaration source / binding | Upgrade apply | Dry-run / public preview |
++| --- | --- | --- |
++| Missing module or absent trigger constant | Existing legacy_cutover behavior; later versions import no declaration or hook | Report legacy_cutover without executing extensions |
++| One direct literal legacy_cutover | Existing cutover behavior, including the legacy hook with no journal source | Report the legacy gate; no hook execution |
++| One direct literal journals_present | Call at pre_docs_gate only when contained direct regular singly linked *.md journals excluding README.md exist; builtin migration independently remains pre-1.15 | Report policy and bounded presence; public migration preview never executes the hook |
++| Explicit invalid value, nonliteral, conditional or duplicate binding | Refuse before declaration execution or dependent migration | Report static invalid/unsupported declaration without executing it |
++| Unreadable/refused or unparseable source | Later versions skip with uncertainty diagnostic; original pre-1.15 validated apply-time load/refusal is preserved | Report unknown, never silently substitute a default or execute the declaration |
+ 
+ ## Scope
+ 
+@@ -27,17 +38,17 @@
+ 
+ ## Acceptance Criteria
+ 
+-- [ ] AC-1: An opted-in hook runs once with qualifying direct regular *.md journals in docs/agents/journals, excluding README.md, on upgrades from before, at and after 1.15.0; no qualifying journals produce no invocation, and linked or nested paths are not used as qualifying sources.
++- [ ] AC-1: An opted-in hook runs once with qualifying direct regular singly linked *.md journals in docs/agents/journals, excluding README.md, on upgrades from before, at and after 1.15.0; missing/empty/README-only/nested-only/symlink/hardlink sources produce no invocation. Presence is inspected without reading journal content and is not inferred from migration preview's left entries.
+ - [ ] AC-2: Absent opt-in retains the existing cutover behavior; later-version hook invocation alone does not authorize the built-in journal migration.
+-- [ ] AC-3: Dry-run executes no hook or declaration module and makes no target changes; malformed policies and failing hooks are reported without dependent migration.
+-- [ ] AC-4: An older-runner upgrade fixture loads the new hook and sibling dependency from the pack; retry behavior matches the documented idempotence contract.
++- [ ] AC-3: Dry-run and public preview execute no declaration/hook/distribution helper and make no target changes. Exercise every static-decision row, including empty/non-string/invalid literal, nonliteral/conditional/duplicate bindings and unknown source. Malformed policies and failing hooks are reported without dependent migration; diagnostics do not promise rollback of hook-owned partial effects.
++- [ ] AC-4: An actual older-runner upgrade fixture loads the new hook and incoming sibling dependencies from the pack at both import and call time despite cached old modules, and restores prior module/path state on success and failure. Retry behavior matches once per invocation and hook-owned idempotence, without an exactly-once-across-crashes promise. The production declaration census, base declaration and profile-overlay controls include the new default; the existing third positional validator API and stock MCP declared() remain compatible.
+ 
+ ## Tasks
+ 
+ - [x] Resolve the journal-presence scope and declaration name before readiness.
+ - [ ] Implement validated opt-in scheduling, ordering and extracted-pack loading.
+-- [ ] Cover version boundaries, absent journals, dry run, hook failure, old runners and retries.
+-- [ ] Update canonical seed and local contract; collect architecture, code, QA and docs-contract evidence.
++- [ ] Cover the static-decision/source/version matrix, dry run, hook failure/partial effects, actual old-runner cached dependencies and retries; verify declaration fixture/profile compatibility and module/path restoration.
++- [ ] Update canonical seed, local contract, dataflow and layering invariant; collect all five required lane approvals and closure-readiness evidence.
+ 
+ ## Agent Execution Graph
+ 
+@@ -55,12 +66,15 @@
+ - `.wavefoundry/framework/scripts/mcp_tool_extensions.py`
+ - `.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py`
+ - `.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py`
++- `.wavefoundry/framework/scripts/tests/record_layout_support.py`
+ - `.wavefoundry/framework/seeds/210-migrate-journals.prompt.md`
+ - `docs/specs/mcp-tool-surface.md`
++- `docs/architecture/data-and-control-flow.md`
++- `docs/architecture/layering-rules.md`
+ 
+ ## Affected Architecture Docs
+ 
+-docs/specs/mcp-tool-surface.md and docs/architecture/data-and-control-flow.md: trigger, ordering, preview and failure contract. Canonical seed: .wavefoundry/framework/seeds/210-migrate-journals.prompt.md; regenerate its applicable local surface.
++docs/specs/mcp-tool-surface.md, docs/architecture/data-and-control-flow.md and docs/architecture/layering-rules.md: static selection, selected apply-time loading, independent builtin permission, ordering, preview, import restoration and failure/retry contract. Canonical seed: .wavefoundry/framework/seeds/210-migrate-journals.prompt.md; regenerate any existing applicable local surface (the command catalog currently points directly to this seed; do not invent a new local prompt).
+ 
+ ## AC Priority
+ 

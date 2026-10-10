@@ -1,0 +1,34 @@
+{
+  "scratch_root": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-perf-real-child-7_ddf9xb",
+  "cases": [
+    {
+      "name": "valid",
+      "payload": "{\"summary_schema_version\":1,\"reconciliation_status\":\"incomplete\",\"reconciliation_reason\":\"deadline\"}",
+      "reason": null,
+      "elapsed_seconds": 0.026013666996732354,
+      "timeout_seconds": 0.1
+    },
+    {
+      "name": "malformed",
+      "payload": null,
+      "reason": "sentinel_missing_or_malformed",
+      "elapsed_seconds": 0.02457649982534349,
+      "timeout_seconds": 0.1
+    },
+    {
+      "name": "wrong_token",
+      "payload": null,
+      "reason": "unrecognized_schema_token_999",
+      "elapsed_seconds": 0.023615333950147033,
+      "timeout_seconds": 0.1
+    },
+    {
+      "name": "timeout",
+      "payload": null,
+      "reason": "timeout_after_0s",
+      "elapsed_seconds": 0.10485300002619624,
+      "timeout_seconds": 0.1
+    }
+  ],
+  "pinned_outer_default": 300
+}

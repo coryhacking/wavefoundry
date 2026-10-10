@@ -1,0 +1,609 @@
+{
+  "role": "security-reviewer",
+  "phase": "delivery",
+  "scope": "C6 public journal hook only",
+  "verdict": "approved-with-notes",
+  "overall_severity": "none",
+  "tree_fingerprint": "a1033368f0c48a884fe0c5c38fc0f48d1201eb994d07feef57731d6bb579c600",
+  "fresh_context": true,
+  "independent": true,
+  "verification_context": {
+    "actor": "security-reviewer",
+    "context_id": "c6-delivery-security-20261009-fresh-root-child",
+    "fresh_context": true,
+    "independent": true
+  },
+  "runtime_model_identity": "not exposed; no runtime identity assertion",
+  "model_effort_rationale": "Available inherited reviewer context used for trust-boundary and guard probes; no model override, delegation or invented runtime control.",
+  "hashes_before": [
+    {
+      "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+      "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c",
+      "git_blob": "355c32bc53cb6f4fa3bc5c6591eeb229aaa9f107"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/mcp_tool_extensions.py",
+      "sha256": "b19a7e12e2cb7e0a843abc655a32b3b8801c2bc510fed98d210f7e065ff0dad1",
+      "git_blob": "c7bd2be760e21e262eace9124af436aa58229746"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+      "sha256": "9e4d047befb84aae19dae23ba25544a0311e3801597e864e7f47479feff884ef",
+      "git_blob": "72acbca3268154c6f1dcfefe4e7d9c4cc297ae50"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py",
+      "sha256": "a98ab97f0706c12d24ad64f6803a5c8454be01aa73f89f9df95f1e51394404a8",
+      "git_blob": "35910552de632fe0f949cca2f85b88c8fd0e1475"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/record_layout_support.py",
+      "sha256": "82325f6a3f403ef98ffd25ce6e7479e12f482d5d0569272d3f75c85b667189d4",
+      "git_blob": "8d7e9e0cc1ab5db789e7dbf71001a18b4941927f"
+    },
+    {
+      "path": ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md",
+      "sha256": "18b97d8d6d9487889700cc2345fc47046adb0674f66c9aae3a815e5145e754ce",
+      "git_blob": "2ad24bcefc95e24703e8adb96c334e86a572cbe2"
+    },
+    {
+      "path": "docs/specs/mcp-tool-surface.md",
+      "sha256": "3a99e045b721c0140b9bae0034852838fc7999f5c312d32838502277095df0c0",
+      "git_blob": "fbd9444ad3874388a47ec70d044c79d9690e5ccd"
+    },
+    {
+      "path": "docs/architecture/data-and-control-flow.md",
+      "sha256": "fde3312da48d0a8bb6c720b3d375460810f27e0c2a20bdd472fb62ffdb100bc5",
+      "git_blob": "085cc83c01cb874348b38ad4c722806890c5676b"
+    },
+    {
+      "path": "docs/architecture/layering-rules.md",
+      "sha256": "b0b0e2800fde4df05610a2aef04c8fde76ea2d0e14fd0e4cde7f260e9b0c1856",
+      "git_blob": "7b2fe1d80f32adc5bdb13e72b910528f72254a6a"
+    }
+  ],
+  "hashes_after": [
+    {
+      "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+      "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c",
+      "git_blob": "355c32bc53cb6f4fa3bc5c6591eeb229aaa9f107"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/mcp_tool_extensions.py",
+      "sha256": "b19a7e12e2cb7e0a843abc655a32b3b8801c2bc510fed98d210f7e065ff0dad1",
+      "git_blob": "c7bd2be760e21e262eace9124af436aa58229746"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+      "sha256": "9e4d047befb84aae19dae23ba25544a0311e3801597e864e7f47479feff884ef",
+      "git_blob": "72acbca3268154c6f1dcfefe4e7d9c4cc297ae50"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py",
+      "sha256": "a98ab97f0706c12d24ad64f6803a5c8454be01aa73f89f9df95f1e51394404a8",
+      "git_blob": "35910552de632fe0f949cca2f85b88c8fd0e1475"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/record_layout_support.py",
+      "sha256": "82325f6a3f403ef98ffd25ce6e7479e12f482d5d0569272d3f75c85b667189d4",
+      "git_blob": "8d7e9e0cc1ab5db789e7dbf71001a18b4941927f"
+    },
+    {
+      "path": ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md",
+      "sha256": "18b97d8d6d9487889700cc2345fc47046adb0674f66c9aae3a815e5145e754ce",
+      "git_blob": "2ad24bcefc95e24703e8adb96c334e86a572cbe2"
+    },
+    {
+      "path": "docs/specs/mcp-tool-surface.md",
+      "sha256": "3a99e045b721c0140b9bae0034852838fc7999f5c312d32838502277095df0c0",
+      "git_blob": "fbd9444ad3874388a47ec70d044c79d9690e5ccd"
+    },
+    {
+      "path": "docs/architecture/data-and-control-flow.md",
+      "sha256": "fde3312da48d0a8bb6c720b3d375460810f27e0c2a20bdd472fb62ffdb100bc5",
+      "git_blob": "085cc83c01cb874348b38ad4c722806890c5676b"
+    },
+    {
+      "path": "docs/architecture/layering-rules.md",
+      "sha256": "b0b0e2800fde4df05610a2aef04c8fde76ea2d0e14fd0e4cde7f260e9b0c1856",
+      "git_blob": "7b2fe1d80f32adc5bdb13e72b910528f72254a6a"
+    }
+  ],
+  "tree_unchanged": true,
+  "findings": [],
+  "source_lanes": [
+    "security-reviewer"
+  ],
+  "blocking_required_lanes": [],
+  "approval_recheck_lanes": [],
+  "approval_evidence": {
+    "evidence_record_id": "206is-delivery-security-own-execution-20261009",
+    "claim_id": "approval:security-reviewer",
+    "claim_kind": "approval",
+    "required_for_approval": true,
+    "phase": "delivery",
+    "proposition": "On the reviewed C6 public journal boundaries, sampled static/preview/eligibility/failure/old-runner cases preserve confined nonexecuting preview and separate builtin migration permission, with correct incoming import-state restoration.",
+    "counterexample_or_failure_condition": "A nonregular/linked/ineligible source selects a hook; invalid policy executes; unknown later policy silently defaults; preview executes declaration/helpers or writes target bytes; later opt-in invokes builtin migration; failing hook allows dependent migration or reports rollback; incoming dependencies/state restore are wrong.",
+    "execution_status": "executed",
+    "public_path": "upgrade_extensions.pre_docs_gate; migrate_journals(apply=False); post_extract(dry_run=True); unchanged upgrade_wavefoundry older runner _load_extension_module/_extract_feature_members/_run_hook dispatcher",
+    "command_or_fixture": [
+      {
+        "command": [
+          "python3",
+          "-B",
+          "/tmp/wf-206is-security-work/driver.py",
+          "/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests"
+        ],
+        "expected": "15 tests green without skips; direct source/version/static/preview/failure and registry controls exercise pre_docs_gate and migrate_journals",
+        "observed": "15 executed, 0 failures, 0 errors, 0 skips; hook eligibility, built-in permission, path-free errors and static preview assertions hold",
+        "log": "/tmp/wf-206is-security-work/owner-baseline.log"
+      },
+      {
+        "command": [
+          "python3",
+          "-B",
+          "/tmp/wf-206is-security-work/public_probes.py"
+        ],
+        "expected": "Directory swap refuses hook selection; preview executes neither target declaration nor target/archive helper sentinels and leaves target bytes unchanged",
+        "observed": "2 executed, 0 failures/errors/skips; swap checkpoint fired once, no hook calls, original journal preserved; archive helper raise sentinels not reached, preview reports journals_present/qualifying true/hook_executed false with unchanged target bytes",
+        "log": "/tmp/wf-206is-security-work/public-probes.log"
+      },
+      {
+        "command": [
+          "python3",
+          "-B",
+          "/tmp/wf-206is-security-work/driver.py",
+          "/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_protocol.JournalIncomingRunnerTests"
+        ],
+        "expected": "Unchanged older runner loads incoming declaration/hook/dependencies, restores identities/path after success, call failure and import refusal; retry idempotent effect remains once",
+        "observed": "3 executed, 0 failures/errors/skips; real loader/extractor/dispatcher reached, one call per invocation, incoming cache values at declaration import/hook import/call, preserved journal bytes, restored identities/path, new descendant removed, import refusal SystemExit 3 and partial-effect diagnostic assertions hold",
+        "log": "/tmp/wf-206is-security-work/incoming-runner-final.log"
+      },
+      {
+        "command": [
+          "python3",
+          "-B",
+          "/tmp/wf-206is-security-work/mutations.py"
+        ],
+        "expected": "Each paired valid baseline passes and each loosened guard fails the named targeted property assertion; whole owner only for surviving mutants",
+        "observed": "Six paired baselines green with zero skips; six mutant runs fail the intended assertions; no survivors or whole-owner mutant run",
+        "log": "/tmp/wf-206is-security-work/mutations.json"
+      },
+      {
+        "command": "Preview-execution additional scoped mutate/run/restore command recorded in mutation table",
+        "expected": "Valid preview baseline passes; routing preview into _load_journal_declaration fails before execution through preview sentinel",
+        "observed": "Baseline green; mutant 1 test, 1 failure, 0 errors/skips: AssertionError preview loaded declaration",
+        "log": "/tmp/wf-206is-security-work/preview-execution-mutant.log"
+      }
+    ],
+    "expected": "20 selected baseline/probe tests green without skips; seven own targeted mutants detected; exact frozen nine sources unchanged.",
+    "observed": "15 policy tests + 2 independently authored public probes + 3 actual older-runner tests green, zero skips. Seven paired focused mutations fail intended assertions. Nine SHA-256 and git hash-object pairs match before/after/packet.",
+    "artifact_or_test_id": [
+      "/tmp/wf-206is-delivery-security.json",
+      "/tmp/wf-206is-security-work/owner-baseline.log",
+      "/tmp/wf-206is-security-work/public-probes.log",
+      "/tmp/wf-206is-security-work/incoming-runner-final.log",
+      "/tmp/wf-206is-security-work/mutations.json"
+    ],
+    "adjacent_controls": [
+      "valid direct regular singly linked opaque/NUL Markdown journal selects one hook at 1.14.9, 1.15.0, 1.29.0",
+      "absent/literal legacy default retains pre-cutover no-source invocation, remains dormant later",
+      "static valid literal and annotated controls versus invalid/nonliteral/conditional/duplicate/shadow bindings",
+      "real incoming success versus import/call failure and idempotent second invocation"
+    ],
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true
+    },
+    "known_bad_detection_method": "focused-mutation",
+    "limitations": [
+      "Finite risk-selected C6 scope; no universal security or CommonMark claim.",
+      "Native Windows path/race branch was not executed; POSIX macOS symlink/hardlink/FIFO controls actually ran with zero skips.",
+      "Full framework suite, profile suite, test-receipt refresh, setup, index rebuild and host restart are coordinator-owned and not run by this lane; prior receipt is stale after C6.",
+      "Semantic/index health reported stale documents and setup_inputs_changed; live MCP source reads and scratch executions are authoritative here.",
+      "Distribution hook code is trusted, executes with operator authority, and can retain arbitrary hook-owned side effects. The temporary import context restores matching sys.modules identities and sys.path; it is not a security sandbox or generic reload.",
+      "No less-trusted controlling actor or new authority delta was established for trusted apply code; preview accepts declaration source as data and was independently probed for nonexecution.",
+      "Earlier scratch preparation copied all scripts/tests and seeds but attempted absent optional MANIFEST; that attempt exited before tests. VERSION exists; MANIFEST absence was not synthesized.",
+      "An initial older-runner run overlapped a scratch mutation and is discarded as evidence; incoming-runner-final.log reran all three tests after source restoration.",
+      "No private requests, external integration, live host execution, archive release qualification or privilege-separated scenarios were investigated."
+    ],
+    "safety_and_authorization": "Explicit independent read-only C6 delivery review; all writes and mutants are isolated under /tmp; public apply fixtures target temporary roots only; no repo source/docs/ledger edits, network, destructive external actions, setup/rebuild, close, commit or push.",
+    "probe_class": "local_safe",
+    "authorization_status": "authorized",
+    "safe_boundary": false,
+    "unexecuted_remainder_prohibited": false,
+    "universal_claim": false,
+    "verification_context": {
+      "actor": "security-reviewer",
+      "context_id": "c6-delivery-security-20261009-fresh-root-child",
+      "fresh_context": true,
+      "independent": true
+    }
+  },
+  "commands": [
+    {
+      "command": [
+        "python3",
+        "-B",
+        "/tmp/wf-206is-security-work/driver.py",
+        "/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts",
+        "test_upgrade_wavefoundry.JournalTriggerPolicyTests"
+      ],
+      "expected": "15 tests green without skips; direct source/version/static/preview/failure and registry controls exercise pre_docs_gate and migrate_journals",
+      "observed": "15 executed, 0 failures, 0 errors, 0 skips; hook eligibility, built-in permission, path-free errors and static preview assertions hold",
+      "log": "/tmp/wf-206is-security-work/owner-baseline.log"
+    },
+    {
+      "command": [
+        "python3",
+        "-B",
+        "/tmp/wf-206is-security-work/public_probes.py"
+      ],
+      "expected": "Directory swap refuses hook selection; preview executes neither target declaration nor target/archive helper sentinels and leaves target bytes unchanged",
+      "observed": "2 executed, 0 failures/errors/skips; swap checkpoint fired once, no hook calls, original journal preserved; archive helper raise sentinels not reached, preview reports journals_present/qualifying true/hook_executed false with unchanged target bytes",
+      "log": "/tmp/wf-206is-security-work/public-probes.log"
+    },
+    {
+      "command": [
+        "python3",
+        "-B",
+        "/tmp/wf-206is-security-work/driver.py",
+        "/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts",
+        "test_upgrade_protocol.JournalIncomingRunnerTests"
+      ],
+      "expected": "Unchanged older runner loads incoming declaration/hook/dependencies, restores identities/path after success, call failure and import refusal; retry idempotent effect remains once",
+      "observed": "3 executed, 0 failures/errors/skips; real loader/extractor/dispatcher reached, one call per invocation, incoming cache values at declaration import/hook import/call, preserved journal bytes, restored identities/path, new descendant removed, import refusal SystemExit 3 and partial-effect diagnostic assertions hold",
+      "log": "/tmp/wf-206is-security-work/incoming-runner-final.log"
+    },
+    {
+      "command": [
+        "python3",
+        "-B",
+        "/tmp/wf-206is-security-work/mutations.py"
+      ],
+      "expected": "Each paired valid baseline passes and each loosened guard fails the named targeted property assertion; whole owner only for surviving mutants",
+      "observed": "Six paired baselines green with zero skips; six mutant runs fail the intended assertions; no survivors or whole-owner mutant run",
+      "log": "/tmp/wf-206is-security-work/mutations.json"
+    },
+    {
+      "command": "Preview-execution additional scoped mutate/run/restore command recorded in mutation table",
+      "expected": "Valid preview baseline passes; routing preview into _load_journal_declaration fails before execution through preview sentinel",
+      "observed": "Baseline green; mutant 1 test, 1 failure, 0 errors/skips: AssertionError preview loaded declaration",
+      "log": "/tmp/wf-206is-security-work/preview-execution-mutant.log"
+    }
+  ],
+  "mutation_table": [
+    {
+      "id": "regular-only",
+      "symbol": "_journal_source_ok",
+      "old": "stat.S_ISREG(st.st_mode)",
+      "new": "True",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "/tmp/wf-206is-security-work/driver.py",
+          "/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected"
+        ],
+        "exit": 0,
+        "elapsed": 0.2875008340924978,
+        "log": "/tmp/wf-206is-security-work/regular-only-baseline.log",
+        "result": {
+          "run": 1,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0
+        },
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_fifo_named_markdown_is_not_opened_or_selected (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.098s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "/tmp/wf-206is-security-work/driver.py",
+          "/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected"
+        ],
+        "exit": 1,
+        "elapsed": 0.3142133329529315,
+        "log": "/tmp/wf-206is-security-work/regular-only-mutant.log",
+        "result": {
+          "run": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0
+        },
+        "tail": "n_is_not_opened_or_selected (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected) ... FAIL\n\n======================================================================\nFAIL: test_fifo_named_markdown_is_not_opened_or_selected (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14912, in test_fifo_named_markdown_is_not_opened_or_selected\n    self._gate(\"1.29.0\")\n    ~~~~~~~~~~^^^^^^^^^^\n  File \"/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 13019, in _gate\n    self.ext.pre_docs_gate(MagicMock(root=self.root, from_version=from_version))\n    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/private/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 2683, in pre_docs_gate\n    templates, hook_name, hook = _load_journal_declaration(\n                                 ~~~~~~~~~~~~~~~~~~~~~~~~~^\n        ctx.root, load_hook=eligible, expected_trigger=trigger\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1176, in __call__\n    return self._mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1180, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1241, in _execute_mock_call\n    raise effect\nAssertionError: FIFO selected\n\n----------------------------------------------------------------------\nRan 1 test in 0.101s\n\nFAILED (failures=1)\n"
+      },
+      "classification": "detected"
+    },
+    {
+      "id": "single-link",
+      "symbol": "_journal_source_ok",
+      "old": "st.st_nlink == 1",
+      "new": "True",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "/tmp/wf-206is-security-work/driver.py",
+          "/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook"
+        ],
+        "exit": 0,
+        "elapsed": 0.5454857498407364,
+        "log": "/tmp/wf-206is-security-work/single-link-baseline.log",
+        "result": {
+          "run": 1,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0
+        },
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.353s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "/tmp/wf-206is-security-work/driver.py",
+          "/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook"
+        ],
+        "exit": 1,
+        "elapsed": 0.5401976250577718,
+        "log": "/tmp/wf-206is-security-work/single-link-mutant.log",
+        "result": {
+          "run": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0
+        },
+        "tail": "onqualifying_direct_sources_never_call_opted_in_hook) (shape='hardlink') ... FAIL\n\n======================================================================\nFAIL: test_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) (shape='hardlink')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14887, in test_nonqualifying_direct_sources_never_call_opted_in_hook\n    self._gate(\"1.29.0\")\n    ~~~~~~~~~~^^^^^^^^^^\n  File \"/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 13019, in _gate\n    self.ext.pre_docs_gate(MagicMock(root=self.root, from_version=from_version))\n    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/private/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 2683, in pre_docs_gate\n    templates, hook_name, hook = _load_journal_declaration(\n                                 ~~~~~~~~~~~~~~~~~~~~~~~~~^\n        ctx.root, load_hook=eligible, expected_trigger=trigger\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1176, in __call__\n    return self._mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1180, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1241, in _execute_mock_call\n    raise effect\nAssertionError: ineligible loaded declaration\n\n----------------------------------------------------------------------\nRan 1 test in 0.345s\n\nFAILED (failures=1)\n"
+      },
+      "classification": "detected"
+    },
+    {
+      "id": "invalid-preexecution",
+      "symbol": "pre_docs_gate",
+      "old": "if selection[\"status\"] == \"invalid\":",
+      "new": "if False:",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "/tmp/wf-206is-security-work/driver.py",
+          "/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution"
+        ],
+        "exit": 0,
+        "elapsed": 1.4259424998890609,
+        "log": "/tmp/wf-206is-security-work/invalid-preexecution-baseline.log",
+        "result": {
+          "run": 1,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0
+        },
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 1.236s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "/tmp/wf-206is-security-work/driver.py",
+          "/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution"
+        ],
+        "exit": 1,
+        "elapsed": 1.0585574170108885,
+        "log": "/tmp/wf-206is-security-work/invalid-preexecution-mutant.log",
+        "result": {
+          "run": 1,
+          "failures": 7,
+          "errors": 0,
+          "skips": 0
+        },
+        "tail": "thon3.14/unittest/mock.py\", line 1241, in _execute_mock_call\n    raise effect\nAssertionError: invalid executed declaration\n\n======================================================================\nFAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"'journals_present'\", extra=\"\\nEXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER += ''\\n\")\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14971, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution\n    self.ext.pre_docs_gate(types.SimpleNamespace(root=self.root, from_version=version))\n    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/private/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 2683, in pre_docs_gate\n    templates, hook_name, hook = _load_journal_declaration(\n                                 ~~~~~~~~~~~~~~~~~~~~~~~~~^\n        ctx.root, load_hook=eligible, expected_trigger=trigger\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1176, in __call__\n    return self._mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1180, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1241, in _execute_mock_call\n    raise effect\nAssertionError: invalid executed declaration\n\n----------------------------------------------------------------------\nRan 1 test in 0.857s\n\nFAILED (failures=7)\n"
+      },
+      "classification": "detected"
+    },
+    {
+      "id": "unknown-skip",
+      "symbol": "pre_docs_gate",
+      "old": "if selection[\"status\"] == \"unknown\" and not legacy:",
+      "new": "if False:",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "/tmp/wf-206is-security-work/driver.py",
+          "/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution"
+        ],
+        "exit": 0,
+        "elapsed": 1.3197163750883192,
+        "log": "/tmp/wf-206is-security-work/unknown-skip-baseline.log",
+        "result": {
+          "run": 1,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0
+        },
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 1.114s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "/tmp/wf-206is-security-work/driver.py",
+          "/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution"
+        ],
+        "exit": 1,
+        "elapsed": 1.299675874877721,
+        "log": "/tmp/wf-206is-security-work/unknown-skip-mutant.log",
+        "result": {
+          "run": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0
+        },
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 1, \"errors\": 0, \"skips\": 0}\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... \n  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"'journals_present'\", extra='\\ndef broken(:\\n') ... FAIL\n\n======================================================================\nFAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"'journals_present'\", extra='\\ndef broken(:\\n')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14977, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution\n    self.assertIn(\"unknown\", warning.lower())\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'unknown' not found in ''\n\n----------------------------------------------------------------------\nRan 1 test in 1.109s\n\nFAILED (failures=1)\n"
+      },
+      "classification": "detected"
+    },
+    {
+      "id": "builtin-authority",
+      "symbol": "pre_docs_gate",
+      "old": "if legacy and hook_ok:",
+      "new": "if hook_ok:",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "/tmp/wf-206is-security-work/driver.py",
+          "/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion"
+        ],
+        "exit": 0,
+        "elapsed": 0.3909404589794576,
+        "log": "/tmp/wf-206is-security-work/builtin-authority-baseline.log",
+        "result": {
+          "run": 1,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0
+        },
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.181s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "/tmp/wf-206is-security-work/driver.py",
+          "/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion"
+        ],
+        "exit": 1,
+        "elapsed": 0.3853263328783214,
+        "log": "/tmp/wf-206is-security-work/builtin-authority-mutant.log",
+        "result": {
+          "run": 1,
+          "failures": 2,
+          "errors": 0,
+          "skips": 0
+        },
+        "tail": "hout_permission_expansion) ... \n  test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) (version='1.15.0') ... FAIL\n  test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) (version='1.29.0') ... FAIL\n\n======================================================================\nFAIL: test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) (version='1.15.0')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14831, in test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion\n    self.assertEqual(builtin.call_count, int(version == \"1.14.9\"))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 1 != 0\n\n======================================================================\nFAIL: test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) (version='1.29.0')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14831, in test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion\n    self.assertEqual(builtin.call_count, int(version == \"1.14.9\"))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 1 != 0\n\n----------------------------------------------------------------------\nRan 1 test in 0.179s\n\nFAILED (failures=2)\n"
+      },
+      "classification": "detected"
+    },
+    {
+      "id": "failure-blocks",
+      "symbol": "pre_docs_gate",
+      "old": "if legacy and hook_ok:",
+      "new": "if legacy:",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "/tmp/wf-206is-security-work/driver.py",
+          "/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration"
+        ],
+        "exit": 0,
+        "elapsed": 0.297881375066936,
+        "log": "/tmp/wf-206is-security-work/failure-blocks-baseline.log",
+        "result": {
+          "run": 1,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0
+        },
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.096s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "/tmp/wf-206is-security-work/driver.py",
+          "/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration"
+        ],
+        "exit": 1,
+        "elapsed": 0.2928395001217723,
+        "log": "/tmp/wf-206is-security-work/failure-blocks-mutant.log",
+        "result": {
+          "run": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0
+        },
+        "tail": "\": 0, \"skips\": 0}\ntest_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration) ... FAIL\n\n======================================================================\nFAIL: test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 15036, in test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration\n    output = self._gate(\"1.14.9\")\n  File \"/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 13019, in _gate\n    self.ext.pre_docs_gate(MagicMock(root=self.root, from_version=from_version))\n    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/private/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 2692, in pre_docs_gate\n    _migrate_journals(ctx.root, templates)\n    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1176, in __call__\n    return self._mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1180, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1241, in _execute_mock_call\n    raise effect\nAssertionError: failed hook migrated\n\n----------------------------------------------------------------------\nRan 1 test in 0.098s\n\nFAILED (failures=1)\n"
+      },
+      "classification": "detected"
+    },
+    {
+      "id": "preview-execution",
+      "symbol": "migrate_journals",
+      "old": "if apply:\n            templates = _load_journal_declaration",
+      "new": "if True: templates=_load_journal_declaration",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_zip_preview_uses_incoming_policy_and_writes_no_report",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "/tmp/wf-206is-security-work/driver.py",
+          "/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_zip_preview_uses_incoming_policy_and_writes_no_report"
+        ],
+        "exit": 0,
+        "log": "/tmp/wf-206is-security-work/preview-execution-baseline.log"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "/tmp/wf-206is-security-work/driver.py",
+          "/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_zip_preview_uses_incoming_policy_and_writes_no_report"
+        ],
+        "exit": 1,
+        "log": "/tmp/wf-206is-security-work/preview-execution-mutant.log",
+        "tail": "_wavefoundry.JournalTriggerPolicyTests.test_zip_preview_uses_incoming_policy_and_writes_no_report)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 15017, in test_zip_preview_uses_incoming_policy_and_writes_no_report\n    self.assertEqual(self._preview()[\"policy\"], \"legacy_cutover\")\n                     ~~~~~~~~~~~~~^^\n  File \"/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14810, in _preview\n    report = self.ext.migrate_journals(self.root, apply=False, zip_path=zip_path)\n  File \"/private/tmp/wf-206is-security-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 2108, in migrate_journals\n    templates = _load_journal_declaration(root, load_hook=False)[0]\n                ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1176, in __call__\n    return self._mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1180, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1241, in _execute_mock_call\n    raise effect\nAssertionError: preview loaded declaration\n\n----------------------------------------------------------------------\nRan 1 test in 0.081s\n\nFAILED (failures=1)\n"
+      },
+      "classification": "detected"
+    }
+  ],
+  "limitations": [
+    "Finite risk-selected C6 scope; no universal security or CommonMark claim.",
+    "Native Windows path/race branch was not executed; POSIX macOS symlink/hardlink/FIFO controls actually ran with zero skips.",
+    "Full framework suite, profile suite, test-receipt refresh, setup, index rebuild and host restart are coordinator-owned and not run by this lane; prior receipt is stale after C6.",
+    "Semantic/index health reported stale documents and setup_inputs_changed; live MCP source reads and scratch executions are authoritative here.",
+    "Distribution hook code is trusted, executes with operator authority, and can retain arbitrary hook-owned side effects. The temporary import context restores matching sys.modules identities and sys.path; it is not a security sandbox or generic reload.",
+    "No less-trusted controlling actor or new authority delta was established for trusted apply code; preview accepts declaration source as data and was independently probed for nonexecution.",
+    "Earlier scratch preparation copied all scripts/tests and seeds but attempted absent optional MANIFEST; that attempt exited before tests. VERSION exists; MANIFEST absence was not synthesized.",
+    "An initial older-runner run overlapped a scratch mutation and is discarded as evidence; incoming-runner-final.log reran all three tests after source restoration.",
+    "No private requests, external integration, live host execution, archive release qualification or privilege-separated scenarios were investigated."
+  ],
+  "gapfill": "Gapfill: MCP deferred tools were discovered and callable. code_outline/code_read/code_keyword live source verification succeeded; index_health reports stale docs and setup_inputs_changed. No indexed freshness or setup readiness claim. Current live source reads, literal diff/hash checks and isolated executable probes supplied review authority; no setup/rebuild attempted. Initial upgrade_wave.py outline errored because filename does not exist; actual upgrade_extensions.py and upgrade_protocol sources were subsequently live-read.",
+  "security_judgment": "Confinement/no-follow eligibility, regular/single-link metadata and public-preview nonexecution were verified through current source plus actual public boundaries. Journal regex template literal escaping remains unchanged (_compile_journal_template uses re.escape); this wave introduces no shell interpolation of journal content. No exploit chain identified within sampled scope. Trusted distribution execution and same-user filesystem authority remain the declared boundary, with no claim of sandboxing imports or rollback of hook-owned effects.",
+  "artifacts_root": "/tmp/wf-206is-security-work",
+  "operator_authority_preserved": "No wave events written, no repair, no close/commit/push/package."
+}

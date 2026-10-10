@@ -1,0 +1,448 @@
+{
+  "wave_id": "2071n",
+  "phase": "delivery",
+  "role": "council-chair",
+  "timestamp_utc": "2026-10-09T22:19:10.891601+00:00",
+  "primer_depth": "full",
+  "verdict": "approved-with-notes",
+  "approval": true,
+  "actual_pre_primer_read": "The replacement fixtures appear to preserve the original graph-query and cross-version contracts while removing checkout prerequisites, but I would withhold delivery approval until independent negative controls and exact profile skip identities show that no executed assertion was replaced by a fixture oracle or skip.",
+  "pre_primer_chronology": {
+    "artifact": "/private/tmp/wf-2071n-delivery-chair-initial.json",
+    "captured_at": "2026-10-09T21:21:38.402069+00:00",
+    "primer_not_seen_then": true,
+    "seat_reports_not_seen_then": true
+  },
+  "primer_effect": "The challenge made exact output accounting and independent consumer properties conditions of approval. Initial seat execution exposed two real defects rather than laundering them into agreement. Focused repair reverification and the final completed exact audit resolve those conditions without adding live-clustering, runtime or host guarantees.",
+  "primer_summary": "Full five-stance primer challenged lost execution and correlated fixture oracles. Fixed seats confirmed this as an evidence obligation, exposed the actual derived-regex and false-live-coverage defects, and supplied concrete query/classification/history controls rather than treating totals or hashes as behavior.",
+  "seat_roster": {
+    "primer": "red-team",
+    "fixed": [
+      "architecture-reviewer",
+      "qa-reviewer",
+      "reality-checker",
+      "code-reviewer"
+    ],
+    "rotating_fifth": "security-reviewer",
+    "additional_required_lane": "release-reviewer",
+    "disclosed_context_groups": [
+      "code/release initial shared independent context",
+      "QA/reality initial shared independent context",
+      "architecture/security initial shared independent context",
+      "fresh affected-lane reverification contexts, distinct from implementation",
+      "chair own independent review context"
+    ]
+  },
+  "anonymized_first_convergence_pass": "/private/tmp/wf-2071n-chair-anonymized-first-pass.json; seeded randomized report order; required specialist blocker identity/authority retained throughout",
+  "seat_agreement_aggregate": {
+    "seat_agreement": "unanimous",
+    "max_severity": "none",
+    "boundary": "All six final seat/lane judgments approve or report no blocker within their remits; red-team primer is satisfied evidence rather than a signoff vote."
+  },
+  "initial_aggregate": {
+    "seat_agreement": "majority",
+    "max_severity": "medium",
+    "explanation": "Initial required lanes and reality withheld delivery; security approved its narrow remit with notes. The two demonstrated blockers remained attributed and blocking until independent lane reverification."
+  },
+  "challenge_round": "Not triggered: no material split, high or critical disagreement in supplied repaired-boundary reports.",
+  "findings_preserved": [
+    {
+      "finding_id": "QA-2071N-01",
+      "original_judgment": "real/do_now/required_ac",
+      "blocking_lanes": [
+        "code-reviewer",
+        "qa-reviewer",
+        "release-reviewer"
+      ],
+      "resolution": "Meta-test now recomputes derived MEMBER_ID_LABEL_RE while simulating stock constants; independent fresh affected lanes replayed original second-profile failure, retained >100-ID pin and detected removal of the repair. Coordinator reports each acting lane terminalized its own typed cycle1 authority."
+    },
+    {
+      "finding_id": "ARCH-2071N-02",
+      "original_judgment": "real/do_now/public_contract",
+      "blocking_lanes": [
+        "architecture-reviewer",
+        "release-reviewer"
+      ],
+      "resolution": "Published coverage claim now describes hermetic published fixtures and reserves live/setup qualification for separately executed evidence; independently measured temporary producer roots agree, and restored false claim is rejected. Coordinator reports both acting lanes terminalized own typed cycle1 authority."
+    }
+  ],
+  "primer_question_answers": [
+    {
+      "question": 1,
+      "status": "executed",
+      "answer": "Chair independently reconstructed all534 durable capture JSON byte sequences and verified original hashes/zero worker returncodes, then reparsed all verbose skip records including multiline test descriptions. Observed default12040/178/13, second12032/178/28, declared12040/178/13; declared exact13ID/reason map equals default. Second adds15ID skips all explicitly default-profile-only; all13baseline IDs remain and only SignoffLatestStateTests.test_live_wave_records_parse_correctly changes its existing skip reason to the marker. Exact maps match retained inventory. Current canonical green168eafe7receipt equals retained bytes and canonical read-only current framework hash.",
+      "artifact": "/private/tmp/wf-2071n-chair-final-audit.json"
+    },
+    {
+      "question": 2,
+      "status": "executed",
+      "answer": "Chair independently reran real publication/query ranking, lookup and crossing tests:3 pass0 skips. Literal ordinary31/21 and evidence62/52 owner/count tuples derive from concrete source controls, with exact lookup project:artifacts/results.json/62. Real extraction classification erasure fails both ranking/lookup tests; reversing actual response rankings fails exact order assertion. Seat evidence adds explicit source/child presence, ordinary negative domains, ignored-path absence, evidence reasons and exact extracted cross-boundary relation. Curated communities do not qualify clustering."
+    },
+    {
+      "question": 3,
+      "status": "executed",
+      "answer": "Chair independently reran all4 original historical behavior checks plus8 integrity tests:12 pass0 skips. Two old carrier/current reconciler cases and old upgrade/reader entries with current siblings retain the original seams. All13 bodies independently match git show at immutable revision:path; one recorded absence confirmed. Chair substitution of current reader into actual original old-reader refusal test causes1 assertion failure,0errors/0skips. Missing/corrupt/source-size/current-body rejection checks execute. Source provenance remains distinct from executable runtime or fresh-host qualification."
+    }
+  ],
+  "strongest_alternative": {
+    "name": "Hermetic producer-backed fixture plus independent consumer-contract matrix and exact external per-test outcome reconciliation",
+    "better_because": "It makes execution loss and oracle correlation visible under copied profiles without restoring mutable checkout prerequisites. Existing literal query assertions already supply the independent matrix; pending final outcome inventory completes it.",
+    "tradeoff": "Bounded census upkeep is required; no production abstraction is needed.",
+    "rotating_seat_alternative": "Complete frozen historical runtime in an isolated scrubbed child would reduce hybrid identity ambiguity, but would test old entries with old siblings rather than the admitted old-entry/current-sibling forward fence, broaden the trusted executable bundle and still require separate qualification. It is not stronger for this unchanged contract."
+  },
+  "material_disagreements": "No unresolved material disagreement. Initial security approval concerned its narrow trusted test surface and could not waive the required lane defects. Both original findings remain real/do_now in recorded history and were cleared independently by their own five acting lanes, as reported by coordinator and supported by supplied reverification artifacts. No challenge trigger remains.",
+  "improvements_recommended": [
+    "Retain the completed lossless per-worker outcome inventory and exact ID/reason reconciliation with the wave evidence; this is the delivered improvement over aggregate totals.",
+    "Keep coverage documentation and future fixture extensions bound to measured hermetic extraction/publication/query properties, preserving literal independent ranking/lookup assertions."
+  ],
+  "actions": [
+    "Coordinator may record this council-delivery judgment and complete the review handoff using the current packet.",
+    "Leave closure, commits, publication and any new pack build to explicit operator instructions."
+  ],
+  "own_executable_evidence": {
+    "execution_status": "executed",
+    "proposition": "Within frozen2071n scope, original graph/corpus/historical assertions retain non-vacuous execution, both reported defects are independently repaired, and completed canonical plus profile outcomes satisfy exact skip identity/reason qualification without weakening policy.",
+    "public_path": "Actual graph extraction/publication -> wf_graph_report_response/code_graph_community_response; original real old-reader child subprocess and old-upgrade/current-sibling execution; actual corpus discovery test",
+    "command_or_fixture": [
+      "env -u PYTHONPYCACHEPREFIX PYTHONDONTWRITEBYTECODE=1 /Users/coryhacking/.wavefoundry/venv/bin/python -B /private/tmp/wf-2071n-chair-probe.py",
+      "env -u PYTHONPYCACHEPREFIX PYTHONDONTWRITEBYTECODE=1 /Users/coryhacking/.wavefoundry/venv/bin/python -B /private/tmp/wf-2071n-chair-final-audit.py"
+    ],
+    "expected": "17baseline tests zero failures/errors/skips; targeted3mutant shapes cause assertion failures rather than import errors/skips.",
+    "observed": {
+      "baseline_graph": {
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0
+      },
+      "baseline_historical": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0
+      },
+      "baseline_integrity": {
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0
+      },
+      "baseline_marker": {
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0
+      },
+      "classification_erasure_mutant": {
+        "tests": 2,
+        "failures": 2,
+        "errors": 0,
+        "skips": 0
+      },
+      "rank_reversal_mutant": {
+        "tests": 1,
+        "failures": 1,
+        "errors": 0,
+        "skips": 0
+      },
+      "current_reader_substitution_mutant": {
+        "tests": 1,
+        "failures": 1,
+        "errors": 0,
+        "skips": 0
+      }
+    },
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true
+    },
+    "known_bad_detection_method": "focused-mutation: real classifier -> ordinary; reverse arrays after actual public report; substitute current reader bytes at actual original old-reader subprocess consumer.",
+    "mutation_table": [
+      {
+        "mutant": "real classification erasure",
+        "selected_tests": 2,
+        "observed": "2assertion failures,0errors,0skips",
+        "detected": true
+      },
+      {
+        "mutant": "actual response ranking reversal",
+        "selected_tests": 1,
+        "observed": "1assertion failure,0errors,0skips",
+        "detected": true
+      },
+      {
+        "mutant": "current reader at original old-reader boundary",
+        "selected_tests": 1,
+        "observed": "1assertion failure,0errors,0skips",
+        "detected": true
+      }
+    ],
+    "sweep_rule": "Only targeted named tests per mutant; no survivors and no whole-file or full-suite reruns.",
+    "artifact_or_test_id": [
+      "/private/tmp/wf-2071n-chair-probe.py",
+      "/private/tmp/wf-2071n-chair-probe.json",
+      "EvidencePartitionResponseTests.test_the_limit_applies_independently_to_each_half",
+      "SchemaEightKindTests.test_version_one_code_refuses_a_version_two_receipt_and_creates_nothing",
+      "/private/tmp/wf-2071n-chair-final-audit.py",
+      "/private/tmp/wf-2071n-chair-final-audit.json",
+      "docs/waves/2071n profile-skip-qualification/evidence/delivery/final/capture-manifest.json",
+      "docs/waves/2071n profile-skip-qualification/evidence/delivery/final/canonical-receipt.json"
+    ],
+    "adjacent_controls": [
+      "Unmutated real query baseline",
+      "Four original historical behavior cases",
+      "Eight existing integrity tests",
+      "Declared corpus and renamed-layout marker controls"
+    ],
+    "safety_and_authorization": "Authorized local independent delivery review; read-only primary source/docs/ledger, temporary roots and in-memory mutations, output-only/private/tmp.",
+    "probe_class": "local_safe",
+    "authorization_status": "authorized",
+    "safe_boundary": false,
+    "unexecuted_remainder_prohibited": false,
+    "universal_claim": false,
+    "verification_context": {
+      "actor": "council-chair",
+      "context_id": "2071n-delivery-chair-independent-20261009",
+      "fresh_context": true,
+      "independent": true
+    },
+    "limitations": [
+      "17 own behavioral baselines and three chosen mutant shapes are finite property evidence; coordinator ran full suites, chair independently authenticated and parsed every output.",
+      "All13baseline environmental/platform/content skips remain disclosed.",
+      "Curated communities do not certify clustering or arbitrary live operator topology; source provenance does not establish runtime/cache/fresh-host guarantees.",
+      "No rebuilt archive, release, closure or commit approval."
+    ],
+    "claim_id": "approval:council-delivery",
+    "claim_kind": "approval",
+    "required_for_approval": true,
+    "phase": "delivery",
+    "counterexample_or_failure_condition": "Graph erasure/rank reversal/current-reader substitution passes original assertions; supported profile meta-test fails; declared skip map differs; second extra lacks explicit marker; capture missing/nonzero/hash-inexact; source moves or current canonical receipt mismatches.",
+    "observed_final_qualification": {
+      "534capture_hashes_exact": true,
+      "all534zero_returncodes": true,
+      "counts": {
+        "default": {
+          "files": 178,
+          "tests": 12040,
+          "skips": 13
+        },
+        "second": {
+          "files": 178,
+          "tests": 12032,
+          "skips": 28
+        },
+        "declared": {
+          "files": 178,
+          "tests": 12040,
+          "skips": 13
+        }
+      },
+      "declared_exact_default": true,
+      "second15explicit_marker_extras": true,
+      "shared_changed_reason_accounted": true,
+      "receipt_current_unchanged": true,
+      "all15sha_and_git_blob_exact": true
+    }
+  },
+  "fingerprint_before": "c7bd807a8edbe7878841b4e2971e6405f5bc7418e60ed86658125e770bc039d0",
+  "fingerprint_after": "c7bd807a8edbe7878841b4e2971e6405f5bc7418e60ed86658125e770bc039d0",
+  "all15sha_and_git_blob_checked": true,
+  "no_primary_source_docs_ledger_lifecycle_commit_close_writes": true,
+  "limitations": [
+    "17 own behavioral baselines and three chosen mutant shapes are finite property evidence; coordinator ran full suites, chair independently authenticated and parsed every output.",
+    "All13baseline environmental/platform/content skips remain disclosed.",
+    "Curated communities do not certify clustering or arbitrary live operator topology; source provenance does not establish runtime/cache/fresh-host guarantees.",
+    "No rebuilt archive, release, closure or commit approval."
+  ],
+  "approval_phase": "delivery",
+  "signoff_key": "council-delivery",
+  "verification_context": {
+    "actor": "council-chair",
+    "context_id": "2071n-delivery-chair-independent-20261009",
+    "fresh_context": true,
+    "independent": true
+  },
+  "final_seat_reports": {
+    "code-release": "/private/tmp/wf-2071n-final-code-release.json",
+    "qa-reality": "/private/tmp/wf-2071n-final-qa-reality.json",
+    "arch-security": "/private/tmp/wf-2071n-final-arch-security.json"
+  },
+  "final_anonymized_merit_pass": "/private/tmp/wf-2071n-chair-final-anonymized-pass.json",
+  "full_seven_role_roster": [
+    "red-team (primer)",
+    "architecture-reviewer (fixed)",
+    "qa-reviewer (fixed)",
+    "reality-checker (fixed)",
+    "code-reviewer (fixed)",
+    "security-reviewer (rotating fifth)",
+    "release-reviewer (required delivery lane)"
+  ],
+  "approval_basis": "Independent repaired-boundary evidence and full canonical/default receipt plus exact additional profile outcomes on the same frozen source; no unresolved required lane blocker. Profile runs supplement canonical delivery evidence and never mint or replace the canonical receipt.",
+  "operator_signoff": false,
+  "operator_signoff_claim": "None supplied, requested or inferred. Council approval does not authorize closure, commit, packaging or publication.",
+  "new_findings": [],
+  "strongest_points_of_agreement": [
+    "Graph controls run against sources through real extraction, publication and public queries, with literal independent production/evidence ranking and lookup oracles.",
+    "Loaded vocabulary/layout rather than an environment selector governs corpus applicability; the repaired meta-test preserves the actual count and acceptance assertions.",
+    "Pinned historical source identity and old-entry/current-sibling execution are separately checked; current-reader substitution fails the original subprocess refusal test.",
+    "Exact retained outcomes establish the admitted profile skip contract; aggregate green counts alone would not."
+  ],
+  "full_qualification": {
+    "default": {
+      "tests": 12040,
+      "files": 178,
+      "skips": 13,
+      "seconds": 626.634,
+      "result": "ok"
+    },
+    "second": {
+      "tests": 12032,
+      "files": 178,
+      "skips": 28,
+      "seconds": 629.215,
+      "result": "ok"
+    },
+    "declared": {
+      "tests": 12040,
+      "files": 178,
+      "skips": 13,
+      "seconds": 644.729,
+      "result": "ok"
+    },
+    "canonical_receipt": "168eafe7d59e87c2acf0ab232ae3ac0a418b3aeec0a6972fef0fad78b9e1c22d",
+    "canonical_ran_at": "2026-10-09T21:52:08.464019+00:00",
+    "exact_census": {
+      "default": {
+        "files": 178,
+        "tests": 12040,
+        "skips": {
+          "test_accel_embedder.AccelEmbedderTests.test_reranker_fp16_matches_fp32_when_available": "no GPU provider",
+          "test_contained_files.SwapInjectionWindowsTests.test_documented_window": "the POSIX twin is SwapInjectionTests",
+          "test_dashboard_server.RenderMarkdownishDocumentContractTests.test_fixed_viewport_browser_geometry_has_no_document_overflow": "set WAVEFOUNDRY_BROWSER_TESTS=1 to execute fixed-viewport Chrome tests",
+          "test_design_token_build.WrapperDispatchTest.test_style_dictionary_absent_exits_actionable": "style-dictionary/npx present \u2014 actual run is install-time",
+          "test_python_diagnostic_windows.NativePythonDiagnosticTests.test_missing_python_preserves_seeded_checkout_and_fails_launcher": "requires native Windows process semantics",
+          "test_runtime_lock.LinuxOfdEvidenceTests.test_held_byte_reports_an_ofd_holder": "Linux x86_64 or aarch64 only (wave 200xy, 200v2)",
+          "test_runtime_lock.LinuxOfdEvidenceTests.test_ofd_tests_run_rather_than_skip": "Linux x86_64 or aarch64 only (wave 200xy, 200v2)",
+          "test_server_tools_lifecycle.GuruCitationContractRenderTests.test_block_claims_match_the_implementation": "seed not present",
+          "test_server_tools_lifecycle.GuruCitationContractRenderTests.test_seed_and_rendered_blocks_are_byte_identical": "seed/render surfaces not present",
+          "test_server_tools_lifecycle.SignoffLatestStateTests.test_live_wave_records_parse_correctly": "wave record not found: docs/waves/1seav search-freshness-degraded-retrieval",
+          "test_sqlite_storage_migration.ReceiptTests.test_native_windows_junction_migration_components_are_refused": "native Windows junction execution required; simulated Python 3.11 metadata runs on every host",
+          "test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_helper_junction_is_refused_on_windows": "directory junctions exist only on native Windows",
+          "test_upgrade_wavefoundry.RetiredModelCleanupTests.test_native_windows_junction_root_and_nested_cleanup_preserve_referent": "native Windows junction cleanup qualification; simulated metadata runs on every host"
+        }
+      },
+      "second": {
+        "files": 178,
+        "tests": 12032,
+        "skips": {
+          "test_accel_embedder.AccelEmbedderTests.test_reranker_fp16_matches_fp32_when_available": "no GPU provider",
+          "test_change_id_path_guard.IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository": "default-profile-only: this repository's admitted-ID corpus uses the shipped vocabulary and layout (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_contained_files.SwapInjectionWindowsTests.test_documented_window": "the POSIX twin is SwapInjectionTests",
+          "test_context_efficiency.OpenWaveAttributionTests.test_stage_derivation_parses_real_canonical_ledger": "default-profile-only: reads this repository's own live wave ledgers under the shipped waves root (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_dashboard_server.RenderMarkdownishDocumentContractTests.test_fixed_viewport_browser_geometry_has_no_document_overflow": "set WAVEFOUNDRY_BROWSER_TESTS=1 to execute fixed-viewport Chrome tests",
+          "test_design_token_build.WrapperDispatchTest.test_style_dictionary_absent_exits_actionable": "style-dictionary/npx present \u2014 actual run is install-time",
+          "test_docs_lint.SerializationPointsTokenGrammarPinTests.test_the_fenced_examples_are_untouched": "default-profile-only: pins the shipped plan template's fenced example text, written for the default layout (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_python_diagnostic_windows.NativePythonDiagnosticTests.test_missing_python_preserves_seeded_checkout_and_fails_launcher": "requires native Windows process semantics",
+          "test_record_layout_lifecycle.DefaultLayoutUnchangedTests.test_default_paths_are_byte_identical": "default-profile-only: pins path identity on the shipped layout (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_record_paths.NestedDiscoveryTests.test_default_max_depth_is_four_and_finds_a_depth_four_wave": "default-profile-only: pins the shipped MAX_DEPTH default of four (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_record_paths.ShippedLayoutTests.test_shipped_constants_are_the_historical_layout_byte_identical": "default-profile-only: pins the shipped layout constants and their historical joins (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_review_evidence.RealCorpusRegressionTests.setUpClass": "default-profile-only: a census of this repository's own closed wave records, which are written in the default profile (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_review_policy.ReviewLoopFrictionPolicyTests.test_carrier_boundary_census_reports_its_own_transition_cost": "default-profile-only: a census of this repository's own documents, which are written in the default profile (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_runtime_lock.LinuxOfdEvidenceTests.test_held_byte_reports_an_ofd_holder": "Linux x86_64 or aarch64 only (wave 200xy, 200v2)",
+          "test_runtime_lock.LinuxOfdEvidenceTests.test_ofd_tests_run_rather_than_skip": "Linux x86_64 or aarch64 only (wave 200xy, 200v2)",
+          "test_server_tools_lifecycle.DeclaredWaveTreeSweepTests.setUpClass": "default-profile-only: census of this repository's own closed wave records (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_server_tools_lifecycle.GuruCitationContractRenderTests.test_block_claims_match_the_implementation": "seed not present",
+          "test_server_tools_lifecycle.GuruCitationContractRenderTests.test_seed_and_rendered_blocks_are_byte_identical": "seed/render surfaces not present",
+          "test_server_tools_lifecycle.SignoffLatestStateTests.test_live_wave_records_parse_correctly": "default-profile-only: reads this repository's own closed wave records (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_server_tools_lifecycle.WaveImplementTests.test_roster_extractors_agree_over_current_wave_corpus": "default-profile-only: census of this repository's own wave records (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_sqlite_storage_migration.ReceiptTests.test_native_windows_junction_migration_components_are_refused": "native Windows junction execution required; simulated Python 3.11 metadata runs on every host",
+          "test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_helper_junction_is_refused_on_windows": "directory junctions exist only on native Windows",
+          "test_upgrade_wavefoundry.RetiredModelCleanupTests.test_native_windows_junction_root_and_nested_cleanup_preserve_referent": "native Windows junction cleanup qualification; simulated metadata runs on every host",
+          "test_vocabulary_prompt_names.DefaultNamePinTests.setUpClass": "default-profile-only: pins the shipped prompt names and their pre-change consumer literals (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_vocabulary_prompt_names.DefaultRenderIdentityTests.setUpClass": "default-profile-only: renders this repository's own surfaces with the shipped names (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_vocabulary_prompt_names.DefaultTemplateIdentityTests.setUpClass": "default-profile-only: materializes the shipped templates with the shipped names (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_vocabulary_prompt_names.ValidationTests.test_fixed_shortcuts_and_slugs_match_this_repository": "default-profile-only: reads this repository's own manifest and prompt files (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)",
+          "test_vocabulary_writers.DefaultProfileWriterTests.test_shipped_template_is_unchanged_under_the_default_profile": "default-profile-only: pins the shipped template as the identity of localize_template under the shipped labels (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)"
+        }
+      },
+      "declared": {
+        "files": 178,
+        "tests": 12040,
+        "skips": {
+          "test_accel_embedder.AccelEmbedderTests.test_reranker_fp16_matches_fp32_when_available": "no GPU provider",
+          "test_contained_files.SwapInjectionWindowsTests.test_documented_window": "the POSIX twin is SwapInjectionTests",
+          "test_dashboard_server.RenderMarkdownishDocumentContractTests.test_fixed_viewport_browser_geometry_has_no_document_overflow": "set WAVEFOUNDRY_BROWSER_TESTS=1 to execute fixed-viewport Chrome tests",
+          "test_design_token_build.WrapperDispatchTest.test_style_dictionary_absent_exits_actionable": "style-dictionary/npx present \u2014 actual run is install-time",
+          "test_python_diagnostic_windows.NativePythonDiagnosticTests.test_missing_python_preserves_seeded_checkout_and_fails_launcher": "requires native Windows process semantics",
+          "test_runtime_lock.LinuxOfdEvidenceTests.test_held_byte_reports_an_ofd_holder": "Linux x86_64 or aarch64 only (wave 200xy, 200v2)",
+          "test_runtime_lock.LinuxOfdEvidenceTests.test_ofd_tests_run_rather_than_skip": "Linux x86_64 or aarch64 only (wave 200xy, 200v2)",
+          "test_server_tools_lifecycle.GuruCitationContractRenderTests.test_block_claims_match_the_implementation": "seed not present",
+          "test_server_tools_lifecycle.GuruCitationContractRenderTests.test_seed_and_rendered_blocks_are_byte_identical": "seed/render surfaces not present",
+          "test_server_tools_lifecycle.SignoffLatestStateTests.test_live_wave_records_parse_correctly": "wave record not found: docs/waves/1seav search-freshness-degraded-retrieval",
+          "test_sqlite_storage_migration.ReceiptTests.test_native_windows_junction_migration_components_are_refused": "native Windows junction execution required; simulated Python 3.11 metadata runs on every host",
+          "test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_helper_junction_is_refused_on_windows": "directory junctions exist only on native Windows",
+          "test_upgrade_wavefoundry.RetiredModelCleanupTests.test_native_windows_junction_root_and_nested_cleanup_preserve_referent": "native Windows junction cleanup qualification; simulated metadata runs on every host"
+        }
+      }
+    },
+    "shared_changed_reason": {
+      "test_server_tools_lifecycle.SignoffLatestStateTests.test_live_wave_records_parse_correctly": {
+        "default": "wave record not found: docs/waves/1seav search-freshness-degraded-retrieval",
+        "second": "default-profile-only: reads this repository's own closed wave records (loaded record_paths.ARCHIVE_ROOT, record_paths.NESTED, record_paths.WAVES_ROOT, vocabulary_profile.ARCHIVE_PROFILE, vocabulary_profile.BACKREF_LABEL, vocabulary_profile.CONTAINER_NAME, vocabulary_profile.CONTAINER_NAME_PLURAL, vocabulary_profile.EXTRA_CHANGE_KINDS, vocabulary_profile.ID_KEY, vocabulary_profile.ITEM_NAME, vocabulary_profile.ITEM_NAME_PLURAL, vocabulary_profile.MEMBER_HEADING, vocabulary_profile.MEMBER_ID_LABEL, vocabulary_profile.MEMBER_STATUS_LABEL, vocabulary_profile.RECORD_FILENAME, vocabulary_profile.RECORD_TITLE, vocabulary_profile.SUMMARY_HEADING differ from the shipped defaults)"
+      }
+    },
+    "all534capture_hashes_checked_by_chair": true,
+    "all534_worker_rc_zero": true,
+    "profile_receipt_write": "Never; current canonical receipt bytes unchanged."
+  },
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true
+  },
+  "known_bad_detection_method": "focused-mutation: real classifier -> ordinary; reverse arrays after actual public report; substitute current reader bytes at actual original old-reader subprocess consumer.",
+  "execution_status": "executed",
+  "artifact_or_test_id": [
+    "/private/tmp/wf-2071n-chair-probe.py",
+    "/private/tmp/wf-2071n-chair-probe.json",
+    "EvidencePartitionResponseTests.test_the_limit_applies_independently_to_each_half",
+    "SchemaEightKindTests.test_version_one_code_refuses_a_version_two_receipt_and_creates_nothing",
+    "/private/tmp/wf-2071n-chair-final-audit.py",
+    "/private/tmp/wf-2071n-chair-final-audit.json",
+    "docs/waves/2071n profile-skip-qualification/evidence/delivery/final/capture-manifest.json",
+    "docs/waves/2071n profile-skip-qualification/evidence/delivery/final/canonical-receipt.json"
+  ],
+  "observed": {
+    "534capture_hashes_exact": true,
+    "all534zero_returncodes": true,
+    "counts": {
+      "default": {
+        "files": 178,
+        "tests": 12040,
+        "skips": 13
+      },
+      "second": {
+        "files": 178,
+        "tests": 12032,
+        "skips": 28
+      },
+      "declared": {
+        "files": 178,
+        "tests": 12040,
+        "skips": 13
+      }
+    },
+    "declared_exact_default": true,
+    "second15explicit_marker_extras": true,
+    "shared_changed_reason_accounted": true,
+    "receipt_current_unchanged": true,
+    "all15sha_and_git_blob_exact": true
+  },
+  "current_tree_fingerprint": "c7bd807a8edbe7878841b4e2971e6405f5bc7418e60ed86658125e770bc039d0",
+  "scratch_audit_correction": "Chair first parser missed three skip records whose unittest descriptions split header/result across lines. The audit failed closed; pending-header parsing was corrected before approval. Final independently parsed exact maps equal retained inventory. No primary code or qualification result changed."
+}

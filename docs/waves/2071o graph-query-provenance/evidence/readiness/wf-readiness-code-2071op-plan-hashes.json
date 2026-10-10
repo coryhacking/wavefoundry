@@ -1,0 +1,18 @@
+{
+  "docs/waves/2071o graph-query-provenance/2073s-bug hierarchy-call-site-provenance.md": {
+    "git_blob": "91675baf8877d68e77ef76724d21ec0f80c5b757",
+    "sha256": "4a312b1801d9e16128837c589afa5e77b46946cb7e116a8e699702aa1c34afb8"
+  },
+  "docs/waves/2071o graph-query-provenance/2073t-bug rust-symbol-lookup-name-error.md": {
+    "git_blob": "7eff2d087c1d71693653f0e1019e2098b2e0f3ce",
+    "sha256": "9204be1e18b50656f43dc4c33634d2f619e699ef3a0b373255efecfe6edc89b5"
+  },
+  "docs/waves/2071p bounded-reconciliation-reporting/2073u-bug bounded-reconciliation-scan.md": {
+    "git_blob": "367edd3555f69ccfbfeabca4446ab30cbaa50f8f",
+    "sha256": "e532da27bf003ae9365b42daa81c50e39f199dbd38594afae3616ded2f00546b"
+  },
+  "docs/waves/2071p bounded-reconciliation-reporting/2073v-bug bounded-upgrade-reporting.md": {
+    "git_blob": "ea57d1dda25d68fa56992a50fdc27c2554d83795",
+    "sha256": "68a45b6e78fc26ac6a1042c31d9ecf25f116125e15317659292ccb074e97c90d"
+  }
+}

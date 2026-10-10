@@ -1,0 +1,188 @@
+{
+  "wave_id": "206is journal-hook-follow-up",
+  "change_ids": [
+    "204mo-enh version-independent-journal-hook"
+  ],
+  "phase": "readiness",
+  "review_round": "one focused verification after one bounded plan repair",
+  "receipt_id": "review-policy-0461c07cde4e57b46259",
+  "seat": "security-reviewer",
+  "dual_remit": "One fresh independent security-reviewer specialist context also fills fixed SECURITY council seat; one review, not two independent approvals.",
+  "specialist_verdict": "approved-with-notes",
+  "council_verdict": "pass with notes",
+  "verdict": "approved-with-notes",
+  "severity": "none",
+  "blocking_findings": [],
+  "verification_context": {
+    "actor": "security-reviewer",
+    "context_id": "c6-focused-security-20261009-fresh-01",
+    "fresh_context": true,
+    "independent": true
+  },
+  "independence_basis": "Did not author or edit plan, implementation or repair. Read mandatory orientation and prior review context, then formed judgment from current repaired plan/diff, live MCP source and freshly executed existing controls; prior verdicts were not proof. No retained implementation or recheck context.",
+  "scoped_dimensions": [
+    "static selection versus trusted apply-time execution",
+    "contained direct singly linked journal-source presence",
+    "incoming dependency origin and module/path restoration",
+    "preview non-execution",
+    "hook partial effects, retry and independent builtin permission"
+  ],
+  "repair_assessment": [
+    {
+      "anchor": "change Requirements 1,4 and Static trigger decisions; upgrade_extensions._static_module_literal / _static_journal_templates",
+      "judgment": "Repair explicitly restricts supported grammar and separates absent, invalid and unknown. Invalid grammar refuses without execution; unknown later source skips without execution, while original pre-cutover validated loading/refusal is preserved. Current literal helper is a feasibility precedent, not the new validator: it still accepts duplicate direct assignments and invalid literal strings, which repaired requirements explicitly demand fixing."
+    },
+    {
+      "anchor": "change Requirements 2 and AC-1; upgrade_extensions._journal_source_ok / _journal_open_dir / _journal_dir_unchanged",
+      "judgment": "Eligibility has direct regular singly linked *.md scope, README exclusion and no recursive scan, content read, links or additional root seam. Existing no-follow descriptor and stat predicates make the selected bounded scope implementable. New presence scan remains unimplemented and unverified."
+    },
+    {
+      "anchor": "change Requirement 5 and AC-4; upgrade_extensions._scripts_on_sys_path / _load_journal_declaration / _load_journal_hook",
+      "judgment": "Journal-only incoming context explicitly spans declaration validation, load and call; shadows incoming top-level module/package names and descendants; gives incoming path precedence; restores module object identities and path and removes introduced affected modules on success/failure. This repairs the demonstrated cached-old baseline without changing generic path helper. Actual older-runner fixture and future restoration remain delivery obligations."
+    },
+    {
+      "anchor": "change Requirements 2,3,4 and AC-2 through AC-4; upgrade_extensions.pre_docs_gate / _run_journal_pre_migration_hook",
+      "judgment": "Plan keeps later hook success independent of builtin pre-1.15 permission, requests once per invocation with hook-owned idempotence, and prohibits rollback promises for partial hook mutation. Current warning promises journals left in place and no retry; repaired documentation/failure AC explicitly requires correcting that claim."
+    }
+  ],
+  "strongest_challenge_response": "Fresh execution of actual current hook loader under cached old sibling observed OLD at import and call; uncached control observed INCOMING at both. Repaired journal-context requirement and real older-runner AC-4 directly address this. Current baseline defect is intended implementation work, not evidence that readiness must certify future behavior.",
+  "primer_questions_answers": [
+    "Static decision table now binds grammar/refusal/unknown semantics and prevents later implicit declaration execution; bounded trusted framework read helpers remain permitted while declaration/hook/distribution extension helpers do not execute in preview.",
+    "Incoming context must cover transitive and deferred imports at both load and call and restore preexisting module identities on import/call exceptions. Fresh process remains fallback if bounded context cannot prove required origin; no generic plugin loader is authorized.",
+    "Presence and legacy builtin gate are independently specified. Hook exception skips dependent migration without claiming rollback; retry is per invocation with idempotent hook-owned work."
+  ],
+  "trust_classification": {
+    "controlling_actor": "Operator selects trusted distribution and approved target; same-user cached modules share existing operator authority. Preview declaration source can be less-trusted checkout data and must not execute.",
+    "attacker_reachability": false,
+    "authority_delta": "none demonstrated",
+    "preserved_assumptions": "No promotion to remote/non-loopback service, multi-user execution, untrusted-code apply or unavailable credentials.",
+    "threat_gate": "No named less-trusted controlling actor with additional authority on selected trusted apply path; dependency collision and partial-effect wording are required-contract/correctness obligations.",
+    "confinement_confirmation": "Current no-follow directory and regular singly linked source predicates inspected; future eligibility path must preserve them, and is not certified implemented.",
+    "escaping_confirmation": "Existing template escaping previously identified; no repaired plan regex interpolation or shell execution seam introduced.",
+    "exploit_chains": []
+  },
+  "evidence": {
+    "execution_status": "executed",
+    "proposition": "The repaired security-readiness obligations are concrete and consistent with the current selected boundaries; existing controls distinguish preview execution and stale incoming dependency origin from the accepted contract.",
+    "counterexample_or_failure_condition": "Repair permits extension execution during preview, conflates unknown with absent, allows linked presence, omits module/path exception restoration, grants builtin migration via hook success, or promises rollback/exactly-once behavior.",
+    "public_path": "Public migrate_journals preview through JournalStaticPreviewTests and faithful actual journal declaration/hook loader and invocation boundaries.",
+    "command_or_fixture": "python3 -B /tmp/wf-206is-focused-security-probes.py; baseline JournalStaticPreviewTests.test_preview_applies_a_literal_template_without_executing_the_module",
+    "expected": "Cached-old origin must be detected as AC-4 failure; uncached control uses incoming source; preview bad execution rejected; hook exception returns False without exception path text; path restored.",
+    "observed": [
+      {
+        "name": "incoming_dependency_collision_import_and_call",
+        "expected_ac4": [
+          "INCOMING",
+          "INCOMING"
+        ],
+        "known_bad_observed": [
+          "OLD",
+          "OLD"
+        ],
+        "negative_control_observed": [
+          "INCOMING",
+          "INCOMING"
+        ],
+        "known_bad_rejected": true,
+        "path_restored": true,
+        "old_module_restored_by_fixture": true,
+        "product_module_restoration_proven": false
+      },
+      {
+        "name": "failure_exception_diagnostic_and_path_restoration",
+        "expected": "False, exception-class only, restored path",
+        "observed": {
+          "return": false,
+          "path_restored": true,
+          "exception_text_hidden": true
+        },
+        "limit": "Actual hook seam; dependent migration stop separately exercised by registered existing gate fixture."
+      },
+      {
+        "name": "static_trigger_selection_feasibility",
+        "observed": {
+          "absent": "()",
+          "valid": "'journals_present'",
+          "invalid_literal": "'typo'",
+          "nonliteral": "ValueError",
+          "conditional": "ValueError"
+        },
+        "limit": "AST literal precedent only; new policy validator and scheduling do not exist."
+      },
+      {
+        "name": "public_preview_known_bad_execution_oracle",
+        "expected": "known-bad declaration import rejected",
+        "observed": true,
+        "limit": "Injected old/bad behavior in scratch fixture; baseline test run separately passed."
+      }
+    ],
+    "baseline_test": {
+      "tests_run": 1,
+      "failures": 0,
+      "errors": 0,
+      "skips": 0
+    },
+    "artifact_or_test_id": "/tmp/wf-206is-focused-security-probe-results.json",
+    "adjacent_controls": [
+      "uncached sibling INCOMING/INCOMING beside cached OLD/OLD",
+      "unmodified public preview test green beside injected declaration execution rejected"
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true
+    },
+    "known_bad_detection_method": "injected-old-behavior and focused-mutation, replayed existing bounded readiness controls",
+    "limitations": "These booleans attest only to this current readiness review and executed baseline controls, not new implementation, future restoration, actual complete older-runner upgrade or future presence scan. No native race or whole-suite guarantee.",
+    "safety_and_authorization": "Coordinator explicitly authorized read-only frozen repair review and replay of existing local scratch controls; fixtures mutate temporary targets only.",
+    "probe_class": "local_safe",
+    "authorization_status": "authorized",
+    "safe_boundary": false,
+    "unexecuted_remainder_prohibited": false,
+    "universal_claim": false
+  },
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true
+  },
+  "known_bad_detection_method": "injected-old-behavior and focused-mutation",
+  "scope_before_sha256": {
+    ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+    ".wavefoundry/framework/scripts/mcp_tool_extensions.py": "44d8e720cec410bb86524700a68fef5f76d5434c725e3490a2c9b90cbc922edd",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "d2b38f6bd06692447f808bb0b9625f0fb782f9bd9d9b2b5496758f17e269e871",
+    ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md": "a4f1319834042e25316845f15f7ff9a119e80158ce89fb65dc7550cf475e598d",
+    "docs/specs/mcp-tool-surface.md": "929c2e26c897bf2d4037c120240822a4d97a36b701c4d769ef984606b08689a5",
+    "docs/architecture/data-and-control-flow.md": "ec5bff5e439a3b47f2bf9a7191e51895d6ebd09a17438be5776aa40bbb058740",
+    "docs/waves/206is journal-hook-follow-up/204mo-enh version-independent-journal-hook.md": "4a24e2c026c81b9a9833e957acce2d63dc43c67e39831e02a0e6cf0ffed9e265",
+    ".wavefoundry/framework/scripts/tests/record_layout_support.py": "286c3cfa93851c18c3fe56a390fc178923aaaf1c9658542f594aa630a0fdeb49",
+    "docs/architecture/layering-rules.md": "fc0ed24463fc9a83c11fdc80ed9171d844d0feb045e28e8d173109d9be66345b"
+  },
+  "scope_after_sha256": {
+    ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+    ".wavefoundry/framework/scripts/mcp_tool_extensions.py": "44d8e720cec410bb86524700a68fef5f76d5434c725e3490a2c9b90cbc922edd",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "d2b38f6bd06692447f808bb0b9625f0fb782f9bd9d9b2b5496758f17e269e871",
+    ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md": "a4f1319834042e25316845f15f7ff9a119e80158ce89fb65dc7550cf475e598d",
+    "docs/specs/mcp-tool-surface.md": "929c2e26c897bf2d4037c120240822a4d97a36b701c4d769ef984606b08689a5",
+    "docs/architecture/data-and-control-flow.md": "ec5bff5e439a3b47f2bf9a7191e51895d6ebd09a17438be5776aa40bbb058740",
+    "docs/waves/206is journal-hook-follow-up/204mo-enh version-independent-journal-hook.md": "4a24e2c026c81b9a9833e957acce2d63dc43c67e39831e02a0e6cf0ffed9e265",
+    ".wavefoundry/framework/scripts/tests/record_layout_support.py": "286c3cfa93851c18c3fe56a390fc178923aaaf1c9658542f594aa630a0fdeb49",
+    "docs/architecture/layering-rules.md": "fc0ed24463fc9a83c11fdc80ed9171d844d0feb045e28e8d173109d9be66345b"
+  },
+  "scope_freeze_unchanged": true,
+  "mcp_validation": "MCP code_outline/code_read/code_keyword were callable and used on live source before execution. Initial outline/read emitted setup_inputs_changed warning; no setup/rebuild run. Indexed synthesis/graph was not an evidence source. One mistakenly requested source range covered unrelated scaffold code and was discarded; corrected ranges came from live keyword locations, not a further sweep.",
+  "secrets_scan": "Read docs/scan-findings.json: two false positives have current dated confirmation; configured threshold is one. No actionable entries; no ledger mutation.",
+  "focused_stop_rule": "No security blocker remains. Every remaining blocker in any other lane must be escalated by coordinator to operator at focused-round end; no automatic second repair/review round.",
+  "limits": [
+    "Readiness only; no new trigger product behavior implemented or certified.",
+    "One fixed seat and specialist review share one context; not two independent reviews.",
+    "Original security control script adapted only focused packet/result paths; four original controls replayed, with one existing preview baseline.",
+    "No source/docs/seed/ledger edits, typed lifecycle approval, implementation, close, commit, push, setup/index build or external action."
+  ]
+}

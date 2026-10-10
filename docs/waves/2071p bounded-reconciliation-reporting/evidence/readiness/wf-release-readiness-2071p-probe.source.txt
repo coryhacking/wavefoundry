@@ -1,0 +1,49 @@
+import contextlib,io,json,os,sys,tempfile,time,types
+from pathlib import Path
+from unittest.mock import patch
+root=Path('/Users/coryhacking/Developer/wavefoundry');scripts=root/'.wavefoundry/framework/scripts';sys.path[:0]=[str(scripts),str(scripts/'tests')]
+import upgrade_wavefoundry as up
+import reconcile_scan as scan
+import test_upgrade_wavefoundry as tests
+from wf_server import upgrade_handlers as handler
+base=Path(tempfile.mkdtemp(prefix='wf-release-readiness-2071p-'));out={'fixture_root':str(base),'cells':[]}
+# Baseline current parent source is the older side relative to the planned new producer.
+# Actual current child tolerates historical lock shapes; this does not execute future code.
+for name,extras,expected in [('old-schema',{},'not run'),('observed-publication',{'index_rebuilt_at':'2026-10-09T00:00:00Z'},'docs and code layers complete'),('publication-failed',{'index_publication_failed':True},'publication failed')]:
+ target=base/name;target.mkdir();tests._stage_extracted_tree(target)
+ lock={'from_version':'1.9.0','to_version':'1.29.0',**extras,'skipped_scan_locations':['/probe/Downloads'],up._PERMISSIONS_DELTA_LOCK_FIELD:{'file':'.claude/settings.json','added':['rule-A'],'removed':[],'unmanaged_present':2}}
+ lock_path=target/'.wavefoundry/upgrade-in-progress.json';lock_path.write_text(json.dumps(lock));before=lock_path.read_bytes()
+ start=time.monotonic();payload,reason=up._delegated_summary_payload(target,timeout_s=5);elapsed=time.monotonic()-start
+ assert reason is None and payload is not None,(name,reason);parsed=json.loads(payload)
+ assert parsed[up.SUMMARY_SCHEMA_KEY]==1 and expected in parsed['index_update'],parsed
+ assert parsed['skipped_scan_locations']==['/probe/Downloads'];assert lock_path.read_bytes()==before
+ assert parsed['permissions_changed']==1 and parsed['permissions_added']==['rule-A'] and parsed['permissions_unmanaged_present']==2,parsed
+ # Flat additive candidate status passes the real existing server parser/bounder.
+ candidate={**parsed,'reconciliation_status':'incomplete','reconciliation_reason':'eligible_byte_limit','reconciliation_elapsed_s':0.25,'reconciliation_visited_entries':7,'reconciliation':[{'file':'docs/fixture.md','matched':'x'*500} for _ in range(300)]}
+ bounded=handler._bounded_upgrade_summary(handler._parse_upgrade_summary(up.WAVE_UPGRADE_SUMMARY_SENTINEL+json.dumps(candidate)))
+ assert all(bounded[k]==candidate[k] for k in ('reconciliation_status','reconciliation_reason','reconciliation_elapsed_s','reconciliation_visited_entries','index_update','permissions_changed','permissions_unmanaged_present'))
+ print('bounded_list_metadata',json.dumps({k:v for k,v in bounded.items() if k.startswith('skipped_scan_locations') or k.startswith('permissions_added') or k.startswith('reconciliation_')},default=str))
+ out['cells'].append({'cell':name,'elapsed_s':elapsed,'index_update':parsed['index_update'],'schema':parsed[up.SUMMARY_SCHEMA_KEY],'lock_unchanged':True,'flat_fields_preserved':True,'permissions_changed':parsed['permissions_changed']})
+# Re-derive the current fallback defect via actual emitter; refute clean-empty scan claim.
+target=base/'fallback';target.mkdir();calls=[];buf=io.StringIO()
+with patch.object(up,'_delegated_summary_payload',return_value=(None,'timeout_after_300s')),patch.object(up,'_persist_skipped_scan_locations'),patch.object(up,'_run_reconciliation_scan',side_effect=lambda r:calls.append(r) or ([],[],[])),patch.object(up,'_run_reconciliation_disposition_diagnostics',return_value=[]),patch.object(up,'_run_renderer_warning_scan',return_value=[]),contextlib.redirect_stdout(buf):
+ up._emit_primary_summary_via_delegate_or_fallback(target,'1.28.0','1.29.0',None,0,index_published=True)
+lines=[l for l in buf.getvalue().splitlines() if l.startswith(up.WAVE_UPGRADE_SUMMARY_SENTINEL)];assert len(lines)==1 and len(calls)==1
+fallback=json.loads(lines[0][len(up.WAVE_UPGRADE_SUMMARY_SENTINEL):]);assert fallback[up.SUMMARY_DEGRADATION_MARKER_KEY]=='timeout_after_300s';assert up.SUMMARY_SCHEMA_KEY not in fallback;assert fallback['index_update']=='docs and code layers complete'
+with patch.dict(sys.modules,{'reconcile_scan':types.SimpleNamespace(scan_repo_channels=lambda r:(_ for _ in ()).throw(RuntimeError('controlled failure')))}):
+ channels=up._run_reconciliation_scan(target)
+assert channels==([],[],[])
+refuted=False
+try:assert channels!=([],[],[]),'baseline scan error disguises failure as empty'
+except AssertionError:refuted=True
+assert refuted
+out['cells'].append({'cell':'actual-fallback-defect','scan_calls_after_delegate_failure':len(calls),'sentinels':len(lines),'marker':fallback[up.SUMMARY_DEGRADATION_MARKER_KEY],'index_update':fallback['index_update'],'schema_omitted':True,'exception_result':channels,'clean_empty_claim_refuted':refuted})
+# Deliberate generated/current/nested/near-miss and ignored-host inclusion controls.
+target=base/'scope';target.mkdir()
+rels=['.local/profile.json','target/output.json','docs/.local/live.md','docs/target/live.md','.local-notes/live.md','target-notes/live.md','.claude/settings.json','docs/current.md','docs/reports/ignored.md']
+for rel in rels:
+ p=target/rel;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('{}' if p.suffix=='.json' else 'ordinary text')
+(target/'.gitignore').write_text('.claude/settings.json\n')
+actual=sorted(rel for _,rel in scan._iter_scannable_files(target));assert set(rels)-{'docs/reports/ignored.md'}<=set(actual),actual;assert 'docs/reports/ignored.md' not in actual
+out['cells'].append({'cell':'baseline-scope','actual':actual,'root-generated-still-scanned':True,'ignored-host-included':True,'nested-near-miss-included':True})
+Path('/private/tmp/wf-release-readiness-2071p-probe.json').write_text(json.dumps(out,indent=2)+'\n');print(json.dumps(out,indent=2))

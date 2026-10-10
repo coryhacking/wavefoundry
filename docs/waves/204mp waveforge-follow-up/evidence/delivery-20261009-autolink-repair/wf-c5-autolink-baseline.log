@@ -1,0 +1,47 @@
+test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) ... 
+  test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) (case='uri_link_literal') ... FAIL
+  test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) (case='custom_scheme_query_link_literal') ... FAIL
+  test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) (case='uri_tick_is_literal') ... FAIL
+  test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) (case='email_tick_is_literal') ... FAIL
+
+======================================================================
+FAIL: test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) (case='uri_link_literal')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 2994, in _assert_incoming_role_link_cases
+    self.assertEqual(target.peer.read_bytes(), expected)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: b'Par[24 chars]invalid/[CODE](council-chair.md)> [LIVE](council-chair.md)\r\n' != b'Par[24 chars]invalid/[CODE](wave-council.md)> [LIVE](council-chair.md)\r\n'
+
+======================================================================
+FAIL: test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) (case='custom_scheme_query_link_literal')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 2994, in _assert_incoming_role_link_cases
+    self.assertEqual(target.peer.read_bytes(), expected)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: b'Par[37 chars]alid/?x=[CODE](council-chair.md)> [LIVE](council-chair.md)\r\n' != b'Par[37 chars]alid/?x=[CODE](wave-council.md)> [LIVE](council-chair.md)\r\n'
+
+======================================================================
+FAIL: test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) (case='uri_tick_is_literal')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 2994, in _assert_incoming_role_link_cases
+    self.assertEqual(target.peer.read_bytes(), expected)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: b'Paragraph <https://example.invalid/?x=`> [LIVE](wave-council.md) tail `\r\n' != b'Paragraph <https://example.invalid/?x=`> [LIVE](council-chair.md) tail `\r\n'
+
+======================================================================
+FAIL: test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) (case='email_tick_is_literal')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 2994, in _assert_incoming_role_link_cases
+    self.assertEqual(target.peer.read_bytes(), expected)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: b'Paragraph <a`@example.invalid> [LIVE](wave-council.md) tail `\r\n' != b'Paragraph <a`@example.invalid> [LIVE](council-chair.md) tail `\r\n'
+
+----------------------------------------------------------------------
+Ran 1 test in 6.157s
+
+FAILED (failures=4)
+{"tests": 1, "cases": 6, "failures": 4, "errors": 0, "skips": 0}

@@ -1,0 +1,95 @@
+{
+  "wave_id": "206is journal-hook-follow-up",
+  "change_ids": [
+    "204mo-enh version-independent-journal-hook"
+  ],
+  "phase": "readiness",
+  "actor": "code-reviewer",
+  "receipt_id": "review-policy-f6e0dc3d0a917fb40463",
+  "verification_context": {
+    "actor": "code-reviewer",
+    "context_id": "206is-readiness-code-independent-20261009-01",
+    "fresh_context": true,
+    "independent": true
+  },
+  "verdict": "withhold_readiness_pending_bounded_plan_repair",
+  "proposition": "The frozen plan has a feasible bounded implementation path, but its trigger syntax/failure distinction and declaration-test registry scope must be explicit before readiness.",
+  "counterexample_or_failure_condition": "A nonliteral policy can evaluate to either valid or invalid policy yet cannot be selected without executing declaration code; omitting the test declaration registry rejects explicit trigger fixtures and leaves base resets unaware of the new default.",
+  "execution_status": "executed",
+  "public_path": "Faithful pre_docs_gate apply boundary with unrelated scaffold/graph repair patched and already-completed sidecar sentinel; actual _load_journal_hook and _run_journal_pre_migration_hook; actual _static_module_literal and journal_declaration_problems; existing base_declaration_source producer.",
+  "command_or_fixture": "python3 -B /tmp/wf-206is-code-probes.py; omitted_test_declaration_registry_control recorded in probe results",
+  "expected": "Incoming siblings must supersede cached old code at import and call; absent/default later gates must not import declarations; old validator third positional argument remains helper_modules; registered test producers must accept the new declaration.",
+  "observed": "Cached baseline returned OLD:OLD; explicit scratch eviction control returned INCOMING:INCOMING; success and failure restored prior dependency identity and sys.path; later 1.15.0 and 1.29.0 gate controls did not execute declaration; positional validator accepted a valid hook with third helper tuple; base_declaration_source rejected the new trigger as unknown.",
+  "artifact_or_test_id": "/tmp/wf-206is-code-probe-results.json; /tmp/wf-206is-code-probes.py; upgrade_extensions.pre_docs_gate/_load_journal_hook/_static_module_literal; mcp_tool_extensions.journal_declaration_problems; declaration_support.base_declaration_source",
+  "adjacent_controls": [
+    "explicit_scratch_eviction_feasibility_control",
+    "scratch_failure_restoration_control",
+    "current_later_gate_no_import_baseline at 1.15.0 and 1.29.0",
+    "pure_validator_three_positional_api",
+    "absent/literal/invalid_literal/dynamic/conditional/duplicate_literal AST cases"
+  ],
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true
+  },
+  "known_bad_detection_method": "readiness-safe-control: current cached sibling baseline contradicts incoming-code guarantee; deliberately omitted new registry entry causes canonical base declaration producer rejection.",
+  "independent_reference": {
+    "reference": "Independently read Requirements 1/3/4/5 and AC2/3/4, plus existing three-positional caller and canonical base_declaration_source consumer contract.",
+    "property": "Incoming execution provenance, preservation of later legacy no-import behavior, explicit static failure selection, test declaration reset compatibility.",
+    "common_mode_limit": "Finite direct loader/gate probes do not execute an actual archived old runner or prove full dependency/package closure."
+  },
+  "blockers": [
+    {
+      "id": "CODE-206IS-STATIC-01",
+      "severity": "substantive_plan_decision",
+      "summary": "Plan says invalid policies fail clearly while later legacy declarations retain no-import behavior, but does not distinguish statically invalid literal/nonliteral/conditional policy from unreadable/parse-unknown declaration.",
+      "evidence": "_static_module_literal returned ValueError for dynamic and conditional bindings; absent returns (), duplicate literal currently selects final assignment. Requirements 1/3/4 do not state whether a dynamically valid policy is supported or refused.",
+      "bounded_repair": "Add one explicit policy table: absent -> legacy_cutover; valid top-level literal -> selected policy; invalid literal or detected dynamic/conditional binding -> diagnostic refusal before declaration execution; unreadable/unparseable -> unknown, later skip hook with diagnostic and no imports, pre-1.15 retains existing apply-time validated load/refusal. Document supported duplicate-binding handling consistently with selected AST reader. Preserve defaults for old declarations and validate selected runtime declaration once."
+    },
+    {
+      "id": "CODE-206IS-REGISTRY-01",
+      "severity": "required_contract_scope_gap",
+      "summary": "New EXTENSION_* constant requires the canonical distribution declaration test registry, currently outside the frozen eight paths.",
+      "evidence": "record_layout_support.SHIPPED_DECLARATION lacks trigger; declaration_support.DECLARATION_CONSTANTS derives from it. Actual base_declaration_source(EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER=\"journals_present\") rejects it as not a declaration constant.",
+      "bounded_repair": "Admit tests/record_layout_support.py and register EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER=\"legacy_cutover\". Retain profile/declaration reset tests and a three-positional validator compatibility assertion. Add docs/architecture/layering-rules.md as the directly affected boundary contract: current row says loading occurs only inside the pre-1.15 gate."
+    }
+  ],
+  "implementation_notes": [
+    "No blocker because unimplemented behavior is absent; existing cached dependency defect is the admitted AC4 target, not a new readiness demand.",
+    "A journal-only incoming import context is feasible for the scoped requirement. Keep it across the single declaration validation and hook import/call; shadow incoming top-level module/package names and their descendant keys; restore exact prior identities and sys.path on success and exception; remove newly created matching entries. Keep generic _scripts_on_sys_path unchanged.",
+    "Do not claim cache eviction alone proves provenance where incoming path was already present behind an old path: the narrow context must give incoming scripts precedence and restore the complete prior path sequence.",
+    "Preserve journal_declaration_problems(templates,hook,helper_modules) positional compatibility; add trigger as trailing keyword parameter rather than inserting it before helpers.",
+    "Keep builtin migration permission tied only to pre-1.15 and successful hook; journals_present selects only hook eligibility. Failed hook diagnostic must describe retry-safe idempotence truthfully.",
+    "Delivery matrix should cover qualifying direct singly-linked regular Markdown, absent/README/nested/symlink/hardlink refusals, version boundaries, no selected import for later default, one declaration execution/hook call per eligible invocation, cached siblings imported at load and call, package descendants, restoration after failure, and retry with/without remaining source."
+  ],
+  "primer_response": {
+    "strongest_challenge": "Independently reproduced stale sibling result OLD:OLD at actual hook import/call; direct-key isolation yields INCOMING:INCOMING and is a bounded feasibility control.",
+    "question_1": "Static trigger decision is substantive plan gap; bounded explicit invalid versus unknown table above resolves it without runtime discovery.",
+    "question_2": "Actual load/call probe is executable. Delivery must add the actual old-runner fixture and finite restoration/single-execution controls; scratch control is not implementation evidence.",
+    "question_3": "Requirements 2/3 and selected standard-folder scope are coherent; retain separate eligibility/version permissions and document idempotent retries. Existing warning currently incorrectly says later never retry under future opt-in, so update it."
+  },
+  "scope_freeze": {
+    "count": 8,
+    "before_matches_packet": true,
+    "after_matches_packet": true,
+    "all_unchanged": true,
+    "before_artifact": "/tmp/wf-206is-code-hashes-before.json",
+    "after_artifact": "/tmp/wf-206is-code-hashes-after.json"
+  },
+  "retrieval": "Deferred tools discovered and actual code_outline/code_read/code_keyword used before investigation. Live disk ranges and AST/probes are authority; no stale indexed graph claim. Gapfill: explicitly stale loaded/index context from briefing makes live targeted reads and fresh scratch execution necessary; no setup or rebuild.",
+  "limits": [
+    "No repository, seed, plan, docs or ledger edits; no typed approval, implementation, commit, push, close or setup/index operation.",
+    "Finite readiness probes only; full suite, archived old-runner actual upgrade, package descendant cleanup, concurrent import handling, public dry-run end-to-end and native/downstream qualification not run.",
+    "Scratch single-dependency eviction demonstrates feasibility only, not a reusable context implementation or proof of arbitrary dependency closure.",
+    "Coordinator preferences received after independent live inspection; final verdict uses plan/current consumer observations and own executed probes."
+  ],
+  "safety_and_authorization": "Read-only review and local temporary fixtures; marker/journal writes restricted to tempfile tree. Existing loader is reached directly; no upgrade of shared repository or external service.",
+  "probe_class": "local_safe",
+  "authorization_status": "authorized",
+  "safe_boundary": false,
+  "unexecuted_remainder_prohibited": false,
+  "universal_claim": false
+}

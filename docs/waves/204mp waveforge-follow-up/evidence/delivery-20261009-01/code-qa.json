@@ -1,0 +1,1022 @@
+{
+  "context_id": "wf-integrated-code-qa-delivery-20261009-01",
+  "remit": [
+    "code-reviewer",
+    "qa-reviewer"
+  ],
+  "dual_remit_disclosed": true,
+  "independence": "This reviewer did not implement or repair these changes. Both roles were reviewed in this one fresh context; the roles are not claimed mutually independent. No repository or lifecycle mutation was performed.",
+  "tree_fingerprint_before": {
+    ".wavefoundry/framework/scripts/graph_cluster.py": "54638186c4e15abc413f6b1e76b9d231b798a153",
+    ".wavefoundry/framework/scripts/graph_indexer.py": "15042cd748a46d24cbb22dc0f1bde7c1ded178fb",
+    ".wavefoundry/framework/scripts/indexer.py": "ca3c080364aebdafe18f51fea5236feaf3d5f530",
+    ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "9acc50b3cfab00c559010baf20919f203e48828f",
+    ".wavefoundry/framework/scripts/lifecycle_gates.py": "207a2c0c84c7e582efb9ad695367dff4072b5f87",
+    ".wavefoundry/framework/scripts/render_agent_surfaces.py": "5e1c9b9094a97acaf7b6f77fb581dbe6c9cea54b",
+    ".wavefoundry/framework/scripts/review_evidence.py": "54b806ae9a9409cb26be6a5653a1bb6adb9ac45e",
+    ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "e99355979ac908aefa5d2c4ee66dec6ab7c4c7f0",
+    ".wavefoundry/framework/scripts/tests/fixtures/lifecycle-gate-golden.json": "27c62ab52e6f3620f551fdc6b2178f5e9dbe7e0b",
+    ".wavefoundry/framework/scripts/tests/fixtures/profiles/prompt-names.json": "2be75d0d053b7f66c066934ebef6ab484d081c66",
+    ".wavefoundry/framework/scripts/tests/framework_text_ownership.py": "f460fdf00e3669ee04ca6d5b702b715e9d890d8c",
+    ".wavefoundry/framework/scripts/tests/record_layout_support.py": "5e2a500a063fa9423b2063b0e6d46e5bad731268",
+    ".wavefoundry/framework/scripts/tests/test_council_signoff_keys.py": "934a5d7cb982f03fd6adeb98c7cb226979502aa3",
+    ".wavefoundry/framework/scripts/tests/test_distribution_seams.py": "a53ed1662178217727f5f1d9d35f26e12e47e8e3",
+    ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": "7f1188b4486c2e193294e686d2d11b297f1dd1cf",
+    ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": "e3c932fadf23e0d44603e572c37beae6876e3949",
+    ".wavefoundry/framework/scripts/tests/test_indexer.py": "20b217f99dbd79823177940105b5aeb326429143",
+    ".wavefoundry/framework/scripts/tests/test_legacy_council_actors.py": "09c6bff158ba0e001ed344cb8ad0ca4cba62fb18",
+    ".wavefoundry/framework/scripts/tests/test_lifecycle_gates.py": "f497ffaf555aff15b0eb909a00bc8fdef3874a73",
+    ".wavefoundry/framework/scripts/tests/test_lifecycle_golden.py": "78375f503090b8b4fc064599e70fc6059a0972eb",
+    ".wavefoundry/framework/scripts/tests/test_phase_gates.py": "e09464efe152022abf28514af4e3b3bf5e5a0e95",
+    ".wavefoundry/framework/scripts/tests/test_profile_support.py": "82e5060e3a85029052d1c876c28aed28eb583710",
+    ".wavefoundry/framework/scripts/tests/test_readiness_convergence.py": "fd675ca2c67e52c831b4fe61e9dc1287c1f10d77",
+    ".wavefoundry/framework/scripts/tests/test_review_evidence.py": "6ea8a4f58b280e68e42ba2f37ec357ce7f386aa3",
+    ".wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py": "01583b714ead53c5a5a286ced02613501f25c0d7",
+    ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "2b69eecb3aa83fc89c7c037f86612cee3fec9102",
+    ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py": "776c7c2df9d89a00be456ec597359669ca3c8168",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "71e627b00922d37056d3fad4055f14483b418aea",
+    ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "42f7785097f2491dd6231fc84673c54ee1df4db1",
+    ".wavefoundry/framework/scripts/upgrade_extensions.py": "e20de384cc4119f3e7146ae93406a39042b0359b",
+    ".wavefoundry/framework/scripts/vocabulary_profile.py": "f9a4d28c30b3645ebf9336853d17e7b78cd2b02d",
+    ".wavefoundry/framework/scripts/wf_server/server_impl.py": "a9bf342af0c05c6a69a05adc4e112b13f535cee0",
+    "CHANGELOG.md": "bb18586b3933d91d35730771f15d8b5116a17173",
+    "docs/ARCHITECTURE.md": "71d11346469e141def3f5cd1bb01156f2d639c28",
+    "docs/architecture/cross-cutting-concerns.md": "c25b6a1a1c691ee046364d3e53355822cba27e48",
+    "docs/architecture/data-and-control-flow.md": "5a773042c3d898191fc53f5cbeb44dc3f113ad4e",
+    "docs/architecture/domain-map.md": "887fdfe9b73cc7fdaf83d4250ec5e033401c3321",
+    "docs/architecture/testing-architecture.md": "235de8aa6603d17c866c6741c3718499a1452bb9",
+    "docs/specs/mcp-tool-surface.md": "b7e5f21b737ac76f7cb604f775bdfcc88acc45db"
+  },
+  "tree_fingerprint_after": {
+    ".wavefoundry/framework/scripts/graph_cluster.py": "54638186c4e15abc413f6b1e76b9d231b798a153",
+    ".wavefoundry/framework/scripts/graph_indexer.py": "15042cd748a46d24cbb22dc0f1bde7c1ded178fb",
+    ".wavefoundry/framework/scripts/indexer.py": "ca3c080364aebdafe18f51fea5236feaf3d5f530",
+    ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "9acc50b3cfab00c559010baf20919f203e48828f",
+    ".wavefoundry/framework/scripts/lifecycle_gates.py": "207a2c0c84c7e582efb9ad695367dff4072b5f87",
+    ".wavefoundry/framework/scripts/render_agent_surfaces.py": "5e1c9b9094a97acaf7b6f77fb581dbe6c9cea54b",
+    ".wavefoundry/framework/scripts/review_evidence.py": "54b806ae9a9409cb26be6a5653a1bb6adb9ac45e",
+    ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "e99355979ac908aefa5d2c4ee66dec6ab7c4c7f0",
+    ".wavefoundry/framework/scripts/tests/fixtures/lifecycle-gate-golden.json": "27c62ab52e6f3620f551fdc6b2178f5e9dbe7e0b",
+    ".wavefoundry/framework/scripts/tests/fixtures/profiles/prompt-names.json": "2be75d0d053b7f66c066934ebef6ab484d081c66",
+    ".wavefoundry/framework/scripts/tests/framework_text_ownership.py": "f460fdf00e3669ee04ca6d5b702b715e9d890d8c",
+    ".wavefoundry/framework/scripts/tests/record_layout_support.py": "5e2a500a063fa9423b2063b0e6d46e5bad731268",
+    ".wavefoundry/framework/scripts/tests/test_council_signoff_keys.py": "934a5d7cb982f03fd6adeb98c7cb226979502aa3",
+    ".wavefoundry/framework/scripts/tests/test_distribution_seams.py": "a53ed1662178217727f5f1d9d35f26e12e47e8e3",
+    ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": "7f1188b4486c2e193294e686d2d11b297f1dd1cf",
+    ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": "e3c932fadf23e0d44603e572c37beae6876e3949",
+    ".wavefoundry/framework/scripts/tests/test_indexer.py": "20b217f99dbd79823177940105b5aeb326429143",
+    ".wavefoundry/framework/scripts/tests/test_legacy_council_actors.py": "09c6bff158ba0e001ed344cb8ad0ca4cba62fb18",
+    ".wavefoundry/framework/scripts/tests/test_lifecycle_gates.py": "f497ffaf555aff15b0eb909a00bc8fdef3874a73",
+    ".wavefoundry/framework/scripts/tests/test_lifecycle_golden.py": "78375f503090b8b4fc064599e70fc6059a0972eb",
+    ".wavefoundry/framework/scripts/tests/test_phase_gates.py": "e09464efe152022abf28514af4e3b3bf5e5a0e95",
+    ".wavefoundry/framework/scripts/tests/test_profile_support.py": "82e5060e3a85029052d1c876c28aed28eb583710",
+    ".wavefoundry/framework/scripts/tests/test_readiness_convergence.py": "fd675ca2c67e52c831b4fe61e9dc1287c1f10d77",
+    ".wavefoundry/framework/scripts/tests/test_review_evidence.py": "6ea8a4f58b280e68e42ba2f37ec357ce7f386aa3",
+    ".wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py": "01583b714ead53c5a5a286ced02613501f25c0d7",
+    ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "2b69eecb3aa83fc89c7c037f86612cee3fec9102",
+    ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py": "776c7c2df9d89a00be456ec597359669ca3c8168",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "71e627b00922d37056d3fad4055f14483b418aea",
+    ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "42f7785097f2491dd6231fc84673c54ee1df4db1",
+    ".wavefoundry/framework/scripts/upgrade_extensions.py": "e20de384cc4119f3e7146ae93406a39042b0359b",
+    ".wavefoundry/framework/scripts/vocabulary_profile.py": "f9a4d28c30b3645ebf9336853d17e7b78cd2b02d",
+    ".wavefoundry/framework/scripts/wf_server/server_impl.py": "a9bf342af0c05c6a69a05adc4e112b13f535cee0",
+    "CHANGELOG.md": "bb18586b3933d91d35730771f15d8b5116a17173",
+    "docs/ARCHITECTURE.md": "71d11346469e141def3f5cd1bb01156f2d639c28",
+    "docs/architecture/cross-cutting-concerns.md": "c25b6a1a1c691ee046364d3e53355822cba27e48",
+    "docs/architecture/data-and-control-flow.md": "5a773042c3d898191fc53f5cbeb44dc3f113ad4e",
+    "docs/architecture/domain-map.md": "887fdfe9b73cc7fdaf83d4250ec5e033401c3321",
+    "docs/architecture/testing-architecture.md": "235de8aa6603d17c866c6741c3718499a1452bb9",
+    "docs/specs/mcp-tool-surface.md": "b7e5f21b737ac76f7cb604f775bdfcc88acc45db"
+  },
+  "all_39_unchanged": true,
+  "all_perwave_sha256_match": true,
+  "scope_sha256": {
+    "public": {
+      ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "65c9d11276eadefb0b6a5e72ae16400ec94f813006a9f3da1dc6a6f23d3f21c3",
+      ".wavefoundry/framework/scripts/render_agent_surfaces.py": "7ae9da161df0716050f8c0f931911b7c3a068fc3488151528008bd4b8ef5f605",
+      ".wavefoundry/framework/scripts/review_evidence.py": "7696b2ba0c4e151ed383b39c76273ea1f5fe286dcab95969562e9daaacd78cbc",
+      ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "7c766dc1385416beb80f8f6063d7dc194c281aec236569997850e4aa8236da5c",
+      ".wavefoundry/framework/scripts/tests/fixtures/profiles/prompt-names.json": "68aa7cd256da36493a8250d147685c99cb36c16056179d7cd36e9a988ad9395a",
+      ".wavefoundry/framework/scripts/tests/framework_text_ownership.py": "2d4257cd4f6a3981f8f38d978b6646cc4d059dea7f1e86c16b7cb9a75c92dc18",
+      ".wavefoundry/framework/scripts/tests/record_layout_support.py": "286c3cfa93851c18c3fe56a390fc178923aaaf1c9658542f594aa630a0fdeb49",
+      ".wavefoundry/framework/scripts/tests/test_council_signoff_keys.py": "2053e10a2734e186588d6cb28ef4ad2bdfb4d90f199c8b5eb596decfe4fdd2e5",
+      ".wavefoundry/framework/scripts/tests/test_distribution_seams.py": "b25c4d0c6c61beb2c961087d1c119d74fc9b1c39db1c3f344a209be1881c7c4c",
+      ".wavefoundry/framework/scripts/tests/test_legacy_council_actors.py": "2b52ff5294874c58fc870e1a1260e5d301615e73e5a55e2c3c50a8ef35934fb1",
+      ".wavefoundry/framework/scripts/tests/test_profile_support.py": "bca8cabaafb7d8c3b264d1577e639f6466aaa73d9c93fe13bca31bb4cbbbcb88",
+      ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py": "0da7557197c9ca7d823578789dba5417a971f9ac7ce948c5c16fdf7558f23cf6",
+      ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "207cc3e15d288cae8f6d99dd47447d60a6b55e5b6de9ce72778ac83ee0837fdb",
+      ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "f852874bb308acc363973dc33919327cf8133311f73cd5731de56219971d347a",
+      ".wavefoundry/framework/scripts/upgrade_extensions.py": "10a743b0f7db469d822ee46befcad02d5ff469c481c2679c2fc303a02b2a720c",
+      ".wavefoundry/framework/scripts/vocabulary_profile.py": "5a1f4a5902eddc99137664f176cb5706ab266014b3bf9f54cb68a86dbb1e03b4",
+      "CHANGELOG.md": "f23cc3ddfde9b1198bc7a9b6b8f66b98bad4aa0d08ee1940984116bc11255a0c",
+      "docs/ARCHITECTURE.md": "599f3b205bd75c3c9b0a6766f47e0924c3a52cf7ece61052f5b30ba573d12b15",
+      "docs/architecture/cross-cutting-concerns.md": "374319b418416993f1927ae4bda814fba513bdaf6e5bc70170dd7e0030382c8f",
+      "docs/architecture/data-and-control-flow.md": "65aef7155f31ea3a65ddc72b11de52c5c2320c6d7ec2ccba41ab80bb252c420a",
+      "docs/architecture/domain-map.md": "c05f3e2226e19ca567ac7e3157dd31fa63fda6d5accb495fe92d22eed6acfba9",
+      "docs/architecture/testing-architecture.md": "c6960a2fea0a9fc021c7e07c3e113d37e6099c0c198729d395d39fdc765f7a65",
+      "docs/specs/mcp-tool-surface.md": "46abe7a4f05010e692897f90c599778a25284d48df93d19fda27abde7550337c"
+    },
+    "phase": {
+      ".wavefoundry/framework/scripts/review_evidence.py": "7696b2ba0c4e151ed383b39c76273ea1f5fe286dcab95969562e9daaacd78cbc",
+      ".wavefoundry/framework/scripts/lifecycle_gates.py": "155e7f0f786f0f4e16e9e861357e31e35e6518d4dc888440c7d1b7b094bc2b8e",
+      ".wavefoundry/framework/scripts/lifecycle_gate_support.py": "65c9d11276eadefb0b6a5e72ae16400ec94f813006a9f3da1dc6a6f23d3f21c3",
+      ".wavefoundry/framework/scripts/wf_server/server_impl.py": "ea4dac9211bb747a025e9df200e89ac6e284c792b1c9790b99fc16e1eae0dd48",
+      ".wavefoundry/framework/scripts/tests/test_review_evidence.py": "44bc30c2999a91f405669c187fc2c1e4cc26e5dcb24cd20efc2750271ed8c7a3",
+      ".wavefoundry/framework/scripts/tests/test_lifecycle_gates.py": "3a503cdadff6df671e6be74fc8ec3f4d47979252873cb7ae736a77d9b379d016",
+      ".wavefoundry/framework/scripts/tests/test_phase_gates.py": "eecba79b4b1351aaeec91b98e86297b30ea5fb366b060a9d8d65c8bc9dcbac58",
+      ".wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py": "b1b984f6458481b6bdc0218ad9cbbe8382fde0a1cf4be62b537aa253854d47cc",
+      ".wavefoundry/framework/scripts/tests/test_lifecycle_golden.py": "3722fc8bb3cf835b461e051ee6415a20841feeee45b30701a1e9573ffc92bb2e",
+      ".wavefoundry/framework/scripts/tests/test_readiness_convergence.py": "a3a923f78fb2d9401c8f0417f74a339eca7f9f491fe43be3bbb39883b22666ed",
+      ".wavefoundry/framework/scripts/tests/fixtures/lifecycle-gate-golden.json": "01698151de7919965d1b2dc27f814eb80e28f8cb00877c5a4f2d42eeeaac5e80",
+      "docs/specs/mcp-tool-surface.md": "46abe7a4f05010e692897f90c599778a25284d48df93d19fda27abde7550337c"
+    },
+    "graph": {
+      ".wavefoundry/framework/scripts/indexer.py": "3e1c935ccfe460a82c288c46d61f49460351f8d953a5084641681dac700c7605",
+      ".wavefoundry/framework/scripts/graph_indexer.py": "0f193c0b4e9f8eedf7ce113a9fd3bd6caa9970f36dca98d2ad385500d23fcd3c",
+      ".wavefoundry/framework/scripts/graph_cluster.py": "c861d84f039c323c755842f355ad159fa2ac1c0133beea537dcca2a6bcd3b0fe",
+      ".wavefoundry/framework/scripts/tests/test_graph_cluster.py": "19736b0bc4a031fc2605994b062f566ac4054355157befacbb49f347dbe7ccac",
+      ".wavefoundry/framework/scripts/tests/test_graph_transactional_state.py": "b6fcf1e5ac291408182cdeb7696537849f9a479c44b6fa12621aaaa95c488da9",
+      ".wavefoundry/framework/scripts/tests/test_indexer.py": "5d89b3ef32d48b726df97258c53330f99fc0799a9b09feaaae35e728a185e22f",
+      ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py": "0e292d7d5643fe2339167cd8fdca3507c6aeeb9ab1a78cc5779f1ba5bb920992",
+      "docs/architecture/data-and-control-flow.md": "65aef7155f31ea3a65ddc72b11de52c5c2320c6d7ec2ccba41ab80bb252c420a",
+      "docs/architecture/testing-architecture.md": "c6960a2fea0a9fc021c7e07c3e113d37e6099c0c198729d395d39fdc765f7a65"
+    }
+  },
+  "retrieval": "Deferred Wavefoundry code_read/code_outline/code_keyword confirmed callable and used for current disk source ranges and censuses. Fresh Python subprocesses executed all probes. Loaded MCP setup/index readiness remains indeterminate; no setup/full-suite/live-index mutations.",
+  "verdicts": {
+    "204mp": {
+      "code-reviewer": "blocked",
+      "qa-reviewer": "blocked"
+    },
+    "207lx": {
+      "code-reviewer": "approve",
+      "qa-reviewer": "approve"
+    },
+    "207t4": {
+      "code-reviewer": "approve",
+      "qa-reviewer": "approve"
+    }
+  },
+  "execution_results": [
+    {
+      "command": "PYTHONPATH=.wavefoundry/framework/scripts:.wavefoundry/framework/scripts/tests /Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest -v test_phase_gates.PhaseLaneTests test_review_evidence test_readiness_convergence test_lifecycle_golden",
+      "tests": 217,
+      "skips": 0,
+      "seconds": 8.764,
+      "result": "ok",
+      "log": "/tmp/wf-codeqa-phase-owners.log"
+    },
+    {
+      "command": "PYTHONPATH=.wavefoundry/framework/scripts:.wavefoundry/framework/scripts/tests /Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest -v test_graph_transactional_state test_graph_cluster test_server_tools_retrieval.ControlledCommunityPublicationResponseTests test_graph_rust_provenance",
+      "tests": 106,
+      "skips": 0,
+      "seconds": 3.96,
+      "result": "ok",
+      "log": "/tmp/wf-codeqa-graph-owners.log"
+    },
+    {
+      "command": "PYTHONPATH=.wavefoundry/framework/scripts:.wavefoundry/framework/scripts/tests /Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest -v test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests test_legacy_council_actors test_distribution_seams test_council_signoff_keys",
+      "tests": 92,
+      "skips": 0,
+      "seconds": 67.291,
+      "result": "ok",
+      "log": "/tmp/wf-codeqa-public-owners.log"
+    },
+    {
+      "command": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/wf-codeqa-profile-probe.py",
+      "tests": 24,
+      "skips": 0,
+      "seconds": 40.012,
+      "result": "ok",
+      "log": "/tmp/wf-codeqa-renamed.log",
+      "fixture": "Second record profile, renamed built-in legacy actor/key/digest spellings, retained historical aliases, and correspondingly renamed framework-owned history fixture. Explicitly consistent distribution copy; no repository edits. Initial inconsistent scratch variants failed and are not qualification evidence."
+    },
+    {
+      "command": "PYTHONPATH=.wavefoundry/framework/scripts:.wavefoundry/framework/scripts/tests /Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest -v test_vocabulary_prompt_names",
+      "tests": 36,
+      "skips": 0,
+      "seconds": 39.816,
+      "result": "ok",
+      "log": "/tmp/wf-codeqa-prompt-default.log"
+    },
+    {
+      "command": "PYTHONPATH=.wavefoundry/framework/scripts:.wavefoundry/framework/scripts/tests /Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest -v test_tree_kill_routing.ClassificationTests test_distribution_seams.ActorTokenCensusTests",
+      "tests": 19,
+      "skips": 0,
+      "seconds": 5.122,
+      "result": "ok",
+      "log": "/tmp/wf-codeqa-seed-inventory-controls.log"
+    },
+    {
+      "command": "Three JournalDeclarationMigrationTests hook-contract methods",
+      "tests": 3,
+      "skips": 0,
+      "seconds": 0.08,
+      "result": "ok",
+      "log": "/tmp/wf-codeqa-seed-contract.log"
+    },
+    {
+      "command": "PYTHONPATH=.wavefoundry/framework/scripts:.wavefoundry/framework/scripts/tests /Users/coryhacking/.wavefoundry/venv/bin/python -B -m unittest -v test_server_tools_retrieval.EvidencePartitionResponseTests",
+      "tests": 8,
+      "skips": 0,
+      "seconds": 12.278,
+      "result": "ok",
+      "log": "/tmp/wf-codeqa-original-live-responses.log"
+    },
+    {
+      "command": "framework_text_ownership.py --check with explicit includes for all five untracked owned additions",
+      "owned_paths": 524,
+      "result": "ok",
+      "new_graph_owner_included": true,
+      "includes": [
+        "scripts/tests/framework_text_ownership.py",
+        "scripts/tests/test_legacy_council_actors.py",
+        "scripts/tests/test_graph_transactional_state.py",
+        "scripts/tests/test_graph_rust_provenance.py",
+        "scripts/tests/fixtures/framework-text-ownership.json"
+      ]
+    },
+    {
+      "command": "git diff --check",
+      "result": "ok"
+    }
+  ],
+  "canonical_qualification_observed": {
+    "source": "Existing canonical log/receipt were inspected; this reviewer did not rerun the suite or setup. Fresh run_tests._hash_inputs() proves the current input hash equals the green receipt. Original live response class was independently rerun above.",
+    "proof": {
+      "current_inputs_hash": "bc0585890c0363e65becec360079a59b697a2c26fa7e7c31ec05bcc6e12a8ee1",
+      "receipt_result": "ok",
+      "test_count": 11967,
+      "receipt_current": true
+    },
+    "suite": "11967 tests/177 files/20 disclosed skips/489.549s OK",
+    "graph_setup": "Existing graph-only full setup log says completed in410s; explicitly does not establish full core readiness."
+  },
+  "independent_reference": {
+    "public": "Independently read 204ml/mm/mn required ACs, literal historical digest vectors/frozen payload encoder, source ownership inventory, and independent installed markdown_it MarkdownIt(commonmark) token classification for exact C5 fixtures. Expected byte substitutions are literal; production masking is never an oracle.",
+    "phase": "Independently read206oh AC1\u20135 plus typed run/phase/actor contract. Canonical public producers construct reachable scratch ledgers; phase metamorphism compares readiness and delivery on the same unchanged bytes, followed by a real repair chain and independently changed policy receipt.",
+    "graph": "Independently read207t3 AC1\u20135, SQLite transaction visibility contract and exact eligible identity/count invariants. An independently selected4-JSON corpus asserts literal production/evidence IDs, hubs, counts and separate limit1/2 ranking; equal-count ghost corruption cannot pass a counts-only oracle."
+  },
+  "ac_evidence": {
+    "204ml": {
+      "AC-1": "LiteralReconcileKeyTests default/renamed and assembled-key negative control pass.",
+      "AC-2": "Owned524-path inventory includes new graph owner/Rust owner and itself. Owned zero-hit/source/fixture occurrence, downstream-only exclusion, missing file and stale allowance controls pass.",
+      "AC-3": "Three shipped-seed/absent-limit/no-checkout-spec controls pass.",
+      "AC-4": "DigestInputTests default/consistent renamed pass independent frozen historical encoder and shipped/no-phases goldens; payload, normalization and body mutants detected by existing executable controls.",
+      "AC-5": "Default36 prompt owner and renamed migration/fresh/install controls pass neutral chain reuse/collisions/first-render identity."
+    },
+    "204mm": {
+      "AC-1": "Actual copied profile producer/replay writes council-chair and rejects undeclared/non-council/operator use.",
+      "AC-2": "Historical replay attempts preserve original ledger bytes; actor aliases remain one identity.",
+      "AC-3": "Import malformed/reserved identities and current configured/requested role collisions fail; duplicate aliases are idempotent; same council identity cannot reverify itself.",
+      "AC-4": "Real MCP reload child sees changed on-disk declarations and merged tuple; empty default/profile support inspected."
+    },
+    "204mn": {
+      "AC-1": "Existing actual incoming customized specialist + real docs gate passes.",
+      "AC-2": "NOT MET. Own11-case incoming/reinstall matrix has7 failures plus own native-wrapper directory-pair failure. Existing original25+18+7 counterexamples now pass50 exact replays, so old defects are repaired but replacement defects remain.",
+      "AC-3": "Actual incoming-zip preview and isolated child controls pass without target changes; repeated install checks show stable bytes/modes.",
+      "AC-4": "Actual interruption retry, all-pair collision, contained symlink refusal and retry role-identity controls pass."
+    },
+    "207lx": {
+      "AC-1": "Own canonical7-lane readiness projection/admission accepts unchanged ledger while paired delivery remains withheld and close blocked. /tmp/wf-codeqa-phase-own-initial.json",
+      "AC-2": "Includes docs-contract and custom reviewer beyond reported4; existing mixed/default/legacy alias controls pass.",
+      "AC-3": "Sealed/unknown/mutable origin, invalid actor, independence and stale controls pass217-owner suite; own real-producer stale receipt remains blocking.",
+      "AC-4": "Own public repair_start/reverification/approval sequence rejects same-context/actor without append; terminal delivery repair preserves readiness but requires fresh delivery reapproval; operator close blocked. /tmp/wf-codeqa-phase-terminal.json",
+      "AC-5": "Own absent/stale/withheld states are identical across review, prepare/admission facts and correct remedies, with unchanged ledger bytes. /tmp/wf-codeqa-phase-diagnostics.json"
+    },
+    "207t4": {
+      "AC-1": "Both actual indexer callers/reset reuse and forced recompute preserve every member; independent4-JSON public corpus reset recomputation preserves literal rankings.",
+      "AC-2": "15 structural corruption variants plus independent equal-count nonseed ghost replacement trigger recomputation/publication; exact projected IDs and fixed-category invariant mutations are detected.",
+      "AC-3": "Independent validresetreuse skips clustering/betweenness; ordinary reuse supplies no participant/writes; empty/history-fixed controls and one-added-member delta retain stamps.",
+      "AC-4": "Real WAL reader sees old generation until commit; actual SQL-trigger failure rolls back; source/schema/layer isolation tests pass.",
+      "AC-5": "Independent changed4-JSON corpus with41/31 production,82/72 evidence nodes asserts literal IDs/hubs/counts/order at limits1/2 afterreset/recovery; original8 live evidence consumer tests pass0skips."
+    }
+  },
+  "executed_artifacts": {
+    "c5_new_counterexamples": "/tmp/wf-codeqa-c5-public-results.json",
+    "c5_new_script": "/tmp/wf-codeqa-c5-public-probe.py",
+    "native_pair": "/tmp/wf-codeqa-native-link-results.json",
+    "c5_original_replays": "/tmp/wf-codeqa-original-replays.json",
+    "c5_original_replay_command": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/wf-codeqa-original-replays.py",
+    "phase_initial": "/tmp/wf-codeqa-phase-own-initial.json",
+    "phase_terminal": "/tmp/wf-codeqa-phase-terminal.json",
+    "phase_diagnostics": "/tmp/wf-codeqa-phase-diagnostics.json",
+    "graph_independent": "/tmp/wf-codeqa-graph-own-public.json",
+    "rust_source_preservation": "/tmp/wf-codeqa-rust-preservation.json"
+  },
+  "mutation_table": [
+    {
+      "mutant": "phase_council_only",
+      "test": "test_phase_gates.PhaseLaneTests.test_delivery_findings_allow_real_readiness_admission_but_block_close",
+      "returncode": 1,
+      "substantive_assertion_killed": true,
+      "replacements": 1,
+      "seconds": 0.924,
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-codeqa-mutants-zf8cn7ma/phase_council_only.log"
+    },
+    {
+      "mutant": "reset_baseline",
+      "test": "test_graph_transactional_state.ClusterPublicationStateTests.test_reset_recompute_replaces_unchanged_members_and_preserves_ids",
+      "returncode": 1,
+      "substantive_assertion_killed": true,
+      "replacements": 2,
+      "seconds": 0.63,
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-codeqa-mutants-zf8cn7ma/reset_baseline.log"
+    },
+    {
+      "mutant": "completeness_bypass",
+      "test": "test_graph_transactional_state.ClusterPublicationStateTests.test_same_fingerprint_structural_corruption_recomputes_and_repairs",
+      "returncode": 1,
+      "substantive_assertion_killed": true,
+      "replacements": 1,
+      "seconds": 0.675,
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-codeqa-mutants-zf8cn7ma/completeness_bypass.log"
+    },
+    {
+      "mutant": "fixed_category_guard",
+      "test": "test_graph_transactional_state.ClusterPublicationStateTests.test_same_fingerprint_structural_corruption_recomputes_and_repairs",
+      "returncode": 0,
+      "substantive_assertion_killed": false,
+      "replacements": 1,
+      "seconds": 0.699,
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-codeqa-mutants-zf8cn7ma/fixed_category_guard.log"
+    },
+    {
+      "mutant": "exact_identity_guard",
+      "test": "test_graph_transactional_state.ClusterPublicationStateTests.test_same_fingerprint_structural_corruption_recomputes_and_repairs",
+      "returncode": 1,
+      "substantive_assertion_killed": true,
+      "replacements": 1,
+      "seconds": 0.709,
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-codeqa-mutants-zf8cn7ma/exact_identity_guard.log"
+    },
+    {
+      "mutant": "valid_reset_no_participant",
+      "test": "test_graph_transactional_state.ClusterPublicationStateTests.test_valid_same_fingerprint_reset_republishes_without_expensive_analysis",
+      "returncode": 1,
+      "substantive_assertion_killed": true,
+      "replacements": 1,
+      "seconds": 0.639,
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-codeqa-mutants-zf8cn7ma/valid_reset_no_participant.log"
+    },
+    {
+      "mutant": "fixed_invariant",
+      "test": "test_graph_transactional_state.ClusterPublicationStateTests.test_same_fingerprint_structural_corruption_recomputes_and_repairs",
+      "returncode": 1,
+      "substantive_assertion_killed": true,
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-codeqa-mutants-zf8cn7ma/fixed_invariant.log"
+    },
+    {
+      "mutant": "build_reset_caller",
+      "test": "test_graph_transactional_state.GraphBuildResetTests.test_public_graph_build_version_reset_restores_all_unchanged_members",
+      "returncode": 1,
+      "substantive_assertion_killed": true,
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-codeqa-mutants-zf8cn7ma/build_reset_caller.log"
+    },
+    {
+      "mutant": "orphan_reset_caller",
+      "test": "test_graph_transactional_state.GraphBuildResetTests.test_actual_orphan_reconciliation_reset_caller_restores_members",
+      "returncode": 1,
+      "substantive_assertion_killed": true,
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-codeqa-mutants-zf8cn7ma/orphan_reset_caller.log"
+    },
+    {
+      "mutant": "valid_reuse_expensive",
+      "test": "test_graph_transactional_state.ClusterPublicationStateTests.test_valid_same_fingerprint_reset_republishes_without_expensive_analysis",
+      "returncode": 1,
+      "substantive_assertion_killed": true,
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-codeqa-mutants-zf8cn7ma/valid_reuse_expensive.log"
+    }
+  ],
+  "mutation_survivor_disposition": {
+    "mutant": "fixed_category_guard",
+    "targeted_result": "passes",
+    "whole_file_result": "11 tests/0skips/1.773s OK",
+    "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-codeqa-mutants-zf8cn7ma/fixed_category_guard-whole.log",
+    "explanation": "The early fixed_key check is redundant with final seen_fixed==fixed_members; deleting only that early check does not weaken accepted states. Removing both enforcement points is killed at wrong_fixed_category assertion. No behavioral counterexample, so not a blocking defect. No claim that every individual guard deletion is pinned."
+  },
+  "limits": [
+    "No full CommonMark certification or new parser shipping dependency proposed; only exact supported destination/code-preservation fixtures are claimed.",
+    "No native Windows, live Waveforge/Tensorwell or current full MCP setup readiness qualification.",
+    "Canonical suite/setup are supplied logs independently checked for current receipt; no fresh full suite/setup was run by this reviewer.",
+    "Terminal public repair probe uses generic fixture docs-lint/gardener stubs; typed policy/identity/phase/ledger/gate logic and actual public producers are real.",
+    "Graph completeness certifies structural catalogs/exact eligible identities/fixed categories, not historical semantic production repartition.",
+    "Finite mutants only; one redundant early-guard deletion survived and is disclosed.",
+    "Existing originals01/02 repros pass, but public lane approval remains withheld for replacement C5 defects.",
+    "No approval/events/docs/source writes, close, commit, push or pack publication.",
+    "The renamed distribution run covers exactly LiteralReconcileKeyTests, DigestInputTests, ProfileMigrationTests, FreshProfiledInstallTests, and ProfileInstallingUpgradeTests (24 tests, zero skips). The complete actor/reload/history, inventory/downstream exclusion, shipped-seed, C5 incoming-link, phase, and graph owner suites were run under their default/current declarations; they were not all rerun in the renamed distribution. These are default-only limits, not skipped tests."
+  ],
+  "findings": [
+    {
+      "finding_id": "CODE-QA-204MP-03",
+      "file": ".wavefoundry/framework/scripts/render_agent_surfaces.py",
+      "lines": "3159-3162",
+      "class": "container-reference-destinations",
+      "summary": "Live quoted and wide-list reference definitions are not repaired",
+      "reachability": "supported_entry_point",
+      "confidence": "high",
+      "severity": "medium",
+      "recommended_fix": "Recognize reference-definition offsets after the existing container classification, retaining original byte coordinates; add actual installing controls.",
+      "level": 2,
+      "required_ac": "204mn AC-2",
+      "contract_anchors": [
+        "docs/waves/204mp waveforge-follow-up/204mn-bug moved-role-document-links.md:16",
+        "docs/waves/204mp waveforge-follow-up/204mn-bug moved-role-document-links.md:17",
+        "docs/specs/mcp-tool-surface.md:2183"
+      ],
+      "evidence": {
+        "proposition": "ordinary quoted and1234.-list reference definitions render live links to the old moved role",
+        "failure_condition": "actual post-install bytes differ from the independent literal expected destination-only rewrite or preservation",
+        "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces -> render_agent_surfaces.migrate_council_role_renames",
+        "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/wf-codeqa-c5-public-probe.py; exact case quoted-reference,deep-list-reference",
+        "expected": "Preserve code/non-Markdown bytes and repair the independently parsed supported live destination to its confirmed moved target, with CRLF/mode preserved.",
+        "observed": "Two actual incoming/reinstall fixtures retain old destination instead of new; all modes/moves remain valid.",
+        "artifact_or_test_id": "/tmp/wf-codeqa-c5-public-results.json: quoted-reference,deep-list-reference",
+        "known_bad_detection_method": "current-tree-counterexample",
+        "limitations": "Finite exact fixtures; independent installed MarkdownIt commonmark is a local reference, not a promised full Markdown certification. No native host or live downstream qualification.",
+        "safety_and_authorization": "Only disposable local incoming-framework/target fixtures and reversible probes; authorized delivery review; no repository/state mutation.",
+        "disposition_rationale": "Required204mn AC2 and exact moved-destination/preserved unsupported-byte contract are demonstrably violated on reachable current docs. Detect-only report/idempotence does not repair or prevent the defect."
+      }
+    },
+    {
+      "finding_id": "CODE-QA-204MP-04",
+      "file": ".wavefoundry/framework/scripts/render_agent_surfaces.py",
+      "lines": "3159-3160",
+      "class": "escaped-inline-destinations",
+      "summary": "Valid escaped-prefix inline links are excluded",
+      "reachability": "supported_entry_point",
+      "confidence": "high",
+      "severity": "medium",
+      "recommended_fix": "Classify escape parity and actual image openers before excluding a supported inline destination; retain literal/image controls.",
+      "level": 2,
+      "required_ac": "204mn AC-2",
+      "contract_anchors": [
+        "docs/waves/204mp waveforge-follow-up/204mn-bug moved-role-document-links.md:16",
+        "docs/waves/204mp waveforge-follow-up/204mn-bug moved-role-document-links.md:17",
+        "docs/specs/mcp-tool-surface.md:2183"
+      ],
+      "evidence": {
+        "proposition": "two backslashes before [live] and escaped ! before [live] parse as live ordinary inline links",
+        "failure_condition": "actual post-install bytes differ from the independent literal expected destination-only rewrite or preservation",
+        "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces -> render_agent_surfaces.migrate_council_role_renames",
+        "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/wf-codeqa-c5-public-probe.py; exact case even-backslash-live,escaped-image-prefix-live",
+        "expected": "Preserve code/non-Markdown bytes and repair the independently parsed supported live destination to its confirmed moved target, with CRLF/mode preserved.",
+        "observed": "Both actual incoming/reinstall fixtures leave old links unchanged; single-escape literal-control coverage does not cover parity.",
+        "artifact_or_test_id": "/tmp/wf-codeqa-c5-public-results.json: even-backslash-live,escaped-image-prefix-live",
+        "known_bad_detection_method": "current-tree-counterexample",
+        "limitations": "Finite exact fixtures; independent installed MarkdownIt commonmark is a local reference, not a promised full Markdown certification. No native host or live downstream qualification.",
+        "safety_and_authorization": "Only disposable local incoming-framework/target fixtures and reversible probes; authorized delivery review; no repository/state mutation.",
+        "disposition_rationale": "Required204mn AC2 and exact moved-destination/preserved unsupported-byte contract are demonstrably violated on reachable current docs. Detect-only report/idempotence does not repair or prevent the defect."
+      }
+    },
+    {
+      "finding_id": "CODE-QA-204MP-05",
+      "file": ".wavefoundry/framework/scripts/render_agent_surfaces.py",
+      "lines": "3004-3115",
+      "class": "non-markdown-preservation",
+      "summary": "Raw HTML code/comment contents are rewritten",
+      "reachability": "supported_entry_point",
+      "confidence": "high",
+      "severity": "medium",
+      "recommended_fix": "Preserve recognized raw HTML/code/comment blocks conservatively before destination matching; no full HTML parser or broader syntax claim is required.",
+      "level": 2,
+      "required_ac": "204mn AC-2",
+      "contract_anchors": [
+        "docs/waves/204mp waveforge-follow-up/204mn-bug moved-role-document-links.md:16",
+        "docs/waves/204mp waveforge-follow-up/204mn-bug moved-role-document-links.md:17",
+        "docs/specs/mcp-tool-surface.md:2183"
+      ],
+      "evidence": {
+        "proposition": "Markdown-looking text inside raw <pre> and HTML-comment blocks is not a Markdown link and must retain bytes",
+        "failure_condition": "actual post-install bytes differ from the independent literal expected destination-only rewrite or preservation",
+        "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces -> render_agent_surfaces.migrate_council_role_renames",
+        "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/wf-codeqa-c5-public-probe.py; exact case pre-code-preservation,html-comment-preservation",
+        "expected": "Preserve code/non-Markdown bytes and repair the independently parsed supported live destination to its confirmed moved target, with CRLF/mode preserved.",
+        "observed": "Both actual incoming/reinstall fixtures rewrite [example](old) inside html_block as well as the adjacent genuine live link.",
+        "artifact_or_test_id": "/tmp/wf-codeqa-c5-public-results.json: pre-code-preservation,html-comment-preservation",
+        "known_bad_detection_method": "current-tree-counterexample",
+        "limitations": "Finite exact fixtures; independent installed MarkdownIt commonmark is a local reference, not a promised full Markdown certification. No native host or live downstream qualification.",
+        "safety_and_authorization": "Only disposable local incoming-framework/target fixtures and reversible probes; authorized delivery review; no repository/state mutation.",
+        "disposition_rationale": "Required204mn AC2 and exact moved-destination/preserved unsupported-byte contract are demonstrably violated on reachable current docs. Detect-only report/idempotence does not repair or prevent the defect."
+      }
+    },
+    {
+      "finding_id": "CODE-QA-204MP-06",
+      "file": ".wavefoundry/framework/scripts/render_agent_surfaces.py",
+      "lines": "3079-3102",
+      "class": "fence-opener-classification",
+      "summary": "Ordinary paragraph with backtick-bearing fence-looking text hides a live link",
+      "reachability": "supported_entry_point",
+      "confidence": "high",
+      "severity": "medium",
+      "recommended_fix": "Distinguish valid backtick fence openers from ordinary paragraph text before masking; preserve genuine fences and unmatched inline controls.",
+      "level": 2,
+      "required_ac": "204mn AC-2",
+      "contract_anchors": [
+        "docs/waves/204mp waveforge-follow-up/204mn-bug moved-role-document-links.md:16",
+        "docs/waves/204mp waveforge-follow-up/204mn-bug moved-role-document-links.md:17",
+        "docs/specs/mcp-tool-surface.md:2183"
+      ],
+      "evidence": {
+        "proposition": "```bad`info is an ordinary paragraph opener under the independent parser, followed by a supported live destination",
+        "failure_condition": "actual post-install bytes differ from the independent literal expected destination-only rewrite or preservation",
+        "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces -> render_agent_surfaces.migrate_council_role_renames",
+        "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/wf-codeqa-c5-public-probe.py; exact case invalid-fence-live-paragraph",
+        "expected": "Preserve code/non-Markdown bytes and repair the independently parsed supported live destination to its confirmed moved target, with CRLF/mode preserved.",
+        "observed": "Actual incoming/reinstall fixture leaves the live link old because mask treats the invalid backtick-info opener as a code fence.",
+        "artifact_or_test_id": "/tmp/wf-codeqa-c5-public-results.json: invalid-fence-live-paragraph",
+        "known_bad_detection_method": "current-tree-counterexample",
+        "limitations": "Finite exact fixtures; independent installed MarkdownIt commonmark is a local reference, not a promised full Markdown certification. No native host or live downstream qualification.",
+        "safety_and_authorization": "Only disposable local incoming-framework/target fixtures and reversible probes; authorized delivery review; no repository/state mutation.",
+        "disposition_rationale": "Required204mn AC2 and exact moved-destination/preserved unsupported-byte contract are demonstrably violated on reachable current docs. Detect-only report/idempotence does not repair or prevent the defect."
+      }
+    },
+    {
+      "finding_id": "CODE-QA-204MP-07",
+      "file": ".wavefoundry/framework/scripts/render_agent_surfaces.py",
+      "lines": "3220-3223",
+      "class": "current-rename-pair-directory-move",
+      "summary": "Current native SKILL.md rename pair is treated as an unsupported future directory move",
+      "reachability": "supported_entry_point",
+      "confidence": "high",
+      "severity": "medium",
+      "recommended_fix": "Apply each confirmed current exact rename pair to its whole destination path while preserving relative spelling/suffix/bytes; keep unsupported genuinely unrelated directory changes conservative.",
+      "level": 2,
+      "required_ac": "204mn AC-2",
+      "contract_anchors": [
+        "docs/waves/204mp waveforge-follow-up/204mn-bug moved-role-document-links.md:16",
+        "docs/waves/204mp waveforge-follow-up/204mn-bug moved-role-document-links.md:17",
+        "docs/specs/mcp-tool-surface.md:2183"
+      ],
+      "evidence": {
+        "proposition": "A standard local Markdown destination resolving exactly to current COUNCIL_ROLE_RENAMES[2] must follow its confirmed move",
+        "failure_condition": "actual post-install bytes differ from the independent literal expected destination-only rewrite or preservation",
+        "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces -> render_agent_surfaces.migrate_council_role_renames",
+        "command_or_fixture": "Actual incoming framework fixture: CouncilRoleLinkRepairUpgradeTests setup; create current COUNCIL_ROLE_RENAMES[2] legacy native SKILL.md and peer Current [wrapper](../../../.codex/skills/agent-role-wave-council/SKILL.md#entry). CRLF; invoke _surface twice. Exact expected and observed fixture bytes: /tmp/wf-codeqa-native-link-results.json.",
+        "expected": "Preserve code/non-Markdown bytes and repair the independently parsed supported live destination to its confirmed moved target, with CRLF/mode preserved.",
+        "observed": "Own actual incoming install moves the nativeSKILL.md successfully but leaves its supported inbound fragment-bearing link at the removed directory; repeat remains unchanged.",
+        "artifact_or_test_id": "/tmp/wf-codeqa-native-link-results.json",
+        "known_bad_detection_method": "current-tree-counterexample",
+        "limitations": "Finite exact fixtures; independent installed MarkdownIt commonmark is a local reference, not a promised full Markdown certification. No native host or live downstream qualification.",
+        "safety_and_authorization": "Only disposable local incoming-framework/target fixtures and reversible probes; authorized delivery review; no repository/state mutation.",
+        "disposition_rationale": "Required204mn AC2 and exact moved-destination/preserved unsupported-byte contract are demonstrably violated on reachable current docs. Detect-only report/idempotence does not repair or prevent the defect."
+      }
+    }
+  ],
+  "payloads": {
+    "approvals": [
+      {
+        "wave_id": "207lx",
+        "event": "approval",
+        "actor": "code-reviewer",
+        "context_id": "wf-integrated-code-qa-delivery-20261009-01",
+        "mode": "create",
+        "signoff_key": "code-reviewer",
+        "approval_phase": "delivery",
+        "fresh_context": true,
+        "independent": true,
+        "evidence": {
+          "observed": "Independent code-reviewer approval for 207lx: required AC1\u20135 have executed canonical public and stateful evidence. Seven readiness lanes are accepted while paired delivery is withheld; terminal repair requires fresh delivery approval while preserving readiness. Sealed origin, actor, independence, operator and absent/stale/withheld controls pass. All 39 frozen paths and per-wave SHA256 values are unchanged. This fresh reviewer did not implement or repair; the dual code/QA remit is disclosed.",
+          "artifact_or_test_id": "/tmp/wf-codeqa-phase-own-initial.json; /tmp/wf-codeqa-phase-terminal.json; /tmp/wf-codeqa-phase-diagnostics.json; /tmp/wf-codeqa-mutants-results.json; /tmp/wf-codeqa-graph-more-mutants-results.json; /tmp/wf-codeqa-receipt-proof.json",
+          "proposition": "207lx required AC1\u20135 conform to their independent contracts on the frozen tree",
+          "failure_condition": "A canonical public producer accepts authority from the wrong sealed phase or identity, or rejects current required readiness approvals because delivery findings exist; stale/absent/withheld diagnostics misstate the ledger.",
+          "public_path": "wf_review_event/wf_prepare_wave/wf_implement_wave/wf_close_wave public responses and canonical review projection",
+          "command_or_fixture": "/tmp/wf-codeqa-phase-own-initial.json; /tmp/wf-codeqa-phase-terminal.json; /tmp/wf-codeqa-phase-diagnostics.json",
+          "expected": "Required AC contract behavior and paired negative controls; no gate or oracle weakening.",
+          "known_bad_detection_method": "focused-mutation",
+          "limitations": "Finite probes; canonical suite/setup logs inspected, not rerun. Terminal public repair uses fixture docs-lint/gardener stubs while the typed producer and ledger logic are real. Default/current declarations only for phase controls. See report limits.",
+          "safety_and_authorization": "Authorized local delivery review in disposable roots; no repository/lifecycle/index mutation."
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "focused-mutation"
+        }
+      },
+      {
+        "wave_id": "207lx",
+        "event": "approval",
+        "actor": "qa-reviewer",
+        "context_id": "wf-integrated-code-qa-delivery-20261009-01",
+        "mode": "create",
+        "signoff_key": "qa-reviewer",
+        "approval_phase": "delivery",
+        "fresh_context": true,
+        "independent": true,
+        "evidence": {
+          "observed": "Independent qa-reviewer approval for 207lx: required AC1\u20135 have executed canonical public and stateful evidence. Seven readiness lanes are accepted while paired delivery is withheld; terminal repair requires fresh delivery approval while preserving readiness. Sealed origin, actor, independence, operator and absent/stale/withheld controls pass. All 39 frozen paths and per-wave SHA256 values are unchanged. This fresh reviewer did not implement or repair; the dual code/QA remit is disclosed.",
+          "artifact_or_test_id": "/tmp/wf-codeqa-phase-own-initial.json; /tmp/wf-codeqa-phase-terminal.json; /tmp/wf-codeqa-phase-diagnostics.json; /tmp/wf-codeqa-mutants-results.json; /tmp/wf-codeqa-graph-more-mutants-results.json; /tmp/wf-codeqa-receipt-proof.json",
+          "proposition": "207lx required AC1\u20135 conform to their independent contracts on the frozen tree",
+          "failure_condition": "A canonical public producer accepts authority from the wrong sealed phase or identity, or rejects current required readiness approvals because delivery findings exist; stale/absent/withheld diagnostics misstate the ledger.",
+          "public_path": "wf_review_event/wf_prepare_wave/wf_implement_wave/wf_close_wave public responses and canonical review projection",
+          "command_or_fixture": "/tmp/wf-codeqa-phase-own-initial.json; /tmp/wf-codeqa-phase-terminal.json; /tmp/wf-codeqa-phase-diagnostics.json",
+          "expected": "Required AC contract behavior and paired negative controls; no gate or oracle weakening.",
+          "known_bad_detection_method": "focused-mutation",
+          "limitations": "Finite probes; canonical suite/setup logs inspected, not rerun. Terminal public repair uses fixture docs-lint/gardener stubs while the typed producer and ledger logic are real. Default/current declarations only for phase controls. See report limits.",
+          "safety_and_authorization": "Authorized local delivery review in disposable roots; no repository/lifecycle/index mutation."
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "focused-mutation"
+        }
+      },
+      {
+        "wave_id": "207t4",
+        "event": "approval",
+        "actor": "code-reviewer",
+        "context_id": "wf-integrated-code-qa-delivery-20261009-01",
+        "mode": "create",
+        "signoff_key": "code-reviewer",
+        "approval_phase": "delivery",
+        "fresh_context": true,
+        "independent": true,
+        "evidence": {
+          "observed": "Independent code-reviewer approval for 207t4: required AC1\u20135 have executed public and stateful evidence. Both reset callers, replacement/recomputation, valid cheap reuse, exact eligible/fixed identity recovery, WAL rollback and source/schema/layer controls pass. The independent corpus asserts two production and two evidence IDs, counts, hubs and limits 1/2. Original eight live responses pass with zero skips. Retained Rust source is preserved except truthful analysis_recomputed reset metadata. All 39 frozen paths and per-wave SHA256 values are unchanged. This fresh reviewer did not implement or repair; the dual code/QA remit is disclosed.",
+          "artifact_or_test_id": "/tmp/wf-codeqa-graph-own-public.json; /tmp/wf-codeqa-graph-owners.log; /tmp/wf-codeqa-rust-preservation.json; /tmp/wf-codeqa-mutants-results.json; /tmp/wf-codeqa-graph-more-mutants-results.json; /tmp/wf-codeqa-receipt-proof.json",
+          "proposition": "207t4 required AC1\u20135 conform to their independent contracts on the frozen tree",
+          "failure_condition": "Reset/reuse publication loses exact eligible identities or fixed categories, exposes partial transaction state, changes the independent public rankings, or performs unnecessary expensive analysis during valid reuse.",
+          "public_path": "indexer public graph build + orphan reconcile -> GraphPublication/GraphCommunityPublication transaction -> wf_graph_report_response",
+          "command_or_fixture": "/tmp/wf-codeqa-graph-own-public.json; /tmp/wf-codeqa-graph-owners.log; /tmp/wf-codeqa-rust-preservation.json",
+          "expected": "Required AC contract behavior and paired negative controls; no gate or oracle weakening.",
+          "known_bad_detection_method": "focused-mutation",
+          "limitations": "Finite probes; canonical suite/setup logs inspected, not rerun. Default/current declarations only for graph controls. One redundant early fixed-category guard survives deletion and whole-file checking; combined load-bearing invariant deletion is detected. No claim that every individual guard deletion is mutation-pinned.",
+          "safety_and_authorization": "Authorized local delivery review in disposable roots; no repository/lifecycle/index mutation."
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "focused-mutation"
+        }
+      },
+      {
+        "wave_id": "207t4",
+        "event": "approval",
+        "actor": "qa-reviewer",
+        "context_id": "wf-integrated-code-qa-delivery-20261009-01",
+        "mode": "create",
+        "signoff_key": "qa-reviewer",
+        "approval_phase": "delivery",
+        "fresh_context": true,
+        "independent": true,
+        "evidence": {
+          "observed": "Independent qa-reviewer approval for 207t4: required AC1\u20135 have executed public and stateful evidence. Both reset callers, replacement/recomputation, valid cheap reuse, exact eligible/fixed identity recovery, WAL rollback and source/schema/layer controls pass. The independent corpus asserts two production and two evidence IDs, counts, hubs and limits 1/2. Original eight live responses pass with zero skips. Retained Rust source is preserved except truthful analysis_recomputed reset metadata. All 39 frozen paths and per-wave SHA256 values are unchanged. This fresh reviewer did not implement or repair; the dual code/QA remit is disclosed.",
+          "artifact_or_test_id": "/tmp/wf-codeqa-graph-own-public.json; /tmp/wf-codeqa-graph-owners.log; /tmp/wf-codeqa-rust-preservation.json; /tmp/wf-codeqa-mutants-results.json; /tmp/wf-codeqa-graph-more-mutants-results.json; /tmp/wf-codeqa-receipt-proof.json",
+          "proposition": "207t4 required AC1\u20135 conform to their independent contracts on the frozen tree",
+          "failure_condition": "Reset/reuse publication loses exact eligible identities or fixed categories, exposes partial transaction state, changes the independent public rankings, or performs unnecessary expensive analysis during valid reuse.",
+          "public_path": "indexer public graph build + orphan reconcile -> GraphPublication/GraphCommunityPublication transaction -> wf_graph_report_response",
+          "command_or_fixture": "/tmp/wf-codeqa-graph-own-public.json; /tmp/wf-codeqa-graph-owners.log; /tmp/wf-codeqa-rust-preservation.json",
+          "expected": "Required AC contract behavior and paired negative controls; no gate or oracle weakening.",
+          "known_bad_detection_method": "focused-mutation",
+          "limitations": "Finite probes; canonical suite/setup logs inspected, not rerun. Default/current declarations only for graph controls. One redundant early fixed-category guard survives deletion and whole-file checking; combined load-bearing invariant deletion is detected. No claim that every individual guard deletion is mutation-pinned.",
+          "safety_and_authorization": "Authorized local delivery review in disposable roots; no repository/lifecycle/index mutation."
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "focused-mutation"
+        }
+      }
+    ],
+    "findings": [
+      {
+        "wave_id": "204mp",
+        "event": "finding",
+        "actor": "code-reviewer",
+        "context_id": "wf-integrated-code-qa-delivery-20261009-01",
+        "mode": "create",
+        "finding_id": "CODE-QA-204MP-03",
+        "run_kind": "initial_delivery",
+        "cycle": 0,
+        "judgment": {
+          "validation_status": "real",
+          "scope_relation": "admitted",
+          "introduced_or_worsened_by_wave": true,
+          "contract_relevance": "required_ac",
+          "supported_reachability": true,
+          "attacker_reachability": false,
+          "authority_domain": "none",
+          "authority_delta": "none",
+          "observable_impact": "material",
+          "containment": "none",
+          "fix_risk": "lower",
+          "optional_value": "none",
+          "repair_scope_bounded": true,
+          "repair_safety": "safe",
+          "benefit_vs_fix_risk": "greater",
+          "rejection_basis": "none",
+          "disposition": "do_now",
+          "repair_execution_state": "pending"
+        },
+        "evidence": {
+          "proposition": "ordinary quoted and1234.-list reference definitions render live links to the old moved role",
+          "failure_condition": "actual post-install bytes differ from the independent literal expected destination-only rewrite or preservation",
+          "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces -> render_agent_surfaces.migrate_council_role_renames",
+          "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/wf-codeqa-c5-public-probe.py; exact case quoted-reference,deep-list-reference",
+          "expected": "Preserve code/non-Markdown bytes and repair the independently parsed supported live destination to its confirmed moved target, with CRLF/mode preserved.",
+          "observed": "Two actual incoming/reinstall fixtures retain old destination instead of new; all modes/moves remain valid.",
+          "artifact_or_test_id": "/tmp/wf-codeqa-c5-public-results.json: quoted-reference,deep-list-reference",
+          "known_bad_detection_method": "current-tree-counterexample",
+          "limitations": "Finite exact fixtures; independent installed MarkdownIt commonmark is a local reference, not a promised full Markdown certification. No native host or live downstream qualification.",
+          "safety_and_authorization": "Only disposable local incoming-framework/target fixtures and reversible probes; authorized delivery review; no repository/state mutation.",
+          "disposition_rationale": "Required204mn AC2 and exact moved-destination/preserved unsupported-byte contract are demonstrably violated on reachable current docs. Detect-only report/idempotence does not repair or prevent the defect."
+        },
+        "source_lanes": [
+          "code-reviewer",
+          "qa-reviewer"
+        ],
+        "blocking_required_lanes": [
+          "code-reviewer",
+          "qa-reviewer"
+        ],
+        "approval_recheck_lanes": [
+          "code-reviewer",
+          "qa-reviewer"
+        ],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "current-tree-counterexample"
+        },
+        "fresh_context": true,
+        "independent": true
+      },
+      {
+        "wave_id": "204mp",
+        "event": "finding",
+        "actor": "code-reviewer",
+        "context_id": "wf-integrated-code-qa-delivery-20261009-01",
+        "mode": "create",
+        "finding_id": "CODE-QA-204MP-04",
+        "run_kind": "initial_delivery",
+        "cycle": 0,
+        "judgment": {
+          "validation_status": "real",
+          "scope_relation": "admitted",
+          "introduced_or_worsened_by_wave": true,
+          "contract_relevance": "required_ac",
+          "supported_reachability": true,
+          "attacker_reachability": false,
+          "authority_domain": "none",
+          "authority_delta": "none",
+          "observable_impact": "material",
+          "containment": "none",
+          "fix_risk": "lower",
+          "optional_value": "none",
+          "repair_scope_bounded": true,
+          "repair_safety": "safe",
+          "benefit_vs_fix_risk": "greater",
+          "rejection_basis": "none",
+          "disposition": "do_now",
+          "repair_execution_state": "pending"
+        },
+        "evidence": {
+          "proposition": "two backslashes before [live] and escaped ! before [live] parse as live ordinary inline links",
+          "failure_condition": "actual post-install bytes differ from the independent literal expected destination-only rewrite or preservation",
+          "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces -> render_agent_surfaces.migrate_council_role_renames",
+          "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/wf-codeqa-c5-public-probe.py; exact case even-backslash-live,escaped-image-prefix-live",
+          "expected": "Preserve code/non-Markdown bytes and repair the independently parsed supported live destination to its confirmed moved target, with CRLF/mode preserved.",
+          "observed": "Both actual incoming/reinstall fixtures leave old links unchanged; single-escape literal-control coverage does not cover parity.",
+          "artifact_or_test_id": "/tmp/wf-codeqa-c5-public-results.json: even-backslash-live,escaped-image-prefix-live",
+          "known_bad_detection_method": "current-tree-counterexample",
+          "limitations": "Finite exact fixtures; independent installed MarkdownIt commonmark is a local reference, not a promised full Markdown certification. No native host or live downstream qualification.",
+          "safety_and_authorization": "Only disposable local incoming-framework/target fixtures and reversible probes; authorized delivery review; no repository/state mutation.",
+          "disposition_rationale": "Required204mn AC2 and exact moved-destination/preserved unsupported-byte contract are demonstrably violated on reachable current docs. Detect-only report/idempotence does not repair or prevent the defect."
+        },
+        "source_lanes": [
+          "code-reviewer",
+          "qa-reviewer"
+        ],
+        "blocking_required_lanes": [
+          "code-reviewer",
+          "qa-reviewer"
+        ],
+        "approval_recheck_lanes": [
+          "code-reviewer",
+          "qa-reviewer"
+        ],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "current-tree-counterexample"
+        },
+        "fresh_context": true,
+        "independent": true
+      },
+      {
+        "wave_id": "204mp",
+        "event": "finding",
+        "actor": "code-reviewer",
+        "context_id": "wf-integrated-code-qa-delivery-20261009-01",
+        "mode": "create",
+        "finding_id": "CODE-QA-204MP-05",
+        "run_kind": "initial_delivery",
+        "cycle": 0,
+        "judgment": {
+          "validation_status": "real",
+          "scope_relation": "admitted",
+          "introduced_or_worsened_by_wave": true,
+          "contract_relevance": "required_ac",
+          "supported_reachability": true,
+          "attacker_reachability": false,
+          "authority_domain": "none",
+          "authority_delta": "none",
+          "observable_impact": "material",
+          "containment": "none",
+          "fix_risk": "lower",
+          "optional_value": "none",
+          "repair_scope_bounded": true,
+          "repair_safety": "safe",
+          "benefit_vs_fix_risk": "greater",
+          "rejection_basis": "none",
+          "disposition": "do_now",
+          "repair_execution_state": "pending"
+        },
+        "evidence": {
+          "proposition": "Markdown-looking text inside raw <pre> and HTML-comment blocks is not a Markdown link and must retain bytes",
+          "failure_condition": "actual post-install bytes differ from the independent literal expected destination-only rewrite or preservation",
+          "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces -> render_agent_surfaces.migrate_council_role_renames",
+          "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/wf-codeqa-c5-public-probe.py; exact case pre-code-preservation,html-comment-preservation",
+          "expected": "Preserve code/non-Markdown bytes and repair the independently parsed supported live destination to its confirmed moved target, with CRLF/mode preserved.",
+          "observed": "Both actual incoming/reinstall fixtures rewrite [example](old) inside html_block as well as the adjacent genuine live link.",
+          "artifact_or_test_id": "/tmp/wf-codeqa-c5-public-results.json: pre-code-preservation,html-comment-preservation",
+          "known_bad_detection_method": "current-tree-counterexample",
+          "limitations": "Finite exact fixtures; independent installed MarkdownIt commonmark is a local reference, not a promised full Markdown certification. No native host or live downstream qualification.",
+          "safety_and_authorization": "Only disposable local incoming-framework/target fixtures and reversible probes; authorized delivery review; no repository/state mutation.",
+          "disposition_rationale": "Required204mn AC2 and exact moved-destination/preserved unsupported-byte contract are demonstrably violated on reachable current docs. Detect-only report/idempotence does not repair or prevent the defect."
+        },
+        "source_lanes": [
+          "code-reviewer",
+          "qa-reviewer"
+        ],
+        "blocking_required_lanes": [
+          "code-reviewer",
+          "qa-reviewer"
+        ],
+        "approval_recheck_lanes": [
+          "code-reviewer",
+          "qa-reviewer"
+        ],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "current-tree-counterexample"
+        },
+        "fresh_context": true,
+        "independent": true
+      },
+      {
+        "wave_id": "204mp",
+        "event": "finding",
+        "actor": "code-reviewer",
+        "context_id": "wf-integrated-code-qa-delivery-20261009-01",
+        "mode": "create",
+        "finding_id": "CODE-QA-204MP-06",
+        "run_kind": "initial_delivery",
+        "cycle": 0,
+        "judgment": {
+          "validation_status": "real",
+          "scope_relation": "admitted",
+          "introduced_or_worsened_by_wave": true,
+          "contract_relevance": "required_ac",
+          "supported_reachability": true,
+          "attacker_reachability": false,
+          "authority_domain": "none",
+          "authority_delta": "none",
+          "observable_impact": "material",
+          "containment": "none",
+          "fix_risk": "lower",
+          "optional_value": "none",
+          "repair_scope_bounded": true,
+          "repair_safety": "safe",
+          "benefit_vs_fix_risk": "greater",
+          "rejection_basis": "none",
+          "disposition": "do_now",
+          "repair_execution_state": "pending"
+        },
+        "evidence": {
+          "proposition": "```bad`info is an ordinary paragraph opener under the independent parser, followed by a supported live destination",
+          "failure_condition": "actual post-install bytes differ from the independent literal expected destination-only rewrite or preservation",
+          "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces -> render_agent_surfaces.migrate_council_role_renames",
+          "command_or_fixture": "/Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/wf-codeqa-c5-public-probe.py; exact case invalid-fence-live-paragraph",
+          "expected": "Preserve code/non-Markdown bytes and repair the independently parsed supported live destination to its confirmed moved target, with CRLF/mode preserved.",
+          "observed": "Actual incoming/reinstall fixture leaves the live link old because mask treats the invalid backtick-info opener as a code fence.",
+          "artifact_or_test_id": "/tmp/wf-codeqa-c5-public-results.json: invalid-fence-live-paragraph",
+          "known_bad_detection_method": "current-tree-counterexample",
+          "limitations": "Finite exact fixtures; independent installed MarkdownIt commonmark is a local reference, not a promised full Markdown certification. No native host or live downstream qualification.",
+          "safety_and_authorization": "Only disposable local incoming-framework/target fixtures and reversible probes; authorized delivery review; no repository/state mutation.",
+          "disposition_rationale": "Required204mn AC2 and exact moved-destination/preserved unsupported-byte contract are demonstrably violated on reachable current docs. Detect-only report/idempotence does not repair or prevent the defect."
+        },
+        "source_lanes": [
+          "code-reviewer",
+          "qa-reviewer"
+        ],
+        "blocking_required_lanes": [
+          "code-reviewer",
+          "qa-reviewer"
+        ],
+        "approval_recheck_lanes": [
+          "code-reviewer",
+          "qa-reviewer"
+        ],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "current-tree-counterexample"
+        },
+        "fresh_context": true,
+        "independent": true
+      },
+      {
+        "wave_id": "204mp",
+        "event": "finding",
+        "actor": "code-reviewer",
+        "context_id": "wf-integrated-code-qa-delivery-20261009-01",
+        "mode": "create",
+        "finding_id": "CODE-QA-204MP-07",
+        "run_kind": "initial_delivery",
+        "cycle": 0,
+        "judgment": {
+          "validation_status": "real",
+          "scope_relation": "admitted",
+          "introduced_or_worsened_by_wave": true,
+          "contract_relevance": "required_ac",
+          "supported_reachability": true,
+          "attacker_reachability": false,
+          "authority_domain": "none",
+          "authority_delta": "none",
+          "observable_impact": "material",
+          "containment": "detect_only",
+          "fix_risk": "lower",
+          "optional_value": "none",
+          "repair_scope_bounded": true,
+          "repair_safety": "safe",
+          "benefit_vs_fix_risk": "greater",
+          "rejection_basis": "none",
+          "disposition": "do_now",
+          "repair_execution_state": "pending"
+        },
+        "evidence": {
+          "proposition": "A standard local Markdown destination resolving exactly to current COUNCIL_ROLE_RENAMES[2] must follow its confirmed move",
+          "failure_condition": "actual post-install bytes differ from the independent literal expected destination-only rewrite or preservation",
+          "public_path": "upgrade_wavefoundry.phase_surface_rendering -> incoming render_platform_surfaces -> render_agent_surfaces.migrate_council_role_renames",
+          "command_or_fixture": "Actual incoming framework fixture: CouncilRoleLinkRepairUpgradeTests setup; create current COUNCIL_ROLE_RENAMES[2] legacy native SKILL.md and peer Current [wrapper](../../../.codex/skills/agent-role-wave-council/SKILL.md#entry). CRLF; invoke _surface twice. Exact expected and observed fixture bytes: /tmp/wf-codeqa-native-link-results.json.",
+          "expected": "Preserve code/non-Markdown bytes and repair the independently parsed supported live destination to its confirmed moved target, with CRLF/mode preserved.",
+          "observed": "Own actual incoming install moves the nativeSKILL.md successfully but leaves its supported inbound fragment-bearing link at the removed directory; repeat remains unchanged.",
+          "artifact_or_test_id": "/tmp/wf-codeqa-native-link-results.json",
+          "known_bad_detection_method": "current-tree-counterexample",
+          "limitations": "Finite exact fixtures; independent installed MarkdownIt commonmark is a local reference, not a promised full Markdown certification. No native host or live downstream qualification.",
+          "safety_and_authorization": "Only disposable local incoming-framework/target fixtures and reversible probes; authorized delivery review; no repository/state mutation.",
+          "disposition_rationale": "Required204mn AC2 and exact moved-destination/preserved unsupported-byte contract are demonstrably violated on reachable current docs. Detect-only report/idempotence does not repair or prevent the defect."
+        },
+        "source_lanes": [
+          "code-reviewer",
+          "qa-reviewer"
+        ],
+        "blocking_required_lanes": [
+          "code-reviewer",
+          "qa-reviewer"
+        ],
+        "approval_recheck_lanes": [
+          "code-reviewer",
+          "qa-reviewer"
+        ],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "current-tree-counterexample"
+        },
+        "fresh_context": true,
+        "independent": true
+      }
+    ]
+  },
+  "completed_at_utc": "2026-10-09T05:58:07.425216+00:00"
+}

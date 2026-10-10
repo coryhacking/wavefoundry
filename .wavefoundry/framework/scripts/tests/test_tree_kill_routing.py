@@ -96,8 +96,12 @@ ROUTED = {
     ("wf_server/dashboard_handlers.py", "_terminate_dashboard_pid", "_mcp_subprocess_run"): 1,
     ("techdocs_audit_lib.py", "run_techdocs_audit", "run_with_tree_kill"): 1,
     ("upgrade_wavefoundry.py", "_delegated_summary_payload", "run_with_tree_kill"): 1,
+    ("upgrade_wavefoundry.py", "_collect_reconciliation_report", "run_with_tree_kill"): 1,
     ("upgrade_wavefoundry.py", "_read_installed_graph_builder_version", "run_with_tree_kill"): 1,
     ("upgrade_wavefoundry.py", "_run_hook", "run_with_tree_kill"): 1,
+    # Wave 204mp: incoming role-link preview is a bounded private Python child;
+    # route through the incoming helper so timeout also ends its descendants.
+    ("upgrade_extensions.py", "_preview_council_role_links", "run_with_tree_kill"): 1,
     # index_state_store._run_git resolves the helper and keeps the sanitized git env (wave 1z8ox).
     ("commit_provenance.py", "_git", "_run_git"): 1,
     ("index_state_store.py", "_batch_git_blobs", "_run_git"): 1,

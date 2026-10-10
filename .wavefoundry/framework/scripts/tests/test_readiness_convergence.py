@@ -218,8 +218,15 @@ class ReadinessSignalTests(unittest.TestCase):
             gates = self._diagnostics(activated, 'prepare_review_incomplete')
             self.assertEqual(len(gates), bool(expected), activated)
             if expected:
-                actual = re.search(r'approval: (.*?)\. Run', gates[0]['message']).group(1).split(', ')
+                actual = [row['lane'] for row in gates[0]['lane_results']]
                 self.assertEqual(set(actual), set(expected))
+                self.assertEqual(gates[0]['lane_results'], advice[0]['lane_results'])
+                for row in gates[0]['lane_results']:
+                    self.assertFalse(row['approval_current'])
+                    self.assertEqual(row['approval_phase'], 'readiness')
+                    self.assertIn(row['approval_state'], {'absent', 'stale'})
+                    self.assertTrue(row['why'])
+                    self.assertTrue(row['next_action'])
             return prepared
 
         check(['code-reviewer', 'qa-reviewer', 'security-reviewer'])  # stale wave lane + absent project lane

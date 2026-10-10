@@ -1,0 +1,37 @@
+--- .wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py
++++ .wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py
+@@ -3187,9 +3187,34 @@
+             "title_contains_link_literal": (
+                 '[A](OLD "[CODE](OLD)") [LIVE](OLD)\n',
+                 '[A](NEW "[CODE](OLD)") [LIVE](NEW)\n'),
++            "title_image_reference_is_literal": (
++                '[A](elsewhere "![icon][ref]")\n\n[ref]: OLD\n\n[LIVE](OLD)\n',
++                '[A](elsewhere "![icon][ref]")\n\n[ref]: NEW\n\n[LIVE](NEW)\n'),
+             "code_opens_before_apparent_link_title": (
+                 'Paragraph ` [A](OLD "`") [LIVE](OLD)\n',
+                 'Paragraph ` [A](OLD "`") [LIVE](NEW)\n'),
++        })
++
++    def test_installing_upgrade_preserves_autolink_atoms_and_code_precedence(self):
++        self._assert_incoming_role_link_cases({
++            "uri_link_literal": (
++                'Paragraph <https://example.invalid/[CODE](OLD)> [LIVE](OLD)\n',
++                'Paragraph <https://example.invalid/[CODE](OLD)> [LIVE](NEW)\n'),
++            "custom_scheme_query_link_literal": (
++                'Paragraph <custom+protocol://example.invalid/?x=[CODE](OLD)> [LIVE](OLD)\n',
++                'Paragraph <custom+protocol://example.invalid/?x=[CODE](OLD)> [LIVE](NEW)\n'),
++            "uri_tick_is_literal": (
++                'Paragraph <https://example.invalid/?x=`> [LIVE](OLD) tail `\n',
++                'Paragraph <https://example.invalid/?x=`> [LIVE](NEW) tail `\n'),
++            "email_tick_is_literal": (
++                'Paragraph <a`@example.invalid> [LIVE](OLD) tail `\n',
++                'Paragraph <a`@example.invalid> [LIVE](NEW) tail `\n'),
++            "code_opens_before_apparent_uri": (
++                'Paragraph ` <https://example.invalid/[CODE](OLD)?x=`> [LIVE](OLD)\n',
++                'Paragraph ` <https://example.invalid/[CODE](OLD)?x=`> [LIVE](NEW)\n'),
++            "code_opens_before_apparent_email": (
++                'Paragraph ` <a`@example.invalid> [LIVE](OLD)\n',
++                'Paragraph ` <a`@example.invalid> [LIVE](NEW)\n'),
+         })
+ 
+     def test_installing_upgrade_respects_reference_definition_context(self):

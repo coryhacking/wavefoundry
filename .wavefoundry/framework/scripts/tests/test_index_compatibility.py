@@ -391,6 +391,65 @@ except ic.IndexCompatibilityError as exc:
         _, stderr = fresh.communicate(timeout=25)
         self.assertEqual(fresh.returncode, 0, stderr)
 
+    def test_operational_evidence_source_replacement_is_stale_before_lazy_import(self):
+        copied = Path(self.tmp.name) / "evidence-scripts"
+        copied.mkdir()
+        for name in set((*ic._SOURCE_NAMES, "operational_evidence", "index_compatibility")):
+            shutil.copy2(SCRIPTS / (name + ".py"), copied / (name + ".py"))
+        source = """import chunker
+import index_compatibility as ic
+ic.ensure_runtime_current()
+print('unchanged', flush=True)
+input()
+try:
+    ic.ensure_runtime_current()
+    print('accepted', flush=True)
+except ic.IndexCompatibilityError as exc:
+    print(exc.code + ':' + exc.component, flush=True)
+"""
+        process = self.child(source, extra_path=copied)
+        self.assertEqual(_line(process), "unchanged")
+        path = copied / "operational_evidence.py"
+        before = path.stat()
+        original = path.read_bytes()
+        changed = original.replace(b'"evidence-"', b'"evidencx-"')
+        self.assertNotEqual(original, changed)
+        self.assertEqual(len(original), len(changed))
+        path.write_bytes(changed)
+        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+        process.stdin.write("check\n")
+        process.stdin.flush()
+        self.assertEqual(_line(process), "index_runtime_stale:operational_evidence")
+        _, stderr = process.communicate(timeout=25)
+        self.assertEqual(process.returncode, 0, stderr)
+
+    def test_compiled_old_evidence_policy_cannot_capture_new_installed_bytes(self):
+        copied = Path(self.tmp.name) / "compiled-evidence-scripts"
+        copied.mkdir()
+        for name in (*ic._SOURCE_NAMES, "index_compatibility"):
+            shutil.copy2(SCRIPTS / (name + ".py"), copied / (name + ".py"))
+        source = """import sys
+from pathlib import Path
+path=Path(sys.argv[1])/'operational_evidence.py'
+code=compile(path.read_bytes(),str(path),'exec',dont_inherit=True)
+print('compiled',flush=True)
+input()
+try:
+    exec(code,{'__name__':'old_loaded_evidence','__file__':str(path)})
+    print('accepted',flush=True)
+except Exception as exc:
+    print(getattr(exc,'code',type(exc).__name__),flush=True)
+"""
+        process = self.child(source, copied, extra_path=copied)
+        self.assertEqual(_line(process), "compiled")
+        path = copied / "operational_evidence.py"
+        path.write_bytes(path.read_bytes().replace(b'"evidence-"', b'"evidencx-"'))
+        process.stdin.write("execute-old-code\n")
+        process.stdin.flush()
+        self.assertEqual(_line(process), "index_runtime_stale")
+        _, stderr = process.communicate(timeout=25)
+        self.assertEqual(process.returncode, 0, stderr)
+
     def test_compiled_old_module_cannot_capture_new_installed_bytes(self):
         copied = Path(self.tmp.name) / 'compiled-scripts'; copied.mkdir()
         for name in (*ic._SOURCE_NAMES, 'index_compatibility'):

@@ -1,0 +1,14 @@
+
+── Phase 3: Docs gate ──
+docs-gardener: ok (nothing to report)
+WARNING: docs/waves/change-2026-03/wave.md: change `00058-bug fixture-core` status drift: the wave record says `complete` but `docs/waves/change-2026-03/00058-bug fixture-core.md` says no readable status; update whichever is wrong
+WARNING: docs/waves/change-2026-03/wave.md: change `00059-enh fixture-follow-up` status drift: the wave record says `ready` but `docs/waves/change-2026-03/00059-enh fixture-follow-up.md` says no readable status; update whichever is wrong
+docs-lint: ok
+  Docs gate: PASSED
+..render_platform_surfaces: ERROR — council role migration blocked: docs/agents/specialists/wave-council.md -> docs/agents/specialists/council-chair.md: both exist. All files were preserved and nothing was written. Merge any project-authored prose from each old file into its new file, remove the old file, and rerun the upgrade.
+.render_platform_surfaces: ERROR — council role link repair stopped at docs/agents/specialists/researcher.md (RuntimeError); earlier moves or edits may be complete; restore access and rerun
+.......
+----------------------------------------------------------------------
+Ran 10 tests in 4.309s
+
+OK

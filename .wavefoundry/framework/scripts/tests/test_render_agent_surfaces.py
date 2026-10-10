@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import os
+import stat
 import io
 import subprocess
 import sys
@@ -1717,14 +1719,14 @@ class ChangePromptRenameMigrationTests(unittest.TestCase):
             root = Path(temp_dir)
             custom = self._pre_rename_repo(root)
             manifest_before = (root / self.MANIFEST).read_bytes()
-            real_unlink = Path.unlink
+            real_unlink = ras.contained_files.unlink_contained
 
-            def failing_unlink(path_self, *args, **kwargs):
+            def failing_unlink(root, path_self, *args, **kwargs):
                 if path_self.name == Path(self.OLD_PLAN).name:
                     raise PermissionError("denied")
-                return real_unlink(path_self, *args, **kwargs)
+                return real_unlink(root, path_self, *args, **kwargs)
 
-            with patch.object(Path, "unlink", failing_unlink), self.assertRaisesRegex(
+            with patch.object(ras.contained_files, "unlink_contained", failing_unlink), self.assertRaisesRegex(
                 RuntimeError, "change prompt migration blocked while removing"
             ) as raised:
                 ras.migrate_change_prompt_renames(root)
@@ -1746,7 +1748,7 @@ class ChangePromptRenameMigrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self._pre_rename_repo(root)
-            with patch.object(ras, "_read_move_source",
+            with patch.object(ras, "_read_move_source_identity",
                               side_effect=_sentinel_error(OSError, 5, str(root / self.OLD_PLAN))), \
                     self.assertRaises(RuntimeError) as raised:
                 ras.migrate_change_prompt_renames(root)
@@ -1754,14 +1756,14 @@ class ChangePromptRenameMigrationTests(unittest.TestCase):
             self._assert_path_free(message, root)
             self.assertIn(self.OLD_PLAN, message)
             self.assertIn("(OSError)", message)
-            real_unlink = Path.unlink
+            real_unlink = ras.contained_files.unlink_contained
 
-            def failing_unlink(path_self, *args, **kwargs):
+            def failing_unlink(root, path_self, *args, **kwargs):
                 if path_self.name == Path(self.OLD_PLAN).name:
                     raise _sentinel_error(path=str(path_self))
-                return real_unlink(path_self, *args, **kwargs)
+                return real_unlink(root, path_self, *args, **kwargs)
 
-            with patch.object(Path, "unlink", failing_unlink), self.assertRaises(RuntimeError) as raised:
+            with patch.object(ras.contained_files, "unlink_contained", failing_unlink), self.assertRaises(RuntimeError) as raised:
                 ras.migrate_change_prompt_renames(root)
             message = str(raised.exception)
             self._assert_path_free(message, root)
@@ -4560,18 +4562,18 @@ class RenderMessageHygieneTests(unittest.TestCase):
             old = root / ras.REVIEW_PLAN_OLD_PROMPT
             old.parent.mkdir(parents=True)
             old.write_text(legacy, encoding="utf-8")
-            with patch.object(ras, "_read_move_source", side_effect=_sentinel_error(OSError, 5, str(old))), \
+            with patch.object(ras, "_read_move_source_identity", side_effect=_sentinel_error(OSError, 5, str(old))), \
                     self.assertRaises(RuntimeError) as caught:
                 ras.migrate_review_plan_prompt(root)
             self.assert_hygienic(str(caught.exception), root, ras.REVIEW_PLAN_OLD_PROMPT, "OSError")
-            real_unlink = Path.unlink
+            real_unlink = ras.contained_files.unlink_contained
 
-            def _unlink(path, *args, **kwargs):
+            def _unlink(root, path, *args, **kwargs):
                 if path.name == Path(ras.REVIEW_PLAN_OLD_PROMPT).name:
                     raise _sentinel_error(path=str(path))
-                return real_unlink(path, *args, **kwargs)
+                return real_unlink(root, path, *args, **kwargs)
 
-            with patch.object(Path, "unlink", _unlink), self.assertRaises(RuntimeError) as caught:
+            with patch.object(ras.contained_files, "unlink_contained", _unlink), self.assertRaises(RuntimeError) as caught:
                 ras.migrate_review_plan_prompt(root)
             self.assert_hygienic(str(caught.exception), root, ras.REVIEW_PLAN_OLD_PROMPT, "PermissionError")
 
@@ -4638,6 +4640,62 @@ class DisplayNameTests(unittest.TestCase):
         for raw, shown in cases.items():
             with self.subTest(raw=repr(raw)):
                 self.assertEqual(ras._display_name(raw), shown)
+
+
+class MovePublicationIdentityTests(unittest.TestCase):
+    def test_actual_publication_identity_across_all_byte_publisher_branches(self):
+        for branch in ("hard-link", "direct-copy", "windows-rename"):
+            with self.subTest(branch=branch), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                target = root / "docs" / "new.md"
+                captured = {}
+                real_open = ras._exclusive_open
+                real_link = os.link
+
+                def track_open(parent, fd, name, flags):
+                    opened = real_open(parent, fd, name, flags)
+                    entry = os.fstat(opened)
+                    captured["target" if name == target.name else "temporary"] = (entry.st_dev, entry.st_ino)
+                    return opened
+
+                def link(*args, **kwargs):
+                    if branch != "hard-link":
+                        raise OSError(1, "no hard links")
+                    return real_link(*args, **kwargs)
+
+                with patch.object(ras, "_exclusive_open", side_effect=track_open), \
+                        patch.object(os, "link", side_effect=link), \
+                        patch.object(ras.contained_files, "_windows", return_value=branch == "windows-rename"), \
+                        patch.object(ras.contained_files, "_dir_fd_supported", return_value=ras.contained_files._DIR_FD_SUPPORTED and branch != "windows-rename"):
+                    judged, identity = ras._write_bytes_atomic_exclusive_identity(target, b"body\r\n", root=root, mode=0o444)
+                actual = target.stat()
+                self.assertEqual(judged, target)
+                self.assertEqual(identity, (actual.st_dev, actual.st_ino))
+                self.assertEqual(target.read_bytes(), b"body\r\n")
+                if hasattr(os, "fchmod"):
+                    self.assertEqual(stat.S_IMODE(actual.st_mode), 0o444)
+                if branch == "direct-copy":
+                    self.assertEqual(identity, captured["target"])
+                    self.assertNotEqual(identity, captured["temporary"], "fallback creates a distinct inode")
+                else:
+                    self.assertEqual(identity, captured["temporary"])
+                ras.contained_files.unlink_contained(root, judged, expected_identity=identity)
+                self.assertFalse(target.exists())
+                self.assertEqual(list(target.parent.iterdir()), [])
+
+    def test_text_publication_companion_and_legacy_returns(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            target = root / "new.md"
+            judged, identity = ras._write_text_exclusive_identity(target, "body\r\n", root=root, mode=0o444)
+            entry = target.stat()
+            self.assertEqual((judged, identity), (target, (entry.st_dev, entry.st_ino)))
+            self.assertEqual(target.read_bytes(), b"body\r\n")
+            if hasattr(os, "fchmod"):
+                self.assertEqual(stat.S_IMODE(entry.st_mode), 0o444)
+            self.assertIsNone(ras._write_text_exclusive(root / "old-text.md", "text", root=root))
+            self.assertIsNone(ras._write_bytes_atomic_exclusive(root / "old-bytes.md", b"bytes", root=root))
+            self.assertIsNone(ras._write_review_carrier_text(root / "carrier.md", b"carrier", exclusive=True, root=root))
 
 
 if __name__ == "__main__":

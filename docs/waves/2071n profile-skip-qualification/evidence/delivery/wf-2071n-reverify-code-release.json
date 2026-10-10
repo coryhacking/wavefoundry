@@ -1,0 +1,424 @@
+{
+  "wave_id": "2071n",
+  "change_id": "205jp-bug profile-skip-qualification",
+  "phase": "delivery",
+  "repair_cycle": 1,
+  "created_utc": "2026-10-09T21:37:19.131638+00:00",
+  "contexts": {
+    "code-reviewer": {
+      "actor": "code-reviewer",
+      "context_id": "2071n-reverify-code-independent-20261009",
+      "fresh_context": true,
+      "independent": true
+    },
+    "release-reviewer": {
+      "actor": "release-reviewer",
+      "context_id": "2071n-reverify-release-independent-20261009",
+      "fresh_context": true,
+      "independent": true
+    }
+  },
+  "roles_share_one_disclosed_independent_agent_context": true,
+  "source_fingerprint_before": "c7bd807a8edbe7878841b4e2971e6405f5bc7418e60ed86658125e770bc039d0",
+  "source_fingerprint_after": "c7bd807a8edbe7878841b4e2971e6405f5bc7418e60ed86658125e770bc039d0",
+  "packet_match_before": true,
+  "packet_match_after": true,
+  "only_two_paths_changed_from_initial": [
+    ".wavefoundry/framework/scripts/tests/test_profile_support.py",
+    "docs/architecture/testing-architecture.md"
+  ],
+  "other13paths_unchanged": true,
+  "independent_reference": "Independently read admitted AC2/requirements2/3/5, original corpus >100 and zero-rejected assertions; executed public graph response fixture provenance contrasted with hand-authored coverage claim. Parent and implementer evidence were not used as proof.",
+  "pre_primer_priors": {
+    "artifact_fingerprint": "c7bd807a8edbe7878841b4e2971e6405f5bc7418e60ed86658125e770bc039d0",
+    "code_prior": {
+      "probability_material_blocker": 0.18,
+      "assessment": "Derived regex is now restored consistently with base label inside the stock-profile simulation; corpus >100 and zero-rejected original assertions remain. Actual second/declared execution and deletion control remain to establish it."
+    },
+    "release_prior": {
+      "probability_material_blocker": 0.25,
+      "assessment": "Current coverage sentence accurately describes hermetic fixture provenance and disclaims live setup. Full qualification still pending; no release approval can be given."
+    },
+    "before_primer": true
+  },
+  "primer_opened_after_prior_record": true,
+  "primer_depth": "full",
+  "review_scope": "targeted fresh delivery reverification cycle1; not a fresh full primer cycle",
+  "primer_answers": [
+    {
+      "question": 1,
+      "answer": "Full final default/second/declared same-tree exact skip qualification remains pending; own canonical focused test_profile_support runs are76/0skip/green in each. These do not satisfy full packaging qualification."
+    },
+    {
+      "question": 2,
+      "answer": "Own actual21 affected graph cases pass0skips with original independent presence, machine/ordinary classification, literal top2 ranking, queryable-ID/count and crossing assertions. Actual producer root instrumentation confirms scratch source publication. Other13paths unchanged so no broad graph/historical mutant repeat was required; earlier independent evidence is retained by provenance, not claimed as my execution."
+    },
+    {
+      "question": 3,
+      "answer": "Historical sources/test seams are unchanged among13exact packet paths. Existing initial independent old-carrier/current-reconciler, old-entry/current-sibling, denied-Git-ref and byte-integrity reports remain applicable to unchanged artifacts. I did not rerun them in this targeted cycle and make no new historical universal execution claim. Runtimecache/nativeWindows/freshhost/downstream/archive remain unproven."
+    }
+  ],
+  "primer_effect": "Exact skip reconciliation remains a required pending final gate; the existing primer reinforced the limited proof ceiling of hermetic fixtures and source digests. It did not reveal another repair defect or justify broad scope expansion.",
+  "false_positive_before_after": {
+    "code-reviewer": {
+      "pre_primer_material_blocker_probability": 0.18,
+      "post_probe_repair_blocker_probability": 0.03,
+      "effect": "Three actual focused profiles and deletion control refute the concern that regex restoration masks corpus execution; final qualification still required"
+    },
+    "release-reviewer": {
+      "pre_primer_material_blocker_probability": 0.25,
+      "post_probe_repair_blocker_probability": 0.04,
+      "effect": "Observed scratch provenance agrees with repaired prose; injected previous live claim fails. Fullreleasequalification remains withheld"
+    }
+  },
+  "mutation_table": [
+    {
+      "property": "derived-regex restoration",
+      "baseline": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "details": []
+      },
+      "mutant": {
+        "tests": 1,
+        "failures": 1,
+        "errors": 0,
+        "skips": 0,
+        "details": [
+          "Traceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-2071n-code-mutant-nu0s1o1m/repo/.wavefoundry/framework/scripts/tests/test_profile_support.py\", line 287, in test_repository_corpus_runs_under_declared_tools\n    self.assertEqual(result.failures, [])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [(<test_change_id_path_guard.IsChangeIdTes[655 chars]\\n')] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n(<test_change_id_path_guard.IsChangeIdTests testMethod=test_accepts_every_admitted_id_in_this_repository>, 'Traceback (most recent call last):\\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-2071n-code-mutant-nu0s1o1m/repo/.wavefoundry/framework/scripts/tests/record_layout_support.py\", line 956, in wrapper\\n    return func(*args, **kwargs)\\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-2071n-code-mutant-nu0s1o1m/repo/.wavefoundry/framework/scripts/tests/test_change_id_path_guard.py\", line 236, in test_accepts_every_admitted_id_in_this_repository\\n    self.assertGreater(len(ids), 100)\\n    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^\\nAssertionError: 0 not greater than 100\\n')\n\nDiff is 784 characters long. Set self.maxDiff to None to see it.\n"
+        ]
+      },
+      "detected": true
+    },
+    {
+      "property": "truthful coverage provenance",
+      "baseline": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "failure_details": []
+      },
+      "mutant": {
+        "tests": 1,
+        "failures": 1,
+        "errors": 0,
+        "skips": 0,
+        "failure_details": [
+          "Traceback (most recent call last):\n  File \"/private/tmp/wf-2071n-reverify-doc-control.py\", line 17, in runTest\n    def runTest(self): self.assertEqual(self.claimed,observed,'Claimed coverage provenance contradicts observed real public-response fixture root')\n                       ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'checkout-live-after-canonical-setup' != 'scratch-hermetic-source'\n- checkout-live-after-canonical-setup\n+ scratch-hermetic-source\n : Claimed coverage provenance contradicts observed real public-response fixture root\n"
+        ]
+      },
+      "detected": true,
+      "limitation": "Semantic documentation comparator, not an existing repository test"
+    }
+  ],
+  "reverifications": [
+    {
+      "finding_id": "QA-2071N-01",
+      "cycle": 1,
+      "run_kind": "reverification",
+      "verification_context": {
+        "actor": "code-reviewer",
+        "context_id": "2071n-reverify-code-independent-20261009",
+        "fresh_context": true,
+        "independent": true
+      },
+      "validation_status": "real",
+      "scope_relation": "admitted",
+      "introduced_or_worsened_by_wave": true,
+      "contract_relevance": "public_contract",
+      "supported_reachability": true,
+      "attacker_reachability": false,
+      "authority_domain": "none",
+      "authority_delta": "none",
+      "observable_impact": "medium",
+      "containment": "none",
+      "fix_risk": "lower",
+      "repair_scope_bounded": true,
+      "repair_safety": "safe",
+      "repair_execution_state": "completed",
+      "lane_reverification": "clear this actor only; coordinator must derive remaining lanes from current typed action",
+      "remaining_lanes_from_initial_input": [
+        "qa-reviewer",
+        "release-reviewer"
+      ],
+      "proposition": "Stock-profile corpus simulation synchronizes derived label regex, so the declared corpus assertion executes under actual second/declared/default profile runs",
+      "counterexample_or_failure_condition": "Actual supported-profile selected meta-test fails, errors or skips; deletion control does not fail the corpus assertion",
+      "execution_status": "executed",
+      "public_path": "Canonical run_tests.py --profile second/declared --file test_profile_support.py; real IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository through DefaultProfileOnlyMarkerTests",
+      "command_or_fixture": "/private/tmp/wf-2071n-reverify-code-release-probe.py; canonical run_tests.py --file test_profile_support.py with default/second/declared",
+      "expected": "Each focused profile76/0skip/green; selected corpus baseline1pass; derived-regex deletion1failure/0errors/0skips",
+      "observed": {
+        "profiles": {
+          "default": {
+            "tests": 76,
+            "failures": 0,
+            "errors": 0,
+            "skips": 0
+          },
+          "second": {
+            "tests": 76,
+            "failures": 0,
+            "errors": 0,
+            "skips": 0
+          },
+          "declared": {
+            "tests": 76,
+            "failures": 0,
+            "errors": 0,
+            "skips": 0
+          }
+        },
+        "baseline": {
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0,
+          "details": []
+        },
+        "mutant": {
+          "tests": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0,
+          "details": [
+            "Traceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-2071n-code-mutant-nu0s1o1m/repo/.wavefoundry/framework/scripts/tests/test_profile_support.py\", line 287, in test_repository_corpus_runs_under_declared_tools\n    self.assertEqual(result.failures, [])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [(<test_change_id_path_guard.IsChangeIdTes[655 chars]\\n')] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n(<test_change_id_path_guard.IsChangeIdTests testMethod=test_accepts_every_admitted_id_in_this_repository>, 'Traceback (most recent call last):\\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-2071n-code-mutant-nu0s1o1m/repo/.wavefoundry/framework/scripts/tests/record_layout_support.py\", line 956, in wrapper\\n    return func(*args, **kwargs)\\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-2071n-code-mutant-nu0s1o1m/repo/.wavefoundry/framework/scripts/tests/test_change_id_path_guard.py\", line 236, in test_accepts_every_admitted_id_in_this_repository\\n    self.assertGreater(len(ids), 100)\\n    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^\\nAssertionError: 0 not greater than 100\\n')\n\nDiff is 784 characters long. Set self.maxDiff to None to see it.\n"
+          ]
+        }
+      },
+      "artifact_or_test_id": "/private/tmp/wf-2071n-reverify-code-default.log; /private/tmp/wf-2071n-reverify-code-second.log; /private/tmp/wf-2071n-reverify-code-declared.log; DefaultProfileOnlyMarkerTests.test_repository_corpus_runs_under_declared_tools",
+      "adjacent_controls": [
+        "All three focused marker profile files, including explicit renamed-layout skip test",
+        "21 actual affected hermetic graph cases; original presence/classification/ranking/lookup/crossing assertions"
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "known_bad_detection_method": "focused-mutation: delete only derived MEMBER_ID_LABEL_RE restoration in scratch second-profile tree; original selected corpus assertion fails1/0errors/0skips",
+      "limitations": "Targeted repair reverification only; full default/second/declared final qualification and exact skip census are pending. Documentation provenance comparator is reviewer-authored with a semantically interpreted old claim, not a repository coverage test. No nativeWindows/freshhost/downstream/packagearchive/runtimecache qualification.",
+      "safety_and_authorization": "Authorized delivery review; read-only source/docs/ledger; scratch-only copies/mutations and output files. Canonical profile runner scratch Git initialization is isolated. Toolvenv python -B with PYTHONPYCACHEPREFIX unset.",
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "universal_claim": false
+    },
+    {
+      "finding_id": "QA-2071N-01",
+      "cycle": 1,
+      "run_kind": "reverification",
+      "verification_context": {
+        "actor": "release-reviewer",
+        "context_id": "2071n-reverify-release-independent-20261009",
+        "fresh_context": true,
+        "independent": true
+      },
+      "validation_status": "real",
+      "scope_relation": "admitted",
+      "introduced_or_worsened_by_wave": true,
+      "contract_relevance": "public_contract",
+      "supported_reachability": true,
+      "attacker_reachability": false,
+      "authority_domain": "none",
+      "authority_delta": "none",
+      "observable_impact": "medium",
+      "containment": "none",
+      "fix_risk": "lower",
+      "repair_scope_bounded": true,
+      "repair_safety": "safe",
+      "repair_execution_state": "completed",
+      "lane_reverification": "clear this actor only; coordinator must derive remaining lanes from current typed action",
+      "remaining_lanes_from_initial_input": [
+        "code-reviewer",
+        "qa-reviewer"
+      ],
+      "proposition": "Stock-profile corpus simulation synchronizes derived label regex, so the declared corpus assertion executes under actual second/declared/default profile runs",
+      "counterexample_or_failure_condition": "Actual supported-profile selected meta-test fails, errors or skips; deletion control does not fail the corpus assertion",
+      "execution_status": "executed",
+      "public_path": "Canonical run_tests.py --profile second/declared --file test_profile_support.py; real IsChangeIdTests.test_accepts_every_admitted_id_in_this_repository through DefaultProfileOnlyMarkerTests",
+      "command_or_fixture": "/private/tmp/wf-2071n-reverify-code-release-probe.py; canonical run_tests.py --file test_profile_support.py with default/second/declared",
+      "expected": "Each focused profile76/0skip/green; selected corpus baseline1pass; derived-regex deletion1failure/0errors/0skips",
+      "observed": {
+        "profiles": {
+          "default": {
+            "tests": 76,
+            "failures": 0,
+            "errors": 0,
+            "skips": 0
+          },
+          "second": {
+            "tests": 76,
+            "failures": 0,
+            "errors": 0,
+            "skips": 0
+          },
+          "declared": {
+            "tests": 76,
+            "failures": 0,
+            "errors": 0,
+            "skips": 0
+          }
+        },
+        "baseline": {
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0,
+          "details": []
+        },
+        "mutant": {
+          "tests": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0,
+          "details": [
+            "Traceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-2071n-code-mutant-nu0s1o1m/repo/.wavefoundry/framework/scripts/tests/test_profile_support.py\", line 287, in test_repository_corpus_runs_under_declared_tools\n    self.assertEqual(result.failures, [])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [(<test_change_id_path_guard.IsChangeIdTes[655 chars]\\n')] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n(<test_change_id_path_guard.IsChangeIdTests testMethod=test_accepts_every_admitted_id_in_this_repository>, 'Traceback (most recent call last):\\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-2071n-code-mutant-nu0s1o1m/repo/.wavefoundry/framework/scripts/tests/record_layout_support.py\", line 956, in wrapper\\n    return func(*args, **kwargs)\\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-2071n-code-mutant-nu0s1o1m/repo/.wavefoundry/framework/scripts/tests/test_change_id_path_guard.py\", line 236, in test_accepts_every_admitted_id_in_this_repository\\n    self.assertGreater(len(ids), 100)\\n    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^\\nAssertionError: 0 not greater than 100\\n')\n\nDiff is 784 characters long. Set self.maxDiff to None to see it.\n"
+          ]
+        }
+      },
+      "artifact_or_test_id": "/private/tmp/wf-2071n-reverify-code-default.log; /private/tmp/wf-2071n-reverify-code-second.log; /private/tmp/wf-2071n-reverify-code-declared.log; DefaultProfileOnlyMarkerTests.test_repository_corpus_runs_under_declared_tools",
+      "adjacent_controls": [
+        "All three focused marker profile files, including explicit renamed-layout skip test",
+        "21 actual affected hermetic graph cases; original presence/classification/ranking/lookup/crossing assertions"
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "known_bad_detection_method": "focused-mutation: delete only derived MEMBER_ID_LABEL_RE restoration in scratch second-profile tree; original selected corpus assertion fails1/0errors/0skips",
+      "limitations": "Targeted repair reverification only; full default/second/declared final qualification and exact skip census are pending. Documentation provenance comparator is reviewer-authored with a semantically interpreted old claim, not a repository coverage test. No nativeWindows/freshhost/downstream/packagearchive/runtimecache qualification.",
+      "safety_and_authorization": "Authorized delivery review; read-only source/docs/ledger; scratch-only copies/mutations and output files. Canonical profile runner scratch Git initialization is isolated. Toolvenv python -B with PYTHONPYCACHEPREFIX unset.",
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "universal_claim": false
+    },
+    {
+      "finding_id": "ARCH-2071N-02",
+      "cycle": 1,
+      "run_kind": "reverification",
+      "verification_context": {
+        "actor": "release-reviewer",
+        "context_id": "2071n-reverify-release-independent-20261009",
+        "fresh_context": true,
+        "independent": true
+      },
+      "validation_status": "real",
+      "scope_relation": "admitted",
+      "introduced_or_worsened_by_wave": true,
+      "contract_relevance": "public_contract",
+      "supported_reachability": true,
+      "attacker_reachability": false,
+      "authority_domain": "none",
+      "authority_delta": "none",
+      "observable_impact": "low",
+      "containment": "none",
+      "fix_risk": "lower",
+      "repair_scope_bounded": true,
+      "repair_safety": "safe",
+      "repair_execution_state": "completed",
+      "lane_reverification": "clear this actor only; coordinator must derive remaining lanes from current typed action",
+      "remaining_lanes_from_initial_input": [
+        "architecture-reviewer"
+      ],
+      "proposition": "Published graph coverage wording accurately describes hermetic fixture qualification rather than live operator graph setup",
+      "counterexample_or_failure_condition": "The coverage claim identifies checkout-live qualification while the executed public response uses a scratch-source published root",
+      "execution_status": "executed",
+      "public_path": "Actual wf_graph_report_response and code_graph_community_response through original 21 graph tests, plus instrumented real publication producer root",
+      "command_or_fixture": "/private/tmp/wf-2071n-reverify-doc-control.py and /private/tmp/wf-2071n-reverify-code-release-probe.py",
+      "expected": "21/0failure/0error/0skip; actual scratch root agrees with hermetic wording; injected old live-qualification claim fails provenance assertion",
+      "observed": {
+        "actual_response": {
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0
+        },
+        "observed_public_response_roots": [
+          "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-evidence-response-cdaphovm"
+        ],
+        "current_doc_provenance_assertion": {
+          "tests": 1,
+          "failures": 0,
+          "errors": 0,
+          "skips": 0,
+          "failure_details": []
+        },
+        "injected_original_live_qualification_claim": {
+          "tests": 1,
+          "failures": 1,
+          "errors": 0,
+          "skips": 0,
+          "failure_details": [
+            "Traceback (most recent call last):\n  File \"/private/tmp/wf-2071n-reverify-doc-control.py\", line 17, in runTest\n    def runTest(self): self.assertEqual(self.claimed,observed,'Claimed coverage provenance contradicts observed real public-response fixture root')\n                       ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'checkout-live-after-canonical-setup' != 'scratch-hermetic-source'\n- checkout-live-after-canonical-setup\n+ scratch-hermetic-source\n : Claimed coverage provenance contradicts observed real public-response fixture root\n"
+          ]
+        },
+        "method": "Specification-derived provenance invariant: observed real fixture producer root must agree with hand-authored coverage claim; old prose interpreted as checkout-live qualification disagrees. This detects false claim, not presence of a phrase."
+      },
+      "artifact_or_test_id": "/private/tmp/wf-2071n-reverify-doc-control.json; /private/tmp/wf-2071n-reverify-code-release-probe.json; EvidencePartitionResponseTests.test_the_limit_applies_independently_to_each_half",
+      "adjacent_controls": [
+        "All three focused marker profile files, including explicit renamed-layout skip test",
+        "21 actual affected hermetic graph cases; original presence/classification/ranking/lookup/crossing assertions"
+      ],
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true
+      },
+      "known_bad_detection_method": "injected-old-behavior: prior checkout-live qualification claim contradicts observed scratch publication root at real public-response boundary; specification-derived provenance comparator fails1/0errors/0skips",
+      "limitations": "Targeted repair reverification only; full default/second/declared final qualification and exact skip census are pending. Documentation provenance comparator is reviewer-authored with a semantically interpreted old claim, not a repository coverage test. No nativeWindows/freshhost/downstream/packagearchive/runtimecache qualification.",
+      "safety_and_authorization": "Authorized delivery review; read-only source/docs/ledger; scratch-only copies/mutations and output files. Canonical profile runner scratch Git initialization is isolated. Toolvenv python -B with PYTHONPYCACHEPREFIX unset.",
+      "probe_class": "local_safe",
+      "authorization_status": "authorized",
+      "safe_boundary": false,
+      "unexecuted_remainder_prohibited": false,
+      "universal_claim": false
+    }
+  ],
+  "hermetic21": {
+    "tests": 21,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "ids": [
+      "test_graph_quality_eval.LiveGraphEvidenceControlTests.test_children_of_the_evidence_control_resolve_as_evidence",
+      "test_graph_quality_eval.LiveGraphEvidenceControlTests.test_retrieval_eval_remains_ordinary_framework_code",
+      "test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_canonically_ignored_standing_artifacts_are_absent",
+      "test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_control_directory_is_indexed_at_all",
+      "test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_legitimate_controls_stay_in_their_ordinary_domains",
+      "test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_machine_result_control_is_classified_as_evidence",
+      "test_server_tools_retrieval.EvidencePartitionResponseTests.test_a_classified_community_keeps_its_compatibility_fields",
+      "test_server_tools_retrieval.EvidencePartitionResponseTests.test_every_pair_is_present_including_its_evidence_half",
+      "test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_communities_do_not_appear_in_the_production_ranking",
+      "test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_communities_remain_queryable_by_id",
+      "test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_rows_are_not_erased_by_exclude_generated",
+      "test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_rows_carry_their_type_and_a_nonempty_reason",
+      "test_server_tools_retrieval.EvidencePartitionResponseTests.test_the_evidence_array_ships_even_when_the_section_was_not_requested",
+      "test_server_tools_retrieval.EvidencePartitionResponseTests.test_the_limit_applies_independently_to_each_half",
+      "test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_a_non_evidence_node_is_not_swept_up_by_its_neighbours",
+      "test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_an_evidence_file_is_still_listed_among_graph_nodes",
+      "test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_an_evidence_node_keeps_its_reasons_on_lookup",
+      "test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_cross_boundary_edges_survive_the_partition",
+      "test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_the_control_is_classified_before_anything_else_is_asserted",
+      "test_graph_quality_eval.ClassificationControlScorerTests.test_the_live_graph_satisfies_the_frozen_expectation",
+      "test_server_tools_retrieval.EvidencePairDocumentationTests.test_the_pair_list_matches_what_the_report_actually_emits"
+    ],
+    "details": "test_children_of_the_evidence_control_resolve_as_evidence (test_graph_quality_eval.LiveGraphEvidenceControlTests.test_children_of_the_evidence_control_resolve_as_evidence) ... ok\ntest_retrieval_eval_remains_ordinary_framework_code (test_graph_quality_eval.LiveGraphEvidenceControlTests.test_retrieval_eval_remains_ordinary_framework_code) ... ok\ntest_the_canonically_ignored_standing_artifacts_are_absent (test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_canonically_ignored_standing_artifacts_are_absent) ... ok\ntest_the_control_directory_is_indexed_at_all (test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_control_directory_is_indexed_at_all) ... ok\ntest_the_legitimate_controls_stay_in_their_ordinary_domains (test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_legitimate_controls_stay_in_their_ordinary_domains) ... ok\ntest_the_machine_result_control_is_classified_as_evidence (test_graph_quality_eval.LiveGraphEvidenceControlTests.test_the_machine_result_control_is_classified_as_evidence) ... ok\ntest_a_classified_community_keeps_its_compatibility_fields (test_server_tools_retrieval.EvidencePartitionResponseTests.test_a_classified_community_keeps_its_compatibility_fields) ... ok\ntest_every_pair_is_present_including_its_evidence_half (test_server_tools_retrieval.EvidencePartitionResponseTests.test_every_pair_is_present_including_its_evidence_half) ... ok\ntest_evidence_communities_do_not_appear_in_the_production_ranking (test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_communities_do_not_appear_in_the_production_ranking) ... ok\ntest_evidence_communities_remain_queryable_by_id (test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_communities_remain_queryable_by_id) ... ok\ntest_evidence_rows_are_not_erased_by_exclude_generated (test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_rows_are_not_erased_by_exclude_generated) ... ok\ntest_evidence_rows_carry_their_type_and_a_nonempty_reason (test_server_tools_retrieval.EvidencePartitionResponseTests.test_evidence_rows_carry_their_type_and_a_nonempty_reason) ... ok\ntest_the_evidence_array_ships_even_when_the_section_was_not_requested (test_server_tools_retrieval.EvidencePartitionResponseTests.test_the_evidence_array_ships_even_when_the_section_was_not_requested) ... ok\ntest_the_limit_applies_independently_to_each_half (test_server_tools_retrieval.EvidencePartitionResponseTests.test_the_limit_applies_independently_to_each_half) ... ok\ntest_a_non_evidence_node_is_not_swept_up_by_its_neighbours (test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_a_non_evidence_node_is_not_swept_up_by_its_neighbours) ... ok\ntest_an_evidence_file_is_still_listed_among_graph_nodes (test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_an_evidence_file_is_still_listed_among_graph_nodes) ... ok\ntest_an_evidence_node_keeps_its_reasons_on_lookup (test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_an_evidence_node_keeps_its_reasons_on_lookup) ... ok\ntest_cross_boundary_edges_survive_the_partition (test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_cross_boundary_edges_survive_the_partition) ... ok\ntest_the_control_is_classified_before_anything_else_is_asserted (test_server_tools_retrieval.EvidenceNodesStayQueryableTests.test_the_control_is_classified_before_anything_else_is_asserted) ... ok\ntest_the_live_graph_satisfies_the_frozen_expectation (test_graph_quality_eval.ClassificationControlScorerTests.test_the_live_graph_satisfies_the_frozen_expectation) ... ok\ntest_the_pair_list_matches_what_the_report_actually_emits (test_server_tools_retrieval.EvidencePairDocumentationTests.test_the_pair_list_matches_what_the_report_actually_emits) ... ok\n\n----------------------------------------------------------------------\nRan 21 tests in 2.939s\n\nOK\n"
+  },
+  "approval": false,
+  "verdict": "Affected repairs independently verified; final lane approvals withheld until current full default and both profile suites plus exact skip reconciliation are supplied",
+  "final_qualification_pending": true,
+  "no_source_docs_ledger_commit_close_writes": true
+}

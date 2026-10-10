@@ -1,0 +1,55 @@
+import contextlib,io,json,os,sys,tempfile,time,types
+from pathlib import Path
+from unittest.mock import patch
+root=Path('/Users/coryhacking/Developer/wavefoundry');scripts=root/'.wavefoundry/framework/scripts'
+sys.path[:0]=[str(scripts),str(scripts/'tests')]
+import reconcile_scan as scan
+import upgrade_wavefoundry as up
+import test_server_tools_retrieval as testmod
+out={}
+with tempfile.TemporaryDirectory(prefix='wf-feedback-scope-') as td:
+ r=Path(td)
+ for rel in ('.local/profile.json','target/output.json','.claude/settings.json','docs/current.md','docs/reports/ignored.md'):
+  p=r/rel;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('{}' if p.suffix=='.json' else 'ordinary text')
+ out['actual_scanner_scope']=sorted(rel for p,rel in scan._iter_scannable_files(r))
+ assert '.local/profile.json' in out['actual_scanner_scope'];assert 'target/output.json' in out['actual_scanner_scope'];assert '.claude/settings.json' in out['actual_scanner_scope'];assert 'docs/reports/ignored.md' not in out['actual_scanner_scope']
+out['prompt_regex_no_anchor']=[]
+for n in (512,1024,2048,4096):
+ text='a/'*n;start=time.perf_counter();hits=list(scan._PROMPT_MD_REFERENCE.finditer(text));elapsed=time.perf_counter()-start
+ assert not hits;out['prompt_regex_no_anchor'].append({'characters':len(text),'seconds':elapsed,'hits':len(hits)})
+# Actual fallback emitter, with only delegate failure and scanner boundary injected.
+with tempfile.TemporaryDirectory(prefix='wf-feedback-summary-') as td:
+ r=Path(td);calls=[]
+ stub=types.SimpleNamespace(scan_repo_channels=lambda target: calls.append(str(target)) or ([],[],[]))
+ buf=io.StringIO()
+ with patch.dict(sys.modules,{'reconcile_scan':stub}),patch.object(up,'_persist_skipped_scan_locations'),patch.object(up,'_delegated_summary_payload',return_value=(None,'timeout_after_300s')),patch.object(up,'_run_reconciliation_disposition_diagnostics',return_value=[]),patch.object(up,'_run_renderer_warning_scan',return_value=[]),contextlib.redirect_stdout(buf):
+  up._emit_primary_summary_via_delegate_or_fallback(r,'1.28.0','1.29.0',None,0,index_published=True)
+ out['delegate_timeout_fallback']={'scanner_calls':len(calls),'summary_sentinels':sum(line.startswith(up.WAVE_UPGRADE_SUMMARY_SENTINEL) for line in buf.getvalue().splitlines())};assert len(calls)==1
+ with patch.dict(sys.modules,{'reconcile_scan':types.SimpleNamespace(scan_repo_channels=lambda target: (_ for _ in ()).throw(RuntimeError('controlled scan failure')))}):
+  result=up._run_reconciliation_scan(r)
+ out['actual_scanner_exception_result']=result;assert result==([],[],[])
+# Current served handler plus canonical test publication; actual Rust parser rescans.
+testmod.TestCodeCallhierarchy.setUpClass();case=testmod.TestCodeCallhierarchy();case.setUp()
+try:
+ rel='src/fixture.rs';source='fn caller() {\n    let a = vec![1].into_iter().collect();\n    let b = collect();\n}\nfn collect() {}\n';case._add(rel,source)
+ start=source.index('collect();',source.index('let b'));end=start+len('collect()')
+ site={'source_file':rel,'start_byte':start,'end_byte':end,'line':3,'column':13,'end_line':3,'end_column':22}
+ edge={'source':rel+'::caller','target':rel+'::collect','relation':'calls','confidence':'RECEIVER_RESOLVED','call_sites':[site]}
+ case._write_graph([{'id':rel+'::caller','label':'caller','kind':'function','source_file':rel,'source_location':'1:1'},{'id':rel+'::collect','label':'collect','kind':'function','source_file':rel,'source_location':'5:1'}],[edge])
+ index=case.srv._load_graph_query().get_query_index(case.root,layer='project')
+ _,stored_edges,_=index.traverse(rel+'::collect',relations=['calls'],max_hops=1,direction='callers')
+ assert len(stored_edges)==1 and stored_edges[0]['call_sites'][0]['line']==3,stored_edges
+ out['stored_edge_provenance']=stored_edges[0]['call_sites']
+ response=case._call('collect',file=rel,direction='incoming');assert response['status']=='ok',response
+ incoming=response['data']['incoming'];out['actual_hierarchy_response']={'persisted_site_line':site['line'],'incoming':incoming};assert len(incoming)==1;assert incoming[0]['line']==2, incoming
+ try:
+  case.srv.code_impact_response(case.root,symbol='collect',include_tests=True)
+ except NameError as exc:
+  out['actual_bare_symbol_impact_failure']={'exception':type(exc).__name__,'message':str(exc)}
+ else:
+  raise AssertionError('Expected the report\'s undefined re failure on a bare symbol in a Rust-containing graph')
+ exact=case.srv.code_impact_response(case.root,symbol=rel+'::collect',include_tests=True)
+ out['exact_symbol_impact_adjacent_control']={'status':exact['status']}
+ assert exact['status']=='ok',exact
+finally:case.tearDown()
+Path('/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-reality-readiness-xl0oxesb/baseline.json').write_text(json.dumps(out,indent=2)+'\n');print(json.dumps(out,indent=2))

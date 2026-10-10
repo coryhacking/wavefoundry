@@ -1,0 +1,262 @@
+{
+  "independent": false,
+  "source_sha256": {
+    ".wavefoundry/framework/scripts/render_agent_surfaces.py": "425eb17f45308e232c3c872aee67279d6a44f3ff814efcd46457b578f2f96006",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a"
+  },
+  "prior23_guard_anchors": [
+    {
+      "name": "root_only_reference_definitions",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "disable_html_block_mask",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "allow_backtick_in_info",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "bracket_previous_char_only",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "image_bang_always_image",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "disallow_native_directory_replacement",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "same_filename_diagnostic_false_positive",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "disable_inline_html_tokens",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "disable_inline_metadata_consumption",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "definition_paragraph_guard_removed",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "encoded_diagnostics_normalization_disabled",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "inline_metadata_blanking_disabled",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "nested_metadata_consumed_guard_removed",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "one-container-only",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "lazy-paragraph-disabled",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "list-columns-ignored",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "fence-body-containers-parsed",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "ordered-paragraph-guard-disabled",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "tab-columns-disabled",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "global-delimiter-pairing",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "opening-escapes-ignored",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "escaped-whole-run-consumed",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    },
+    {
+      "name": "setext-boundary-ignored",
+      "anchor_count": 1,
+      "unchanged_anchor": true
+    }
+  ],
+  "source_delta": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-final-bounded-wr2e0rx2/source-delta.diff",
+  "scope": "baseline two owners and three focused mutants; no full owner or suite",
+  "runs": [
+    {
+      "name": "baseline",
+      "tests": [
+        "test_installing_upgrade_preserves_autolink_atoms_and_code_precedence",
+        "test_installing_upgrade_consumes_link_metadata_before_code_ticks"
+      ],
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_consumes_link_metadata_before_code_ticks"
+      ],
+      "cwd": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-final-bounded-wr2e0rx2/baseline",
+      "exit_code": 0,
+      "seconds": 17.728,
+      "assertion_failures": 0,
+      "error_types": [],
+      "unittest_error_cases": 0,
+      "skip_seen": false,
+      "import_or_syntax_error": false,
+      "failure_cases": [],
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-final-bounded-wr2e0rx2/baseline.log",
+      "output_tail": "test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) ... ok\ntest_installing_upgrade_consumes_link_metadata_before_code_ticks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_consumes_link_metadata_before_code_ticks) ... render_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\nok\n\n----------------------------------------------------------------------\nRan 2 tests in 17.554s\n\nOK\n"
+    },
+    {
+      "name": "uri_alternative_deleted",
+      "tests": [
+        "test_installing_upgrade_preserves_autolink_atoms_and_code_precedence"
+      ],
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence"
+      ],
+      "cwd": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-final-bounded-wr2e0rx2/mutants/uri_alternative_deleted",
+      "exit_code": 1,
+      "seconds": 7.033,
+      "assertion_failures": 3,
+      "error_types": [
+        "AssertionError"
+      ],
+      "unittest_error_cases": 0,
+      "skip_seen": false,
+      "import_or_syntax_error": false,
+      "failure_cases": [
+        "test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) (case='uri_link_literal')",
+        "test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) (case='custom_scheme_query_link_literal')",
+        "test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) (case='uri_tick_is_literal')"
+      ],
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-final-bounded-wr2e0rx2/uri_alternative_deleted.log",
+      "output_tail": "test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) ... \n  test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) (case='uri_link_literal') ... FAIL\n  test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) (case='custom_scheme_query_link_literal') ... FAIL\n  test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) (case='uri_tick_is_literal') ... FAIL\n\n======================================================================\nFAIL: test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) (case='uri_link_literal')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-final-bounded-wr2e0rx2/mutants/uri_alternative_deleted/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'Par[24 chars]invalid/[CODE](council-chair.md)> [LIVE](council-chair.md)\\r\\n' != b'Par[24 chars]invalid/[CODE](wave-council.md)> [LIVE](council-chair.md)\\r\\n'\n\n======================================================================\nFAIL: test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) (case='custom_scheme_query_link_literal')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-final-bounded-wr2e0rx2/mutants/uri_alternative_deleted/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'Par[37 chars]alid/?x=[CODE](council-chair.md)> [LIVE](council-chair.md)\\r\\n' != b'Par[37 chars]alid/?x=[CODE](wave-council.md)> [LIVE](council-chair.md)\\r\\n'\n\n======================================================================\nFAIL: test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) (case='uri_tick_is_literal')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-final-bounded-wr2e0rx2/mutants/uri_alternative_deleted/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'Paragraph <https://example.invalid/?x=`> [LIVE](wave-council.md) tail `\\r\\n' != b'Paragraph <https://example.invalid/?x=`> [LIVE](council-chair.md) tail `\\r\\n'\n\n----------------------------------------------------------------------\nRan 1 test in 6.853s\n\nFAILED (failures=3)\n",
+      "replace_anchor": "        + r\"|<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\\x00-\\x20<>]*>\"\n",
+      "replacement": "        + r\"\"\n",
+      "syntax_valid": true,
+      "mutant_sha256": "8b885996a07f2bab20d4b6c5f645c152c364e571013d7905ebe0946ea87b5583"
+    },
+    {
+      "name": "email_alternative_deleted",
+      "tests": [
+        "test_installing_upgrade_preserves_autolink_atoms_and_code_precedence"
+      ],
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence"
+      ],
+      "cwd": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-final-bounded-wr2e0rx2/mutants/email_alternative_deleted",
+      "exit_code": 1,
+      "seconds": 7.851,
+      "assertion_failures": 1,
+      "error_types": [
+        "AssertionError"
+      ],
+      "unittest_error_cases": 0,
+      "skip_seen": false,
+      "import_or_syntax_error": false,
+      "failure_cases": [
+        "test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) (case='email_tick_is_literal')"
+      ],
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-final-bounded-wr2e0rx2/email_alternative_deleted.log",
+      "output_tail": "test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) ... \n  test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) (case='email_tick_is_literal') ... FAIL\n\n======================================================================\nFAIL: test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) (case='email_tick_is_literal')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-final-bounded-wr2e0rx2/mutants/email_alternative_deleted/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'Paragraph <a`@example.invalid> [LIVE](wave-council.md) tail `\\r\\n' != b'Paragraph <a`@example.invalid> [LIVE](council-chair.md) tail `\\r\\n'\n\n----------------------------------------------------------------------\nRan 1 test in 7.669s\n\nFAILED (failures=1)\n",
+      "replace_anchor": "        + r\"|<[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*>\",\n",
+      "replacement": "        + r\"\",\n",
+      "syntax_valid": true,
+      "mutant_sha256": "f29163c0e6f380965c791bb794ffae8070783f1b97b31ab0a540a09967687771"
+    },
+    {
+      "name": "inline_metadata_blanking_disabled",
+      "tests": [
+        "test_installing_upgrade_consumes_link_metadata_before_code_ticks"
+      ],
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_consumes_link_metadata_before_code_ticks"
+      ],
+      "cwd": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-final-bounded-wr2e0rx2/mutants/inline_metadata_blanking_disabled",
+      "exit_code": 1,
+      "seconds": 10.624,
+      "assertion_failures": 1,
+      "error_types": [
+        "AssertionError"
+      ],
+      "unittest_error_cases": 0,
+      "skip_seen": false,
+      "import_or_syntax_error": false,
+      "failure_cases": [
+        "test_installing_upgrade_consumes_link_metadata_before_code_ticks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_consumes_link_metadata_before_code_ticks) (case='title_image_reference_is_literal')"
+      ],
+      "log": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-final-bounded-wr2e0rx2/inline_metadata_blanking_disabled.log",
+      "output_tail": "test_installing_upgrade_consumes_link_metadata_before_code_ticks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_consumes_link_metadata_before_code_ticks) ... render_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\nrender_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\nrender_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:1: unchanged unsupported or unrelated council role destination\nrender_agent_surfaces: NOTICE - markdown link targets the moved council role doc (review the unchanged destination, then rerun the docs gate): docs/agents/specialists/researcher.md:3: unchanged unsupported or unrelated council role destination\n\n  test_installing_upgrade_consumes_link_metadata_before_code_ticks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_consumes_link_metadata_before_code_ticks) (case='title_image_reference_is_literal') ... FAIL\n\n======================================================================\nFAIL: test_installing_upgrade_consumes_link_metadata_before_code_ticks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_consumes_link_metadata_before_code_ticks) (case='title_image_reference_is_literal')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-c5-final-bounded-wr2e0rx2/mutants/inline_metadata_blanking_disabled/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 2994, in _assert_incoming_role_link_cases\n    self.assertEqual(target.peer.read_bytes(), expected)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'[A][31 chars]r\\n[ref]: wave-council.md\\r\\n\\r\\n[LIVE](council-chair.md)\\r\\n' != b'[A][31 chars]r\\n[ref]: council-chair.md\\r\\n\\r\\n[LIVE](council-chair.md)\\r\\n'\n\n----------------------------------------------------------------------\nRan 1 test in 10.444s\n\nFAILED (failures=1)\n",
+      "replace_anchor": "                for pos in range(metadata_start, metadata_end - 1):\n                    if chars[pos] not in \"\\r\\n\":\n                        chars[pos] = \" \"\n",
+      "replacement": "                pass  # scratch-only retain metadata\n",
+      "syntax_valid": true,
+      "mutant_sha256": "ebdf4b7b6d52e818dd764c712d2f5fcb8e386adeeb3c9f1248358aa5bf9131df"
+    }
+  ],
+  "repository_sha256_after": {
+    ".wavefoundry/framework/scripts/render_agent_surfaces.py": "425eb17f45308e232c3c872aee67279d6a44f3ff814efcd46457b578f2f96006",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "999eedd714af3feb6fd85429587861c7a8e88a23f17e9fa030d2497df26fef1a"
+  },
+  "source_unchanged_during_probe": true,
+  "all_three_detected": true
+}

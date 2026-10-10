@@ -1,0 +1,28 @@
+test_exact_current_judgments_suppress_only_reported_channel (__main__.ExactJudgmentReverification.test_exact_current_judgments_suppress_only_reported_channel) ... ok
+test_modified_heading_is_reported (__main__.ExactJudgmentReverification.test_modified_heading_is_reported) ... ok
+test_modified_logical_line_is_reported (__main__.ExactJudgmentReverification.test_modified_logical_line_is_reported) ... ok
+test_new_ongoing_journal_directive_is_reported (__main__.ExactJudgmentReverification.test_new_ongoing_journal_directive_is_reported) ... ok
+test_omitted_judgment_is_reported (__main__.ExactJudgmentReverification.test_omitted_judgment_is_reported) ... ok
+test_same_line_ongoing_directive_invalidates_exact_judgment (__main__.ExactJudgmentReverification.test_same_line_ongoing_directive_invalidates_exact_judgment) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.877s
+
+OK
+{
+  "repository_raw": 3,
+  "repository_reported": 0,
+  "exact": 0,
+  "raw": 3,
+  "modified_heading": 1,
+  "modified_line": 1,
+  "new_directive": 1,
+  "omitted": 1,
+  "same_line_directive": 2,
+  "hashes_unchanged": true,
+  "tree_fingerprint": "baf1cf4c3c0df2a99582886d78366a79675e6f0e12338e0d2322c4cd2a1e4d21",
+  "tests_run": 6,
+  "failures": 0,
+  "errors": 0,
+  "skips": 0
+}

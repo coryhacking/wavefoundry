@@ -1134,6 +1134,11 @@ def read_published_clusters(conn, layer: str) -> dict[str, Any]:
     payload = _decode_analysis(row[2])
     if not isinstance(payload, dict):
         return {}
+    if not isinstance(payload.get("communities"), list):
+        return {}
+    if (str(payload.get("input_fingerprint") or "") != str(row[0] or "")
+            or str(payload.get("cluster_algorithm") or "") != str(row[1] or "")):
+        return {}
     members: dict[str, list[str]] = {}
     for node_id, community_id in conn.execute(
         "SELECT node_id, community_id FROM graph_community_members WHERE layer = ?",
@@ -1162,7 +1167,84 @@ def _decode_analysis(raw) -> Any:
         return None
 
 
-def prepare_cluster_publication(conn, *, layer: str, payload: dict):
+def _published_clusters_complete(conn, *, layer: str, payload: dict, graph: dict) -> bool:
+    """Check stored representation, not the historical clustering decision.
+
+    Counts alone accept a missing member replaced by an unrelated identity.
+    Compare the catalog and exact eligible identity coverage as well, including
+    fixed categories. Historical member fingerprints are establishment stamps
+    and deliberately need not match the current analysis fingerprint.
+    """
+    communities = payload.get("communities")
+    if not isinstance(communities, list):
+        return False
+    if payload.get("cluster_schema_version") != CLUSTER_SCHEMA_VERSION:
+        return False
+    if str(payload.get("graph_schema_version") or "") != str(graph.get("schema_version") or GRAPH_SCHEMA_VERSION):
+        return False
+    adjacency, nodes_by_id, _ = _project_undirected_projection(graph)
+    fixed, _, _ = _extract_fixed_communities(nodes_by_id, adjacency)
+    fixed_members = {frozenset(c["node_ids"]) for c in fixed}
+    stored = {
+        str(row[0]): row[1:] for row in conn.execute(
+            "SELECT community_id, label, seed_node_id, node_count, attributes "
+            "FROM graph_communities WHERE layer = ?", (layer,),
+        )
+    }
+    member_pairs = {
+        (str(node_id), str(community_id))
+        for node_id, community_id in conn.execute(
+            "SELECT node_id, community_id FROM graph_community_members WHERE layer = ?",
+            (layer,),
+        )
+    }
+    seen_communities: set[str] = set()
+    seen_members: set[str] = set()
+    expected_pairs: set[tuple[str, str]] = set()
+    seen_fixed: set[frozenset[str]] = set()
+    try:
+        if type(payload.get("community_count")) is not int or payload["community_count"] != len(communities):
+            return False
+        for community in communities:
+            if not isinstance(community, dict):
+                return False
+            community_id = community.get("community_id")
+            members = community.get("node_ids")
+            if not isinstance(community_id, str) or not community_id or community_id in seen_communities:
+                return False
+            if not isinstance(members, list) or not members or any(not isinstance(n, str) for n in members):
+                return False
+            member_set = set(members)
+            if len(member_set) != len(members) or seen_members.intersection(member_set):
+                return False
+            if type(community.get("node_count")) is not int or community["node_count"] != len(members):
+                return False
+            if community.get("seed_node_id") not in member_set:
+                return False
+            row = stored.get(community_id)
+            attributes = {k: v for k, v in community.items()
+                          if k not in ("community_id", "label", "seed_node_id", "node_ids", "node_count")}
+            if row is None or (str(row[0]), str(row[1]), int(row[2])) != (
+                str(community.get("label") or ""), str(community.get("seed_node_id") or ""), len(members),
+            ) or json.loads(row[3]) != attributes:
+                return False
+            fixed_key = frozenset(member_set)
+            if community.get("kind") == "fixed":
+                if fixed_key not in fixed_members:
+                    return False
+                seen_fixed.add(fixed_key)
+            elif any(member_set.intersection(bucket) for bucket in fixed_members):
+                return False
+            seen_communities.add(community_id)
+            seen_members.update(member_set)
+            expected_pairs.update((node_id, community_id) for node_id in member_set)
+    except (TypeError, ValueError, KeyError):
+        return False
+    return (seen_communities == set(stored) and seen_members == set(nodes_by_id)
+            and expected_pairs == member_pairs and seen_fixed == fixed_members)
+
+
+def prepare_cluster_publication(conn, *, layer: str, payload: dict, reset: bool = False):
     """Diff the computed communities against the published rows.
 
     Membership is diffed by ``(node_id, community_id)``: only memberships that
@@ -1175,24 +1257,28 @@ def prepare_cluster_publication(conn, *, layer: str, payload: dict):
     The analysis row is the compact per-generation record: community metadata
     plus the bounded betweenness ranking, WITHOUT the per-community member
     lists (those are the rows above), so it never becomes an O(graph) blob.
+
+    A scheduled global graph reset deletes the old rows before this participant
+    applies. Use an empty write baseline in that case, while leaving the visible
+    previous generation intact for readers and supported community-id remapping.
     """
     graph_indexer = _graph_publication_module()
     input_fingerprint = str(payload.get("input_fingerprint") or "")
     communities = [c for c in (payload.get("communities") or []) if isinstance(c, dict)]
 
     stored_communities: dict[str, tuple] = {}
-    for row in conn.execute(
+    for row in (() if reset else conn.execute(
         "SELECT community_id, label, seed_node_id, node_count, attributes "
         "FROM graph_communities WHERE layer = ?",
         (layer,),
-    ):
+    )):
         stored_communities[str(row[0])] = (str(row[1]), str(row[2]), int(row[3]), str(row[4]))
     stored_members: set[tuple[str, str]] = {
         (str(node_id), str(community_id))
-        for node_id, community_id in conn.execute(
+        for node_id, community_id in (() if reset else conn.execute(
             "SELECT node_id, community_id FROM graph_community_members WHERE layer = ?",
             (layer,),
-        )
+        ))
     }
 
     community_puts: list[tuple] = []
@@ -1260,6 +1346,7 @@ def update_graph_clusters(
     graph_payload: dict[str, Any] | None = None,
     verbose: bool = False,
     state_conn=None,
+    reset: bool = False,
 ) -> dict[str, Any]:
     """Compute this layer's communities and PREPARE their rows.
 
@@ -1269,6 +1356,10 @@ def update_graph_clusters(
     ROWS (fingerprint gate and community-id stability both), so the cluster
     artifact file is a derived output and nothing here depends on it. Without
     a connection the historical file-backed behavior is unchanged.
+
+    ``reset`` is the owning graph publication's scheduled global reset. Even
+    valid reused analysis needs a complete replacement participant on reset;
+    ordinary reuse requires structurally complete persisted rows and writes none.
     """
     if layer not in GRAPH_FILENAMES:
         raise ValueError(f"Unsupported graph layer: {layer}")
@@ -1304,6 +1395,9 @@ def update_graph_clusters(
             and str(existing.get("graph_builder_version") or "")
             == str(graph.get("builder_version") or GRAPH_BUILDER_VERSION)
             and str(existing.get("layer") or "") == layer
+            and (state_conn is None or _published_clusters_complete(
+                state_conn, layer=layer, payload=existing, graph=graph,
+            ))
         ):
             print(
                 f"build_index: graph unchanged ({layer} layer, fingerprint match) — "
@@ -1312,11 +1406,18 @@ def update_graph_clusters(
                 flush=True,
             )
             if state_conn is not None:
-                # Nothing recomputed means nothing to publish: the previous
-                # generation's rows already say exactly this.
+                # Valid ordinary reuse writes nothing. Reset still needs rows
+                # even though its expensive analysis remains reusable.
                 existing.setdefault("layer", layer)
                 existing.setdefault("community_count", len(existing.get("communities") or []))
                 existing["present"] = True
+                if reset:
+                    # The old rows are valid analysis inputs, but the graph
+                    # participant will delete them before this participant runs.
+                    existing["_publication"] = prepare_cluster_publication(
+                        state_conn, layer=layer, payload=existing, reset=True,
+                    )
+                    existing["_publication"].analysis_recomputed = False
                 return existing
             return _legacy_file_cluster_payload(root, layer)
 
@@ -1402,7 +1503,7 @@ def update_graph_clusters(
     }
     if state_conn is not None:
         payload["_publication"] = prepare_cluster_publication(
-            state_conn, layer=layer, payload=payload
+            state_conn, layer=layer, payload=payload, reset=reset,
         )
         if verbose:
             print(

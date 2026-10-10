@@ -33,6 +33,7 @@ import review_policy
 import vocabulary_profile
 from test_review_evidence import executable_evidence
 from record_layout_support import waves_dir
+from framework_text_ownership import load_inventory
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 FRAMEWORK = SCRIPTS.parent
@@ -118,15 +119,15 @@ def _framework_scripts() -> list[Path]:
 
 class LiteralReconcileKeyTests(unittest.TestCase):
     def _expected(self) -> list[tuple[str, str, str]]:
-        # The pre-change formula: replacement paths built from verb + "-change".
+        # Lookup keys are source literals: downstream vocabulary rewrites them too.
         return [
             (
                 rf"(?<![\w.-])docs/prompts/{agents}{verb}\-feature\.prompt\.md(?![\w.-])",
                 f"docs/prompts/{agents}{verb}-feature.prompt.md",
-                f"docs/prompts/{agents}{vocabulary_profile.prompt_slug(verb + '-change')}.prompt.md",
+                f"docs/prompts/{agents}{vocabulary_profile.prompt_slug(key)}.prompt.md",
             )
             for agents in ("", "agents/")
-            for verb in ("plan", "implement")
+            for verb, key in (("plan", "plan-change"), ("implement", "implement-change"))
         ]
 
     def _actual(self, module) -> list[tuple[str, str, str]]:
@@ -156,7 +157,7 @@ class LiteralReconcileKeyTests(unittest.TestCase):
         scratch = (
             "import vocabulary_profile\n"
             "for verb in ('plan', 'implement'):\n"
-            "    vocabulary_profile.prompt_slug(verb + '-change')\n"
+            "    vocabulary_profile.prompt_slug(verb + '-' + 'item')\n"
             "vocabulary_profile.prompt_doc('plan-change')\n"
         )
         self.assertEqual(runtime_key_calls(scratch, "scratch.py"), ["scratch.py:3"])
@@ -227,7 +228,12 @@ class CouncilActorReadTests(unittest.TestCase):
     def test_distinctness_treats_both_names_as_one_actor(self) -> None:
         self.assertEqual(review_evidence.canonical_council_actor(LEGACY_ACTOR), ACTOR)
         self.assertEqual(review_evidence.canonical_council_actor("qa-reviewer"), "qa-reviewer")
-        self.assertEqual(review_evidence.legacy_council_actor_spellings(ACTOR), (LEGACY_ACTOR,))
+        expected = tuple(dict.fromkeys(
+            actor for actor in (*review_evidence.BUILTIN_LEGACY_COUNCIL_ACTORS,
+                               *vocabulary_profile.EXTRA_LEGACY_COUNCIL_ACTORS)
+            if actor != ACTOR
+        ))
+        self.assertEqual(review_evidence.legacy_council_actor_spellings(ACTOR), expected)
         self.assertEqual(review_evidence.legacy_council_actor_spellings("qa-reviewer"), ())
 
 
@@ -366,16 +372,18 @@ class CouncilRoleMoveTests(unittest.TestCase):
                 self.assertIn("both exist", str(raised.exception))
                 self.assertEqual({rel: (root / rel).read_bytes() for rel in (old_rel, new_rel)}, before)
 
-    def test_links_to_the_moved_doc_are_reported_not_rewritten(self) -> None:
-        old_rel, _new_rel = ras.COUNCIL_ROLE_RENAMES[0]
+    def test_links_to_the_moved_doc_are_repaired(self) -> None:
+        old_rel, new_rel = ras.COUNCIL_ROLE_RENAMES[0]
         with tempfile.TemporaryDirectory() as temp:
             root = self._tree(temp, old_rel)
             peer = root / "docs" / "agents" / "specialists" / "peer.md"
             text = f"See [the chair]({Path(old_rel).name}).\n"
             peer.write_text(text, encoding="utf-8")
             result = ras.migrate_council_role_renames(root)
-            self.assertEqual(result.link_report, ("docs/agents/specialists/peer.md:1",))
-            self.assertEqual(peer.read_text(encoding="utf-8"), text)
+            self.assertEqual(result.link_report, ())
+            self.assertIn("docs/agents/specialists/peer.md", result.written)
+            self.assertEqual(peer.read_text(encoding="utf-8"),
+                             f"See [the chair]({Path(new_rel).name}).\n")
 
     def test_docs_lint_accepts_the_legacy_and_the_migrated_role_doc(self) -> None:
         from wave_lint_lib.wave_validators import _check_agent_category_metadata, _check_agent_role_metadata
@@ -402,7 +410,7 @@ _SUFFIXES = {".py", ".md", ".json", ".toml", ".txt", ".yaml", ".yml"}
 # historical comment. A new occurrence, or one removed without updating this
 # table, fails the census.
 ACTOR_TOKEN_ALLOWLIST: dict[str, tuple[int, str]] = {
-    "scripts/review_evidence.py": (1, "LEGACY_COUNCIL_ACTORS"),
+    "scripts/review_evidence.py": (1, "BUILTIN_LEGACY_COUNCIL_ACTORS"),
     "scripts/review_policy.py": (2, "the digest copy maps the renamed moderator role to the earlier name"),
     "scripts/dashboard_lib.py": (1, "_COORDINATE_STEMS keeps the earlier role name"),
     "scripts/lifecycle_gate_support.py": (1, "comment: a config naming the earlier role is read as written"),
@@ -414,7 +422,7 @@ ACTOR_TOKEN_ALLOWLIST: dict[str, tuple[int, str]] = {
     "seeds/209-agent-harness-core.prompt.md": (1, "approvals recorded under the earlier name stay valid"),
     "scripts/tests/fixtures/prepare_council/1p9pe-wave-pre-corrective.md": (5, "frozen historical wave record"),
     "scripts/tests/server_tools_support.py": (1, "earlier key prefix test"),
-    "scripts/tests/test_council_signoff_keys.py": (2, "pinned historical digest input and a legacy-ledger evidence string"),
+    "scripts/tests/test_council_signoff_keys.py": (1, "legacy-ledger evidence string"),
     "scripts/tests/test_dashboard_server.py": (2, "the earlier role name stays a coordinate stem"),
     "scripts/tests/test_docs_lint.py": (3, "the earlier moderator name stays tolerated"),
     "scripts/tests/test_lifecycle_gates.py": (1, "earlier key prefix test"),
@@ -425,21 +433,18 @@ ACTOR_TOKEN_ALLOWLIST: dict[str, tuple[int, str]] = {
 }
 
 
-def actor_token_census(framework: Path) -> dict[str, int]:
-    """``{path relative to framework: occurrences}`` of the earlier actor token."""
+def actor_token_census(framework: Path, owned: tuple[str, ...] | None = None) -> dict[str, int]:
+    """Count every explicitly owned text file, including files with zero hits.
+
+    Ownership is shipped data, never expanded from a consuming checkout.
+    Missing or unreadable owned files are errors rather than silently skipped.
+    """
     counts: dict[str, int] = {}
-    for path in sorted(framework.rglob("*")):
-        rel = path.relative_to(framework)
-        if (not path.is_file() or path.suffix not in _SUFFIXES or "__pycache__" in rel.parts
-                or rel.parts[0] in {"index", "cache"} or rel.name == "test-cache.json"):
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
+    for rel in load_inventory() if owned is None else owned:
+        text = (framework / rel).read_text(encoding="utf-8")
         count = len(ACTOR_TOKEN_RE.findall(text))
         if count:
-            counts[rel.as_posix()] = count
+            counts[rel] = count
     return counts
 
 
@@ -507,14 +512,54 @@ class ActorTokenCensusTests(unittest.TestCase):
             carrier.write_text(f"Role: {LEGACY_ACTOR}\n", encoding="utf-8")
             self.assertEqual(live_actor_token_census(root), {"docs/agents/specialists/chair.md": 1})
 
-    def test_a_reintroduced_token_in_a_seed_fails_the_census(self) -> None:
+    def test_owned_zero_hit_source_and_fixture_find_new_occurrences(self) -> None:
+        for rel in ("scripts/zero.py", "scripts/tests/fixtures/zero.md"):
+            with self.subTest(rel=rel), tempfile.TemporaryDirectory() as temp:
+                scratch = Path(temp)
+                path = scratch / rel
+                path.parent.mkdir(parents=True)
+                path.write_text("no earlier actor here\n", encoding="utf-8")
+                self.assertEqual(actor_token_census(scratch, (rel,)), {})
+                path.write_text(f"The `{LEGACY_ACTOR}` synthesizes findings.\n", encoding="utf-8")
+                self.assertIn(f"{rel}: 1 occurrence(s), 0 allowed",
+                              census_problems(actor_token_census(scratch, (rel,))))
+
+    def test_downstream_only_actor_file_does_not_enlarge_ownership(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            scratch = Path(temp) / "framework"
-            (scratch / "seeds").mkdir(parents=True)
-            (scratch / "seeds" / "999-scratch.prompt.md").write_text(
-                f"The `{LEGACY_ACTOR}` synthesizes findings.\n", encoding="utf-8")
-            problems = census_problems(actor_token_census(scratch))
-            self.assertIn("seeds/999-scratch.prompt.md: 1 occurrence(s), 0 allowed", problems)
+            scratch = Path(temp)
+            (scratch / "owned.py").write_text("# clean\n", encoding="utf-8")
+            (scratch / "downstream.py").write_text(LEGACY_ACTOR, encoding="utf-8")
+            self.assertEqual(actor_token_census(scratch, ("owned.py",)), {})
+
+    def test_missing_owned_file_is_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temp, self.assertRaises(FileNotFoundError):
+            actor_token_census(Path(temp), ("missing.py",))
+
+    def test_stale_allowance_is_an_error(self) -> None:
+        rel = next(iter(ACTOR_TOKEN_ALLOWLIST))
+        self.assertIn(f"{rel}: 0 occurrence(s), {ACTOR_TOKEN_ALLOWLIST[rel][0]} allowed (stale entry)",
+                      census_problems({}))
+
+    def test_inventory_rejects_duplicate_unsorted_or_escaping_paths(self) -> None:
+        for paths in (["b.py", "a.py"], ["a.py", "a.py"], ["../outside.py"], ["/outside.py"], [42]):
+            with self.subTest(paths=paths), tempfile.TemporaryDirectory() as temp:
+                path = Path(temp) / "ownership.json"
+                path.write_text(json.dumps({"paths": paths}), encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    load_inventory(path)
+
+    def test_inventory_includes_zero_hit_sources_fixtures_and_itself(self) -> None:
+        owned = load_inventory()
+        self.assertEqual(tuple(sorted(set(owned))), owned)
+        for rel in ("scripts/tests/test_graph_rust_provenance.py",
+                    "scripts/tests/test_legacy_council_actors.py",
+                    "scripts/tests/fixtures/framework-text-ownership.json",
+                    "scripts/tests/framework_text_ownership.py"):
+            self.assertIn(rel, owned)
+        self.assertTrue(any(rel.startswith("scripts/") and "/tests/" not in rel
+                            and rel not in ACTOR_TOKEN_ALLOWLIST for rel in owned))
+        self.assertTrue(any("/tests/fixtures/" in rel and rel not in ACTOR_TOKEN_ALLOWLIST
+                            for rel in owned))
 
 
 # ---------------------------------------------------------------------------
@@ -522,7 +567,7 @@ class ActorTokenCensusTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 _RELOAD_PROBE = r'''
-import importlib, json, sys, tempfile
+import importlib, json, re, sys, tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path.cwd() / "tests"))
 from server_tools_support import _make_repo, load_server, load_thin_runner
@@ -533,18 +578,25 @@ with tempfile.TemporaryDirectory() as temp:
     runner.build_server(root)
     try:
         import wave_lint_lib.secrets_validators  # binds lifecycle_id at import
-        assert "spike" not in sys.modules["lifecycle_id"].KIND_CHOICES
+        original_choices = set(sys.modules["lifecycle_id"].KIND_CHOICES)
+        new_kind = next(f"probe{i}" for i in range(len(original_choices) + 1)
+                        if f"probe{i}" not in original_choices)
+        original_extras = tuple(sys.modules["vocabulary_profile"].EXTRA_CHANGE_KINDS)
         source = Path("vocabulary_profile.py")
         text = source.read_text()
-        old = "EXTRA_CHANGE_KINDS: tuple[str, ...] = ()"
-        assert text.count(old) == 1
-        source.write_text(text.replace(old, 'EXTRA_CHANGE_KINDS: tuple[str, ...] = ("spike",)'))
+        # Profile assets rewrite this single-line declaration with their own
+        # values and quoting. Preserve those values instead of assuming ().
+        text, count = re.subn(
+            r"(?m)^(EXTRA_CHANGE_KINDS(?:[ \t]*:[^=\r\n]*)?[ \t]*=[ \t]*)[^\r\n]*(?=\r?$)",
+            lambda match: match.group(1) + repr(original_extras + (new_kind,)), text)
+        assert count == 1
+        source.write_text(text)
         result = runner.perform_mcp_reload()
         assert result["status"] == "ok", result
         validators = importlib.import_module("wave_lint_lib.secrets_validators")
         module = importlib.import_module("lifecycle_id")
         print(json.dumps({
-            "kind_choices_fresh": "spike" in sys.modules["lifecycle_id"].KIND_CHOICES,
+            "kind_choices_fresh": set(module.KIND_CHOICES) == original_choices | {new_kind},
             "validators_bind_fresh": validators.lifecycle_id is module,
         }))
     finally:

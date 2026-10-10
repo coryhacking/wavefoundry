@@ -1,0 +1,247 @@
+{
+  "scratch_root": "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-perf-readiness-controls-uvyt662c",
+  "current_scope": [
+    ".claude/settings.json",
+    ".local/profile.json",
+    ".localish/live.md",
+    "docs/current.md",
+    "docs/prompts/example.prompt.md",
+    "docs/reports-near/live.md",
+    "nested/.local/live.md",
+    "nested/target/live.md",
+    "target/output.json",
+    "targeting/live.md"
+  ],
+  "literal_guard_differential": [
+    {
+      "characters": 8192,
+      "baseline_seconds": 0.07012229110114276,
+      "guard_seconds": 1.750187948346138e-06,
+      "regex_hits": [],
+      "stale_hits": []
+    },
+    {
+      "characters": 29,
+      "baseline_seconds": 5.1658134907484055e-06,
+      "guard_seconds": 1.959037035703659e-06,
+      "regex_hits": [
+        "../docs/prompts/example.md"
+      ],
+      "stale_hits": [
+        "../docs/prompts/example.md"
+      ]
+    },
+    {
+      "characters": 30,
+      "baseline_seconds": 1.8749851733446121e-06,
+      "guard_seconds": 1.4579854905605316e-06,
+      "regex_hits": [
+        "docs/prompts/example.prompt.md"
+      ],
+      "stale_hits": []
+    },
+    {
+      "characters": 23,
+      "baseline_seconds": 7.920898497104645e-07,
+      "guard_seconds": 9.578652679920197e-07,
+      "regex_hits": [
+        "docs/prompts/no-twin.md"
+      ],
+      "stale_hits": []
+    },
+    {
+      "characters": 48,
+      "baseline_seconds": 2.125045284628868e-06,
+      "guard_seconds": 1.5830155462026596e-06,
+      "regex_hits": [
+        "docs/prompts/example.md",
+        "docs/prompts/example.md"
+      ],
+      "stale_hits": [
+        "docs/prompts/example.md",
+        "docs/prompts/example.md"
+      ]
+    },
+    {
+      "characters": 44,
+      "baseline_seconds": 1.5420373529195786e-06,
+      "guard_seconds": 1.459149643778801e-06,
+      "regex_hits": [
+        "../docs/prompts/example.md"
+      ],
+      "stale_hits": [
+        "../docs/prompts/example.md"
+      ]
+    }
+  ],
+  "channels": [
+    [],
+    [
+      {
+        "file": ".claude/settings.json",
+        "line": 1,
+        "retired_surface": "docs-lint",
+        "matched": ".wavefoundry/bin/docs-lint",
+        "suggested": "wf docs-lint",
+        "disposition_key": "v2:fd4755b0cadb551718a78b440385f84c",
+        "disposition_key_version": "v2",
+        "legacy_disposition_key": "5f5c62e795a2fddf",
+        "disposition_state": "unrecorded",
+        "logical_line": "{\"permissions\":{\"allow\":[\".wavefoundry/bin/docs-lint\"]}}",
+        "heading_context": "",
+        "proposed_v2_key": null
+      }
+    ],
+    []
+  ],
+  "fallback_matrix": [
+    {
+      "reason": "timeout_after_300s",
+      "index_published_input": true,
+      "scanner_calls": 1,
+      "summary": {
+        "review_sidecar_cleanup": null,
+        "from_version": "1.28.0",
+        "to_version": "1.29.0",
+        "zip_applied": null,
+        "pruned_count": 0,
+        "docs_gate": "PASSED",
+        "index_update": "docs and code layers complete",
+        "dependency_provisioning_failed": false,
+        "setup_status": "not_assessed",
+        "setup_reasons": [],
+        "setup_command": null,
+        "failed_phase": null,
+        "is_major_or_minor": true,
+        "reconciliation": [],
+        "reconciliation_disposition_diagnostics": [],
+        "host_permission_flags": [],
+        "renderer_provenance_flags": [],
+        "renderer_warnings": [],
+        "permissions_file": null,
+        "permissions_added": [],
+        "permissions_removed": [],
+        "permissions_changed": null,
+        "permissions_unmanaged_present": null,
+        "skipped_scan_locations": [],
+        "retired_model_cleanup_status": "not_applicable",
+        "retired_model_cleanup_removed": [],
+        "retired_model_cleanup_absent": [],
+        "retired_model_cleanup_unowned": [],
+        "retired_model_cleanup_failed": [],
+        "summary_source_degraded": "timeout_after_300s"
+      }
+    },
+    {
+      "reason": "spawn_failed: RuntimeError",
+      "index_published_input": false,
+      "scanner_calls": 1,
+      "summary": {
+        "review_sidecar_cleanup": null,
+        "from_version": "1.28.0",
+        "to_version": "1.29.0",
+        "zip_applied": null,
+        "pruned_count": 0,
+        "docs_gate": "PASSED",
+        "index_update": "publication failed: semantic index epoch incomplete; run index_build, then confirm with index_health",
+        "dependency_provisioning_failed": false,
+        "setup_status": "not_assessed",
+        "setup_reasons": [],
+        "setup_command": null,
+        "failed_phase": null,
+        "is_major_or_minor": true,
+        "reconciliation": [],
+        "reconciliation_disposition_diagnostics": [],
+        "host_permission_flags": [],
+        "renderer_provenance_flags": [],
+        "renderer_warnings": [],
+        "permissions_file": null,
+        "permissions_added": [],
+        "permissions_removed": [],
+        "permissions_changed": null,
+        "permissions_unmanaged_present": null,
+        "skipped_scan_locations": [],
+        "retired_model_cleanup_status": "not_applicable",
+        "retired_model_cleanup_removed": [],
+        "retired_model_cleanup_absent": [],
+        "retired_model_cleanup_unowned": [],
+        "retired_model_cleanup_failed": [],
+        "summary_source_degraded": "spawn_failed: RuntimeError"
+      }
+    },
+    {
+      "reason": "sentinel_missing_or_malformed",
+      "index_published_input": true,
+      "scanner_calls": 1,
+      "summary": {
+        "review_sidecar_cleanup": null,
+        "from_version": "1.28.0",
+        "to_version": "1.29.0",
+        "zip_applied": null,
+        "pruned_count": 0,
+        "docs_gate": "PASSED",
+        "index_update": "docs and code layers complete",
+        "dependency_provisioning_failed": false,
+        "setup_status": "not_assessed",
+        "setup_reasons": [],
+        "setup_command": null,
+        "failed_phase": null,
+        "is_major_or_minor": true,
+        "reconciliation": [],
+        "reconciliation_disposition_diagnostics": [],
+        "host_permission_flags": [],
+        "renderer_provenance_flags": [],
+        "renderer_warnings": [],
+        "permissions_file": null,
+        "permissions_added": [],
+        "permissions_removed": [],
+        "permissions_changed": null,
+        "permissions_unmanaged_present": null,
+        "skipped_scan_locations": [],
+        "retired_model_cleanup_status": "not_applicable",
+        "retired_model_cleanup_removed": [],
+        "retired_model_cleanup_absent": [],
+        "retired_model_cleanup_unowned": [],
+        "retired_model_cleanup_failed": [],
+        "summary_source_degraded": "sentinel_missing_or_malformed"
+      }
+    },
+    {
+      "reason": "unrecognized_schema_token_999",
+      "index_published_input": false,
+      "scanner_calls": 1,
+      "summary": {
+        "review_sidecar_cleanup": null,
+        "from_version": "1.28.0",
+        "to_version": "1.29.0",
+        "zip_applied": null,
+        "pruned_count": 0,
+        "docs_gate": "PASSED",
+        "index_update": "publication failed: semantic index epoch incomplete; run index_build, then confirm with index_health",
+        "dependency_provisioning_failed": false,
+        "setup_status": "not_assessed",
+        "setup_reasons": [],
+        "setup_command": null,
+        "failed_phase": null,
+        "is_major_or_minor": true,
+        "reconciliation": [],
+        "reconciliation_disposition_diagnostics": [],
+        "host_permission_flags": [],
+        "renderer_provenance_flags": [],
+        "renderer_warnings": [],
+        "permissions_file": null,
+        "permissions_added": [],
+        "permissions_removed": [],
+        "permissions_changed": null,
+        "permissions_unmanaged_present": null,
+        "skipped_scan_locations": [],
+        "retired_model_cleanup_status": "not_applicable",
+        "retired_model_cleanup_removed": [],
+        "retired_model_cleanup_absent": [],
+        "retired_model_cleanup_unowned": [],
+        "retired_model_cleanup_failed": [],
+        "summary_source_degraded": "unrecognized_schema_token_999"
+      }
+    }
+  ]
+}

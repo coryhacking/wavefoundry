@@ -1,0 +1,50 @@
+{
+  "actor": "architecture-reviewer",
+  "context_id": "arch-readiness-2071op-20261009-z5pyl_dv",
+  "phase": "readiness",
+  "verdicts": {
+    "2071o graph-query-provenance": "approved_with_notes",
+    "2071p bounded-reconciliation-reporting": "approved_with_notes"
+  },
+  "findings": [],
+  "source_packet_match_start_and_end": true,
+  "source_packet_fingerprint": "534dc4c520bcccf27e6063216b5b6a0d3f673540b57eb9f3fd94f3702a0e1e06",
+  "selected_seam_tests": {
+    "classes": [
+      "DelegatedSummaryContractTests",
+      "DelegatedSummaryDegradationTests",
+      "DelegatedSummarySchemaDivergentTests"
+    ],
+    "count": 18,
+    "seconds": 4.179,
+    "skips": 0,
+    "result": "OK"
+  },
+  "verification_context": {
+    "actor": "architecture-reviewer",
+    "context_id": "arch-readiness-2071op-20261009-z5pyl_dv",
+    "fresh_context": true,
+    "independent": true
+  },
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "Executed pre-fix served hierarchy/Rust impact and scanner/fallback boundary controls; old malformed/unknown summary inputs in18 existing seam tests; readiness omission checks reject absent snippet-nullability and no-fallback-rescan clauses. Assertions concern current tree/plan feasibility only."
+  },
+  "limitations": [
+    "No future repaired behavior, bounded scanner/runtime cleanup, whole-upgrade timing or actual new implementation against historical old parent executed.",
+    "No full suite, network, downstream scan, profile timing repetition, model/index build or source/plan/ledger edits.",
+    "One initial selected unittest invocation had ModuleNotFoundError index_paths due missing scripts PYTHONPATH; corrected invocation passed all18; two initial MCP invocations had invalid argument names and were retried successfully.",
+    "code_ask reported index_freshness stale; direct current-disk MCP reads and hash matches used for assessment."
+  ],
+  "artifacts": [
+    "/private/tmp/wf-arch-readiness-2071-control.py",
+    "/private/tmp/wf-arch-readiness-2071-control.json",
+    "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-arch-readiness-2071-z5pyl_dv/arch-baseline.py",
+    "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-arch-readiness-2071-z5pyl_dv/arch-baseline.json",
+    "/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-arch-readiness-2071-z5pyl_dv/fingerprint-start.json"
+  ]
+}

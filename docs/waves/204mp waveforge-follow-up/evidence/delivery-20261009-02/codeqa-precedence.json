@@ -1,0 +1,57 @@
+[
+  {
+    "name": "html_then_tick_closer_live",
+    "passed": false,
+    "first": false,
+    "retry": false,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\nParagraph <span note=\"`\"> [LIVE](wave-council.md) final `\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\nParagraph <span note=\"`\"> [LIVE](council-chair.md) final `\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.015
+  },
+  {
+    "name": "tick_opener_then_html_code",
+    "passed": true,
+    "first": true,
+    "retry": true,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\nParagraph ` <span note=\"`\"> [LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\nParagraph ` <span note=\"`\"> [LIVE](council-chair.md)\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 0.976
+  },
+  {
+    "name": "html_comment_tick_literal_live",
+    "passed": false,
+    "first": false,
+    "retry": false,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\nParagraph <!-- ` --> [LIVE](wave-council.md) <!-- ` -->\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\nParagraph <!-- ` --> [LIVE](council-chair.md) <!-- ` -->\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.003
+  },
+  {
+    "name": "two_link_titles_ticks",
+    "passed": false,
+    "first": false,
+    "retry": false,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\n[A](council-chair.md \"`\") [LIVE](wave-council.md) [B](elsewhere \"`\")\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\n[A](council-chair.md \"`\") [LIVE](council-chair.md) [B](elsewhere \"`\")\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.024
+  },
+  {
+    "name": "one_link_title_tick_then_code",
+    "passed": false,
+    "first": false,
+    "retry": false,
+    "mode": true,
+    "preview_no_writes": true,
+    "actual": "[CONTROL](council-chair.md)\r\n\r\n[A](wave-council.md \"`\") [LIVE](wave-council.md) ending `\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "expected": "[CONTROL](council-chair.md)\r\n\r\n[A](council-chair.md \"`\") [LIVE](council-chair.md) ending `\r\n\r\n[AFTER](council-chair.md)\r\n",
+    "seconds": 1.024
+  }
+]

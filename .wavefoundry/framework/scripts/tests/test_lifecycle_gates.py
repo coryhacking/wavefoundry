@@ -555,7 +555,14 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
     def test_review_lanes_gate_pass_fail(self):
         accepted = gates.review_lanes_gate(self.context(), required_lanes=('code-reviewer',))
         self.assertEqual(self.codes(accepted), [])
-        self.assertEqual(accepted.data['lane_results'], [{'lane': 'code-reviewer', 'recorded_signoff': True}])
+        row, = accepted.data['lane_results']
+        self.assertEqual(row['lane'], 'code-reviewer')
+        self.assertTrue(row['recorded_signoff'])
+        self.assertTrue(row['approval_recorded'])
+        self.assertTrue(row['approval_current'])
+        self.assertEqual(row['approval_state'], 'approved')
+        self.assertEqual(row['approval_phase'], 'readiness')
+        self.assertEqual(row['blocking_finding_ids'], ())
         rejected = gates.review_lanes_gate(self.context('missing_lane'), required_lanes=('code-reviewer',))
         self.assertEqual(self.codes(rejected), ['missing_required_lane'])
         self.assertIn('typed approval', rejected.diagnostics[0]['message'])

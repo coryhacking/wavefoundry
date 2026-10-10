@@ -48,7 +48,7 @@
           },
           {
             "code": "missing_required_lane",
-            "message": "Required delivery lanes without a current approval: code-reviewer",
+            "message": "Required delivery lanes without a current approval: code-reviewer (absent; approval recorded: no): no current executed approval. Next action: record approval evidence for code-reviewer",
             "recovery_tools": [
               "wf_review_event",
               "wf_review_wave"
@@ -127,7 +127,7 @@
           },
           {
             "code": "missing_required_lane",
-            "message": "Required delivery lanes without a current approval: code-reviewer",
+            "message": "Required delivery lanes without a current approval: code-reviewer (absent; approval recorded: no): no current executed approval. Next action: record approval evidence for code-reviewer",
             "recovery_tools": [
               "wf_review_event",
               "wf_review_wave"
@@ -426,8 +426,20 @@
               "recorded_signoff": false
             },
             {
+              "approval_current": false,
+              "approval_phase": "delivery",
+              "approval_recorded": false,
+              "approval_state": "absent",
+              "blocking_finding_ids": [],
+              "expected_actor": "code-reviewer",
+              "has_unresolved_blocking_findings": false,
               "lane": "code-reviewer",
-              "recorded_signoff": false
+              "next_action": "record approval evidence for code-reviewer",
+              "recorded_signoff": false,
+              "signoff_key": "code-reviewer",
+              "state": "pending",
+              "unresolved_required_lanes": [],
+              "why": "no current executed approval"
             }
           ],
           "lint_passed": true,
@@ -696,7 +708,7 @@
           },
           {
             "code": "missing_required_lane",
-            "message": "Required delivery lanes without a current approval: code-reviewer",
+            "message": "Required delivery lanes without a current approval: code-reviewer (absent; approval recorded: no): no current executed approval. Next action: record approval evidence for code-reviewer",
             "recovery_tools": [
               "wf_review_event",
               "wf_review_wave"
@@ -760,7 +772,7 @@
           },
           {
             "code": "missing_required_lane",
-            "message": "Required delivery lanes without a current approval: code-reviewer",
+            "message": "Required delivery lanes without a current approval: code-reviewer (absent; approval recorded: no): no current executed approval. Next action: record approval evidence for code-reviewer",
             "recovery_tools": [
               "wf_review_event",
               "wf_review_wave"
@@ -848,7 +860,7 @@
           },
           {
             "code": "missing_required_lane",
-            "message": "Required delivery lanes without a current approval: code-reviewer",
+            "message": "Required delivery lanes without a current approval: code-reviewer (absent; approval recorded: no): no current executed approval. Next action: record approval evidence for code-reviewer",
             "recovery_tools": [
               "wf_review_event",
               "wf_review_wave"
@@ -973,7 +985,25 @@
           {
             "advisory": true,
             "code": "readiness_lane_approvals_missing",
-            "message": "Readiness approvals still needed from: code-reviewer. Run the readiness review and record each lane's readiness approval.",
+            "lane_results": [
+              {
+                "approval_current": false,
+                "approval_phase": "readiness",
+                "approval_recorded": false,
+                "approval_state": "absent",
+                "blocking_finding_ids": [],
+                "expected_actor": "code-reviewer",
+                "has_unresolved_blocking_findings": false,
+                "lane": "code-reviewer",
+                "next_action": "record approval evidence for code-reviewer",
+                "recorded_signoff": false,
+                "signoff_key": "code-reviewer",
+                "state": "pending",
+                "unresolved_required_lanes": [],
+                "why": "no current executed approval"
+              }
+            ],
+            "message": "Readiness lanes without a current typed approval: code-reviewer (absent; approval recorded: no): no current executed approval. Next action: record approval evidence for code-reviewer",
             "missing_lanes": [
               "code-reviewer"
             ],
@@ -1076,7 +1106,25 @@
           {
             "advisory": true,
             "code": "readiness_lane_approvals_missing",
-            "message": "Readiness approvals still needed from: code-reviewer. Run the readiness review and record each lane's readiness approval.",
+            "lane_results": [
+              {
+                "approval_current": false,
+                "approval_phase": "readiness",
+                "approval_recorded": false,
+                "approval_state": "absent",
+                "blocking_finding_ids": [],
+                "expected_actor": "code-reviewer",
+                "has_unresolved_blocking_findings": false,
+                "lane": "code-reviewer",
+                "next_action": "record approval evidence for code-reviewer",
+                "recorded_signoff": false,
+                "signoff_key": "code-reviewer",
+                "state": "pending",
+                "unresolved_required_lanes": [],
+                "why": "no current executed approval"
+              }
+            ],
+            "message": "Readiness lanes without a current typed approval: code-reviewer (absent; approval recorded: no): no current executed approval. Next action: record approval evidence for code-reviewer",
             "missing_lanes": [
               "code-reviewer"
             ],
@@ -1179,7 +1227,25 @@
           {
             "advisory": true,
             "code": "readiness_lane_approvals_missing",
-            "message": "Readiness approvals still needed from: code-reviewer. Run the readiness review and record each lane's readiness approval.",
+            "lane_results": [
+              {
+                "approval_current": false,
+                "approval_phase": "readiness",
+                "approval_recorded": false,
+                "approval_state": "absent",
+                "blocking_finding_ids": [],
+                "expected_actor": "code-reviewer",
+                "has_unresolved_blocking_findings": false,
+                "lane": "code-reviewer",
+                "next_action": "record approval evidence for code-reviewer",
+                "recorded_signoff": false,
+                "signoff_key": "code-reviewer",
+                "state": "pending",
+                "unresolved_required_lanes": [],
+                "why": "no current executed approval"
+              }
+            ],
+            "message": "Readiness lanes without a current typed approval: code-reviewer (absent; approval recorded: no): no current executed approval. Next action: record approval evidence for code-reviewer",
             "missing_lanes": [
               "code-reviewer"
             ],
@@ -1213,8 +1279,20 @@
               "recorded_signoff": false
             },
             {
+              "approval_current": false,
+              "approval_phase": "delivery",
+              "approval_recorded": false,
+              "approval_state": "absent",
+              "blocking_finding_ids": [],
+              "expected_actor": "code-reviewer",
+              "has_unresolved_blocking_findings": false,
               "lane": "code-reviewer",
-              "recorded_signoff": false
+              "next_action": "record approval evidence for code-reviewer",
+              "recorded_signoff": false,
+              "signoff_key": "code-reviewer",
+              "state": "pending",
+              "unresolved_required_lanes": [],
+              "why": "no current executed approval"
             }
           ],
           "lint_passed": true,
@@ -1483,7 +1561,7 @@
           },
           {
             "code": "missing_required_lane",
-            "message": "Required delivery lanes without a current approval: code-reviewer",
+            "message": "Required delivery lanes without a current approval: code-reviewer (absent; approval recorded: no): no current executed approval. Next action: record approval evidence for code-reviewer",
             "recovery_tools": [
               "wf_review_event",
               "wf_review_wave"
@@ -1547,7 +1625,7 @@
           },
           {
             "code": "missing_required_lane",
-            "message": "Required delivery lanes without a current approval: code-reviewer",
+            "message": "Required delivery lanes without a current approval: code-reviewer (absent; approval recorded: no): no current executed approval. Next action: record approval evidence for code-reviewer",
             "recovery_tools": [
               "wf_review_event",
               "wf_review_wave"
@@ -1626,7 +1704,7 @@
           },
           {
             "code": "missing_required_lane",
-            "message": "Required delivery lanes without a current approval: code-reviewer",
+            "message": "Required delivery lanes without a current approval: code-reviewer (absent; approval recorded: no): no current executed approval. Next action: record approval evidence for code-reviewer",
             "recovery_tools": [
               "wf_review_event",
               "wf_review_wave"
@@ -1743,7 +1821,25 @@
           {
             "advisory": true,
             "code": "readiness_lane_approvals_missing",
-            "message": "Readiness approvals still needed from: code-reviewer. Run the readiness review and record each lane's readiness approval.",
+            "lane_results": [
+              {
+                "approval_current": false,
+                "approval_phase": "readiness",
+                "approval_recorded": false,
+                "approval_state": "absent",
+                "blocking_finding_ids": [],
+                "expected_actor": "code-reviewer",
+                "has_unresolved_blocking_findings": false,
+                "lane": "code-reviewer",
+                "next_action": "record approval evidence for code-reviewer",
+                "recorded_signoff": false,
+                "signoff_key": "code-reviewer",
+                "state": "pending",
+                "unresolved_required_lanes": [],
+                "why": "no current executed approval"
+              }
+            ],
+            "message": "Readiness lanes without a current typed approval: code-reviewer (absent; approval recorded: no): no current executed approval. Next action: record approval evidence for code-reviewer",
             "missing_lanes": [
               "code-reviewer"
             ],
@@ -1839,7 +1935,25 @@
           {
             "advisory": true,
             "code": "readiness_lane_approvals_missing",
-            "message": "Readiness approvals still needed from: code-reviewer. Run the readiness review and record each lane's readiness approval.",
+            "lane_results": [
+              {
+                "approval_current": false,
+                "approval_phase": "readiness",
+                "approval_recorded": false,
+                "approval_state": "absent",
+                "blocking_finding_ids": [],
+                "expected_actor": "code-reviewer",
+                "has_unresolved_blocking_findings": false,
+                "lane": "code-reviewer",
+                "next_action": "record approval evidence for code-reviewer",
+                "recorded_signoff": false,
+                "signoff_key": "code-reviewer",
+                "state": "pending",
+                "unresolved_required_lanes": [],
+                "why": "no current executed approval"
+              }
+            ],
+            "message": "Readiness lanes without a current typed approval: code-reviewer (absent; approval recorded: no): no current executed approval. Next action: record approval evidence for code-reviewer",
             "missing_lanes": [
               "code-reviewer"
             ],
@@ -1938,7 +2052,25 @@
           {
             "advisory": true,
             "code": "readiness_lane_approvals_missing",
-            "message": "Readiness approvals still needed from: code-reviewer. Run the readiness review and record each lane's readiness approval.",
+            "lane_results": [
+              {
+                "approval_current": false,
+                "approval_phase": "readiness",
+                "approval_recorded": false,
+                "approval_state": "absent",
+                "blocking_finding_ids": [],
+                "expected_actor": "code-reviewer",
+                "has_unresolved_blocking_findings": false,
+                "lane": "code-reviewer",
+                "next_action": "record approval evidence for code-reviewer",
+                "recorded_signoff": false,
+                "signoff_key": "code-reviewer",
+                "state": "pending",
+                "unresolved_required_lanes": [],
+                "why": "no current executed approval"
+              }
+            ],
+            "message": "Readiness lanes without a current typed approval: code-reviewer (absent; approval recorded: no): no current executed approval. Next action: record approval evidence for code-reviewer",
             "missing_lanes": [
               "code-reviewer"
             ],
@@ -1968,8 +2100,20 @@
               "recorded_signoff": false
             },
             {
+              "approval_current": false,
+              "approval_phase": "delivery",
+              "approval_recorded": false,
+              "approval_state": "absent",
+              "blocking_finding_ids": [],
+              "expected_actor": "code-reviewer",
+              "has_unresolved_blocking_findings": false,
               "lane": "code-reviewer",
-              "recorded_signoff": false
+              "next_action": "record approval evidence for code-reviewer",
+              "recorded_signoff": false,
+              "signoff_key": "code-reviewer",
+              "state": "pending",
+              "unresolved_required_lanes": [],
+              "why": "no current executed approval"
             }
           ],
           "lint_passed": true,
@@ -2238,7 +2382,7 @@
           },
           {
             "code": "missing_required_lane",
-            "message": "Required delivery lanes without a current approval: code-reviewer",
+            "message": "Required delivery lanes without a current approval: code-reviewer (absent; approval recorded: no): no current executed approval. Next action: record approval evidence for code-reviewer",
             "recovery_tools": [
               "wf_review_event",
               "wf_review_wave"

@@ -1,0 +1,191 @@
+{
+  "role": "code-reviewer",
+  "phase": "readiness",
+  "decision": "approve",
+  "context_id": "c6-qualification-ready-code-20261009-independent",
+  "fresh_context": true,
+  "independent": true,
+  "receipt": "review-policy-0c94bbf32063d832c3fd",
+  "tree_fingerprint": "4046fd4ff1d8320818438c439852420eb3413778755880fc1c5d8cd2d0d56711",
+  "scope": "Additional actual code-reviewer specialist; bounded plan admissibility only, not council seat, delivery approval, finding-head clearance or canonical green.",
+  "findings": [],
+  "answers": {
+    "Q1": "Independent live reads classify all current three references as descriptions of the retained standard migration input or historical dependent-work record; none instruct ongoing journal authoring. Existing exact v2 judgments are appropriate only for current full logical lines and headings, with reviewer rationales. Actual store application, raw audit preservation and changed/new-live negative controls remain required after repair; I did not execute the scanner/store controls and do not count primer executions as mine. Old four-hit keys are unacceptable.",
+    "Q2": "Own baseline unchanged declaration-reset and source-read censuses fail exactly at missing EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER and the computed helper source read. An independent scratch copy changes only the two declared literals: legacy_cutover reset and source_path(f\"{helper}.py\"). The unchanged two declaration census tests plus source-read census pass (3 tests, no skips). Both helper reads have byte parity. Post-repair original three censuses, preview/profile/declaration/API controls, exact judgment negative controls, independent delivery lane rechecks and final canonical run_tests receipt remain necessary.",
+    "strongest_challenge": "A quiet census could conceal permission for new journaling or use stale judgments. Preserve truthful migration-source documentation and scanner authority, bind only freshly classified three exact keys, and retain delivery blockers/AC-4 until independent actual repair evidence. Known baseline red is a repair prerequisite, not an approval blocker for this bounded implementable plan."
+  },
+  "plan_assessment": "Scope and Serialization Points explicitly include the adjacent test_extension_tool_modules.py reset fixture and docs/reconcile-dispositions.json. Existing source_path is already imported/used in the owner test module. The helper contract resolves current flat helpers unchanged and moved modules correctly. No census/scanner/runtime changes are needed; no demonstrated readiness design defect remains.",
+  "own_controls": [
+    {
+      "command": "python3 -B -m unittest test_extension_tool_modules.DeclarationConstantCensusTests.test_the_refusal_driver_resets_every_declaration_constant test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path",
+      "cwd": ".wavefoundry/framework/scripts/tests",
+      "expected": "Both original fixture defects fail without skips",
+      "observed": "Ran 2 tests in 3.164s; FAILED failures=2, exact missing trigger and computed helper defects",
+      "artifact_or_test_id": "Own tool session 82904; original names preserved"
+    },
+    {
+      "command": "python3 -B -m unittest test_extension_tool_modules.DeclarationConstantCensusTests test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path",
+      "cwd": "Isolated scratch scripts/tests; only two planned literal changes",
+      "expected": "Existing declarations remain classified and reset, unchanged source census passes",
+      "observed": "Ran 3 tests in 3.113s; OK, zero skips",
+      "artifact_or_test_id": "/tmp/wf-206is-ready-code-controls.log"
+    },
+    {
+      "command": "Compare source_path(helper + \".py\").read_bytes() with root original for path_containment and contained_files",
+      "expected": "Exact helper bytes equal",
+      "observed": "Both true",
+      "artifact_or_test_id": "Own byte parity Python control"
+    }
+  ],
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "pre-fix-failure: independently executed unchanged named declaration-reset and source-read censuses fail; same censuses pass in scratch after only planned literal corrections"
+  },
+  "preservation": {
+    "hashes_unchanged": true,
+    "absent_store_preserved": true,
+    "runtime_scanner_census_authority_unchanged": true,
+    "repository_mutations": [],
+    "scratch_only_repairs": true
+  },
+  "source_hashes_before": [
+    {
+      "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+      "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c",
+      "absent": false
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/mcp_tool_extensions.py",
+      "sha256": "b19a7e12e2cb7e0a843abc655a32b3b8801c2bc510fed98d210f7e065ff0dad1",
+      "absent": false
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+      "sha256": "9e4d047befb84aae19dae23ba25544a0311e3801597e864e7f47479feff884ef",
+      "absent": false
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py",
+      "sha256": "a98ab97f0706c12d24ad64f6803a5c8454be01aa73f89f9df95f1e51394404a8",
+      "absent": false
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/record_layout_support.py",
+      "sha256": "82325f6a3f403ef98ffd25ce6e7479e12f482d5d0569272d3f75c85b667189d4",
+      "absent": false
+    },
+    {
+      "path": ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md",
+      "sha256": "18b97d8d6d9487889700cc2345fc47046adb0674f66c9aae3a815e5145e754ce",
+      "absent": false
+    },
+    {
+      "path": "docs/specs/mcp-tool-surface.md",
+      "sha256": "3a99e045b721c0140b9bae0034852838fc7999f5c312d32838502277095df0c0",
+      "absent": false
+    },
+    {
+      "path": "docs/architecture/data-and-control-flow.md",
+      "sha256": "fde3312da48d0a8bb6c720b3d375460810f27e0c2a20bdd472fb62ffdb100bc5",
+      "absent": false
+    },
+    {
+      "path": "docs/architecture/layering-rules.md",
+      "sha256": "b0b0e2800fde4df05610a2aef04c8fde76ea2d0e14fd0e4cde7f260e9b0c1856",
+      "absent": false
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_extension_tool_modules.py",
+      "sha256": "453d6e2d20d8f04c3b799a796ee130055a3972ec9e12f6cd109fd29d2878a035",
+      "absent": false
+    },
+    {
+      "path": "docs/reconcile-dispositions.json",
+      "sha256": null,
+      "absent": true
+    },
+    {
+      "path": "docs/waves/206is journal-hook-follow-up/204mo-enh version-independent-journal-hook.md",
+      "sha256": "3f0a9c316342cf4fca8ea9fdedde14b039534daf400662f4a28b9df8b9995129",
+      "absent": false
+    }
+  ],
+  "source_hashes_after": [
+    {
+      "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+      "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c",
+      "absent": false
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/mcp_tool_extensions.py",
+      "sha256": "b19a7e12e2cb7e0a843abc655a32b3b8801c2bc510fed98d210f7e065ff0dad1",
+      "absent": false
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+      "sha256": "9e4d047befb84aae19dae23ba25544a0311e3801597e864e7f47479feff884ef",
+      "absent": false
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py",
+      "sha256": "a98ab97f0706c12d24ad64f6803a5c8454be01aa73f89f9df95f1e51394404a8",
+      "absent": false
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/record_layout_support.py",
+      "sha256": "82325f6a3f403ef98ffd25ce6e7479e12f482d5d0569272d3f75c85b667189d4",
+      "absent": false
+    },
+    {
+      "path": ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md",
+      "sha256": "18b97d8d6d9487889700cc2345fc47046adb0674f66c9aae3a815e5145e754ce",
+      "absent": false
+    },
+    {
+      "path": "docs/specs/mcp-tool-surface.md",
+      "sha256": "3a99e045b721c0140b9bae0034852838fc7999f5c312d32838502277095df0c0",
+      "absent": false
+    },
+    {
+      "path": "docs/architecture/data-and-control-flow.md",
+      "sha256": "fde3312da48d0a8bb6c720b3d375460810f27e0c2a20bdd472fb62ffdb100bc5",
+      "absent": false
+    },
+    {
+      "path": "docs/architecture/layering-rules.md",
+      "sha256": "b0b0e2800fde4df05610a2aef04c8fde76ea2d0e14fd0e4cde7f260e9b0c1856",
+      "absent": false
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_extension_tool_modules.py",
+      "sha256": "453d6e2d20d8f04c3b799a796ee130055a3972ec9e12f6cd109fd29d2878a035",
+      "absent": false
+    },
+    {
+      "path": "docs/reconcile-dispositions.json",
+      "sha256": null,
+      "absent": true
+    },
+    {
+      "path": "docs/waves/206is journal-hook-follow-up/204mo-enh version-independent-journal-hook.md",
+      "sha256": "3f0a9c316342cf4fca8ea9fdedde14b039534daf400662f4a28b9df8b9995129",
+      "absent": false
+    }
+  ],
+  "gapfill": "Deferred MCP schemas were discovered and callable; server confirms correct root, runner_stale=false and impl_matches_disk=true. Current own index_health reports index current/ready, but setup action_required setup_inputs_changed persists. Live MCP code_read supplied current authority; no setup/rebuild performed. A first framework_files lookup used wrong scripts path, then MCP code_definition located tests/framework_files.py and targeted read verified actual implementation. No stale indexed result used as proof.",
+  "independent_reference": "Unchanged production declaration list and existing censuses; actual helper path contract and byte parity, contrasted with admitted AC-4 compatibility and source_doc preservation requirement. Common-mode limit: unchanged census assertions alone do not establish all runtime correctness.",
+  "unrun": [
+    "Full canonical suite and new test receipt",
+    "Actual repository fixture/store writes",
+    "Public preview/profile/API execution",
+    "Current scanner exact v2 judgment application, raw/changed/new-live controls",
+    "Native Windows/pack/downstream integration",
+    "Delivery rechecks/terminalization"
+  ],
+  "budget": "Bounded targeted controls; stopped without broad reruns. Three-minute requested budget; exact wall time not measured.",
+  "confidence": "high for plan admissibility and two literal feasibility; post-repair product qualification remains unproven"
+}

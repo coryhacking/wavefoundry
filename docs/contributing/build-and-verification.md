@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-07
+Last verified: 2026-10-10
 
 ## Verification Commands
 
@@ -44,6 +44,50 @@ forwarded to unittest; note that it still reads the cache file once for the
 advisory timing map. Timing data is advisory only — it never authorizes a test
 skip or a pass, and neither the cache file nor the timing manifest is a public
 compatibility API.
+
+### Bounded reconciliation and upgrade reporting
+
+The reconciliation scanner prunes root `.local`/`target` and existing excluded
+components before descent. Keep diagnostic artifacts: adding Git ignore entries
+or deleting profiles is not the cost repair. Required local host settings remain
+eligible even when ignored. Structured results distinguish complete scans from
+incomplete or failed work; legacy list/tuple callers receive an exception with
+the partial result instead of a false clean-empty result.
+
+Upgrade reporting has one 30-second work budget enforced around an owned child;
+cooperative scanner checks do not themselves bound blocked I/O. The pinned
+old-calls-new producer contract and 300-second outer default remain unchanged.
+Current-code failure fallback performs no second scan, preserves observed
+installation/publication/consent facts and emits one marked summary. Reporting
+warnings and scan completeness are separate from upgrade success, and optional
+reporting cannot prevent eligible owned cleanup. An unchanged older parent's
+fallback remains outside this repair; no whole-upgrade timeout is promised.
+
+Qualify with real child success/error/malformed/timeout controls, old-schema
+locks, positive and negative parser cases, parent/child fact contradictions,
+owned versus unowned cleanup fixtures and the existing resume/memory/index
+authorization seam tests. Exercise every scan bound and all three channels,
+including candidate-dense and cumulative workloads. Small injected budgets make
+these tests finite; they do not establish downstream or native Windows runtime
+qualification. Run the canonical suite against the final frozen source tree.
+
+### Packaging profile qualification
+
+Run the full default suite and the `--profile second` and
+`--profile declared` suites against the same frozen source tree. Retain
+skip identities and reasons, not just totals: each extra renamed-profile skip
+must explicitly come from `default_profile_only`; the declared-tools profile
+must have no extra skips. The admitted-ID corpus test runs for declared tools
+because its vocabulary and layout remain the shipped defaults. Isolated graph
+and pinned historical fixtures keep copied checkouts independent of local
+indexes and missing Git references. A local-pack operator waiver applies only
+to its named artifact and does not qualify a later build.
+
+### Optional compact qualification reports
+
+Use `--qualification-report .wavefoundry/cache/qualification/<name>.json` for an explicit qualifying run. The callback-origin report records actual worker/test/skip identities and reasons, completeness and source/profile identity without verbose transcripts. Ordinary runs write no report; focused/profile runs never write the canonical source receipt. Profile detail is exported before temporary-tree cleanup. A matching executed report may be reused on cache hit; unavailable detail requires an explicit uncached qualifying run when exact comparison is needed.
+
+Run `python3 .wavefoundry/framework/scripts/qualification_report.py --compare <default-report> <candidate-report> --profile second|declared` from the repository. Paths are restricted to the qualification cache; report bytes are outside framework hashes and pack payloads. Comparison rejects incomplete, substituted or malformed observations and changed reasons. Second-profile extras must carry actual default-profile-only markers; declared skips must equal default. The facility is opt-in source/release qualification, without a consumer-upgrade call.
 
 ### Golden tool-surface fixture (wave 1y0do)
 
@@ -269,12 +313,13 @@ Run the tests:
 python3 -B .wavefoundry/framework/scripts/run_tests.py
 ```
 
-**Bytecode cache (change `1zyv1`).** Framework processes write Python bytecode only under `.wavefoundry/cache/pycache/`, never into `__pycache__` beside the framework sources:
+**Bytecode cache (changes `1zyv1`, `206fi`).** Ordinary framework processes write Python bytecode under `.wavefoundry/cache/pycache/`, never into `__pycache__` beside the framework sources:
 
 - **Location.** Derived from the location of `bytecode_cache.py` alone (`<root>/.wavefoundry/framework/scripts` maps to `<root>/.wavefoundry/cache/pycache`); a copy of the scripts outside that layout runs uncached. The directory is gitignored (managed `.gitignore` block) and is outside the pack, the receipt hash, the project index, the secrets file set and the reconcile scan.
-- **Flush.** A stamp file in the cache records the bytes of `.wavefoundry/framework/VERSION`; the first framework process that sees a different version renames the cache aside and removes it without following links, so every upgrade or reinstall starts clean. No upgrade step is involved.
-- **Opt-out.** `PYTHONDONTWRITEBYTECODE=1` or `python3 -B` makes a process read the cache without writing to it. `PYTHONPYCACHEPREFIX` is never exported to children; only the test runner passes it, explicitly, to its own workers, warm-up and second-profile child.
-- **Test runner.** A top-level `run_tests.py` run (including `python3 -B run_tests.py`) flushes on a changed version, warms the cache with `compileall` (framework scripts plus each interpreter's stdlib, purelib and platlib) in a subprocess, keeps its workers read-only with the prefix, and removes the cache's mirrors of the temporary directory at the end. A runner that inherits `PYTHONPYCACHEPREFIX` is a child and does neither.
+- **Scope and integrity.** The ordinary prefix applies process-wide, including standard-library and site-packages imports. Python can execute cached bytecode from this repository folder instead of installation-local bytecode. Source digests, vendored-source verification and pack integrity checks do not authenticate cached bytecode; version flushing is housekeeping, not authentication.
+- **Flush.** A stamp file records the bytes of `.wavefoundry/framework/VERSION`; the first cache-enabled process that sees a different version renames the cache aside and removes it without following links. Read-only or disabled processes neither inspect the stamp for cache adoption nor flush the cache. No upgrade step is involved.
+- **Opt-out.** `PYTHONDONTWRITEBYTECODE=1`, `python3 -B`, explicit `read_only=True` configuration or `WAVEFOUNDRY_DISABLE_BYTECODE_CACHE=1` clears the active prefix, disables project-cache reads and writes after configuration, and prevents creation, flushing, warming and pruning. Repeated configuration cannot override a stronger opt-out. This policy does not validate planted bytecode. For externally configured direct invocations, unset `PYTHONPYCACHEPREFIX` before launching Python: the interpreter applies it before framework configuration, and the disabling switch cannot undo startup imports already executed.
+- **Test runner.** An ordinary top-level `run_tests.py` run may flush on a changed version, warm the cache with `compileall` (framework scripts plus each interpreter's stdlib, purelib and platlib) and prune temporary-directory mirrors. It never overrides `-B`, `PYTHONDONTWRITEBYTECODE` or the disabling switch. Controlled read-only workers and second-profile children launch with `-B` and without `PYTHONPYCACHEPREFIX`; child-run identity is independent of the prefix. The upgrade graph-builder identity probe and role-link preview likewise launch without the inherited prefix and configure read-only. The framework does not export its prefix to unrelated product, sensor, git or uv children.
 - **Platforms.** macOS, Linux and WSL2 mirror absolute source paths under the prefix (a checkout used from both Windows and WSL2 gets separate mirrors). On native Windows the mirrored path drops the drive letter, a long path past the 260-character limit or a locked `.pyc` only skips caching, a flush blocked by open handles leaves caching off for that process, and a junction or other reparse point is refused like a symlink. The Windows behavior is inferred from CPython's documented behavior and has not been run.
 
 A stray `__pycache__` under `.wavefoundry/framework/` is a defect to report, not routine cleanup. `run_tests.py` still removes any it finds under the framework directory before and after each run.
@@ -399,3 +444,11 @@ documented protocol bridge boundary.
 **Wavefoundry tooling Python runtime:** this policy applies to Wavefoundry’s CLI, MCP server and indexing tools. It does not change the host project’s application language or runtime requirements (for example, Java and its JDK). Python 3.13 or newer is recommended. Python 3.11 and 3.12 are deprecated but remain allowed; the minimum is still 3.11. No removal release is scheduled. Dependencies must support the selected interpreter; this recommendation does not qualify every future Python release.
 
 The notice appears once per `wf` invocation or direct MCP serving startup, on stderr. Inspect `setup_readiness.advisories` through index health when host logs are hidden. It does not request repair or change command success. Follow the [runtime transition procedure](../../.wavefoundry/framework/README.md#python-runtime-advisory-and-transition): select PATH `python3` for setup and the restarted host, stop shared-environment consumers or propagate an isolated environment override, and retain pending recovery ownership. Ordinary setup may replace an incompatible tool environment; the advisory never does.
+
+## Compact wave evidence and close work
+
+Keep routine briefing packets, per-seat reports, raw probes, copied source and green worker logs in task context or temporary storage. wave.md retains final decisions, disagreements, source/profile identities, reproducible commands/results/limits, memory disposition and an evidence index. Keep immutable events.jsonl, admitted docs, cited originals and unreconstructable dirty-tree baselines. A permanent supporting artifact needs unique long-run value that canonical tests, exact Git history and the summary cannot preserve; explain the exception inline.
+
+Before close, reconcile mutable watchpoints and handoff. Prune only verified wave-owned, redundant, uncited material with contained identity-checked unlink; uncertain, unique or cited proof stays. No age expiry, automatic deletion, reference resolver, cleanup sidecar or extra gate is introduced. Consume successful typed-write continuation actions, batch documentation/render bookkeeping before the quiet final canonical suite, and reuse a current matching green test receipt. Changed, red or unproven inputs still require fresh qualification. A close dry-run is useful for unresolved checks; current authority permits one operator-authorized close mutation. Required specialists, readiness Council and fresh full docs gates remain unchanged.
+
+Review memory proposals before creating files: select only source events that change a future action and supplement canonical guidance. Use `memory_propose(..., mode='dry_run')`, then create with explicit `source_events`. Omitted or empty selection writes nothing. Put a no-new-memory retrospective in wave.md; actual pending selected candidates still require validation even if their targets disappear. Existing bounded historical-memory checkpoint semantics remain; consumer upgrades gain no source/profile suites, routine evidence generation or broad memory maintenance. Their existing render → docs gate → historical-memory checkpoint → incremental index order is preserved.

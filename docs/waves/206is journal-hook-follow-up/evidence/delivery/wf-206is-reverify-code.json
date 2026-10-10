@@ -1,0 +1,441 @@
+{
+  "actor": "code-reviewer",
+  "role": "code-reviewer",
+  "phase": "delivery",
+  "verdict": "approve within stated affected-boundary scope; coordinator full canonical qualification separate",
+  "wave_id": "206is journal-hook-follow-up",
+  "context_id": "c6-delivery-code-cycle2-reverify-22b59362-14b1-48da-8c97-275e2e847c4b",
+  "fresh_context": true,
+  "independent": true,
+  "implementation_context": false,
+  "tree_fingerprint": "baf1cf4c3c0df2a99582886d78366a79675e6f0e12338e0d2322c4cd2a1e4d21",
+  "hash_before": {
+    ".wavefoundry/framework/scripts/upgrade_extensions.py": {
+      "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c",
+      "git_blob": "355c32bc53cb6f4fa3bc5c6591eeb229aaa9f107"
+    },
+    ".wavefoundry/framework/scripts/mcp_tool_extensions.py": {
+      "sha256": "b19a7e12e2cb7e0a843abc655a32b3b8801c2bc510fed98d210f7e065ff0dad1",
+      "git_blob": "c7bd2be760e21e262eace9124af436aa58229746"
+    },
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": {
+      "sha256": "18dbe7e6ff243fce9c93b39b08551148a1352aadd50aa13b7598d30b659f0c29",
+      "git_blob": "435843e35f091afa8ce161122d8f9463b1634b4c"
+    },
+    ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": {
+      "sha256": "a98ab97f0706c12d24ad64f6803a5c8454be01aa73f89f9df95f1e51394404a8",
+      "git_blob": "35910552de632fe0f949cca2f85b88c8fd0e1475"
+    },
+    ".wavefoundry/framework/scripts/tests/record_layout_support.py": {
+      "sha256": "82325f6a3f403ef98ffd25ce6e7479e12f482d5d0569272d3f75c85b667189d4",
+      "git_blob": "8d7e9e0cc1ab5db789e7dbf71001a18b4941927f"
+    },
+    ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md": {
+      "sha256": "18b97d8d6d9487889700cc2345fc47046adb0674f66c9aae3a815e5145e754ce",
+      "git_blob": "2ad24bcefc95e24703e8adb96c334e86a572cbe2"
+    },
+    "docs/specs/mcp-tool-surface.md": {
+      "sha256": "3a99e045b721c0140b9bae0034852838fc7999f5c312d32838502277095df0c0",
+      "git_blob": "fbd9444ad3874388a47ec70d044c79d9690e5ccd"
+    },
+    "docs/architecture/data-and-control-flow.md": {
+      "sha256": "fde3312da48d0a8bb6c720b3d375460810f27e0c2a20bdd472fb62ffdb100bc5",
+      "git_blob": "085cc83c01cb874348b38ad4c722806890c5676b"
+    },
+    "docs/architecture/layering-rules.md": {
+      "sha256": "b0b0e2800fde4df05610a2aef04c8fde76ea2d0e14fd0e4cde7f260e9b0c1856",
+      "git_blob": "7b2fe1d80f32adc5bdb13e72b910528f72254a6a"
+    },
+    ".wavefoundry/framework/scripts/tests/test_extension_tool_modules.py": {
+      "sha256": "9309f0acde3bc6048ef7001617f395b61590d56cb9ce11661d89f99f4415c3ad",
+      "git_blob": "e4dc916943c7654937554ffaa3187fef94e0dc53"
+    },
+    "docs/reconcile-dispositions.json": {
+      "sha256": "2d74ec472e8c5e7e0ad799f767b46198bcfd2bb39fdce73af7288f10d55bb98f",
+      "git_blob": "9e149cf2e89fa4c927243c334e60bfdba3634ef1"
+    }
+  },
+  "hash_after": {
+    ".wavefoundry/framework/scripts/upgrade_extensions.py": {
+      "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c",
+      "git_blob": "355c32bc53cb6f4fa3bc5c6591eeb229aaa9f107"
+    },
+    ".wavefoundry/framework/scripts/mcp_tool_extensions.py": {
+      "sha256": "b19a7e12e2cb7e0a843abc655a32b3b8801c2bc510fed98d210f7e065ff0dad1",
+      "git_blob": "c7bd2be760e21e262eace9124af436aa58229746"
+    },
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": {
+      "sha256": "18dbe7e6ff243fce9c93b39b08551148a1352aadd50aa13b7598d30b659f0c29",
+      "git_blob": "435843e35f091afa8ce161122d8f9463b1634b4c"
+    },
+    ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": {
+      "sha256": "a98ab97f0706c12d24ad64f6803a5c8454be01aa73f89f9df95f1e51394404a8",
+      "git_blob": "35910552de632fe0f949cca2f85b88c8fd0e1475"
+    },
+    ".wavefoundry/framework/scripts/tests/record_layout_support.py": {
+      "sha256": "82325f6a3f403ef98ffd25ce6e7479e12f482d5d0569272d3f75c85b667189d4",
+      "git_blob": "8d7e9e0cc1ab5db789e7dbf71001a18b4941927f"
+    },
+    ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md": {
+      "sha256": "18b97d8d6d9487889700cc2345fc47046adb0674f66c9aae3a815e5145e754ce",
+      "git_blob": "2ad24bcefc95e24703e8adb96c334e86a572cbe2"
+    },
+    "docs/specs/mcp-tool-surface.md": {
+      "sha256": "3a99e045b721c0140b9bae0034852838fc7999f5c312d32838502277095df0c0",
+      "git_blob": "fbd9444ad3874388a47ec70d044c79d9690e5ccd"
+    },
+    "docs/architecture/data-and-control-flow.md": {
+      "sha256": "fde3312da48d0a8bb6c720b3d375460810f27e0c2a20bdd472fb62ffdb100bc5",
+      "git_blob": "085cc83c01cb874348b38ad4c722806890c5676b"
+    },
+    "docs/architecture/layering-rules.md": {
+      "sha256": "b0b0e2800fde4df05610a2aef04c8fde76ea2d0e14fd0e4cde7f260e9b0c1856",
+      "git_blob": "7b2fe1d80f32adc5bdb13e72b910528f72254a6a"
+    },
+    ".wavefoundry/framework/scripts/tests/test_extension_tool_modules.py": {
+      "sha256": "9309f0acde3bc6048ef7001617f395b61590d56cb9ce11661d89f99f4415c3ad",
+      "git_blob": "e4dc916943c7654937554ffaa3187fef94e0dc53"
+    },
+    "docs/reconcile-dispositions.json": {
+      "sha256": "2d74ec472e8c5e7e0ad799f767b46198bcfd2bb39fdce73af7288f10d55bb98f",
+      "git_blob": "9e149cf2e89fa4c927243c334e60bfdba3634ef1"
+    }
+  },
+  "eleven_paths_unchanged": true,
+  "findings": [],
+  "reverified_finding_ids": [
+    "QA-C6-DECL-CENSUS-01",
+    "QA-C6-SOURCE-CENSUS-02"
+  ],
+  "cleared_lane_only": "code-reviewer",
+  "reverification_payloads": [
+    {
+      "wave_id": "206is journal-hook-follow-up",
+      "event": "finding",
+      "actor": "code-reviewer",
+      "context_id": "c6-delivery-code-cycle2-reverify-22b59362-14b1-48da-8c97-275e2e847c4b",
+      "finding_id": "QA-C6-DECL-CENSUS-01",
+      "run_kind": "reverification",
+      "cycle": 2,
+      "judgment": {
+        "validation_status": "real",
+        "scope_relation": "adjacent",
+        "introduced_or_worsened_by_wave": true,
+        "contract_relevance": "required_ac",
+        "supported_reachability": true,
+        "attacker_reachability": false,
+        "authority_domain": "none",
+        "authority_delta": "none",
+        "observable_impact": "material",
+        "containment": "detect_only",
+        "disposition": "do_now",
+        "repair_scope_bounded": true,
+        "repair_safety": "safe",
+        "fix_risk": "lower",
+        "optional_value": "positive",
+        "benefit_vs_fix_risk": "greater",
+        "rejection_basis": "none",
+        "repair_execution_state": "completed"
+      },
+      "evidence": {
+        "proposition": "C6 preserves the declaration census/reset-fixture compatibility required by AC-4 when adding EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER.",
+        "failure_condition": "The existing canonical refusal-driver census fails because a declaration constant is omitted from its complete reset dictionary.",
+        "public_path": "Canonical unittest DeclarationConstantCensusTests.test_the_refusal_driver_resets_every_declaration_constant parses the actual _DRIVER refusal fixture and compares its reset keys to declaration_support.DECLARATION_CONSTANTS. This is the real suite census boundary; FastMCP registration is not exercised by this finding probe.",
+        "expected": "One named canonical census test completes green with every current shipped declaration constant included in _DRIVER empty reset dictionary.",
+        "disposition_rationale": "A wave-added declaration constant violates an existing explicit complete-reset census and required AC-4 compatibility verification; this is a bounded adjacent fixture correctness repair, not a product contract or generic runtime change.",
+        "command_or_fixture": "python3 -B /tmp/wf-206is-reverify-code-probe.py; /Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/wf-206is-reverify-code-sibling-probe.py; each test command uses tool venv -B and explicit scratch or current scripts/tests PYTHONPATH. Named repair control: test_extension_tool_modules.DeclarationConstantCensusTests.test_the_refusal_driver_resets_every_declaration_constant",
+        "observed": "Actual complete refusal reset now includes the shipped legacy_cutover value; both names and literal values match current declaration support. Current named census and adjacent declaration classification passed within22 controls/7.522s/zero skips. Independently removing ONLY new reset line in scratch made unchanged named census FAIL at assertIn EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER; paired one-test green, zero skips.",
+        "artifact_or_test_id": "/tmp/wf-206is-reverify-code-work/current-controls.log; /tmp/wf-206is-reverify-code-work/declaration-reset-removed-baseline.log; /tmp/wf-206is-reverify-code-work/declaration-reset-removed-mutant.log; /tmp/wf-206is-reverify-code-work/results.json; /tmp/wf-206is-reverify-code-work/sibling-results.json",
+        "known_bad_detection_method": "focused-mutation",
+        "limitations": "Finite affected-boundary reverification after original full reviews. Existing test carriers are reused, but expected properties independently derive from admitted AC-4, unchanged declaration/source censuses, shipped default and concrete helper bytes. No native Windows, released historical runner archive, external downstream integration, concurrency/crash proof, whole owner suite or canonical full-suite/receipt qualification. Prior canonical suite was red in three qualification owners; no future green claim. Store exact raw-key coverage was independently checked; detailed changed/new-directive store reverification remains docs-contract lane.",
+        "safety_and_authorization": "Operator-authorized independent delivery reverification; repository source and ledger read-only, mutations only in own /tmp copied script tree. No event, source, docs, closure, commit, push or setup writes.",
+        "adjacent_controls": [
+          "DeclarationConstantCensusTests.test_every_declaration_constant_is_classified",
+          "TestCensusTests.test_helpers_resolve_the_implementation",
+          "JournalTriggerPolicyTests (15)",
+          "JournalIncomingRunnerTests (3)",
+          "Independent reset literal-value census and two-helper byte parity"
+        ]
+      },
+      "fresh_context": true,
+      "independent": true,
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation"
+      }
+    },
+    {
+      "wave_id": "206is journal-hook-follow-up",
+      "event": "finding",
+      "actor": "code-reviewer",
+      "context_id": "c6-delivery-code-cycle2-reverify-22b59362-14b1-48da-8c97-275e2e847c4b",
+      "finding_id": "QA-C6-SOURCE-CENSUS-02",
+      "run_kind": "reverification",
+      "cycle": 2,
+      "judgment": {
+        "validation_status": "real",
+        "scope_relation": "admitted",
+        "introduced_or_worsened_by_wave": true,
+        "contract_relevance": "required_ac",
+        "supported_reachability": true,
+        "attacker_reachability": false,
+        "authority_domain": "none",
+        "authority_delta": "none",
+        "observable_impact": "material",
+        "containment": "detect_only",
+        "disposition": "do_now",
+        "repair_scope_bounded": true,
+        "repair_safety": "safe",
+        "fix_risk": "lower",
+        "optional_value": "positive",
+        "benefit_vs_fix_risk": "greater",
+        "rejection_basis": "none",
+        "repair_execution_state": "completed"
+      },
+      "evidence": {
+        "proposition": "New C6 public-preview test fixtures remain compatible with the framework source-location census and required framework verification.",
+        "failure_condition": "Canonical source-read census rejects a C6 fixture read that computes a flat source path instead of using framework_files.source_path.",
+        "public_path": "Canonical unittest test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path executes existing AST census over actual current test sources. Adjacent direct controls execute same _source_read_sites parser and source_path helper.",
+        "expected": "The canonical census returns no banned current source reads, and supported source_path resolves both archive fixture helper sources.",
+        "disposition_rationale": "The admitted C6 fixture introduces a precise source-location census violation and blocks required framework verification. Repair through established source_path keeps semantics and scope bounded; weakening or exempting the census would hide the regression.",
+        "command_or_fixture": "python3 -B /tmp/wf-206is-reverify-code-probe.py; /Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/wf-206is-reverify-code-sibling-probe.py; each test command uses tool venv -B and explicit scratch or current scripts/tests PYTHONPATH. Named repair control: test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path",
+        "observed": "Current unchanged whole test-source census and resolver sibling passed within22 controls/7.522s/zero skips; new preview helper test and all three actual incoming older-runner tests passed. Independently reverting ONLY source_path helper read in scratch made unchanged named census FAIL with sole computed SCRIPTS_ROOT helper read; paired one-test green, zero skips. Both archived helper sources preserve exact bytes, and existing relocated server_impl sibling resolves implementation distinct from alias.",
+        "artifact_or_test_id": "/tmp/wf-206is-reverify-code-work/current-controls.log; /tmp/wf-206is-reverify-code-work/source-resolver-reverted-baseline.log; /tmp/wf-206is-reverify-code-work/source-resolver-reverted-mutant.log; /tmp/wf-206is-reverify-code-work/results.json; /tmp/wf-206is-reverify-code-work/sibling-results.json",
+        "known_bad_detection_method": "focused-mutation",
+        "limitations": "Finite affected-boundary reverification after original full reviews. Existing test carriers are reused, but expected properties independently derive from admitted AC-4, unchanged declaration/source censuses, shipped default and concrete helper bytes. No native Windows, released historical runner archive, external downstream integration, concurrency/crash proof, whole owner suite or canonical full-suite/receipt qualification. Prior canonical suite was red in three qualification owners; no future green claim. Store exact raw-key coverage was independently checked; detailed changed/new-directive store reverification remains docs-contract lane.",
+        "safety_and_authorization": "Operator-authorized independent delivery reverification; repository source and ledger read-only, mutations only in own /tmp copied script tree. No event, source, docs, closure, commit, push or setup writes.",
+        "adjacent_controls": [
+          "DeclarationConstantCensusTests.test_every_declaration_constant_is_classified",
+          "TestCensusTests.test_helpers_resolve_the_implementation",
+          "JournalTriggerPolicyTests (15)",
+          "JournalIncomingRunnerTests (3)",
+          "Independent reset literal-value census and two-helper byte parity"
+        ]
+      },
+      "fresh_context": true,
+      "independent": true,
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "focused-mutation"
+      }
+    }
+  ],
+  "coordinator_state_fields": "Fill source/blocking/recheck/remaining lanes from current guided finding heads. These two payloads attest code lane only; they do not clear QA or docs.",
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "focused-mutation"
+  },
+  "reference": {
+    "independent_reference": "Independently read admitted AC-4, unchanged complete declaration reset census and source-location census, actual shipped literal default, byte identity of concrete two helper inputs, exact v2 raw-key identity from unchanged public scanner",
+    "promised_property": "Complete compatibility fixtures without relaxing either existing census or replacing helper input bytes; selected runtime/preview/older-runner contract carriers remain green",
+    "common_mode_limitations": "Existing test classes and scanner reused; finite mutation controls provide causal proof but not exhaustive implementation or host guarantees."
+  },
+  "mutation_table": [
+    {
+      "mutant": "declaration-reset-removed",
+      "exact_change": "Delete only EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER=\"legacy_cutover\" from copied _DRIVER empty dict",
+      "named_test": "test_extension_tool_modules.DeclarationConstantCensusTests.test_the_refusal_driver_resets_every_declaration_constant",
+      "paired_baseline_returncode": 0,
+      "mutant_returncode": 1,
+      "detected": true,
+      "baseline_log": "/tmp/wf-206is-reverify-code-work/declaration-reset-removed-baseline.log",
+      "mutant_log": "/tmp/wf-206is-reverify-code-work/declaration-reset-removed-mutant.log",
+      "whole_owner_run": false
+    },
+    {
+      "mutant": "source-resolver-reverted",
+      "exact_change": "Replace only source_path(f\"{helper}.py\").read_bytes() with (SCRIPTS_ROOT / f\"{helper}.py\").read_bytes() in copied C6 preview fixture",
+      "named_test": "test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path",
+      "paired_baseline_returncode": 0,
+      "mutant_returncode": 1,
+      "detected": true,
+      "baseline_log": "/tmp/wf-206is-reverify-code-work/source-resolver-reverted-baseline.log",
+      "mutant_log": "/tmp/wf-206is-reverify-code-work/source-resolver-reverted-mutant.log",
+      "whole_owner_run": false
+    }
+  ],
+  "commands_and_results": [
+    {
+      "name": "current-controls",
+      "command": [
+        "/Users/coryhacking/.wavefoundry/venv/bin/python",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_extension_tool_modules.DeclarationConstantCensusTests.test_the_refusal_driver_resets_every_declaration_constant",
+        "test_extension_tool_modules.DeclarationConstantCensusTests.test_every_declaration_constant_is_classified",
+        "test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path",
+        "test_server_package.TestCensusTests.test_helpers_resolve_the_implementation",
+        "test_upgrade_wavefoundry.JournalTriggerPolicyTests",
+        "test_upgrade_protocol.JournalIncomingRunnerTests"
+      ],
+      "cwd": "/Users/coryhacking/Developer/wavefoundry",
+      "returncode": 0,
+      "elapsed": 8.089,
+      "log": "/tmp/wf-206is-reverify-code-work/current-controls.log",
+      "output_tail": "test_the_refusal_driver_resets_every_declaration_constant (test_extension_tool_modules.DeclarationConstantCensusTests.test_the_refusal_driver_resets_every_declaration_constant) ... ok\ntest_every_declaration_constant_is_classified (test_extension_tool_modules.DeclarationConstantCensusTests.test_every_declaration_constant_is_classified) ... ok\ntest_no_source_read_of_a_moved_flat_path (test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path) ... ok\ntest_helpers_resolve_the_implementation (test_server_package.TestCensusTests.test_helpers_resolve_the_implementation) ... ok\ntest_annotated_literal_and_missing_module_static_controls (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_annotated_literal_and_missing_module_static_controls) ... ok\ntest_fifo_named_markdown_is_not_opened_or_selected (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected) ... ok\ntest_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution) ... ok\ntest_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) ... ok\ntest_linked_source_ancestor_is_not_followed (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed) ... ok\ntest_loaded_invalid_trigger_is_refused_by_framework_policy_guard (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_invalid_trigger_is_refused_by_framework_policy_guard) ... ok\ntest_loaded_trigger_must_match_static_selection_before_dependents (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_trigger_must_match_static_selection_before_dependents) ... ok\ntest_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) ... ok\ntest_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration) ... ok\ntest_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) ... ok\ntest_presence_does_not_read_content_or_use_public_preview_left_entries (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_presence_does_not_read_content_or_use_public_preview_left_entries) ... ok\ntest_refused_static_source_is_unknown_without_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_refused_static_source_is_unknown_without_execution) ... ok\ntest_registry_base_profiles_positional_validator_and_activation_are_compatible (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_registry_base_profiles_positional_validator_and_activation_are_compatible) ... ok\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... ok\ntest_zip_preview_uses_incoming_policy_and_writes_no_report (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_zip_preview_uses_incoming_policy_and_writes_no_report) ... ok\ntest_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry (test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry) ... ok\ntest_call_failure_restores_modules_path_and_reports_partial_effect_truthfully (test_upgrade_protocol.JournalIncomingRunnerTests.test_call_failure_restores_modules_path_and_reports_partial_effect_truthfully) ... ok\ntest_import_failure_restores_modules_path_and_uses_actual_runner_refusal (test_upgrade_protocol.JournalIncomingRunnerTests.test_import_failure_restores_modules_path_and_uses_actual_runner_refusal) ... ok\n\n----------------------------------------------------------------------\nRan 22 tests in 7.522s\n\nOK\n"
+    },
+    {
+      "name": "declaration-reset-removed-baseline",
+      "command": [
+        "/Users/coryhacking/.wavefoundry/venv/bin/python",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_extension_tool_modules.DeclarationConstantCensusTests.test_the_refusal_driver_resets_every_declaration_constant"
+      ],
+      "cwd": "/tmp/wf-206is-reverify-code-work/scratch",
+      "returncode": 0,
+      "elapsed": 0.111,
+      "log": "/tmp/wf-206is-reverify-code-work/declaration-reset-removed-baseline.log",
+      "output_tail": "test_the_refusal_driver_resets_every_declaration_constant (test_extension_tool_modules.DeclarationConstantCensusTests.test_the_refusal_driver_resets_every_declaration_constant) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.000s\n\nOK\n"
+    },
+    {
+      "name": "declaration-reset-removed-mutant",
+      "command": [
+        "/Users/coryhacking/.wavefoundry/venv/bin/python",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_extension_tool_modules.DeclarationConstantCensusTests.test_the_refusal_driver_resets_every_declaration_constant"
+      ],
+      "cwd": "/tmp/wf-206is-reverify-code-work/scratch",
+      "returncode": 1,
+      "elapsed": 0.112,
+      "log": "/tmp/wf-206is-reverify-code-work/declaration-reset-removed-mutant.log",
+      "output_tail": "test_the_refusal_driver_resets_every_declaration_constant (test_extension_tool_modules.DeclarationConstantCensusTests.test_the_refusal_driver_resets_every_declaration_constant) ... FAIL\n\n======================================================================\nFAIL: test_the_refusal_driver_resets_every_declaration_constant (test_extension_tool_modules.DeclarationConstantCensusTests.test_the_refusal_driver_resets_every_declaration_constant)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-reverify-code-work/scratch/.wavefoundry/framework/scripts/tests/test_extension_tool_modules.py\", line 4446, in test_the_refusal_driver_resets_every_declaration_constant\n    self.assertIn(f\"{name}=\", empty_line, name)\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER=' not found in 'empty = dict(EXTENSION_MODULES=(), EXTENSION_HELPER_MODULES=(), EXTENSION_TOOL_PREFIXES=(), EXTENSION_TOOL_TIERS={}, EXTENSION_OVERRIDES={},\\n                     EXTENSION_TOOL_ALIASES={}, EXTENSION_TOOL_PARAMETERS={}, EXTENSION_HIDDEN_TOOLS=(),\\n                     EXTENSION_LIFECYCLE_TOOLS=(), EXTENSION_ARTIFACT_PATH_FIELDS={}, EXTENSION_SKILLS={},\\n                     EXTENSION_JOURNAL_TEMPLATES=(), EXTENSION_JOURNAL_PRE_MIGRATION_HOOK=\"\",\\n                     EXTENSION_REPLACEMENTS={}' : EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER\n\n----------------------------------------------------------------------\nRan 1 test in 0.001s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "name": "source-resolver-reverted-baseline",
+      "command": [
+        "/Users/coryhacking/.wavefoundry/venv/bin/python",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path"
+      ],
+      "cwd": "/tmp/wf-206is-reverify-code-work/scratch",
+      "returncode": 0,
+      "elapsed": 3.459,
+      "log": "/tmp/wf-206is-reverify-code-work/source-resolver-reverted-baseline.log",
+      "output_tail": "test_no_source_read_of_a_moved_flat_path (test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 3.364s\n\nOK\n"
+    },
+    {
+      "name": "source-resolver-reverted-mutant",
+      "command": [
+        "/Users/coryhacking/.wavefoundry/venv/bin/python",
+        "-B",
+        "-m",
+        "unittest",
+        "-v",
+        "test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path"
+      ],
+      "cwd": "/tmp/wf-206is-reverify-code-work/scratch",
+      "returncode": 1,
+      "elapsed": 3.45,
+      "log": "/tmp/wf-206is-reverify-code-work/source-resolver-reverted-mutant.log",
+      "output_tail": "test_no_source_read_of_a_moved_flat_path (test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path) ... FAIL\n\n======================================================================\nFAIL: test_no_source_read_of_a_moved_flat_path (test_server_package.TestCensusTests.test_no_source_read_of_a_moved_flat_path)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-reverify-code-work/scratch/.wavefoundry/framework/scripts/tests/test_server_package.py\", line 439, in test_no_source_read_of_a_moved_flat_path\n    self.assertEqual(found, {}, \"read moved-module sources through framework_files.source_path\")\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: {'test_upgrade_wavefoundry.py': [\"SCRIPTS_ROOT / f'{helper}.py'\"]} != {}\n- {'test_upgrade_wavefoundry.py': [\"SCRIPTS_ROOT / f'{helper}.py'\"]}\n+ {} : read moved-module sources through framework_files.source_path\n\n----------------------------------------------------------------------\nRan 1 test in 3.352s\n\nFAILED (failures=1)\n"
+    }
+  ],
+  "adjacent_census": {
+    "declaration_reset_values_match": true,
+    "complete_reset_count": 15,
+    "trigger_shipped_default": "legacy_cutover",
+    "historical_judgment_count": 3,
+    "all_raw_keys_retained_and_exact": true,
+    "durable_store_evidence_exists": true,
+    "raw_refs": [
+      {
+        "file": "docs/agents/session-handoff.md",
+        "line": 110,
+        "retired_surface": "docs/agents/journals",
+        "matched": "docs/agents/journals",
+        "suggested": "the journal system is retired; capture durable lessons as typed memory records under docs/agents/memory/ (memory_add / memory_propose)",
+        "disposition_key": "v2:fd27233375f1797e9fd992b66e99b344",
+        "disposition_key_version": "v2",
+        "legacy_disposition_key": "88f3229da2c7baa8",
+        "disposition_state": "unrecorded",
+        "logical_line": "Next dependent work: prepare and independently ready C6 wave206is using the operator-confirmed standard docs/agents/journals source. C6 has no remaining source-location blocker; no readiness approval or implementation is claimed. The private workspace-scope answer remains pending; do not infer it from silence. Operator closure/commit/push must be explicitly requested in a current request. No framework edits remain for the completed waves; keep the fresh receipt valid. The broad memory budget remains above its cap; no repaired-renderer candidates were found, and unrelated memories/Rust drafts were left unchanged.",
+        "heading_context": "## Historical qualification checkpoint \u2014 before C6 implementation",
+        "proposed_v2_key": null
+      },
+      {
+        "file": "docs/architecture/data-and-control-flow.md",
+        "line": 180,
+        "retired_surface": "docs/agents/journals",
+        "matched": "docs/agents/journals/",
+        "suggested": "the journal system is retired; capture durable lessons as typed memory records under docs/agents/memory/ (memory_add / memory_propose)",
+        "disposition_key": "v2:77092f48819f91b56970ac9791132db6",
+        "disposition_key_version": "v2",
+        "legacy_disposition_key": "17af4d44bad3fe85",
+        "disposition_state": "unrecorded",
+        "logical_line": "2. `legacy_cutover` selects the existing pre-1.15 behavior, including its hook when no journal source exists; later upgrades import no declaration or hook. `journals_present` selects the hook on any from-version only when bounded metadata checks find direct regular singly linked `*.md` journals in contained `docs/agents/journals/`, excluding `README.md`. Missing, empty, README-only, nested-only, symlink and hardlink sources select no hook on any version. Presence neither reads journal content nor uses migration preview's `left` list; no recursion or configurable source root is introduced.",
+        "heading_context": "### Upgrade journal hook selection and migration (wave 206is)",
+        "proposed_v2_key": null
+      },
+      {
+        "file": "docs/specs/mcp-tool-surface.md",
+        "line": 567,
+        "retired_surface": "docs/agents/journals",
+        "matched": "docs/agents/journals/",
+        "suggested": "the journal system is retired; capture durable lessons as typed memory records under docs/agents/memory/ (memory_add / memory_propose)",
+        "disposition_key": "v2:419ee3cd412c68570df0edb3e5729b72",
+        "disposition_key_version": "v2",
+        "legacy_disposition_key": "40aa3e0a74d9106f",
+        "disposition_state": "unrecorded",
+        "logical_line": "files under the contained standard `docs/agents/journals/` directory, excluding `README.md`.",
+        "heading_context": "## Distribution Extension Tools",
+        "proposed_v2_key": null
+      }
+    ]
+  },
+  "prior_evidence": "Original full independent code/QA/architecture/security/docs reports and25guardreport read; not counted as own execution. Original runtime/seeds/source-docs unchanged by qualification repair; only test fixtures and3exact historical judgments differ.",
+  "limitations": "Finite affected-boundary reverification after original full reviews. Existing test carriers are reused, but expected properties independently derive from admitted AC-4, unchanged declaration/source censuses, shipped default and concrete helper bytes. No native Windows, released historical runner archive, external downstream integration, concurrency/crash proof, whole owner suite or canonical full-suite/receipt qualification. Prior canonical suite was red in three qualification owners; no future green claim. Store exact raw-key coverage was independently checked; detailed changed/new-directive store reverification remains docs-contract lane.",
+  "retrieval": "Deferred Wavefoundry tools discovered and live server_info/code_read/code_keyword confirmed before code investigation. Actual role docs/agents/code-reviewer.md read; specialist-path nonexistent. Server runner/implementation match disk, setup_inputs_changed advisory reported to coordinator; no setup/index rebuild. Live source and own current/scratch execution provide authority.",
+  "approval_payload": {
+    "wave_id": "206is journal-hook-follow-up",
+    "event": "approval",
+    "actor": "code-reviewer",
+    "context_id": "c6-delivery-code-cycle2-reverify-22b59362-14b1-48da-8c97-275e2e847c4b",
+    "signoff_key": "code-reviewer",
+    "approval_phase": "delivery",
+    "evidence": {
+      "proposition": "C6 delivery conforms to independently read ACs and preserves declared-trigger fixture compatibility, preview source-location compatibility and unchanged incoming-code/legacy/preview runtime boundaries after bounded cycle2 qualification repair.",
+      "failure_condition": "A repaired fixture violates unchanged public census or changes actual archived helper inputs; policy/older-runner controls regress, or retained judgments broaden beyond exact existing references.",
+      "public_path": "Existing canonical declaration and whole test-source censuses; public post_extract/migrate_journals policy tests; actual older-runner archive loader/extraction/_run_hook tests; existing reconcile_scan.scan_repo raw audit.",
+      "command_or_fixture": "python3 -B /tmp/wf-206is-reverify-code-probe.py; /Users/coryhacking/.wavefoundry/venv/bin/python -B /tmp/wf-206is-reverify-code-sibling-probe.py",
+      "expected": "22 current selected tests green with no skips; both individual scratch repair reversals fail their unchanged named census after green baselines; concrete archive helper bytes remain identical; three v2 historical entries cover exactly3 retained raw references; frozen11paths unchanged.",
+      "observed": "22 current tests/7.522s/zero skips green. Both independently reversed literal fixtures causally detected by unchanged named tests, paired one-test greens. Complete reset values include legacy_cutover. Both concrete helpers byte-identical; relocated server_impl resolver sibling distinct from alias. Three exact v2 historical entries match all3 actual retained raw keys, durable evidence exists. All11 current SHA256 and Gitblob match packet before, after tests and report.",
+      "artifact_or_test_id": "/tmp/wf-206is-reverify-code.json; /tmp/wf-206is-reverify-code-probe.py; /tmp/wf-206is-reverify-code-sibling-probe.py; /tmp/wf-206is-reverify-code-work/results.json; /tmp/wf-206is-reverify-code-work/sibling-results.json",
+      "known_bad_detection_method": "focused-mutation",
+      "limitations": "Finite affected-boundary reverification after original full reviews. Existing test carriers are reused, but expected properties independently derive from admitted AC-4, unchanged declaration/source censuses, shipped default and concrete helper bytes. No native Windows, released historical runner archive, external downstream integration, concurrency/crash proof, whole owner suite or canonical full-suite/receipt qualification. Prior canonical suite was red in three qualification owners; no future green claim. Store exact raw-key coverage was independently checked; detailed changed/new-directive store reverification remains docs-contract lane.",
+      "safety_and_authorization": "Independent read-only code delivery lane; local scratch mutations only. No source/ledger/lifecycle mutations or operator-owned actions."
+    },
+    "fresh_context": true,
+    "independent": true,
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "focused-mutation"
+    }
+  }
+}

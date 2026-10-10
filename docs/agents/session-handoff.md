@@ -2,31 +2,23 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-08
+Last verified: 2026-10-10
 
 ## Current Session
 
 **Active wave:** *(none)*
 
-**Paused wave:** *(none)*
+**Last closed wave:** `2087n workflow-overhead-reduction` — five changes reduce retained evidence and repeated qualification, retrieval, memory and advisory-lint work while preserving hard gates. All20 ACs/tasks met, seven independent delivery lanes and operator signoff approved. Closure proved the matching12,108-test framework receipt; exact181-worker report complete.
 
-**Last closed wave:** `204hi lifecycle-document-names` — renamed three lifecycle documents, preserved downstream customizations through a contained upgrade migration, and retained policy validation at the new path.
+**Next:** All implemented waves are closed and the 20-series cleanup is complete. Removed 248 redundant working files (2,382,959 bytes) and two duplicate-only evidence folders; 477 files remain across seven folders for cited/unique proof, baselines and deferred 2071o work. Final conclusions and retention exceptions are in each wave.md. `2071o graph-query-provenance` remains planned/readied and unimplemented. The current request authorizes committing and pushing completed public work, followed by a new local 1.29.0 test pack. Privately supplied review records and their linked metadata are kept outside Git history in ignored local storage; generic fixes and public summaries remain publishable. Qualification and packaging are in progress.
 
-Closed on explicit operator instruction on 2026-10-08. All five ACs and all tasks are complete; independent code, QA, docs-contract and security approvals and operator signoff are recorded. Commit and push are authorized. Waveforge integration guidance is in the wave record.
+**Local test pack:** `1.29.0+pvkw` at `/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.29.0.pvkw.zip`; SHA-256 `d17d7ae11a5421c7fc54ad5cd23a49f6470ead2d029448090366da6e51bd6f7e`. All default/second/declared qualification passed; no current skip waiver. See `docs/reports/local-pack-1.29.0-test-build.md`.
 
-Previously pushed: `203ha upgrade-profile-qualification` as c5fa8e02, followed by generated map refresh 49b701bb; `200ey containment-and-distribution-seams` and `203pu graph-call-attribution-integrity` as d8bee00a. The earlier public R1–R9/A1–A3 handoff remains at `docs/waves/203ha upgrade-profile-qualification/waveforge-handoff.md`.
+**Cleanup:** Earlier removed822 uncited green captures (11,917,792bytes); this pass removes 248 additional redundant files (2,382,959bytes), totaling1,070 files/14,300,751bytes. All audited immutable ledgers and retained proof stay byte-identical, including privately retained records moved outside public Git history. Framework source/receipt and planned2071o material are unchanged. Mutable citations point to wave.md or a retained shared original. Keep the unique pre-turn dirty baseline; no permanent cleanup report was created.
 
-## Last-closed verification
+**Environment follow-up:** MCP implementation and runner match disk; assessment/producer code remains `loaded_code_stale` with `setup_inputs_changed`, recommending a host restart before reassessment/indexed retrieval. No setup/rebuild was run during this task; source facts use live reads. Reload MCP after the source freeze; reconnect if the cached memory_propose schema lacks source_events.
 
-Closure proved the current green framework receipt: 11,894 tests across 174 files, 20 existing skips, 412.596s; input hash `660d1a46ca27f86aab3f159a26b3685cbf28484ade8a820791e10e29e09f2c15`, recorded `2026-10-08T20:32:39.636317+00:00`. The host-permission rerun resolved sandbox-only failures without source changes. Eight focused migration tests pass under default, second and prompt-names profiles; the prompt-names upgrade owner passes 682 tests with two existing skips. Both QA fixture findings are terminal. All edit gates are closed.
-
-Retrospective: memory `20472` records profile-aware carrier activation and history-path fixtures; its generic draft `202kr` remains superseded. The lesson is also promoted to `docs/references/project-context-memory.md`. The close checkpoint found no remaining candidates.
-
-Current framework edits report loaded code stale: restart the host before relying on updated loaded code. Earlier operator-requested setup succeeded using host CoreML; historical-memory setup backfill reported one remaining wave awaiting validation, separate from these completed waves.
-
-## Post-release qualification
-
-Native Windows diagnostic branches, standard-user repair, policy-blocked handoff and fresh-host MCP/hook behavior remain unverified and operator-deferred to external testing after the next release. Follow docs/waves/1yp0y pre-release-install-reliability/post-release-windows-validation.md. No native success is claimed.
+**Evidence:** Final results, decisions, source identities, limits and overhead audit are in each wave.md; immutable events.jsonl remains authority. The earlier 1.29.0+pviw pack predates these repairs and its skip waiver applies only to that archive. Preserve unrelated dirty work.
 
 ## Open questions / Deferred decisions
 

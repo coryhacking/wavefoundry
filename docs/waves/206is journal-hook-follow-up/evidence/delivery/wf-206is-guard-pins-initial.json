@@ -1,0 +1,1588 @@
+{
+  "purpose": "Builder guard-pin verification only, not delivery approval",
+  "source_hashes_before": {
+    "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c",
+    "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/mcp_tool_extensions.py": "b19a7e12e2cb7e0a843abc655a32b3b8801c2bc510fed98d210f7e065ff0dad1",
+    "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_wavefoundry.py": "be788a83cf0c0375ad804cea427f77d19b00acc97f76ddedd939cfcc1a2b06e9",
+    "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "15dd316abb4630835e7af648cdb26167ad3b4d6a3f5708a30a30766138d49bdb",
+    "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "a98ab97f0706c12d24ad64f6803a5c8454be01aa73f89f9df95f1e51394404a8",
+    "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/record_layout_support.py": "82325f6a3f403ef98ffd25ce6e7479e12f482d5d0569272d3f75c85b667189d4"
+  },
+  "source_hashes_after": {
+    "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c",
+    "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/mcp_tool_extensions.py": "b19a7e12e2cb7e0a843abc655a32b3b8801c2bc510fed98d210f7e065ff0dad1",
+    "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_wavefoundry.py": "be788a83cf0c0375ad804cea427f77d19b00acc97f76ddedd939cfcc1a2b06e9",
+    "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "15dd316abb4630835e7af648cdb26167ad3b4d6a3f5708a30a30766138d49bdb",
+    "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py": "a98ab97f0706c12d24ad64f6803a5c8454be01aa73f89f9df95f1e51394404a8",
+    "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/record_layout_support.py": "82325f6a3f403ef98ffd25ce6e7479e12f482d5d0569272d3f75c85b667189d4"
+  },
+  "unchanged": true,
+  "scratch_scripts": "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+  "records": [
+    {
+      "id": "invalid_preexecution",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "pre_docs_gate",
+      "old": "if selection[\"status\"] == \"invalid\":",
+      "new": "if False:",
+      "property": "Invalid apply refuses before executing declaration",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution"
+        ],
+        "exit": 0,
+        "elapsed": 2.421206417027861,
+        "log": "/tmp/wf-206is-guard-pins-work/invalid_preexecution-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 2.231s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution"
+        ],
+        "exit": 1,
+        "elapsed": 2.0255069588311017,
+        "log": "/tmp/wf-206is-guard-pins-work/invalid_preexecution-mutant.log",
+        "run": 1,
+        "failures": 7,
+        "errors": 0,
+        "skips": 0,
+        "tail": "@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1180, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1241, in _execute_mock_call\n    raise effect\nAssertionError: invalid executed declaration\n\n======================================================================\nFAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"'journals_present'\", extra=\"\\nEXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER = 'journals_present'\\n\")\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14971, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution\n    self.ext.pre_docs_gate(types.SimpleNamespace(root=self.root, from_version=version))\n    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 2683, in pre_docs_gate\n    templates, hook_name, hook = _load_journal_declaration(\n                                 ~~~~~~~~~~~~~~~~~~~~~~~~~^\n        ctx.root, load_hook=eligible, expected_trigger=trigger\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1176, in __call__\n    return self._mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1180, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1241, in _execute_mock_call\n    raise effect\nAssertionError: invalid executed declaration\n\n======================================================================\nFAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"'journals_present'\", extra=\"\\nEXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER += ''\\n\")\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14971, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution\n    self.ext.pre_docs_gate(types.SimpleNamespace(root=self.root, from_version=version))\n    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 2683, in pre_docs_gate\n    templates, hook_name, hook = _load_journal_declaration(\n                                 ~~~~~~~~~~~~~~~~~~~~~~~~~^\n        ctx.root, load_hook=eligible, expected_trigger=trigger\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1176, in __call__\n    return self._mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1180, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1241, in _execute_mock_call\n    raise effect\nAssertionError: invalid executed declaration\n\n----------------------------------------------------------------------\nRan 1 test in 1.832s\n\nFAILED (failures=7)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "pre_docs_gate",
+        "lines": [
+          2636,
+          2709
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::pre_docs_gate\n+++ scratch-mutant::pre_docs_gate\n@@ -33,7 +33,7 @@\n     legacy = _from_version_predates(from_version, \"1.15.0\")\n     zip_path = getattr(ctx, \"zip_path\", None)\n     selection = _static_journal_trigger(ctx.root, zip_path, extracted=True)\n-    if selection[\"status\"] == \"invalid\":\n+    if False:\n         raise JournalDeclarationError([selection[\"detail\"]])\n     if selection[\"status\"] == \"unknown\" and not legacy:\n         print(\"journal hook WARNING: unknown trigger; \" + selection[\"detail\"] +\n",
+      "failure_assertions": [
+        "PROPERTY_EXCEPTION invalid executed declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}",
+        "AssertionError: invalid executed declaration"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Named test failed at expected assertion or patched forbidden action; no missing test/import dependency/fixture syntax error."
+    },
+    {
+      "id": "duplicate_binding",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_static_journal_trigger",
+      "old": "len(direct) != 1",
+      "new": "len(direct) < 1",
+      "property": "Duplicate direct trigger bindings invalid",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution"
+        ],
+        "exit": 0,
+        "elapsed": 2.4272689579520375,
+        "log": "/tmp/wf-206is-guard-pins-work/duplicate_binding-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 2.232s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution"
+        ],
+        "exit": 1,
+        "elapsed": 2.233466791920364,
+        "log": "/tmp/wf-206is-guard-pins-work/duplicate_binding-mutant.log",
+        "run": 1,
+        "failures": 1,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 1, \"errors\": 0, \"skips\": 0}\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... \n  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"'journals_present'\", extra=\"\\nEXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER = 'journals_present'\\n\") ... FAIL\n\n======================================================================\nFAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"'journals_present'\", extra=\"\\nEXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER = 'journals_present'\\n\")\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14943, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution\n    self.assertEqual((metadata[\"status\"], metadata[\"policy\"]), (status, policy))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Tuples differ: ('valid', 'journals_present') != ('invalid', None)\n\nFirst differing element 0:\n'valid'\n'invalid'\n\n- ('valid', 'journals_present')\n+ ('invalid', None)\n\n----------------------------------------------------------------------\nRan 1 test in 2.041s\n\nFAILED (failures=1)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "_static_journal_trigger",
+        "lines": [
+          1911,
+          1971
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_static_journal_trigger\n+++ scratch-mutant::_static_journal_trigger\n@@ -53,7 +53,7 @@\n         value = _static_module_literal(tree, _JOURNAL_TRIGGER_NAME)\n         if not direct and value == () and not other_binding:\n             return {\"policy\": \"legacy_cutover\", \"status\": \"valid\"}\n-        if len(direct) != 1 or other_binding or not isinstance(value, str) or value not in _JOURNAL_TRIGGER_POLICIES:\n+        if len(direct) < 1 or other_binding or not isinstance(value, str) or value not in _JOURNAL_TRIGGER_POLICIES:\n             raise ValueError(\"unsupported trigger binding\")\n     except Exception:  # noqa: BLE001 -- classification, no execution or value echo\n         return {\"policy\": None, \"status\": \"invalid\", \"detail\":\n",
+      "failure_assertions": [
+        "AssertionError: Tuples differ: ('valid', 'journals_present') != ('invalid', None)"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Named test failed at expected assertion or patched forbidden action; no missing test/import dependency/fixture syntax error."
+    },
+    {
+      "id": "literal_policy_allowlist",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_static_journal_trigger",
+      "old": " or value not in _JOURNAL_TRIGGER_POLICIES",
+      "new": "",
+      "property": "Unsupported literal trigger invalid",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution"
+        ],
+        "exit": 0,
+        "elapsed": 2.4132554579991847,
+        "log": "/tmp/wf-206is-guard-pins-work/literal_policy_allowlist-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 2.222s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution"
+        ],
+        "exit": 1,
+        "elapsed": 2.071330833947286,
+        "log": "/tmp/wf-206is-guard-pins-work/literal_policy_allowlist-mutant.log",
+        "run": 1,
+        "failures": 2,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 2, \"errors\": 0, \"skips\": 0}\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... \n  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"''\", extra='') ... FAIL\n  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"'unsupported'\", extra='') ... FAIL\n\n======================================================================\nFAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"''\", extra='')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14943, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution\n    self.assertEqual((metadata[\"status\"], metadata[\"policy\"]), (status, policy))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Tuples differ: ('valid', '') != ('invalid', None)\n\nFirst differing element 0:\n'valid'\n'invalid'\n\n- ('valid', '')\n+ ('invalid', None)\n\n======================================================================\nFAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"'unsupported'\", extra='')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14943, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution\n    self.assertEqual((metadata[\"status\"], metadata[\"policy\"]), (status, policy))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Tuples differ: ('valid', 'unsupported') != ('invalid', None)\n\nFirst differing element 0:\n'valid'\n'invalid'\n\n- ('valid', 'unsupported')\n+ ('invalid', None)\n\n----------------------------------------------------------------------\nRan 1 test in 1.881s\n\nFAILED (failures=2)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "_static_journal_trigger",
+        "lines": [
+          1911,
+          1971
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_static_journal_trigger\n+++ scratch-mutant::_static_journal_trigger\n@@ -53,7 +53,7 @@\n         value = _static_module_literal(tree, _JOURNAL_TRIGGER_NAME)\n         if not direct and value == () and not other_binding:\n             return {\"policy\": \"legacy_cutover\", \"status\": \"valid\"}\n-        if len(direct) != 1 or other_binding or not isinstance(value, str) or value not in _JOURNAL_TRIGGER_POLICIES:\n+        if len(direct) != 1 or other_binding or not isinstance(value, str):\n             raise ValueError(\"unsupported trigger binding\")\n     except Exception:  # noqa: BLE001 -- classification, no execution or value echo\n         return {\"policy\": None, \"status\": \"invalid\", \"detail\":\n",
+      "failure_assertions": [
+        "AssertionError: Tuples differ: ('valid', '') != ('invalid', None)",
+        "AssertionError: Tuples differ: ('valid', 'unsupported') != ('invalid', None)"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Named test failed at expected assertion or patched forbidden action; no missing test/import dependency/fixture syntax error."
+    },
+    {
+      "id": "literal_type",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_static_journal_trigger",
+      "old": "not isinstance(value, str) or value not in _JOURNAL_TRIGGER_POLICIES",
+      "new": "False",
+      "property": "Non-string trigger invalid",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution"
+        ],
+        "exit": 0,
+        "elapsed": 2.3950835410505533,
+        "log": "/tmp/wf-206is-guard-pins-work/literal_type-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 2.206s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution"
+        ],
+        "exit": 1,
+        "elapsed": 1.9384522091131657,
+        "log": "/tmp/wf-206is-guard-pins-work/literal_type-mutant.log",
+        "run": 1,
+        "failures": 3,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 3, \"errors\": 0, \"skips\": 0}\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... \n  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"''\", extra='') ... FAIL\n  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding='7', extra='') ... FAIL\n  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"'unsupported'\", extra='') ... FAIL\n\n======================================================================\nFAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"''\", extra='')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14943, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution\n    self.assertEqual((metadata[\"status\"], metadata[\"policy\"]), (status, policy))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Tuples differ: ('valid', '') != ('invalid', None)\n\nFirst differing element 0:\n'valid'\n'invalid'\n\n- ('valid', '')\n+ ('invalid', None)\n\n======================================================================\nFAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding='7', extra='')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14943, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution\n    self.assertEqual((metadata[\"status\"], metadata[\"policy\"]), (status, policy))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Tuples differ: ('valid', 7) != ('invalid', None)\n\nFirst differing element 0:\n'valid'\n'invalid'\n\n- ('valid', 7)\n?           ^\n\n+ ('invalid', None)\n?   ++        ^^^^\n\n\n======================================================================\nFAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"'unsupported'\", extra='')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14943, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution\n    self.assertEqual((metadata[\"status\"], metadata[\"policy\"]), (status, policy))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Tuples differ: ('valid', 'unsupported') != ('invalid', None)\n\nFirst differing element 0:\n'valid'\n'invalid'\n\n- ('valid', 'unsupported')\n+ ('invalid', None)\n\n----------------------------------------------------------------------\nRan 1 test in 1.742s\n\nFAILED (failures=3)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "_static_journal_trigger",
+        "lines": [
+          1911,
+          1971
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_static_journal_trigger\n+++ scratch-mutant::_static_journal_trigger\n@@ -53,7 +53,7 @@\n         value = _static_module_literal(tree, _JOURNAL_TRIGGER_NAME)\n         if not direct and value == () and not other_binding:\n             return {\"policy\": \"legacy_cutover\", \"status\": \"valid\"}\n-        if len(direct) != 1 or other_binding or not isinstance(value, str) or value not in _JOURNAL_TRIGGER_POLICIES:\n+        if len(direct) != 1 or other_binding or False:\n             raise ValueError(\"unsupported trigger binding\")\n     except Exception:  # noqa: BLE001 -- classification, no execution or value echo\n         return {\"policy\": None, \"status\": \"invalid\", \"detail\":\n",
+      "failure_assertions": [
+        "AssertionError: Tuples differ: ('valid', '') != ('invalid', None)",
+        "AssertionError: Tuples differ: ('valid', 7) != ('invalid', None)",
+        "AssertionError: Tuples differ: ('valid', 'unsupported') != ('invalid', None)"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Named test failed at expected assertion or patched forbidden action; no missing test/import dependency/fixture syntax error."
+    },
+    {
+      "id": "builtin_permission",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "pre_docs_gate",
+      "old": "if legacy and hook_ok:",
+      "new": "if hook_ok:",
+      "property": "Builtin remains independently gated before 1.15",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion"
+        ],
+        "exit": 0,
+        "elapsed": 0.5310454170685261,
+        "log": "/tmp/wf-206is-guard-pins-work/builtin_permission-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.334s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion"
+        ],
+        "exit": 1,
+        "elapsed": 0.6021942500956357,
+        "log": "/tmp/wf-206is-guard-pins-work/builtin_permission-mutant.log",
+        "run": 1,
+        "failures": 2,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 2, \"errors\": 0, \"skips\": 0}\ntest_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) ... \n  test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) (version='1.15.0') ... FAIL\n  test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) (version='1.29.0') ... FAIL\n\n======================================================================\nFAIL: test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) (version='1.15.0')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14831, in test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion\n    self.assertEqual(builtin.call_count, int(version == \"1.14.9\"))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 1 != 0\n\n======================================================================\nFAIL: test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) (version='1.29.0')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14831, in test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion\n    self.assertEqual(builtin.call_count, int(version == \"1.14.9\"))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 1 != 0\n\n----------------------------------------------------------------------\nRan 1 test in 0.346s\n\nFAILED (failures=2)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "pre_docs_gate",
+        "lines": [
+          2636,
+          2709
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::pre_docs_gate\n+++ scratch-mutant::pre_docs_gate\n@@ -53,7 +53,7 @@\n                 hook_ok = not eligible or _run_journal_pre_migration_hook(\n                     ctx.root, hook_name, hook, trigger=trigger\n                 )\n-                if legacy and hook_ok:\n+                if hook_ok:\n                     _migrate_journals(ctx.root, templates)\n \n     lock = _read_json_object(\n",
+      "failure_assertions": [
+        "AssertionError: 1 != 0"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Named test failed at expected assertion or patched forbidden action; no missing test/import dependency/fixture syntax error."
+    },
+    {
+      "id": "default_dormancy",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "pre_docs_gate",
+      "old": "if legacy or (trigger == \"journals_present\" and eligible):",
+      "new": "if legacy or eligible:",
+      "property": "Default later hook remains dormant",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover"
+        ],
+        "exit": 0,
+        "elapsed": 0.7366179579403251,
+        "log": "/tmp/wf-206is-guard-pins-work/default_dormancy-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.537s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover"
+        ],
+        "exit": 1,
+        "elapsed": 0.9256860408931971,
+        "log": "/tmp/wf-206is-guard-pins-work/default_dormancy-mutant.log",
+        "run": 1,
+        "failures": 5,
+        "errors": 0,
+        "skips": 0,
+        "tail": "^^^^^^^^^^^^^\nAssertionError: 1 != 0\n\n======================================================================\nFAIL: test_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) (binding=None, version='1.29.0')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14842, in test_legacy_absent_and_explicit_defaults_keep_no_source_cutover\n    self.assertEqual(len(self._hook_calls()) - before, int(version == \"1.14.9\"))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 1 != 0\n\n======================================================================\nFAIL: test_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) (binding=\"'legacy_cutover'\", version='1.15.0')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14842, in test_legacy_absent_and_explicit_defaults_keep_no_source_cutover\n    self.assertEqual(len(self._hook_calls()) - before, int(version == \"1.14.9\"))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 1 != 0\n\n======================================================================\nFAIL: test_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) (binding=\"'legacy_cutover'\", version='1.29.0')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14842, in test_legacy_absent_and_explicit_defaults_keep_no_source_cutover\n    self.assertEqual(len(self._hook_calls()) - before, int(version == \"1.14.9\"))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 1 != 0\n\n======================================================================\nFAIL: test_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14846, in test_legacy_absent_and_explicit_defaults_keep_no_source_cutover\n    self._gate(\"1.29.0\")\n    ~~~~~~~~~~^^^^^^^^^^\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 13019, in _gate\n    self.ext.pre_docs_gate(MagicMock(root=self.root, from_version=from_version))\n    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 2683, in pre_docs_gate\n    templates, hook_name, hook = _load_journal_declaration(\n                                 ~~~~~~~~~~~~~~~~~~~~~~~~~^\n        ctx.root, load_hook=eligible, expected_trigger=trigger\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1176, in __call__\n    return self._mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1180, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1241, in _execute_mock_call\n    raise effect\nAssertionError: later legacy import\n\n----------------------------------------------------------------------\nRan 1 test in 0.718s\n\nFAILED (failures=5)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "pre_docs_gate",
+        "lines": [
+          2636,
+          2709
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::pre_docs_gate\n+++ scratch-mutant::pre_docs_gate\n@@ -43,7 +43,7 @@\n         # statically selected opt-in can broaden scheduling beyond that gate.\n         trigger = selection[\"policy\"] or \"legacy_cutover\"\n         eligible = trigger == \"legacy_cutover\" or _journals_present(ctx.root, zip_path)\n-        if legacy or (trigger == \"journals_present\" and eligible):\n+        if legacy or eligible:\n             with _journal_incoming_imports(_journal_scripts_dir(ctx.root)):\n                 templates, hook_name, hook = _load_journal_declaration(\n                     ctx.root, load_hook=eligible, expected_trigger=trigger\n",
+      "failure_assertions": [
+        "AssertionError: 1 != 0",
+        "AssertionError: later legacy import"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Named test failed at expected assertion or patched forbidden action; no missing test/import dependency/fixture syntax error."
+    },
+    {
+      "id": "readme_exclusion",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_journals_present",
+      "old": " or entry.name == \"README.md\"",
+      "new": "",
+      "property": "README-only is ineligible",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook"
+        ],
+        "exit": 0,
+        "elapsed": 0.8056355419103056,
+        "log": "/tmp/wf-206is-guard-pins-work/readme_exclusion-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.610s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook"
+        ],
+        "exit": 1,
+        "elapsed": 0.8155893748626113,
+        "log": "/tmp/wf-206is-guard-pins-work/readme_exclusion-mutant.log",
+        "run": 1,
+        "failures": 1,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 1, \"errors\": 0, \"skips\": 0}\ntest_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) ... PROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\n\n  test_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) (shape='readme') ... FAIL\n\n======================================================================\nFAIL: test_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) (shape='readme')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14887, in test_nonqualifying_direct_sources_never_call_opted_in_hook\n    self._gate(\"1.29.0\")\n    ~~~~~~~~~~^^^^^^^^^^\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 13019, in _gate\n    self.ext.pre_docs_gate(MagicMock(root=self.root, from_version=from_version))\n    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 2683, in pre_docs_gate\n    templates, hook_name, hook = _load_journal_declaration(\n                                 ~~~~~~~~~~~~~~~~~~~~~~~~~^\n        ctx.root, load_hook=eligible, expected_trigger=trigger\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1176, in __call__\n    return self._mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1180, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1241, in _execute_mock_call\n    raise effect\nAssertionError: ineligible loaded declaration\n\n----------------------------------------------------------------------\nRan 1 test in 0.619s\n\nFAILED (failures=1)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "_journals_present",
+        "lines": [
+          1974,
+          2010
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_journals_present\n+++ scratch-mutant::_journals_present\n@@ -17,7 +17,7 @@\n             fd = _journal_open_dir(root, _JOURNALS_REL.parts)\n         with os.scandir(fd if fd is not None else folder) as entries:\n             for entry in entries:\n-                if not entry.name.endswith(\".md\") or entry.name == \"README.md\":\n+                if not entry.name.endswith(\".md\"):\n                     continue\n                 if fd is not None:\n                     original = os.stat(entry.name, dir_fd=fd, follow_symlinks=False)\n",
+      "failure_assertions": [
+        "PROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}",
+        "AssertionError: ineligible loaded declaration"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Named test failed at expected assertion or patched forbidden action; no missing test/import dependency/fixture syntax error."
+    },
+    {
+      "id": "single_link",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_journals_present",
+      "old": "_journal_source_ok(original)",
+      "new": "(original is not None and stat.S_ISREG(original.st_mode))",
+      "property": "Hardlinked source is ineligible",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook"
+        ],
+        "exit": 0,
+        "elapsed": 0.7939141669776291,
+        "log": "/tmp/wf-206is-guard-pins-work/single_link-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.596s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook"
+        ],
+        "exit": 1,
+        "elapsed": 0.8003417500294745,
+        "log": "/tmp/wf-206is-guard-pins-work/single_link-mutant.log",
+        "run": 1,
+        "failures": 1,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 1, \"errors\": 0, \"skips\": 0}\ntest_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) ... PROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\n\n  test_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) (shape='hardlink') ... FAIL\n\n======================================================================\nFAIL: test_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) (shape='hardlink')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14887, in test_nonqualifying_direct_sources_never_call_opted_in_hook\n    self._gate(\"1.29.0\")\n    ~~~~~~~~~~^^^^^^^^^^\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 13019, in _gate\n    self.ext.pre_docs_gate(MagicMock(root=self.root, from_version=from_version))\n    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 2683, in pre_docs_gate\n    templates, hook_name, hook = _load_journal_declaration(\n                                 ~~~~~~~~~~~~~~~~~~~~~~~~~^\n        ctx.root, load_hook=eligible, expected_trigger=trigger\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1176, in __call__\n    return self._mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1180, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1241, in _execute_mock_call\n    raise effect\nAssertionError: ineligible loaded declaration\n\n----------------------------------------------------------------------\nRan 1 test in 0.603s\n\nFAILED (failures=1)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "_journals_present",
+        "lines": [
+          1974,
+          2010
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_journals_present\n+++ scratch-mutant::_journals_present\n@@ -21,7 +21,7 @@\n                     continue\n                 if fd is not None:\n                     original = os.stat(entry.name, dir_fd=fd, follow_symlinks=False)\n-                    if _journal_source_ok(original) and _journal_dir_unchanged(root, _JOURNALS_REL.parts, fd):\n+                    if (original is not None and stat.S_ISREG(original.st_mode)) and _journal_dir_unchanged(root, _JOURNALS_REL.parts, fd):\n                         return True\n                 else:\n                     candidate = containment.contained_path(\n",
+      "failure_assertions": [
+        "PROPERTY_EXCEPTION ineligible loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}",
+        "AssertionError: ineligible loaded declaration"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Named test failed at expected assertion or patched forbidden action; no missing test/import dependency/fixture syntax error."
+    },
+    {
+      "id": "ancestor_refusal_partial",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_journals_present",
+      "old": null,
+      "new": null,
+      "property": "Ancestor no-follow plus descriptor walk refuse linked path",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed"
+        ],
+        "exit": 0,
+        "elapsed": 0.3264512079767883,
+        "log": "/tmp/wf-206is-guard-pins-work/ancestor_refusal_partial-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_linked_source_ancestor_is_not_followed (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.131s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed"
+        ],
+        "exit": 0,
+        "elapsed": 0.3274931670166552,
+        "log": "/tmp/wf-206is-guard-pins-work/ancestor_refusal_partial-mutant.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_linked_source_ancestor_is_not_followed (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.132s\n\nOK\n"
+      },
+      "classification": "survived",
+      "source_anchor": {
+        "symbol": "_journals_present",
+        "lines": [
+          1974,
+          2010
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_journals_present\n+++ scratch-mutant::_journals_present\n@@ -8,11 +8,11 @@\n     fd = None\n     try:\n         containment = _incoming_framework_module(\"path_containment\", zip_path)\n-        folder = containment.contained_path(root, _JOURNALS_REL, refuse_symlink_components=True)\n+        folder = root / _JOURNALS_REL\n         folder_st = _journal_lstat(folder)\n         if folder is None or folder_st is None or not stat.S_ISDIR(folder_st.st_mode):\n             return False\n-        if _journal_dir_fd_supported():\n+        if False:\n             _journal_walk_checkpoint(\"journals\")\n             fd = _journal_open_dir(root, _JOURNALS_REL.parts)\n         with os.scandir(fd if fd is not None else folder) as entries:\n",
+      "failure_assertions": [],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Mutant remains green; no detection claim.",
+      "survivor_assessment": "Not missing pin: per-candidate containment still refuses ancestor. Complete family mutant detected by same test."
+    },
+    {
+      "id": "cached_name_eviction",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_journal_incoming_imports",
+      "old": "for name in previous_modules:\n        sys.modules.pop(name, None)",
+      "new": "for name in ():\n        sys.modules.pop(name, None)",
+      "property": "Incoming dependency shadows cached old module",
+      "test": "test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry"
+        ],
+        "exit": 0,
+        "elapsed": 1.5496972089167684,
+        "log": "/tmp/wf-206is-guard-pins-work/cached_name_eviction-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry (test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.953s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry"
+        ],
+        "exit": 1,
+        "elapsed": 1.0908772079274058,
+        "log": "/tmp/wf-206is-guard-pins-work/cached_name_eviction-mutant.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 1,
+        "skips": 0,
+        "tail": "ES {\"c6_dependency\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_dependency.py\", \"c6_package\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_package/__init__.py\", \"c6_package.child\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_package/child.py\", \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {\"c6_dependency\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_dependency.py\", \"c6_package\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_package/__init__.py\", \"c6_package.child\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_package/child.py\", \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {\"c6_dependency\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_dependency.py\", \"c6_package\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_package/__init__.py\", \"c6_package.child\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_package/child.py\", \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {\"c6_dependency\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_dependency.py\", \"c6_package\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_package/__init__.py\", \"c6_package.child\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_package/child.py\", \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {\"c6_dependency\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_dependency.py\", \"c6_package\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_package/__init__.py\", \"c6_package.child\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_package/child.py\", \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {\"c6_dependency\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_dependency.py\", \"c6_package\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_package/__init__.py\", \"c6_package.child\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_package/child.py\", \"c6_package.new_child\": null}\nERROR\n\n======================================================================\nERROR: test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry (test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/upgrade_wavefoundry.py\", line 1195, in _run_hook\n    hook_fn(ctx)\n    ~~~~~~~^^^^^\n  File \".wavefoundry/framework/scripts/upgrade_extensions.py\", line 2683, in pre_docs_gate\n  File \".wavefoundry/framework/scripts/upgrade_extensions.py\", line 1810, in _load_journal_declaration\nupgrade_extensions.JournalDeclarationError: invalid journal migration declaration: mcp_tool_extensions could not be imported (AssertionError)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py\", line 1178, in test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry\n    self._dispatch()\n    ~~~~~~~~~~~~~~^^\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py\", line 1163, in _dispatch\n    self.runner._run_hook(\"pre_docs_gate\", types.SimpleNamespace(root=self.root, from_version=\"1.29.0\", zip_path=self.package), extension)\n    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/upgrade_wavefoundry.py\", line 1200, in _run_hook\n    sys.exit(3)\n    ~~~~~~~~^^^\nSystemExit: 3\n\n----------------------------------------------------------------------\nRan 1 test in 0.510s\n\nFAILED (errors=1)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "_journal_incoming_imports",
+        "lines": [
+          1675,
+          1716
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_journal_incoming_imports\n+++ scratch-mutant::_journal_incoming_imports\n@@ -26,7 +26,7 @@\n \n     previous_modules = {name: module for name, module in sys.modules.copy().items() if affected(name)}\n     previous_path = list(sys.path)\n-    for name in previous_modules:\n+    for name in ():\n         sys.modules.pop(name, None)\n     path = str(scripts)\n     sys.path[:] = [path] + [entry for entry in previous_path if entry != path]\n",
+      "failure_assertions": [
+        "PROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {\"c6_dependency\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_dependency.py\", \"c6_package\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_package/__init__.py\", \"c6_package.child\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpe_ld0jad/old-scripts/c6_package/child.py\", \"c6_package.new_child\": null}",
+        "SystemExit: 3"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Real incoming declaration assertion: declaration got old dependency, with trace proving c6_dependency.__file__ lies in old-scripts; production older runner correctly exits3. Not a missing dependency or fixture error."
+    },
+    {
+      "id": "descendant_shadowing",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_journal_incoming_imports",
+      "old": "return name.partition(\".\")[0] in names",
+      "new": "return name in names",
+      "property": "Incoming package child shadows cached old descendant",
+      "test": "test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry"
+        ],
+        "exit": 0,
+        "elapsed": 1.2300608339719474,
+        "log": "/tmp/wf-206is-guard-pins-work/descendant_shadowing-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry (test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.548s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry"
+        ],
+        "exit": 1,
+        "elapsed": 1.088153958087787,
+        "log": "/tmp/wf-206is-guard-pins-work/descendant_shadowing-mutant.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 1,
+        "skips": 0,
+        "tail": "e/child.py\", \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION module 'c6_package' has no attribute 'child' MODULE_FILES {\"c6_dependency\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpj42frfmk/target/.wavefoundry/framework/scripts/c6_dependency.py\", \"c6_package\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpj42frfmk/target/.wavefoundry/framework/scripts/c6_package/__init__.py\", \"c6_package.child\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpj42frfmk/old-scripts/c6_package/child.py\", \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION module 'c6_package' has no attribute 'child' MODULE_FILES {\"c6_dependency\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpj42frfmk/target/.wavefoundry/framework/scripts/c6_dependency.py\", \"c6_package\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpj42frfmk/target/.wavefoundry/framework/scripts/c6_package/__init__.py\", \"c6_package.child\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpj42frfmk/old-scripts/c6_package/child.py\", \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION module 'c6_package' has no attribute 'child' MODULE_FILES {\"c6_dependency\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpj42frfmk/target/.wavefoundry/framework/scripts/c6_dependency.py\", \"c6_package\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpj42frfmk/target/.wavefoundry/framework/scripts/c6_package/__init__.py\", \"c6_package.child\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpj42frfmk/old-scripts/c6_package/child.py\", \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION module 'c6_package' has no attribute 'child' MODULE_FILES {\"c6_dependency\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpj42frfmk/target/.wavefoundry/framework/scripts/c6_dependency.py\", \"c6_package\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpj42frfmk/target/.wavefoundry/framework/scripts/c6_package/__init__.py\", \"c6_package.child\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpj42frfmk/old-scripts/c6_package/child.py\", \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION module 'c6_package' has no attribute 'child' MODULE_FILES {\"c6_dependency\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpj42frfmk/target/.wavefoundry/framework/scripts/c6_dependency.py\", \"c6_package\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpj42frfmk/target/.wavefoundry/framework/scripts/c6_package/__init__.py\", \"c6_package.child\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpj42frfmk/old-scripts/c6_package/child.py\", \"c6_package.new_child\": null}\nERROR\n\n======================================================================\nERROR: test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry (test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpj42frfmk/old-scripts/upgrade_wavefoundry.py\", line 1195, in _run_hook\n    hook_fn(ctx)\n    ~~~~~~~^^^^^\n  File \".wavefoundry/framework/scripts/upgrade_extensions.py\", line 2683, in pre_docs_gate\n  File \".wavefoundry/framework/scripts/upgrade_extensions.py\", line 1810, in _load_journal_declaration\nupgrade_extensions.JournalDeclarationError: invalid journal migration declaration: mcp_tool_extensions could not be imported (AttributeError)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py\", line 1178, in test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry\n    self._dispatch()\n    ~~~~~~~~~~~~~~^^\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py\", line 1163, in _dispatch\n    self.runner._run_hook(\"pre_docs_gate\", types.SimpleNamespace(root=self.root, from_version=\"1.29.0\", zip_path=self.package), extension)\n    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpj42frfmk/old-scripts/upgrade_wavefoundry.py\", line 1200, in _run_hook\n    sys.exit(3)\n    ~~~~~~~~^^^\nSystemExit: 3\n\n----------------------------------------------------------------------\nRan 1 test in 0.411s\n\nFAILED (errors=1)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "_journal_incoming_imports",
+        "lines": [
+          1675,
+          1716
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_journal_incoming_imports\n+++ scratch-mutant::_journal_incoming_imports\n@@ -22,7 +22,7 @@\n     names = {name for name in names if name.isidentifier() and name != \"__pycache__\"}\n \n     def affected(name):\n-        return name.partition(\".\")[0] in names\n+        return name in names\n \n     previous_modules = {name: module for name, module in sys.modules.copy().items() if affected(name)}\n     previous_path = list(sys.path)\n",
+      "failure_assertions": [
+        "PROPERTY_EXCEPTION module 'c6_package' has no attribute 'child' MODULE_FILES {\"c6_dependency\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpj42frfmk/target/.wavefoundry/framework/scripts/c6_dependency.py\", \"c6_package\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpj42frfmk/target/.wavefoundry/framework/scripts/c6_package/__init__.py\", \"c6_package.child\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpj42frfmk/old-scripts/c6_package/child.py\", \"c6_package.new_child\": null}",
+        "SystemExit: 3"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Cached c6_package.child survives while incoming parent reloads, so Python import leaves the incoming parent without a child attribute. Trace proves stale child.__file__ lies in old-scripts while fresh parent.__file__ lies in target incoming tree; production refusal exits3. This is the intended cached-descendant incoherence, not a missing file or fixture error."
+    },
+    {
+      "id": "path_precedence",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_journal_incoming_imports",
+      "old": "sys.path[:] = [path] + [entry for entry in previous_path if entry != path]",
+      "new": "sys.path[:] = previous_path if path in previous_path else [path] + previous_path",
+      "property": "Incoming directory precedes old disk dependencies even when already present",
+      "test": "test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry"
+        ],
+        "exit": 0,
+        "elapsed": 1.1893211249262094,
+        "log": "/tmp/wf-206is-guard-pins-work/path_precedence-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry (test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.669s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry"
+        ],
+        "exit": 1,
+        "elapsed": 1.0360834170132875,
+        "log": "/tmp/wf-206is-guard-pins-work/path_precedence-mutant.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 1,
+        "skips": 0,
+        "tail": "ES {\"c6_dependency\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_dependency.py\", \"c6_package\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_package/__init__.py\", \"c6_package.child\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_package/child.py\", \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {\"c6_dependency\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_dependency.py\", \"c6_package\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_package/__init__.py\", \"c6_package.child\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_package/child.py\", \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {\"c6_dependency\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_dependency.py\", \"c6_package\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_package/__init__.py\", \"c6_package.child\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_package/child.py\", \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {\"c6_dependency\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_dependency.py\", \"c6_package\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_package/__init__.py\", \"c6_package.child\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_package/child.py\", \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {\"c6_dependency\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_dependency.py\", \"c6_package\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_package/__init__.py\", \"c6_package.child\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_package/child.py\", \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {\"c6_dependency\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_dependency.py\", \"c6_package\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_package/__init__.py\", \"c6_package.child\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_package/child.py\", \"c6_package.new_child\": null}\nERROR\n\n======================================================================\nERROR: test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry (test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/upgrade_wavefoundry.py\", line 1195, in _run_hook\n    hook_fn(ctx)\n    ~~~~~~~^^^^^\n  File \".wavefoundry/framework/scripts/upgrade_extensions.py\", line 2683, in pre_docs_gate\n  File \".wavefoundry/framework/scripts/upgrade_extensions.py\", line 1810, in _load_journal_declaration\nupgrade_extensions.JournalDeclarationError: invalid journal migration declaration: mcp_tool_extensions could not be imported (AssertionError)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py\", line 1178, in test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry\n    self._dispatch()\n    ~~~~~~~~~~~~~~^^\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py\", line 1163, in _dispatch\n    self.runner._run_hook(\"pre_docs_gate\", types.SimpleNamespace(root=self.root, from_version=\"1.29.0\", zip_path=self.package), extension)\n    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/upgrade_wavefoundry.py\", line 1200, in _run_hook\n    sys.exit(3)\n    ~~~~~~~~^^^\nSystemExit: 3\n\n----------------------------------------------------------------------\nRan 1 test in 0.506s\n\nFAILED (errors=1)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "_journal_incoming_imports",
+        "lines": [
+          1675,
+          1716
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_journal_incoming_imports\n+++ scratch-mutant::_journal_incoming_imports\n@@ -29,7 +29,7 @@\n     for name in previous_modules:\n         sys.modules.pop(name, None)\n     path = str(scripts)\n-    sys.path[:] = [path] + [entry for entry in previous_path if entry != path]\n+    sys.path[:] = previous_path if path in previous_path else [path] + previous_path\n     try:\n         importlib.invalidate_caches()\n         yield\n",
+      "failure_assertions": [
+        "PROPERTY_EXCEPTION declaration got old dependency MODULE_FILES {\"c6_dependency\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_dependency.py\", \"c6_package\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_package/__init__.py\", \"c6_package.child\": \"/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp03tw7z7c/old-scripts/c6_package/child.py\", \"c6_package.new_child\": null}",
+        "SystemExit: 3"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Real incoming declaration assertion: declaration got old dependency, with trace proving c6_dependency.__file__ lies in old-scripts; production older runner correctly exits3. Not a missing dependency or fixture error."
+    },
+    {
+      "id": "module_identity_restoration",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_journal_incoming_imports",
+      "old": "sys.modules.update(previous_modules)",
+      "new": "pass # mutant: old identities not restored",
+      "property": "Old cached module identities restore after success",
+      "test": "test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry"
+        ],
+        "exit": 0,
+        "elapsed": 1.065983375068754,
+        "log": "/tmp/wf-206is-guard-pins-work/module_identity_restoration-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry (test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.528s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry"
+        ],
+        "exit": 1,
+        "elapsed": 1.1050670419353992,
+        "log": "/tmp/wf-206is-guard-pins-work/module_identity_restoration-mutant.log",
+        "run": 1,
+        "failures": 1,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 1, \"errors\": 0, \"skips\": 0}\ntest_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry (test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry) ... FAIL\n\n======================================================================\nFAIL: test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry (test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py\", line 1179, in test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry\n    self._assert_restored()\n    ~~~~~~~~~~~~~~~~~~~~~^^\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py\", line 1171, in _assert_restored\n    self.assertIs(sys.modules.get(name), module, name)\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None is not <module 'c6_dependency' from '/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpm_graq8s/old-scripts/c6_dependency.py'> : c6_dependency\n\n----------------------------------------------------------------------\nRan 1 test in 0.452s\n\nFAILED (failures=1)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "_journal_incoming_imports",
+        "lines": [
+          1675,
+          1716
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_journal_incoming_imports\n+++ scratch-mutant::_journal_incoming_imports\n@@ -37,6 +37,6 @@\n         for name in list(sys.modules):\n             if affected(name):\n                 sys.modules.pop(name, None)\n-        sys.modules.update(previous_modules)\n+        pass # mutant: old identities not restored\n         sys.path[:] = previous_path\n         importlib.invalidate_caches()\n",
+      "failure_assertions": [
+        "AssertionError: None is not <module 'c6_dependency' from '/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpm_graq8s/old-scripts/c6_dependency.py'> : c6_dependency"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Named test failed at expected assertion or patched forbidden action; no missing test/import dependency/fixture syntax error."
+    },
+    {
+      "id": "path_restoration_failure",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_journal_incoming_imports",
+      "old": "sys.path[:] = previous_path",
+      "new": "pass # mutant: path not restored",
+      "property": "Path restores after failed hook",
+      "test": "test_upgrade_protocol.JournalIncomingRunnerTests.test_call_failure_restores_modules_path_and_reports_partial_effect_truthfully",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_protocol.JournalIncomingRunnerTests.test_call_failure_restores_modules_path_and_reports_partial_effect_truthfully"
+        ],
+        "exit": 0,
+        "elapsed": 1.0321525000035763,
+        "log": "/tmp/wf-206is-guard-pins-work/path_restoration_failure-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_call_failure_restores_modules_path_and_reports_partial_effect_truthfully (test_upgrade_protocol.JournalIncomingRunnerTests.test_call_failure_restores_modules_path_and_reports_partial_effect_truthfully) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.504s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_protocol.JournalIncomingRunnerTests.test_call_failure_restores_modules_path_and_reports_partial_effect_truthfully"
+        ],
+        "exit": 1,
+        "elapsed": 0.8467640411108732,
+        "log": "/tmp/wf-206is-guard-pins-work/path_restoration_failure-mutant.log",
+        "run": 1,
+        "failures": 1,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 1, \"errors\": 0, \"skips\": 0}\ntest_call_failure_restores_modules_path_and_reports_partial_effect_truthfully (test_upgrade_protocol.JournalIncomingRunnerTests.test_call_failure_restores_modules_path_and_reports_partial_effect_truthfully) ... FAIL\n\n======================================================================\nFAIL: test_call_failure_restores_modules_path_and_reports_partial_effect_truthfully (test_upgrade_protocol.JournalIncomingRunnerTests.test_call_failure_restores_modules_path_and_reports_partial_effect_truthfully)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py\", line 1187, in test_call_failure_restores_modules_path_and_reports_partial_effect_truthfully\n    self._assert_restored()\n    ~~~~~~~~~~~~~~~~~~~~~^^\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py\", line 1169, in _assert_restored\n    self.assertEqual(sys.path, self.before_path)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: ['/va[53 chars]8ejz/target/.wavefoundry/framework/scripts', '[817 chars]ges'] != ['/va[53 chars]8ejz/old-scripts', '/private/var/folders/wm/m3[817 chars]pts']\n\nFirst differing element 0:\n'/var[32 chars]yqb40000gp/T/tmpz_td8ejz/target/.wavefoundry/framework/scripts'\n'/var[32 chars]yqb40000gp/T/tmpz_td8ejz/old-scripts'\n\nDiff is 1305 characters long. Set self.maxDiff to None to see it.\n\n----------------------------------------------------------------------\nRan 1 test in 0.352s\n\nFAILED (failures=1)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "_journal_incoming_imports",
+        "lines": [
+          1675,
+          1716
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_journal_incoming_imports\n+++ scratch-mutant::_journal_incoming_imports\n@@ -38,5 +38,5 @@\n             if affected(name):\n                 sys.modules.pop(name, None)\n         sys.modules.update(previous_modules)\n-        sys.path[:] = previous_path\n+        pass # mutant: path not restored\n         importlib.invalidate_caches()\n",
+      "failure_assertions": [
+        "AssertionError: Lists differ: ['/va[53 chars]8ejz/target/.wavefoundry/framework/scripts', '[817 chars]ges'] != ['/va[53 chars]8ejz/old-scripts', '/private/var/folders/wm/m3[817 chars]pts']"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Named test failed at expected assertion or patched forbidden action; no missing test/import dependency/fixture syntax error."
+    },
+    {
+      "id": "new_descendant_cleanup",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_journal_incoming_imports",
+      "old": "if affected(name):",
+      "new": "if affected(name) and name != \"c6_package.new_child\":",
+      "property": "New affected descendant is removed",
+      "test": "test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry"
+        ],
+        "exit": 0,
+        "elapsed": 0.9707267079502344,
+        "log": "/tmp/wf-206is-guard-pins-work/new_descendant_cleanup-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry (test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.473s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_protocol.JournalIncomingRunnerTests.test_cached_old_modules_and_descendants_restore_after_success_and_idempotent_retry"
+        ],
+        "exit": 1,
+        "elapsed": 0.8663319589104503,
+        "log": "/tmp/wf-206is-guard-pins-work/new_descendant_cleanup-mutant.log",
+        "run": 1,
+        "failures": 1,
+        "errors": 0,
+        "skips": 0,
+        "tail": "handlers.py'>, 'wf_server.edit_gate_handlers': <module 'wf_server.edit_gate_handlers' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/wf_server/edit_gate_handlers.py'>, 'wf_server.dashboard_handlers': <module 'wf_server.dashboard_handlers' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/wf_server/dashboard_handlers.py'>, 'wf_server.docs_handlers': <module 'wf_server.docs_handlers' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/wf_server/docs_handlers.py'>, 'lifecycle_lock': <module 'lifecycle_lock' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/lifecycle_lock.py'>, 'wf_server.memory_handlers': <module 'wf_server.memory_handlers' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/wf_server/memory_handlers.py'>, 'wf_server.techdocs_handlers': <module 'wf_server.techdocs_handlers' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/wf_server/techdocs_handlers.py'>, 'wf_server.codenav_handlers': <module 'wf_server.codenav_handlers' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/wf_server/codenav_handlers.py'>, 'wf_server.graph_handlers': <module 'wf_server.graph_handlers' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/wf_server/graph_handlers.py'>, 'context_efficiency': <module 'context_efficiency' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/context_efficiency.py'>, 'wf_server.context_efficiency_handlers': <module 'wf_server.context_efficiency_handlers' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/wf_server/context_efficiency_handlers.py'>, 'dashboard_handlers': <module 'wf_server.dashboard_handlers' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/wf_server/dashboard_handlers.py'>, 'wf_server.server_impl': <module 'wf_server.server_impl' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/wf_server/server_impl.py'>, 'server_impl': <module 'wf_server.server_impl' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/wf_server/server_impl.py'>, 'server': <module 'server' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/server.py'>, 'dashboard_lib': <module 'dashboard_lib' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/dashboard_lib.py'>, 'upgrade_bridge_bootstrap': <module 'upgrade_bridge_bootstrap' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_bridge_bootstrap.py'>, 'upgrade_bundle': <module 'upgrade_bundle' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_bundle.py'>, 'upgrade_extensions': <module 'upgrade_extensions' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py'>, 'cli_stdio': <module 'cli_stdio' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/cli_stdio.py'>, 'c6_dependency': <module 'c6_dependency' from '/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpz6gn8h68/old-scripts/c6_dependency.py'>, 'c6_package': <module 'c6_package' from '/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpz6gn8h68/old-scripts/c6_package/__init__.py'>, 'c6_package.child': <module 'c6_package.child' from '/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpz6gn8h68/old-scripts/c6_package/child.py'>, 'mcp_tool_extensions': <module 'mcp_tool_extensions' from '/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpz6gn8h68/old-scripts/mcp_tool_extensions.py'>, 'vocabulary_profile': <module 'vocabulary_profile' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/vocabulary_profile.py'>, 'path_containment': <module 'path_containment' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/path_containment.py'>, 'record_paths': <module 'record_paths' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/record_paths.py'>, 'review_policy': <module 'review_policy' from '/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/review_policy.py'>}\n\n----------------------------------------------------------------------\nRan 1 test in 0.362s\n\nFAILED (failures=1)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "_journal_incoming_imports",
+        "lines": [
+          1675,
+          1716
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_journal_incoming_imports\n+++ scratch-mutant::_journal_incoming_imports\n@@ -35,7 +35,7 @@\n         yield\n     finally:\n         for name in list(sys.modules):\n-            if affected(name):\n+            if affected(name) and name != \"c6_package.new_child\":\n                 sys.modules.pop(name, None)\n         sys.modules.update(previous_modules)\n         sys.path[:] = previous_path\n",
+      "failure_assertions": [
+        "PROPERTY_EXCEPTION 'c6_package.new_child' unexpectedly found in {'sys': <module 'sys' (built-in)>, 'builtins': <module 'builtins' (built-in)>, '_frozen_importlib': <module '_frozen_importlib' (frozen)>, '_imp': <module '_imp' (built-in)>, '_thread': <module '_thread' (built-in)>, '_warnings': <module '_warnings' (built-in)>, '_weakref': <module '_weakref' (built-in)>, '_io': <module '_io' (built-in)>, 'marshal': <module 'marshal' (built-in)>, 'posix': <module 'posix' (built-in)>, '_frozen_importlib_external': <module '_frozen_importlib_external' (frozen)>, 'time': <module 'time' (built-in)>, 'zipimport': <module 'zipimport' (frozen)>, '_codecs': <module '_codecs' (built-in)>, 'codecs': <module 'codecs' (frozen)>, 'encodings.aliases': <module 'encodings.aliases' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/aliases.py'>, 'encodings': <module 'encodings' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/__init__.py'>, 'encodings.utf_8': <module 'encodings.utf_8' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/utf_8.py'>, '_signal': <module '_signal' (built-in)>, '__main__': <module '__main__' (<class '_frozen_importlib.BuiltinImporter'>)>, '_abc': <module '_abc' (built-in)>, 'abc': <module 'abc' (frozen)>, '_stat': <module '_stat' (built-in)>, 'stat': <module 'stat' (frozen)>, '_collections_abc': <module '_collections_abc' (frozen)>, 'errno': <module 'errno' (built-in)>, 'genericpath'",
+        "PROPERTY_EXCEPTION 'c6_package.new_child' unexpectedly found in {'sys': <module 'sys' (built-in)>, 'builtins': <module 'builtins' (built-in)>, '_frozen_importlib': <module '_frozen_importlib' (frozen)>, '_imp': <module '_imp' (built-in)>, '_thread': <module '_thread' (built-in)>, '_warnings': <module '_warnings' (built-in)>, '_weakref': <module '_weakref' (built-in)>, '_io': <module '_io' (built-in)>, 'marshal': <module 'marshal' (built-in)>, 'posix': <module 'posix' (built-in)>, '_frozen_importlib_external': <module '_frozen_importlib_external' (frozen)>, 'time': <module 'time' (built-in)>, 'zipimport': <module 'zipimport' (frozen)>, '_codecs': <module '_codecs' (built-in)>, 'codecs': <module 'codecs' (frozen)>, 'encodings.aliases': <module 'encodings.aliases' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/aliases.py'>, 'encodings': <module 'encodings' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/__init__.py'>, 'encodings.utf_8': <module 'encodings.utf_8' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/utf_8.py'>, '_signal': <module '_signal' (built-in)>, '__main__': <module '__main__' (<class '_frozen_importlib.BuiltinImporter'>)>, '_abc': <module '_abc' (built-in)>, 'abc': <module 'abc' (frozen)>, '_stat': <module '_stat' (built-in)>, 'stat': <module 'stat' (frozen)>, '_collections_abc': <module '_collections_abc' (frozen)>, 'errno': <module 'errno' (built-in)>, 'genericpath'",
+        "PROPERTY_EXCEPTION 'c6_package.new_child' unexpectedly found in {'sys': <module 'sys' (built-in)>, 'builtins': <module 'builtins' (built-in)>, '_frozen_importlib': <module '_frozen_importlib' (frozen)>, '_imp': <module '_imp' (built-in)>, '_thread': <module '_thread' (built-in)>, '_warnings': <module '_warnings' (built-in)>, '_weakref': <module '_weakref' (built-in)>, '_io': <module '_io' (built-in)>, 'marshal': <module 'marshal' (built-in)>, 'posix': <module 'posix' (built-in)>, '_frozen_importlib_external': <module '_frozen_importlib_external' (frozen)>, 'time': <module 'time' (built-in)>, 'zipimport': <module 'zipimport' (frozen)>, '_codecs': <module '_codecs' (built-in)>, 'codecs': <module 'codecs' (frozen)>, 'encodings.aliases': <module 'encodings.aliases' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/aliases.py'>, 'encodings': <module 'encodings' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/__init__.py'>, 'encodings.utf_8': <module 'encodings.utf_8' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/utf_8.py'>, '_signal': <module '_signal' (built-in)>, '__main__': <module '__main__' (<class '_frozen_importlib.BuiltinImporter'>)>, '_abc': <module '_abc' (built-in)>, 'abc': <module 'abc' (frozen)>, '_stat': <module '_stat' (built-in)>, 'stat': <module 'stat' (frozen)>, '_collections_abc': <module '_collections_abc' (frozen)>, 'errno': <module 'errno' (built-in)>, 'genericpath'",
+        "PROPERTY_EXCEPTION 'c6_package.new_child' unexpectedly found in {'sys': <module 'sys' (built-in)>, 'builtins': <module 'builtins' (built-in)>, '_frozen_importlib': <module '_frozen_importlib' (frozen)>, '_imp': <module '_imp' (built-in)>, '_thread': <module '_thread' (built-in)>, '_warnings': <module '_warnings' (built-in)>, '_weakref': <module '_weakref' (built-in)>, '_io': <module '_io' (built-in)>, 'marshal': <module 'marshal' (built-in)>, 'posix': <module 'posix' (built-in)>, '_frozen_importlib_external': <module '_frozen_importlib_external' (frozen)>, 'time': <module 'time' (built-in)>, 'zipimport': <module 'zipimport' (frozen)>, '_codecs': <module '_codecs' (built-in)>, 'codecs': <module 'codecs' (frozen)>, 'encodings.aliases': <module 'encodings.aliases' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/aliases.py'>, 'encodings': <module 'encodings' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/__init__.py'>, 'encodings.utf_8': <module 'encodings.utf_8' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/utf_8.py'>, '_signal': <module '_signal' (built-in)>, '__main__': <module '__main__' (<class '_frozen_importlib.BuiltinImporter'>)>, '_abc': <module '_abc' (built-in)>, 'abc': <module 'abc' (frozen)>, '_stat': <module '_stat' (built-in)>, 'stat': <module 'stat' (frozen)>, '_collections_abc': <module '_collections_abc' (frozen)>, 'errno': <module 'errno' (built-in)>, 'genericpath'",
+        "PROPERTY_EXCEPTION 'c6_package.new_child' unexpectedly found in {'sys': <module 'sys' (built-in)>, 'builtins': <module 'builtins' (built-in)>, '_frozen_importlib': <module '_frozen_importlib' (frozen)>, '_imp': <module '_imp' (built-in)>, '_thread': <module '_thread' (built-in)>, '_warnings': <module '_warnings' (built-in)>, '_weakref': <module '_weakref' (built-in)>, '_io': <module '_io' (built-in)>, 'marshal': <module 'marshal' (built-in)>, 'posix': <module 'posix' (built-in)>, '_frozen_importlib_external': <module '_frozen_importlib_external' (frozen)>, 'time': <module 'time' (built-in)>, 'zipimport': <module 'zipimport' (frozen)>, '_codecs': <module '_codecs' (built-in)>, 'codecs': <module 'codecs' (frozen)>, 'encodings.aliases': <module 'encodings.aliases' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/aliases.py'>, 'encodings': <module 'encodings' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/__init__.py'>, 'encodings.utf_8': <module 'encodings.utf_8' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/utf_8.py'>, '_signal': <module '_signal' (built-in)>, '__main__': <module '__main__' (<class '_frozen_importlib.BuiltinImporter'>)>, '_abc': <module '_abc' (built-in)>, 'abc': <module 'abc' (frozen)>, '_stat': <module '_stat' (built-in)>, 'stat': <module 'stat' (frozen)>, '_collections_abc': <module '_collections_abc' (frozen)>, 'errno': <module 'errno' (built-in)>, 'genericpath'",
+        "PROPERTY_EXCEPTION 'c6_package.new_child' unexpectedly found in {'sys': <module 'sys' (built-in)>, 'builtins': <module 'builtins' (built-in)>, '_frozen_importlib': <module '_frozen_importlib' (frozen)>, '_imp': <module '_imp' (built-in)>, '_thread': <module '_thread' (built-in)>, '_warnings': <module '_warnings' (built-in)>, '_weakref': <module '_weakref' (built-in)>, '_io': <module '_io' (built-in)>, 'marshal': <module 'marshal' (built-in)>, 'posix': <module 'posix' (built-in)>, '_frozen_importlib_external': <module '_frozen_importlib_external' (frozen)>, 'time': <module 'time' (built-in)>, 'zipimport': <module 'zipimport' (frozen)>, '_codecs': <module '_codecs' (built-in)>, 'codecs': <module 'codecs' (frozen)>, 'encodings.aliases': <module 'encodings.aliases' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/aliases.py'>, 'encodings': <module 'encodings' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/__init__.py'>, 'encodings.utf_8': <module 'encodings.utf_8' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/utf_8.py'>, '_signal': <module '_signal' (built-in)>, '__main__': <module '__main__' (<class '_frozen_importlib.BuiltinImporter'>)>, '_abc': <module '_abc' (built-in)>, 'abc': <module 'abc' (frozen)>, '_stat': <module '_stat' (built-in)>, 'stat': <module 'stat' (frozen)>, '_collections_abc': <module '_collections_abc' (frozen)>, 'errno': <module 'errno' (built-in)>, 'genericpath'",
+        "AssertionError: 'c6_package.new_child' unexpectedly found in {'sys': <module 'sys' (built-in)>, 'builtins': <module 'builtins' (built-in)>, '_frozen_importlib': <module '_frozen_importlib' (frozen)>, '_imp': <module '_imp' (built-in)>, '_thread': <module '_thread' (built-in)>, '_warnings': <module '_warnings' (built-in)>, '_weakref': <module '_weakref' (built-in)>, '_io': <module '_io' (built-in)>, 'marshal': <module 'marshal' (built-in)>, 'posix': <module 'posix' (built-in)>, '_frozen_importlib_external': <module '_frozen_importlib_external' (frozen)>, 'time': <module 'time' (built-in)>, 'zipimport': <module 'zipimport' (frozen)>, '_codecs': <module '_codecs' (built-in)>, 'codecs': <module 'codecs' (frozen)>, 'encodings.aliases': <module 'encodings.aliases' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/aliases.py'>, 'encodings': <module 'encodings' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/__init__.py'>, 'encodings.utf_8': <module 'encodings.utf_8' from '/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/encodings/utf_8.py'>, '_signal': <module '_signal' (built-in)>, '__main__': <module '__main__' (<class '_frozen_importlib.BuiltinImporter'>)>, '_abc': <module '_abc' (built-in)>, 'abc': <module 'abc' (frozen)>, '_stat': <module '_stat' (built-in)>, 'stat': <module 'stat' (frozen)>, '_collections_abc': <module '_collections_abc' (frozen)>, 'errno': <module 'errno' (built-in)>, 'genericpath': <"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Named test failed at expected assertion or patched forbidden action; no missing test/import dependency/fixture syntax error."
+    },
+    {
+      "id": "preview_noexecution",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_journal_hook_preview",
+      "old": "selection = _static_journal_trigger(root, zip_path)",
+      "new": "_load_journal_declaration(root)\n    selection = _static_journal_trigger(root, zip_path)",
+      "property": "Public preview executes no declaration",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution"
+        ],
+        "exit": 0,
+        "elapsed": 2.4590155410114676,
+        "log": "/tmp/wf-206is-guard-pins-work/preview_noexecution-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 2.253s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution"
+        ],
+        "exit": 1,
+        "elapsed": 0.29861816694028676,
+        "log": "/tmp/wf-206is-guard-pins-work/preview_noexecution-mutant.log",
+        "run": 1,
+        "failures": 11,
+        "errors": 0,
+        "skips": 0,
+        "tail": "mework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1241, in _execute_mock_call\n    raise effect\nAssertionError: preview loaded declaration\n\n======================================================================\nFAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"'journals_present'\", extra=\"\\nEXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER += ''\\n\")\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14942, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution\n    metadata = self._preview()\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14810, in _preview\n    report = self.ext.migrate_journals(self.root, apply=False, zip_path=zip_path)\n  File \"/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 2105, in migrate_journals\n    report[\"hook_preview\"] = _journal_hook_preview(root, zip_path)\n                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^\n  File \"/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 2014, in _journal_hook_preview\n    _load_journal_declaration(root)\n    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1176, in __call__\n    return self._mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1180, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1241, in _execute_mock_call\n    raise effect\nAssertionError: preview loaded declaration\n\n======================================================================\nFAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"'journals_present'\", extra='\\ndef broken(:\\n')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14942, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution\n    metadata = self._preview()\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14810, in _preview\n    report = self.ext.migrate_journals(self.root, apply=False, zip_path=zip_path)\n  File \"/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 2105, in migrate_journals\n    report[\"hook_preview\"] = _journal_hook_preview(root, zip_path)\n                             ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^\n  File \"/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 2014, in _journal_hook_preview\n    _load_journal_declaration(root)\n    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1176, in __call__\n    return self._mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1180, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1241, in _execute_mock_call\n    raise effect\nAssertionError: preview loaded declaration\n\n----------------------------------------------------------------------\nRan 1 test in 0.106s\n\nFAILED (failures=11)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "_journal_hook_preview",
+        "lines": [
+          2013,
+          2016
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_journal_hook_preview\n+++ scratch-mutant::_journal_hook_preview\n@@ -1,4 +1,5 @@\n def _journal_hook_preview(root: Path, zip_path=None) -> dict:\n+    _load_journal_declaration(root)\n     selection = _static_journal_trigger(root, zip_path)\n     return {**selection, \"qualifying_journals\": _journals_present(root, zip_path),\n             \"hook_executed\": False, \"invocation\": \"upgrade_apply_only\"}\n",
+      "failure_assertions": [
+        "PROPERTY_EXCEPTION preview loaded declaration MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}",
+        "AssertionError: preview loaded declaration"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Named test failed at expected assertion or patched forbidden action; no missing test/import dependency/fixture syntax error."
+    },
+    {
+      "id": "ancestor_refusal_complete",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_journals_present",
+      "old": null,
+      "new": null,
+      "property": "Full ancestor no-follow clause refusal",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed"
+        ],
+        "exit": 0,
+        "elapsed": 0.32103304215706885,
+        "log": "/tmp/wf-206is-guard-pins-work/ancestor_refusal_complete-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_linked_source_ancestor_is_not_followed (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.131s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed"
+        ],
+        "exit": 1,
+        "elapsed": 0.32743345806375146,
+        "log": "/tmp/wf-206is-guard-pins-work/ancestor_refusal_complete-mutant.log",
+        "run": 1,
+        "failures": 1,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 1, \"errors\": 0, \"skips\": 0}\ntest_linked_source_ancestor_is_not_followed (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed) ... PROPERTY_EXCEPTION linked ancestor selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION linked ancestor selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION linked ancestor selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION linked ancestor selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION linked ancestor selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION linked ancestor selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION linked ancestor selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION linked ancestor selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION linked ancestor selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION linked ancestor selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION linked ancestor selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nFAIL\n\n======================================================================\nFAIL: test_linked_source_ancestor_is_not_followed (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14903, in test_linked_source_ancestor_is_not_followed\n    self._gate(\"1.29.0\")\n    ~~~~~~~~~~^^^^^^^^^^\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 13019, in _gate\n    self.ext.pre_docs_gate(MagicMock(root=self.root, from_version=from_version))\n    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 2683, in pre_docs_gate\n    templates, hook_name, hook = _load_journal_declaration(\n                                 ~~~~~~~~~~~~~~~~~~~~~~~~~^\n        ctx.root, load_hook=eligible, expected_trigger=trigger\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1176, in __call__\n    return self._mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1180, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1241, in _execute_mock_call\n    raise effect\nAssertionError: linked ancestor selected\n\n----------------------------------------------------------------------\nRan 1 test in 0.137s\n\nFAILED (failures=1)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "_journals_present",
+        "lines": [
+          1974,
+          2010
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_journals_present\n+++ scratch-mutant::_journals_present\n@@ -8,11 +8,11 @@\n     fd = None\n     try:\n         containment = _incoming_framework_module(\"path_containment\", zip_path)\n-        folder = containment.contained_path(root, _JOURNALS_REL, refuse_symlink_components=True)\n+        folder = containment.contained_path(root, _JOURNALS_REL, refuse_symlink_components=False)\n         folder_st = _journal_lstat(folder)\n         if folder is None or folder_st is None or not stat.S_ISDIR(folder_st.st_mode):\n             return False\n-        if _journal_dir_fd_supported():\n+        if False:\n             _journal_walk_checkpoint(\"journals\")\n             fd = _journal_open_dir(root, _JOURNALS_REL.parts)\n         with os.scandir(fd if fd is not None else folder) as entries:\n@@ -25,7 +25,7 @@\n                         return True\n                 else:\n                     candidate = containment.contained_path(\n-                        root, _JOURNALS_REL / entry.name, refuse_symlink_components=True\n+                        root, _JOURNALS_REL / entry.name, refuse_symlink_components=False\n                     )\n                     if candidate is not None and _journal_source_ok(_journal_lstat(candidate)):\n                         return True\n",
+      "failure_assertions": [
+        "PROPERTY_EXCEPTION linked ancestor selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}",
+        "AssertionError: linked ancestor selected"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Named test failed at expected assertion or patched forbidden action; no missing test/import dependency/fixture syntax error."
+    },
+    {
+      "id": "conditional_binding",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_static_module_literal",
+      "old": "if id(node) not in owned:",
+      "new": "if False:",
+      "property": "Conditional/augmented trigger binding invalid",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution"
+        ],
+        "exit": 0,
+        "elapsed": 2.3727789588738233,
+        "log": "/tmp/wf-206is-guard-pins-work/conditional_binding-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 2.185s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution"
+        ],
+        "exit": 1,
+        "elapsed": 2.225475958082825,
+        "log": "/tmp/wf-206is-guard-pins-work/conditional_binding-mutant.log",
+        "run": 1,
+        "failures": 2,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 2, \"errors\": 0, \"skips\": 0}\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... \n  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=None, extra=\"\\nif True:\\n    EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER = 'journals_present'\\n\") ... FAIL\n  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"'journals_present'\", extra=\"\\nEXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER += ''\\n\") ... FAIL\n\n======================================================================\nFAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=None, extra=\"\\nif True:\\n    EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER = 'journals_present'\\n\")\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14943, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution\n    self.assertEqual((metadata[\"status\"], metadata[\"policy\"]), (status, policy))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Tuples differ: ('valid', 'legacy_cutover') != ('invalid', None)\n\nFirst differing element 0:\n'valid'\n'invalid'\n\n- ('valid', 'legacy_cutover')\n+ ('invalid', None)\n\n======================================================================\nFAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"'journals_present'\", extra=\"\\nEXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER += ''\\n\")\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14943, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution\n    self.assertEqual((metadata[\"status\"], metadata[\"policy\"]), (status, policy))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Tuples differ: ('valid', 'journals_present') != ('invalid', None)\n\nFirst differing element 0:\n'valid'\n'invalid'\n\n- ('valid', 'journals_present')\n+ ('invalid', None)\n\n----------------------------------------------------------------------\nRan 1 test in 2.026s\n\nFAILED (failures=2)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "_static_module_literal",
+        "lines": [
+          1874,
+          1908
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_static_module_literal\n+++ scratch-mutant::_static_module_literal\n@@ -24,7 +24,7 @@\n                 value_node = node.value\n     for node in ast.walk(tree):\n         if isinstance(node, ast.Name) and node.id == name and not isinstance(node.ctx, ast.Load):\n-            if id(node) not in owned:\n+            if False:\n                 raise ValueError(name)\n         elif isinstance(node, ast.alias) and (node.asname or node.name) == name:\n             raise ValueError(name)\n",
+      "failure_assertions": [
+        "AssertionError: Tuples differ: ('valid', 'legacy_cutover') != ('invalid', None)",
+        "AssertionError: Tuples differ: ('valid', 'journals_present') != ('invalid', None)"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Named test failed at expected assertion or patched forbidden action; no missing test/import dependency/fixture syntax error."
+    },
+    {
+      "id": "unknown_not_default",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_static_journal_trigger",
+      "old": "return {\"policy\": None, \"status\": \"unknown\", \"detail\":",
+      "new": "return {\"policy\": \"legacy_cutover\", \"status\": \"valid\", \"detail\":",
+      "property": "Unknown source cannot silently default",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution"
+        ],
+        "exit": 0,
+        "elapsed": 2.417224792065099,
+        "log": "/tmp/wf-206is-guard-pins-work/unknown_not_default-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 2.220s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution"
+        ],
+        "exit": 1,
+        "elapsed": 2.3846003329381347,
+        "log": "/tmp/wf-206is-guard-pins-work/unknown_not_default-mutant.log",
+        "run": 1,
+        "failures": 1,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 1, \"errors\": 0, \"skips\": 0}\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... \n  test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"'journals_present'\", extra='\\ndef broken(:\\n') ... FAIL\n\n======================================================================\nFAIL: test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) (binding=\"'journals_present'\", extra='\\ndef broken(:\\n')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14943, in test_static_preview_decision_table_and_apply_invalid_refusal_before_execution\n    self.assertEqual((metadata[\"status\"], metadata[\"policy\"]), (status, policy))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Tuples differ: ('valid', 'legacy_cutover') != ('unknown', None)\n\nFirst differing element 0:\n'valid'\n'unknown'\n\n- ('valid', 'legacy_cutover')\n+ ('unknown', None)\n\n----------------------------------------------------------------------\nRan 1 test in 2.190s\n\nFAILED (failures=1)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "_static_journal_trigger",
+        "lines": [
+          1911,
+          1971
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_static_journal_trigger\n+++ scratch-mutant::_static_journal_trigger\n@@ -27,7 +27,7 @@\n             )\n         tree = ast.parse(source)\n     except Exception as exc:  # noqa: BLE001 -- never disclose paths or source values\n-        return {\"policy\": None, \"status\": \"unknown\", \"detail\":\n+        return {\"policy\": \"legacy_cutover\", \"status\": \"valid\", \"detail\":\n                 f\"journal trigger source is not statically readable ({type(exc).__name__})\"}\n \n     try:\n",
+      "failure_assertions": [
+        "AssertionError: Tuples differ: ('valid', 'legacy_cutover') != ('unknown', None)"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Named test failed at expected assertion or patched forbidden action; no missing test/import dependency/fixture syntax error."
+    },
+    {
+      "id": "regular_source_only",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_journals_present",
+      "old": "_journal_source_ok(original)",
+      "new": "(original is not None and original.st_nlink == 1)",
+      "property": "FIFO cannot qualify as regular journal",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected"
+        ],
+        "exit": 0,
+        "elapsed": 0.316252666991204,
+        "log": "/tmp/wf-206is-guard-pins-work/regular_source_only-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_fifo_named_markdown_is_not_opened_or_selected (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.131s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected"
+        ],
+        "exit": 1,
+        "elapsed": 0.3358820420689881,
+        "log": "/tmp/wf-206is-guard-pins-work/regular_source_only-mutant.log",
+        "run": 1,
+        "failures": 1,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 1, \"errors\": 0, \"skips\": 0}\ntest_fifo_named_markdown_is_not_opened_or_selected (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected) ... PROPERTY_EXCEPTION FIFO selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION FIFO selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION FIFO selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION FIFO selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION FIFO selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION FIFO selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION FIFO selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION FIFO selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION FIFO selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION FIFO selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nPROPERTY_EXCEPTION FIFO selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}\nFAIL\n\n======================================================================\nFAIL: test_fifo_named_markdown_is_not_opened_or_selected (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 14912, in test_fifo_named_markdown_is_not_opened_or_selected\n    self._gate(\"1.29.0\")\n    ~~~~~~~~~~^^^^^^^^^^\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 13019, in _gate\n    self.ext.pre_docs_gate(MagicMock(root=self.root, from_version=from_version))\n    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/private/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/upgrade_extensions.py\", line 2683, in pre_docs_gate\n    templates, hook_name, hook = _load_journal_declaration(\n                                 ~~~~~~~~~~~~~~~~~~~~~~~~~^\n        ctx.root, load_hook=eligible, expected_trigger=trigger\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1176, in __call__\n    return self._mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1180, in _mock_call\n    return self._execute_mock_call(*args, **kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py\", line 1241, in _execute_mock_call\n    raise effect\nAssertionError: FIFO selected\n\n----------------------------------------------------------------------\nRan 1 test in 0.138s\n\nFAILED (failures=1)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "_journals_present",
+        "lines": [
+          1974,
+          2010
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_journals_present\n+++ scratch-mutant::_journals_present\n@@ -21,7 +21,7 @@\n                     continue\n                 if fd is not None:\n                     original = os.stat(entry.name, dir_fd=fd, follow_symlinks=False)\n-                    if _journal_source_ok(original) and _journal_dir_unchanged(root, _JOURNALS_REL.parts, fd):\n+                    if (original is not None and original.st_nlink == 1) and _journal_dir_unchanged(root, _JOURNALS_REL.parts, fd):\n                         return True\n                 else:\n                     candidate = containment.contained_path(\n",
+      "failure_assertions": [
+        "PROPERTY_EXCEPTION FIFO selected MODULE_FILES {\"c6_dependency\": null, \"c6_package\": null, \"c6_package.child\": null, \"c6_package.new_child\": null}",
+        "AssertionError: FIFO selected"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Named test failed at expected assertion or patched forbidden action; no missing test/import dependency/fixture syntax error."
+    },
+    {
+      "id": "module_restore_import_failure",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_journal_incoming_imports",
+      "old": "sys.modules.update(previous_modules)",
+      "new": "pass # mutant: old identities not restored",
+      "property": "Cached module identity restored after failed import",
+      "test": "test_upgrade_protocol.JournalIncomingRunnerTests.test_import_failure_restores_modules_path_and_uses_actual_runner_refusal",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_protocol.JournalIncomingRunnerTests.test_import_failure_restores_modules_path_and_uses_actual_runner_refusal"
+        ],
+        "exit": 0,
+        "elapsed": 0.8239525000099093,
+        "log": "/tmp/wf-206is-guard-pins-work/module_restore_import_failure-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_import_failure_restores_modules_path_and_uses_actual_runner_refusal (test_upgrade_protocol.JournalIncomingRunnerTests.test_import_failure_restores_modules_path_and_uses_actual_runner_refusal) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.340s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_protocol.JournalIncomingRunnerTests.test_import_failure_restores_modules_path_and_uses_actual_runner_refusal"
+        ],
+        "exit": 1,
+        "elapsed": 0.8275746668223292,
+        "log": "/tmp/wf-206is-guard-pins-work/module_restore_import_failure-mutant.log",
+        "run": 1,
+        "failures": 1,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 1, \"errors\": 0, \"skips\": 0}\ntest_import_failure_restores_modules_path_and_uses_actual_runner_refusal (test_upgrade_protocol.JournalIncomingRunnerTests.test_import_failure_restores_modules_path_and_uses_actual_runner_refusal) ... FAIL\n\n======================================================================\nFAIL: test_import_failure_restores_modules_path_and_uses_actual_runner_refusal (test_upgrade_protocol.JournalIncomingRunnerTests.test_import_failure_restores_modules_path_and_uses_actual_runner_refusal)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py\", line 1200, in test_import_failure_restores_modules_path_and_uses_actual_runner_refusal\n    self._assert_restored()\n    ~~~~~~~~~~~~~~~~~~~~~^^\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_protocol.py\", line 1171, in _assert_restored\n    self.assertIs(sys.modules.get(name), module, name)\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None is not <module 'c6_dependency' from '/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp2t6fw98h/old-scripts/c6_dependency.py'> : c6_dependency\n\n----------------------------------------------------------------------\nRan 1 test in 0.335s\n\nFAILED (failures=1)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "_journal_incoming_imports",
+        "lines": [
+          1675,
+          1716
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_journal_incoming_imports\n+++ scratch-mutant::_journal_incoming_imports\n@@ -37,6 +37,6 @@\n         for name in list(sys.modules):\n             if affected(name):\n                 sys.modules.pop(name, None)\n-        sys.modules.update(previous_modules)\n+        pass # mutant: old identities not restored\n         sys.path[:] = previous_path\n         importlib.invalidate_caches()\n",
+      "failure_assertions": [
+        "AssertionError: None is not <module 'c6_dependency' from '/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmp2t6fw98h/old-scripts/c6_dependency.py'> : c6_dependency"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Named test failed at expected assertion or patched forbidden action; no missing test/import dependency/fixture syntax error."
+    },
+    {
+      "id": "pure_validator_allowlist",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/mcp_tool_extensions.py",
+      "symbol": "journal_declaration_problems",
+      "old": "if not isinstance(trigger, str) or trigger not in (\"legacy_cutover\", \"journals_present\"):",
+      "new": "if False:",
+      "property": "Pure validator rejects invalid trigger",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_registry_base_profiles_positional_validator_and_activation_are_compatible",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_registry_base_profiles_positional_validator_and_activation_are_compatible"
+        ],
+        "exit": 0,
+        "elapsed": 0.25832912512123585,
+        "log": "/tmp/wf-206is-guard-pins-work/pure_validator_allowlist-baseline.log",
+        "run": 1,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_registry_base_profiles_positional_validator_and_activation_are_compatible (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_registry_base_profiles_positional_validator_and_activation_are_compatible) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.073s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_registry_base_profiles_positional_validator_and_activation_are_compatible"
+        ],
+        "exit": 1,
+        "elapsed": 0.2607170841656625,
+        "log": "/tmp/wf-206is-guard-pins-work/pure_validator_allowlist-mutant.log",
+        "run": 1,
+        "failures": 1,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 1, \"failures\": 1, \"errors\": 0, \"skips\": 0}\ntest_registry_base_profiles_positional_validator_and_activation_are_compatible (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_registry_base_profiles_positional_validator_and_activation_are_compatible) ... FAIL\n\n======================================================================\nFAIL: test_registry_base_profiles_positional_validator_and_activation_are_compatible (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_registry_base_profiles_positional_validator_and_activation_are_compatible)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py\", line 15059, in test_registry_base_profiles_positional_validator_and_activation_are_compatible\n    self.assertTrue(declaration.journal_declaration_problems((), \"\", (), trigger=\"bad\"))\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: [] is not true\n\n----------------------------------------------------------------------\nRan 1 test in 0.076s\n\nFAILED (failures=1)\n"
+      },
+      "classification": "detected",
+      "source_anchor": {
+        "symbol": "journal_declaration_problems",
+        "lines": [
+          937,
+          983
+        ],
+        "sha256": "b19a7e12e2cb7e0a843abc655a32b3b8801c2bc510fed98d210f7e065ff0dad1"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/mcp_tool_extensions.py::journal_declaration_problems\n+++ scratch-mutant::journal_declaration_problems\n@@ -17,7 +17,7 @@\n     if trigger is None:\n         trigger = EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER\n     problems: list[str] = []\n-    if not isinstance(trigger, str) or trigger not in (\"legacy_cutover\", \"journals_present\"):\n+    if False:\n         problems.append(\n             \"EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER must be 'legacy_cutover' or 'journals_present'\"\n         )\n",
+      "failure_assertions": [
+        "AssertionError: [] is not true"
+      ],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Named test failed at expected assertion or patched forbidden action; no missing test/import dependency/fixture syntax error."
+    },
+    {
+      "id": "executed_trigger_matches_static",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_load_journal_declaration",
+      "old": "elif trigger != expected_trigger:",
+      "new": "elif False:",
+      "property": "Executed declaration trigger agrees with static selection",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests"
+        ],
+        "exit": 0,
+        "elapsed": 4.421155208023265,
+        "log": "/tmp/wf-206is-guard-pins-work/executed_trigger_matches_static-baseline.log",
+        "run": 12,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 12, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_annotated_literal_and_missing_module_static_controls (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_annotated_literal_and_missing_module_static_controls) ... ok\ntest_fifo_named_markdown_is_not_opened_or_selected (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected) ... ok\ntest_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) ... ok\ntest_linked_source_ancestor_is_not_followed (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed) ... ok\ntest_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) ... ok\ntest_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration) ... ok\ntest_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) ... ok\ntest_presence_does_not_read_content_or_use_public_preview_left_entries (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_presence_does_not_read_content_or_use_public_preview_left_entries) ... ok\ntest_refused_static_source_is_unknown_without_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_refused_static_source_is_unknown_without_execution) ... ok\ntest_registry_base_profiles_positional_validator_and_activation_are_compatible (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_registry_base_profiles_positional_validator_and_activation_are_compatible) ... ok\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... ok\ntest_zip_preview_uses_incoming_policy_and_writes_no_report (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_zip_preview_uses_incoming_policy_and_writes_no_report) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 4.211s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests"
+        ],
+        "exit": 0,
+        "elapsed": 4.484711333177984,
+        "log": "/tmp/wf-206is-guard-pins-work/executed_trigger_matches_static-mutant.log",
+        "run": 12,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 12, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_annotated_literal_and_missing_module_static_controls (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_annotated_literal_and_missing_module_static_controls) ... ok\ntest_fifo_named_markdown_is_not_opened_or_selected (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected) ... ok\ntest_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) ... ok\ntest_linked_source_ancestor_is_not_followed (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed) ... ok\ntest_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) ... ok\ntest_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration) ... ok\ntest_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) ... ok\ntest_presence_does_not_read_content_or_use_public_preview_left_entries (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_presence_does_not_read_content_or_use_public_preview_left_entries) ... ok\ntest_refused_static_source_is_unknown_without_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_refused_static_source_is_unknown_without_execution) ... ok\ntest_registry_base_profiles_positional_validator_and_activation_are_compatible (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_registry_base_profiles_positional_validator_and_activation_are_compatible) ... ok\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... ok\ntest_zip_preview_uses_incoming_policy_and_writes_no_report (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_zip_preview_uses_incoming_policy_and_writes_no_report) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 4.273s\n\nOK\n"
+      },
+      "classification": "survived",
+      "note": "Whole new policy owner census only to identify missing named pin.",
+      "source_anchor": {
+        "symbol": "_load_journal_declaration",
+        "lines": [
+          1788,
+          1830
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_load_journal_declaration\n+++ scratch-mutant::_load_journal_declaration\n@@ -35,7 +35,7 @@\n         problems = []\n     if not isinstance(trigger, str) or trigger not in _JOURNAL_TRIGGER_POLICIES:\n         problems.append(f\"{_JOURNAL_TRIGGER_NAME} must be 'legacy_cutover' or 'journals_present'\")\n-    elif trigger != expected_trigger:\n+    elif False:\n         problems.append(f\"{_JOURNAL_TRIGGER_NAME} does not match the static trigger selection\")\n     if problems:\n         raise JournalDeclarationError(problems)\n",
+      "failure_assertions": [],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Mutant remains green; no detection claim.",
+      "survivor_assessment": "Missing named guard pin: deletion survives all twelve new policy tests. Runtime correctness is not inferred from mutation survival; return to root/test owner."
+    },
+    {
+      "id": "runtime_policy_allowed",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_load_journal_declaration",
+      "old": "if not isinstance(trigger, str) or trigger not in _JOURNAL_TRIGGER_POLICIES:",
+      "new": "if False:",
+      "property": "Loaded declaration supports allowed string trigger",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests"
+        ],
+        "exit": 0,
+        "elapsed": 4.4697485831566155,
+        "log": "/tmp/wf-206is-guard-pins-work/runtime_policy_allowed-baseline.log",
+        "run": 12,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 12, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_annotated_literal_and_missing_module_static_controls (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_annotated_literal_and_missing_module_static_controls) ... ok\ntest_fifo_named_markdown_is_not_opened_or_selected (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected) ... ok\ntest_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) ... ok\ntest_linked_source_ancestor_is_not_followed (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed) ... ok\ntest_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) ... ok\ntest_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration) ... ok\ntest_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) ... ok\ntest_presence_does_not_read_content_or_use_public_preview_left_entries (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_presence_does_not_read_content_or_use_public_preview_left_entries) ... ok\ntest_refused_static_source_is_unknown_without_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_refused_static_source_is_unknown_without_execution) ... ok\ntest_registry_base_profiles_positional_validator_and_activation_are_compatible (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_registry_base_profiles_positional_validator_and_activation_are_compatible) ... ok\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... ok\ntest_zip_preview_uses_incoming_policy_and_writes_no_report (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_zip_preview_uses_incoming_policy_and_writes_no_report) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 4.266s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests"
+        ],
+        "exit": 0,
+        "elapsed": 4.483480458846316,
+        "log": "/tmp/wf-206is-guard-pins-work/runtime_policy_allowed-mutant.log",
+        "run": 12,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 12, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_annotated_literal_and_missing_module_static_controls (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_annotated_literal_and_missing_module_static_controls) ... ok\ntest_fifo_named_markdown_is_not_opened_or_selected (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected) ... ok\ntest_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) ... ok\ntest_linked_source_ancestor_is_not_followed (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed) ... ok\ntest_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) ... ok\ntest_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration) ... ok\ntest_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) ... ok\ntest_presence_does_not_read_content_or_use_public_preview_left_entries (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_presence_does_not_read_content_or_use_public_preview_left_entries) ... ok\ntest_refused_static_source_is_unknown_without_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_refused_static_source_is_unknown_without_execution) ... ok\ntest_registry_base_profiles_positional_validator_and_activation_are_compatible (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_registry_base_profiles_positional_validator_and_activation_are_compatible) ... ok\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... ok\ntest_zip_preview_uses_incoming_policy_and_writes_no_report (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_zip_preview_uses_incoming_policy_and_writes_no_report) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 4.279s\n\nOK\n"
+      },
+      "classification": "survived",
+      "note": "Whole new policy owner census only to identify missing named pin.",
+      "source_anchor": {
+        "symbol": "_load_journal_declaration",
+        "lines": [
+          1788,
+          1830
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_load_journal_declaration\n+++ scratch-mutant::_load_journal_declaration\n@@ -33,7 +33,7 @@\n         problems = [\"mcp_tool_extensions declares journal migration entries but has no journal_declaration_problems\"]\n     else:\n         problems = []\n-    if not isinstance(trigger, str) or trigger not in _JOURNAL_TRIGGER_POLICIES:\n+    if False:\n         problems.append(f\"{_JOURNAL_TRIGGER_NAME} must be 'legacy_cutover' or 'journals_present'\")\n     elif trigger != expected_trigger:\n         problems.append(f\"{_JOURNAL_TRIGGER_NAME} does not match the static trigger selection\")\n",
+      "failure_assertions": [],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Mutant remains green; no detection claim.",
+      "survivor_assessment": "Missing named guard pin: deletion survives all twelve new policy tests. Runtime correctness is not inferred from mutation survival; return to root/test owner."
+    },
+    {
+      "id": "other_binding_kind",
+      "source": "/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py",
+      "symbol": "_static_journal_trigger",
+      "old": "other_binding = any(",
+      "new": "other_binding = False and any(",
+      "property": "Function/class/exception/pattern binding does not default as absent",
+      "test": "test_upgrade_wavefoundry.JournalTriggerPolicyTests",
+      "baseline": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests"
+        ],
+        "exit": 0,
+        "elapsed": 4.4447880000807345,
+        "log": "/tmp/wf-206is-guard-pins-work/other_binding_kind-baseline.log",
+        "run": 12,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 12, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_annotated_literal_and_missing_module_static_controls (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_annotated_literal_and_missing_module_static_controls) ... ok\ntest_fifo_named_markdown_is_not_opened_or_selected (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected) ... ok\ntest_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) ... ok\ntest_linked_source_ancestor_is_not_followed (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed) ... ok\ntest_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) ... ok\ntest_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration) ... ok\ntest_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) ... ok\ntest_presence_does_not_read_content_or_use_public_preview_left_entries (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_presence_does_not_read_content_or_use_public_preview_left_entries) ... ok\ntest_refused_static_source_is_unknown_without_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_refused_static_source_is_unknown_without_execution) ... ok\ntest_registry_base_profiles_positional_validator_and_activation_are_compatible (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_registry_base_profiles_positional_validator_and_activation_are_compatible) ... ok\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... ok\ntest_zip_preview_uses_incoming_policy_and_writes_no_report (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_zip_preview_uses_incoming_policy_and_writes_no_report) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 4.246s\n\nOK\n"
+      },
+      "mutant": {
+        "command": [
+          "/opt/homebrew/opt/python@3.14/bin/python3.14",
+          "-B",
+          "-c",
+          "DRIVER (in replay script)",
+          "/tmp/wf-206is-guard-pins-work/scratch/.wavefoundry/framework/scripts",
+          "test_upgrade_wavefoundry.JournalTriggerPolicyTests"
+        ],
+        "exit": 0,
+        "elapsed": 3.045860208105296,
+        "log": "/tmp/wf-206is-guard-pins-work/other_binding_kind-mutant.log",
+        "run": 12,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "tail": "RESULT_JSON {\"run\": 12, \"failures\": 0, \"errors\": 0, \"skips\": 0}\ntest_annotated_literal_and_missing_module_static_controls (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_annotated_literal_and_missing_module_static_controls) ... ok\ntest_fifo_named_markdown_is_not_opened_or_selected (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected) ... ok\ntest_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) ... ok\ntest_linked_source_ancestor_is_not_followed (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed) ... ok\ntest_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) ... ok\ntest_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration) ... ok\ntest_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) ... ok\ntest_presence_does_not_read_content_or_use_public_preview_left_entries (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_presence_does_not_read_content_or_use_public_preview_left_entries) ... ok\ntest_refused_static_source_is_unknown_without_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_refused_static_source_is_unknown_without_execution) ... ok\ntest_registry_base_profiles_positional_validator_and_activation_are_compatible (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_registry_base_profiles_positional_validator_and_activation_are_compatible) ... ok\ntest_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... ok\ntest_zip_preview_uses_incoming_policy_and_writes_no_report (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_zip_preview_uses_incoming_policy_and_writes_no_report) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 2.848s\n\nOK\n"
+      },
+      "classification": "survived",
+      "note": "Whole new policy owner census only to identify missing named pin.",
+      "source_anchor": {
+        "symbol": "_static_journal_trigger",
+        "lines": [
+          1911,
+          1971
+        ],
+        "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c"
+      },
+      "exact_diff": "--- /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/upgrade_extensions.py::_static_journal_trigger\n+++ scratch-mutant::_static_journal_trigger\n@@ -43,7 +43,7 @@\n                 direct.append(node)\n         # Function/class/exception/pattern/import bindings also count as an\n         # explicit unsupported declaration; do not silently default them.\n-        other_binding = any(\n+        other_binding = False and any(\n             (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.ExceptHandler))\n              and node.name == _JOURNAL_TRIGGER_NAME)\n             or (isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name == _JOURNAL_TRIGGER_NAME)\n",
+      "failure_assertions": [],
+      "no_unintended_skips": true,
+      "baseline_valid": true,
+      "right_property_review": "Mutant remains green; no detection claim.",
+      "survivor_assessment": "Missing named guard pin: deletion survives all twelve new policy tests. Runtime correctness is not inferred from mutation survival; return to root/test owner."
+    }
+  ],
+  "limitations": [
+    "Finite chosen mutants, no full suite",
+    "Partial ancestor mutant survives redundant per-candidate containment; complete mutant removes all presence no-follow clauses plus descriptor walk",
+    "No source edits; real older-runner zip loader/extraction uses copied scripts and pack"
+  ],
+  "summary": {
+    "detected": 21,
+    "survived": 4
+  },
+  "recorded_at": "2026-10-09T15:28:25.578898+00:00",
+  "unresolved_named_guard_pins": [
+    "executed_trigger_matches_static",
+    "runtime_policy_allowed",
+    "other_binding_kind"
+  ],
+  "all_baselines_green_zero_skips": true,
+  "replay_scripts": [
+    "/tmp/wf-206is-guard-replay.py",
+    "/tmp/wf-206is-extra-guard-check.py",
+    "/tmp/wf-206is-guard-annotate.py"
+  ]
+}

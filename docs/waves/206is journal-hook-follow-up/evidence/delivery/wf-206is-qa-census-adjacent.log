@@ -1,0 +1,6 @@
+test_every_declaration_constant_is_classified (test_extension_tool_modules.DeclarationConstantCensusTests.test_every_declaration_constant_is_classified) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.010s
+
+OK

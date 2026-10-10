@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-07
+Last verified: 2026-10-10
 
 Shortcut: **`Close wave`**
 
@@ -29,20 +29,26 @@ All closure-time code and docs investigation follows the run contract's Retrieva
 9. `docs/agents/session-handoff.md` updated to idle format: last-closed wave ID and one-line summary of what shipped, plus an **Open questions / Deferred decisions** section for any intent not captured in a change doc
 10. **Hard checkbox gate** (wave 1p31b / 1p32k): every AC and every task across the wave's admitted changes is marked either `[x]` (completed) or `[~]` (intentionally deferred). Silent `[ ]` items block close — `wf_close_wave` returns a `silent_unchecked_items_at_close` diagnostic listing each one. ACs at `not-this-scope` priority are exempt (the priority encodes the exclusion). See `170-plan-change.prompt.md` "AC and task checkbox states — the `[~]` marker" for the canonical convention.
 
-**Closure is blocked until all ten items are explicitly recorded in the wave record.**
+Reconcile the applicable items in wave.md; existing hard gates and required typed authority remain the closure proof. Do not create a duplicate readiness file or checklist artifact.
 
 **Automatic gate — framework test receipt** (wave `1wur7`, framework SOURCE repositories only, nothing to record by hand): `wf_close_wave` verifies the existing `.wavefoundry/framework/test-cache.json` receipt — `result == "ok"` with an `inputs_hash` matching the current framework tree — and returns a blocking `framework_test_receipt_not_proven` diagnostic when it is missing, red, stale, or unreadable. Read the `framework_test_receipt` field on the response; do not invent a checklist line for it. The gate runs no suite and spawns no subprocess; record a fresh receipt with `python3 .wavefoundry/framework/scripts/run_tests.py`, and run it LAST, because any edit under `.wavefoundry/framework/` (a seed edit made during closure included) invalidates the receipt. Two scope facts belong together. The receipt's `inputs_hash` covers `.wavefoundry/framework/` only, so only its STALENESS is framework-scoped. But `run_tests.py` writes a receipt only when the WHOLE suite is green, so a failure triggered by content under `docs/` prevents a NEW receipt from being written; when the framework tree also changed the standing receipt is stale and close is blocked, while in a documentation-only wave a current green receipt persists and close is not blocked despite a red suite. The gate is therefore not a whole-repository *guarantee* (a green receipt attests the framework code, not the tree), and it is not a whole-repository *exemption* either. Where the runner is absent — any repository consuming the packaged framework, since the distribution excludes it — the check is a documented no-op that neither blocks nor claims proof, and this item does not apply.
 
 **Close-handoff surfacing of `[~]` items:** the close summary in `## Wave Summary` must list every `[~]` AC across the wave's admitted changes, grouped by change, with the inline status note. Future-readers see them as one discoverable list of intentional deferrals rather than scattered across individual change docs.
 
+## Final validation cadence
+
+Batch bookkeeping, canonical documentation and surface rendering before the quiet final canonical source suite. Reuse a matching current green receipt; changed, red or unproven inputs still require fresh qualification. Consume successful typed-write continuation actions without an extra full-review/list loop. When current authority already proves readiness and the operator has authorized closure, perform one close mutation; use dry-run for unresolved checks rather than a compulsory extra gate. Fresh full docs validation and required independent reviewers remain unchanged.
+
+Consumer upgrades retain render → docs gate → existing bounded historical-memory checkpoint → incremental index ordering, without source/profile qualification, routine evidence generation or broad recuration.
+
 ## Wave-folder cleanup
 
 Before final docs validation and the close mutation, tidy only artifacts established to belong to this wave. Dates and filenames are discovery hints, not proof of ownership.
 
-- Keep `wave.md`, admitted change docs and authoritative `events.jsonl` in place. Preserve unique review evidence, reproducible probes and historical fingerprints needed to substantiate claims. Never rewrite ledger history for cosmetic cleanup.
-- Remove only verified disposable scratch output or redundant copies with no unique evidence and no live references. If ownership, uniqueness or reference use is uncertain, retain the artifact and note why.
+- Keep `wave.md`, admitted change docs and authoritative `events.jsonl` in place. Routine briefings, per-seat reports, raw probes and green logs belong in task context or temporary storage, not a permanent repository file forest. Preserve unique review evidence, reproducible probes and historical fingerprints needed to substantiate claims. Never rewrite ledger history for cosmetic cleanup.
+- Manually remove only verified wave-owned disposable scratch output or redundant copies with no unique evidence and no live references, using contained I/O and a parent-descriptor identity check before unlink. Keep cited originals and unreconstructable dirty-tree baselines. No automatic deletion, expiry policy, reference resolver or cleanup gate is introduced. If ownership, uniqueness or reference use is uncertain, retain the artifact and note why.
 - Group movable supporting files under `evidence/` when useful; no fixed layout is required. Keep ledger-cited paths stable. Update mutable links and reproduction commands after any move, and verify they resolve and remain usable. Leave other waves and unrelated files untouched.
-- Consolidate repeated status notes into the final outcome and an evidence index in the existing wave summary or delivery report; do not erase historical review conclusions. Record the cleanup disposition and retained exceptions there, then run the existing docs gate. No separate cleanup report or new validator is required.
+- Consolidate repeated status notes into the final outcome and an evidence index in wave.md; do not erase historical review conclusions. Record the cleanup disposition and retained exceptions there, then run the existing docs gate. No separate cleanup report or new validator is required.
 
 ## What Goes in Wave Summary
 
@@ -63,8 +69,7 @@ Before final docs validation and the close mutation, tidy only artifacts establi
 
 ## Agent Memory Validation Checkpoint
 
-Before closure, run `memory_propose(wave_id, mode='create')`, then validate
-every evidence-derived candidate with `memory_validate`:
+Before closure, inspect `memory_propose(wave_id, mode='dry_run')`. Review concrete future action and canonical overlap before selecting source-event IDs with `memory_propose(wave_id, mode='create', source_events=[...])`. Omitted selection creates nothing and empty selection is a no-op. Keep the retrospective and any no-new-memory rationale inline in wave.md; do not create a per-repair rejection file for an unselected proposal. Review every actual wave-linked pending selected candidate, including when its target disappears or its source is no longer draft-eligible. Use `memory_validate` for evidence-derived records; review manually selected candidates through the existing `memory_reconcile` status transition to active or rejected:
 
 - Follow the linked evidence and inspect the current target.
 - State what changes the next action.

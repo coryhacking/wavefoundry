@@ -567,7 +567,7 @@ class PromptMoveTests(_Fixture):
 
         decoy = self.root / "decoy.md"
         decoy.write_text("# Decoy\n", encoding="utf-8")
-        real_read = contained_files.read_contained
+        real_read = contained_files.read_contained_identity
         for name, old_rel, new_rel, text, move in self._movers():
             with self.subTest(mover=name):
                 source = self._seed(old_rel, text)
@@ -580,7 +580,7 @@ class PromptMoveTests(_Fixture):
                         os.symlink(decoy, source)
                     return real_read(root, path, *args, **kwargs)
 
-                swapping = patch.object(contained_files, "read_contained", side_effect=swap_then_read)
+                swapping = patch.object(contained_files, "read_contained_identity", side_effect=swap_then_read)
                 with swapping:
                     with self.assertRaises(RuntimeError) as caught:
                         move()
@@ -594,7 +594,14 @@ class PromptMoveTests(_Fixture):
         ras = self.ras
         old_change, new_change, _shortcut = ras.CHANGE_PROMPT_RENAMES[0]
         pair = ras._PromptMovePair("plan-change", "docs/prompts/old-name.prompt.md", "docs/prompts/new-name.prompt.md")
+        old_council, new_council = ras.COUNCIL_ROLE_RENAMES[0]
+        old_council_role = Path(old_council).stem
+        old_lifecycle, new_lifecycle = ras.LIFECYCLE_DOCUMENT_RENAMES[0]
         return (
+            ("migrate_council_role_renames", old_council, new_council, f"# Council\nRole: {old_council_role}\n",
+             lambda: ras.migrate_council_role_renames(self.root)),
+            ("migrate_lifecycle_document_renames", old_lifecycle, new_lifecycle, "# Workflow\n",
+             lambda: ras.migrate_lifecycle_document_renames(self.root)),
             ("migrate_change_prompt_renames", old_change, new_change, "# Plan feature\n",
              lambda: ras.migrate_change_prompt_renames(self.root)),
             ("_move_prompt_pair", pair.source, pair.target, "# Old name\n",
@@ -633,6 +640,133 @@ class PromptMoveTests(_Fixture):
                 self.assert_path_free(str(caught.exception))
                 self.assert_outside_untouched()
                 source.unlink()
+
+
+@unittest.skipUnless(POSIX, "mover race and internal-parent fixtures run on POSIX")
+class IdentityBoundMoverTests(_Fixture):
+    _movers = PromptMoveTests._movers
+    _seed = PromptMoveTests._seed
+    _legacy_review_plan = PromptMoveTests._legacy_review_plan
+
+    def setUp(self):
+        super().setUp()
+        import render_agent_surfaces
+        self.ras = render_agent_surfaces
+
+    def test_every_mover_preserves_a_source_replaced_after_its_read(self):
+        real_publish = self.ras._write_move_target
+        for name, old, new, text, move in self._movers():
+            with self.subTest(mover=name):
+                source = self._seed(old, text)
+                saved = source.with_name(source.name + ".saved")
+                fired = []
+
+                def replace_then_publish(*args, **kwargs):
+                    source.rename(saved)
+                    source.write_bytes(b"replacement source")
+                    fired.append(True)
+                    return real_publish(*args, **kwargs)
+
+                with patch.object(self.ras, "_write_move_target", side_effect=replace_then_publish):
+                    with self.assertRaises(RuntimeError):
+                        move()
+                self.assertEqual(fired, [True])
+                self.assertEqual(source.read_bytes(), b"replacement source")
+                self.assertEqual(saved.read_text(), text)
+                self.assertFalse(os.path.lexists(self.root / new), "only our published copy is rolled back")
+                source.unlink()
+                saved.unlink()
+
+    def test_every_mover_preserves_a_replacement_destination_during_rollback(self):
+        cf = self.ras.contained_files
+        real_remove = cf.unlink_contained
+        for name, old, new, text, move in self._movers():
+            with self.subTest(mover=name):
+                source = self._seed(old, text)
+                target = self.root / new
+                saved = target.with_name(target.name + ".saved")
+                fired = []
+
+                def fail_source(root, judged, **kwargs):
+                    if Path(judged) == source.resolve():
+                        target.rename(saved)
+                        target.write_bytes(b"replacement destination")
+                        fired.append(True)
+                        raise PermissionError(13, "source held")
+                    return real_remove(root, judged, **kwargs)
+
+                with patch.object(cf, "unlink_contained", side_effect=fail_source):
+                    with self.assertRaises(RuntimeError):
+                        move()
+                self.assertEqual(fired, [True])
+                self.assertEqual(source.read_text(), text)
+                self.assertTrue(target.is_file(), "rollback must preserve the replacement destination")
+                self.assertEqual(target.read_bytes(), b"replacement destination")
+                self.assertTrue(saved.is_file(), "the original publication survives at its moved name")
+                source.unlink()
+                target.unlink()
+                saved.unlink()
+
+    def test_every_mover_preserves_files_when_a_resolved_parent_becomes_linked(self):
+        cf = self.ras.contained_files
+        for name, old, new, text, move in self._movers():
+            with self.subTest(mover=name):
+                source = self._seed(old, text)
+                parent = source.parent
+                saved = self.root / ("saved-" + name)
+                fired = []
+
+                def swap(stage):
+                    if stage == "unlink" and not fired:
+                        parent.rename(saved)
+                        parent.symlink_to(saved, target_is_directory=True)
+                        fired.append(True)
+
+                with patch.object(cf, "_checkpoint", side_effect=swap):
+                    with self.assertRaises(RuntimeError):
+                        move()
+                self.assertEqual(fired, [True])
+                self.assertTrue((saved / source.name).is_file(), "changed resolved coordinates must preserve the source")
+                self.assertEqual((saved / source.name).read_text(), text)
+                self.assertTrue((self.root / new).is_file(), "linked parent blocks rollback as well")
+                (self.root / new).unlink()
+                (saved / source.name).unlink()
+                parent.unlink()
+                saved.rename(parent)
+
+    def test_every_mover_supports_ordinary_internal_parent_links_and_retry(self):
+        for name, old, new, text, move in self._movers():
+            with self.subTest(mover=name):
+                source = self._seed(old, text)
+                parent = source.parent
+                actual = self.root / ("actual-" + name)
+                parent.rename(actual)
+                parent.symlink_to(actual, target_is_directory=True)
+                move()
+                target = self.root / new
+                self.assertFalse(source.exists())
+                self.assertTrue(target.is_file())
+                self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o640)
+                if name != "migrate_review_plan_prompt":
+                    self.assertEqual(target.read_text(), text)
+                before = target.read_bytes()
+                move()
+                self.assertEqual(target.read_bytes(), before)
+                target.unlink()
+                parent.unlink()
+                actual.rename(parent)
+
+    def test_matching_preexisting_copy_is_never_owned_for_rollback(self):
+        pair = self.ras._PromptMovePair("probe", "docs/prompts/old.md", "docs/prompts/new.md")
+        source = self._seed(pair.source, "same\n")
+        target = self._seed(pair.target, "same\n")
+        before = target.stat()
+        with patch.object(self.ras.contained_files, "unlink_contained", side_effect=PermissionError(13, "held")) as removal:
+            with self.assertRaises(RuntimeError):
+                self.ras._move_prompt_pair(self.root, pair)
+        self.assertEqual(removal.call_count, 1, "preexisting destination is never a rollback target")
+        self.assertEqual((target.stat().st_dev, target.stat().st_ino), (before.st_dev, before.st_ino))
+        self.assertEqual(target.read_bytes(), source.read_bytes())
 
 
 if __name__ == "__main__":

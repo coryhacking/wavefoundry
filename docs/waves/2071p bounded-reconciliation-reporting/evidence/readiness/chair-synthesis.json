@@ -1,0 +1,311 @@
+{
+  "chair_context_id": "diagnostic-readiness-chair-2071op-20261009-independent-01",
+  "verification_context": {
+    "actor": "council-chair",
+    "context_id": "diagnostic-readiness-chair-2071op-20261009-independent-01",
+    "fresh_context": true,
+    "independent": true
+  },
+  "requested_model_effort": "inherited for complex synthesis; runtime identity not exposed",
+  "reviews": [
+    {
+      "wave_id": "2071o graph-query-provenance",
+      "receipt_id": "review-policy-e9a75dedfaade92ebcdd",
+      "receipt_digest": "dfbb9780ba353534c2b908de2742990b890598871c6be43b0289dca236dfdd2e",
+      "required_lanes": [
+        "code-reviewer",
+        "qa-reviewer",
+        "architecture-reviewer",
+        "docs-contract-reviewer",
+        "performance-reviewer"
+      ],
+      "proposition": "The frozen graph query plans can repair reproduced hierarchy provenance loss and non-exact Rust lookup without location guessing, graph rebuilding, relationship multiplication or altered resolver tiers; their required ACs have distinguishing feasible oracles.",
+      "failure_condition": "A required plan path needs unavailable source freshness, allows bare-name location authority, alters edge counts or ambiguity semantics, or lacks an oracle capable of exposing reproduced wrong-site/NameError behavior.",
+      "public_path": "Chair own canonical fixture publication and code_callhierarchy_response/code_impact_response; live GraphQueryIndex.resolve_symbol and code_callhierarchy_response._attach_edge_trust; frozen plan/seat synthesis.",
+      "observed": "Own replay: stored source_file src/fixture.rs,line3,start_byte69/end_byte78 retained by actual graph traversal; actual hierarchy serves earlier iterator collect line2 on one edge; bare collect impact raises NameError re undefined while exact src/fixture.rs::collect returns ok. Four frozen plans and both14-source packets match; five isolated council seats plus independent code/docs assessments find no demonstrated plan blocker.",
+      "primer_response": {
+        "strongest_challenge": "All fixed seats confirm precise source-name guesses cannot establish indexed invocation identity or source freshness. Plan uses stored coordinates, deterministic plural/singular projection and nullable snippets; no new extraction metadata is required.",
+        "questions": [
+          {
+            "question": "Who owns call-site identity, deterministic selection and relationship counts?",
+            "answer": "Persisted edge-specific sites remain authority; hierarchy normalizes copies, orders/deduplicates valid coordinates and keeps one entry per graph edge. Outgoing top-level definition line is unchanged."
+          },
+          {
+            "question": "What happens with absent/stale source, malformed sites and legacy Java filtering?",
+            "answer": "No guessed precise sites or unproven snippets; preserve indexed valid coordinates with nullable presentation, malformed/missing provenance null; legacy Java scans remain filter-only."
+          },
+          {
+            "question": "What resolver behavior must stay unchanged?",
+            "answer": "Consistent existing _re binding fixes NameError; exact-ID, unique Rust implementing-type alias, deliberate shortest suffix and bare-label ambiguity retain their distinct tiers, including mixed-language graphs."
+          }
+        ]
+      },
+      "strongest_alternative": "Shared call-site normalization/projection across callgraph and hierarchy could prevent future drift. Not stronger for this repair because it broadens edits and requalifies an already-correct callgraph consumer; all four fixed seats explicitly retain narrow hierarchy repair.",
+      "improvements_recommended": [
+        {
+          "id": "G-N1",
+          "recommendation": "Normalize/deduplicate edge-site copies rather than mutating shared query snapshots; assert relationship counts separately from occurrence counts."
+        },
+        {
+          "id": "G-N2",
+          "recommendation": "Treat any optional session-hash freshness mechanism as graph-generation bound. If existing artifacts cannot establish that binding, retain null snippets."
+        },
+        {
+          "id": "G-N3",
+          "recommendation": "Pin outgoing definition fields and legacy Java filter-only authority beside collision, macro, adjacent function and same-line provenance controls."
+        }
+      ],
+      "phase": "readiness",
+      "verdict": "approved_with_notes",
+      "primer_depth": "full",
+      "primer_stances": "all five",
+      "fixed_seats": [
+        {
+          "role": "architecture-reviewer",
+          "context_id": "arch-readiness-2071op-20261009-z5pyl_dv"
+        },
+        {
+          "role": "security-reviewer",
+          "context_id": "security-readiness-2071op-20261009-9bb4030e"
+        },
+        {
+          "role": "qa-reviewer",
+          "context_id": "qa-readiness-2071op-20261009-2332"
+        },
+        {
+          "role": "reality-checker",
+          "context_id": "diagnostic-readiness-reality-20261009-initial"
+        }
+      ],
+      "rotating_fifth": {
+        "role": "performance-reviewer",
+        "context_id": "perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc",
+        "assignment": "best alternative, after all fixed seats; all four fixed seats explicitly weighed both alternatives"
+      },
+      "additional_inputs": [
+        {
+          "role": "code-reviewer",
+          "context_id": "code-readiness-2071op-20261009-independent-01"
+        },
+        {
+          "role": "docs-contract-reviewer",
+          "context_id": "docs-contract-readiness-2071op-20261009-fresh-01",
+          "note": "additional required specialist/consulted council input; not rotating fifth"
+        }
+      ],
+      "anonymized_first_pass_completed_before_identity_reattachment": true,
+      "seat_agreement_aggregate": {
+        "seat_agreement": "unanimous",
+        "max_severity": "none"
+      },
+      "findings": [],
+      "material_disagreements": [],
+      "challenge_round": "not triggered: unanimous and no scored findings",
+      "limitations": "Readiness only: source, plan viability and current baseline were checked; no repaired behavior, delivery success, full qualification, production latency, downstream execution, all historical runners or native Windows is claimed. Indexed navigation reported setup_inputs_changed; conclusions use live MCP reads, independently matched14 source paths/4 plans and actual scratch execution. Child timeout timings are other seats observations, not chair wall-time measurements. Historical active file remains unknown; downstream corpus measurements are attributed and not a comparable speedup. Inherited model/effort selected; runtime identity not exposed.",
+      "implementation_authorized": false,
+      "actions": [
+        "Record receipt-bound required readiness approvals and council-readiness; successful Prepare-ready only.",
+        "Carry untyped implementation notes without editing frozen plan/receipt.",
+        "Keep delivery ACs unchecked; independent implementation/review/qualification remains future work."
+      ],
+      "approval_args": {
+        "wave_id": "2071o graph-query-provenance",
+        "event": "approval",
+        "actor": "council-chair",
+        "context_id": "diagnostic-readiness-chair-2071op-20261009-independent-01",
+        "mode": "create",
+        "signoff_key": "council-readiness",
+        "approval_phase": "readiness",
+        "fresh_context": true,
+        "independent": true,
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe-control: chair independently replayed the existing served wrong-site and bare-name failure versus exact-ID success, and current emitter timeout rescan/exception-to-empty versus one-sentinel control. These refute false readiness premises, not completed repairs."
+        },
+        "evidence": {
+          "proposition": "The frozen graph query plans can repair reproduced hierarchy provenance loss and non-exact Rust lookup without location guessing, graph rebuilding, relationship multiplication or altered resolver tiers; their required ACs have distinguishing feasible oracles.",
+          "failure_condition": "A required plan path needs unavailable source freshness, allows bare-name location authority, alters edge counts or ambiguity semantics, or lacks an oracle capable of exposing reproduced wrong-site/NameError behavior.",
+          "public_path": "Chair own canonical fixture publication and code_callhierarchy_response/code_impact_response; live GraphQueryIndex.resolve_symbol and code_callhierarchy_response._attach_edge_trust; frozen plan/seat synthesis.",
+          "command_or_fixture": "env -u PYTHONPYCACHEPREFIX WAVEFOUNDRY_DISABLE_BYTECODE_CACHE=1 /Users/coryhacking/.wavefoundry/venv/bin/python -B /private/tmp/wf-chair-readiness-2071op-probe.py; chair frozen-source/plan/38-artifact fingerprint checks",
+          "expected": "Current baseline counterexamples detected, adjacent exact/sentinel/live-host controls retained; immutable reviewed packet matches; plan feasible with no readiness blockers.",
+          "observed": "Own replay: stored source_file src/fixture.rs,line3,start_byte69/end_byte78 retained by actual graph traversal; actual hierarchy serves earlier iterator collect line2 on one edge; bare collect impact raises NameError re undefined while exact src/fixture.rs::collect returns ok. Four frozen plans and both14-source packets match; five isolated council seats plus independent code/docs assessments find no demonstrated plan blocker.",
+          "artifact_or_test_id": "docs/waves/2071o graph-query-provenance/evidence/readiness/chair-synthesis.json; docs/waves/2071o graph-query-provenance/evidence/readiness/chair-probe.json; docs/waves/2071o graph-query-provenance/evidence/readiness/chair-fingerprint.json",
+          "limitations": "Readiness only: source, plan viability and current baseline were checked; no repaired behavior, delivery success, full qualification, production latency, downstream execution, all historical runners or native Windows is claimed. Indexed navigation reported setup_inputs_changed; conclusions use live MCP reads, independently matched14 source paths/4 plans and actual scratch execution. Child timeout timings are other seats observations, not chair wall-time measurements. Historical active file remains unknown; downstream corpus measurements are attributed and not a comparable speedup. Inherited model/effort selected; runtime identity not exposed.",
+          "safety_and_authorization": "Assigned independent readiness synthesis and finite local scratch checks; no source/plan/ledger edits, network, pack deletion, commit/push or downstream mutation. A unique archival replay was executed under -B with project cache disabled."
+        }
+      },
+      "receipt_preview": "Successful read-only wf_review_event preview bound to expected receipt; no ledger write. Coordinator archives artifacts before recording.",
+      "adjacent_controls": [
+        "exact-ID impact ok",
+        "one relationship/one summary sentinel",
+        "required-live host scope",
+        "four unchanged plans and14 source paths per packet",
+        "38 archival artifacts matched per wave"
+      ],
+      "readiness_phase_metadata_note": "wf_review_event dry-run binds the intended policy receipt with approval_phase readiness; generated generic phase stays delivery despite optional evidence override. Approval claims and integrity attestation are readiness-only."
+    },
+    {
+      "wave_id": "2071p bounded-reconciliation-reporting",
+      "receipt_id": "review-policy-31737f614e2fb05dfde0",
+      "receipt_digest": "832d8f2ede91f8f35e4fd8f86b13bdf1fb6b3b9c062b0b9a7e0be0d3b2f5804e",
+      "required_lanes": [
+        "code-reviewer",
+        "qa-reviewer",
+        "architecture-reviewer",
+        "docs-contract-reviewer",
+        "release-reviewer",
+        "performance-reviewer",
+        "security-reviewer"
+      ],
+      "proposition": "The frozen scanner/reporting plans feasibly combine root-generated pruning, bounded work and explicit scan outcomes with an owned-process reporting budget and compatible facts-only degradation; distinguishing required AC oracles cover the reproduced failure mechanisms.",
+      "failure_condition": "Plan relies on cooperative checks as hard containment, hides partial/error scope as complete empty, rescans after failed delegation, breaks pinned producer protocol, or requires cleanup/publication facts that the owned boundary cannot preserve.",
+      "public_path": "Chair own scan_repo_channels scope/_PROMPT_MD_REFERENCE and actual _emit_primary_summary_via_delegate_or_fallback/_run_reconciliation_scan; frozen plan and independent child/summary contract reports.",
+      "observed": "Own replay: root .local/target and .claude/settings live, history/report scope excluded; anchor-free1024/2048/4096/8192 chars zero hits in0.001142/0.004471/0.017917/0.072017s. Injected delegate timeout reenters scanner once and emits exactly one sentinel; scanner exception returns three empties, refuting clean-empty inference. Independent seats demonstrate owned child termination, compact fields through actual bounders, stdlib child, legacy consent/lock facts and 51 release checks0skips. No plan blocker after fixed-seat alternative assessment.",
+      "primer_response": {
+        "strongest_challenge": "All fixed seats confirm cooperative scan budgets cannot alone bound blocked I/O/parser work and empty lists cannot represent failed scans. Plan couples bounded structured outcomes to owned child enforcement, propagates one remaining-time budget and forbids second scanner/expensive fallback diagnostics.",
+        "questions": [
+          {
+            "question": "How are root exclusions, live host scope and legacy wrappers preserved?",
+            "answer": "Prune repository-root .local/target and existing excluded components before descent; nested/near-miss/live ignored host files remain included. Legacy list/tuple wrappers preserve shape while making incomplete/error states observable."
+          },
+          {
+            "question": "What covers all admitted limits and existing semantic channels?",
+            "answer": "Entry/file/per-file/total-byte/candidate/finding/deadline controls, contained regular reads with explicit no-follow checks, bounded token parsing and per-file contextualization; complete/incomplete/error plus bounded progress remain separate from intentional exclusions. Derived tests must cover candidate-dense inputs and all pattern families, not anchor-free timing alone."
+          },
+          {
+            "question": "How do current/older parents handle deadlines, facts and cleanup?",
+            "answer": "New producer independently bounds work within pinned300s/old argv/schema/sentinel; current parent uses remaining budget and facts-only no-rescan degradation. Compact scalar completeness survives older bounds; verified publication/consent facts and owned cleanup remain separate. Unchanged older-parent failure fallback and whole-upgrade timing are explicit residuals."
+          }
+        ]
+      },
+      "strongest_alternative": "Stage anchor guard/minimal result adapter, then reporting containment, then traversal/parser/retention. Earlier partial stall relief is credible, but transitional contracts/requalification and candidate-bearing/cumulative cost remain until completion. All fixed seats retain one coherent wave; staging belongs only to separately authorized urgent partial release.",
+      "improvements_recommended": [
+        {
+          "id": "S-N1",
+          "recommendation": "Use an explicit lexical no-follow screen in addition to contained_files; helper accepts an in-root final link. Keep refusal/incomplete status bounded and truthful."
+        },
+        {
+          "id": "S-N2",
+          "recommendation": "Measure shared reporting work with finite scheduling/termination overhead; test no fresh stage budgets and actual owned child process-tree termination. Do not describe30s as exact wall-clock equality."
+        },
+        {
+          "id": "S-N3",
+          "recommendation": "Pin300s default explicitly alongside old argv/schema/sentinel; retain completeness as compact flat scalars because old bounded parsers may omit later finding lists."
+        },
+        {
+          "id": "S-N4",
+          "recommendation": "Verify all pattern families, candidate-dense and multi-file cumulative work, three channels/fences/dispositions and required-live host files; the literal-anchor guard alone is insufficient."
+        },
+        {
+          "id": "S-N5",
+          "recommendation": "Exercise cleanup/report failure with verified-owned versus unowned pack controls and parent/child contradiction cases; preserve recovery, publication and consent authorization."
+        }
+      ],
+      "phase": "readiness",
+      "verdict": "approved_with_notes",
+      "primer_depth": "full",
+      "primer_stances": "all five",
+      "fixed_seats": [
+        {
+          "role": "architecture-reviewer",
+          "context_id": "arch-readiness-2071op-20261009-z5pyl_dv"
+        },
+        {
+          "role": "security-reviewer",
+          "context_id": "security-readiness-2071op-20261009-9bb4030e"
+        },
+        {
+          "role": "qa-reviewer",
+          "context_id": "qa-readiness-2071op-20261009-2332"
+        },
+        {
+          "role": "reality-checker",
+          "context_id": "diagnostic-readiness-reality-20261009-initial"
+        }
+      ],
+      "rotating_fifth": {
+        "role": "performance-reviewer",
+        "context_id": "perf-readiness-2071op-c8f2b57656ff4a1d934ac2384443b7fc",
+        "assignment": "best alternative, after all fixed seats; all four fixed seats explicitly weighed both alternatives"
+      },
+      "additional_inputs": [
+        {
+          "role": "code-reviewer",
+          "context_id": "code-readiness-2071op-20261009-independent-01"
+        },
+        {
+          "role": "docs-contract-reviewer",
+          "context_id": "docs-contract-readiness-2071op-20261009-fresh-01",
+          "note": "additional required specialist/consulted council input; not rotating fifth"
+        },
+        {
+          "role": "release-reviewer",
+          "context_id": "release-readiness-2071p-20261009-independent-01"
+        }
+      ],
+      "anonymized_first_pass_completed_before_identity_reattachment": true,
+      "seat_agreement_aggregate": {
+        "seat_agreement": "unanimous",
+        "max_severity": "none"
+      },
+      "findings": [],
+      "material_disagreements": [],
+      "challenge_round": "not triggered: unanimous and no scored findings",
+      "limitations": "Readiness only: source, plan viability and current baseline were checked; no repaired behavior, delivery success, full qualification, production latency, downstream execution, all historical runners or native Windows is claimed. Indexed navigation reported setup_inputs_changed; conclusions use live MCP reads, independently matched14 source paths/4 plans and actual scratch execution. Child timeout timings are other seats observations, not chair wall-time measurements. Historical active file remains unknown; downstream corpus measurements are attributed and not a comparable speedup. Inherited model/effort selected; runtime identity not exposed.",
+      "implementation_authorized": false,
+      "actions": [
+        "Record receipt-bound required readiness approvals and council-readiness; successful Prepare-ready only.",
+        "Carry untyped implementation notes without editing frozen plan/receipt.",
+        "Keep delivery ACs unchecked; independent implementation/review/qualification remains future work."
+      ],
+      "approval_args": {
+        "wave_id": "2071p bounded-reconciliation-reporting",
+        "event": "approval",
+        "actor": "council-chair",
+        "context_id": "diagnostic-readiness-chair-2071op-20261009-independent-01",
+        "mode": "create",
+        "signoff_key": "council-readiness",
+        "approval_phase": "readiness",
+        "fresh_context": true,
+        "independent": true,
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe-control: chair independently replayed the existing served wrong-site and bare-name failure versus exact-ID success, and current emitter timeout rescan/exception-to-empty versus one-sentinel control. These refute false readiness premises, not completed repairs."
+        },
+        "evidence": {
+          "proposition": "The frozen scanner/reporting plans feasibly combine root-generated pruning, bounded work and explicit scan outcomes with an owned-process reporting budget and compatible facts-only degradation; distinguishing required AC oracles cover the reproduced failure mechanisms.",
+          "failure_condition": "Plan relies on cooperative checks as hard containment, hides partial/error scope as complete empty, rescans after failed delegation, breaks pinned producer protocol, or requires cleanup/publication facts that the owned boundary cannot preserve.",
+          "public_path": "Chair own scan_repo_channels scope/_PROMPT_MD_REFERENCE and actual _emit_primary_summary_via_delegate_or_fallback/_run_reconciliation_scan; frozen plan and independent child/summary contract reports.",
+          "command_or_fixture": "env -u PYTHONPYCACHEPREFIX WAVEFOUNDRY_DISABLE_BYTECODE_CACHE=1 /Users/coryhacking/.wavefoundry/venv/bin/python -B /private/tmp/wf-chair-readiness-2071op-probe.py; chair frozen-source/plan/38-artifact fingerprint checks",
+          "expected": "Current baseline counterexamples detected, adjacent exact/sentinel/live-host controls retained; immutable reviewed packet matches; plan feasible with no readiness blockers.",
+          "observed": "Own replay: root .local/target and .claude/settings live, history/report scope excluded; anchor-free1024/2048/4096/8192 chars zero hits in0.001142/0.004471/0.017917/0.072017s. Injected delegate timeout reenters scanner once and emits exactly one sentinel; scanner exception returns three empties, refuting clean-empty inference. Independent seats demonstrate owned child termination, compact fields through actual bounders, stdlib child, legacy consent/lock facts and 51 release checks0skips. No plan blocker after fixed-seat alternative assessment.",
+          "artifact_or_test_id": "docs/waves/2071p bounded-reconciliation-reporting/evidence/readiness/chair-synthesis.json; docs/waves/2071p bounded-reconciliation-reporting/evidence/readiness/chair-probe.json; docs/waves/2071p bounded-reconciliation-reporting/evidence/readiness/chair-fingerprint.json",
+          "limitations": "Readiness only: source, plan viability and current baseline were checked; no repaired behavior, delivery success, full qualification, production latency, downstream execution, all historical runners or native Windows is claimed. Indexed navigation reported setup_inputs_changed; conclusions use live MCP reads, independently matched14 source paths/4 plans and actual scratch execution. Child timeout timings are other seats observations, not chair wall-time measurements. Historical active file remains unknown; downstream corpus measurements are attributed and not a comparable speedup. Inherited model/effort selected; runtime identity not exposed.",
+          "safety_and_authorization": "Assigned independent readiness synthesis and finite local scratch checks; no source/plan/ledger edits, network, pack deletion, commit/push or downstream mutation. A unique archival replay was executed under -B with project cache disabled."
+        }
+      },
+      "receipt_preview": "Successful read-only wf_review_event preview bound to expected receipt; no ledger write. Coordinator archives artifacts before recording.",
+      "adjacent_controls": [
+        "exact-ID impact ok",
+        "one relationship/one summary sentinel",
+        "required-live host scope",
+        "four unchanged plans and14 source paths per packet",
+        "38 archival artifacts matched per wave"
+      ],
+      "readiness_phase_metadata_note": "wf_review_event dry-run binds the intended policy receipt with approval_phase readiness; generated generic phase stays delivery despite optional evidence override. Approval claims and integrity attestation are readiness-only."
+    }
+  ],
+  "probe_class": "local_safe",
+  "authorization_status": "authorized",
+  "execution_status": "executed",
+  "safe_boundary": false,
+  "universal_claim": false
+}

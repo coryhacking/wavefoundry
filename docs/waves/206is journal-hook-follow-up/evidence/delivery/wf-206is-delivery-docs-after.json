@@ -1,0 +1,47 @@
+[
+  {
+    "path": ".wavefoundry/framework/scripts/upgrade_extensions.py",
+    "sha256": "ad96b57672dcb32e2362ac255e35ada2e2f6ed86a70ddb7c7dbe8de755c9485c",
+    "git_blob": "355c32bc53cb6f4fa3bc5c6591eeb229aaa9f107"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/mcp_tool_extensions.py",
+    "sha256": "b19a7e12e2cb7e0a843abc655a32b3b8801c2bc510fed98d210f7e065ff0dad1",
+    "git_blob": "c7bd2be760e21e262eace9124af436aa58229746"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py",
+    "sha256": "9e4d047befb84aae19dae23ba25544a0311e3801597e864e7f47479feff884ef",
+    "git_blob": "72acbca3268154c6f1dcfefe4e7d9c4cc297ae50"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/test_upgrade_protocol.py",
+    "sha256": "a98ab97f0706c12d24ad64f6803a5c8454be01aa73f89f9df95f1e51394404a8",
+    "git_blob": "35910552de632fe0f949cca2f85b88c8fd0e1475"
+  },
+  {
+    "path": ".wavefoundry/framework/scripts/tests/record_layout_support.py",
+    "sha256": "82325f6a3f403ef98ffd25ce6e7479e12f482d5d0569272d3f75c85b667189d4",
+    "git_blob": "8d7e9e0cc1ab5db789e7dbf71001a18b4941927f"
+  },
+  {
+    "path": ".wavefoundry/framework/seeds/210-migrate-journals.prompt.md",
+    "sha256": "18b97d8d6d9487889700cc2345fc47046adb0674f66c9aae3a815e5145e754ce",
+    "git_blob": "2ad24bcefc95e24703e8adb96c334e86a572cbe2"
+  },
+  {
+    "path": "docs/specs/mcp-tool-surface.md",
+    "sha256": "3a99e045b721c0140b9bae0034852838fc7999f5c312d32838502277095df0c0",
+    "git_blob": "fbd9444ad3874388a47ec70d044c79d9690e5ccd"
+  },
+  {
+    "path": "docs/architecture/data-and-control-flow.md",
+    "sha256": "fde3312da48d0a8bb6c720b3d375460810f27e0c2a20bdd472fb62ffdb100bc5",
+    "git_blob": "085cc83c01cb874348b38ad4c722806890c5676b"
+  },
+  {
+    "path": "docs/architecture/layering-rules.md",
+    "sha256": "b0b0e2800fde4df05610a2aef04c8fde76ea2d0e14fd0e4cde7f260e9b0c1856",
+    "git_blob": "7b2fe1d80f32adc5bdb13e72b910528f72254a6a"
+  }
+]

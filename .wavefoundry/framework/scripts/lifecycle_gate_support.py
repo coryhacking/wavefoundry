@@ -1040,6 +1040,11 @@ def _prepare_policy_state(
         delivery_project_lanes = tuple(review_policy.project_lanes_for_phase(config, "close"))
     except ProjectLanesConfigError as exc:
         return None, (PolicyInputError("config", str(exc)),)
+    actor_errors = _vocab.legacy_council_actor_errors(
+        reviewer_roles=(*requested, *readiness_project_lanes, *delivery_project_lanes),
+    )
+    if actor_errors:
+        return None, tuple(PolicyInputError("config", error) for error in actor_errors)
     change_inputs: list[tuple[str, str, bytes]] = []
     change_texts: list[str] = []
     errors: list[PolicyInputError] = []

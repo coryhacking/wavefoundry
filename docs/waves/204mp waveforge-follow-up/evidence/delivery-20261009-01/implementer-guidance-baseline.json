@@ -1,0 +1,9 @@
+{
+  "canonical_guidance_file": ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md:491",
+  "guidance": "The render reports each markdown link that still targets the old path as file:line; edit each to the new path.",
+  "history_destination_still_old": true,
+  "history_link_reported": false,
+  "active_destination_repaired": true,
+  "preview_remaining_reports": [],
+  "role_moved": true
+}

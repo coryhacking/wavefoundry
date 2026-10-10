@@ -1,0 +1,74 @@
+[
+  {
+    "name": "URI_fake_link",
+    "passed": false,
+    "original": "Paragraph <https://example.invalid/[CODE](wave-council.md)> [LIVE](wave-council.md)\r\n",
+    "expected": "Paragraph <https://example.invalid/[CODE](wave-council.md)> [LIVE](council-chair.md)\r\n",
+    "observed": "Paragraph <https://example.invalid/[CODE](council-chair.md)> [LIVE](council-chair.md)\r\n",
+    "repeat": "Paragraph <https://example.invalid/[CODE](council-chair.md)> [LIVE](council-chair.md)\r\n",
+    "preview_no_writes": true,
+    "public_path_reached": true,
+    "errors": 0,
+    "skips": 0
+  },
+  {
+    "name": "URI_query_fake_link",
+    "passed": false,
+    "original": "Paragraph <custom+protocol://example.invalid/?x=[CODE](wave-council.md)> [LIVE](wave-council.md)\r\n",
+    "expected": "Paragraph <custom+protocol://example.invalid/?x=[CODE](wave-council.md)> [LIVE](council-chair.md)\r\n",
+    "observed": "Paragraph <custom+protocol://example.invalid/?x=[CODE](council-chair.md)> [LIVE](council-chair.md)\r\n",
+    "repeat": "Paragraph <custom+protocol://example.invalid/?x=[CODE](council-chair.md)> [LIVE](council-chair.md)\r\n",
+    "preview_no_writes": true,
+    "public_path_reached": true,
+    "errors": 0,
+    "skips": 0
+  },
+  {
+    "name": "URI_backtick",
+    "passed": false,
+    "original": "Paragraph <https://example.invalid/?x=`> [LIVE](wave-council.md) tail `\r\n",
+    "expected": "Paragraph <https://example.invalid/?x=`> [LIVE](council-chair.md) tail `\r\n",
+    "observed": "Paragraph <https://example.invalid/?x=`> [LIVE](wave-council.md) tail `\r\n",
+    "repeat": "Paragraph <https://example.invalid/?x=`> [LIVE](wave-council.md) tail `\r\n",
+    "preview_no_writes": true,
+    "public_path_reached": true,
+    "errors": 0,
+    "skips": 0
+  },
+  {
+    "name": "email_backtick",
+    "passed": false,
+    "original": "Paragraph <a`@example.invalid> [LIVE](wave-council.md) tail `\r\n",
+    "expected": "Paragraph <a`@example.invalid> [LIVE](council-chair.md) tail `\r\n",
+    "observed": "Paragraph <a`@example.invalid> [LIVE](wave-council.md) tail `\r\n",
+    "repeat": "Paragraph <a`@example.invalid> [LIVE](wave-council.md) tail `\r\n",
+    "preview_no_writes": true,
+    "public_path_reached": true,
+    "errors": 0,
+    "skips": 0
+  },
+  {
+    "name": "code_prior_URI",
+    "passed": true,
+    "original": "Paragraph ` <https://example.invalid/[CODE](wave-council.md)?x=`> [LIVE](wave-council.md)\r\n",
+    "expected": "Paragraph ` <https://example.invalid/[CODE](wave-council.md)?x=`> [LIVE](council-chair.md)\r\n",
+    "observed": "Paragraph ` <https://example.invalid/[CODE](wave-council.md)?x=`> [LIVE](council-chair.md)\r\n",
+    "repeat": "Paragraph ` <https://example.invalid/[CODE](wave-council.md)?x=`> [LIVE](council-chair.md)\r\n",
+    "preview_no_writes": true,
+    "public_path_reached": true,
+    "errors": 0,
+    "skips": 0
+  },
+  {
+    "name": "code_prior_email",
+    "passed": true,
+    "original": "Paragraph ` <a`@example.invalid> [LIVE](wave-council.md)\r\n",
+    "expected": "Paragraph ` <a`@example.invalid> [LIVE](council-chair.md)\r\n",
+    "observed": "Paragraph ` <a`@example.invalid> [LIVE](council-chair.md)\r\n",
+    "repeat": "Paragraph ` <a`@example.invalid> [LIVE](council-chair.md)\r\n",
+    "preview_no_writes": true,
+    "public_path_reached": true,
+    "errors": 0,
+    "skips": 0
+  }
+]

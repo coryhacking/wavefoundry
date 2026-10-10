@@ -436,7 +436,8 @@ def load_graph(root: Path, *, layer: str = "project") -> dict[str, Any]:
             # `acquire` inside a pin returns the PINNED (pre-rebuild) view;
             # only `repin` rebinds the frame to what the rebuild published.
             snapshot = graph_snapshot.repin(root, layer)
-        if isinstance(rebuild_diag, dict) and rebuild_diag.get("code", "").startswith("index_"):
+        if isinstance(rebuild_diag, dict) and (rebuild_diag.get("code", "").startswith("index_")
+                or rebuild_diag.get("code", "").startswith("graph_auto_rebuild_")):
             payload = {**_absent_graph_payload(layer), "state": "not_ready", "diagnostic": rebuild_diag}
         else:
             payload = dict(snapshot.graph) if snapshot.present else _unavailable_graph_payload(snapshot, layer)
@@ -552,7 +553,8 @@ def get_query_index(root: Path, *, layer: str = "project") -> GraphQueryIndex:
             # The rebuild published a new generation; serve THAT one. `acquire`
             # inside a pin would return the pre-rebuild view.
             snapshot = graph_snapshot.repin(root, layer)
-        if isinstance(rebuild_diag, dict) and rebuild_diag.get("code", "").startswith("index_"):
+        if isinstance(rebuild_diag, dict) and (rebuild_diag.get("code", "").startswith("index_")
+                or rebuild_diag.get("code", "").startswith("graph_auto_rebuild_")):
             index = GraphQueryIndex({**_absent_graph_payload(layer), "state": "not_ready", "diagnostic": rebuild_diag})
         else:
             index = _constructed_index(snapshot, layer)
@@ -1315,6 +1317,20 @@ class GraphQueryIndex:
                 and file_node.get("label") == class_name
             ):
                 return file_part
+        # Rust trait methods have an implementing-type alias only when unique.
+        # An old trait-only identity must not choose a survivor implementation.
+        rust_aliases = []
+        for nid in self._node_by_id:
+            file_part, sep, qualified = nid.partition("::")
+            if not sep or not file_part.endswith(".rs"):
+                continue
+            match = re.fullmatch(r"(.*)<([^<>]+) as ([^<>]+)>\.([^.]+)", qualified)
+            if match:
+                alias = f"{match[1]}{match[2]}.{match[4]}"
+                if symbol in (alias, f"{file_part}::{alias}"):
+                    rust_aliases.append(nid)
+        if rust_aliases:
+            return rust_aliases[0] if len(rust_aliases) == 1 else None
         # Suffix match on qualified names
         matches = [nid for nid in self._node_by_id if nid.endswith(f"::{symbol}") or nid == symbol]
         if len(matches) == 1:

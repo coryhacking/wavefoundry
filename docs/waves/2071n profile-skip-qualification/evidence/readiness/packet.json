@@ -1,0 +1,52 @@
+{
+  "wave_id": "2071n",
+  "phase": "readiness",
+  "change_ids": [
+    "205jp"
+  ],
+  "tree_fingerprint": "02bfe86fd4c8045b262dbcf7d2f9841fd5284666858077efea69812ade795cd0",
+  "paths": [
+    {
+      "path": "docs/waves/2071n profile-skip-qualification/205jp-bug profile-skip-qualification.md",
+      "git_blob": "fa6b367822db726bd212a48e22e5005ee39f2889"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_graph_quality_eval.py",
+      "git_blob": "b1a8afcc95ede375d6aa0396080412c134c66617"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py",
+      "git_blob": "2b69eecb3aa83fc89c7c037f86612cee3fec9102"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_change_id_path_guard.py",
+      "git_blob": "c40e91be66194e8daa82740709f5ab731a86a525"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_review_policy.py",
+      "git_blob": "a2e94bf2390c52e55967d24802aa7985b0f80eeb"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_storage_upgrade_resume.py",
+      "git_blob": "de9d4a8c9f036dc253f3b693ab59c37a6ce95732"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_sqlite_storage_migration.py",
+      "git_blob": "8c129fd90b49d36cf524a0201101816bf0374c83"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/record_layout_support.py",
+      "git_blob": "8d7e9e0cc1ab5db789e7dbf71001a18b4941927f"
+    }
+  ],
+  "policy_input_digest": "a8d0c88bd8bf03c033ad4b44bbed57a2f0433ad94feeec85f8fb29021396473a",
+  "primer_depth": "full",
+  "time_budget": "6minutesperseat",
+  "sweep_rule": "Live source validation and targeted probes; no fullsuite or source edits duringreadiness",
+  "trust_boundaries_touched": [
+    "testfixtures",
+    "historical-code subprocess",
+    "publicgraphresponses"
+  ],
+  "authorization": "prepareimplementreview; localpack alreadybuiltwithskipwaiver;noclosecommitpush"
+}
