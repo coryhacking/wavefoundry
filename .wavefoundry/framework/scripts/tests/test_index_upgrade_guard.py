@@ -13,6 +13,7 @@ import tempfile
 import threading
 from types import SimpleNamespace
 import unittest
+import zipfile
 from unittest.mock import patch
 
 import upgrade_extensions as hooks
@@ -67,7 +68,8 @@ class IndexUpgradeGuardTests(unittest.TestCase):
         self.scripts = self.root / '.wavefoundry/framework/scripts'
         self.scripts.mkdir(parents=True)
         self.package = self.root / 'release.zip'
-        self.package.write_bytes(b'original-package-bytes')
+        with zipfile.ZipFile(self.package, 'w') as archive:
+            archive.comment = b'original-package'
         self.ctx = runner.UpgradeContext(self.root, '1.24.0+old', '1.24.0+new', self.package, True)
         upgrade_lib.write_upgrade_lock(self.root, self.ctx.from_version, self.ctx.to_version, self.package)
         self.env = patch.dict(os.environ, {}, clear=False)
@@ -340,7 +342,8 @@ class IndexUpgradeGuardTests(unittest.TestCase):
         if root != self.root:
             (root / '.wavefoundry/framework/scripts').mkdir(parents=True)
             package = root / 'release.zip'
-            package.write_bytes(b'second-package')
+            with zipfile.ZipFile(package, 'w') as archive:
+                archive.comment = b'second-package'
             ctx = runner.UpgradeContext(root, '1.24.0+old', '1.24.0+new', package, True)
             upgrade_lib.write_upgrade_lock(root, ctx.from_version, ctx.to_version, package)
         self.capture(ctx)

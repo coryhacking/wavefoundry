@@ -1,10 +1,10 @@
 # Host hook tool-name compatibility
 
 Change ID: `20dkh-bug host-hook-tool-name-compatibility`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
 Status: planned
-Last verified: 2026-10-10
+Last verified: 2026-10-11
 Wave: `20cw2`
 
 ## Rationale
@@ -47,24 +47,24 @@ Codex CLI 0.162.1 reports its hooks feature enabled. Current [official hook docu
 
 ## Acceptance Criteria
 
-- [ ] AC-1: A source-derived census covers every named-tool renderer pre/post dispatcher and distinguishes name-free adapters; identified handlers implement applicable edit/non-edit/unknown contracts. Oracle: bounded census and handler fixtures.
-- [ ] AC-2: Unknown named pre-hook payloads with supported explicit paths respect every recovered seed/framework guard; ordinary paths/open guards preserve path verdicts. Oracle: generated-hook exit/diagnostic observations, including multi-path adapters.
-- [ ] AC-3: Unknown no-path calls report bounded escaped uncertainty without payload disclosure or new shell/MCP blocking; known edits with unreadable paths/patch headers and missing/malformed identities retain fail-closed behavior. Oracle: hostile-label/no-path and known-edit negative fixtures.
-- [ ] AC-4: Known read/shell calls and text-editor `view` preserve non-edit verdicts and cause no edit-specific lint/index work; unsupported text-editor commands stay edits. Oracle: generated pre/post fixtures and subprocess/refresh observations.
-- [ ] AC-5: Unknown post calls start no lint/index work solely from an unfamiliar name, while recognized edits retain refresh/docs-lint behavior. Oracle: received-payload side effects, including recognized edit with failing lint.
-- [ ] AC-6: Claude subscriptions retain the supported four-built-in matcher and no new native Codex hook/config or host subscription appears. Oracle: renderer outputs and config ownership comparisons.
-- [ ] AC-7: Canonical `_implement_doc` prose and the actual managed Implement wave consumer prompt contain Codex destination/move, approval/stage-gate and wrapper/canonical-name instructions. The existing skill points to that prompt. Oracle: shipped-carrier assertions and realistic patch examples, with explicit workflow-only/instruction-only limits and no universal root-entry, single-change or agent-adherence claim.
-- [ ] AC-8: Existing reconciliation delivers the policy into default and profile-resolved existing implementation prompts, retains surrounding customization and makes zero second-pass writes. Platform/threat-model prose accurately states handler/matcher and workflow-instruction limits; algorithms, registry and upgrade-pass count stay unchanged. Oracle: real carrier integration, preservation/idempotence controls and changed-doc review; no new evidence directory.
-- [ ] AC-9: The change's own suites and every test it adds pass; documents it authors/edits validate; no failure elsewhere is attributable to this change. Oracle: changed-owner suites/document validation, with broader qualification recorded as gate evidence.
+- [x] AC-1: A source-derived census covers every named-tool renderer pre/post dispatcher and distinguishes name-free adapters; identified handlers implement applicable edit/non-edit/unknown contracts. Oracle: bounded census and handler fixtures.
+- [x] AC-2: Unknown named pre-hook payloads with supported explicit paths respect every recovered seed/framework guard; ordinary paths/open guards preserve path verdicts. Oracle: generated-hook exit/diagnostic observations, including multi-path adapters.
+- [x] AC-3: Unknown no-path calls report bounded escaped uncertainty without payload disclosure or new shell/MCP blocking; known edits with unreadable paths/patch headers and missing/malformed identities retain fail-closed behavior. Oracle: hostile-label/no-path and known-edit negative fixtures.
+- [x] AC-4: Known read/shell calls and text-editor `view` preserve non-edit verdicts and cause no edit-specific lint/index work; unsupported text-editor commands stay edits. Oracle: generated pre/post fixtures and subprocess/refresh observations.
+- [x] AC-5: Unknown post calls start no lint/index work solely from an unfamiliar name, while recognized edits retain refresh/docs-lint behavior. Oracle: received-payload side effects, including recognized edit with failing lint.
+- [x] AC-6: Claude subscriptions retain the supported four-built-in matcher and no new native Codex hook/config or host subscription appears. Oracle: renderer outputs and config ownership comparisons.
+- [x] AC-7: Canonical `_implement_doc` prose and the actual managed Implement wave consumer prompt contain Codex destination/move, approval/stage-gate and wrapper/canonical-name instructions. The existing skill points to that prompt. Oracle: shipped-carrier assertions and realistic patch examples, with explicit workflow-only/instruction-only limits and no universal root-entry, single-change or agent-adherence claim.
+- [x] AC-8: Existing reconciliation delivers the policy into default and profile-resolved existing implementation prompts, retains surrounding customization and makes zero second-pass writes. Platform/threat-model prose accurately states handler/matcher and workflow-instruction limits; algorithms, registry and upgrade-pass count stay unchanged. Oracle: real carrier integration, preservation/idempotence controls and changed-doc review; no new evidence directory.
+- [x] AC-9: The change's own suites and every test it adds pass; documents it authors/edits validate; no failure elsewhere is attributable to this change. Oracle: changed-owner suites/document validation, with broader qualification recorded as gate evidence.
 
 ## Tasks
 
-- [ ] Reconfirm the dispatcher census and evidenced non-edit identities on the implementation checkout; document qualified names in existing comments/fixtures, not a new host registry.
-- [ ] Implement classifications and received-unknown behavior within existing renderer/path ownership.
-- [ ] Add generated-hook controls for recognized edits, known reads/shell, unknown paths/no-paths, multi-path adapters, escaped labels and post side effects.
-- [ ] Add Codex patch policy to the managed `_implement_doc` prose entry and refresh its actual consumer prompt through existing reconciliation; add shipped-carrier, profile, preservation/idempotence and absent-native-hook-output checks.
-- [ ] Align platform mapping, threat model and changelog with owned behavior/remaining limits.
-- [ ] Run changed-owner verification and independent reviews at existing gates; retain compact results in wave.md and temporary probes outside the repository.
+- [x] Reconfirm the dispatcher census and evidenced non-edit identities on the implementation checkout; document qualified names in existing comments/fixtures, not a new host registry.
+- [x] Implement classifications and received-unknown behavior within existing renderer/path ownership.
+- [x] Add generated-hook controls for recognized edits, known reads/shell, unknown paths/no-paths, multi-path adapters, escaped labels and post side effects.
+- [x] Add Codex patch policy to the managed `_implement_doc` prose entry and refresh its actual consumer prompt through existing reconciliation; add shipped-carrier, profile, preservation/idempotence and absent-native-hook-output checks.
+- [x] Align platform mapping, threat model and changelog with owned behavior/remaining limits.
+- [x] Run changed-owner verification and independent reviews at existing gates; retain compact results in wave.md and temporary probes outside the repository.
 
 ## Agent Execution Graph
 
@@ -118,6 +118,11 @@ Update `docs/agents/platform-mapping.md` for received-name handling, matcher cov
 
 | Date | Update | Evidence |
 | --- | --- | --- |
+| 2026-10-11 | Observe: actual managed Implement wave prompt refreshed through the existing owner, customization/profile route proven and source frozen; no native Codex surface added. Framework edit gate opened/closed through the actual tools; seed gate never opened. | `CodexPatchWorkflowCarrierTests`: actual shipped prompt and three skill pointers; default customization/idempotence; fork-profile `execute-batch` actual reconciliation; actual Codex platform output only config. First actual local reconciliation wrote the owned prompt only; second wrote zero. `review_policy` AST outside `REVIEW_POLICY_SURFACE_BLOCKS` equals frozen20bw2, including evaluator/version/normalizers/registry. Eight root/config/subscription/name-free carriers remain byte-identical. Exact primary names checked2026-10-11 at renderer comments' Claude/GitHub hook docs and Microsoft toolNames source. |
+| 2026-10-11 | Guard falsification: isolated producer mutations fail named regression assertions, without test skips/import errors; negative controls are separate from green qualification. | Claude old unknown bypass / Copilot unknown-as-nonedit → `test_unknown_pre_tools_gate_all_supported_explicit_paths`; unknown post feedback → `test_unknown_post_paths_never_launch_edit_feedback`; unescaped / unbounded labels and unknown pathless blocking → `test_unknown_no_path_reports_bounded_escaped_label_only`; deleted exact nonedit exemption → `test_evidenced_non_edit_names_preserve_no_feedback`; deleted wrapper prose / unwired managed writer → `test_existing_managed_reconciler_preserves_customization_and_is_idempotent`. Nine mutations, each exit1 with AssertionError. |
+| 2026-10-11 | Implementation handoff: AC1–8 and first five tasks are proven through real marks; AC9/final task await coordinator canonical qualification and independent delivery review. No setup, local-model operation, live-index update, pack, commit or closure. | Owned suites use `PYTHONPATH=.wavefoundry/framework/scripts python3 -B -m unittest discover -s .wavefoundry/framework/scripts/tests -p <owner-file>`; renderer136, carrier169, policy116 tests, zero aggregate skips; ten new tests execute. Final exact durations and source SHA/path fingerprints supplied in temporary packet; source frozen before coordinator full-suite snapshot. |
+| 2026-10-11 | Observe: source-derived generated-handler census is the three admitted dispatchers; exact host read/shell evidence is documented in renderer comments. Unknown controls first reproduced silent bypass/no diagnostic, then passed after classification repair. | `RenderedEditHookPathTests`: 19 tests, zero skips, green in12.303s. Initial invocation without scripts PYTHONPATH failed fixture import before running tests; corrected invocation uses scripts PYTHONPATH. `-k unknown` before source repair: 3 tests,27 assertion failures against the stated defect. No live host or native Windows claim. |
+| 2026-10-11 | Readback: implement AC1–8 within the three named Claude/Copilot dispatchers and managed Implement wave carrier; verify AC9 locally, leaving canonical suite/delivery to the coordinator. Unknown pre-tool calls with explicit protected paths change from silent allowance to guarded verdict plus escaped uncertainty; unknown no-path calls remain advisory, unknown post calls do no speculative work. Codex patch destinations and both move endpoints receive workflow instructions only. | Sole source owner: renderer and focused tests, `_implement_doc` prose and carrier tests, three generated hooks, managed implementation prompt, existing platform/threat-model/changelog docs. Preserve matcher, configuration, permission policy, evaluator/registry/normalizers and 20bw2 narration. Latest implementation instruction supersedes historical planning-only narration. MCP current-file retrieval callable; setup diagnostic reported to coordinator, no setup/index mutation. |
 | 2026-10-10 | Current source and scratch handler probe; no repository source changes. | `RenderedEditHookPathTests` scratch fixture: Edit/edit=2, unfamiliar same-path tool=0 without diagnostic, Read/view=0. Source dispatch at980–983/1372–1384. |
 | 2026-10-10 | Codex capability/schema checked; no live interception qualified. | Local0.162.1 hooks enabled; official documentation linked above; exposed `tools.apply_patch` wrapper. |
 | 2026-10-10 | Readiness repair DC-20C-CARRIER: root independently replayed the full-render and managed-carrier scratch controls, then revised requirements/ACs/owner targets. No source edit or delivery claim. | Current render writes Codex config/skills but never transfers seed050 sentinel to existing AGENTS. Managed `_implement_doc` route transfers sentinel, preserves customization and writes nothing on second pass; readiness ledger cycle1. |

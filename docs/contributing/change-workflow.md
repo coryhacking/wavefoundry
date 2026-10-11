@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-08
+Last verified: 2026-10-11
 
 ## Default Change Path
 
@@ -15,6 +15,27 @@ All non-trivial work follows this sequence. Do not edit repository code before s
 5. **Implement wave / Implement change** — execute admitted changes and focused computational verification; use an exceptional named checkpoint only at a high-risk boundary.
 6. **Review wave** — after implementation evidence is complete, all required inferential lanes (code, QA, architecture, etc.) must produce findings or be explicitly deferred with rationale; blocking findings return to implementation.
 7. **Close change** (per change, optional) then **Close wave** (the only wave close): all changes implemented, complete, or deferred; validate memory candidates; promote memory to canonical docs; clear session handoff.
+
+## Route implementation narration and amendments
+
+Put ordinary test observations, repair progress, evidence locations and continuation
+notes in the canonical `## Progress Log` or existing session handoff. Keep weighed
+plan choices and material decisions in `## Decision Log`. For example, "Reran tests
+on Windows; repair passed" is narration; changing who may approve a release artifact
+is a material amendment to Requirements and any owning review targets or authority
+section, with a weighed design choice in Decision Log when needed.
+
+Before or with narration, update the existing owning digested section for changes to
+scope, requirements, acceptance, task meaning, priority, review targets or authority.
+The log may link or summarize the edit; it must never substitute for it. Material
+edits intentionally rotate the receipt and follow the existing re-Prepare and
+affected readiness approval rules. Unsupported or ambiguous Progress Log headings
+may remain digested; use the canonical heading.
+
+This authoring guidance and existing review enforce the distinction. They do not
+automatically discover semantic amendments hidden only in narration. Consumer
+upgrades refresh existing managed implementation/review regions; this correction
+adds no source qualification, census, historical rewrite or approval transfer.
 
 ## Writing Acceptance Criteria
 

@@ -12,6 +12,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Generated Claude/Copilot received-tool handlers diagnose unfamiliar names, guard every supported explicit pre-call path and avoid speculative unknown post-call lint/index work. Existing subscriptions remain bounded. The managed Implement wave prompt delivers Codex canonical/wrapped patch-write, destination/move and approval instructions through the existing skill, without native enforcement or universal startup coverage. Wave 20cw2 / 20dkh.
+
 - Framework test runs can emit one optional compact execution-origin qualification report with exact worker and skip identities, source/profile provenance and strict profile comparison. Reports stay in the ignored qualification cache, outside framework hashes and packages; consumer upgrades do not run qualification. Wave 2087n / 20al0.
 
 - Journal pre-migration hooks can opt into `EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER = "journals_present"` to run on upgrades from any version when direct supported journals exist in `docs/agents/journals`. The shipped `legacy_cutover` default and built-in pre-1.15.0 migration gate remain unchanged; preview stays static and incoming hook dependencies are isolated from an older runner. Wave 206is / 204mo.
@@ -106,6 +108,12 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The journal migration preview no longer executes the distribution's declaration module; it reads the declaration statically. Upgrade extension helpers no longer leave the target's framework scripts directory on the module search path, and dry-run preview logs are never written through a link that leaves the repository. The review status now shows bracket characters in a self-attested approver name as replacement characters, so it cannot show a misleading handle; recorded approvals are unchanged. Reported by the Waveforge maintainers. Wave 200ey / 200ev.
 
 ### Fixed
+
+- Gardener metadata and manifest writes preserve existing consistent LF/CRLF endings and create fresh files as LF. Generated docs LF checkout defaults precede project exceptions and leave launcher/batch policy unchanged; malformed docs-default markers refuse before attributes publication. No automatic renormalization or conversion hook. Wave 20dkl / 20dkk.
+- Qualification report parsing handles excessive JSON nesting and resource exhaustion; publication refuses final-component link swaps. Worker markers remain non-authoritative and visible to test code. Wave 20d90 / 20cyo.
+- Surface cleanup skips and reports refused stale entries. Upgrade preview code extraction is capped and rejects drive-letter/backslash names; exact role and lifecycle-document link repair runs only for pending moves and reports unreadable docs without aborting rendering. Wave 20d91 / 20d8y.
+- Renamed ownership inventories keep uniqueness without requiring original lexical order; fresh-repository incremental lint sees files inside untracked directories. Distributions can explicitly exempt their modules from the bytecode call-site census. Wave 20d92 / 20d8z.
+- Decision-log edits preserve approvals when the bounded plan census confirms no semantic change. Default index eligibility was reconfirmed across setup and incremental refresh, without a new upgrade scan. Waves 20bw2 / 1us4q and 20dkg / 20dkj.
 
 - Pack-backed upgrades detect a customized legacy review-plan prompt before extraction, checkpoint publication or review-policy mutation through the incoming pack's shared stock-profile checker. This requires an installed runner carrying the `post_preflight` hook; older-runner dry runs do not detect it. Recovery keeps project-owned prose and documents conditional rerun safety. Change `20b35-bug review-plan-prompt-migration-preflight`.
 - Proven post-docs index-guard handoffs resume the recorded upgrade instead of rendering it again. One verified checkpoint-owned pack survives pauses and failed publication; terminal cleanup removes it through an exact-owned, retryable path, including when archive deletion succeeds but checkpoint deletion fails. Unproven phases and storage/rebuild handoffs retain the full command. Change `20b36-bug index-guard-handoff-resume-not-full-upgrade`.

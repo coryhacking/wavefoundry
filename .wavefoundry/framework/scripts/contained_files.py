@@ -717,8 +717,49 @@ def _replace_by_path(source: Path, target: Path) -> None:
             raise _path_free(exc) from None
 
 
+def _unlinked_parent_identities(root: Path, parts: tuple[str, ...]) -> tuple:
+    """Snapshot lexical directories for the optional strict report writer."""
+    identities = []
+    current = root
+    for name in (None, *parts):
+        if name is not None:
+            current /= name
+        try:
+            entry = os.lstat(current)
+        except FileNotFoundError:
+            break
+        except OSError:
+            raise ContainedFileRefused(CAUSE_UNRESOLVED) from None
+        if _is_link_entry(current, entry):
+            raise ContainedFileRefused(CAUSE_LINK_COMPONENT)
+        if not stat.S_ISDIR(entry.st_mode):
+            raise ContainedFileRefused(CAUSE_NOT_DIRECTORY)
+        identities.append((entry.st_dev, entry.st_ino))
+    return tuple(identities)
+
+
+def _check_strict_publication(root, parts, parents, target, expected_identity, dir_fd):
+    if _unlinked_parent_identities(root, parts[:-1]) != parents:
+        raise ContainedFileRefused(CAUSE_CHANGED)
+    if dir_fd is not None:
+        held = os.fstat(dir_fd)
+        if (held.st_dev, held.st_ino) != parents[-1]:
+            raise ContainedFileRefused(CAUSE_CHANGED)
+    try:
+        entry = (os.stat(target.name, dir_fd=dir_fd, follow_symlinks=False)
+                 if dir_fd is not None else os.lstat(target))
+    except FileNotFoundError:
+        entry = None
+    if entry is not None and (not stat.S_ISREG(entry.st_mode) or _is_link_entry(target, entry)):
+        raise ContainedFileRefused(CAUSE_NOT_REGULAR)
+    identity = None if entry is None else (entry.st_dev, entry.st_ino)
+    if identity != expected_identity:
+        raise ContainedFileRefused(CAUSE_CHANGED)
+
+
 def write_contained_bytes(root, path, data: bytes, *, mode: "int | None" = None,
-                          executable: bool = False) -> bool:
+                          executable: bool = False, no_links: bool = False,
+                          expected_identity: "tuple[int, int] | None" = None) -> bool:
     """Write ``data`` at ``path`` under the contained write rule; returns
     whether the file's bytes changed.
 
@@ -733,13 +774,26 @@ def write_contained_bytes(root, path, data: bytes, *, mode: "int | None" = None,
     then published with ``os.replace`` relative to the parent's descriptor.
     Nothing is written or re-moded through a path that could be a link. When
     the bytes are unchanged only a differing mode is set, on a verified
-    descriptor, and nothing is written."""
+    descriptor, and nothing is written.
+
+    ``no_links`` is the report-only stricter policy: ``expected_identity``
+    carries the initially owned file, or ``None`` for an initially absent file.
+    Every success atomically replaces the entry, including identical bytes.
+    Lexical parent identities and the held parent descriptor are checked before
+    publication, along with the initial final identity and absence of links.
+    Windows checks by path. The final check/replace interval is not atomic."""
     data = bytes(data)
     resolved_root = _resolved_root(root)
     parts = _lexical_parts(root, path)
     if not parts:
         raise ContainedFileRefused(CAUSE_NOT_REGULAR)
+    if no_links:
+        initial_parents = _unlinked_parent_identities(resolved_root, parts[:-1])
     parent = ensure_contained_dir(resolved_root, parts[:-1])
+    if no_links:
+        parents = _unlinked_parent_identities(resolved_root, parts[:-1])
+        if parents[:len(initial_parents)] != initial_parents or len(parents) != len(parts):
+            raise ContainedFileRefused(CAUSE_CHANGED)
     target = parent / parts[-1]
     try:
         entry: "os.stat_result | None" = os.lstat(target)
@@ -748,6 +802,8 @@ def write_contained_bytes(root, path, data: bytes, *, mode: "int | None" = None,
     except OSError:
         raise ContainedFileRefused(CAUSE_UNRESOLVED) from None
     if entry is not None and _is_link_entry(target, entry):
+        if no_links:
+            raise ContainedFileRefused(CAUSE_LINK_COMPONENT)
         try:
             target = target.resolve(strict=True)
         except FileNotFoundError:
@@ -773,11 +829,12 @@ def write_contained_bytes(root, path, data: bytes, *, mode: "int | None" = None,
     else:
         wanted = None
     can_chmod = hasattr(os, "fchmod")
+    same = False
     if entry is not None and entry.st_size == len(data):
         fd, opened = _open_verified(resolved_root, target, entry)
         try:
             same = _read_capped(fd, len(data) + 1) == data
-            if same:
+            if same and not no_links:
                 if can_chmod and wanted is not None and stat.S_IMODE(opened.st_mode) != wanted:
                     os.fchmod(fd, wanted)
                 return False
@@ -799,6 +856,8 @@ def write_contained_bytes(root, path, data: bytes, *, mode: "int | None" = None,
                 finally:
                     os.close(fd)
                 _checkpoint("publish")
+                if no_links:
+                    _check_strict_publication(resolved_root, parts, parents, target, expected_identity, dir_fd)
                 os.replace(temporary, target.name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
             except BaseException as exc:
                 _remove_temporary(temporary, dir_fd=dir_fd, parent=parent)
@@ -807,7 +866,7 @@ def write_contained_bytes(root, path, data: bytes, *, mode: "int | None" = None,
                 raise
         finally:
             os.close(dir_fd)
-        return True
+        return not same
     open_contained_dir(resolved_root, parent_rel)
     temporary, fd = _create_temporary(target.name, create_mode, dir_fd=None, parent=parent)
     try:
@@ -821,10 +880,12 @@ def write_contained_bytes(root, path, data: bytes, *, mode: "int | None" = None,
         finally:
             os.close(fd)
         _checkpoint("publish")
+        if no_links:
+            _check_strict_publication(resolved_root, parts, parents, target, expected_identity, None)
         _replace_by_path(parent / temporary, target)
     except BaseException as exc:
         _remove_temporary(temporary, dir_fd=None, parent=parent)
         if isinstance(exc, OSError):
             raise _path_free(exc) from None
         raise
-    return True
+    return not same

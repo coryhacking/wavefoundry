@@ -9,8 +9,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 
 TESTS_ROOT = Path(__file__).resolve().parent
@@ -27,6 +28,125 @@ def _load_gardener():
 
 
 dg = _load_gardener()
+
+
+@contextmanager
+def _windows_default_text_writes():
+    """Real I/O with Windows' default write translation; not native qualification."""
+    original_open = Path.open
+
+    def open_with_windows_default(path, mode="r", buffering=-1, encoding=None,
+                                  errors=None, newline=None):
+        if "w" in mode and "b" not in mode and newline is None:
+            newline = "\r\n"
+        return original_open(path, mode, buffering, encoding, errors, newline)
+
+    with patch.object(Path, "open", open_with_windows_default):
+        yield
+
+
+class GardenerLineEndingTests(unittest.TestCase):
+    def _run(self, root):
+        with redirect_stdout(io.StringIO()) as out:
+            code, paths = dg.gardener_run(
+                root, dg.parse_args(["--paths", "docs/sample.md", "--date", "2026-10-11"])
+            )
+        self.assertEqual(code, 0)
+        return paths, out.getvalue()
+
+    def _doc(self, root, newline=b"\n", date=b"2000-01-01"):
+        path = root / "docs/sample.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        content = (b"# Sample\nOwner: Engineering\nStatus: active\nLast verified: "
+                   + date + "\n\nBody café; 2000-01-01.\n".encode()).replace(b"\n", newline)
+        path.write_bytes(content)
+        return path, content
+
+    def test_metadata_preserves_exact_lf_crlf_bytes_under_windows_translation(self):
+        for newline in (b"\n", b"\r\n"):
+            with self.subTest(newline=newline), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                path, before = self._doc(root, newline)
+                if os.name != "nt":
+                    path.chmod(0o640)
+                mode = path.stat().st_mode
+                with _windows_default_text_writes():
+                    paths, output = self._run(root)
+                self.assertEqual(path.read_bytes(), before.replace(b"2000-01-01", b"2026-10-11", 1))
+                self.assertEqual(path.stat().st_mode, mode)
+                self.assertIn("docs/sample.md", paths)
+                self.assertIn("docs-gardener: updated docs/sample.md", output)
+                self.assertIn("docs-gardener: stamped 1 doc(s)", output)
+                published = [path, dg.manifest_path(root), root / "docs/agents/session-handoff.md"]
+                state = [(p.read_bytes(), p.stat().st_mtime_ns) for p in published]
+                with _windows_default_text_writes():
+                    paths, output = self._run(root)
+                self.assertEqual(paths, [])
+                self.assertEqual(output.strip(), "docs-gardener: ok (nothing to report)")
+                self.assertEqual([(p.read_bytes(), p.stat().st_mtime_ns) for p in published], state)
+
+    def test_new_manifest_and_handoff_are_lf_with_windows_default_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._doc(root, date=b"2026-10-11")
+            with _windows_default_text_writes():
+                paths, _ = self._run(root)
+            for path in (dg.manifest_path(root), root / "docs/agents/session-handoff.md"):
+                self.assertIn(path.relative_to(root).as_posix(), paths)
+                self.assertIn(b"\n", path.read_bytes())
+                self.assertNotIn(b"\r", path.read_bytes())
+
+    def test_manifest_reconcile_and_noop_preserve_lf_crlf_and_project_values(self):
+        for newline in ("\n", "\r\n"):
+            with self.subTest(newline=newline), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self._doc(root, date=b"2026-10-11")
+                path = dg.manifest_path(root)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                data = dg.default_manifest_payload(root)
+                data.pop("generated_artifacts")
+                data["project-owned"] = "café"
+                path.write_bytes(dg.normalize_manifest_json(data).replace("\n", newline).encode())
+                expected = dict(data, generated_artifacts=dg.default_manifest_payload(root)["generated_artifacts"])
+                with _windows_default_text_writes():
+                    paths, _ = self._run(root)
+                self.assertIn(path.relative_to(root).as_posix(), paths)
+                self.assertEqual(path.read_bytes(), dg.normalize_manifest_json(expected).replace("\n", newline).encode())
+                before = path.read_bytes(), path.stat().st_mtime_ns
+                with _windows_default_text_writes():
+                    paths, _ = self._run(root)
+                self.assertNotIn(path.relative_to(root).as_posix(), paths)
+                self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns), before)
+
+    def test_existing_handoff_and_unstamped_file_are_byte_and_mtime_unchanged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            doc, _ = self._doc(root)
+            doc.write_bytes(b"# No metadata\r\nBody\r\n")
+            handoff = root / "docs/agents/session-handoff.md"
+            handoff.parent.mkdir(parents=True)
+            handoff.write_bytes(b"# Project handoff\r\nKeep this\r\n")
+            watched = [doc, handoff]
+            before = [(p.read_bytes(), p.stat().st_mtime_ns) for p in watched]
+            with _windows_default_text_writes():
+                paths, _ = self._run(root)
+            self.assertNotIn("docs/sample.md", paths)
+            self.assertNotIn("docs/agents/session-handoff.md", paths)
+            self.assertEqual([(p.read_bytes(), p.stat().st_mtime_ns) for p in watched], before)
+
+    def test_public_cli_preserves_crlf_date_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path, before = self._doc(root, b"\r\n")
+            env = dict(os.environ, PROJECT_ROOT=str(root), PYTHONDONTWRITEBYTECODE="1")
+            env.pop("PYTHONPYCACHEPREFIX", None)
+            proc = subprocess.run(
+                [sys.executable, "-B", str(SCRIPTS_ROOT / "docs_gardener.py"),
+                 "--paths", "docs/sample.md", "--date", "2026-10-11"],
+                env=env, capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertEqual(path.read_bytes(), before.replace(b"2000-01-01", b"2026-10-11", 1))
 
 
 class DocsGardenerTests(unittest.TestCase):

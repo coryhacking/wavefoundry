@@ -6,6 +6,7 @@ import io
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -232,7 +233,268 @@ class QualificationCLITests(unittest.TestCase):
             self.assertLess(len(done.stderr), 512)
 
 
+class ReportBoundaryTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="wf-report-boundary-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.path = self.root / ".wavefoundry/cache/qualification/report.json"
+        self.report = {"owner": qualification.OWNER, "observation": "control"}
+
+    def publish(self, value=None):
+        qualification.write_report(self.root, self.path, self.report if value is None else value)
+
+    def test_decoder_resource_failures_are_refused_by_reader_and_cli(self):
+        self.publish()
+        self.assertEqual(qualification.read_report(self.root, self.path), self.report)
+        for failure in (RecursionError, MemoryError):
+            with self.subTest(failure=failure.__name__), \
+                    patch.object(qualification.json, "loads", side_effect=failure("private input")):
+                # Catch broadly so a fix-absent decoder yields an assertion failure.
+                try:
+                    qualification.read_report(self.root, self.path)
+                except Exception as exc:
+                    self.assertIsInstance(exc, ValueError)
+                    self.assertEqual(str(exc), "report decoder resource limit")
+                else:
+                    self.fail("resource failure accepted")
+                stderr = io.StringIO()
+                with patch.object(sys, "argv", ["qualification_report", "--compare", str(self.path),
+                        str(self.path), "--profile", "declared", "--root", str(self.root)]), \
+                        patch.object(sys, "stderr", stderr):
+                    try:
+                        result = qualification.main()
+                    except Exception as exc:
+                        self.fail(f"CLI leaked {type(exc).__name__}")
+                self.assertEqual(result, 1)
+                self.assertEqual(stderr.getvalue(), "qualification refused: report decoder resource limit\n")
+
+    def test_atomic_first_owned_identical_and_mode_only_publication(self):
+        for fallback in ((False, True) if qualification.contained_files._DIR_FD_SUPPORTED else (True,)):
+            with self.subTest(fallback=fallback), patch.object(qualification.contained_files,
+                    "_dir_fd_supported", return_value=not fallback):
+                self.path.unlink(missing_ok=True)
+                self.publish()
+                for value, mode in [(dict(self.report, observation="replacement"), 0o600),
+                                    (self.report, 0o600), (self.report, 0o644)]:
+                    self.path.chmod(mode)
+                    self.publish(value)
+                    self.assertEqual(json.loads(self.path.read_bytes()), value)
+                    self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
+                    self.assertEqual(list(self.path.parent.glob(".*.tmp")), [])
+                entry = self.path.stat()
+                changed = qualification.contained_files.write_contained_bytes(self.root, self.path,
+                    self.path.read_bytes(), mode=0o600, no_links=True,
+                    expected_identity=(entry.st_dev, entry.st_ino))
+                self.assertFalse(changed)
+                if not fallback:
+                    self.assertNotEqual(self.path.stat().st_ino, entry.st_ino)
+
+    def _substitution(self, kind, branch, fallback=False):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps(self.report, sort_keys=True, separators=(",", ":")) + "\n")
+        self.path.chmod(0o644 if branch == "mode-only" else 0o600)
+        original = self.path.read_bytes()
+        original_mode = stat.S_IMODE(self.path.stat().st_mode)
+        incoming = dict(self.report, observation="replacement") if branch == "changed" else self.report
+        alternate = self.root / "alternate.json"
+        alternate.write_bytes(original if branch != "changed" else b'{"unowned":"alternate"}\n')
+        alternate.chmod(0o640)
+        alternate_bytes = alternate.read_bytes()
+        parked = self.root / "parked"
+        moved = self.root / "original.json"
+        def switch(stage):
+            if stage != "publish":
+                return
+            if kind in ("final-link", "ordinary"):
+                self.path.rename(moved)
+                if kind == "final-link":
+                    self.path.symlink_to(alternate)
+                else:
+                    self.path.write_bytes(alternate_bytes)
+                    self.path.chmod(0o640)
+            else:
+                # Rename a lexical ancestor, including the held final parent.
+                parent = self.path.parent if kind == "parent" else self.path.parent.parent
+                parent.rename(parked)
+                if kind == "parent-link":
+                    parent.symlink_to(parked, target_is_directory=True)
+                else:
+                    parent.mkdir()
+                    relative = self.path.relative_to(parent)
+                    replacement = parent / relative
+                    replacement.parent.mkdir(parents=True, exist_ok=True)
+                    replacement.write_bytes(alternate_bytes)
+                    replacement.chmod(0o640)
+        with patch.object(qualification.contained_files, "_dir_fd_supported", return_value=not fallback), \
+                patch.object(qualification.contained_files, "_checkpoint", side_effect=switch):
+            with self.assertRaises((OSError, ValueError), msg=f"accepted {kind}/{branch}"):
+                self.publish(incoming)
+        preserved = moved if kind in ("ordinary", "final-link") else parked / (
+            self.path.name if kind == "parent" else "qualification/" + self.path.name)
+        self.assertEqual(preserved.read_bytes(), original)
+        self.assertEqual(stat.S_IMODE(preserved.stat().st_mode), original_mode)
+        self.assertEqual(alternate.read_bytes(), alternate_bytes)
+        self.assertEqual(stat.S_IMODE(alternate.stat().st_mode), 0o640)
+        self.assertEqual(self.path.read_bytes(), alternate_bytes if kind not in ("parent-link",) else original)
+        if kind not in ("final-link", "parent-link"):
+            self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o640)
+        self.assertEqual(list(self.root.rglob(".*.tmp")), [])
+
+    def test_commit_refuses_final_link_for_changed_identical_and_mode_only_bytes(self):
+        for branch in ("changed", "identical", "mode-only"):
+            with self.subTest(branch=branch):
+                self._substitution("final-link", branch,
+                                   fallback=not qualification.contained_files._DIR_FD_SUPPORTED)
+                self.path.unlink()
+
+    def test_commit_preserves_initial_owned_identity_against_ordinary_replacement(self):
+        for branch in ("changed", "identical", "mode-only"):
+            with self.subTest(branch=branch):
+                self._substitution("ordinary", branch,
+                                   fallback=not qualification.contained_files._DIR_FD_SUPPORTED)
+
+    @unittest.skipUnless(qualification.contained_files._DIR_FD_SUPPORTED, "POSIX descriptor publication")
+    def test_commit_refuses_held_parent_and_ancestor_substitution(self):
+        for kind in ("parent", "ancestor", "parent-link"):
+            for branch in ("changed", "identical", "mode-only"):
+                with self.subTest(kind=kind, branch=branch), tempfile.TemporaryDirectory() as directory:
+                    self.root = Path(directory).resolve()
+                    self.path = self.root / ".wavefoundry/cache/qualification/report.json"
+                    self._substitution(kind, branch)
+
+    def test_by_path_fallback_rechecks_final_identity_and_link_before_replace(self):
+        for kind in ("ordinary", "final-link"):
+            with self.subTest(kind=kind):
+                self._substitution(kind, "changed", fallback=True)
+                self.path.unlink()
+
+    def test_by_path_fallback_refuses_parent_link_and_cleans_reachable_temporary(self):
+        for branch in ("changed", "identical", "mode-only"):
+            with self.subTest(branch=branch), tempfile.TemporaryDirectory() as directory:
+                self.root = Path(directory).resolve()
+                self.path = self.root / ".wavefoundry/cache/qualification/report.json"
+                self._substitution("parent-link", branch, fallback=True)
+
+    def test_substitution_after_owned_read_cannot_be_recaptured_as_authority(self):
+        self.publish()
+        original = self.path.read_bytes()
+        moved = self.root / "original.json"
+        read = qualification.contained_files.read_contained_identity
+        def switched(*args, **kwargs):
+            result = read(*args, **kwargs)
+            self.path.rename(moved)
+            self.path.write_bytes(b'{"unowned":"replacement"}\n')
+            self.path.chmod(0o640)
+            return result
+        with patch.object(qualification.contained_files, "read_contained_identity", side_effect=switched):
+            with self.assertRaises((OSError, ValueError)):
+                self.publish()
+        self.assertEqual(moved.read_bytes(), original)
+        self.assertEqual(self.path.read_bytes(), b'{"unowned":"replacement"}\n')
+        self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o640)
+        self.assertEqual(list(self.path.parent.glob(".*.tmp")), [])
+
+    def test_initial_absence_refuses_a_late_unowned_regular_file(self):
+        def switch(stage):
+            if stage == "publish":
+                self.path.write_bytes(b'{"unowned":"late file"}\n')
+                self.path.chmod(0o640)
+        with patch.object(qualification.contained_files, "_checkpoint", side_effect=switch):
+            with self.assertRaises((OSError, ValueError)):
+                self.publish()
+        self.assertEqual(self.path.read_bytes(), b'{"unowned":"late file"}\n')
+        self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o640)
+        self.assertEqual(list(self.path.parent.glob(".*.tmp")), [])
+
+    def test_commit_refuses_final_link_even_to_initial_owned_inode(self):
+        self.publish()
+        original = self.path.read_bytes()
+        moved = self.root / "original.json"
+        def switch(stage):
+            if stage == "publish":
+                self.path.rename(moved)
+                self.path.symlink_to(moved)
+        with patch.object(qualification.contained_files, "_checkpoint", side_effect=switch):
+            with self.assertRaises((OSError, ValueError)):
+                self.publish(dict(self.report, observation="replacement"))
+        self.assertEqual(moved.read_bytes(), original)
+        self.assertTrue(self.path.is_symlink())
+        self.assertEqual(list(self.path.parent.glob(".*.tmp")), [])
+
+    @unittest.skipUnless(qualification.contained_files._DIR_FD_SUPPORTED, "POSIX descriptor publication")
+    def test_commit_rejects_a_held_descriptor_that_no_longer_matches_lexical_parent(self):
+        self.publish()
+        original = self.path.read_bytes()
+        alternate = self.root / "alternate"
+        alternate.mkdir()
+        os.link(self.path, alternate / self.path.name)
+        (alternate / self.path.name).chmod(0o640)
+        real_open = qualification.contained_files.open_contained_dir
+        def other_parent(root, rel):
+            if tuple(rel) == self.path.parent.relative_to(self.root).parts:
+                return os.open(alternate, os.O_RDONLY | os.O_DIRECTORY)
+            return real_open(root, rel)
+        with patch.object(qualification.contained_files, "open_contained_dir", side_effect=other_parent):
+            with self.assertRaises((OSError, ValueError)):
+                self.publish(dict(self.report, observation="replacement"))
+        self.assertEqual(self.path.read_bytes(), original)
+        self.assertEqual((alternate / self.path.name).read_bytes(), original)
+        self.assertEqual(stat.S_IMODE((alternate / self.path.name).stat().st_mode), 0o640)
+        self.assertEqual(list(self.root.rglob(".*.tmp")), [])
+
+    def test_parent_link_inserted_during_directory_preparation_is_refused(self):
+        self.publish()
+        original = self.path.read_bytes()
+        parked = self.root / "parked"
+        real_ensure = qualification.contained_files.ensure_contained_dir
+        def switch(root, rel):
+            self.path.parent.rename(parked)
+            self.path.parent.symlink_to(parked, target_is_directory=True)
+            return real_ensure(root, rel)
+        with patch.object(qualification.contained_files, "ensure_contained_dir", side_effect=switch):
+            with self.assertRaises((OSError, ValueError)):
+                self.publish(dict(self.report, observation="replacement"))
+        self.assertEqual((parked / self.path.name).read_bytes(), original)
+        self.assertEqual(list(self.root.rglob(".*.tmp")), [])
+
+    def test_initial_parent_identity_survives_directory_preparation(self):
+        self.publish()
+        original = self.path.read_bytes()
+        parked = self.root / "parked"
+        real_ensure = qualification.contained_files.ensure_contained_dir
+        def switch(root, rel):
+            self.path.parent.rename(parked)
+            self.path.parent.mkdir()
+            # Keep the owned final inode: only the lexical parent changed.
+            os.link(parked / self.path.name, self.path)
+            return real_ensure(root, rel)
+        with patch.object(qualification.contained_files, "ensure_contained_dir", side_effect=switch):
+            with self.assertRaises((OSError, ValueError)):
+                self.publish(dict(self.report, observation="replacement"))
+        self.assertEqual((parked / self.path.name).read_bytes(), original)
+        self.assertEqual(self.path.read_bytes(), original)
+        self.assertEqual(list(self.root.rglob(".*.tmp")), [])
+
+
 class ProtocolOwnershipTests(unittest.TestCase):
+    def test_worker_nonce_is_visible_to_executed_test_code(self):
+        with tempfile.TemporaryDirectory(prefix="wf-nonce-control-") as directory:
+            Path(directory, "test_nonce_control.py").write_text(
+                "import sys, unittest\nclass NonceControl(unittest.TestCase):\n"
+                " def test_visible(self):\n"
+                "  self.assertEqual(sys.argv[-1], 'readable-control')\n"
+                "  print('visible_nonce=' + sys.argv[-1])\n")
+            env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", WAVEFOUNDRY_DISABLE_BYTECODE_CACHE="1")
+            env.pop("PYTHONPYCACHEPREFIX", None)
+            done = subprocess.run([sys.executable, "-B", str(SCRIPTS / "qualification_worker.py"),
+                directory, "test_nonce_control.py", "readable-control"], env=env,
+                capture_output=True, text=True, timeout=30)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertIn("visible_nonce=readable-control", done.stdout)
+            detail = qualification.worker_detail(done.stdout + done.stderr, "readable-control", 0, 1, 0)
+            self.assertTrue(detail["complete"], detail)
+
     def test_owned_duplicate_flushes_closes_and_is_not_inheritable(self):
         for raises in (False, True):
             with self.subTest(raises=raises), tempfile.TemporaryFile(mode="w+") as sink:

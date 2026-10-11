@@ -31,7 +31,7 @@ class AdvisoryLintReuseTests(unittest.TestCase):
         self.srv._advisory_lint_proofs.clear()
         self.root = self.make_root()
 
-    def make_root(self):
+    def make_root(self, *, commit=True):
         root = docs_fixture.DocsLintFixtureTests().copy_fixture()
         self.addCleanup(shutil.rmtree, root)
         # Canonical fixture has two intentionally tolerated status-drift warnings.
@@ -43,7 +43,10 @@ class AdvisoryLintReuseTests(unittest.TestCase):
                     doc.write_text(f"# Fixture change\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-10-09\n\n{vocabulary_profile.MEMBER_ID_LABEL}: `{member.record_id}`\n{vocabulary_profile.MEMBER_STATUS_LABEL}: `{member.status}`\n\n## Rationale\n\nFixture.\n\n## Requirements\n\n1. Fixture.\n\n## Scope\n\nFixture.\n\n## Acceptance Criteria\n\n- [x] AC-1: Fixture.\n\n## Tasks\n\n- [x] Fixture.\n\n## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Fixture. |\n")
                 else:
                     doc.write_text(doc.read_text().replace("\n## ", f"\n{vocabulary_profile.MEMBER_STATUS_LABEL}: `{member.status}`\n\n## ", 1))
-        for args in (("init", "-q"), ("add", "-A"), ("-c", "user.email=wave@test", "-c", "user.name=wave", "commit", "-qm", "fixture")):
+        commands = [("init", "-q")]
+        if commit:
+            commands.extend((("add", "-A"), ("-c", "user.email=wave@test", "-c", "user.name=wave", "commit", "-qm", "fixture")))
+        for args in commands:
             subprocess.run(["git", *args], cwd=root, capture_output=True, check=True)
         return root
 
@@ -94,6 +97,26 @@ class AdvisoryLintReuseTests(unittest.TestCase):
         self.assertEqual(self.srv.run_validate_changed(self.root)["mode"], "full-fallback")
         self.srv._advisory_lint_proofs.clear()
         self.assertEqual(self.srv.run_validate_changed(self.root)["mode"], "full-fallback")
+
+    def test_no_commit_untracked_triggers_use_full_bound_then_reusable_hook_bound(self):
+        root = self.make_root(commit=False)
+        head = subprocess.run(["git", "rev-parse", "--verify", "HEAD"], cwd=root, capture_output=True)
+        self.assertNotEqual(head.returncode, 0)
+        cfg = root / "docs/workflow-config.json"
+        data = json.loads(cfg.read_text())
+        data["docs_lint"] = {"hook_timeout_seconds": 77, "full_scan_timeout_seconds": 555}
+        cfg.write_text(json.dumps(data), encoding="utf-8")
+        original = self.srv._mcp_subprocess_run
+        with patch.object(self.srv, "_mcp_subprocess_run", wraps=original) as run:
+            first = self.srv.run_validate_changed(root)
+            second = self.srv.run_validate_changed(root)
+        self.assertTrue(first["passed"], first)
+        self.assertTrue(second["passed"], second)
+        self.assertEqual([first["mode"], second["mode"]], ["full-fallback", "incremental"])
+        self.assertEqual([call.kwargs["timeout"] for call in run.call_args_list], [555.0, 77.0])
+        self.assertNotIn("--advisory-incremental-only", run.call_args_list[0].args[0])
+        self.assertIn("--advisory-incremental-only", run.call_args_list[1].args[0])
+        self.assertIn("--advisory-trigger-proof", run.call_args_list[1].args[0])
 
     def test_rule_identity_uses_bytes_names_root_and_scanner_assets(self):
         with tempfile.TemporaryDirectory() as tmp:

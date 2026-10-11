@@ -1,10 +1,10 @@
 # Verify Eligibility Reaper Stability
 
 Change ID: `20dkj-task verify-eligibility-reaper-stability`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-10-10
+Status: implemented
+Last verified: 2026-10-11
 Wave: 20dkg index-eligibility-stability
 
 ## Rationale
@@ -33,17 +33,17 @@ Discovery executed three unchanged focused tests in scratch fixtures: two `Setup
 
 ## Acceptance Criteria
 
-- [ ] AC-1: Current automatic foreground/background launch routes use the same layer-prefix authority without an explicit project-prefix override; source census and existing launcher assertions identify the covered routes.
-- [ ] AC-2: Existing scratch corpus/migration oracles demonstrate unchanged setup/incremental convergence, one-time cleanup of historical leaked test rows, no repeated embedding after cleanup, and retention of eligible framework docs/docstrings/code.
-- [ ] AC-3: The unchanged scratch corpus oracle rejects the historical forwarded-prefix fault, with the exact failing condition and the control's temporary-only scope recorded separately from passing qualification.
-- [ ] AC-4: The delivered handoff and wave summary identify `204jj` as the completed historical repair and this wave as its verification, preserve the historical measurement caveat, and explicitly limit claims to the checked routes/fixture rather than the live index.
+- [x] AC-1: Current automatic foreground/background launch routes use the same layer-prefix authority without an explicit project-prefix override; source census and existing launcher assertions identify the covered routes.
+- [x] AC-2: Existing scratch corpus/migration oracles demonstrate unchanged setup/incremental convergence, one-time cleanup of historical leaked test rows, no repeated embedding after cleanup, and retention of eligible framework docs/docstrings/code.
+- [x] AC-3: The unchanged scratch corpus oracle rejects the historical forwarded-prefix fault, with the exact failing condition and the control's temporary-only scope recorded separately from passing qualification.
+- [x] AC-4: The delivered handoff and wave summary identify `204jj` as the completed historical repair and this wave as its verification, preserve the historical measurement caveat, and explicitly limit claims to the checked routes/fixture rather than the live index.
 
 ## Tasks
 
-- [ ] Reconfirm current automatic-launch and shared-reader census before delivery evidence freezes.
-- [ ] Execute existing focused launcher/corpus tests and the temporary historical control; record concise actual results and limitations.
-- [ ] Reconcile the stale handoff item and record the disposition in wave.md, preserving historical wave/receipt records.
-- [ ] Obtain independent code/QA review and the configured Council verdict; validate the documents edited by this change. Leave closure operator-owned.
+- [x] Reconfirm current automatic-launch and shared-reader census before delivery evidence freezes.
+- [x] Execute existing focused launcher/corpus tests and the temporary historical control; record concise actual results and limitations.
+- [x] Reconcile the stale handoff item and record the disposition in wave.md, preserving historical wave/receipt records.
+- [x] Obtain independent code/QA review and the configured Council verdict; validate the documents edited by this change. Leave closure operator-owned.
 
 ## Agent Execution Graph
 
@@ -83,6 +83,8 @@ No architecture change is admitted. `docs/architecture/data-and-control-flow.md`
 
 ## Progress Log
 
+Readback: Verify the already shipped 204jj launch correction using the current automatic-route census, existing scratch convergence/migration tests and a runtime-only historical prefix-forward fault. AC1–4 cover route parity, one-time cleanup, oracle sensitivity and truthful handoff disposition. Only this wave/change and current session handoff will be written; no production source, live index, downloads, benchmarks or historical receipt rewrite.
+
 | Date | Update | Evidence |
 | --- | --- | --- |
 | 2026-10-10 | Planning discovery: default-policy historical loop already repaired by 204jj. Three current scratch tests pass; historical forwarded-prefix control fails on test rows in chunks_docs. ACs remain pending delivery reconfirmation/reconciliation and independent review. | `tests/test_indexer.py:2554–2726`, `tests/test_setup_index.py:491–545`; reproduction below. |
@@ -98,6 +100,16 @@ env -u PYTHONPYCACHEPREFIX -u WAVEFOUNDRY_TOOL_VENV PYTHONDONTWRITEBYTECODE=1 WA
 Use the approved tool interpreter on other hosts. These fixtures create their own temporary repositories; dependency/model/GPU/process boundaries are substituted, while actual indexer, graph/store, drift and reap logic run in the corpus tests. No model download or current repository index build occurs.
 
 The historical control initializes `SetupLaunchedCorpusParityTests('test_setup_and_incremental_builds_agree_on_the_corpus')`, calls `setUp`, saves `case.bi.main`, and within `unittest.mock.patch.object(case.bi, 'main', side_effect=...)` calls the saved function with `[*args, '--project-include-prefix', case.SCRIPTS]`. The unchanged test method must fail with `setup build: framework test rows in chunks_docs`; always call `tearDown`. Discovery observed `.wavefoundry/framework/scripts/tests/test_tools.py` as the leaked path. This control mutates only runtime dispatch, not repository files.
+
+### Delivery reconfirmation — 2026-10-11
+
+The original final Session Handoff paragraph is retained as the planning-time snapshot; current status, completed verification, approvals and next actions are recorded in metadata, this Progress Log and wave.md. A non-boilerplate handoff replacement would be digested; routine execution narration stays here rather than rotating unchanged plan authority.
+
+- Executed the exact existing three-test reproduction above: exit 0, three tests in 2.259 seconds, no skips. The corpus assertions retain folded framework README/seed rows and non-test script docs/code, prove no bare incremental reap and no settled setup embedding, and prove one-time migration cleanup. No new production/test source or live index write.
+- Runtime-only historical forward appended `--project-include-prefix` to the real indexer main arguments inside the existing fixture. The unchanged oracle raised `AssertionError`: `setup build: framework test rows in chunks_docs`, with fixture `tests/test_tools.py`. This expected negative-control failure is distinct from passing qualification; teardown removed scratch storage.
+- MCP current-file census: setup `_run_indexer` and foreground all/docs/code/graph callers; `_spawn_background_semantic_build` docs/code children reenter bare setup; MCP `run_index_rebuild`, `_index_is_up_to_date`, `_start_background_index_refresh`; rendered hook `_spawn_reindex`; indexer `_effective_project_include_prefixes` and shared `read_project_include_prefixes`. All automatic argv shapes inspected use no explicit project-prefix override; refresh passes content all. Manual parser override remains supported. Existing six-mode test asserts final indexer and detached-child argv. This is a bounded named-route census, not proof about every external launcher.
+- Current handoff now identifies 204jj/2038p as the completed historical repair and this wave as verification, retaining 1ymzk's cleanup-only measurement caveat and invalid receipt dispositions. Existing historical records were not edited.
+- Fresh canonical-hash check matches the genuine 20cw2 whole-suite receipt: inputs `67dd374e5de81888d47f41034de951993d69a8bc0760c46abadacb792c8111db`, result ok, 12,282 tests / 185 files / 12 aggregate skips, ran `2026-10-11T07:38:09.547707+00:00`, receipt SHA256 `ccbb0439b849e9694cdcf5494efc8a5d08dbe7925e2417ed215ac3b83dbd30c2`. No framework input changed; no redundant whole-suite rerun, new gate or manually minted receipt. Logs/probes stay outside the repository.
 
 ## Decision Log
 

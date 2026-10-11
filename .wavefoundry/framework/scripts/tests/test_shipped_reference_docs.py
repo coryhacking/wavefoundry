@@ -529,3 +529,31 @@ class GuruQuestionTypeContractParityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ImplementationNarrationGuidanceTests(unittest.TestCase):
+    """20bw2: source and existing managed carriers state the same routing rule."""
+
+    def test_participant_instruction_keeps_narration_and_material_decisions_distinct(self):
+        seed = (REPO_ROOT / ".wavefoundry/framework/seeds/180-implement-change.prompt.md").read_text("utf-8")
+        participant = seed.split("Participant responsibilities inside an active wave:")[1].split("Required tasks:")[0]
+        self.assertNotIn("(Progress Logs, Decision Logs, the session handoff)", participant)
+        self.assertIn("canonical `## Progress Log`", participant)
+        self.assertIn("material decisions", participant)
+        self.assertIn("Decision Log", participant)
+        self.assertIn("owning digested section", participant)
+
+    def test_local_managed_guidance_names_paired_examples_and_limit(self):
+        import sys
+        from unittest.mock import patch
+        with patch.object(sys, "path", [str(REPO_ROOT / ".wavefoundry/framework/scripts"), *sys.path]):
+            import review_policy
+        import vocabulary_profile
+        for name in ("implement-wave", "review-wave"):
+            key = vocabulary_profile.prompt_doc(name)
+            text = (REPO_ROOT / key).read_text("utf-8")
+            begin, end = review_policy.REVIEW_POLICY_SURFACE_MARKER_BEGIN, review_policy.REVIEW_POLICY_SURFACE_MARKER_END
+            region = text.split(begin)[1].split(end)[0].strip()
+            self.assertEqual(region, review_policy.REVIEW_POLICY_SURFACE_BLOCKS[key])
+            for phrase in ("Reran tests on Windows", "release artifact", "Decision Log", "re-Prepare", "semantic amendments"):
+                self.assertIn(phrase, region)

@@ -61,7 +61,14 @@ def output_path(root, path):
 def read_report(root, path):
     path = output_path(root, path)
     data = contained_files.read_contained_bytes(root, path, max_bytes=MAX_BYTES)
-    value = json.loads(data)
+    return _decode_report(data)
+
+
+def _decode_report(data):
+    try:
+        value = json.loads(data)
+    except (RecursionError, MemoryError):
+        raise ValueError("report decoder resource limit") from None
     if not isinstance(value, dict) or value.get("owner") != OWNER:
         raise ValueError("unowned report target refused")
     return value
@@ -69,12 +76,19 @@ def read_report(root, path):
 
 def write_report(root, path, report):
     path = output_path(root, path)
-    if path.exists():
-        read_report(root, path)
+    expected_identity = None
+    try:
+        existing, entry, _ = contained_files.read_contained_identity(root, path, max_bytes=MAX_BYTES)
+    except FileNotFoundError:
+        pass
+    else:
+        _decode_report(existing)
+        expected_identity = (entry.st_dev, entry.st_ino)
     data = (json.dumps(report, sort_keys=True, ensure_ascii=True, separators=(",", ":")) + "\n").encode()
     if len(data) > MAX_BYTES:
         raise ValueError("report exceeds byte bound")
-    contained_files.write_contained_bytes(root, path, data, mode=0o600)
+    contained_files.write_contained_bytes(root, path, data, mode=0o600,
+                                          no_links=True, expected_identity=expected_identity)
 
 
 def worker_detail(output, nonce, returncode, tests, skipped):

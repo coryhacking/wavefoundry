@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-10
+Last verified: 2026-10-11
 
 ## Trust Boundaries
 
@@ -60,7 +60,8 @@ Any one of these flips the posture and re-scopes the actor classes above; when a
 | File-writing MCP tools are not gated on Claude (wave 1z8ot) | Writes through the Wavefoundry server or a third-party MCP server never reach the pre-edit hook, whose matcher names only built-in edit tools | Known limit; see seed 050's known limits |
 | Check-then-use window in edit hooks (wave 1z8ot) | The hook classifies the path before the host writes it, so the path can be retargeted in between; this needs an actor who can already write the repository | Known limit; see seed 050's known limits |
 | Check-then-use window in Windows lock paths (wave 1z8ot) | On native Windows each lock directory under `.wavefoundry` is checked with `lstat` for a symlink or junction before it is created or opened, so the path can be retargeted between the check and its use; this needs an actor who can already write the repository | Known limit; POSIX walks with directory handles and `O_NOFOLLOW`, so it has no window (`runtime_lock._open_lock_carrier`, `upgrade_bridge_bootstrap._open_strict_carrier`) |
-| Codex `apply_patch` is not gated (wave 1zyb3) | Wavefoundry renders no Codex hook, so a Codex patch edit of a seed or framework-maintenance surface reaches no pre-write gate | Known limit; see seed 050's known limits. `AGENTS.md` rules are the only control on Codex. Copilot `apply_patch` is gated by its patch header paths |
+| Codex patch writes have instruction-only control | Wavefoundry renders no native Codex hook; canonical `apply_patch` and `tools.apply_patch` writes reach no native pre-write gate | The existing managed Implement wave prompt and `wf-implement-wave` skill deliver destination/both-move-path checks and existing stage/seed/framework approval instructions; shell patches remain writes. This proves workflow instruction delivery only, not agent adherence, universal root-entry/startup or single-change coverage. Copilot `apply_patch` keeps its patch-header gate |
+| Unfamiliar received hook tool names | An unknown pre-call without supported explicit paths has unestablished edit coverage; unfamiliar successful edits may miss automatic feedback | Claude/Copilot pre-handlers diagnose a bounded escaped label and gate every recovered existing explicit path, without guessing shell/patch/MCP schemas or blocking pathless arbitrary calls. Unknown Copilot post calls do no speculative lint/indexing; validate/refresh at the existing integrity boundary. Claude's four-built-in matcher still excludes unmatched names; Copilot retains its all-tool subscription. Handler fixtures do not establish live-host coverage |
 | A missing `python3` fails open on Claude and Windsurf (wave 1z8ot) | The shell returns 127, not 2, and those hosts allow any exit other than 2 | Known limit; see seed 050's known limits. Copilot denies any non-zero pre-tool-use exit |
 | MCP server allowed-roots escape (future) | Tool reads/writes outside operator-configured roots | Explicit allowed-roots validation before every tool operation |
 | Dashboard accidental non-loopback exposure | Local operational data could be exposed on the network if bound too broadly | Default host is `127.0.0.1`; config-driven host is explicit; security review lane required for trust-boundary changes to dashboard server |

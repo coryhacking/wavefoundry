@@ -540,8 +540,16 @@ class ActorTokenCensusTests(unittest.TestCase):
         self.assertIn(f"{rel}: 0 occurrence(s), {ACTOR_TOKEN_ALLOWLIST[rel][0]} allowed (stale entry)",
                       census_problems({}))
 
-    def test_inventory_rejects_duplicate_unsorted_or_escaping_paths(self) -> None:
-        for paths in (["b.py", "a.py"], ["a.py", "a.py"], ["../outside.py"], ["/outside.py"], [42]):
+    def test_inventory_sorts_unique_valid_paths_in_any_input_order(self) -> None:
+        expected = ("a.py", "b.py", "scripts/c.py")
+        for paths in (list(expected), list(reversed(expected)), ["b.py", "scripts/c.py", "a.py"]):
+            with self.subTest(paths=paths), tempfile.TemporaryDirectory() as temp:
+                path = Path(temp) / "ownership.json"
+                path.write_text(json.dumps({"paths": paths}), encoding="utf-8")
+                self.assertEqual(load_inventory(path), expected)
+
+    def test_inventory_rejects_duplicate_or_invalid_paths(self) -> None:
+        for paths in (["a.py", "a.py"], ["../outside.py"], ["/outside.py"], [42], [""], "a.py"):
             with self.subTest(paths=paths), tempfile.TemporaryDirectory() as temp:
                 path = Path(temp) / "ownership.json"
                 path.write_text(json.dumps({"paths": paths}), encoding="utf-8")

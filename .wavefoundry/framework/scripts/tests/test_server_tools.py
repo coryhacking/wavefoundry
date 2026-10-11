@@ -1533,6 +1533,91 @@ class PostWriteLintIncrementalTests(unittest.TestCase):
         self.assertIn("docs-lint: skipped (no git changed-set available)", result["output"])
 
 
+@unittest.skipUnless(shutil.which("git"), "real Git required")
+class PostWriteLintFreshGitTests(unittest.TestCase):
+    """Real no-commit Git, CLI scope and the predictor-to-timeout consumer."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def _fresh_root(self, rel, content="{}\n"):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True, capture_output=True)
+        target = root / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        head = subprocess.run(["git", "rev-parse", "--verify", "HEAD"], cwd=root, capture_output=True)
+        self.assertNotEqual(head.returncode, 0, "fixture must have no commit")
+        self.srv._advisory_lint_proofs.clear()
+        return root
+
+    def _assert_cli_scope_and_timeout(self, root, rel, fallback):
+        # Import after load_server: use the live collector rather than a retained
+        # callable whose module might have been evicted by a preceding test.
+        from wave_lint_lib.secrets_validators import _get_changed_files
+        self.assertIn(root / rel, _get_changed_files(root))
+        self.assertEqual(self.srv._predict_incremental_full_fallback(root), fallback)
+        cli = subprocess.run(
+            [sys.executable, "-B", str(self.srv.SCRIPTS_DIR / "docs_lint.py"), "--changed"],
+            cwd=root, env={**os.environ, "PROJECT_ROOT": str(root)},
+            capture_output=True, text=True, timeout=30,
+        )
+        scope = "docs-lint: scope full" if fallback else "docs-lint: scope incremental"
+        self.assertIn(scope, cli.stdout.splitlines(), cli.stdout + cli.stderr)
+        original = self.srv._mcp_subprocess_run
+        with patch.object(self.srv, "_mcp_subprocess_run", wraps=original) as run:
+            result = self.srv.run_validate_changed(root)
+        self.assertEqual(run.call_count, 1)
+        timeout = (self.srv.docs_lint_full_scan_timeout_seconds(root) if fallback
+                   else self.srv.docs_lint_hook_timeout_seconds(root))
+        self.assertEqual(run.call_args.kwargs["timeout"], timeout)
+        self.assertEqual("--advisory-incremental-only" in run.call_args.args[0], not fallback)
+        self.assertIn(scope, result["output"].splitlines(), result)
+        self.assertEqual(result["mode"], "full-fallback" if fallback else "incremental")
+
+    def test_nested_untracked_triggers_match_real_cli_and_full_bound(self):
+        for rel in self.srv._incremental_full_fallback_trigger_files():
+            with self.subTest(rel=rel):
+                content = json.dumps({"docs_lint": {
+                    "hook_timeout_seconds": 77, "full_scan_timeout_seconds": 555,
+                }}) if rel == "docs/workflow-config.json" else "{}\n"
+                root = self._fresh_root(rel, content)
+                collapsed = subprocess.run(["git", "status", "--porcelain"], cwd=root,
+                                           capture_output=True, text=True, check=True)
+                self.assertNotIn(rel, collapsed.stdout, "control must hide the nested file")
+                self._assert_cli_scope_and_timeout(root, rel, True)
+
+    def test_unrelated_nested_untracked_doc_matches_cli_and_hook_bound(self):
+        rel = "docs/references/nested/note.md"
+        root = self._fresh_root(rel, "# Note\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-10-11\n")
+        self._assert_cli_scope_and_timeout(root, rel, False)
+
+    def test_supported_rename_and_git_failures_keep_timeout_selection(self):
+        root = self._fresh_root("note.txt", "unrelated\n")
+        cases = (
+            (MagicMock(returncode=0, stdout='R  old.json -> "docs/workflow-config.json"\n'), True),
+            (MagicMock(returncode=0, stdout="R  docs/workflow-config.json -> other.json\n"), False),
+            (MagicMock(returncode=1, stdout="?? docs/workflow-config.json\n"), False),
+            (FileNotFoundError("git unavailable"), False),
+            (subprocess.TimeoutExpired("git", 15), False),
+        )
+        for status, fallback in cases:
+            with self.subTest(status=status), \
+                 patch.object(self.srv, "_run_tree_kill", side_effect=[status]), \
+                 patch.object(self.srv, "docs_lint_full_scan_timeout_seconds", return_value=555), \
+                 patch.object(self.srv, "docs_lint_hook_timeout_seconds", return_value=77), \
+                 patch.object(self.srv, "_mcp_subprocess_run",
+                              side_effect=subprocess.TimeoutExpired("lint", 555 if fallback else 77)) as run:
+                result = self.srv.run_validate_changed(root)
+            self.assertEqual(run.call_args.kwargs["timeout"], 555 if fallback else 77)
+            self.assertEqual(result["mode"], "full-fallback" if fallback else "incremental")
+            knob = "full_scan_timeout_seconds" if fallback else "hook_timeout_seconds"
+            self.assertIn(knob, result["errors"][0])
+
+
 @unittest.skipUnless(shutil.which("git"), "git not available")
 class PostWriteLintIncrementalGitBehaviorTests(unittest.TestCase):
     """Wave 1p9pe / 1p9p8 (readiness anti-vacuity note): fixture-scale REAL-behavior

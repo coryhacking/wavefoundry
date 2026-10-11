@@ -214,7 +214,7 @@ Participant responsibilities inside an active wave:
 - personas selected by readiness evaluation are gating participants for that wave's relevant checkpoints
 - factor-review participants should evaluate only the factors relevant to the active wave instead of forcing a full factor checklist into every wave; source those factors from `docs/agents/factor-<nn>-<name>.md` and keep the dashboard grouping aligned with `Category: factor`
 - when factor subagents are active, the factor reviewer should consolidate their findings into one coherent review output for the wave
-- all participants should leave enough state in wave artifacts (Progress Logs, Decision Logs, the session handoff) for another agent to continue safely
+- all participants should leave enough state for another agent to continue safely: put test observations, repair progress, evidence locations and continuation notes in the canonical `## Progress Log` or existing session handoff; keep weighed plan choices and material decisions in `## Decision Log`. Before or with narration, amend the owning digested section for any change to scope, requirements, acceptance, task meaning, priority, review targets or authority, and follow the existing re-Prepare and affected readiness approval rules. The narration may link or summarize that edit; it must never substitute for it.
 
 Required tasks:
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-10
+Last verified: 2026-10-11
 
 ## Verification Commands
 
@@ -45,6 +45,10 @@ advisory timing map. Timing data is advisory only — it never authorizes a test
 skip or a pass, and neither the cache file nor the timing manifest is a public
 compatibility API.
 
+### Distribution ownership and changed-lint seams
+
+`test_distribution_seams.py` checks that valid unique ownership inputs converge to a sorted tuple while duplicate and invalid paths refuse. The shipped ownership inventory remains explicit; sorting never adds checkout-discovered files or bytecode exemptions. `PostWriteLintFreshGitTests` in `test_server_tools.py` uses real no-commit Git repositories to compare nested untracked triggers with the actual CLI scope and lint-subprocess timeout. `test_advisory_lint_reuse.py` checks the first full fallback and subsequent identical-proof scan under their respective full and hook bounds. Keep the unordered and trigger-positive regressions red when their repairs are removed, alongside the existing ownership, tracked-change, rename and Git-failure controls. Native Windows and release-archive qualification remain separate work.
+
 ### Bounded reconciliation and upgrade reporting
 
 The reconciliation scanner prunes root `.local`/`target` and existing excluded
@@ -71,6 +75,12 @@ including candidate-dense and cumulative workloads. Small injected budgets make
 these tests finite; they do not establish downstream or native Windows runtime
 qualification. Run the canonical suite against the final frozen source tree.
 
+### Bounded document migration verification
+
+`test_lifecycle_document_names.py` covers exact lifecycle edits, source-self links, current-byte/mode moves, failed planned-write retries, registered-region authority, manual repair for unconfirmed targets, and metadata/document/byte bounds. `test_upgrade_wavefoundry.py` covers incoming preview names and count/member/aggregate preflight, bounded decompression, the actual child/renderer and pre-extraction refusal. `test_render_platform_surfaces.py` covers preserve-and-report stale cleanup and refusal of subsequent writes through skipped links. Unrelated linked/unreadable/oversized docs are preserved with retry guidance; they may require manual link repair after a source has moved. No broad all-files automatic convergence claim or permanent evidence folder is produced. Successful document reads charge actual bytes, including decode failures. A failed contained read conservatively charges its attempted cap plus the one excess-detection byte, since consumed bytes were not returned; this can refuse earlier than actual consumption. A crossing refusal stops further reads, so scan IO is bounded by the aggregate budget plus at most one crossing sentinel byte.
+
+The incoming plan runs within the existing pre-extraction hook; the renderer computes one fresh combined plan after extraction. Each operation is bounded, with no cross-phase cached bytes or extra upgrade phase. Zero traversal applies only when no role/lifecycle pair is confirmed; a modern new-only role with valid metadata can still request repair work. The caps and failure boundaries are documented in [document migration flow](../architecture/data-and-control-flow.md#upgrade-council-role-link-reconciliation-wave-204mp). Platform lexical no-link preflight prevents a preserved existing cleanup entry authorizing a write while retaining unchanged-byte/executable-mode behavior; its same-user precheck/write interval is not atomic path authentication.
+
 ### Packaging profile qualification
 
 Run the full default suite and the `--profile second` and
@@ -88,6 +98,12 @@ to its named artifact and does not qualify a later build.
 Use `--qualification-report .wavefoundry/cache/qualification/<name>.json` for an explicit qualifying run. The callback-origin report records actual worker/test/skip identities and reasons, completeness and source/profile identity without verbose transcripts. Ordinary runs write no report; focused/profile runs never write the canonical source receipt. Profile detail is exported before temporary-tree cleanup. A matching executed report may be reused on cache hit; unavailable detail requires an explicit uncached qualifying run when exact comparison is needed.
 
 Run `python3 .wavefoundry/framework/scripts/qualification_report.py --compare <default-report> <candidate-report> --profile second|declared` from the repository. Paths are restricted to the qualification cache; report bytes are outside framework hashes and pack payloads. Comparison rejects incomplete, substituted or malformed observations and changed reasons. Second-profile extras must carry actual default-profile-only markers; declared skips must equal default. The facility is opt-in source/release qualification, without a consumer-upgrade call.
+
+The worker nonce is visible to code in the test process (including through its command-line arguments). It correlates a terminal protocol frame with a worker invocation; it does not authenticate the worker against its tests. Callback observations and exact comparisons are diagnostic evidence, not independent execution attestation or canonical test receipts. They add no receipt or close gate.
+
+Report reads normalize JSON decoder `RecursionError` and `MemoryError` into a concise caught refusal. Writes retain the 8 MiB cap, complete JSON format and mode `0600`. They carry the identity of the initially owned regular file, or its initial absence, and refuse detected final-file substitutions and lexical parent links or identity changes. Even identical-content and mode-only report writes use atomic replacement so they pass the same publication checks; ordinary runs still write no report.
+
+On POSIX with `dir_fd`/`O_NOFOLLOW`, publication uses an exclusive temporary file relative to a held parent descriptor. Immediately before replacement, the writer rechecks every lexical parent identity, the held parent identity, and the unlinked final entry against the initial ownership judgment; a detected parent rename or substitution refuses and removes the temporary file through the descriptor. Native Windows uses path checks and path replacement, with a wider check-to-commit interval and no descriptor guarantee. A parent renamed after temporary creation can make that temporary unreachable at its original path; refusal preserves targets but cannot guarantee cleanup of the moved temporary. Neither branch excludes every adversarial same-user rename between the final check and replacement. Native-Windows execution remains separately unqualified.
 
 ### Golden tool-surface fixture (wave 1y0do)
 
@@ -300,6 +316,28 @@ Same checks whether you run **`wf_validate_docs`** / **`wf_garden_docs`** over M
 - Wave and journal root directories exist
 
 `wf docs-gardener` refreshes stale metadata timestamps.
+
+The gardener preserves consistent LF or CRLF endings in existing documents and
+manifests, creates new manifests/handoffs with LF, and leaves unchanged files'
+bytes and modification times intact. Its explicit writes do not depend on Git's
+`core.autocrlf` setting. Managed review-policy/protocol regions accept either
+consistent convention; review-event JSONL ledgers retain their LF-only contract.
+
+Install/setup/render/upgrade put LF checkout defaults for `docs/**/*.md` and
+`docs/**/*.json*` in a leading managed `.gitattributes` region. Project-authored
+rules below it can override these defaults, including explicit CRLF or binary
+exceptions. Loose docs rules stay project-owned; the separate trailing launcher
+region keeps its existing LF hooks/launchers and CRLF Windows batch policy.
+Repeated rendering adds no rewrite when the bytes are unchanged. Attributes
+control Git checkout, not an editor's or Python's writes; upgrades do not change
+Git configuration, renormalize the index or add a conversion pass. An operator
+who wants to normalize existing tracked docs can review and run
+`git add --renormalize docs` separately; adding defaults does not rewrite the
+existing working files immediately.
+
+A malformed managed docs-default region stops rendering before writing
+`.gitattributes`. Restore its matching markers or remove the damaged managed
+region, preserving project rules, then retry.
 
 **Secrets scanning** runs in the docs gate, but in **record-only** mode (wave 1p5pz). `wf docs-lint` runs `wave_lint_lib/secrets_validators.py` against the merged ruleset (`.wavefoundry/scan-rules.toml` + `docs/scan-rules.toml`) and **records** new matches to `docs/scan-findings.json` as `pending` — but it does **not** fail on secret findings (only a malformed inline-suppression directive is a lint error). So the post-edit hook, `wf_validate_docs`, and the upgrade docs gate never block on a found secret. For an on-demand scan use `wf_scan_secrets(mode="full")` (MCP) — incremental mode auto-escalates to full when either TOML file changed since the last scan. **The `wf_close_wave` secrets gate is the sole enforcement point**: `pending` and `suspected-secret` entries hard-block close until classified (via the security reviewer, `seed-213`); `confirmed-secret` is **non-blocking** and surfaces a standing reminder; `false-positive` (cleared) passes.
 

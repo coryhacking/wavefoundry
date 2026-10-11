@@ -147,11 +147,26 @@ def write_text(path: Path, content: str, executable: bool = False, *, root: Path
     # terminators are byte-identical on every rendering host (wave 1p7tz): the `wf.cmd`
     # source carries CRLF and the `wf` bash shim and rendered `.py` hooks carry LF.
     try:
+        parts = contained_files._lexical_parts(root, path)
+        # Existing skipped cleanup entries never become write authorization.
+        # Inspect the raw lexical chain; the ordinary writer retains its
+        # descriptor and unchanged-byte/mode behavior after this preflight.
+        current = root.resolve()
+        for part in parts:
+            current /= part
+            try:
+                entry = os.lstat(current)
+            except FileNotFoundError:
+                break
+            if contained_files._is_link_entry(current, entry):
+                raise contained_files.ContainedFileRefused(contained_files.CAUSE_LINK_COMPONENT)
         changed = contained_files.write_contained_bytes(
             root, path, content.encode("utf-8"), executable=executable
         )
     except contained_files.ContainedFileRefused as exc:
         raise RuntimeError(f"refused to write {_rel_label(root, path)} ({exc.cause})") from None
+    except OSError as exc:
+        raise RuntimeError(f"refused to write {_rel_label(root, path)} ({type(exc).__name__})") from None
     # Wave 1zuq3: a byte-identical rewrite writes nothing (only a differing mode is set),
     # so the modification time does not churn; the manifest records changed content only.
     _manifest_record(path, changed)
@@ -160,10 +175,20 @@ def write_text(path: Path, content: str, executable: bool = False, *, root: Path
 def remove_files(paths: list[Path], *, root: Path) -> None:
     for path in paths:
         try:
+            # Removal's ordinary read rule permits contained parent links;
+            # stale platform cleanup deliberately preserves every linked entry.
+            parts = contained_files._lexical_parts(root, path)
+            descriptor = contained_files.open_contained_dir(root.resolve(), parts[:-1])
+            if descriptor is not None:
+                os.close(descriptor)
             judged, identity = contained_files.judge_contained_file(root, path)
+            contained_files.unlink_contained(root, judged, expected_identity=identity)
         except FileNotFoundError:
             continue
-        contained_files.unlink_contained(root, judged, expected_identity=identity)
+        except OSError as exc:
+            cause = getattr(exc, "cause", type(exc).__name__)
+            print(f"platform cleanup skipped {_rel_label(root, path)} ({cause}); "
+                  "entry preserved; restore a regular unlinked path and retry", file=sys.stderr)
 
 
 def remove_copilot_artifacts(repo_root: Path) -> None:
@@ -966,10 +991,32 @@ def block_uninspectable(reason: str, keys: str) -> int:
 '''
 
 
+# Unknown names are diagnostic labels, never arguments or an inferred write schema.
+_TOOL_COMPATIBILITY_SOURCE = r'''
+def report_unknown_tool(name: str, has_paths: bool = False) -> None:
+    label = json.dumps(name[:80], ensure_ascii=True)
+    if len(name) > 80:
+        label += "..."
+    coverage = ("Supported explicit paths were inspected; edit coverage is uncertain."
+                if has_paths else
+                "No supported explicit path was found; edit coverage could not be established.")
+    print(
+        f"COMPATIBILITY: unfamiliar tool {label}. {coverage} "
+        "After a successful edit, run the existing integrity-boundary validation and refresh.",
+        file=sys.stderr,
+    )
+'''
+
+# Exact Claude identities documented at https://code.claude.com/docs/en/hooks (Read/Bash).
+# Shell exemption means no shell interception by this file-path hook, not a read-only shell.
+CLAUDE_NON_EDIT_TOOL_NAMES = ("Read", "Bash")
+
+
 def claude_pre_edit_source() -> str:
-    body = _STRICT_PAYLOAD_SOURCE + '''
+    body = _STRICT_PAYLOAD_SOURCE + _TOOL_COMPATIBILITY_SOURCE + '''
 
 EDIT_TOOL_NAMES = {edit_tools!r}
+NON_EDIT_TOOL_NAMES = {non_edit_tools!r}
 
 
 def main() -> int:
@@ -978,15 +1025,25 @@ def main() -> int:
     if payload is None:
         return block_uninspectable(problem, keys)
     tool_name = payload.get("tool_name")
+    if isinstance(tool_name, str) and tool_name in NON_EDIT_TOOL_NAMES:
+        return 0
     if isinstance(tool_name, str) and tool_name and tool_name not in EDIT_TOOL_NAMES:
-        # A named non-edit tool is never gated, whatever path it names.
+        # Only supported explicit fields; do not guess patch, shell or arbitrary MCP schemas.
+        paths = [get_nested(payload, *key) for key in FILE_PATH_KEYS]
+        paths = list(dict.fromkeys(path for path in paths if path))
+        report_unknown_tool(tool_name, bool(paths))
+        for path in paths:
+            verdict = gate_file_path(path)
+            if verdict:
+                return verdict
         return 0
     # An edit tool, or a payload that does not say which tool, is gated and must name its path.
     file_path = detect_file_path(payload)
     if not file_path:
         return block_uninspectable("no file path was found", keys)
     return gate_file_path(file_path)
-'''.replace("{edit_tools!r}", repr(CLAUDE_EDIT_TOOL_NAMES))
+'''.replace("{edit_tools!r}", repr(CLAUDE_EDIT_TOOL_NAMES)).replace(
+    "{non_edit_tools!r}", repr(CLAUDE_NON_EDIT_TOOL_NAMES))
     return compose_script(body + _GATE_FILE_PATH_SOURCE)
 
 
@@ -1252,13 +1309,18 @@ def cursor_after_file_edit_source() -> str:
 # text from the arguments' `input`, then `patch`, or from a raw string arguments field, gates
 # every header path (both sides of a move), and blocks as uninspectable when no header path is
 # found. No Copilot reference documents the argument key, hence the candidates and the fail-closed
-# rule. Codex `apply_patch` stays ungated: Wavefoundry renders no Codex hook.
+# rule. Codex receives workflow patch instructions, but Wavefoundry renders no native Codex hook.
 COPILOT_EDIT_TOOL_NAMES: tuple[str, ...] = (
     "create", "edit", "write", "str_replace_editor", "str_replace_based_edit_tool",
     "create_file", "createFile", "writeFile", "insert_edit_into_file",
     "replace_string_in_file", "multi_replace_string_in_file", "editFiles",
     "edit_notebook_file", "apply_patch",
 )
+# Exact read/shell identities: https://docs.github.com/en/copilot/reference/hooks-reference
+# (`view`, `bash`, `powershell`); VS Code model-facing source:
+# https://github.com/microsoft/vscode-copilot-chat/blob/main/src/extension/tools/common/toolNames.ts
+# (`read_file`, `run_in_terminal`). No guessed aliases or namespace exemptions.
+COPILOT_NON_EDIT_TOOL_NAMES: tuple[str, ...] = ("view", "bash", "powershell", "read_file", "run_in_terminal")
 COPILOT_PATCH_TOOL_NAMES: tuple[str, ...] = ("apply_patch",)
 COPILOT_PATCH_HEADERS: tuple[str, ...] = (
     "*** Add File: ", "*** Update File: ", "*** Delete File: ", "*** Move to: ",
@@ -1273,6 +1335,7 @@ COPILOT_TEXT_EDITOR_READ_COMMANDS: tuple[str, ...] = ("view",)
 _COPILOT_PAYLOAD_SOURCE = """
 
 COPILOT_EDIT_TOOL_NAMES = __EDIT_TOOLS__
+COPILOT_NON_EDIT_TOOL_NAMES = __NON_EDIT_TOOLS__
 COPILOT_TEXT_EDITOR_TOOL_NAMES = __TEXT_EDITOR_TOOLS__
 COPILOT_TEXT_EDITOR_READ_COMMANDS = __TEXT_EDITOR_READS__
 COPILOT_PATCH_TOOL_NAMES = __PATCH_TOOLS__
@@ -1363,26 +1426,28 @@ def copilot_edit_paths(payload: dict[str, object]) -> list[str]:
             value = item.get("filePath") if isinstance(item, dict) else None
             if isinstance(value, str) and value:
                 paths.append(value)
-    fallback = detect_file_path(payload)
-    if fallback and fallback not in paths:
-        paths.append(fallback)
+    for key in FILE_PATH_KEYS:
+        fallback = get_nested(payload, *key)
+        if fallback and fallback not in paths:
+            paths.append(fallback)
     return paths
 
 
-def copilot_is_edit(payload: dict[str, object]) -> bool:
-    # An edit tool, or a payload that does not say which tool. Shell and read tools are never gated.
+def copilot_tool_classification(payload: dict[str, object]) -> str:
     name = copilot_tool_name(payload)
     if not name:
-        return True
+        return "edit"  # Absent/malformed identity retains strict path requirements.
+    if name in COPILOT_NON_EDIT_TOOL_NAMES:
+        return "non_edit"
     if name not in COPILOT_EDIT_TOOL_NAMES:
-        return False
+        return "unknown"
     if name in COPILOT_TEXT_EDITOR_TOOL_NAMES:
-        # A text-editor read is not an edit; every other command, or none, is (fail closed).
         command = copilot_tool_args(payload).get("command")
         if isinstance(command, str) and command in COPILOT_TEXT_EDITOR_READ_COMMANDS:
-            return False
-    return True
+            return "non_edit"
+    return "edit"  # Missing or unfamiliar text-editor commands remain edits.
 """.replace("__EDIT_TOOLS__", repr(COPILOT_EDIT_TOOL_NAMES)).replace(
+    "__NON_EDIT_TOOLS__", repr(COPILOT_NON_EDIT_TOOL_NAMES)).replace(
     "__TEXT_EDITOR_TOOLS__", repr(COPILOT_TEXT_EDITOR_TOOL_NAMES)).replace(
     "__TEXT_EDITOR_READS__", repr(COPILOT_TEXT_EDITOR_READ_COMMANDS)).replace(
     "__PATCH_TOOLS__", repr(COPILOT_PATCH_TOOL_NAMES)).replace(
@@ -1390,15 +1455,20 @@ def copilot_is_edit(payload: dict[str, object]) -> bool:
 
 
 def copilot_pre_tool_use_source() -> str:
-    body = _STRICT_PAYLOAD_SOURCE + _COPILOT_PAYLOAD_SOURCE + """
+    body = _STRICT_PAYLOAD_SOURCE + _TOOL_COMPATIBILITY_SOURCE + _COPILOT_PAYLOAD_SOURCE + """
 
 def main() -> int:
     payload, problem = load_payload_strict(read_payload_text())
     if payload is None:
         return block_uninspectable(problem, COPILOT_PATH_KEYS)
-    if not copilot_is_edit(payload):
+    classification = copilot_tool_classification(payload)
+    if classification == "non_edit":
         return 0
     paths = copilot_edit_paths(payload)
+    if classification == "unknown":
+        report_unknown_tool(copilot_tool_name(payload), bool(paths))
+        if not paths:
+            return 0
     if not paths:
         if copilot_tool_name(payload) in COPILOT_PATCH_TOOL_NAMES:
             return block_uninspectable("no patch file header was found", COPILOT_PATH_KEYS)
@@ -1413,11 +1483,15 @@ def main() -> int:
 
 
 def copilot_post_tool_use_source() -> str:
-    body = _COPILOT_PAYLOAD_SOURCE + """
+    body = _TOOL_COMPATIBILITY_SOURCE + _COPILOT_PAYLOAD_SOURCE + """
 
 def main() -> int:
     payload = load_payload(read_payload_text())
-    if not copilot_is_edit(payload):
+    classification = copilot_tool_classification(payload)
+    if classification == "unknown":
+        report_unknown_tool(copilot_tool_name(payload), bool(copilot_edit_paths(payload)))
+        return 0
+    if classification == "non_edit":
         return 0
     failures = []
     for file_path in copilot_edit_paths(payload):
@@ -2715,18 +2789,29 @@ _GITATTRIBUTES_BLOCK = [
 ]
 _GITATTRIBUTES_MANAGED_LINES = frozenset(line.strip() for line in _GITATTRIBUTES_BLOCK if line.strip())
 
+# Documentation defaults precede project rules; unlike launcher pins, they must
+# not adopt loose copies or override explicit project exceptions (wave 20dkl).
+_DOC_GITATTRIBUTES_BEGIN = "# >>> wavefoundry docs line-endings (managed defaults) >>>"
+_DOC_GITATTRIBUTES_END = "# <<< wavefoundry docs line-endings <<<"
+_DOC_GITATTRIBUTES_BLOCK = [
+    "# LF checkout defaults; project rules below may override these attributes.",
+    "docs/**/*.md text eol=lf",
+    "docs/**/*.json* text eol=lf",
+]
+
 
 def render_gitattributes_block(repo_root: Path) -> None:
     """Ensure the Wavefoundry line-ending block is present in ``.gitattributes`` (wave 1p9hm).
 
     Same idempotent, marker-delimited, operator-preserving contract as :func:`render_gitignore_block`:
-    the managed region between ``_GITATTRIBUTES_BEGIN``/``_GITATTRIBUTES_END`` is rewritten on every
-    render while ALL operator-authored lines are preserved verbatim; loose copies of managed lines are
-    folded into the region so re-runs never duplicate. Creates ``.gitattributes`` when absent.
+    the existing launcher region and the leading docs-default region are rewritten on every
+    render while operator-authored rules retain their relative order; only loose launcher pins
+    are folded into their region. Loose docs rules remain project-owned. Creates the file when absent.
 
-    NON-DESTRUCTIVE by construction (AC-1): only the marker-delimited block is ever written, so an
-    operator's own attribute rules are never overwritten — there is nothing to "conflict" on because
-    the block owns a distinct, narrow set of framework-path patterns. Runs on every ``wf setup`` /
+    Malformed docs-default regions are refused before writing attributes, so an unbounded region
+    cannot consume project rules. The separate leading docs-default region leaves
+    later project exceptions authoritative; the trailing launcher region retains its existing
+    precedence. Runs on every ``wf setup`` /
     ``wf render-surfaces`` / upgrade so consuming repos self-heal (the 1p7pn policy was never
     propagated to targets before this wave)."""
     gitattributes = repo_root / ".gitattributes"
@@ -2735,28 +2820,40 @@ def render_gitattributes_block(repo_root: Path) -> None:
         existing = read_repo_text(repo_root, gitattributes).splitlines()
 
     preserved: list[str] = []
-    in_block = False
+    block_ends = {
+        _GITATTRIBUTES_BEGIN: _GITATTRIBUTES_END,
+        _DOC_GITATTRIBUTES_BEGIN: _DOC_GITATTRIBUTES_END,
+    }
+    in_block = None
     for line in existing:
         stripped = line.strip()
-        if stripped == _GITATTRIBUTES_BEGIN:
-            in_block = True
+        if stripped in block_ends:
+            if in_block and (
+                stripped == _DOC_GITATTRIBUTES_BEGIN or in_block == _DOC_GITATTRIBUTES_END
+            ):
+                raise RuntimeError(".gitattributes: malformed managed docs line-endings region (nested marker)")
+            in_block = block_ends[stripped]
             continue
+        if stripped == _DOC_GITATTRIBUTES_END and in_block != _DOC_GITATTRIBUTES_END:
+            raise RuntimeError(".gitattributes: malformed managed docs line-endings region (unmatched end marker)")
         if in_block:
-            if stripped == _GITATTRIBUTES_END:
-                in_block = False
+            if stripped == in_block:
+                in_block = None
             continue
         # Fold loose copies of our managed pins into the block so we never duplicate; everything else
         # is operator content — keep it verbatim.
         if stripped in _GITATTRIBUTES_MANAGED_LINES:
             continue
         preserved.append(line)
+    if in_block == _DOC_GITATTRIBUTES_END:
+        raise RuntimeError(".gitattributes: malformed managed docs line-endings region (unterminated marker)")
     while preserved and preserved[-1] == "":
         preserved.pop()
 
     managed = [_GITATTRIBUTES_BEGIN, *_GITATTRIBUTES_BLOCK, _GITATTRIBUTES_END]
-    out = list(preserved)
-    if out:
-        out.append("")
+    out = [_DOC_GITATTRIBUTES_BEGIN, *_DOC_GITATTRIBUTES_BLOCK, _DOC_GITATTRIBUTES_END]
+    out.extend(preserved)
+    out.append("")
     out.extend(managed)
     write_text(gitattributes, "\n".join(out).rstrip() + "\n", root=repo_root)
 

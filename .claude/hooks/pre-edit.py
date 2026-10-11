@@ -455,8 +455,22 @@ def block_uninspectable(reason: str, keys: str) -> int:
     )
     return 2
 
+def report_unknown_tool(name: str, has_paths: bool = False) -> None:
+    label = json.dumps(name[:80], ensure_ascii=True)
+    if len(name) > 80:
+        label += "..."
+    coverage = ("Supported explicit paths were inspected; edit coverage is uncertain."
+                if has_paths else
+                "No supported explicit path was found; edit coverage could not be established.")
+    print(
+        f"COMPATIBILITY: unfamiliar tool {label}. {coverage} "
+        "After a successful edit, run the existing integrity-boundary validation and refresh.",
+        file=sys.stderr,
+    )
+
 
 EDIT_TOOL_NAMES = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
+NON_EDIT_TOOL_NAMES = ('Read', 'Bash')
 
 
 def main() -> int:
@@ -465,8 +479,17 @@ def main() -> int:
     if payload is None:
         return block_uninspectable(problem, keys)
     tool_name = payload.get("tool_name")
+    if isinstance(tool_name, str) and tool_name in NON_EDIT_TOOL_NAMES:
+        return 0
     if isinstance(tool_name, str) and tool_name and tool_name not in EDIT_TOOL_NAMES:
-        # A named non-edit tool is never gated, whatever path it names.
+        # Only supported explicit fields; do not guess patch, shell or arbitrary MCP schemas.
+        paths = [get_nested(payload, *key) for key in FILE_PATH_KEYS]
+        paths = list(dict.fromkeys(path for path in paths if path))
+        report_unknown_tool(tool_name, bool(paths))
+        for path in paths:
+            verdict = gate_file_path(path)
+            if verdict:
+                return verdict
         return 0
     # An edit tool, or a payload that does not say which tool, is gated and must name its path.
     file_path = detect_file_path(payload)

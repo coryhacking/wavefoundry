@@ -3436,10 +3436,25 @@ class CouncilRoleLinkRepairUpgradeTests(unittest.TestCase):
                 self.peer.symlink_to(outside)
             except OSError as exc:
                 self.skipTest(f"symlinks unavailable: {type(exc).__name__}")
-            with self.assertRaisesRegex(RuntimeError, "council role link repair refused"):
-                self.ras.migrate_council_role_renames(self.root)
-            self.assertTrue(self.old.is_file()); self.assertFalse(self.new.exists())
+            result = self.ras.migrate_council_role_renames(self.root)
+            self.assertTrue(any("link repair skipped" in line and "retry" in line for line in result.link_report))
+            self.assertFalse(self.old.exists()); self.assertTrue(self.new.is_file())
             self.assertIn(self.old.name.encode(), outside.read_bytes())
+
+    def test_actual_upgrade_renderer_reports_unreadable_doc_after_extraction(self):
+        bad = self.root / 'docs/undecodable.md'; bad.write_bytes(b'\xff')
+        import child_tee
+        actual = child_tee.run
+        results = []
+        def capture(*args, **kwargs):
+            result = actual(*args, **kwargs, capture_output=True, text=True)
+            results.append(result); return result
+        with patch.object(child_tee, 'run', side_effect=capture):
+            self._surface()
+        self.assertEqual(len(results), 1); self.assertEqual(results[0].returncode, 0)
+        self.assertIn('undecodable.md', results[0].stderr); self.assertIn('retry', results[0].stderr)
+        self.assertEqual(bad.read_bytes(), b'\xff')
+        self.assertFalse(self.old.exists()); self.assertIn(self.new.name.encode(), self.peer.read_bytes())
 
     def test_retry_requires_new_document_role_identity(self):
         self.old.rename(self.new)
@@ -3461,6 +3476,118 @@ class CouncilRoleLinkRepairUpgradeTests(unittest.TestCase):
                 self.assertTrue(any("unchanged unsupported" in row for row in result.link_report))
 
 
+class BoundedMigrationPreviewTests(unittest.TestCase):
+    def setUp(self):
+        import upgrade_extensions
+        self.extension = upgrade_extensions
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.base = Path(self.temp.name)
+        self.scripts = self.base / 'scripts'; self.scripts.mkdir()
+        self.root = self.base / 'target'; (self.root / 'docs').mkdir(parents=True)
+
+    def archive(self, members):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w') as archive:
+            for name, data in members: archive.writestr(name, data)
+        buffer.seek(0)
+        return zipfile.ZipFile(buffer)
+
+    def test_portable_names_and_aliases_are_preflighted_before_any_read(self):
+        prefix = '.wavefoundry/framework/scripts/'
+        for invalid in ('C:x.py', 'C:/x.py', '../x.py', './x.py', '/x.py',
+                        'nested//x.py', 'nested/./x.py', 'nested/../x.py', 'nested\\x.py'):
+            with self.subTest(invalid=invalid), self.archive([(prefix + 'safe.py', b'pass'),
+                                                             (prefix + invalid, b'pass')]) as archive:
+                with patch.object(archive, 'open', wraps=archive.open) as read:
+                    with self.assertRaisesRegex(ValueError, 'path refused'):
+                        self.extension._extract_preview_scripts(archive, self.scripts, prefix)
+                read.assert_not_called(); self.assertEqual(list(self.scripts.iterdir()), [])
+        for names in [('same.py', 'same.py'), ('Same.py', 'same.py'), ('file.py', 'file.py/nested.py')]:
+            with self.subTest(names=names), contextlib.redirect_stderr(io.StringIO()), \
+                    self.archive([(prefix + name, b'pass') for name in names]) as archive:
+                with patch.object(archive, 'open', wraps=archive.open) as read:
+                    with self.assertRaisesRegex(ValueError, 'duplicate or alias'):
+                        self.extension._extract_preview_scripts(archive, self.scripts, prefix)
+                read.assert_not_called()
+
+    def test_caps_complete_preflight_and_exact_boundary_control(self):
+        prefix = '.wavefoundry/framework/scripts/'
+        cases = [('_PREVIEW_MAX_MEMBERS', 1, [('a.py', b'a'), ('b.py', b'b')], 'member-count'),
+                 ('_PREVIEW_MAX_MEMBER_BYTES', 3, [('a.py', b'a'), ('b.py', b'abcd')], 'per-member'),
+                 ('_PREVIEW_MAX_TOTAL_BYTES', 3, [('a.py', b'ab'), ('b.py', b'cd')], 'aggregate-byte')]
+        for constant, cap, members, label in cases:
+            with self.subTest(label=label), self.archive([(prefix + name, data) for name, data in members]) as archive:
+                with patch.object(self.extension, constant, cap), patch.object(archive, 'open', wraps=archive.open) as read:
+                    with self.assertRaisesRegex(ValueError, label):
+                        self.extension._extract_preview_scripts(archive, self.scripts, prefix)
+                read.assert_not_called()
+        with self.archive([(prefix + 'nested/safe.py', b'ab'), (prefix + 'other.py', b'cd')]) as archive, \
+                patch.object(self.extension, '_PREVIEW_MAX_MEMBERS', 2), \
+                patch.object(self.extension, '_PREVIEW_MAX_MEMBER_BYTES', 2), \
+                patch.object(self.extension, '_PREVIEW_MAX_TOTAL_BYTES', 4):
+            self.extension._extract_preview_scripts(archive, self.scripts, prefix)
+        self.assertEqual((self.scripts / 'nested/safe.py').read_bytes(), b'ab')
+        self.assertEqual((self.scripts / 'other.py').read_bytes(), b'cd')
+
+    def test_actual_decompression_excess_is_bounded(self):
+        info = zipfile.ZipInfo('.wavefoundry/framework/scripts/safe.py'); info.file_size = 2
+        archive = MagicMock(); archive.infolist.return_value = [info]
+        stream = io.BytesIO(b'abcdefgh')
+        archive.open.return_value.__enter__.return_value = stream
+        with patch.object(self.extension, '_PREVIEW_MAX_MEMBER_BYTES', 3):
+            with self.assertRaisesRegex(ValueError, 'decompressed'):
+                self.extension._extract_preview_scripts(archive, self.scripts, '.wavefoundry/framework/scripts/')
+        self.assertEqual(stream.tell(), 4); self.assertEqual(list(self.scripts.iterdir()), [])
+
+    def test_actual_preview_invalid_member_never_spawns_or_writes_target(self):
+        package = self.base / 'incoming.zip'
+        with zipfile.ZipFile(package, 'w') as archive:
+            archive.writestr('.wavefoundry/framework/scripts/upgrade_extensions.py', b'pass')
+            archive.writestr('.wavefoundry/framework/scripts/nested\\bad.py', b'pass')
+        before = list(self.root.rglob('*'))
+        with patch.object(subprocess, 'Popen') as spawn:
+            with self.assertRaisesRegex(ValueError, 'path refused'):
+                self.extension._preview_council_role_links(types.SimpleNamespace(root=self.root, zip_path=package))
+        spawn.assert_not_called(); self.assertEqual(list(self.root.rglob('*')), before)
+
+    def test_pre_extract_refusal_precedes_every_other_hook_mutation(self):
+        context = types.SimpleNamespace(root=self.root, zip_path=None)
+        with patch.object(self.extension, '_preview_council_role_links', side_effect=RuntimeError('aggregate-byte limit exceeded')) as plan, \
+                patch.object(self.extension, '_capture_index_guard_handoff') as capture, \
+                patch.object(self.extension, '_protect_existing_root_bootstrap') as bootstrap:
+            with self.assertRaisesRegex(RuntimeError, 'aggregate-byte'):
+                self.extension.pre_extract(context)
+        plan.assert_called_once_with(context); capture.assert_not_called(); bootstrap.assert_not_called()
+
+    def test_incoming_child_lifecycle_preview_and_conflict_preserve_target(self):
+        directory = self.root / 'docs/contributing'; directory.mkdir()
+        old = directory / 'feature-workflow.md'; old.write_bytes(b'# Custom\r\n')
+        peer = self.root / 'docs/consumer.md'; peer.write_bytes(b'[guide](contributing/feature-workflow.md)\r\n')
+        before = {p.relative_to(self.root): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.extension._preview_council_role_links(types.SimpleNamespace(root=self.root, zip_path=None))
+        self.assertIn('would repair lifecycle document link', output.getvalue())
+        self.assertEqual({p.relative_to(self.root): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}, before)
+        (directory / 'delivery-workflow.md').write_bytes(b'# Independent target\n')
+        with self.assertRaisesRegex(RuntimeError, 'both exist'):
+            self.extension._preview_council_role_links(types.SimpleNamespace(root=self.root, zip_path=None))
+        self.assertEqual(old.read_bytes(), b'# Custom\r\n'); self.assertEqual(peer.read_bytes(), before[Path('docs/consumer.md')])
+
+    def test_actual_upgrade_hook_fails_before_framework_extraction(self):
+        directory = self.root / 'docs/contributing'; directory.mkdir()
+        (directory / 'feature-workflow.md').write_bytes(b'legacy')
+        (directory / 'delivery-workflow.md').write_bytes(b'independent')
+        context = types.SimpleNamespace(root=self.root, zip_path=None, dry_run=False)
+        mod = load_upgrade_module()
+        with patch.object(mod, '_extract_feature_members') as extract, contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as stopped:
+                mod._run_hook('pre_extract', context, self.extension)
+                extract()
+        self.assertEqual(stopped.exception.code, 3); extract.assert_not_called()
+        self.assertEqual((directory / 'feature-workflow.md').read_bytes(), b'legacy')
+
+
 class LifecycleDocumentInstallingUpgradeTests(unittest.TestCase):
     """Fresh extracted renderer owns the new document migration on its installing upgrade."""
 
@@ -3478,7 +3605,7 @@ class LifecycleDocumentInstallingUpgradeTests(unittest.TestCase):
                 if not wired:
                     renderer = scripts / "render_agent_surfaces.py"
                     source = renderer.read_text(encoding="utf-8")
-                    call = "document_migration = migrate_lifecycle_document_renames(repo_root)"
+                    call = "document_migration = migrate_role_and_lifecycle_documents(repo_root)"
                     self.assertEqual(source.count(call), 1)
                     renderer.write_text(source.replace(call, "document_migration = ChangePromptMigration((), ())"), encoding="utf-8")
                 directory = root / "docs" / "contributing"
@@ -12270,7 +12397,10 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         scripts, reliability = self._seed_graph_builder_doc()
         self._skip_sidecar_cleanup()
 
-        with patch.object(self.ext, "_cut_over_runtime_locks"):
+        with patch.object(self.ext, "_cut_over_runtime_locks"), \
+                patch.object(self.ext, "_preview_council_role_links"):
+            # This scalar-doc fixture has no archive payload/migration candidates;
+            # the incoming migration preflight is covered by its real entry tests.
             self.ext.pre_extract(self.ctx)
         scripts.joinpath("graph_indexer.py").write_text(
             'GRAPH_BUILDER_VERSION = "45"\n', encoding="utf-8"
@@ -12307,7 +12437,10 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         )
         self.ctx.zip_path = pack
         self._skip_sidecar_cleanup()
-        with patch.object(self.ext, "_cut_over_runtime_locks"):
+        with patch.object(self.ext, "_cut_over_runtime_locks"), \
+                patch.object(self.ext, "_preview_council_role_links"):
+            # This scalar-doc fixture has no archive payload/migration candidates;
+            # the incoming migration preflight is covered by its real entry tests.
             self.ext.pre_extract(self.ctx)
         scripts.joinpath("graph_indexer.py").write_text(
             'GRAPH_BUILDER_VERSION = "45"\n', encoding="utf-8"
@@ -12338,7 +12471,10 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
     def test_graph_builder_doc_reconciliation_preserves_mid_upgrade_customization(self):
         scripts, reliability = self._seed_graph_builder_doc()
         self._skip_sidecar_cleanup()
-        with patch.object(self.ext, "_cut_over_runtime_locks"):
+        with patch.object(self.ext, "_cut_over_runtime_locks"), \
+                patch.object(self.ext, "_preview_council_role_links"):
+            # This scalar-doc fixture has no archive payload/migration candidates;
+            # the incoming migration preflight is covered by its real entry tests.
             self.ext.pre_extract(self.ctx)
         scripts.joinpath("graph_indexer.py").write_text(
             'GRAPH_BUILDER_VERSION = "45"\n', encoding="utf-8"
@@ -12355,7 +12491,10 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
     def test_graph_builder_doc_reconciliation_requires_pre_extract_code_doc_match(self):
         scripts, reliability = self._seed_graph_builder_doc(doc_version="43")
         self._skip_sidecar_cleanup()
-        with patch.object(self.ext, "_cut_over_runtime_locks"):
+        with patch.object(self.ext, "_cut_over_runtime_locks"), \
+                patch.object(self.ext, "_preview_council_role_links"):
+            # This scalar-doc fixture has no archive payload/migration candidates;
+            # the incoming migration preflight is covered by its real entry tests.
             self.ext.pre_extract(self.ctx)
         scripts.joinpath("graph_indexer.py").write_text(
             'GRAPH_BUILDER_VERSION = "45"\n', encoding="utf-8"
@@ -12368,7 +12507,10 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
     def test_scalar_doc_reconciliation_advances_models_chunker_and_state_store(self):
         scripts, reliability, performance = self._seed_scalar_docs()
         self._skip_sidecar_cleanup()
-        with patch.object(self.ext, "_cut_over_runtime_locks"):
+        with patch.object(self.ext, "_cut_over_runtime_locks"), \
+                patch.object(self.ext, "_preview_council_role_links"):
+            # This scalar-doc fixture has no archive payload/migration candidates;
+            # the incoming migration preflight is covered by its real entry tests.
             self.ext.pre_extract(self.ctx)
         scripts.joinpath("indexer.py").write_text(
             'DOCS_MODEL = "docs-v2"\nCODE_MODEL = "code-v2"\nRERANKER_MODEL = "reranker-v2"\n',
@@ -12417,7 +12559,10 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
 
         upgrade_lib.write_upgrade_lock(self.root, "1.14.0", "1.15.0", pack)
         self.ctx.zip_path = pack
-        with patch.object(self.ext, "_cut_over_runtime_locks"):
+        with patch.object(self.ext, "_cut_over_runtime_locks"), \
+                patch.object(self.ext, "_preview_council_role_links"):
+            # This scalar-doc fixture has no archive payload/migration candidates;
+            # the incoming migration preflight is covered by its real entry tests.
             self.ext.pre_extract(self.ctx)
 
         upgrade_lib.write_upgrade_lock(self.root, "1.15.0", "1.15.0", pack)

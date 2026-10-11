@@ -1276,6 +1276,9 @@ def post_pruning(ctx):
 def pre_extract(ctx):
     """Snapshot lint-bound facts, then quiesce old dedicated lock carriers."""
 
+    # Incoming candidate/source checks and the same bounded combined dry-plan
+    # refuse predictable migration failures before replacing target scripts.
+    _preview_council_role_links(ctx)
     _capture_index_guard_handoff(ctx)
     _protect_existing_root_bootstrap(ctx)
     _preserve_original_manifest(ctx)
@@ -3963,6 +3966,53 @@ def _run_convergence_migration(ctx):
 # --- Wired hook --------------------------------------------------------------
 
 
+_PREVIEW_MAX_MEMBERS = 2_000
+_PREVIEW_MAX_MEMBER_BYTES = 8 * 1024 * 1024
+_PREVIEW_MAX_TOTAL_BYTES = 64 * 1024 * 1024
+
+
+def _preview_script_parts(name):
+    from pathlib import PureWindowsPath
+    parts = name.split("/")
+    # Check RAW components before a PurePath can erase dots/empty aliases.
+    if (not name or "\\" in name or name.startswith("/")
+            or any(part in ("", ".", "..") or PureWindowsPath(part).drive for part in parts)):
+        raise ValueError("incoming preview script path refused; use unique portable relative names")
+    return parts
+
+
+def _extract_preview_scripts(archive, scripts, prefix):
+    selected, aliases, total = [], set(), 0
+    for info in archive.infolist():
+        if not info.filename.startswith(prefix) or not info.filename.endswith(".py"):
+            continue
+        _preview_script_parts(info.filename)
+        parts = _preview_script_parts(info.filename[len(prefix):])
+        alias = "/".join(parts).casefold()
+        if alias in aliases or any(alias.startswith(old + "/") or old.startswith(alias + "/") for old in aliases):
+            raise ValueError("incoming preview duplicate or alias script path refused")
+        aliases.add(alias)
+        selected.append((info, parts))
+        if len(selected) > _PREVIEW_MAX_MEMBERS:
+            raise ValueError("incoming preview member-count limit exceeded")
+        if info.file_size < 0 or info.file_size > _PREVIEW_MAX_MEMBER_BYTES:
+            raise ValueError("incoming preview per-member byte limit exceeded")
+        total += info.file_size
+        if total > _PREVIEW_MAX_TOTAL_BYTES:
+            raise ValueError("incoming preview aggregate-byte limit exceeded")
+    # The ENTIRE selected set is validated before any content is read/published.
+    actual_total = 0
+    for info, parts in selected:
+        with archive.open(info) as member:
+            data = member.read(min(_PREVIEW_MAX_MEMBER_BYTES, _PREVIEW_MAX_TOTAL_BYTES - actual_total) + 1)
+        actual_total += len(data)
+        if len(data) != info.file_size or len(data) > _PREVIEW_MAX_MEMBER_BYTES or actual_total > _PREVIEW_MAX_TOTAL_BYTES:
+            raise ValueError("incoming preview decompressed byte limit or declared size refused")
+        target = scripts.joinpath(*parts)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+
+
 def _preview_council_role_links(ctx) -> None:
     """Preview the incoming renderer in a private scripts tree, never the target.
 
@@ -3971,7 +4021,6 @@ def _preview_council_role_links(ctx) -> None:
     temporary directory; no target extraction, cache warming or log write.
     """
     import tempfile
-    from pathlib import PurePosixPath
     with tempfile.TemporaryDirectory(prefix="wavefoundry-role-preview-") as temp:
         scripts = Path(temp) / "scripts"
         scripts.mkdir()
@@ -3983,17 +4032,13 @@ def _preview_council_role_links(ctx) -> None:
                 # The normal pack prefix is discovered from its extension member.
                 prefixes = [name.rsplit("/", 1)[0] + "/" for name in archive.namelist()
                             if name.endswith("/scripts/upgrade_extensions.py")]
+                for candidate in prefixes:
+                    _preview_script_parts(candidate.rstrip("/"))
+                if len(prefixes) > 1:
+                    raise ValueError("incoming preview duplicate script root refused")
                 if len(prefixes) == 1:
                     prefix = prefixes[0]
-                for name in archive.namelist():
-                    if not name.startswith(prefix) or not name.endswith(".py"):
-                        continue
-                    relative = PurePosixPath(name[len(prefix):])
-                    if relative.is_absolute() or ".." in relative.parts:
-                        raise ValueError("incoming preview script path refused")
-                    target = scripts.joinpath(*relative.parts)
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_bytes(archive.read(name))
+                _extract_preview_scripts(archive, scripts, prefix)
         else:
             import shutil
             shutil.copytree(Path(__file__).parent, scripts, dirs_exist_ok=True,
@@ -4003,7 +4048,7 @@ def _preview_council_role_links(ctx) -> None:
         program = (
             "import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); "
             "import render_agent_surfaces as r; "
-            "p=r.migrate_council_role_renames(Path(sys.argv[2]), apply=False); "
+            "p=r.migrate_role_and_lifecycle_documents(Path(sys.argv[2]), apply=False); "
             "print('\\n'.join(p.link_report))"
         )
         # Resolve the incoming stdlib-only helper privately: an old runner's
@@ -4030,7 +4075,9 @@ def _preview_council_role_links(ctx) -> None:
             }),
         )
         if result.returncode:
-            raise RuntimeError("incoming role-link preview refused; restore contained role/docs paths and retry")
+            detail = result.stderr.strip().splitlines()[-1:] or ["migration plan refused"]
+            raise RuntimeError("incoming document migration preflight refused: " + detail[0] +
+                               "; restore contained source/target paths or reduce the indicated scope and retry; no target extraction was performed")
         for line in result.stdout.splitlines():
             print("council role migration preview: " + line, flush=True)
 

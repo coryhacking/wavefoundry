@@ -37,7 +37,7 @@ venv_bootstrap.activate_tool_venv()
 # Wave 1p8gv: CLI entry — UTF-8 stdout/stderr so non-ASCII prints never raise on a cp1252 console.
 cli_stdio.configure_utf8_stdio()
 
-LAST_VERIFIED_PATTERN = re.compile(r"^(Last verified:\s+)(\d{4}-\d{2}-\d{2})$", re.MULTILINE)
+LAST_VERIFIED_PATTERN = re.compile(r"^(Last verified:\s+)(\d{4}-\d{2}-\d{2})(?=\r?$)", re.MULTILINE)
 
 
 def project_root() -> Path:
@@ -201,10 +201,12 @@ def resolve_metadata_targets(root: Path, args: argparse.Namespace) -> list[Path]
 
 
 def refresh_last_verified(path: Path, date_value: str) -> bool:
-    text = path.read_text(encoding="utf-8", errors="replace")
+    # Keep the document's terminators outside the date substitution, on every host.
+    with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
+        text = handle.read()
     updated = LAST_VERIFIED_PATTERN.sub(rf"\g<1>{date_value}", text, count=1)
     if updated != text:
-        path.write_text(updated, encoding="utf-8")
+        path.write_text(updated, encoding="utf-8", newline="")
         return True
     return False
 
@@ -291,10 +293,12 @@ def ensure_manifest(root: Path) -> tuple[Path, bool]:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
         payload = default_manifest_payload(root)
-        path.write_text(normalize_manifest_json(payload), encoding="utf-8")
+        path.write_text(normalize_manifest_json(payload), encoding="utf-8", newline="")
         return path, True
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        old_text = handle.read()
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(old_text)
     except json.JSONDecodeError:
         data = {}
     data.setdefault("schema_version", 1)
@@ -308,11 +312,11 @@ def ensure_manifest(root: Path) -> tuple[Path, bool]:
     # installed manifest drops the key once and the change-only write below
     # then leaves it untouched.
     data.pop("last_gardened_at", None)
-    new_text = normalize_manifest_json(data)
-    old_text = path.read_text(encoding="utf-8")
+    newline = "\r\n" if "\r\n" in old_text else "\n"
+    new_text = normalize_manifest_json(data).replace("\n", newline)
     if new_text == old_text:
         return path, False
-    path.write_text(new_text, encoding="utf-8")
+    path.write_text(new_text, encoding="utf-8", newline="")
     return path, True
 
 
@@ -336,7 +340,7 @@ def ensure_session_handoff(root: Path, date_value: str) -> tuple[Path, bool]:
         "",
         "- No active handoff recorded.",
     ]
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
     return path, True
 
 

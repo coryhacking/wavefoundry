@@ -1,0 +1,136 @@
+# Memory Backfill Never Completes A Wave Whose Sources All Already Exist
+
+Change ID: `20e63-bug backfill-empty-create-omits-exhausted`
+Change Status: `planned`
+Owner: Engineering
+Status: planned
+Last verified: 2026-10-11
+Wave: TBD
+
+## Rationale
+
+**Brief.** Goal: a historical memory backfill batch completes a wave whose sources are all already recorded, dispositioned or purged, instead of re-claiming it forever. Consumer: an operator running `wf_upgrade` (protocol-2 memory step) or `memory_backfill` on a repository whose memory records already cover the wave. Constraint: no change to what is written, only to the completion signal on an empty page. Success: such a wave is marked complete in one batch and the run converges.
+
+Field report (a consumer-repository upgrade, relayed by the operator): the memory backfill step could not complete; the same wave was processed on every batch. The reporter diagnosed that, when every candidate already exists, the response omits `exhausted: true`, and proposed adding `exhausted: true` and `records_remaining: 0` to the empty create result. The proposal was reviewed against HEAD and is confirmed below.
+
+**Verified at HEAD** (read-only, `wf_server/memory_handlers.py`; symbols are the anchors, line numbers are advisory).
+
+- `_memory_propose_response_locked` builds `drafts`, then counts `eligible_count` after skipping drafts whose source is already a record, a disposition or a purged digest, and drafts whose normalized content duplicates an existing record. When `unique` is empty in `mode="create"` it returns early (near line 991-992) with `records_written`, `records_promoted`, `records_proposed`, `written`, `skipped_dispositions`, `skipped_duplicates` and `mode`, and NO `exhausted` or `records_remaining`.
+- The `dry_run` return (near 977-978) and the normal create return (near 1045-1046) set both; the other ok returns omit them, and by read-only census none is on the historical batch path except `no_material_evidence`, which the consumer covers through `no_source`: `selection_required` (public tool only), the `source_events == []` return (the batch never passes `source_events`) and `no_material_evidence`. The two set paths compute `records_remaining = max(0, eligible_count - len(unique))` and `exhausted = eligible_count <= len(unique)`.
+- `_memory_backfill_batch_locked` computes `exhausted = no_source or bool(data.get("exhausted"))` (near 1290). `no_source` is true only for the `no_material_evidence` diagnostic, which the `if not drafts` branch emits. A wave with drafts that are all already covered has drafts, so `no_source` is false, `data.get("exhausted")` is `None`, and `complete_claim(..., exhausted=False)` leaves the wave pending. The next batch claims it again: an unbounded loop.
+- `remaining_budget` is floored at 1 (near 1223) and passed as `limit`, so an empty `unique` on this path implies `eligible_count == 0`; reporting `exhausted: true` is correct, not optimistic. The `if not unique` branch is also reachable when a caller supplies `source_events` that filter every draft out; there too `eligible_count` counts only the surviving drafts, so the same reasoning holds.
+- Existing tests (`tests/test_memory_backfill.py`, near 311 and 675) pass `exhausted=True` directly to the completion helper and a two-step page test (near 754-762) covers a non-empty page; none drives the all-covered empty create result.
+- The upgrade runner calls `_memory_backfill_batch_locked` once in Phase 3 (a review traced it in `upgrade_wavefoundry.py` `main`). With the wave still pending the run stays `awaiting_validation`, the runner writes the historical-memory action-required pause and exits before Phase 4, and repeated `memory_backfill` calls then re-claim the same wave: the upgrade stalls at that pause rather than looping inside the runner. Because `remaining_budget -= count` subtracts 0, the same wave can also be re-claimed up to `MAX_WAVES_PER_CALL` times within one call.
+- Not verified here: whether any other consumer of the empty create result treats a missing `exhausted` as meaningful, and whether the reporter's repository hit exactly this branch (their account of the symptom matches it).
+
+## Requirements
+
+1. The create-mode empty-`unique` result of `_memory_propose_response_locked` carries `records_remaining: 0` and `exhausted: True`, so the shape matches the sibling return paths.
+2. `_memory_backfill_batch_locked` marks a wave whose drafts are all already covered as complete (`complete_claim(..., exhausted=True)`) with outcome `extracted` and zero candidates written, and the run then advances to the next wave or to validation.
+3. No other behavior changes: `records_written`, the skip counters, the fence handling, the `no_material_evidence` path and the non-empty create path are untouched.
+4. The set of return paths is derived by rule, not by memory: every `return server_impl._response("ok", ...)` inside `_memory_propose_response_locked` that can be reached in `mode="create"` is listed in the Progress Log with whether it carries `exhausted`, and any further omission found is fixed or dispositioned with a reason. The `source_events == []` early return (near line 928) is known to omit the flag and must be listed with its disposition (a caller that selects nothing reaches it, not the historical batch path, which is unverified).
+
+## Scope
+
+**Problem statement:** the empty create result omits the completion flag, so backfill never marks an already-covered wave complete and loops.
+
+**In scope:**
+
+- The one return payload and the Requirement 4 census in `wf_server/memory_handlers.py`.
+- A regression test in `tests/test_memory_backfill.py` (or the suite that already drives `_memory_backfill_batch_locked`).
+
+**Out of scope:**
+
+- Changing how drafts are deduplicated or dispositioned.
+- A loop guard that bounds repeated claims of one wave (worth considering separately; recorded in the Decision Log).
+- Patching any consumer repository's installed framework; that stays a temporary local workaround until a release carries this fix.
+
+## Acceptance Criteria
+
+- [ ] AC-1: A test builds a wave whose draftable sources all already exist as memory records, runs `_memory_backfill_batch_locked` (or the public `memory_backfill` in create mode), and asserts the processed entry has `exhausted: True`, `candidates_written: 0` and a non-failed outcome, and that the claim is completed (the wave is not claimable again). The test fails on the unfixed code (record the observed failure in the Progress Log).
+- [ ] AC-2: After ONE batch on the all-covered fixture, `len(processed) == 1`, the entry has `exhausted` True, and the run summary reports `remaining_waves == 0`; a second batch returns `processed == []`. The unfixed code returns `MAX_WAVES_PER_CALL` entries for the same wave, so the test fails by assertion and cannot hang. The test asserts no run-state name (an earlier pending candidate may keep the run in `awaiting_validation`).
+- [ ] AC-3: The direct response test reaches the empty-`unique` branch through `_memory_propose_response_locked(..., mode="create", _historical_batch=True)` (the public `memory_propose` without `source_events` returns `selection_required` first) on the all-covered fixture, and asserts `records_remaining == 0`, `exhausted is True` and no record written. The empty-`unique` inference needs a page limit of at least 1; the test pins that precondition and the doc records it.
+- [ ] AC-4: A two-sided positive control: a wave with one uncovered draft and a limit that fits it reports `exhausted` True, and an overflow variant with more uncovered drafts than the limit reports `exhausted` False with a positive `records_remaining`, so a fix that blanket-sets the flag fails.
+- [ ] AC-5: The Requirement 4 census is recorded in the Progress Log.
+- [ ] AC-6: The suites `tests/test_memory_backfill.py` and the memory handler suites that exercise `memory_propose` pass, with every test this change adds; the documents this change authors or edits validate.
+
+## Tasks
+
+- [ ] Add the failing regression tests first (AC-1, AC-2, AC-3, AC-4) and record the observed failure.
+- [ ] Add `records_remaining` and `exhausted` to the empty create payload.
+- [ ] Run the Requirement 4 census over the create-reachable return paths and log it.
+- [ ] Add the `CHANGELOG.md` Unreleased bullet, stating the old-code-window behavior from Serialization Points.
+- [ ] Run the memory suites and validate docs.
+
+## Agent Execution Graph
+
+
+| Workstream | Owner | Depends On | Notes |
+| ---------- | ----- | ---------- | ----- |
+| regression-tests | implementer | none | All-covered fixture; fails before the fix |
+| payload-fix | implementer | regression-tests | One return payload |
+| census | guru | none | Read-only; create-reachable return paths |
+
+
+## Serialization Points
+
+Windows (native), macOS, Linux and WSL2 behavior: pure Python control flow over already-loaded records, with no filesystem, newline or process behavior involved, so it is identical on every platform.
+
+Sequencing: waves `20b39`, `20b3a` and `20b3b` are already closed, so this change needs its own new wave; it touches neither `upgrade_wavefoundry.py` nor `upgrade_extensions.py` and adds no ordering constraint on other waves.
+
+Old-code window: the upgrade runner's memory step (Phase 3) imports `server_impl` after extraction, so a runner that reaches that phase loads the pack's fixed `memory_handlers.py` on the same upgrade that ships it. A consumer already stopped at the historical-memory action-required pause on an older install needs the next upgrade to a release carrying the fix; a local patch there is discarded when extraction overwrites the file.
+
+The CHANGELOG bullet is a root-level file and so is declared in prose rather than as a review target: `CHANGELOG.md` gets one Unreleased bullet.
+
+**Review targets (repo-relative paths):**
+
+- `.wavefoundry/framework/scripts/wf_server/memory_handlers.py`
+- `.wavefoundry/framework/scripts/tests/test_memory_backfill.py`
+
+## Affected Architecture Docs
+
+N/A: one return payload in one handler with no boundary or flow change. `docs/specs/mcp-tool-surface.md` documents no `exhausted` or `records_remaining` result shape for `memory_propose` or `memory_backfill` (checked by a read-only review), so no spec edit is needed; the sibling code paths already set the fields.
+
+## AC Priority
+
+
+| AC | Priority | Rationale |
+| -- | -------- | --------- |
+| AC-1 | required | The reported non-completion |
+| AC-2 | required | Proves the loop actually ends |
+| AC-3 | important | Pins the response contract directly |
+| AC-4 | important | Guards against blanket-setting the flag |
+| AC-5 | important | Bounds other omissions on the same function |
+| AC-6 | required | Change-local test and doc validity |
+
+
+## Progress Log
+
+
+| Date | Update | Evidence |
+| ---- | ------ | -------- |
+| 2026-10-11 | Planned from a consumer-repository upgrade report; the reporter's diagnosis and proposed payload fix were confirmed against HEAD by reading the code, not by running it | Read-only review of `memory_handlers.py` |
+| 2026-10-11 | Product Intent: waived (bug fix, no product scope; default applied by the planning agent, not yet confirmed by the operator) | Planning |
+
+
+## Decision Log
+
+
+| Date | Decision | Reason | Alternatives |
+| ---- | -------- | ------ | ------------ |
+| 2026-10-11 | Set the flag at the empty create return | Matches the sibling return shapes and is provably correct there (empty `unique` implies zero eligible) | A: treat a missing `exhausted` as true in the batch consumer (weakness: hides future payload omissions and changes a shared consumer). B: also add a repeated-claim loop guard (weakness: separate failure class, larger change; left as a follow-up). C (selected): fix the producer |
+
+
+## Risks
+
+
+| Risk | Mitigation |
+| ---- | ---------- |
+| Another create-reachable return path also omits the flag | Requirement 4 census and AC-5 |
+| The flag is set where eligible sources remain | The empty branch implies `eligible_count == 0`; AC-4 is the positive control |
+| The reporter's repository hit a different branch | The Rationale marks that as unverified; AC-1 reproduces the described state independently |
+
+
+## Session Handoff
+
+See `docs/agents/session-handoff.md` for current session state.

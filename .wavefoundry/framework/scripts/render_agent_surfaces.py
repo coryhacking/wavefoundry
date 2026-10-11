@@ -2530,7 +2530,7 @@ def _read_move_source(repo_root: Path, rel: str) -> "tuple[bytes, int]":
     return data, mode
 
 
-def _read_move_source_identity(repo_root: Path, rel: str) -> "tuple[bytes, int, Path, tuple[int, int]]":
+def _read_move_source_identity(repo_root: Path, rel: str, *, max_bytes: int = contained_files.DEFAULT_MAX_BYTES) -> "tuple[bytes, int, Path, tuple[int, int]]":
     """``(bytes, permission bits)`` of a prompt-move source (wave 200ey, change
     1zyv2): read through the contained read, never through a path resolved in
     an earlier step. The source must still be the regular file (not a link)
@@ -2546,7 +2546,7 @@ def _read_move_source_identity(repo_root: Path, rel: str) -> "tuple[bytes, int, 
     try:
         judged_source, judged_identity = contained_files.judge_contained_file(repo_root, lexical)
         data, opened, resolved = contained_files.read_contained_identity(
-            repo_root, lexical, max_bytes=contained_files.DEFAULT_MAX_BYTES
+            repo_root, lexical, max_bytes=max_bytes
         )
     except contained_files.ContainedFileRefused as exc:
         raise contained_files.ContainedFileRefused(f"{_display_name(rel)} {exc.cause}") from None
@@ -2655,11 +2655,11 @@ _MARKDOWN_LINK_TARGET_RE = re.compile(r"\]\(\s*<?([^)\s>]+)>?(?:\s+[^)]*)?\)")
 
 @dataclass(frozen=True)
 class ChangePromptMigration:
-    """Result of :func:`migrate_change_prompt_renames`.
+    """Result of the existing prompt and document migrations.
 
     ``written`` lists every repo-relative path written or removed; ``link_report``
-    lists ``file:line`` locations of markdown links that still target a moved
-    prompt (reported, never rewritten).
+    contains remaining/manual-repair diagnostics, or planned moves and exact
+    link edits for a read-only document preview. Prompt links remain report-only.
     """
 
     written: "tuple[str, ...]"
@@ -3305,21 +3305,94 @@ def _role_link_replacement(raw: str, doc_rel: str, pairs) -> "str | None":
     return "/".join(raw_parts) + raw[len(path_part):]
 
 
-def _council_role_link_plan(repo_root: Path, pairs):
+_MIGRATION_MAX_ENTRIES = 50_000
+_MIGRATION_MAX_DOCS = 20_000
+_MIGRATION_MAX_DOC_BYTES = 8 * 1024 * 1024
+_MIGRATION_MAX_TOTAL_BYTES = 256 * 1024 * 1024
+
+
+def _migration_limit(kind):
+    raise RuntimeError(f"document link repair refused: {kind} limit exceeded; "
+                       "no plan writes or moves occurred; reduce the current-doc scope and retry")
+
+
+def _migration_current_docs(repo_root, roots, reports):
+    """Stream a bounded no-follow metadata walk, pruning history/record roots."""
+    pending = [repo_root / "docs"]
+    entries = documents = 0
+    while pending:
+        directory = pending.pop()
+        rel = directory.relative_to(repo_root).as_posix()
+        descriptor = None
+        try:
+            descriptor = contained_files.open_contained_dir(repo_root.resolve(), tuple(rel.split("/")))
+            with os.scandir(descriptor if descriptor is not None else directory) as children:
+                for entry in children:
+                    entries += 1
+                    if entries > _MIGRATION_MAX_ENTRIES:
+                        _migration_limit("entry-count")
+                    path = directory / entry.name
+                    if not _role_link_current_doc(repo_root, path, roots):
+                        continue
+                    try:
+                        metadata = entry.stat(follow_symlinks=False)
+                        if contained_files._is_link_entry(path, metadata):
+                            raise contained_files.ContainedFileRefused(contained_files.CAUSE_LINK_COMPONENT)
+                        if stat.S_ISDIR(metadata.st_mode):
+                            pending.append(path)
+                        elif path.suffix == ".md":
+                            documents += 1
+                            if documents > _MIGRATION_MAX_DOCS:
+                                _migration_limit("document-count")
+                            yield path, metadata
+                    except OSError as exc:
+                        reports.append(f"{_display_name(path.relative_to(repo_root).as_posix())}: "
+                                       f"link repair skipped ({_failure_class(exc)}); preserved; restore access and retry")
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            reports.append(f"{_display_name(rel)}: link repair skipped ({_failure_class(exc)}); "
+                           "preserved; restore a readable unlinked directory and retry")
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+
+
+def _council_role_link_plan(repo_root: Path, pairs, *, move_destinations=None):
+    if not pairs:
+        return [], []
     roots = record_paths.load_record_roots(repo_root)
     edits, reports = [], []
-    docs = repo_root / "docs"
-    if not docs.exists():
-        return edits, reports
-    for path in sorted(docs.rglob("*.md")):
-        if not _role_link_current_doc(repo_root, path, roots):
-            continue
+    moved = dict(pairs) if move_destinations is None else dict(move_destinations)
+    total = 0
+    for path, metadata in _migration_current_docs(repo_root, roots, reports):
         rel = path.relative_to(repo_root).as_posix()
+        if metadata.st_size > _MIGRATION_MAX_DOC_BYTES:
+            reports.append(f"{_display_name(rel)}: link repair skipped (per-file byte limit); preserved; reduce file size and retry")
+            continue
+        remaining = _MIGRATION_MAX_TOTAL_BYTES - total
+        if metadata.st_size > remaining:
+            _migration_limit("aggregate-byte")
+        returned = False
+        read_cap = min(_MIGRATION_MAX_DOC_BYTES, remaining)
         try:
-            data, mode = _read_move_source(repo_root, rel)
+            data, mode, _judged, _identity = _read_move_source_identity(
+                repo_root, rel, max_bytes=read_cap)
+            returned = True
+            total += len(data)
             text = data.decode("utf-8")
         except (OSError, UnicodeDecodeError) as exc:
-            raise RuntimeError(f"council role link repair refused: {_display_name(rel)} ({_failure_class(exc)}); restore a contained readable regular document and rerun") from None
+            # A refused read may have consumed its whole cap before raising.
+            # Charge that unobservable work conservatively, including its one
+            # excess-detection byte; repeated skips cannot reset the budget.
+            if not returned:
+                total += read_cap + 1
+                if total > _MIGRATION_MAX_TOTAL_BYTES:
+                    _migration_limit("aggregate-byte")
+            if getattr(exc, "cause", None) == contained_files.CAUSE_SIZE and remaining < _MIGRATION_MAX_DOC_BYTES:
+                _migration_limit("aggregate-byte")
+            reports.append(f"{_display_name(rel)}: link repair skipped ({_failure_class(exc)}); preserved; restore a contained readable document and retry")
+            continue
         reference_starts = set()
         masked = _role_link_mask_code(text, reference_starts)
         replacements = []
@@ -3331,8 +3404,10 @@ def _council_role_link_plan(repo_root: Path, pairs):
         for start, end, new in reversed(replacements):
             rewritten = rewritten[:start] + new + rewritten[end:]
         if replacements:
-            edits.append((dict(pairs).get(rel, rel), rewritten.encode("utf-8"), mode))
-            reports.extend(f"{rel}:{text.count(chr(10), 0, start) + 1}: would repair council role link" for start, _end, _new in replacements)
+            edits.append((moved.get(rel, rel), rewritten.encode("utf-8"), mode))
+            for start, end, _new in replacements:
+                kind = "lifecycle document" if _role_link_replacement(text[start:end], rel, LIFECYCLE_DOCUMENT_RENAMES) is not None else "council role"
+                reports.append(f"{rel}:{text.count(chr(10), 0, start) + 1}: would repair {kind} link")
         # Visible legacy destinations not covered by supported spans remain
         # actionable, including ambiguous image/reference definitions.
         covered = [(start, end) for start, end, _ in replacements]
@@ -3363,10 +3438,10 @@ def _council_role_link_plan(repo_root: Path, pairs):
 def _confirmed_council_role_pairs(repo_root: Path):
     pairs = []
     for old, new in COUNCIL_ROLE_RENAMES:
-        if (repo_root / old).exists() or (repo_root / old).is_symlink():
+        if _migration_entry_exists(repo_root, old):
             pairs.append((old, new))
             continue
-        if not ((repo_root / new).exists() or (repo_root / new).is_symlink()):
+        if not _migration_entry_exists(repo_root, new):
             continue
         data, _mode = _read_move_source(repo_root, new)
         text = data.decode("utf-8")
@@ -3384,7 +3459,37 @@ def _confirmed_council_role_pairs(repo_root: Path):
     return pairs
 
 
-def migrate_council_role_renames(repo_root: Path, *, apply: bool = True) -> ChangePromptMigration:
+def _migration_entry_exists(repo_root, rel):
+    try:
+        os.lstat(repo_root / rel)
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise RuntimeError(f"document migration blocked: {_display_name(rel)} cannot be inspected "
+                           f"({type(exc).__name__}); preserved; restore access and retry") from None
+    return True
+
+
+def _preflight_document_pairs(repo_root, candidates, label):
+    for old, new in candidates:
+        _migration_entry_exists(repo_root, old)
+        _migration_entry_exists(repo_root, new)
+    conflicts = [conflict for old, new in candidates
+                 if (conflict := _change_prompt_pair_conflict(repo_root, old, new, "file")) is not None]
+    if conflicts:
+        raise RuntimeError(f"{label} migration blocked: " + "; ".join(conflicts) +
+                           ". All files were preserved and nothing was written. Merge project-authored prose, remove the old conflict and retry.")
+    for old, _new in candidates:
+        if _migration_entry_exists(repo_root, old):
+            try:
+                _read_move_source_identity(repo_root, old)
+            except OSError as exc:
+                raise RuntimeError(f"{label} migration blocked: {_display_name(old)} could not be read; "
+                                   f"it was preserved ({_failure_class(exc)}); restore access and retry") from None
+
+
+def migrate_council_role_renames(repo_root: Path, *, apply: bool = True,
+                                _plan=None) -> ChangePromptMigration:
     """Move the council role doc and native wrappers to the ``council-chair`` names.
 
     Every pair is preflighted before any write: when any pair conflicts (both
@@ -3399,22 +3504,12 @@ def migrate_council_role_renames(repo_root: Path, *, apply: bool = True) -> Chan
     or some link edits complete, and retry repairs the remainder.
     """
 
-    conflicts = [
-        conflict
-        for old_rel, new_rel in COUNCIL_ROLE_RENAMES
-        if (conflict := _change_prompt_pair_conflict(repo_root, old_rel, new_rel, "file")) is not None
-    ]
-    if conflicts:
-        raise RuntimeError(
-            "council role migration blocked: "
-            + "; ".join(conflicts)
-            + ". All files were preserved and nothing was written. Merge any "
-            "project-authored prose from each old file into its new file, remove "
-            "the old file, and rerun the upgrade."
-        )
-
-    pairs = _confirmed_council_role_pairs(repo_root)
-    edits, reports = _council_role_link_plan(repo_root, pairs)
+    if _plan is None:
+        _preflight_document_pairs(repo_root, COUNCIL_ROLE_RENAMES, "council role")
+        pairs = _confirmed_council_role_pairs(repo_root)
+        edits, reports = _council_role_link_plan(repo_root, pairs)
+    else:
+        pairs, edits, reports = _plan
     if not apply:
         moves = [f"would move {old} -> {new}" for old, new in pairs if (repo_root / old).exists()]
         return ChangePromptMigration((), tuple(moves + reports))
@@ -3458,7 +3553,7 @@ def migrate_council_role_renames(repo_root: Path, *, apply: bool = True) -> Chan
         try:
             _write_review_carrier_text(repo_root / rel, data, mode=mode, root=repo_root)
         except (OSError, RuntimeError) as exc:
-            raise RuntimeError(f"council role link repair stopped at {_display_name(rel)} ({_failure_class(exc)}); earlier moves or edits may be complete; restore access and rerun") from None
+            raise RuntimeError(f"council role link repair stopped at {_display_name(rel)} ({_failure_class(exc)}); earlier role moves or edits may be complete; legacy lifecycle sources preserved; restore access and rerun") from None
         written.append(rel)
     remaining = tuple(line for line in reports if ": would repair " not in line)
     return ChangePromptMigration(written=tuple(written), link_report=remaining)
@@ -3472,33 +3567,72 @@ LIFECYCLE_DOCUMENT_RENAMES: "tuple[tuple[str, str], ...]" = (
 )
 
 
-def migrate_lifecycle_document_renames(repo_root: Path) -> ChangePromptMigration:
+def _confirmed_lifecycle_document_pairs(repo_root):
+    pairs, reports = [], []
+    for old, new in LIFECYCLE_DOCUMENT_RENAMES:
+        if _migration_entry_exists(repo_root, old):
+            pairs.append((old, new))
+            continue
+        if not _migration_entry_exists(repo_root, new):
+            continue
+        # Only the registered managed region is existing migration authority.
+        # An unmarked guide/name/title never grants a new-only repair license.
+        if (new not in REVIEW_POLICY_SURFACE_BLOCKS
+                or not any(carrier.destination == new and carrier.owner == "renderer"
+                           for carrier in REVIEW_POLICY_CARRIER_REGISTRY)):
+            reports.append(f"{new}: new-only lifecycle target is unconfirmed; manually repair remaining legacy links")
+            continue
+        try:
+                text = _read_move_source(repo_root, new)[0].decode("utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise RuntimeError(f"lifecycle document migration blocked: {_display_name(new)} cannot confirm its registered region "
+                               f"({_failure_class(exc)}); preserved; restore access and retry") from None
+        begin, end = REVIEW_POLICY_SURFACE_MARKER_BEGIN, REVIEW_POLICY_SURFACE_MARKER_END
+        valid = (text.count(begin) == text.count(end) == 1 and text.index(begin) < text.index(end))
+        if valid:
+            body = text[text.index(begin) + len(begin):text.index(end)]
+            normalize = lambda value: value.replace("\r\n", "\n").replace("\r", "\n").strip()
+            valid = normalize(body) == normalize(REVIEW_POLICY_SURFACE_BLOCKS[new])
+        if valid:
+            pairs.append((old, new))
+        else:
+            reports.append(f"{new}: new-only lifecycle target lacks one matching registered region; manually repair remaining legacy links")
+    return pairs, reports
+
+
+def migrate_lifecycle_document_renames(repo_root: Path, *, apply: bool = True,
+                                      _plan=None) -> ChangePromptMigration:
     """Move the two project lifecycle guides to their change-neutral names.
 
-    Every pair is preflighted before any write: when any pair conflicts (both
-    paths exist, or the old path is a symlink, not a regular file, or resolves
-    outside the repository) one error names every conflicting pair and nothing
-    is written. Otherwise each present old file is copied byte-for-byte to its
-    new path through the exclusive publish (permission bits kept) and then
-    removed. A second migration
-    finds nothing to move and writes nothing.
+    Preflight every pair and its readable source before mutation. Plan exact
+    current-doc links, apply them at old paths, then exclusively publish the
+    source's fresh bytes/mode before identity-bound removal. A planned edit
+    failure retains old sources for retry. New-only targets grant link-repair
+    authority only through the existing registered region, never their title.
+    Preview plans the same moves/edits without writing. Per-file skips/manual
+    repairs remain diagnostics; aggregate limits refuse before plan mutation.
     """
 
-    conflicts = [
-        conflict
-        for old_rel, new_rel in LIFECYCLE_DOCUMENT_RENAMES
-        if (conflict := _change_prompt_pair_conflict(repo_root, old_rel, new_rel, "file")) is not None
-    ]
-    if conflicts:
-        raise RuntimeError(
-            "lifecycle document migration blocked: "
-            + "; ".join(conflicts)
-            + ". This document migration preserved all files and wrote nothing. Merge any "
-            "project-authored prose from each old file into its new file, remove "
-            "the old file, and rerun the upgrade."
-        )
-
+    if _plan is None:
+        _preflight_document_pairs(repo_root, LIFECYCLE_DOCUMENT_RENAMES, "lifecycle document")
+        pairs, diagnostics = _confirmed_lifecycle_document_pairs(repo_root)
+        edits, reports = _council_role_link_plan(repo_root, pairs, move_destinations=())
+        reports.extend(diagnostics)
+    else:
+        pairs, edits, reports = _plan
+    if not apply:
+        moves = [f"would move {old} -> {new}" for old, new in pairs if os.path.lexists(repo_root / old)]
+        return ChangePromptMigration((), tuple(moves + reports))
     written: list[str] = []
+    # A failed planned edit leaves legacy lifecycle sources as retry authority.
+    for rel, data, mode in edits:
+        try:
+            _write_review_carrier_text(
+                repo_root / rel, data, mode=mode, root=repo_root)
+        except (OSError, RuntimeError) as exc:
+            raise RuntimeError(f"lifecycle document link repair stopped at {_display_name(rel)} ({_failure_class(exc)}); "
+                               "legacy sources preserved; earlier edits may be complete; restore access and retry") from None
+        written.append(rel)
     for old_rel, new_rel in LIFECYCLE_DOCUMENT_RENAMES:
         old_lexical = repo_root / old_rel
         if not (old_lexical.exists() or old_lexical.is_symlink()):
@@ -3527,9 +3661,26 @@ def migrate_lifecycle_document_renames(repo_root: Path) -> ChangePromptMigration
             ) from exc
         written.extend([old_rel, new_rel])
 
-    moved = tuple(old_rel for old_rel, _new_rel in LIFECYCLE_DOCUMENT_RENAMES if old_rel in written)
-    link_report = _moved_prompt_link_report(repo_root, moved) if moved else ()
-    return ChangePromptMigration(written=tuple(written), link_report=link_report)
+    return ChangePromptMigration(written=tuple(written),
+                                 link_report=tuple(line for line in reports if ": would repair " not in line))
+
+
+def migrate_role_and_lifecycle_documents(repo_root: Path, *, apply: bool = True) -> ChangePromptMigration:
+    """One bounded exact-link plan for the two existing document migrations."""
+    _preflight_document_pairs(repo_root, COUNCIL_ROLE_RENAMES, "council role")
+    _preflight_document_pairs(repo_root, LIFECYCLE_DOCUMENT_RENAMES, "lifecycle document")
+    roles = _confirmed_council_role_pairs(repo_root)
+    lifecycle, diagnostics = _confirmed_lifecycle_document_pairs(repo_root)
+    edits, reports = _council_role_link_plan(repo_root, roles + lifecycle, move_destinations=roles)
+    reports.extend(diagnostics)
+    if not apply:
+        moves = [f"would move {old} -> {new}" for old, new in roles + lifecycle if os.path.lexists(repo_root / old)]
+        return ChangePromptMigration((), tuple(moves + reports))
+    # Role retry authority survives its move; lifecycle authority must survive
+    # every planned edit, including edits inside its own old-path source.
+    role_result = migrate_council_role_renames(repo_root, _plan=(roles, edits, reports))
+    lifecycle_result = migrate_lifecycle_document_renames(repo_root, _plan=(lifecycle, [], []))
+    return ChangePromptMigration(role_result.written + lifecycle_result.written, role_result.link_report)
 
 
 
@@ -4632,23 +4783,12 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     # Wave 200ey (change 200ew): the council role doc and native wrappers move
     # to the ``council-chair`` names before the review-protocol pass reconciles
     # (or would otherwise create) them.
-    council_migration = migrate_council_role_renames(repo_root)
-    migration_written = [*migration_written, *council_migration.written]
-    for location in council_migration.link_report:
-        print(
-            "render_agent_surfaces: NOTICE - markdown link targets the moved council role doc "
-            f"(review the unchanged destination, then rerun the docs gate): {_display_name(location)}",
-            file=sys.stderr,
-        )
-    # Migrate project guides before managed policy regions use the new paths.
-    document_migration = migrate_lifecycle_document_renames(repo_root)
+    document_migration = migrate_role_and_lifecycle_documents(repo_root)
     migration_written = [*migration_written, *document_migration.written]
     for location in document_migration.link_report:
-        print(
-            "render_agent_surfaces: NOTICE - markdown link targets a moved lifecycle document "
-            f"(review its target; historical content is preserved): {_display_name(location)}",
-            file=sys.stderr,
-        )
+        print("render_agent_surfaces: NOTICE - markdown link targets the moved council role doc or lifecycle document; document migration incomplete or diagnostic: "
+              + _display_name(location) + "; review preserved paths and retry the docs gate",
+              file=sys.stderr)
     profile_migration = migrate_profile_prompt_names(repo_root)
     migration_written = [*migration_written, *profile_migration.written]
     for location in profile_migration.link_report:

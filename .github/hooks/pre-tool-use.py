@@ -455,8 +455,22 @@ def block_uninspectable(reason: str, keys: str) -> int:
     )
     return 2
 
+def report_unknown_tool(name: str, has_paths: bool = False) -> None:
+    label = json.dumps(name[:80], ensure_ascii=True)
+    if len(name) > 80:
+        label += "..."
+    coverage = ("Supported explicit paths were inspected; edit coverage is uncertain."
+                if has_paths else
+                "No supported explicit path was found; edit coverage could not be established.")
+    print(
+        f"COMPATIBILITY: unfamiliar tool {label}. {coverage} "
+        "After a successful edit, run the existing integrity-boundary validation and refresh.",
+        file=sys.stderr,
+    )
+
 
 COPILOT_EDIT_TOOL_NAMES = ('create', 'edit', 'write', 'str_replace_editor', 'str_replace_based_edit_tool', 'create_file', 'createFile', 'writeFile', 'insert_edit_into_file', 'replace_string_in_file', 'multi_replace_string_in_file', 'editFiles', 'edit_notebook_file', 'apply_patch')
+COPILOT_NON_EDIT_TOOL_NAMES = ('view', 'bash', 'powershell', 'read_file', 'run_in_terminal')
 COPILOT_TEXT_EDITOR_TOOL_NAMES = ('str_replace_editor', 'str_replace_based_edit_tool')
 COPILOT_TEXT_EDITOR_READ_COMMANDS = ('view',)
 COPILOT_PATCH_TOOL_NAMES = ('apply_patch',)
@@ -547,34 +561,40 @@ def copilot_edit_paths(payload: dict[str, object]) -> list[str]:
             value = item.get("filePath") if isinstance(item, dict) else None
             if isinstance(value, str) and value:
                 paths.append(value)
-    fallback = detect_file_path(payload)
-    if fallback and fallback not in paths:
-        paths.append(fallback)
+    for key in FILE_PATH_KEYS:
+        fallback = get_nested(payload, *key)
+        if fallback and fallback not in paths:
+            paths.append(fallback)
     return paths
 
 
-def copilot_is_edit(payload: dict[str, object]) -> bool:
-    # An edit tool, or a payload that does not say which tool. Shell and read tools are never gated.
+def copilot_tool_classification(payload: dict[str, object]) -> str:
     name = copilot_tool_name(payload)
     if not name:
-        return True
+        return "edit"  # Absent/malformed identity retains strict path requirements.
+    if name in COPILOT_NON_EDIT_TOOL_NAMES:
+        return "non_edit"
     if name not in COPILOT_EDIT_TOOL_NAMES:
-        return False
+        return "unknown"
     if name in COPILOT_TEXT_EDITOR_TOOL_NAMES:
-        # A text-editor read is not an edit; every other command, or none, is (fail closed).
         command = copilot_tool_args(payload).get("command")
         if isinstance(command, str) and command in COPILOT_TEXT_EDITOR_READ_COMMANDS:
-            return False
-    return True
+            return "non_edit"
+    return "edit"  # Missing or unfamiliar text-editor commands remain edits.
 
 
 def main() -> int:
     payload, problem = load_payload_strict(read_payload_text())
     if payload is None:
         return block_uninspectable(problem, COPILOT_PATH_KEYS)
-    if not copilot_is_edit(payload):
+    classification = copilot_tool_classification(payload)
+    if classification == "non_edit":
         return 0
     paths = copilot_edit_paths(payload)
+    if classification == "unknown":
+        report_unknown_tool(copilot_tool_name(payload), bool(paths))
+        if not paths:
+            return 0
     if not paths:
         if copilot_tool_name(payload) in COPILOT_PATCH_TOOL_NAMES:
             return block_uninspectable("no patch file header was found", COPILOT_PATH_KEYS)

@@ -23,9 +23,9 @@ def load_inventory(path: Path = INVENTORY) -> tuple[str, ...]:
     if not isinstance(paths, list) or any(not isinstance(rel, str) or not rel
             or Path(rel).is_absolute() or ".." in Path(rel).parts for rel in paths):
         raise ValueError("invalid framework text ownership paths")
-    if paths != sorted(set(paths)):
-        raise ValueError("framework text ownership paths must be sorted and unique")
-    return tuple(paths)
+    if len(paths) != len(set(paths)):
+        raise ValueError("framework text ownership paths must be unique")
+    return tuple(sorted(paths))
 
 
 def upstream_inventory(framework: Path, includes=()) -> tuple[str, ...]:

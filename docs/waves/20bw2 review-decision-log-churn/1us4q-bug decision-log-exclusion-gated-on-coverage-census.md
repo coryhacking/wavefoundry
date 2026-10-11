@@ -1,10 +1,10 @@
 # Route implementation narration without weakening review authority
 
 Change ID: `1us4q-bug decision-log-exclusion-gated-on-coverage-census`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-10-10
+Status: active
+Last verified: 2026-10-11
 Wave: `20bw2 review-decision-log-churn`
 
 ## Rationale
@@ -34,18 +34,18 @@ Current code still hashes Decision Log text, while canonical Progress Log narrat
 
 ## Acceptance Criteria
 
-- [ ] AC-1: Canonical seed and managed implementation/review guidance distinguish routine narration from weighed/material decisions and name owning-section amendment plus re-Prepare obligations, with paired examples that do not weaken the existing narrate-not-amend rule.
-- [ ] AC-2: Actual policy fixture outcomes show routine Progress Log observations preserve receipt inputs/selected lanes/council decisions, Decision Log edits remain digested, and material owning-section changes rotate inputs and retain affected review/council recruitment. Both declared and legacy undeclared targets are exercised, including ambiguous headings; assertions can distinguish a broken producer or misleading routing claim.
-- [ ] AC-3: Real carrier reconciliation updates an existing shipped scratch baseline, preserves customization outside managed regions, validates the resulting carriers and is byte-idempotent on the second run under the existing profile-aware keys.
-- [ ] AC-4: No canonicalizer/evaluator algorithm or version, new gate, source qualification during upgrade, historical record or memory-input contract changes; targeted source/differential checks establish the protected boundaries and scratch reopen does not require history edits.
-- [ ] AC-5: This change's own tests and every test it adds pass; authored/edited documents validate; current architecture/developer guidance reports the narrower benefit and semantic-detection limitation accurately.
+- [x] AC-1: Canonical seed and managed implementation/review guidance distinguish routine narration from weighed/material decisions and name owning-section amendment plus re-Prepare obligations, with paired examples that do not weaken the existing narrate-not-amend rule.
+- [x] AC-2: Actual policy fixture outcomes show routine Progress Log observations preserve receipt inputs/selected lanes/council decisions, Decision Log edits remain digested, and material owning-section changes rotate inputs and retain affected review/council recruitment. Both declared and legacy undeclared targets are exercised, including ambiguous headings; assertions can distinguish a broken producer or misleading routing claim.
+- [x] AC-3: Real carrier reconciliation updates an existing shipped scratch baseline, preserves customization outside managed regions, validates the resulting carriers and is byte-idempotent on the second run under the existing profile-aware keys.
+- [x] AC-4: No canonicalizer/evaluator algorithm or version, new gate, source qualification during upgrade, historical record or memory-input contract changes; targeted source/differential checks establish the protected boundaries and scratch reopen does not require history edits.
+- [x] AC-5: This change's own tests and every test it adds pass; authored/edited documents validate; current architecture/developer guidance reports the narrower benefit and semantic-detection limitation accurately.
 
 ## Tasks
 
-- [ ] Update seed and existing managed prose, then regenerate only directly affected carriers.
-- [ ] Add focused producer/routing and real carrier/idempotence coverage with meaningful negative controls.
-- [ ] Verify protected algorithms, historical bytes and profile-compatible carrier behavior.
-- [ ] Update architecture/contributing explanations and consolidate delivery evidence in wave.md.
+- [x] Update seed and existing managed prose, then regenerate only directly affected carriers.
+- [x] Add focused producer/routing and real carrier/idempotence coverage with meaningful negative controls.
+- [x] Verify protected algorithms, historical bytes and profile-compatible carrier behavior.
+- [x] Update architecture/contributing explanations and consolidate delivery evidence in wave.md.
 
 ## Agent Execution Graph
 
@@ -87,8 +87,17 @@ Current code still hashes Decision Log text, while canonical Progress Log narrat
 
 | Date | Update | Evidence |
 | --- | --- | --- |
+| 2026-10-11 | Readback: route ordinary implementation observations to canonical Progress Log/existing handoff; keep weighed/material choices in Decision Log and amend owning digested sections before or with narration, with existing re-Prepare rules. Example: reran tests on Windows stays narration; changed release/approval authority updates Requirements and intentionally rotates readiness. AC-1–5; seed180, managed implementation/review prose, two prompts, focused tests and two explanatory docs only. MCP-first reads and pre-implementation memory briefing consumed. | Activated/readied 20bw2; evaluator/canonicalizer/version/history remain protected. |
 | 2026-10-10 | Replanned at operator request. Current actual four-case producer probe: base/progress digest b9d81548 equal, routine Decision Log f34fc06a differs and adds cross_platform_changed, owning material requirement 520217a4 differs and adds release/failure triggers. Declared code-review roster stays intact. No source/seed edit, future behavior or full semantic recall claimed. | Temporary /private/tmp/wf-next-waves-pack/churn-baseline.json; exact actual helpers named in Rationale; reviewers will independently replay. |
 | 2026-10-10 | Divergent pre-plan and optional Review plan: selected phase-aware authoring with owning-section rule and existing managed refresh. Whole-log exclusion loses coverage; keyword guard false-fails narration and misses semantics; new structured decision subsystem adds unjustified migration/retention overhead. All current requirement/scope branches self-answered from current policy and August disproof. Stop condition: independent readiness, then no implementation until explicitly requested. | Seed180 narrate-not-amend and participant bullet; gardener_metadata.canonical_review_policy_body; review_policy source. |
+
+
+| 2026-10-11 | Observe: seed180 participant state-leaving instruction now routes routine narration to canonical Progress Log/existing handoff and material choices to Decision Log, requiring owning-section amendment and existing re-Prepare rules. Existing managed implementation/review regions carry paired examples and semantic-detection limitation. Only the two directly affected prompts regenerated; second production renderer pass returned no writes. | AC-1/3; REVIEW_POLICY_SURFACE_BLOCKS; reconcile_review_policy_surfaces; ImplementationNarrationGuidanceTests. |
+| 2026-10-11 | Observe: actual digest, lane and Council producers distinguish ordinary platform narration in Progress/Decision logs, material authority/target amendments, unsupported/duplicate headings and hidden-only material narration. Focused policy suite 115/115 and shipped-reference suite 28/28 pass; four new producer/carrier tests also pass after apply_profile(second) in a copied tree. Five faithful controls fail by assertion: remove progress exclusion, add whole Decision Log exclusion using existing normalizer, empty Council producer, omit release lane, no-op carrier renderer. The original contradictory participant instruction and prior managed blocks fail new source/carrier expectations before repair. | AC-2/3/5; ImplementationNarrationRoutingTests (platform observation, material amendment, ambiguous headings, shipped carrier refresh); temporary /private/tmp/wf-20bw2-controls.py. |
+| 2026-10-11 | Observe: protected review_policy module AST matches pre-edit except REVIEW_POLICY_SURFACE_BLOCKS; gardener_metadata bytes and evaluator version unchanged. Preserved August history in this document remains byte-identical to HEAD. Production scratch reconciliation retains historical member bytes; root independently invoked actual wf_reopen_wave_response on a closed scratch legacy wave, transitioned it active and preserved its historical member byte-identically (SHA256 b341fad7c5e5b1650382170e9e68d9b1567a382f6995e5087be37fb9fe7b5c22); requested refresh touched wave.md only. | AC-4; policy_input_snapshot/select_required_review_lanes/extract_full_council_triggers unchanged; root actual-handler scratch control; no live history/index mutation. |
+| 2026-10-11 | Delivery handoff: source frozen after focused checks; full wf_validate_docs passed with no errors/warnings. Architecture/developer explanations state intentional material receipt rotation, existing managed consumer refresh and no automatic semantic-amendment detection. Full canonical qualification and independent required lanes remain coordinator-owned; no approval, closure, commit, push or release claimed. Temporary captures/baselines stay outside repo. | AC-5; docs/architecture/data-and-control-flow.md; docs/contributing/change-workflow.md; reviewed files named in Serialization Points. |
+
+| 2026-10-11 | Final boundary validation: own authored/edited documents have no lint errors. Earlier full wf_validate_docs passed; repeated full validation after final bookkeeping is blocked only by concurrently created unrelated 20d90/20d91/20d92 wave.md Watchpoints lacking required watchpoint/block/follow-up language. AC-5 remains change-local; no unrelated file was edited. Coordinator notified of exact external remedy. | Full wf_validate_docs structured errors contain only those three external wave records; no attributable failure. |
 
 ### Preserved failed-attempt history
 

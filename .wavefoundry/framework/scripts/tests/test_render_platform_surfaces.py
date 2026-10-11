@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import io
 import os
@@ -1611,6 +1612,120 @@ class RenderedEditHookPathTests(unittest.TestCase):
             with self.subTest(tool_name=name):
                 self.assertEqual(self._run_raw(".claude/hooks/pre-edit.py", payload).returncode, 2)
 
+    # Wave 20cw2: exercise generated received-payload handlers, not live host interception.
+    def test_named_dispatcher_census_is_source_derived(self):
+        import ast
+        import inspect
+        named = set()
+        name_free = set()
+        for name, factory in vars(self.mod).items():
+            if not name.endswith("_source") or not callable(factory):
+                continue
+            if inspect.signature(factory).parameters:
+                continue
+            tree = ast.parse(factory())
+            fields = {node.value for node in ast.walk(tree)
+                      if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+            (named if fields & {"tool_name", "toolName"} else name_free).add(name)
+        self.assertEqual(named, {"claude_pre_edit_source", "copilot_pre_tool_use_source",
+                                 "copilot_post_tool_use_source"})
+        self.assertTrue({"claude_post_edit_source", "cursor_after_file_edit_source",
+                         "windsurf_seed_protect_source", "windsurf_docs_lint_source"} <= name_free)
+
+    def test_unknown_pre_tools_gate_all_supported_explicit_paths(self):
+        seed = self._seed()
+        framework = str(self.root / ".wavefoundry/framework/scripts/x.py")
+        ordinary = str(self.root / "src/app.py")
+        claude = ".claude/hooks/pre-edit.py"
+        copilot = ".github/hooks/pre-tool-use.py"
+        shapes = [(claude, {"tool_name": "fixture_future_edit", "tool_input": {"file_path": ordinary,
+                   "notebook_path": seed}, "path": framework})]
+        for key in ("path", "file_path", "filePath", "notebook_path", "files", "replacements"):
+            value = [ordinary, seed] if key == "files" else ([{"filePath": ordinary}, {"filePath": seed}]
+                    if key == "replacements" else seed)
+            shapes.append((copilot, {"toolName": "fixture_future_edit", "toolArgs": json.dumps({key: value})}))
+        for rel in (claude, copilot):
+            # Every existing fallback field is exercised independently as the protected endpoint.
+            for keys in (("tool_input", "file_path"), ("tool_input", "notebook_path"),
+                         ("tool_input", "path"), ("tool_info", "file_path"), ("file_path",), ("path",)):
+                payload = {"tool_name": "fixture_future_edit", "tool_input": {"file_path": ordinary}}
+                if len(keys) == 1:
+                    payload[keys[0]] = seed
+                else:
+                    payload.setdefault(keys[0], {})[keys[1]] = seed
+                shapes.append((rel, payload))
+            shapes.extend((rel, {"tool_name": "fixture_future_edit", "tool_input": {"file_path": ordinary},
+                                  "tool_info": {"file_path": path}}) for path in (seed, framework))
+        for rel, payload in shapes:
+            for gate, expected in ((False, 2), (True, 0)):
+                self._gates(seed=gate, framework=gate)
+                result = self._run_raw(rel, json.dumps(payload))
+                with self.subTest(hook=rel, payload=payload, gates=gate):
+                    self.assertEqual(result.returncode, expected, result.stderr)
+                    self.assertIn("COMPATIBILITY:", result.stderr)
+        self._gates(framework=True)
+        for rel in (claude, copilot):
+            for path, expected in ((seed, 2), (framework, 0), (ordinary, 0)):
+                result = self._run_raw(rel, json.dumps({"tool_name": "fixture_future_edit",
+                                                      "tool_input": {"path": path}}))
+                self.assertEqual(result.returncode, expected, result.stderr)
+
+    def test_unknown_no_path_reports_bounded_escaped_label_only(self):
+        label = 'fixture_future\n\r\x1b[31m\u202e' + "x" * 4000
+        for rel in (".claude/hooks/pre-edit.py", ".github/hooks/pre-tool-use.py",
+                    ".github/hooks/post-tool-use.py"):
+            payload = {"tool_name": label, "tool_input": {"command": "PRIVATE_ARGUMENT",
+                       "input": "*** Add File: PRIVATE_PATCH", "opaque": {"path": self._seed()}}}
+            result = self._run_raw(rel, json.dumps(payload))
+            with self.subTest(hook=rel):
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("edit coverage could not be established", result.stderr)
+                self.assertIn("\\n\\r\\u001b", result.stderr)
+                self.assertNotIn("\x1b", result.stderr)
+                self.assertNotIn("\u202e", result.stderr)
+                self.assertLess(len(result.stderr), 1400)
+                self.assertNotIn("PRIVATE_", result.stderr)
+                self.assertFalse(self._pending())
+
+        # Unfamiliar named calls are advisory; absent/malformed identity and known edits are strict.
+        for rel, key, edit in ((".claude/hooks/pre-edit.py", "tool_name", "Edit"),
+                               (".github/hooks/pre-tool-use.py", "toolName", "edit")):
+            for name in (None, "", 7, False, {}, edit):
+                payload = {key: name, "tool_input": {"content": "PRIVATE_ARGUMENT"}}
+                result = self._run_raw(rel, json.dumps(payload))
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("could not inspect", result.stderr)
+                self.assertNotIn("PRIVATE_ARGUMENT", result.stderr)
+            result = self._run_raw(rel, json.dumps({"tool_input": {}}))
+            self.assertEqual(result.returncode, 2, result.stderr)
+
+    def test_unknown_post_paths_never_launch_edit_feedback(self):
+        # The fixture docs-lint always fails and the indexer records a pending mark.
+        for name in ("fixture_future_edit", "mcp__fixture__read_file"):
+            result = self._run_raw(".github/hooks/post-tool-use.py", json.dumps({"toolName": name,
+                                  "toolArgs": {"path": str(self.root / "docs/guide.md")}}))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("COMPATIBILITY:", result.stderr)
+            self.assertNotIn("stub failure", result.stdout + result.stderr)
+            self.assertFalse(self._pending())
+
+    def test_evidenced_non_edit_names_preserve_no_feedback(self):
+        # Exact identities from primary host docs/source; never namespace or substring matching.
+        expected = {"claude": ("Read", "Bash"),
+                    "copilot": ("view", "bash", "powershell", "read_file", "run_in_terminal")}
+        for host, names in expected.items():
+            for name in names:
+                path = str(self.root / "docs/guide.md")
+                payload = {"tool_name": name, "tool_input": {"path": path, "file_path": path,
+                           "filePath": path, "command": "cat " + self._seed()}}
+                hooks = ([".claude/hooks/pre-edit.py"] if host == "claude" else
+                         [".github/hooks/pre-tool-use.py", ".github/hooks/post-tool-use.py"])
+                for rel in hooks:
+                    result = self._run_raw(rel, json.dumps(payload))
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stderr, "")
+                    self.assertFalse(self._pending())
+
     # Wave 1zyb3 (1zxny) -------------------------------------------------------------------------
 
     @staticmethod
@@ -2509,6 +2624,58 @@ class RenderGitattributesBlockTests(unittest.TestCase):
         for user_line in ("*.bin -text", "*.md diff=markdown", "# custom"):
             self.assertIn(user_line, text, f"user entry {user_line!r} must be preserved")
 
+    def test_malformed_docs_regions_leave_operator_bytes_and_mtime_untouched(self):
+        begin, end = self.mod._DOC_GITATTRIBUTES_BEGIN, self.mod._DOC_GITATTRIBUTES_END
+        launcher_begin, launcher_end = self.mod._GITATTRIBUTES_BEGIN, self.mod._GITATTRIBUTES_END
+        malformed = {
+            "unterminated": [begin, "docs/**/*.md text eol=lf"],
+            "unmatched-end": [end],
+            "nested-docs": [begin, begin, end],
+            "launcher-inside-docs": [begin, launcher_begin, launcher_end, end],
+            "docs-inside-launcher": [launcher_begin, begin, end, launcher_end],
+        }
+        for name, markers in malformed.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as d:
+                root = Path(d).resolve()
+                path = root / ".gitattributes"
+                original = ("\r\n".join([
+                    "# project café", *markers,
+                    "docs/operator.md text eol=crlf", "other.bin -text", "",
+                ])).encode("utf-8")
+                path.write_bytes(original)
+                before = self._age(path)
+                mode = path.stat().st_mode
+                for _ in range(2):
+                    with self.assertRaisesRegex(RuntimeError, "malformed managed docs line-endings"):
+                        self.mod.render_gitattributes_block(root)
+                    self.assertEqual(path.read_bytes(), original)
+                    self.assertEqual(path.stat().st_mtime_ns, before)
+                    self.assertEqual(path.stat().st_mode, mode)
+
+    def test_public_cli_refuses_unterminated_docs_region_without_attributes_write(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            path = root / ".gitattributes"
+            original = (
+                self.mod._DOC_GITATTRIBUTES_BEGIN + "\r\n"
+                "docs/**/*.md text eol=lf\r\n"
+                "docs/operator.md text eol=crlf\r\nother.bin -text\r\n"
+            ).encode("utf-8")
+            path.write_bytes(original)
+            before = self._age(path)
+            env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+            env.pop("PYTHONPYCACHEPREFIX", None)
+            result = subprocess.run(
+                [sys.executable, "-B", str(Path(self.mod.__file__).resolve()),
+                 "--repo-root", str(root), "--platform", "codex"],
+                cwd=root, env=env, capture_output=True, text=True, encoding="utf-8", timeout=30,
+            )
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn(".gitattributes: malformed managed docs line-endings", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertEqual(path.read_bytes(), original)
+            self.assertEqual(path.stat().st_mtime_ns, before)
+
     def test_folds_loose_managed_pins_without_duplicating(self):
         # A repo that already has a pin as a LOOSE line ends up with it ONLY inside the managed block.
         with tempfile.TemporaryDirectory() as d:
@@ -2527,6 +2694,79 @@ class RenderGitattributesBlockTests(unittest.TestCase):
         body = src[src.index("def main("):]
         self.assertIn("render_gitattributes_block(repo_root)", body,
                       "main() must call render_gitattributes_block so the block is enforced on every render")
+
+    def test_docs_defaults_precede_project_rules_and_preserve_loose_copies(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            path = root / ".gitattributes"
+            operator = ("# Project rules\ndocs/**/*.md text eol=lf\n"
+                        "docs/special.md text eol=crlf\ndocs/blob.json -text\n*.bin -text\n")
+            path.write_bytes(operator.encode())
+            self.mod.render_gitattributes_block(root)
+            before = path.read_bytes()
+            text = before.decode()
+            self.assertTrue(text.startswith(self.mod._DOC_GITATTRIBUTES_BEGIN + "\n"))
+            self.assertEqual(text.count(self.mod._DOC_GITATTRIBUTES_BEGIN), 1)
+            self.assertEqual(text.count(self.mod._GITATTRIBUTES_BEGIN), 1)
+            self.assertIn(operator, text.split(self.mod._DOC_GITATTRIBUTES_END, 1)[1])
+            self.assertNotIn("docs/**/*.md text eol=lf", self.mod._GITATTRIBUTES_MANAGED_LINES)
+            self.assertLess(text.index("docs/blob.json -text"), text.index(self.mod._GITATTRIBUTES_BEGIN))
+            mtime = self._age(path)
+            self.mod.render_gitattributes_block(root)
+            self.assertEqual(path.read_bytes(), before)
+            self.assertEqual(path.stat().st_mtime_ns, mtime)
+
+    @unittest.skipUnless(shutil.which("git"), "git not available")
+    def test_real_git_docs_checkout_defaults_and_project_exceptions(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+
+            def git(*args):
+                result = subprocess.run(
+                    ["git", "-C", str(root), "-c", "core.autocrlf=true", *args],
+                    capture_output=True, timeout=30,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+                return result.stdout.decode()
+
+            git("init")
+            (root / ".gitattributes").write_bytes(
+                b"docs/crlf.md text eol=crlf\ndocs/binary.json -text\n"
+            )
+            self.mod.render_gitattributes_block(root)
+            fixtures = {
+                "docs/plain.md": b"one\ntwo\n",
+                "docs/nested/plain.md": b"one\ntwo\n",
+                "docs/nested/data.json": b"one\ntwo\n",
+                "docs/events.jsonl": b"one\ntwo\n",
+                "docs/data.jsonc": b"one\ntwo\n",
+                "docs/crlf.md": b"one\ntwo\n",
+                "docs/binary.json": b"\x00one\r\ntwo\r\n",
+                ".wavefoundry/bin/wf": b"#!/bin/sh\necho one\n",
+                ".wavefoundry/bin/wf.cmd": b"@echo off\necho one\n",
+                "outside.md": b"one\ntwo\n",
+            }
+            for rel, data in fixtures.items():
+                path = root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+            attrs = git("check-attr", "text", "eol", "--", *fixtures)
+            for rel in ("docs/plain.md", "docs/nested/plain.md", "docs/nested/data.json",
+                        "docs/events.jsonl", "docs/data.jsonc", ".wavefoundry/bin/wf"):
+                self.assertIn(f"{rel}: eol: lf\n", attrs)
+            self.assertIn("docs/crlf.md: eol: crlf\n", attrs)
+            self.assertIn("docs/binary.json: text: unset\n", attrs)
+            self.assertIn(".wavefoundry/bin/wf.cmd: eol: crlf\n", attrs)
+            self.assertIn("outside.md: eol: unspecified\n", attrs)
+            git("add", ".")
+            for rel in fixtures:
+                (root / rel).unlink()
+            git("checkout-index", "-a", "-f")
+            for rel, data in fixtures.items():
+                expected = (data.replace(b"\n", b"\r\n")
+                            if rel in ("docs/crlf.md", ".wavefoundry/bin/wf.cmd", "outside.md")
+                            else data)
+                self.assertEqual((root / rel).read_bytes(), expected, rel)
 
 
 class HookStdinUtf8Tests(unittest.TestCase):
@@ -3538,6 +3778,47 @@ class HookVenvMismatchTests(unittest.TestCase):
 
 
 class IdentityBoundPlatformRemovalTests(unittest.TestCase):
+    def test_cleanup_preserves_directory_fifo_and_continues_to_regular_file(self):
+        mod = _load_render_module()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            directory = root / 'stale-dir'; directory.mkdir()
+            ordinary = root / 'stale-file'; ordinary.write_bytes(b'old')
+            refused = [directory]
+            fifo = root / 'stale-fifo'
+            if hasattr(os, 'mkfifo'):
+                os.mkfifo(fifo); refused.append(fifo)
+            error = io.StringIO()
+            refusal = None
+            with contextlib.redirect_stderr(error):
+                try:
+                    mod.remove_files(refused + [ordinary], root=root)
+                except OSError as exc:
+                    refusal = exc
+            self.assertIsNone(refusal, 'refused cleanup must report and continue')
+            self.assertTrue(directory.is_dir()); self.assertFalse(ordinary.exists())
+            if hasattr(os, 'mkfifo'): self.assertTrue(stat.S_ISFIFO(fifo.lstat().st_mode))
+            self.assertIn('entry preserved', error.getvalue()); self.assertIn('retry', error.getvalue())
+
+    def test_skipped_link_does_not_authorize_write_and_inspection_is_path_free(self):
+        mod = _load_render_module()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve(); path = root / 'stale'; target = root / 'target'
+            target.write_bytes(b'protected')
+            if os.name != 'nt':
+                path.symlink_to(target)
+                with contextlib.redirect_stderr(io.StringIO()): mod.remove_files([path], root=root)
+                with self.assertRaisesRegex(RuntimeError, 'refused to write stale'):
+                    mod.write_text(path, 'unsafe', root=root)
+                self.assertEqual(target.read_bytes(), b'protected'); self.assertTrue(path.is_symlink())
+            actual = os.lstat
+            def deny(candidate, *args, **kwargs):
+                if Path(candidate) == path: raise PermissionError('private absolute inspection detail')
+                return actual(candidate, *args, **kwargs)
+            with patch.object(mod.os, 'lstat', side_effect=deny):
+                with self.assertRaisesRegex(RuntimeError, r'^refused to write stale \(PermissionError\)$'):
+                    mod.write_text(path, 'unsafe', root=root)
+
     def test_ordinary_missing_internal_parent_and_final_link_cells(self):
         mod = _load_render_module()
         with tempfile.TemporaryDirectory() as temporary:
@@ -3550,12 +3831,11 @@ class IdentityBoundPlatformRemovalTests(unittest.TestCase):
                 linked = root / "linked"
                 linked.symlink_to(actual, target_is_directory=True)
                 mod.remove_files([linked / "old", linked / "missing"], root=root)
-                self.assertFalse(old.exists())
+                self.assertEqual(old.read_bytes(), b"old")
                 old.write_bytes(b"preserved")
                 final = actual / "final"
                 final.symlink_to(old)
-                with self.assertRaises(mod.contained_files.ContainedFileRefused):
-                    mod.remove_files([final], root=root)
+                mod.remove_files([final], root=root)
                 self.assertTrue(final.is_symlink())
                 self.assertEqual(old.read_bytes(), b"preserved")
             else:
@@ -3582,11 +3862,10 @@ class IdentityBoundPlatformRemovalTests(unittest.TestCase):
 
                     with patch.object(mod.contained_files, "_checkpoint", side_effect=replace), \
                             patch.object(mod.contained_files, "_dir_fd_supported", return_value=descriptor):
-                        with self.assertRaises(mod.contained_files.ContainedFileRefused):
-                            if retired:
-                                mod.render_bin_launchers(root)
-                            else:
-                                mod.remove_files([old], root=root)
+                        if retired:
+                            mod.render_bin_launchers(root)
+                        else:
+                            mod.remove_files([old], root=root)
                     self.assertEqual(fired, [True])
                     self.assertEqual(old.read_bytes(), b"replacement")
                     self.assertEqual(saved.read_bytes(), b"original")

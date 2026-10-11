@@ -3754,7 +3754,7 @@ def _predict_incremental_full_fallback(root: Path) -> bool:
     triggers = set(_incremental_full_fallback_trigger_files())
     try:
         result = _run_tree_kill(
-            ["git", "status", "--porcelain"],
+            ["git", "status", "--porcelain", "--untracked-files=all"],
             cwd=str(root),
             capture_output=True,
             text=True,

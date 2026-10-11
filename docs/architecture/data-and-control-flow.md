@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-10
+Last verified: 2026-10-11
 
 ## Runtime advisory boundary
 
@@ -188,9 +188,11 @@ operator-driven behavior. Persistent lock-file presence alone never blocks work.
 
 ### Upgrade council-role link reconciliation (wave 204mp)
 
-`render_agent_surfaces.migrate_council_role_renames` preflights every controlled role rename and plans exact Markdown destination spans before mutation. Current docs are read/written through contained file helpers with their mode and unrelated bytes preserved. Supported inline/reference links keep fragments, query suffixes, titles and destination spelling; code, images and historical record roots stay unchanged. The shared history classifier excludes journals/snapshots; live waves, archives, staged plans, reports and architecture decisions are excluded separately from resolved record roots.
+`render_agent_surfaces.migrate_role_and_lifecycle_documents` preflights the controlled role and lifecycle-guide renames, then combines their confirmed pairs in one bounded no-follow current-doc walk per operation. No confirmed pair means no traversal. Limits are 50,000 metadata entries (including directories and non-Markdown names), 20,000 documents, 8 MiB per document and 256 MiB total document bytes. History and record roots are pruned; linked directories are never descended. An unrelated unreadable, refused, oversized or undecodable document is preserved and reported with retry guidance while readable independent edits continue. Aggregate limits refuse the whole plan before its writes/moves. Successful document reads charge actual bytes, including decode failures. A failed contained read conservatively charges its attempted cap plus the one excess-detection byte, since consumed bytes were not returned; this can refuse earlier than actual consumption. A crossing refusal stops further reads, so scan IO is bounded by the aggregate budget plus at most one crossing sentinel byte. Supported inline/reference destinations retain labels, fragments, query suffixes, titles, line endings and file modes; code, images and history remain unchanged.
 
-Each role move and subsequent link edit is a separate file publication, not a multi-file transaction. On retry, a new-only docs role must confirm identity in Role metadata (native wrappers use their canonical docs pointer); path existence alone does not grant link-repair ownership. Collisions or unsafe paths refuse with a remedy. Unsupported destinations remain unchanged and reported. `upgrade_extensions.post_extract` previews the incoming renderer in a temporary scripts tree through a bounded `-B` child, without extracting into the target; actual surface rendering keeps the strict docs gate and ordinary managed-region ownership.
+Each role move and subsequent link edit is a separate publication. Lifecycle link edits happen at old paths before moving those sources; a failed edit retains legacy sources, and the eventual move reads their current bytes and mode. New-only roles require existing Role metadata/native pointers. New-only lifecycle-overview requires exactly one balanced registered review-policy region with the current normalized carrier body. Unmarked delivery-workflow and malformed/mismatching regions grant no automatic retrospective repair authority; skipped docs may need manual link repair after the source is gone. Unsupported destinations remain unchanged and diagnostic-only. This is retryable partial progress, not a multi-file transaction or content authentication.
+
+`upgrade_extensions` uses the same incoming dry-plan in its existing pre-extraction hook and dry-run preview. Predictable source/target conflicts and aggregate refusals stop before framework extraction. Rendering replans fresh afterward, once per operation; no plan is cached across phases and no additional upgrade phase, whole-repository pass or permanent report is added. Ordinary modern role metadata may confirm a new-only pair, so zero traversal is promised only when no pair confirms. Incoming preview validates raw portable Python names and aliases before normalization/read, preflights at most 2,000 members, 8 MiB per member and 64 MiB total, then bounds actual decompressed reads. Its temporary scripts tree and isolated `-B` child write no target file; normal surface rendering keeps the docs gate and managed-region ownership.
 
 ### Path 6b: MCP Resource and Resource-Template Reads
 
@@ -676,6 +678,19 @@ other byte remains significant. `REVIEW_POLICY_EVALUATOR_VERSION` makes that bou
 explicit, so a non-closed legacy receipt converges through one re-Prepare while
 closed Markdown and ledgers remain immutable. Review and Close share the common
 delivery evaluator; Close owns only the registered closure-only delta.
+
+Authoring routes ordinary test observations, repair progress, evidence locations
+and continuation notes to the canonical `## Progress Log` or existing session
+handoff. Weighed plan choices and material decisions remain in `## Decision Log`,
+which stays digested. Before or with narration, amend the owning digested section
+for changes to scope, requirements, acceptance, task meaning, priority, review
+targets or authority; narration links or summarizes that edit rather than replacing
+it. Material receipt rotation and the existing re-Prepare/affected readiness
+approval rules remain intentional. Unsupported or ambiguous Progress Log headings
+may remain digested. Guidance and existing review enforce authoring discipline;
+this correction does not automatically discover semantic amendments hidden only
+in narration. Consumer upgrades refresh the existing managed implementation/review
+regions without a new qualification pass, corpus census or historical rewrite.
 
 Upgrade and lifecycle mutation share one strict OS-lock domain. Acquisition is
 always lifecycle first and project publication second, with reverse release;

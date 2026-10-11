@@ -7210,6 +7210,7 @@ class AmbientGitEnvBuildIsolationTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.index_dir = self.root / ".wavefoundry" / "index"
+        self.observation_time = time.time()
 
     def _git(self, *args, ts=None):
         env = dict(os.environ)
@@ -7238,10 +7239,17 @@ class AmbientGitEnvBuildIsolationTests(unittest.TestCase):
             self._git("add", "-A")
             self._git("commit", "-qm", f"churn{i}", ts=1700000000 + (i + 1) * 1000)
 
+    def _freshness_for_paths(self, paths):
+        iss = self.bi._get_index_state_store()
+        # Compare environment effects at the same age observation, not across
+        # a query-time rounding boundary. Builds keep the real clock.
+        with patch.object(iss.time, "time", return_value=self.observation_time):
+            return iss.freshness_for_paths(self.index_dir, paths)
+
     def _drift_and_freshness(self):
         iss = self.bi._get_index_state_store()
         row = iss.doc_drift_for_path(self.index_dir, "docs/g.md")
-        fresh = iss.freshness_for_paths(self.index_dir, ["src/foo.py", "docs/g.md"])
+        fresh = self._freshness_for_paths(["src/foo.py", "docs/g.md"])
         return row, fresh
 
     def test_full_build_matches_clean_control_under_git_shallow_file(self):
@@ -7297,8 +7305,7 @@ class AmbientGitEnvBuildIsolationTests(unittest.TestCase):
         self._run_build(full=True)
         iss = self.bi._get_index_state_store()
         clean_hist = [c["files"] for c in iss._collect_git_history(self.root)[1]]
-        clean_fresh = iss.freshness_for_paths(
-            self.index_dir, ["src/new_name.py", "docs/g.md"])
+        clean_fresh = self._freshness_for_paths(["src/new_name.py", "docs/g.md"])
         clean_row = iss.doc_drift_for_path(self.index_dir, "docs/g.md")
         # Guard: an ambient global diff.renames=false MUST perturb raw git.
         gc = self.root.parent / "gitconfig-global"
@@ -7316,8 +7323,7 @@ class AmbientGitEnvBuildIsolationTests(unittest.TestCase):
         try:
             self._run_build(full=True)
             amb_hist = [c["files"] for c in iss._collect_git_history(self.root)[1]]
-            amb_fresh = iss.freshness_for_paths(
-                self.index_dir, ["src/new_name.py", "docs/g.md"])
+            amb_fresh = self._freshness_for_paths(["src/new_name.py", "docs/g.md"])
             amb_row = iss.doc_drift_for_path(self.index_dir, "docs/g.md")
         finally:
             if saved is None:

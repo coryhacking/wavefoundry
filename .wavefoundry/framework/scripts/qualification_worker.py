@@ -79,6 +79,8 @@ def _protocol_output():
 
 
 def _run(directory, name, nonce, protocol_stream):
+    # Tests share this process and can read argv/nonce or emit matching frames.
+    # The nonce correlates a worker protocol; it does not authenticate its code.
     suite = unittest.defaultTestLoader.discover(directory, pattern=name)
     markers = _markers(suite)
 

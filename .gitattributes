@@ -1,3 +1,8 @@
+# >>> wavefoundry docs line-endings (managed defaults) >>>
+# LF checkout defaults; project rules below may override these attributes.
+docs/**/*.md text eol=lf
+docs/**/*.json* text eol=lf
+# <<< wavefoundry docs line-endings <<<
 # Wavefoundry line-ending policy (wave 1p7pn, 1p7pb-adr gap L-1).
 #
 # git-for-Windows `autocrlf=true` can rewrite LF->CRLF on checkout. A CRLF in a

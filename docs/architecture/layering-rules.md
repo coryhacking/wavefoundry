@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-10
+Last verified: 2026-10-11
 
 ## Allowed Dependencies
 
@@ -14,6 +14,8 @@ Last verified: 2026-10-10
 | `docs/` | N/A (markdown only; consumed by scripts, not importing scripts) | — |
 
 ## Boundary Invariants
+
+Controlled role/lifecycle document migration remains renderer-owned. Its two existing move tables share exact Markdown destination helpers and one bounded current-doc plan per operation, not a general migration service. Existing incoming pre-extraction/dry-run hooks invoke that read-only plan; the later renderer replans fresh rather than reusing stale bytes across extraction. No confirmed pair traverses no docs; existing role metadata can confirm modern new-only candidates. Per-file safety refusals preserve/report unrelated paths, while candidate conflicts and aggregate limits refuse before plan mutation (and in incoming preflight before extraction). Lifecycle source-present authority survives planned-edit failure; new-only authority is limited to the registered matching policy region. See [document migration flow](data-and-control-flow.md#upgrade-council-role-link-reconciliation-wave-204mp).
 
 | Edge | Invariant | Verified / Inferred |
 |------|-----------|----------------------|

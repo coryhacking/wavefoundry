@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-08
+Last verified: 2026-10-11
 
 Shortcut: **`Review wave`**
 
@@ -90,4 +90,22 @@ Review Wave consumes the shared delivery evaluator selected by the current
 review-policy receipt. After a repair, search the same root cause and adjacent
 repair class before focused reverification; broaden review only when a
 load-bearing boundary changed.
+
+Check authoring routes: test observations, repair progress, evidence locations
+and continuation notes belong in the canonical `## Progress Log` or existing
+session handoff; weighed plan choices and material decisions stay in
+`## Decision Log`. A change to scope, requirements, acceptance, task meaning,
+priority, review targets or authority must amend its owning digested section
+before or with narration. The log may link or summarize that edit, never
+substitute for it; material edits require the existing re-Prepare and affected
+readiness approval steps. Legitimate material decision receipt rotation is
+intentional.
+
+For example, "Reran tests on Windows; repair passed" is Progress Log narration.
+Changing who may approve a release artifact amends Requirements and any owning
+review targets or authority section, with a weighed design choice in Decision
+Log when needed. Review the owning amendment and its affected approvals.
+Guidance and existing review enforce this discipline; they do not automatically
+discover semantic amendments hidden only in narration. Use the canonical heading;
+unsupported or ambiguous Progress Log headings may remain digested.
 <!-- wavefoundry:review-policy:end -->

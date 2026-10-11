@@ -5396,6 +5396,37 @@ class ReviewCarrierCRLFParityTests(unittest.TestCase):
                         path.write_bytes(text.encode("utf-8"))
                         self.assertTrue(any("differs" in finding for finding in check(root, only={path})))
 
+    def test_public_gardener_preserves_regions_then_production_lint_rejects_drift(self):
+        for newline in ("\n", "\r\n"):
+            with self.subTest(newline=newline), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                for destination, helper, block, check in self._families(root):
+                    path = root / destination
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    before = helper(
+                        "# Sample\nOwner: Engineering\nStatus: active\n"
+                        "Last verified: 2000-01-01\n\n", block,
+                    ).replace("\n", newline).encode()
+                    path.write_bytes(before)
+                    env = dict(os.environ, PROJECT_ROOT=str(root), PYTHONDONTWRITEBYTECODE="1")
+                    env.pop("PYTHONPYCACHEPREFIX", None)
+                    proc = subprocess.run(
+                        [sys.executable, "-B", str(SCRIPTS_ROOT / "docs_gardener.py"),
+                         "--paths", destination, "--date", "2026-10-11"],
+                        env=env, capture_output=True, text=True, timeout=30,
+                    )
+                    self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+                    expected = before.replace(b"2000-01-01", b"2026-10-11", 1)
+                    self.assertEqual(path.read_bytes(), expected)
+                    self.assertEqual(check(root, only={path}), [])
+                    first_line = block.splitlines()[0].encode()
+                    path.write_bytes(expected.replace(first_line, b"changed owned content", 1))
+                    self.assertTrue(any("differs" in finding for finding in check(root, only={path})))
+                    path.write_bytes(expected)
+                    end_line = expected.splitlines()[-1]
+                    path.write_bytes(expected.replace(end_line, b"", 1))
+                    self.assertTrue(any("malformed" in finding for finding in check(root, only={path})))
+
 
 
 class LeadingBOMDocsLintTests(unittest.TestCase):

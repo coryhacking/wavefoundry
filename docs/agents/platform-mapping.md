@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-06
+Last verified: 2026-10-11
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -90,6 +90,39 @@ Root-only means exactly that: the host must launch from the configured project r
 not search upward from an arbitrary cwd, because a descendant containing another installation could
 silently change project identity. Missing host authority is surfaced as a support limitation, not
 papered over with a generic locator.
+
+## Received tool names and patch instructions
+
+The Claude pre-edit handler and Copilot pre/post-tool handlers distinguish supported
+edits, evidenced exact read/shell identities and unfamiliar names. A received
+unknown pre-tool call is diagnosed with a bounded escaped tool label; only the
+adapter's existing explicit path fields are inspected, and every recovered path
+passes the existing seed/framework guards. Unknown calls without those paths are
+advisory: their edit coverage could not be established. Arguments and patch bodies
+are never included in compatibility diagnostics. Known edits and absent/malformed
+identities keep strict path requirements; text-editor `view` is exempt and other
+or missing commands remain edits. Copilot's unknown post calls start no speculative
+lint/index work, so a successful unfamiliar edit needs existing integrity-boundary
+validation and refresh. Recognized edits retain feedback, including refresh when
+lint fails.
+
+These are received-payload handler verdicts. Claude retains its
+`Edit|Write|MultiEdit|NotebookEdit` subscription, so future unmatched tools do not
+reach that handler; Copilot retains its all-tool subscription. Cursor/Windsurf
+file-edit adapters have no tool-name dispatcher. Shell exemption means no shell
+interception, not that shell commands cannot write.
+
+Codex patch guidance is authored in `review_policy.REVIEW_POLICY_SURFACE_BLOCKS`
+for the profile-resolved Implement wave prompt, reconciled into its existing
+managed region and consumed by `wf-implement-wave`. It treats canonical
+`apply_patch` and `tools.apply_patch` inside `functions.exec` as writes, establishes
+Add/Update/Delete/Move-to destinations (both move paths), honors existing stage
+and seed/framework approval gates and stops when write paths cannot be established.
+Shell-executed patches remain writes under these instructions. This is workflow
+instruction delivery, without native Codex enforcement or agent-adherence proof;
+it does not automatically update existing root AGENTS, universal startup or
+single-change instructions. Existing upgrade rendering/reconciliation delivers
+it without an extra scan or pass.
 
 ## Native-Windows prerequisite and surface recovery
 

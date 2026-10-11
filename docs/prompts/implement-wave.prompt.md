@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-10
+Last verified: 2026-10-11
 
 Shortcut: **`Implement wave`**
 
@@ -57,4 +57,43 @@ Implementation is complete only when the admitted behavior, docs, tests, and rev
 Prepare Wave is the single readiness authority. Implementation consumes the
 current shared delivery evaluator and never recreates a separate readiness
 review gate.
+
+Put test observations, repair progress, evidence locations and continuation
+notes in the canonical `## Progress Log` or existing session handoff. Keep
+weighed plan choices and material decisions in `## Decision Log`. Before or with
+narration, amend the owning digested section for a change to scope, requirements,
+acceptance, task meaning, priority, review targets or authority; the log may link
+or summarize that edit, never substitute for it. Follow the existing re-Prepare
+and affected readiness approval rules. Legitimate material decision receipt
+rotation is intentional.
+
+For example, "Reran tests on Windows; repair passed" belongs in Progress Log.
+Changing who may approve a release artifact amends Requirements and any owning
+review targets or authority section, with a weighed design choice in Decision
+Log when needed. Guidance and existing review enforce authoring discipline;
+they do not automatically discover semantic amendments hidden only in narration.
+Use the canonical heading; unsupported or ambiguous Progress Log headings may
+remain digested.
+
+### Codex patch-write instructions
+
+Treat `apply_patch` as a write regardless of wrapper spelling, including
+`tools.apply_patch` inside `functions.exec`. Before invoking a patch, establish
+all intended write paths from `*** Add File:`, `*** Update File:`,
+`*** Delete File:` and `*** Move to:` headers. A move writes both the Update
+source and Move-to destination; inspect and authorize both paths. For example,
+`*** Update File: src/old.py` followed by `*** Move to: src/new.py` requires
+both `src/old.py` and `src/new.py` to pass the existing stage gate and applicable
+approval policy. Add and Delete destinations require the same checks.
+
+Honor the repository stage gate and existing seed/framework approval policy
+before invocation, including `seed_edit_allowed` and `framework_edit_allowed`
+where applicable. Stop when intended write paths cannot be established. A patch
+executed through a shell remains a write under these instructions.
+
+This guidance reaches the profile-resolved Implement wave prompt through its
+existing managed policy region and the `wf-implement-wave` skill pointer. It is
+workflow-scoped instruction delivery, without native Codex enforcement or proof
+of agent adherence. It does not automatically refresh existing root AGENTS,
+universal startup instructions or single-change workflows.
 <!-- wavefoundry:review-policy:end -->

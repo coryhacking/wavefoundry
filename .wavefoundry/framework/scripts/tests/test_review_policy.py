@@ -2623,6 +2623,18 @@ class ReviewPolicyCRLFUpgradeTests(unittest.TestCase):
             self.assertEqual(migration.projected, expected)
 
 
+class CodexPatchManagedPolicyTests(unittest.TestCase):
+    def test_implementation_policy_declares_write_paths_and_existing_authority(self):
+        key = review_policy.vocabulary_profile.prompt_doc("implement-wave")
+        block = review_policy.REVIEW_POLICY_SURFACE_BLOCKS[key]
+        for literal in ("`apply_patch`", "`tools.apply_patch`", "`functions.exec`",
+                        "`*** Add File:`", "`*** Update File:`", "`*** Delete File:`", "`*** Move to:`",
+                        "inspect and authorize both paths", "stage gate", "approval policy",
+                        "Stop when intended write paths cannot be established", "shell remains a write",
+                        "workflow-scoped instruction delivery", "without native Codex enforcement"):
+            self.assertIn(literal, block)
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -3052,3 +3064,143 @@ class RecordkeepingChurnTests(unittest.TestCase):
             gardener_metadata.ambiguous_excluded_headings(fenced), (),
             "headings inside a fence are examples, not structure",
         )
+
+
+class ImplementationNarrationRoutingTests(unittest.TestCase):
+    """20bw2: authoring routes through the unchanged real policy producers."""
+
+    def _doc(self, declared=True, heading="## Progress Log", narration="Recorded."):
+        targets = (
+            "## Serialization Points\n\n**Review targets (repo-relative paths):**\n\n"
+            "- `src/worker.py`\n\n" if declared else ""
+        )
+        return (
+            "# Worker correction\n\n## Requirements\n\n1. Preserve worker behavior.\n\n"
+            + targets + "## Decision Log\n\nSelected the existing worker.\n\n"
+            + heading + "\n\n" + narration + "\n\n## Risks\n\nNo extra risk.\n"
+        )
+
+    def _outputs(self, text):
+        digest = review_policy.policy_input_digest(
+            wave_review={"enabled": True, "delivery_mode": "targeted"},
+            project_lanes=(), review_policies=None,
+            changes=(("1test-bug worker", "bug", text.encode()),), requested_lanes=(),
+        )
+        lanes, _ = review_policy.select_required_review_lanes(
+            requested_lanes=(), project_lanes=(), change_texts=(text,),
+        )
+        # Prepare passes the canonical carrier to the full-council producer.
+        canonical = gardener_metadata.canonical_review_policy_body(text.encode()).decode()
+        triggers = review_policy.extract_full_council_triggers((canonical,))
+        council = review_policy.delivery_council_required(
+            "targeted", delivered_boundary_triggers=triggers,
+        )
+        return digest, lanes, triggers, council
+
+    def test_platform_observation_is_inert_only_in_canonical_progress_log(self):
+        for declared in (True, False):
+            with self.subTest(declared=declared):
+                base = self._doc(declared)
+                progress = self._doc(declared, narration="Reran tests on Windows; repair passed.")
+                decision = base.replace("Selected the existing worker.",
+                                        "Selected the existing worker. Reran tests on Windows; repair passed.")
+                before = self._outputs(base)
+                self.assertEqual(self._outputs(progress), before)
+                after = self._outputs(decision)
+                self.assertNotEqual(after[0], before[0])
+                self.assertEqual(after[1], before[1])
+                self.assertIn("cross_platform_changed", after[2])
+                self.assertTrue(after[3])
+                self.assertFalse(before[3])
+
+    def test_material_authority_amendment_rotates_inputs_and_recruits_review(self):
+        for declared in (True, False):
+            with self.subTest(declared=declared):
+                base = self._doc(declared)
+                amendment = base.replace(
+                    "1. Preserve worker behavior.",
+                    "1. The release artifact changes readiness semantics; independent approval remains required.",
+                )
+                if declared:
+                    amendment = amendment.replace("- `src/worker.py`",
+                        "- `src/worker.py`\n- `.wavefoundry/framework/scripts/build_pack.py`")
+                before, after = self._outputs(base), self._outputs(amendment)
+                self.assertNotEqual(after[0], before[0])
+                self.assertIn("release-reviewer", after[1])
+                self.assertIn("release_or_upgrade_changed", after[2])
+                self.assertIn("failure_or_readiness_semantics_changed", after[2])
+                self.assertTrue(after[3])
+                # This is the honest limit: prose hidden only in narration is
+                # not discovered as an amendment by this authoring correction.
+                hidden = self._doc(declared, narration="The release artifact changes readiness semantics.")
+                self.assertEqual(self._outputs(hidden), before)
+
+    def test_unsupported_and_duplicate_progress_headings_remain_digested(self):
+        for declared in (True, False):
+            for heading in ("### Progress Log", "## Progress Log (delivery)",
+                            "## progress log", "## Progress Log\n\nFirst.\n\n## Progress Log"):
+                with self.subTest(declared=declared, heading=heading):
+                    before = self._outputs(self._doc(declared, heading))
+                    after = self._outputs(self._doc(declared, heading, "Reran tests on Windows."))
+                    self.assertNotEqual(before[0], after[0])
+                    self.assertIn("cross_platform_changed", after[2])
+                    self.assertTrue(after[3])
+
+    def test_real_shipped_carriers_refresh_without_customization_or_history_churn(self):
+        keys = tuple(vocabulary_profile.prompt_doc(name) for name in ("implement-wave", "review-wave"))
+        old_blocks = (
+            "## Review-policy implementation\n\nPrepare Wave is the single readiness authority. Implementation consumes the\n"
+            "current shared delivery evaluator and never recreates a separate readiness\nreview gate.",
+            "## Review-policy delivery\n\nReview Wave consumes the shared delivery evaluator selected by the current\n"
+            "review-policy receipt. After a repair, search the same root cause and adjacent\n"
+            "repair class before focused reverification; broaden review only when a\nload-bearing boundary changed.",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots = {}
+            for key, old in zip(keys, old_blocks):
+                baseline = SCRIPTS.parent / "install/lifecycle-prompts" / Path(key).name
+                # Asset filenames stay shipped vocabulary, destination keys are profile-aware.
+                if not baseline.exists():
+                    baseline = SCRIPTS.parent / "install/lifecycle-prompts" / (
+                        "implement-wave.prompt.md" if key == keys[0] else "review-wave.prompt.md")
+                text = baseline.read_text(encoding="utf-8")
+                text += ("\noperator custom prefix\n" + review_policy.REVIEW_POLICY_SURFACE_MARKER_BEGIN
+                         + "\n" + old + "\n" + review_policy.REVIEW_POLICY_SURFACE_MARKER_END
+                         + "\noperator custom suffix\n")
+                path = root / key
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+                snapshots[key] = text
+            # Normal shipped installation also provisions the existing review
+            # protocol. Establish that baseline before measuring this policy refresh.
+            protocol_skip = frozenset(
+                carrier.destination for carrier in render_agent_surfaces.review_protocol_carriers(root)
+                if carrier.destination not in keys
+            )
+            render_agent_surfaces.reconcile_review_protocol_surfaces(root, skip_paths=protocol_skip)
+            snapshots = {key: (root / key).read_text(encoding="utf-8") for key in keys}
+            historical = root / WAVES_REL / "1old closed" / "1old-bug worker.md"
+            historical.parent.mkdir(parents=True)
+            historical.write_text(self._doc(False, narration="Reran tests on Windows."), encoding="utf-8")
+            history = historical.read_bytes()
+            skip = frozenset(set(review_policy.REVIEW_POLICY_SURFACE_BLOCKS) - set(keys))
+            self.assertEqual(set(render_agent_surfaces.reconcile_review_policy_surfaces(root, skip_paths=skip)), set(keys))
+            for key in keys:
+                text = (root / key).read_text(encoding="utf-8")
+                before = snapshots[key]
+                begin, end = review_policy.REVIEW_POLICY_SURFACE_MARKER_BEGIN, review_policy.REVIEW_POLICY_SURFACE_MARKER_END
+                self.assertEqual(text.split(begin)[0], before.split(begin)[0])
+                self.assertEqual(text.split(end)[1], before.split(end)[1])
+                self.assertIn(review_policy.REVIEW_POLICY_SURFACE_BLOCKS[key], text)
+                self.assertIn("Reran tests on Windows", text)
+                self.assertIn("semantic amendments", text)
+            self.assertEqual(check_review_policy_carriers(root), [])
+            snapshot = {key: (root / key).read_bytes() for key in keys}
+            self.assertEqual(render_agent_surfaces.reconcile_review_policy_surfaces(root, skip_paths=skip), [])
+            self.assertEqual(snapshot, {key: (root / key).read_bytes() for key in keys})
+            self.assertEqual(history, historical.read_bytes())
+            # Reopening metadata does not change producer behavior or require
+            # rewriting a historical observation; there is no status-based guard.
+            self.assertEqual(self._outputs("Status: closed\n" + history.decode()),
+                             self._outputs("Status: active\n" + history.decode()))

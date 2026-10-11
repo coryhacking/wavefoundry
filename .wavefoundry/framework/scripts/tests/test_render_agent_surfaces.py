@@ -4754,5 +4754,115 @@ class ReviewCarrierCRLFUpsertTests(unittest.TestCase):
                 self.assertNotRegex(owned, r"(?<!\r)\n")
 
 
+
+class CodexPatchWorkflowCarrierTests(unittest.TestCase):
+    """The existing consumer is the managed workflow prompt, without native enforcement."""
+
+    def _assert_patch_policy(self, text):
+        for literal in ("`apply_patch`", "`tools.apply_patch` inside `functions.exec`",
+                        "`*** Add File:`", "`*** Update File:`", "`*** Delete File:`", "`*** Move to:`",
+                        "both `src/old.py` and `src/new.py`", "stage gate", "approval policy",
+                        "`seed_edit_allowed`", "`framework_edit_allowed`",
+                        "Stop when intended write paths cannot be established",
+                        "executed through a shell remains a write", "workflow-scoped instruction delivery",
+                        "without native Codex enforcement", "proof\nof agent adherence",
+                        "does not automatically refresh existing root AGENTS",
+                        "universal startup instructions or single-change workflows"):
+            self.assertIn(literal, text)
+
+    def test_actual_shipped_prompt_and_skill_receive_patch_instructions(self):
+        import vocabulary_profile
+        key = vocabulary_profile.prompt_doc("implement-wave")
+        self._assert_patch_policy(review_policy.REVIEW_POLICY_SURFACE_BLOCKS[key])
+        root = PROJECT_ROOT.parent
+        text = (root / key).read_text(encoding="utf-8")
+        self._assert_patch_policy(text)
+        self.assertIn("semantic amendments hidden only in narration", text)  # Preserve 20bw2.
+        for host in (".codex", ".claude", ".agents"):
+            skill = root / host / "skills/wf-implement-wave/SKILL.md"
+            self.assertIn(key, skill.read_text(encoding="utf-8"))
+
+    def test_existing_managed_reconciler_preserves_customization_and_is_idempotent(self):
+        import vocabulary_profile
+        key = vocabulary_profile.prompt_doc("implement-wave")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / key
+            path.parent.mkdir(parents=True)
+            begin, end = ras.REVIEW_POLICY_SURFACE_MARKER_BEGIN, ras.REVIEW_POLICY_SURFACE_MARKER_END
+            prefix, suffix = "# Custom workflow\n\ncustom prefix\n", "\ncustom suffix\n"
+            path.write_text(prefix + begin + "\nstale policy\n" + end + suffix, encoding="utf-8")
+            skip = frozenset(set(review_policy.REVIEW_POLICY_SURFACE_BLOCKS) - {key})
+            self.assertEqual(ras.reconcile_review_policy_surfaces(root, skip_paths=skip), [key])
+            text = path.read_text(encoding="utf-8")
+            self._assert_patch_policy(text)
+            self.assertEqual(text.split(begin)[0], prefix)
+            self.assertEqual(text.split(end)[1], suffix)
+            before = path.read_bytes()
+            self.assertEqual(ras.reconcile_review_policy_surfaces(root, skip_paths=skip), [])
+            self.assertEqual(path.read_bytes(), before)
+            self.assertFalse((root / ".codex/hooks").exists())
+            self.assertFalse((root / ".codex/config.toml").exists())
+            self.assertFalse((root / "AGENTS.md").exists())
+
+    def test_actual_codex_platform_render_has_no_native_hook_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rps.render_platform_entrypoints(root, "codex")
+            config = root / ".codex/config.toml"
+            before = config.read_bytes()
+            self.assertIn(b"mcp_servers.wavefoundry", before)
+            self.assertEqual({p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()},
+                             {".codex/config.toml"})
+            rps.render_platform_entrypoints(root, "codex")
+            self.assertEqual(config.read_bytes(), before)
+
+    def test_profile_resolved_prompt_uses_actual_managed_reconciler(self):
+        import json
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            scripts = base / "scripts"
+            shutil.copytree(SCRIPTS_ROOT, scripts, ignore=shutil.ignore_patterns("tests", "__pycache__"))
+            profile = scripts / "vocabulary_profile.py"
+            source = profile.read_text(encoding="utf-8")
+            start = source.index('PROMPT_NAME_OVERRIDES:')
+            end = source.index('\n', start)
+            source = (source[:start] + 'PROMPT_NAME_OVERRIDES = {"implement-wave": '
+                      '{"slug": "execute-batch", "shortcut": "Execute batch"}}' + source[end:])
+            profile.write_text(source, encoding="utf-8")
+            code = '''
+import json
+from pathlib import Path
+import review_policy as rp
+import render_agent_surfaces as ras
+import vocabulary_profile as vp
+root = Path("repo")
+key = vp.prompt_doc("implement-wave")
+p = root / key
+p.parent.mkdir(parents=True)
+begin, end = ras.REVIEW_POLICY_SURFACE_MARKER_BEGIN, ras.REVIEW_POLICY_SURFACE_MARKER_END
+prefix, suffix = "custom prefix\\n", "\\ncustom suffix\\n"
+p.write_text(prefix + begin + "\\nstale\\n" + end + suffix)
+skip = frozenset(set(rp.REVIEW_POLICY_SURFACE_BLOCKS) - {key})
+first = ras.reconcile_review_policy_surfaces(root, skip_paths=skip)
+text = p.read_text()
+second = ras.reconcile_review_policy_surfaces(root, skip_paths=skip)
+assert text.split(begin)[0] == prefix and text.split(end)[1] == suffix
+assert not (root / "docs/prompts/implement-wave.prompt.md").exists()
+print(json.dumps({"key": key, "first": first, "second": second, "text": text}))
+'''
+            env = dict(os.environ, PYTHONPATH=str(scripts), PYTHONDONTWRITEBYTECODE="1")
+            env.pop("PYTHONPYCACHEPREFIX", None)
+            result = subprocess.run([sys.executable, "-B", "-c", code], cwd=base, env=env,
+                                    capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            data = json.loads(result.stdout)
+            self.assertEqual(data["key"], "docs/prompts/execute-batch.prompt.md")
+            self.assertEqual(data["first"], [data["key"]])
+            self.assertEqual(data["second"], [])
+            self._assert_patch_policy(data["text"])
+
+
 if __name__ == "__main__":
     unittest.main()
