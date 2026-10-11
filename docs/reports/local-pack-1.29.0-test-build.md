@@ -6,36 +6,36 @@ Last verified: 2026-10-10
 
 ## Current artifact
 
-`1.29.0+pvqp`: `/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.29.0.pvqp.zip`.
+`1.29.0+pvta`: `/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.29.0.pvta.zip`.
 
-- SHA-256: `775f1f1536040424b8f413af6ca476043d876a2bcb702cf9258b00febeed14f4`.
-- Size: 10,395,945 bytes; 256 ZIP members; outer and embedded feature ZIP CRC checks pass.
-- All 245 source framework members match the tested snapshot byte-for-byte. The two additional generated members, MANIFEST and UPGRADE-PROTOCOL.json, match the exact inventory, version and protocol contract. Packed changelog matches root CHANGELOG.md; VERSION and prompt manifest agree. The executable protocol bridge is present and temporary composition files were removed.
-- Tests, runner, receipts, indexes, bytecode caches, benchmark captures and private wave records are absent. This is a local feature-only pack; no model asset or release was built.
+- SHA256: `f1c75259619047fe1ff2737889fc0ae52a9f19fb5568053c1cd85022306da73d`.
+- Size: 10,449,854 bytes; 258 outer ZIP members.
+- Includes the completed graph, fixture, Windows/CRLF, upgrade diagnostics and resilience changes closed in waves `2071o`, `2080c`, `20asl`, `20b39`, `20b3a` and `20b3b`, committed and pushed as `91578966` before packaging.
+- All 247 framework source members match the qualified source exactly. Outer and embedded feature CRCs, selection hashes, executable bridge sources, protocol metadata and MANIFEST inventory pass. Packed changelog equals the complete root 1.29.0 section; VERSION and prompt manifest both read `1.29.0+pvta`. Internal composition files were removed.
+- Tests, runner, receipts, indexes, bytecode caches, benchmark captures and private wave records are absent. This is a local feature-only pack; no model asset, tag or GitHub release was built.
 
 ## Qualification
 
-The operator-authorized isolated checkout used public reachable history and intended 2071o/2080c/20asl working files, excluding unrelated queued waves and private ignored records. All three fresh runs used two workers and disabled bytecode caching. Framework hash stayed `c8d6a4134e202a505142cdd7ac3958048682eec85fad6207da27ac3671ffc88e` through qualification, packaging and genuine receipt/stamp copyback.
+Framework hash stayed `1b296ff8983a72a297a04f22e9f4b35dd68ccdeadfd392cc8f3dff32136b0640` through qualification, packaging and stamp copyback. Packaging used the operator-authorized isolated checkout, public tracked files and two test workers, with bytecode caching disabled. Required docs/garden/manifest gates remained enabled.
 
 | Check | Result |
 | --- | --- |
-| Default | 12,134 tests / 181 files / 12 skips; 1244.080s. Genuine green receipt dated 2026-10-10T19:26:17.934365+00:00. |
-| Second vocabulary/layout | 12,126 tests / 181 files / 28 skips; 1253.143s; every file passes. |
-| Declared tools | 12,134 tests / 181 files / 12 skips; 1254.164s; every file passes. |
-| Exact skip comparison | Both deterministic readers pass. Second has exactly 16 explicitly marked default-only skips beyond baseline; declared matches baseline IDs and reasons exactly. |
-| Vendored assets | Registry integrity and file comparisons pass for elkjs 0.10.0, react-dom 18.3.1 and react 18.3.1; these assets remain unchanged in the tested source. |
-| Documentation/package gates | Garden, full lint and manifest gates enabled and passing. No qualification waiver. |
+| Default | Reused genuine current green: 12,266 tests / 185 complete successful workers / 12 skips; 1207.635s. Receipt dated 2026-10-11T02:29:32.596839+00:00, byte-identical after packaging. |
+| Second vocabulary/layout | 12,258 tests / 185 complete successful workers / 28 skips; 1876.540s. |
+| Declared tools | 12,266 tests / 185 complete successful workers / 12 skips; 1384.869s, standalone rerun. |
+| Exact skip comparison | Both deterministic readers pass. Second has exactly 16 explicitly marked default-only extras; declared matches baseline IDs and reasons exactly. |
+| Vendored assets and bootstrap | All seven dashboard vendor members and the bootstrap requirement/wheel hash table match the prior approved pack exactly; its registry verification is reused. Pin 0.12.4 remains unchanged for this same-version local rebuild. All four advisory sensor decisions are settled. |
 
-Reproduce with `run_tests.py --qualification-report .wavefoundry/cache/qualification/default.json`, then the same command with `--profile second` and `--profile declared`; compare each profile with `qualification_report.py --compare ... --profile <profile>`. Build command: `python3 -B .wavefoundry/framework/scripts/build_pack.py --version 1.29.0`. Complete executed commands, identities and worker records remain in the ignored qualification cache.
+One initial concurrent declared run failed `DashboardManagedIdentityTests.test_mcp_start_confirms_serving_own_child`: its child exited before serving. The unchanged focused dashboard file then passed all 228 tests with its one baseline skip; the complete standalone declared run passed every file. Dashboard fixtures share the fixed localhost range 43127–43129, so run packaging profiles sequentially to avoid competing fixtures. Port contention is consistent with the observations, but the historical child's stderr was discarded and its exact exit cause is not proven. The initial red report is diagnostic only; no source, assertion or skip change, composite receipt or waiver was used.
 
-Profiles are packaging checks, not independent wave delivery approvals. The receipt attests framework inputs rather than unrelated project docs. Earlier runs invalidated by changing inputs, timing failures or the historical fixture's false skip are excluded. Native Windows execution remains pending; platform skips remain visible. This archive precedes queued waves 20b39/20b3a/20b3b.
+Profiles are packaging checks, not independent wave delivery approvals. Native Windows execution, actual model/network downloads and a live consumer upgrade were not performed. Archive verification establishes its source and composition, not every target's runtime behavior. Same-version local builds intentionally retain 1.29.0 and use a fresh time suffix; select this exact archive for testing.
 
-The reviewed 0.12.4 bootstrap pin/hash table remains unchanged for this same-version local rebuild; the mature 0.12.15 candidate remains a next-release source change. All four advisory sensors have decided_wave; no sensor policy changed.
+## Reproduction and retention
 
-## Evidence retention
+Run `run_tests.py --qualification-report .wavefoundry/cache/qualification/default.json` when the standing default receipt is not current, then run the complete suite with `--profile second` and `--profile declared` sequentially. Compare each with `qualification_report.py --compare ... --profile <profile>`. Build command: `python3 -B .wavefoundry/framework/scripts/build_pack.py --version 1.29.0`. The build ran once with all gates enabled and a temporary output directory; the verified archive was copied byte-identically to the standard durable dist path.
 
-Exact execution-origin reports occupy three replaceable files under ignored `.wavefoundry/cache/qualification/`; one replaceable `.wavefoundry/cache/local-pack-qualification.json` records their genuine contents, comparisons, archive metadata and snapshot origin. Verbose captures stay under `/private/tmp/wf-local-pack-2087n/`. Final implementation evidence is in the 2071o, 2080c and 20asl wave summaries and immutable ledgers. No permanent supporting folder was added.
+Three replaceable execution-origin reports remain under ignored `.wavefoundry/cache/qualification/`; `.wavefoundry/cache/local-pack-qualification.json` records current comparisons and archive metadata. The existing `20b3b-default.json` stays because the wave qualification cites it. Raw probes, logs and the excluded initial red report remain temporary under `/private/tmp/wf-local-pack-20b3b/`; no permanent supporting folder was added. Implementation decisions and review authority remain in the closed wave records and immutable ledgers.
 
-## Earlier builds
+## Previous artifact
 
-`1.29.0+pvkw` (SHA-256 `d17d7ae11a5421c7fc54ad5cd23a49f6470ead2d029448090366da6e51bd6f7e`) predates these graph and fixture repairs. `1.29.0+pviw` (SHA-256 `ba0a8fc6538929b73fe599c41373e1be8565c5815cc32222237c3e8e5e39d1ab`) predates 205jp/2071p; its skip waiver applied only to that archive. Earlier diagnostic results retain their original counts and limitations. No waiver applies to pvqp. No commit, push, tag or publication was performed.
+`1.29.0+pvqp`, SHA256 `775f1f1536040424b8f413af6ca476043d876a2bcb702cf9258b00febeed14f4`, predates `20b39`, `20b3a` and `20b3b`. Its default/second/declared runs passed for source hash `c8d6a4134e202a505142cdd7ac3958048682eec85fad6207da27ac3671ffc88e`; those results do not qualify the current source. Older waived builds do not supply authority for pvta.
