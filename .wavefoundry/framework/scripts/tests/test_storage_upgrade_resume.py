@@ -351,7 +351,7 @@ class StorageRebuildPublicationTests(unittest.TestCase):
                         conn.execute("DELETE FROM chunks_code")
                 return completed
             return subprocess.run(argv, capture_output=True, text=True, check=False,
-                                  **{key: value for key, value in kwargs.items() if key not in {"check", "capture_output", "text"}})
+                                  **{key: value for key, value in kwargs.items() if key not in {"check", "capture_output", "text", "root", "phase"}})
         # Dependency installation and model warming are the model seam. The
         # qualified runtime and deterministic child embedder are already present.
         import setup_index
@@ -359,7 +359,7 @@ class StorageRebuildPublicationTests(unittest.TestCase):
         with contextlib.ExitStack() as controls, memory_backfill.index_publication_scope(run_id), \
              patch.dict(os.environ, {migration.CONFIRM_ENV: "1"}), \
              patch.object(migration, "discover_hosts", return_value=([], ["fixture confirmed hosts"])), \
-             patch.object(upgrade.subprocess_util, "isolated_run", side_effect=run), \
+             patch("child_tee.run", side_effect=run), \
              patch.object(setup_index, "ensure_deps"), \
              patch.object(setup_index, "prewarm_models"), \
              contextlib.redirect_stdout(io.StringIO()):
@@ -605,10 +605,10 @@ class SchemaEightMemoryCLIResumeTests(unittest.TestCase):
                 return result
             if len(argv) > 1 and Path(argv[1]).name == "sqlite_storage_migration.py":
                 observations.append("verify")
-            return subprocess.run(argv, **kwargs)
+            return subprocess.run(argv, **{key: value for key, value in kwargs.items() if key not in {"root", "phase"}})
         output = io.StringIO()
         with patch.object(setup_index, "ensure_deps"), patch.object(setup_index, "prewarm_models"), \
-                patch.object(upgrade.subprocess_util, "isolated_run", side_effect=run), \
+                patch("child_tee.run", side_effect=run), \
                 contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
             result = upgrade.main(["--root", str(root), "--resume-after-memory", "--confirm-hosts-stopped"])
         self.assertEqual(result, 0, output.getvalue())

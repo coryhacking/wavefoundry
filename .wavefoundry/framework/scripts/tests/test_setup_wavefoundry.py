@@ -187,6 +187,7 @@ class SetupWavefoundryTests(unittest.TestCase):
 
         root = Path.cwd()
         upgrade_lib.write_upgrade_lock(root, "old", "new", runner_protocol=2)
+        upgrade_lib.update_upgrade_lock(root, current_phase="awaiting_memory_validation")
         checkpoint = root / ".wavefoundry" / upgrade_lib.UPGRADE_LOCK_FILENAME
         before = checkpoint.read_bytes()
         with patch.object(self.mod, "_provision_lifecycle_policy_if_absent") as provision, \
@@ -198,6 +199,9 @@ class SetupWavefoundryTests(unittest.TestCase):
         load.assert_not_called()
         self.assertEqual(checkpoint.read_bytes(), before)
         self.assertIn("storage_setup_foreign_upgrade", stderr.getvalue())
+        self.assertIn("--resume-after-memory", stderr.getvalue())
+        self.assertIn("Operator-run", stderr.getvalue())
+        self.assertIn("agents must not execute", stderr.getvalue())
 
     def test_abbreviated_or_unknown_options_refuse_before_setup_writes(self):
         for option in ("--graph", "--deps", "--code-o", "--docs-o", "--not-a-setup-option"):

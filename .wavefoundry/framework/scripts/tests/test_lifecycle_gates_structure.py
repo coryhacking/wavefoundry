@@ -801,7 +801,7 @@ class ReloadClosureGuardTests(unittest.TestCase):
         self.source = _source("server_impl")
 
     def test_the_tree_passes_with_the_starting_lists(self):
-        self.assertEqual(_in_place_reloaded(self.source), {"runtime_lock"})
+        self.assertEqual(_in_place_reloaded(self.source), {"runtime_lock", "sqlite_storage_migration"})
         self.assertEqual(_reload_closure_problems(self.source, _RELOAD_RETAINED_FLAT_MODULES), [])
         self.assertEqual(_runtime_lock_binding_problems(self.source, _RUNTIME_LOCK_STALE_BINDINGS), [])
         # 1zyv1 adds bytecode_cache (runner bootstrap); 200ew evicts lifecycle_id.
@@ -823,8 +823,8 @@ class ReloadClosureGuardTests(unittest.TestCase):
         )
 
     def test_removing_the_in_place_reload_reports_runtime_lock(self):
-        mutated = self.source.replace('_IN_PLACE_RELOAD_MODULES = ("runtime_lock",)',
-                                      "_IN_PLACE_RELOAD_MODULES = ()", 1)
+        mutated = self.source.replace('_IN_PLACE_RELOAD_MODULES = ("runtime_lock", "sqlite_storage_migration")',
+                                      '_IN_PLACE_RELOAD_MODULES = ("sqlite_storage_migration",)', 1)
         self.assertNotEqual(mutated, self.source)
         self.assertEqual(_reload_closure_problems(mutated, _RELOAD_RETAINED_FLAT_MODULES),
                          ["not reloaded: runtime_lock"])

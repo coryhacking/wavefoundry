@@ -2544,6 +2544,85 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
                 )
 
 
+
+class ReviewPolicyCRLFUpgradeTests(unittest.TestCase):
+    """208l3: real canonical producer, raw-byte upgrade seam and LF golden."""
+
+    def _wave(self, root):
+        from server_tools_support import load_server
+        srv = load_server()
+        config = root / "docs/workflow-config.json"
+        config.parent.mkdir(parents=True)
+        config.write_bytes(b'{"wave_review":{"enabled":true}}\n')
+        with patch.object(srv._lifecycle_module(), "build_id", return_value="00001 crlf-baseline"):
+            result = srv.create_wave(root, "crlf-baseline", mode="create")
+        path = root / result["path"]
+        self.assertEqual(review_evidence.validate_external_review_evidence(path).errors, ())
+        # Force marker insertion, not replacement, through the real upgrade.
+        text = re.sub(r"(?m)^review-policy-reprepare-required:.*\n", "", path.read_text("utf-8"))
+        path.write_bytes(text.encode("utf-8"))
+        return path
+
+    def test_upgrade_preserves_both_crlf_payloads_and_lf_equivalence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = self._wave(root)
+            lf = path.read_bytes()
+            lf_plan = review_policy_upgrade.plan_review_policy_upgrade(root)
+            path.write_bytes(lf.replace(b"\n", b"\r\n"))
+            with patch.object(review_policy_upgrade, "WaveMigration", wraps=review_policy_upgrade.WaveMigration) as constructor:
+                plan = review_policy_upgrade.plan_review_policy_upgrade(root)
+            constructor.assert_called_once()
+            marked, projected = constructor.call_args.args[2:]
+            self.assertIn(b"review-policy-reprepare-required: true", marked)
+            for actual, expected in ((marked, lf_plan.waves[0].marked), (projected, lf_plan.waves[0].projected)):
+                self.assertIsNone(re.search(rb"(?<!\r)\n", actual))
+                self.assertEqual(actual.replace(b"\r\n", b"\n"), expected)
+            review_policy_upgrade.apply_review_policy_upgrade(root, plan)
+            self.assertEqual(path.read_bytes(), projected)
+
+    def test_stray_crlf_selects_crlf_for_the_whole_upgrade_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = self._wave(root)
+            path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n", 1))
+            migration = review_policy_upgrade.plan_review_policy_upgrade(root).waves[0]
+            for payload in (migration.marked, migration.projected):
+                self.assertIn(b"\r\n", payload)
+                self.assertIsNone(re.search(rb"(?<!\r)\n", payload))
+
+    def test_crlf_ledger_refusal_names_lf_requirement_before_projection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = self._wave(root)
+            path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+            review_evidence.review_event_path(path).write_bytes(b"{}\r\n")
+            with self.assertRaises(ValueError) as caught:
+                review_policy_upgrade.plan_review_policy_upgrade(root)
+            self.assertIn("events.jsonl must use LF line endings", str(caught.exception))
+            self.assertNotIn("Review Evidence section", str(caught.exception))
+
+    def test_lf_projection_matches_bytes_captured_before_208l3(self):
+        # Captured 2026-10-10T19:07:50Z before all code edits; canonical
+        # create_wave template and real projection/upgrade helpers.
+        # producer-fixture: immutable canonical create_wave LF input captured before code edits pins upgrade compatibility.
+        original = b"# Wave Record\n\nOwner: Engineering\nStatus: planned\nLast verified: 2026-10-10\nreview-evidence-source: events.jsonl\n\nreview-policy-reprepare-required: false\nwave-id: `00001 crlf-baseline`\nTitle: Crlf Baseline\n\n## Objective\n\n<Describe the wave's load-bearing goal in 1\xe2\x80\x933 sentences \xe2\x80\x94 what changes in the project state when this wave closes, and why now. This text is displayed in the dashboard wave card.>\n\n## Changes\n\n## Participants\n\n- Coordinator: <wave coordinator>\n- Write-owning roles: <roles selected during Prepare wave>\n- Requested review lanes: none\n- Required review lanes: none\n\n## Wave Summary\n\n<Describe the purpose and scope of this wave in 1\xe2\x80\x933 sentences.>\n\n## Watchpoints\n\n- <Add watchpoint, follow-up, or blocking notes here \xe2\x80\x94 coordination constraints, sequencing, or guard requirements.>\n\n## Finding Synthesis\n\n<!-- wave:finding-synthesis begin -->\n| Current finding | Disposition | Open block | Repair | Approval recheck |\n| --- | --- | --- | --- | --- |\n| \xe2\x80\x94 | \xe2\x80\x94 | \xe2\x80\x94 | \xe2\x80\x94 | \xe2\x80\x94 |\n\n*Machine review state \xe2\x80\x94 0 findings; current: do_now 0, maybe_later 0, dont_do_later 0, not_issue 0*\n<!-- wave:finding-synthesis end -->\n\n## Review Evidence\n\n<!-- wave:review-status begin -->\n| Signoff | State | Why | Next action |\n| --- | --- | --- | --- |\n| council-readiness | pending | no current executed approval | record approval evidence for council-readiness |\n| council-delivery | pending | no current executed approval | record approval evidence for council-delivery |\n| operator-signoff | pending | no current executed approval | record approval evidence for operator-signoff |\n<!-- wave:review-status end -->\n\n- operator-signoff: <approved when operator confirms closure>\n\n## Dependencies\n\n- No external wave dependencies. Declare intra-wave dependencies with a `Depends On:` line containing full backticked change ids in each change's block under `## Changes`.\n"
+        # component-fixture: immutable pre-edit projection output pins byte-for-byte LF behavior; regeneration would erase the baseline.
+        expected = b"# Wave Record\n\nOwner: Engineering\nStatus: planned\nLast verified: 2026-10-10\nreview-evidence-source: events.jsonl\n\nreview-policy-reprepare-required: true\nwave-id: `00001 crlf-baseline`\nTitle: Crlf Baseline\n\n## Objective\n\n<Describe the wave's load-bearing goal in 1\xe2\x80\x933 sentences \xe2\x80\x94 what changes in the project state when this wave closes, and why now. This text is displayed in the dashboard wave card.>\n\n## Changes\n\n## Participants\n\n- Coordinator: <wave coordinator>\n- Write-owning roles: <roles selected during Prepare wave>\n- Requested review lanes: none\n- Required review lanes: none\n\n## Wave Summary\n\n<Describe the purpose and scope of this wave in 1\xe2\x80\x933 sentences.>\n\n## Watchpoints\n\n- <Add watchpoint, follow-up, or blocking notes here \xe2\x80\x94 coordination constraints, sequencing, or guard requirements.>\n\n## Finding Synthesis\n\n<!-- wave:finding-synthesis begin -->\n| Current finding | Disposition | Open block | Repair | Approval recheck |\n| --- | --- | --- | --- | --- |\n| \xe2\x80\x94 | \xe2\x80\x94 | \xe2\x80\x94 | \xe2\x80\x94 | \xe2\x80\x94 |\n\n*Machine review state \xe2\x80\x94 0 findings; current: do_now 0, maybe_later 0, dont_do_later 0, not_issue 0*\n<!-- wave:finding-synthesis end -->\n\n## Review Evidence\n\n<!-- wave:review-status begin -->\n| Signoff | State | Why | Next action |\n| --- | --- | --- | --- |\n| council-readiness | pending | no current executed approval | record approval evidence for council-readiness |\n| council-delivery | pending | no current executed approval | record approval evidence for council-delivery |\n| operator-signoff | pending | no current executed approval | record approval evidence for operator-signoff |\n<!-- wave:review-status end -->\n\n- operator-signoff: <approved when operator confirms closure>\n\n## Dependencies\n\n- No external wave dependencies. Declare intra-wave dependencies with a `Depends On:` line containing full backticked change ids in each change's block under `## Changes`.\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = root / "docs/workflow-config.json"
+            config.parent.mkdir(parents=True)
+            config.write_bytes(b'{"wave_review":{"enabled":true}}\n')
+            path = root / WAVES_REL / "00001 crlf-baseline" / RECORD
+            path.parent.mkdir(parents=True)
+            path.write_bytes(original)
+            review_evidence.review_event_path(path).write_bytes(b"")
+            migration = review_policy_upgrade.plan_review_policy_upgrade(root).waves[0]
+            self.assertEqual(migration.marked, expected)
+            self.assertEqual(migration.projected, expected)
+
+
 if __name__ == "__main__":
     unittest.main()
 

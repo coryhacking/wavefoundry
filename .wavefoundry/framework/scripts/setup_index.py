@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import contextvars
 import datetime
 import hashlib
 import importlib.util
 import json
+import math
 import os
+
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 import queue
 import re
 import shutil
@@ -1023,7 +1027,7 @@ _HF_HUB_TIMEOUT_CONSTANTS: dict[str, str] = {
 }
 
 
-def _hf_hub_timeout_value(constant_name: str, config_key: str) -> float:
+def _hf_hub_timeout_value(constant_name: str, config_key: str, settings=None) -> float:
     """The value to apply for one HF Hub timeout constant. Precedence: an operator-set, valid
     (positive numeric) env var of the same name wins as the source of the value — never override an
     explicit operator choice with a lower default; otherwise the per-run workflow-config value
@@ -1038,14 +1042,14 @@ def _hf_hub_timeout_value(constant_name: str, config_key: str) -> float:
             operator_value = None
         if operator_value is not None and operator_value > 0:
             return operator_value
-    active = _ACTIVE_HF_HUB_SOCKET_TIMEOUTS
+    active = settings if settings is not None else _ACTIVE_HF_HUB_SOCKET_TIMEOUTS
     if active is not None and config_key in active:
         return active[config_key]
     return _SETUP_DEADLINE_KEYS[config_key]
 
 
 @contextlib.contextmanager
-def _hf_hub_timeout_scope():
+def _hf_hub_timeout_scope(settings=None):
     """Scoped HF Hub socket timeouts for the model warm (change 1p9p9). Mirrors ``_offline_env``'s
     save/set/restore shape but patches ``huggingface_hub.constants.*`` module attributes rather than
     ``os.environ`` (see ``_HF_HUB_TIMEOUT_CONSTANTS`` for why an env mutation here is a no-op).
@@ -1069,9 +1073,14 @@ def _hf_hub_timeout_scope():
                 if not hasattr(hf_constants, constant_name):
                     continue  # renamed/removed in a future hub release: skip it, never break the warm
                 saved[constant_name] = getattr(hf_constants, constant_name)
-                setattr(hf_constants, constant_name, _hf_hub_timeout_value(constant_name, config_key))
+                setattr(hf_constants, constant_name, _hf_hub_timeout_value(constant_name, config_key, settings))
         except Exception:  # noqa: BLE001 — application is best-effort by contract
             pass
+        if hasattr(hf_constants, "HF_HUB_DISABLE_XET"):
+            saved["HF_HUB_DISABLE_XET"] = hf_constants.HF_HUB_DISABLE_XET
+            hf_constants.HF_HUB_DISABLE_XET = os.environ.get("HF_HUB_DISABLE_XET", "1").strip().upper() in {"1", "ON", "YES", "TRUE"}
+        else:
+            print("[wavefoundry] WARNING: huggingface_hub has no HF_HUB_DISABLE_XET constant; the download deadline remains enforced.", file=sys.stderr, flush=True)
         yield
     finally:
         for constant_name, prior_value in saved.items():
@@ -2481,7 +2490,7 @@ _ACTIVE_HF_HUB_SOCKET_TIMEOUTS: "dict[str, float] | None" = None
 def _setup_deadlines(root: Path | None) -> dict[str, float]:
     """Resolve Phase-1 setup child deadlines (seconds) from ``docs/workflow-config.json`` ``setup.<key>``
     (wave 1p9it). Analogous to ``workflow_include_prefixes.read_project_include_prefixes``. Fail-safe: a missing file,
-    malformed JSON, missing block/key, or a non-positive/non-numeric value falls back to the shipped
+    malformed JSON, missing block/key, or a non-positive/non-finite/non-numeric value falls back to the shipped
     default for that key and never raises. A lock-held deadline above its cap
     (``_LOCK_HELD_DEADLINE_CAPS``) resolves to the cap. ``root=None`` (e.g. a direct unit-test call)
     yields all defaults."""
@@ -2494,16 +2503,91 @@ def _setup_deadlines(root: Path | None) -> dict[str, float]:
         if isinstance(block, dict):
             for key in _SETUP_DEADLINE_KEYS:
                 val = block.get(key)
-                if isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0:
+                if isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0 and math.isfinite(val):
                     resolved[key] = min(float(val), _LOCK_HELD_DEADLINE_CAPS.get(key, float("inf")))
     except Exception:
         pass
     return resolved
 
 
+_MODEL_DOWNLOAD_ROOT = contextvars.ContextVar("wavefoundry_model_download_root", default=None)
+_MODEL_DOWNLOAD_LOCK = threading.Lock()
+_MODEL_DOWNLOAD_OWNERS: dict[tuple[str, str], object] = {}
+
+
+class ModelDownloadDeadline(TimeoutError):
+    """A required download timed out, or its previous native worker still owns the cache."""
+
+
+@contextlib.contextmanager
+def model_download_root(root):
+    token = _MODEL_DOWNLOAD_ROOT.set(Path(root) if root is not None else None)
+    try:
+        yield
+    finally:
+        _MODEL_DOWNLOAD_ROOT.reset(token)
+
+
+def _model_download_key(model_name, cache_dir):
+    # Hub repository IDs are case-insensitive; absolute real paths merge cache aliases.
+    return (os.path.normcase(os.path.realpath(cache_dir)), model_name.casefold())
+
+
+def _release_model_download(key, owner):
+    with _MODEL_DOWNLOAD_LOCK:
+        if _MODEL_DOWNLOAD_OWNERS.get(key) is owner:
+            del _MODEL_DOWNLOAD_OWNERS[key]
+
+
+def download_with_deadline(attempt, model_name, cache_dir, *, root=None):
+    """Bound one complete CA ladder. Only the worker may release its cache ownership.
+
+    Native calls cannot be cancelled. Different-model workers can overlap process-global
+    Hub/CA settings, as before; this is a same-model/cache writer guard, not isolation.
+    """
+    root = root if root is not None else _MODEL_DOWNLOAD_ROOT.get()
+    settings = _setup_deadlines(root)
+    deadline = settings["model_warm_timeout_seconds"]
+    key = _model_download_key(model_name, cache_dir)
+    owner = object()
+    with _MODEL_DOWNLOAD_LOCK:
+        if key in _MODEL_DOWNLOAD_OWNERS:
+            raise ModelDownloadDeadline(f"Model {model_name!r} cache {cache_dir!s}: a previous download worker is still running; retry after it exits. Do not clear its cache while it is alive.")
+        _MODEL_DOWNLOAD_OWNERS[key] = owner
+    box = {}
+    started = time.monotonic()
+    def worker():
+        try:
+            with _hf_hub_timeout_scope(settings):
+                ensure_ca_bundle_applied()
+                box["result"] = retry_with_ca_bundle_ladder(attempt, model_name)
+        except BaseException as exc:
+            box["exc"] = exc
+        finally:
+            _release_model_download(key, owner)
+    thread = threading.Thread(target=worker, name="wavefoundry-model-download-deadline", daemon=True)
+    try:
+        thread.start()
+    except BaseException:
+        _release_model_download(key, owner)
+        raise
+    # The configured duration can exceed the OS wait range. Every slice shares
+    # the original monotonic budget; completing the worker ends the wait early.
+    while thread.is_alive():
+        remaining = deadline - (time.monotonic() - started)
+        if remaining <= 0:
+            break
+        thread.join(min(remaining, threading.TIMEOUT_MAX))
+    if thread.is_alive():
+        raise ModelDownloadDeadline(f"Model {model_name!r} cache {cache_dir!s}: download exceeded {deadline:g}s deadline (elapsed {time.monotonic()-started:.3f}s). The native worker may still be running; do not clear the cache until it exits. Check network/proxy/TLS access, pre-download with HF_HUB_DISABLE_XET=1, or set HF_HUB_DISABLE_XET=0 to opt into Xet. Adjust setup.model_warm_timeout_seconds for a slow link.")
+    if "exc" in box:
+        raise box["exc"]
+    return box.get("result")
+
+
 def _run_in_process_with_deadline(fn, *, deadline_seconds: float, timeout_error: BaseException) -> None:
     """Run in-process ``fn()`` under a wall-clock deadline (wave 1p9it). Executes ``fn`` on a daemon
-    worker thread joined with ``deadline_seconds``; if the thread is still alive at the deadline, raise
+    worker thread joined in platform-representable slices sharing ``deadline_seconds``; if the thread is still alive at the deadline, raise
     ``timeout_error``. The daemon worker is then abandoned — a blocked native call (e.g. a hung fastembed
     TLS fetch) cannot be interrupted from outside, so the abort path fails loud and the process should be
     exited rather than resumed. On the within-deadline path this is behaviorally identical to calling
@@ -2517,9 +2601,14 @@ def _run_in_process_with_deadline(fn, *, deadline_seconds: float, timeout_error:
         except BaseException as exc:  # noqa: BLE001 — surfaced on the joining thread
             box["exc"] = exc
 
+    started = time.monotonic()
     worker = threading.Thread(target=_worker, name="wavefoundry-model-warm", daemon=True)
     worker.start()
-    worker.join(deadline_seconds)
+    while worker.is_alive():
+        remaining = deadline_seconds - (time.monotonic() - started)
+        if remaining <= 0:
+            break
+        worker.join(min(remaining, threading.TIMEOUT_MAX))
     if worker.is_alive():
         raise timeout_error
     if "exc" in box:
@@ -2706,7 +2795,8 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 2
     report_embedding_provider_decision()
-    gpu_fallbacks = _prewarm_gpu_accel(_indexer_models(include_code=_include_code, code_only=_code_only))
+    with model_download_root(root):
+        gpu_fallbacks = _prewarm_gpu_accel(_indexer_models(include_code=_include_code, code_only=_code_only))
     if model_bundle_path is None and model_bundle.attest_online_cache():
         print("Verified downloaded model cache matches the declared model set.", flush=True)
     try:

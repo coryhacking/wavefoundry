@@ -17,6 +17,7 @@ SCRIPTS = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS))
 import qualification_report as qualification
 import qualification_worker as worker
+from record_layout_support import apply_profile, shipped_default_profile
 
 CONTROL = '''import unittest
 from record_layout_support import default_profile_only
@@ -42,6 +43,9 @@ class QualificationCLITests(unittest.TestCase):
         self.root = Path(self.tmp.name).resolve()
         self.scripts = self.root / ".wavefoundry/framework/scripts"
         shutil.copytree(SCRIPTS, self.scripts, ignore=shutil.ignore_patterns("test_*.py", "__pycache__"))
+        # This nested control starts from shipped vocabulary/layout even when
+        # the outer worker runs in an edited distribution-profile copy.
+        apply_profile(self.scripts, shipped_default_profile(), python=sys.executable)
         (self.scripts / "tests/test_control.py").write_text(CONTROL)
         (self.root / ".gitignore").write_text(".wavefoundry/cache/\n.wavefoundry/framework/test-cache.json\n.wavefoundry/framework/test-run.lock\n")
         self.env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", WAVEFOUNDRY_DISABLE_BYTECODE_CACHE="1")

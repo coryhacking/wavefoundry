@@ -139,7 +139,8 @@ EXPECTED_SCOPES = {
     ],
     "provider_policy.py": ["available_onnx_providers", "diagnostic_report"],
     "setup_index.py": ["_warm_model_inner", "_measure_embedding_provider"],
-    "indexer.py": ["_get_embedder"],
+    # Public _get_embedder delegates to this import scope; the dynamic test stays public.
+    "indexer.py": ["_get_embedder_inner"],
     "wf_server/server_impl.py": ["_ensure_model_cached", "WaveIndex._get_embedder"],
     "benchmarks/embed_bench.py": ["_truncation_rate"],
 }
@@ -454,8 +455,11 @@ class ImportSiteCallTests(unittest.TestCase):
         with patch.object(self.ix, "accel_embedder", None), \
              patch.object(self.ix, "_onnx_providers", return_value=["CPUExecutionProvider"]), \
              patch.object(self.ix, "_text_embedding_cached_first", side_effect=_Stop), \
-             patch.dict(self.ix._EMBEDDER_CACHE, {}, clear=True):
+             patch.dict(self.ix._EMBEDDER_CACHE, {}, clear=True), \
+             patch.object(self.ix, "_get_embedder_inner", wraps=self.ix._get_embedder_inner) as build:
             self._drive(lambda: self.ix._get_embedder("stub/model"))
+        self.assertEqual(build.call_count, 2)
+        build.assert_called_with("stub/model", None)
 
     # wf_server/server_impl (2)
     def test_server_ensure_model_cached(self):

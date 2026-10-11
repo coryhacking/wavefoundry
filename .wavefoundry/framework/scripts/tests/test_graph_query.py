@@ -1928,3 +1928,47 @@ class CallEdgeCountsRegisteredSurfaceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RustContainingSymbolLookupTests(unittest.TestCase):
+    """2073t: a Rust node must not break any non-exact resolver tier."""
+
+    def _index(self, ids):
+        mod = load_graph_query()
+        return mod.GraphQueryIndex({"present": True, "nodes": [
+            {"id": nid, "label": label, "kind": kind}
+            for nid, label, kind in ids], "edges": []})
+
+    def test_rust_non_rust_and_mixed_lookups(self):
+        rust = ("src/lib.rs::collect", "collect", "function")
+        python = ("src/api.py::serve", "serve", "function")
+        for nodes in ([rust], [python], [rust, python]):
+            index = self._index(nodes)
+            for nid, label, _ in nodes:
+                with self.subTest(nodes=nodes, query=label):
+                    self.assertEqual(index.resolve_symbol(nid), nid)
+                    self.assertEqual(index.resolve_symbol(label), nid)
+            self.assertIsNone(index.resolve_symbol("absent"))
+
+    def test_trait_alias_unique_and_ambiguous(self):
+        first = "src/lib.rs::<Bucket as Iterator>.collect"
+        index = self._index([(first, "collect", "function")])
+        for query in (first, "Bucket.collect", "src/lib.rs::Bucket.collect"):
+            self.assertEqual(index.resolve_symbol(query), first)
+        self.assertIsNone(index.resolve_symbol("Iterator.collect"))
+        second = "src/lib.rs::<Bucket as Other>.collect"
+        index = self._index([(first, "collect", "function"), (second, "collect", "function")])
+        self.assertIsNone(index.resolve_symbol("Bucket.collect"))
+        self.assertIsNone(index.resolve_symbol("collect"))
+        self.assertEqual(index.resolve_symbol(first), first)
+
+    def test_suffix_shortest_callable_and_label_ambiguity(self):
+        index = self._index([
+            ("a.rs::work", "work", "constant"),
+            ("long.py::work", "work", "function"),
+            ("b.rs::work", "work", "function"),
+            ("x.rs::A.shared", "shared", "function"),
+            ("y.py::B.shared", "shared", "function"),
+        ])
+        self.assertEqual(index.resolve_symbol("work"), "b.rs::work")
+        self.assertIsNone(index.resolve_symbol("shared"))

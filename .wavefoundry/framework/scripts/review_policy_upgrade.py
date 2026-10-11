@@ -114,7 +114,9 @@ def plan_review_policy_upgrade(root: Path) -> ReviewPolicyUpgradePlan:
     for wave_md in (d / _vocab.RECORD_FILENAME for d in wave_dirs):
         try:
             before = wave_md.read_bytes()
-            text = before.decode("utf-8")
+            original = before.decode("utf-8")
+            newline = "\r\n" if "\r\n" in original else "\n"
+            text = original.replace("\r\n", "\n").replace("\r", "\n")
         except (OSError, UnicodeError) as exc:
             errors.append(f"{wave_md}: unreadable wave: {exc}")
             continue
@@ -148,8 +150,8 @@ def plan_review_policy_upgrade(root: Path) -> ReviewPolicyUpgradePlan:
             WaveMigration(
                 wave_md,
                 before,
-                marked_text.encode("utf-8"),
-                projected_text.encode("utf-8"),
+                marked_text.replace("\n", newline).encode("utf-8"),
+                projected_text.replace("\n", newline).encode("utf-8"),
             )
         )
     if errors:

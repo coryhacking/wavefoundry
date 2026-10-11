@@ -1297,27 +1297,71 @@ class GraphParityBaselineFixtureTests(unittest.TestCase):
         sections = getattr(self, "sections", None)
         if sections is None:
             self.fail("the parity build did not run; see the corpus-identity test")
-        # 1xtnr keeps the archived 1xny6 fixture byte-for-byte. On this
-        # unchanged corpus, builder52 changes only two version labels and
-        # adds the explicitly empty integrity snapshot below; builder53
-        # (201wg) and builder54 (206of) change the same two labels on this
-        # non-Rust corpus. Assert those new values
-        # before adapting metadata to the archived digest; never normalize
-        # nodes, edges, evidence, coverage or community membership.
-        self.assertEqual(sections["graph"]["builder_version"], "54")
-        self.assertEqual(sections["communities"]["graph_builder_version"], "54")
+        # Keep the unique builder51 archive byte-identical. Builder55 adds
+        # precisely the eight Python invocation spans below on this corpus.
+        # Verify them and their resulting fingerprint BEFORE projecting only
+        # that additive metadata back to the historical comparison surface.
+        self.assertEqual(sections["graph"]["builder_version"], "55")
+        self.assertEqual(sections["communities"]["graph_builder_version"], "55")
         self.assertEqual(sections["graph"]["call_integrity"], {
             "non_callable_call_targets": 0,
             "callable_wins_collisions": 0,
             "callable_wins_collision_details": [],
             "malformed_external_call_targets_dropped": 0,
         })
+        current_fingerprint = "cd4bdc8e72e04ffcbad06f479e29fbaf387d62ac983d3cb8d07daa84b4a5b022"
+        historical_fingerprint = "3a80962f0844b922b9b999cc490df6eeef32a3b2686698353d1848b93049bce4"
+        for section in ("graph", "communities"):
+            self.assertEqual(sections[section]["input_fingerprint"], current_fingerprint)
+            self.assertEqual(self.fixture[section]["input_fingerprint"], historical_fingerprint)
         self.assertEqual(self.fixture["graph"]["builder_version"], "51")
         self.assertEqual(self.fixture["communities"]["graph_builder_version"], "51")
+        expected_calls = {
+            ("svc/pool.py::pool_size", "external::os.cpu_count", "EXTRACTED"): "os.cpu_count()",
+            ("tests/test_worker.py::test_start", "svc/worker.py", "RECEIVER_RESOLVED"): "Worker()",
+            ("svc/ingest.py::ingest", "svc/parsers/json_parser.py::parse", "RECEIVER_RESOLVED"): "parse(raw)",
+            ("svc/gateway.py::open_gateway", "svc/session.py", "RECEIVER_RESOLVED"): "Session(token)",
+            ("svc/dispatch.py::dispatch", "svc/transports.py::HttpTransport", "RECEIVER_RESOLVED"): "HttpTransport()",
+            ("svc/loader.py::load_settings", "external::json.load", "EXTRACTED"): "json.load(fh)",
+            ("svc/audit.py::audit_sink", "external::json.load", "EXTRACTED"): "json.load(fh)",
+            ("svc/worker.py::Worker.start", "svc/loader.py::load_settings", "RECEIVER_RESOLVED"): "load_settings()",
+        }
+        observed_calls = []
+        for row in sections["graph"]["edge_evidence_multiset"]:
+            edge = row["edge"]
+            if edge["relation"] != "calls":
+                self.assertNotIn("call_sites", edge)
+                continue
+            key = (edge["source"], edge["target"], edge["confidence"])
+            self.assertIn(key, expected_calls)
+            observed_calls.append(key)
+            self.assertEqual(row["multiplicity"], 1)
+            source_file = _owner(edge["source"])
+            raw = self.corpus["files"][source_file].encode("utf-8")
+            token = expected_calls[key].encode("utf-8")
+            self.assertEqual(raw.count(token), 1, "the literal source oracle must be unique")
+            start = raw.index(token)
+            end = start + len(token)
+            expected_site = {
+                "source_file": source_file, "start_byte": start, "end_byte": end,
+                "line": raw[:start].count(b"\n") + 1,
+                "column": start - (raw.rfind(b"\n", 0, start) + 1) + 1,
+                "end_line": raw[:end].count(b"\n") + 1,
+                "end_column": end - (raw.rfind(b"\n", 0, end) + 1) + 1,
+            }
+            self.assertEqual(edge.get("call_sites"), [expected_site])
+        self.assertCountEqual(observed_calls, expected_calls)
         normalized = json.loads(json.dumps(sections))
         normalized["graph"]["builder_version"] = "51"
         normalized["graph"].pop("call_integrity")
+        for row in normalized["graph"]["edge_evidence_multiset"]:
+            if row["edge"]["relation"] == "calls":
+                row["edge"].pop("call_sites")
+        # Removing a field changes canonical record order, not multiplicity.
+        normalized["graph"]["edge_evidence_multiset"].sort(key=lambda row: _canon(row["edge"]))
         normalized["communities"]["graph_builder_version"] = "51"
+        for section in ("graph", "communities"):
+            normalized[section]["input_fingerprint"] = historical_fingerprint
         return normalized
 
     def test_metadata_adaptation_never_masks_node_or_edge_changes(self):
@@ -1332,6 +1376,61 @@ class GraphParityBaselineFixtureTests(unittest.TestCase):
                 rows[0]["edge"][key] = "injected-edge-regression"
                 assertion = self.test_edge_evidence_multiset_matches_including_multiplicity
             with self.subTest(section=section), patch.object(self, "sections", changed):
+                with self.assertRaises(AssertionError):
+                    assertion()
+
+    def test_current_python_call_sites_match_source_byte_oracles(self):
+        self._sections()  # verifies all eight spans before any projection
+
+    def test_metadata_adaptation_rejects_occurrence_and_fingerprint_drift(self):
+        for mutation in ("missing_sites", "coordinate", "bytes", "extra_site_field",
+                         "missing_call", "duplicate_call", "call_multiplicity", "non_call_sites",
+                         "graph_version", "community_version", "graph_fingerprint", "community_fingerprint"):
+            changed = json.loads(json.dumps(self.sections))
+            rows = changed["graph"]["edge_evidence_multiset"]
+            call = next(row["edge"] for row in rows if row["edge"]["relation"] == "calls")
+            if mutation == "missing_sites":
+                call.pop("call_sites")
+            elif mutation == "coordinate":
+                call["call_sites"][0]["column"] += 1
+            elif mutation == "bytes":
+                call["call_sites"][0]["start_byte"] += 1
+            elif mutation == "extra_site_field":
+                call["call_sites"][0]["unverified"] = True
+            elif mutation == "missing_call":
+                rows.remove(next(row for row in rows if row["edge"] is call))
+            elif mutation == "duplicate_call":
+                rows.append(json.loads(json.dumps(next(row for row in rows if row["edge"] is call))))
+            elif mutation == "call_multiplicity":
+                next(row for row in rows if row["edge"] is call)["multiplicity"] += 1
+            elif mutation == "non_call_sites":
+                next(row["edge"] for row in rows if row["edge"]["relation"] != "calls")["call_sites"] = []
+            elif mutation.endswith("_version"):
+                section = "graph" if mutation == "graph_version" else "communities"
+                field = "builder_version" if section == "graph" else "graph_builder_version"
+                changed[section][field] = "54"
+            else:
+                section = "graph" if mutation == "graph_fingerprint" else "communities"
+                changed[section]["input_fingerprint"] = "injected-fingerprint-regression"
+            with self.subTest(mutation=mutation), patch.object(self, "sections", changed):
+                with self.assertRaises(AssertionError):
+                    self._sections()
+
+    def test_metadata_adaptation_preserves_targets_multiplicity_and_membership(self):
+        for mutation in ("target", "multiplicity", "community_membership"):
+            changed = json.loads(json.dumps(self.sections))
+            if mutation == "community_membership":
+                changed["communities"]["communities"][0]["node_ids"].pop()
+                assertion = self.test_community_output_matches_the_baseline
+            else:
+                row = next(row for row in changed["graph"]["edge_evidence_multiset"]
+                           if row["edge"]["relation"] != "calls")
+                if mutation == "target":
+                    row["edge"]["target"] = "external::injected-target-regression"
+                else:
+                    row["multiplicity"] += 1
+                assertion = self.test_edge_evidence_multiset_matches_including_multiplicity
+            with self.subTest(mutation=mutation), patch.object(self, "sections", changed):
                 with self.assertRaises(AssertionError):
                     assertion()
 

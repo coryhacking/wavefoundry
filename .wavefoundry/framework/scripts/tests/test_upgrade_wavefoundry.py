@@ -2247,7 +2247,7 @@ class UpgradeManifestRecoveryTests(unittest.TestCase):
                 stack.enter_context(patch.object(
                     memory_backfill, "ensure_run", side_effect=RuntimeError("injected bootstrap failure")))
             if failure == "prune":
-                stack.enter_context(patch.object(mod.subprocess_util, "isolated_run",
+                stack.enter_context(patch("child_tee.run",
                     return_value=types.SimpleNamespace(returncode=1, stdout="", stderr="injected prune failure")))
             stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
             stack.enter_context(contextlib.redirect_stderr(io.StringIO()))
@@ -2507,9 +2507,13 @@ class PhasePruningCountTests(unittest.TestCase):
     def _prune(self, stderr, stdout="", returncode=0):
         from types import SimpleNamespace
         fake = SimpleNamespace(stdout=stdout, stderr=stderr, returncode=returncode)
-        with patch.object(self.mod.subprocess, "run", return_value=fake), \
+        with patch("child_tee.run", return_value=fake) as child, \
              contextlib.redirect_stdout(io.StringIO()):
-            return self.mod.phase_pruning(self.root)
+            result = self.mod.phase_pruning(self.root)
+            child.assert_called_once()
+            self.assertTrue(child.call_args.kwargs["capture_output"])
+            self.assertEqual(child.call_args.kwargs["phase"], "pruning")
+            return result
 
     def test_deleted_count_parsed(self):
         self.assertEqual(self._prune("prune: deleted 7 item(s)\n"), 7)
@@ -2576,7 +2580,7 @@ class PreferredPythonTests(unittest.TestCase):
         script.write_text("", encoding="utf-8")
         with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_python.parents[1])}), \
              patch.object(self.mod, "SCRIPTS_DIR", self.root), \
-             patch("subprocess.run", return_value=mock_proc) as run_mock:
+             patch("child_tee.run", return_value=mock_proc) as run_mock:
             self.mod.phase_surface_rendering(self.root)
         self.assertEqual(run_mock.call_args.args[0][0], str(venv_python))
 
@@ -2587,7 +2591,7 @@ class PreferredPythonTests(unittest.TestCase):
         setup_script.write_text("", encoding="utf-8")
         with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_python.parents[1])}), \
              patch.object(self.mod, "SCRIPTS_DIR", self.root), \
-             patch("subprocess.run", return_value=mock_proc) as run_mock, \
+             patch("child_tee.run", return_value=mock_proc) as run_mock, \
              patch("subprocess.Popen") as popen_mock:
             self.mod.phase_index_update(self.root)
         self.assertEqual(run_mock.call_args.args[0][0], str(venv_python))
@@ -2604,7 +2608,7 @@ class PreferredPythonTests(unittest.TestCase):
         setup_script.write_text("", encoding="utf-8")
         with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_python.parents[1])}), \
              patch.object(self.mod, "SCRIPTS_DIR", self.root), \
-             patch("subprocess.run", return_value=mock_proc) as run_mock, \
+             patch("child_tee.run", return_value=mock_proc) as run_mock, \
              patch("subprocess.Popen"):
             self.mod.phase_index_update(self.root)
         graph_calls = [c for c in run_mock.call_args_list if "--graph-only" in c.args[0]]
@@ -2624,7 +2628,7 @@ class PreferredPythonTests(unittest.TestCase):
         setup_script.write_text("", encoding="utf-8")
         result = MagicMock(returncode=0)
         with patch.object(self.mod, "SCRIPTS_DIR", self.root), \
-             patch.object(self.mod.subprocess_util, "isolated_run", return_value=result) as run_mock, \
+             patch("child_tee.run", return_value=result) as run_mock, \
              patch.object(self.mod.subprocess_util, "isolated_popen"):
             self.mod.phase_index_update(self.root)
         docs_call = next(call for call in run_mock.call_args_list if "--graph-only" not in call.args[0])
@@ -2639,7 +2643,7 @@ class PreferredPythonTests(unittest.TestCase):
         setup_script.write_text("", encoding="utf-8")
         with patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": str(venv_python.parents[1])}), \
              patch.object(self.mod, "SCRIPTS_DIR", self.root), \
-             patch("subprocess.run", return_value=mock_proc) as run_mock, \
+             patch("child_tee.run", return_value=mock_proc) as run_mock, \
              patch("subprocess.Popen"):
             self.mod.phase_index_rebuild(self.root)
         graph_calls = [c for c in run_mock.call_args_list if "--graph-only" in c.args[0]]
@@ -3104,7 +3108,8 @@ class CouncilRoleLinkRepairUpgradeTests(unittest.TestCase):
         after = new.read_bytes()
         # Capture the real incoming renderer's diagnostics rather than replacing
         # the child or relying on an in-process migration report.
-        actual_run = self.mod.subprocess_util.isolated_run
+        import child_tee
+        actual_run = child_tee.run
         runs = []
 
         def capture_run(*args, **kwargs):
@@ -3112,7 +3117,7 @@ class CouncilRoleLinkRepairUpgradeTests(unittest.TestCase):
             runs.append(result)
             return result
 
-        with patch.object(self.mod.subprocess_util, "isolated_run", side_effect=capture_run):
+        with patch("child_tee.run", side_effect=capture_run):
             self._surface()
         self.assertEqual(len(runs), 1)
         self.assertNotIn("markdown link targets the moved council role doc", runs[0].stderr)
@@ -3128,7 +3133,7 @@ class CouncilRoleLinkRepairUpgradeTests(unittest.TestCase):
         unsupported = f'![unsupported-native]({old_destination})\r\n'.encode()
         self.peer.write_bytes(expected + unsupported)
         runs.clear()
-        with patch.object(self.mod.subprocess_util, "isolated_run", side_effect=capture_run):
+        with patch("child_tee.run", side_effect=capture_run):
             self._surface()
         self.assertEqual(len(runs), 1)
         self.assertIn("markdown link targets the moved council role doc", runs[0].stderr)
@@ -3267,7 +3272,8 @@ class CouncilRoleLinkRepairUpgradeTests(unittest.TestCase):
                             target.peer.write_bytes(original)
                             target.peer.chmod(0o640)
                             preview = target._preview_incoming_role_links()
-                            actual_run = target.mod.subprocess_util.isolated_run
+                            import child_tee
+                            actual_run = child_tee.run
                             runs = []
 
                             def capture_run(*args, **kwargs):
@@ -3277,7 +3283,7 @@ class CouncilRoleLinkRepairUpgradeTests(unittest.TestCase):
 
                             for _ in range(2):
                                 runs.clear()
-                                with patch.object(target.mod.subprocess_util, "isolated_run", side_effect=capture_run):
+                                with patch("child_tee.run", side_effect=capture_run):
                                     target._surface()
                                 self.assertFalse(target.old.exists())
                                 self.assertTrue(target.new.is_file())
@@ -3509,6 +3515,209 @@ class LifecycleDocumentInstallingUpgradeTests(unittest.TestCase):
                     self.assertTrue(legacy.is_file())
                     self.assertFalse(new.exists())
 
+
+class ReviewPlanPreflightTests(unittest.TestCase):
+    """20b35: shared incoming check, supported ABI and pre-mutation refusal."""
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+        self.old = self.root / 'docs/prompts/interrogate-plan.prompt.md'
+        self.old.parent.mkdir(parents=True)
+        self.old.write_text('# customized legacy prompt\n', encoding='utf-8')
+        self.pack = self.root / 'feature.zip'
+        self._pack()
+
+    def _pack(self, checker=True, minimum=2, full=False):
+        import upgrade_protocol
+        with zipfile.ZipFile(self.pack, 'w') as z:
+            files = sorted(SCRIPTS_ROOT.rglob('*.py')) if full else [SCRIPTS_ROOT / 'upgrade_extensions.py']
+            for p in files:
+                if 'tests' in p.relative_to(SCRIPTS_ROOT).parts or p.name == 'review_plan_prompt_check.py':
+                    continue
+                z.write(p, '.wavefoundry/framework/scripts/' + p.relative_to(SCRIPTS_ROOT).as_posix())
+            if checker:
+                z.write(SCRIPTS_ROOT / 'review_plan_prompt_check.py', '.wavefoundry/framework/scripts/review_plan_prompt_check.py')
+            metadata = upgrade_protocol.build_protocol_metadata(release_version='1.29.0', build_id='test', artifact_type='feature')
+            metadata['minimum_runner_protocol'] = minimum
+            z.writestr('.wavefoundry/framework/UPGRADE-PROTOCOL.json', json.dumps(metadata))
+            z.writestr('.wavefoundry/framework/VERSION', '1.29.0\n')
+            z.writestr('.wavefoundry/framework/MANIFEST', '.wavefoundry/framework/scripts/review_plan_prompt_check.py\n')
+
+    def _ctx(self):
+        return types.SimpleNamespace(root=self.root, zip_path=self.pack, runner_protocol=2,
+                                     from_version='1.15.4', to_version='1.29.0', yes=True)
+
+    def test_incoming_real_zip_hook_refuses_before_any_mutation(self):
+        before = {p.relative_to(self.root): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+        ext = self.mod._load_extension_module(self.pack)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                self.mod._run_hook('post_preflight', self._ctx(), ext)
+        self.assertEqual(raised.exception.code, 3)
+        self.assertIn('review_plan_prompt_migration_blocked', out.getvalue())
+        after = {p.relative_to(self.root): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+        self.assertEqual(before, after)
+        self.assertNotIn('review_plan_prompt_check', ext.__dict__)
+
+    def test_actual_v1_15_4_zip_loader_and_hook_refuse(self):
+        fixture = SCRIPTS_ROOT / 'tests/fixtures/upgrade_old_runner/preflight_hooks_v1_15_4.py.txt'
+        legacy = types.ModuleType('legacy_20b35')
+        legacy.__dict__.update(Path=Path, types=types, zipfile=zipfile, sys=sys, os=os,
+                               _log=lambda msg: None, _err=lambda msg: None, UpgradeContext=object)
+        exec(compile(fixture.read_text(), str(fixture), 'exec'), legacy.__dict__)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as raised:
+            legacy._run_hook('post_preflight', self._ctx(), legacy._load_extension_module(self.pack))
+        self.assertEqual(raised.exception.code, 3)
+        self.assertIn('review_plan_prompt_migration_blocked', out.getvalue())
+        self.assertFalse((self.root / '.wavefoundry/upgrade-in-progress.json').exists())
+        self.assertEqual(self.old.read_text(), '# customized legacy prompt\n')
+
+    def test_v1_15_4_full_pack_validation_accepts_new_flat_module(self):
+        self._pack(full=True)
+        fixture = SCRIPTS_ROOT / 'tests/fixtures/upgrade_old_runner/upgrade_protocol_v1_15_4.py.txt'
+        old = types.ModuleType('legacy_protocol_20b35')
+        old.__file__ = str(fixture)
+        exec(compile(fixture.read_text(), str(fixture), 'exec'), old.__dict__)
+        self.assertEqual(old.validate_feature_pack(self.pack)['artifact_type'], 'feature')
+        with zipfile.ZipFile(self.pack) as z:
+            member = '.wavefoundry/framework/scripts/review_plan_prompt_check.py'
+            self.assertIn(member, z.namelist())
+            self.assertIn(member, z.read('.wavefoundry/framework/MANIFEST').decode())
+        import build_pack
+        entries = build_pack.collect_files(SCRIPTS_ROOT.parent)
+        self.assertIn(member, [arc for _, arc in entries])
+        copied = self.root / 'manifest-fixture'; copied.mkdir()
+        manifest = build_pack.write_manifest(copied, entries)
+        self.assertIn('scripts/review_plan_prompt_check.py', manifest.read_text().splitlines())
+        import mcp_tool_extensions, setup_readiness
+        self.assertIn('review_plan_prompt_check', mcp_tool_extensions.FRAMEWORK_SCRIPT_MODULE_NAMES)
+        self.assertIn('review_plan_prompt_check.py', setup_readiness.SOURCE_FILES)
+
+    def test_protocol_first_missing_checker_warning_and_private_loader(self):
+        self._pack(minimum=3)
+        ext = self.mod._load_extension_module(self.pack)
+        with patch.object(ext, '_check_review_plan_prompt') as prompt, contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit): ext.post_preflight(self._ctx())
+        prompt.assert_not_called()
+        self._pack(checker=False)
+        ext = self.mod._load_extension_module(self.pack)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out): ext.post_preflight(self._ctx())
+        self.assertIn('checker unavailable', out.getvalue())
+        self._pack()
+        ext = self.mod._load_extension_module(self.pack)
+        with patch.dict(sys.modules, {'review_plan_prompt_check': types.SimpleNamespace(check_review_plan_prompt=lambda r: {'blocked': False})}):
+            with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(RuntimeError): ext.post_preflight(self._ctx())
+
+    def test_checker_structural_refusals_and_stock_newline_profiles(self):
+        import review_plan_prompt_check as c
+        for name, profile in c.REVIEW_PLAN_LEGACY_CONTRACT_PROFILES:
+            for newline in ('\n', '\r\n'):
+                with self.subTest(profile=name, newline=repr(newline)):
+                    self.old.write_bytes((newline.join(line for _, line, _ in profile) + newline).encode())
+                    self.assertFalse(c.check_review_plan_prompt(self.root)['blocked'])
+        new = self.root / c.REVIEW_PLAN_NEW_PROMPT
+        new.write_bytes(b'project new')
+        self.assertIn('both', c.check_review_plan_prompt(self.root)['message'])
+        self.old.unlink()
+        self.assertFalse(c.check_review_plan_prompt(self.root)['blocked'])
+        new.unlink()
+        self.assertFalse(c.check_review_plan_prompt(self.root)['blocked'])
+        self.old.mkdir()
+        self.assertIn('regular file', c.check_review_plan_prompt(self.root)['message'])
+        self.old.rmdir(); self.old.write_bytes(b'\xff')
+        self.assertIn('UTF-8', c.check_review_plan_prompt(self.root)['message'])
+        with patch.object(Path, 'is_symlink', return_value=True):
+            result = c.check_review_plan_prompt(self.root)
+            self.assertTrue(result['blocked'])
+            self.assertIn('symlink', result['message'])
+        entry = self.old.stat()
+        reparse = types.SimpleNamespace(st_mode=entry.st_mode, st_file_attributes=1024)
+        with patch.object(c.os, 'lstat', side_effect=lambda p: reparse if Path(p) == self.old else (_ for _ in ()).throw(FileNotFoundError())):
+            self.assertIn('reparse', c.check_review_plan_prompt(self.root)['message'])
+
+    def test_checker_stdlib_only_in_restricted_import_process(self):
+        code = '''import sys,builtins,runpy
+real=builtins.__import__
+def limited(name,*args,**kwargs):
+ if name.split('.')[0] not in sys.stdlib_module_names: raise ImportError(name)
+ return real(name,*args,**kwargs)
+builtins.__import__=limited
+runpy.run_path(sys.argv[1])
+'''
+        result = subprocess.run([sys.executable, '-I', '-B', '-c', code, str(SCRIPTS_ROOT / 'review_plan_prompt_check.py')], capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_new_runner_preflight_and_dry_run_refuse_and_absent_helper_degrades(self):
+        for call in (lambda: self.mod.phase_preflight(self.root, True), lambda: self.mod.phase_dry_run(self.root)):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as raised: call()
+            self.assertEqual(raised.exception.code, 3)
+        with patch.dict(sys.modules, {'review_plan_prompt_check': None}):
+            self.mod._check_installed_review_plan_prompt(self.root)
+
+    def test_actual_main_hook_failure_releases_transaction_and_staged_pack(self):
+        self._pack(full=True)
+        import lifecycle_lock, upgrade_lib, review_policy_upgrade
+        with patch.object(self.mod, 'phase_preflight', return_value=('1.15.4','1.29.0',self.pack)), \
+             patch.object(upgrade_lib, 'write_upgrade_lock') as write, \
+             patch.object(review_policy_upgrade, 'plan_review_policy_upgrade') as policy, \
+             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                self.mod.main(['--root',str(self.root),'--yes','--pack',str(self.pack)])
+        self.assertEqual(raised.exception.code, 3)
+        write.assert_not_called(); policy.assert_not_called()
+        self.assertFalse(upgrade_lib.upgrade_lock_path(self.root).exists())
+        with lifecycle_lock.lifecycle_publication_transaction(self.root): pass
+        probe = subprocess.run([sys.executable, '-B', '-c',
+            'import sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]); import lifecycle_lock; '            'tx=lifecycle_lock.lifecycle_publication_transaction(Path(sys.argv[2])); tx.__enter__(); tx.__exit__(None,None,None)',
+            str(SCRIPTS_ROOT), str(self.root)], capture_output=True, text=True, timeout=15)
+        self.assertEqual(probe.returncode, 0, probe.stderr)
+        for staged in self.mod._VERIFIED_PACK_IDENTITIES:
+            self.assertFalse(Path(staged).exists())
+        self.assertIn('review-plan prompt migration blocked', (self.root / '.wavefoundry/logs/upgrade.log').read_text())
+
+    def test_subprocess_actual_main_refusal_releases_lifecycle_lock(self):
+        self._pack(full=True)
+        code = '''import sys
+from pathlib import Path
+sys.path.insert(0,sys.argv[1])
+import upgrade_wavefoundry as u
+root,pack=Path(sys.argv[2]),Path(sys.argv[3])
+u.phase_preflight=lambda *a,**k: ('1.15.4','1.29.0',pack)
+raise SystemExit(u.main(['--root',str(root),'--yes','--pack',str(pack)]))
+'''
+        result = subprocess.run([sys.executable,'-B','-c',code,str(SCRIPTS_ROOT),str(self.root),str(self.pack)], capture_output=True,text=True,timeout=20)
+        self.assertEqual(result.returncode,3,result.stderr)
+        self.assertIn('review_plan_prompt_migration_blocked', result.stdout)
+        import lifecycle_lock, upgrade_lib
+        with lifecycle_lock.lifecycle_publication_transaction(self.root): pass
+        self.assertFalse(upgrade_lib.upgrade_lock_path(self.root).exists())
+
+    def test_rerun_safety_real_planner_conditional_marks(self):
+        import review_policy_upgrade as u
+        import record_paths, vocabulary_profile
+        wave = record_paths.load_record_roots(self.root).waves / 'abcde test'; wave.mkdir(parents=True)
+        # The actual renderer owns these markers; this is an empty declared wave.
+        import review_evidence
+        # component-fixture: empty evidence projection tests policy-migration planning only; no readiness or delivery validity claimed.
+        text = '# Wave\nStatus: planned\nreview-evidence-source: events.jsonl\n'
+        text += '\n## Review Evidence\n\nNo review evidence recorded.\n\n## Finding Synthesis\n\n<!-- wave:finding-synthesis begin -->\nNo review findings recorded.\n<!-- wave:finding-synthesis end -->\n'
+        # Use the canonical projection's marker names instead of duplicating them.
+        text = text.replace('<!-- wave:finding-synthesis begin -->', review_evidence.FINDING_SYNTHESIS_MARKER_BEGIN).replace('<!-- wave:finding-synthesis end -->', review_evidence.FINDING_SYNTHESIS_MARKER_END)
+        vocabulary_profile.record_file(wave).write_text(text); (wave / 'events.jsonl').write_text('')
+        config = self.root / 'docs/workflow-config.json'
+        stable = json.dumps({'wave_review':u.migrate_wave_review_policy(None)},indent=2)+'\n'
+        config.write_text(stable)
+        for evaluator,carriers,expected in ((u.REVIEW_POLICY_EVALUATOR_VERSION,(),0),(-1,(),1),(u.REVIEW_POLICY_EVALUATOR_VERSION,(object(),),1)):
+            with patch.object(u,'plan_reconciliation',return_value=carriers), patch.object(u,'current_policy_receipt',return_value={'evaluator_version':evaluator}):
+                self.assertEqual(len(u.plan_review_policy_upgrade(self.root).waves),expected)
+        config.write_text('{}\n')
+        with patch.object(u,'plan_reconciliation',return_value=()), patch.object(u,'current_policy_receipt',return_value={'evaluator_version':u.REVIEW_POLICY_EVALUATOR_VERSION}):
+            self.assertEqual(len(u.plan_review_policy_upgrade(self.root).waves),1)
 
 class ReviewPlanInstallingUpgradeTests(unittest.TestCase):
     """1w047 AC-4: Phase 1 runs the freshly extracted five-state migration."""
@@ -3780,6 +3989,25 @@ class ReviewPlanInstallingUpgradeTests(unittest.TestCase):
         self.assertRegex(text, r"Last verified: \d{4}-\d{2}-\d{2}")
         self.assertNotIn("{{generated_at}}", text)
         self.assertTrue(self.skill_path.is_file())
+
+
+    def test_old_window_phase_failure_retains_extracted_tree_and_marked_wave(self):
+        import upgrade_lib, record_paths, vocabulary_profile
+        self.old_path.write_bytes(self._legacy_bytes().replace(b"# Interrogate This Plan", b"# Customized"))
+        wave = record_paths.load_record_roots(self.root).waves / "abcde legacy"
+        wave.mkdir(parents=True)
+        # State already mutated by the old runner's preceding phases.
+        vocabulary_profile.record_file(wave).write_text("# Legacy wave\nStatus: planned\nreview-policy-reprepare-required: true\n")
+        version = self.root / ".wavefoundry/framework/VERSION"
+        version.write_text("1.29.0\n")
+        upgrade_lib.write_upgrade_lock(self.root, "1.15.4", "1.29.0", None)
+        self._run_phase(success=False)
+        # This is the runner's actual fatal-phase finalizer, called after Phase 1.
+        self.mod._finalize_failed_upgrade(self.root, True, "surface_rendering")
+        self.assertEqual(upgrade_lib.read_upgrade_lock(self.root)["failed_phase"], "surface_rendering")
+        self.assertEqual(version.read_text(), "1.29.0\n")
+        self.assertIn("reprepare-required: true", vocabulary_profile.record_file(wave).read_text())
+        self.assertFalse(self.new_path.exists())
 
 
 class RetiredModelCleanupTests(unittest.TestCase):
@@ -4596,7 +4824,7 @@ class Phase4PublisherGrantTests(unittest.TestCase):
     def _run_phase(self, fn_name, returncode=0):
         mock_proc = MagicMock(returncode=returncode)
         with patch.object(self.mod, "SCRIPTS_DIR", self.root), \
-             patch("subprocess.run", return_value=mock_proc) as run_mock, \
+             patch("child_tee.run", return_value=mock_proc) as run_mock, \
              patch("subprocess.Popen") as popen_mock, \
              contextlib.redirect_stderr(io.StringIO()) as stderr:
             result = getattr(self.mod, fn_name)(self.root)
@@ -4676,7 +4904,7 @@ class Phase4PublisherGrantTests(unittest.TestCase):
         os.environ["WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID"] = "run-1"
         mock_proc = MagicMock(returncode=7)
         with patch.object(self.mod, "SCRIPTS_DIR", self.root), \
-             patch("subprocess.run", return_value=mock_proc), \
+             patch("child_tee.run", return_value=mock_proc), \
              patch("subprocess.Popen"):
             with self.assertRaisesRegex(RuntimeError, "retryable"):
                 self.mod.phase_index_update(self.root)
@@ -9805,12 +10033,13 @@ class UpgradeCliEncodingTests(unittest.TestCase):
         self.assertIn("import cli_stdio", src)
         self.assertIn("cli_stdio.configure_utf8_stdio()", src)
 
-    def test_captured_prune_spawn_routes_through_isolated_run(self):
-        src = UPGRADE_PATH.read_text(encoding="utf-8")
-        self.assertIn(
-            "subprocess_util.isolated_run(cmd, cwd=str(root), capture_output=True, text=True, check=False)",
-            src,
-        )
+    def test_captured_prune_spawn_routes_through_utf8_tee(self):
+        tree = ast.parse(UPGRADE_PATH.read_text(encoding="utf-8"))
+        phase = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "phase_pruning")
+        calls = [node for node in ast.walk(phase) if isinstance(node, ast.Call) and ast.unparse(node.func) == "_run_upgrade_child"]
+        self.assertEqual(len(calls), 1)
+        self.assertEqual({item.arg: ast.unparse(item.value) for item in calls[0].keywords},
+                         {"cwd": "str(root)", "capture_output": "True", "text": "True", "check": "False", "root": "root", "phase": "'pruning'"})
 
     def test_no_bare_capture_output_text_subprocess_run_in_upgrade(self):
         # AC-3 source-scan: no captured `subprocess.run(..., text=True)` may remain bare — all route
@@ -10951,9 +11180,7 @@ class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
                 )
             return subprocess.CompletedProcess(argv, 0)
 
-        with patch.object(
-            self.mod.subprocess_util, "isolated_run", side_effect=child_run
-        ):
+        with patch("child_tee.run", side_effect=child_run):
             result = self.mod.main(
                 ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
             )
@@ -14116,7 +14343,7 @@ class PermissionsRenderConsentTests(unittest.TestCase):
 
         with patch.object(self.mod, "SCRIPTS_DIR", self.root), \
              patch.object(self.mod, "_log", side_effect=lines.append), \
-             patch("subprocess.run", side_effect=fake_run) as run_mock:
+             patch("child_tee.run", side_effect=fake_run) as run_mock:
             self.mod.phase_surface_rendering(self.root)
         return lines, run_mock
 
@@ -14736,7 +14963,7 @@ class PermissionsRenderBackstopTests(unittest.TestCase):
             captured.append(list(cmd))
             return MagicMock(returncode=0)
 
-        with patch("subprocess.run", side_effect=fake_run), \
+        with patch("child_tee.run", side_effect=fake_run), \
              patch.object(self.mod, "_log"):
             self.mod._ensure_rendered_permissions_backstop(self.root)
         self.assertEqual(len(captured), 1)
@@ -14780,7 +15007,7 @@ class PermissionsRenderBackstopTests(unittest.TestCase):
             "unmanaged_present": 0,
         }
         lib.update_upgrade_lock(self.root, permissions_delta=recorded)
-        with patch("subprocess.run", return_value=MagicMock(returncode=0)), \
+        with patch("child_tee.run", return_value=MagicMock(returncode=0)), \
              patch.object(self.mod, "_log"):
             self.mod._ensure_rendered_permissions_backstop(self.root)
         self.assertEqual(
@@ -14796,7 +15023,7 @@ class PermissionsRenderBackstopTests(unittest.TestCase):
         self.assertIn("mcp__wavefoundry__code_search", persisted["added"])
 
     def test_backstop_is_fail_safe_when_the_render_fails(self):
-        with patch("subprocess.run", return_value=MagicMock(returncode=3)), \
+        with patch("child_tee.run", return_value=MagicMock(returncode=3)), \
              patch.object(self.mod, "_log") as log:
             self.mod._ensure_rendered_permissions_backstop(self.root)
         self.assertTrue(
@@ -14830,7 +15057,7 @@ class StorageRebuildOrchestrationTests(unittest.TestCase):
             legacy = stack.enter_context(patch.object(setup_index, 'ensure_migration_deps'))
             convert = stack.enter_context(patch.object(migration, 'migrate_legacy'))
             publish = stack.enter_context(patch.object(migration, 'begin_upgrade_publication'))
-            run = stack.enter_context(patch.object(self.mod.subprocess_util, 'isolated_run', return_value=subprocess.CompletedProcess([], 1)))
+            run = stack.enter_context(patch('child_tee.run', return_value=subprocess.CompletedProcess([], 1)))
             try:
                 self.mod.phase_index_update(root)
             except RuntimeError as exc:
@@ -14856,7 +15083,7 @@ class StorageRebuildOrchestrationTests(unittest.TestCase):
                 stack.enter_context(patch.object(migration, 'record_upgrade_publication'))
                 stack.enter_context(patch.object(self.mod, '_verify_storage_publication'))
                 stack.enter_context(patch.object(self.mod, '_index_child_publisher_grant', return_value=None))
-                run = stack.enter_context(patch.object(self.mod.subprocess_util, 'isolated_run', return_value=subprocess.CompletedProcess([], 0)))
+                run = stack.enter_context(patch('child_tee.run', return_value=subprocess.CompletedProcess([], 0)))
                 self.assertTrue(self.mod.phase_index_update(root))
                 self.assertEqual(run.call_count, 2)
                 semantic, graph = [item.args[0] for item in run.call_args_list]
@@ -14942,7 +15169,7 @@ class DocsGateProjectRootPinTests(unittest.TestCase):
         target = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, target, True)
         with patch.dict(os.environ, {"PROJECT_ROOT": "/elsewhere"}), \
-                patch.object(self.mod.subprocess_util, "isolated_run", side_effect=fake_run), \
+                patch("child_tee.run", side_effect=fake_run), \
                 contextlib.redirect_stdout(io.StringIO()):
             self.mod.phase_docs_gate(target)
         self.assertEqual(len(seen), 2, "gardener and lint")

@@ -6,7 +6,7 @@ Last verified: 2026-10-10
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
-> **Line citations** in older sections reference the `GRAPH_BUILDER_VERSION="29"`-era source (waves 1p4ls/1p4q4/1p4up); the current constant is `"53"` (wave `203pu`). Line numbers shift on builder version bumps — use function names as stable anchors when citing across versions.
+> **Line citations** in older sections reference the `GRAPH_BUILDER_VERSION="29"`-era source (waves 1p4ls/1p4q4/1p4up); the current constant is `"55"` (wave `2071o`). Line numbers shift on builder version bumps — use function names as stable anchors when citing across versions.
 
 ---
 
@@ -155,6 +155,10 @@ Every edge is a dict produced by `_edge()` at `graph_indexer.py:509-525`:
 | `confidence` | str | `"EXTRACTED"`, `"AMBIGUOUS"`, or `"INFERRED"` |
 | `evidence` | str? | Optional provenance string |
 
+**Invocation provenance (builder 55, wave `2071o`).** Ordinary Python AST calls and shared tree-sitter code-mode calls attach `call_sites` with source file, UTF-8 byte spans, and one-based line/byte-column spans at extraction. Resolution, evidence merging, fingerprinting and canonical SQLite publication retain these sites. Python line prefixes use physical byte line boundaries, so Unicode separators inside string literals cannot shift offsets. Rust retains its per-occurrence resolution queue before evidence merging. Repeated calls stay separate sites on the same edge.
+
+The registry contains Python plus 26 tree-sitter language/format profiles. Fifteen tree-sitter profiles have ordinary code-mode calls: JavaScript, TypeScript, Go, Rust, Java, C, C++, C#, Bash, Kotlin, Swift, Objective-C, Scala, Ruby and PHP. The remaining markup/configuration/SQL profiles do not imply ordinary callable edges. Qualification exercises repeated invocations in every code mode, plus construction, PHP member/scoped calls, Objective-C messages, Bash commands, Rust macros, Unicode and multiline syntax. This is a syntax-family matrix, not qualification of every grammar construct. Regex fallback retains unknown sites because its caller ownership is unproven; no new parser mode or fallback resolver is introduced. Existing traversal coalescing across confidence tiers remains unchanged: each surfaced edge exposes that selected edge's sites and confidence.
+
 ### Edge Relations
 
 | Relation | Produced by | Meaning |
@@ -194,12 +198,12 @@ Four constants gate incremental reuse (`graph_indexer.py:27-37`):
 
 ```
 GRAPH_SCHEMA_VERSION  = "1"
-GRAPH_BUILDER_VERSION = "53"   # 53: unowned member calls stay external; 52: call-target identity, receiver confidence and callee-leaf extraction; prior changes are recorded in CHANGELOG.md
+GRAPH_BUILDER_VERSION = "55"   # 55: Python/shared tree-sitter invocation coordinates; 54: Rust occurrence provenance; prior changes are recorded in CHANGELOG.md
 ```
 
 The community-clustering layer (`graph_cluster.py`) carries its own `CLUSTER_BUILDER_VERSION = "12"` (10: seeded-RNG determinism + grab-bag split; 11: build-time betweenness section + `input_fingerprint` key, wave `1p9q3`).
 
-A full re-extraction is forced whenever any of `schema_version`, `builder_version`, `walker_version`, or `chunker_version` changes — detected when the session opens the per-file state store (`GraphStateStore.ensure_current()`, wave `1p9q2`): any version-key mismatch resets the whole store (file records + merge sidecar), `_load_state()` then reports an empty `files` set, and `update_graph_index()` expands the changed set to the full corpus.
+A supported forward version change in `schema_version`, `builder_version`, `walker_version`, or `chunker_version` forces re-extraction. `GraphStateStore.ensure_current()` records reset intent and presents empty extraction state; `update_graph_index()` widens the changed set. Scoped replacement of file records and merge state occurs inside the publication transaction, so the previous graph stays readable until commit. Newer or malformed populated versions are refused without reset. Builder 55 uses this ordinary invalidation path; it adds no eager upgrade scan or storage schema.
 
 The exact operational-evidence policy transition `16` → `17` is an exception to
 walker-triggered re-extraction. The index coordinator first proves unchanged published
@@ -579,15 +583,15 @@ When `restrict_files` is non-`None`, all three reference searchers (`_python_ref
 
 1. Obtains the index via `graph_query.get_query_index(root, layer="project")` (the server-process cache above; `GraphQueryIndex.from_root` under the kill switch or outside the server).
 2. Resolves the symbol, optionally qualifying with the `file` param by trying `file::symbol` first.
-3. **Outgoing** (callees): `index.traverse(node_id, relations=["calls"], max_hops=1, direction="callees")`. Collects all non-external callee names, calls `_scan_all_call_sites_in_file()` once on `definition_file`, uses `_first_call_site_at_or_after()` to pick the first call site at or after the caller's `source_location` line.
-4. **Incoming** (callers): `index.traverse(node_id, relations=["calls"], max_hops=1, direction="callers")`. Groups callers by source file. Calls `_scan_call_sites_in_file()` once per unique source file for the target symbol. Attributes call sites to callers in ascending-definition-line order using a `used_lines` set to prevent double-attribution.
-5. Each node entry carries a `community` field populated from `_load_cluster_lookup(root)`. Outgoing `file`/`line` describe the callee definition; its top-level `snippet` is null. The nested `call_site` carries the caller’s `{file, line, snippet}`. Incoming entries retain their top-level caller call-site coordinates and expose the same nested shape. Missing definition lines and unavailable or external call sites are null. `_context_source_paths` credits outgoing content only to `call_site.file` when its snippet is present, never to the callee metadata.
+3. **Outgoing** (callees): traverses one hop of `calls`. The callee definition remains the top-level file/line; its snippet is null. `_attach_edge_trust()` copies trust and selects invocation sites from that specific edge, validated against its caller's source file by `_edge_call_sites()`.
+4. **Incoming** (callers): traverses one hop of `calls` and selects the same edge-specific sites. The top-level line is the representative invocation line or null. Modern queries never rescan labels. The pre-v13 Java receiver scan may still exclude phantom callers; it supplies no location authority.
+5. Entries carry `community`, additive `call_sites`, and representative `call_site` (first distinct site or null). Sites are sorted by source file and available byte span, with line/column fallback for legacy rows. Fields are `{file, line, column, end_line, end_column, snippet, provenance: "indexed"}` plus optional UTF-8 byte offsets. They describe the indexed generation; snippets stay null without generation-bound freshness proof. Malformed, missing and wrong-file rows yield no guessed coordinates. Multiple occurrences preserve the existing relationship count, confidence, external suppression, and context behavior. `_context_source_paths()` credits content only when a proven snippet exists, so null snippet metadata earns no source-content credit.
 6. When `context_depth > 0`, all immediate caller/callee node ids are gathered into a set, then a single combined `traverse(max_hops=1, direction="both")` is called per immediate neighbor; expanded neighbors (not already known) are appended as a `context` list.
 7. When the symbol is unresolvable, `_suggest_near_symbols(index, symbol)` populates a `suggestions` list in the response.
 
 ### `code_callgraph_response()` (`wf_server/server_impl.py`)
 
-Calls `index.callgraph(symbol, depth=max(1,depth), direction=direction_value)`. When `include_tests=False` (default), nodes whose `source_file` matches `_is_test_path()` patterns are dropped, and edges referencing those filtered nodes are also dropped — keeping the subgraph internally consistent. Symmetric with `code_impact`'s filter. Enriches each remaining `"calls"` edge with a `"line"` field: groups all edges by source file, calls `_scan_all_call_sites_in_file()` once per unique source file, then calls `_first_call_site_at_or_after()` per edge using the source node's `source_location` as the start line.
+Calls `index.callgraph(symbol, depth=max(1,depth), direction=direction_value)`. When `include_tests=False` (default), nodes whose `source_file` matches `_is_test_path()` patterns are dropped, and edges referencing those filtered nodes are also dropped — keeping the subgraph internally consistent. Symmetric with `code_impact`'s filter. Returns copies of each remaining `"calls"` edge and its stored `call_sites`. The legacy `"line"` field is the first persisted occurrence's line; it is omitted when no occurrence is stored. These coordinates describe the indexed generation. The handler never rescans source text or guesses invocation locations from labels.
 
 ### `code_definition_response()` — graph-narrowed lookup
 
@@ -662,7 +666,7 @@ Scans a single file exactly once for a list of callee labels:
 - **Python**: Parses with `ast`, walks all `ast.Call` nodes, matches against the full `label_set` in one pass. Returns `{label: [sorted call-site dicts]}`.
 - **Non-Python**: Iterates `callee_labels` and calls `_treesitter_references()` then `_non_python_references()` per label against the single restricted file.
 
-Called from `code_callhierarchy_response()` (outgoing direction, `wf_server/server_impl.py`) and `code_callgraph_response()` (per source file, `wf_server/server_impl.py`).
+This legacy navigation helper is not location authority for modern `code_callhierarchy_response()` or `code_callgraph_response()`; both use persisted occurrence coordinates.
 
 ---
 

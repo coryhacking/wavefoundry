@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-26
+Last verified: 2026-10-10
 
 Wavefoundry reports **Estimated context avoided** while its tools support a wave.
 The source component uses whole eligible file sizes as a baseline, converted with
@@ -289,6 +289,10 @@ untouched; concurrent claims serialize through SQLite. Events and debits move
 exactly once; repeated source/version pairs from different producer buckets
 collapse under the target phase's once-only source-credit key rather than
 being double-counted.
+
+A retryable own-lease or SQLite transfer failure uses one absolute busy budget and returns `deferred` after exhaustion, leaving general rows durable for the next flush; it writes no gap marker or event spool. Retries sleep outside the telemetry lock. Own lease acquisition is demanded only by flush; event recording keeps its best-effort acquisition and commit/spool semantics, and unavailable orphan leases remain skipped. A proved commit followed by close/unlock cleanup failure is successful and returns touched waves without retrying. Non-retryable transfer errors still poison accounting.
+
+Lifecycle boundaries expose `persistence: "deferred"` and `projection: "pending"`. Public upgrade/reload responses may include `context_efficiency_projection.pending_general_transfer`; healthy pending accounting proceeds without claiming those general rows were projected. A separate already-durable workflow event remains credited. Empty and unreadable gap markers have named diagnostics explaining external creation or interrupted writes, and still name `wf clear-accounting-gap`.
 
 ## Durable authority and projection
 

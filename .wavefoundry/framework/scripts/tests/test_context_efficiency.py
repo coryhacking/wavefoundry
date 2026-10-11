@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import contextlib
 import io
 import json
 import os
@@ -1752,7 +1753,7 @@ class GapRecoveryTests(TempRootTest):
         self.assertIn("1wave", result.touched_waves)
         self.assertFalse(ce.gap_path(self.root).exists())
 
-    def test_flush_transfer_poisons_past_the_budget_with_its_reason(self) -> None:
+    def test_flush_transfer_defers_past_the_budget_without_a_gap(self) -> None:
         general = ce.ProcessTelemetry(self.root)
         general.record_retrieval(_metric(), event_id="general")
         blocker = sqlite3.connect(ce.store_path(self.root), timeout=0)
@@ -1763,8 +1764,11 @@ class GapRecoveryTests(TempRootTest):
         finally:
             blocker.rollback()
             blocker.close()
-        self.assertEqual(result.persistence, "poisoned")
-        self.assertEqual(ce.read_gap_reason(self.root)["operation"], "flush")
+        self.assertFalse(result.success)
+        self.assertEqual(result.persistence, "deferred")
+        self.assertEqual(result.touched_waves, frozenset())
+        self.assertIsNone(ce.read_gap_reason(self.root))
+        self.assertEqual(ce.read_general_totals(self.root)["calls"], 1)
 
     def test_non_transient_error_spools_without_retrying(self) -> None:
         telemetry = ce.ProcessTelemetry(self.root)
@@ -1846,7 +1850,7 @@ class GapRecoveryTests(TempRootTest):
         health = ce.read_store_health(self.root)
         self.assertEqual(health["status"], "accounting_gap")
         self.assertIsNone(health["gap_recorded_at"])
-        self.assertIn("reason not recorded", health["diagnostic"])
+        self.assertIn("marker is empty", health["diagnostic"])
         self.assertIn(ce.CLEAR_GAP_COMMAND, health["diagnostic"])
         # Each form is its own code span so it can be copied as one piece.
         self.assertIn(f"`{ce.CLEAR_GAP_COMMAND}`", health["diagnostic"])
@@ -2157,6 +2161,230 @@ class SpoolTests(TempRootTest):
         self.assertEqual(ce.read_store_health(self.root)["spooled_events"], 1)
         ce.clear_accounting_gap(self.root)
         self.assertEqual(ce.replay_spool(self.root)["replayed"], 1)
+
+
+class DeferredTransferTests(TempRootTest):
+    """Actual producer/lease/store transfer boundaries; no native Windows claim."""
+
+    def seed(self):
+        telemetry = ce.ProcessTelemetry(self.root)
+        telemetry.record_retrieval(_metric(), event_id='general-transfer')
+        self.addCleanup(lambda: ce._unlock_lease(telemetry._lease_handle))
+        return telemetry
+
+    def rows(self):
+        conn=sqlite3.connect(ce.store_path(self.root))
+        try:
+            return tuple(tuple(conn.execute(f'SELECT * FROM {table} ORDER BY 1'))
+                         for table in ('telemetry_event','source_credit'))
+        finally:
+            conn.close()
+
+    def test_own_lease_wrapped_carrier_permission_retries_without_gap(self):
+        import runtime_lock
+        seeded=self.seed(); before=self.rows()
+        telemetry=ce.ProcessTelemetry(self.root)
+        self.addCleanup(lambda: ce._unlock_lease(telemetry._lease_handle))
+        with patch.object(runtime_lock,'_open_lock_carrier',side_effect=PermissionError(13,'carrier')), patch.object(ce,'BUSY_RETRY_BUDGET_SECONDS',0):
+            result=telemetry.flush(self.root,transfer_general_to='1wave')
+        self.assertFalse(result.success);self.assertEqual(result.persistence,'deferred')
+        self.assertEqual(result.touched_waves,frozenset());self.assertEqual(self.rows(),before)
+        self.assertIsNone(ce.read_gap_reason(self.root));self.assertFalse(telemetry._lease_attempted)
+        result=telemetry.flush(self.root,transfer_general_to='1wave')
+        self.assertTrue(result.success);self.assertIsNotNone(telemetry._lease_handle)
+        # The seed producer is still live and is deliberately not stolen.
+        self.assertEqual(ce.read_general_totals(self.root)['calls'],1)
+
+    def test_sql_permission_defers_then_default_flush_claims_exactly_once(self):
+        telemetry=self.seed();before=self.rows()
+        with patch.object(ce,'_open_write_store_once',side_effect=PermissionError(13,'sql')), patch.object(ce,'BUSY_RETRY_BUDGET_SECONDS',0):
+            result=telemetry.flush(self.root,transfer_general_to='1wave')
+        self.assertEqual((result.success,result.persistence,result.touched_waves),(False,'deferred',frozenset()))
+        self.assertEqual(self.rows(),before);self.assertIsNone(ce.read_gap_reason(self.root))
+        self.assertEqual(ce._spool_files(self.root),[])
+        result=telemetry.flush(self.root)
+        self.assertTrue(result.success);self.assertEqual(result.touched_waves,frozenset({'1wave'}))
+        self.assertEqual(ce.read_general_totals(self.root)['calls'],0)
+        rows=self.rows();self.assertTrue(telemetry.flush(self.root,transfer_general_to='1wave').success)
+        self.assertEqual(self.rows(),rows)
+        self.assertEqual(ce.read_wave_snapshot(self.root,'1wave')['totals']['calls'],1)
+
+    def test_commit_failure_clears_touched_and_postcommit_close_is_success(self):
+        telemetry=self.seed();before=self.rows();original=ce._open_write_store_once
+        class Connection:
+            def __init__(self, conn, fail_commit):self.conn=conn;self.fail_commit=fail_commit
+            def __getattr__(self,name):return getattr(self.conn,name)
+            def commit(self):
+                if self.fail_commit:raise PermissionError(13,'commit')
+                return self.conn.commit()
+            def close(self):
+                self.conn.close()
+                if not self.fail_commit:raise PermissionError(13,'close after commit')
+        with patch.object(ce,'_open_write_store_once',side_effect=lambda root:Connection(original(root),True)), patch.object(ce,'BUSY_RETRY_BUDGET_SECONDS',0):
+            result=telemetry.flush(self.root,transfer_general_to='1wave')
+        self.assertEqual(result.persistence,'deferred');self.assertEqual(result.touched_waves,frozenset())
+        self.assertEqual(self.rows(),before);self.assertIsNone(ce.read_gap_reason(self.root))
+        with patch.object(ce,'_open_write_store_once',side_effect=lambda root:Connection(original(root),False)), patch.object(ce.time,'sleep') as sleep, contextlib.redirect_stderr(io.StringIO()) as log:
+            result=telemetry.flush(self.root)
+        self.assertTrue(result.success);self.assertEqual(result.touched_waves,frozenset({'1wave'}))
+        sleep.assert_not_called();self.assertIn('committed=True',log.getvalue())
+        rows=self.rows();telemetry.flush(self.root,transfer_general_to='1wave');self.assertEqual(rows,self.rows())
+
+    def test_constant_controls_flush_and_windows_instances(self):
+        telemetry=self.seed()
+        for code in (32,33):
+            exc=OSError(5,'sharing');exc.winerror=code
+            self.assertTrue(ce._is_retryable_flush_error(exc))
+        self.assertFalse(ce._is_retryable_flush_error(OSError(5,'other')))
+        with patch.object(ce,'FLUSH_RETRYABLE_EXCEPTIONS',()), patch.object(ce,'_open_write_store_once',side_effect=PermissionError(13,'not retryable')), patch.object(ce.time,'sleep') as sleep:
+            result=telemetry.flush(self.root,transfer_general_to='1wave')
+        self.assertEqual(result.persistence,'poisoned');sleep.assert_not_called()
+        self.assertEqual(ce.read_gap_reason(self.root)['operation'],'flush')
+
+    def test_demands_reset_prior_default_failure_and_preserve_orphan_and_nonretryable(self):
+        import runtime_lock
+        telemetry=ce.ProcessTelemetry(self.root)
+        self.addCleanup(lambda:ce._unlock_lease(telemetry._lease_handle))
+        original=runtime_lock._open_lock_carrier
+        with patch.object(runtime_lock,'_open_lock_carrier',side_effect=PermissionError(13,'carrier')):
+            self.assertEqual(telemetry.record_retrieval(_metric(),event_id='default')['persistence'],'durable')
+            self.assertTrue(telemetry._lease_attempted);self.assertIsNone(telemetry._lease_handle)
+            lease=ce.producer_lease_path(self.root,'orphan');lease.parent.mkdir(parents=True,exist_ok=True);lease.write_bytes(b'')
+            self.assertEqual(ce._try_lock_lease(lease,create=False),(None,False))
+        calls=[0]
+        def carrier(*args,**kwargs):
+            calls[0]+=1
+            if calls[0]==1:
+                exc=OSError(5,'sharing');exc.winerror=32;raise exc
+            return original(*args,**kwargs)
+        with patch.object(runtime_lock,'_open_lock_carrier',side_effect=carrier):
+            result=telemetry.flush(self.root,transfer_general_to='1wave')
+        self.assertTrue(result.success);self.assertIsNotNone(telemetry._lease_handle)
+        self.assertGreaterEqual(calls[0],2);self.assertIsNone(ce.read_gap_reason(self.root))
+        with patch.object(runtime_lock,'_open_lock_carrier',side_effect=OSError(5,'nonretryable')):
+            self.assertEqual(ce._try_lock_lease(lease,create=True,demanded=True),(None,False))
+
+    def test_one_absolute_budget_spans_lease_and_sql_and_default_retry_is_unchanged(self):
+        telemetry=self.seed();clock=[0.0];lease_calls=[0];sql_calls=[0]
+        original=telemetry._ensure_lease
+        def lease(**kwargs):
+            lease_calls[0]+=1
+            if lease_calls[0]==1:raise ce.RuntimeLockBusy('lease')
+            return original(**kwargs)
+        def sql(*args):sql_calls[0]+=1;raise PermissionError(13,'sql')
+        with patch.object(telemetry,'_ensure_lease',side_effect=lease), patch.object(ce,'_open_write_store_once',side_effect=sql), patch.object(ce,'BUSY_RETRY_BUDGET_SECONDS',.1), patch.object(ce.time,'monotonic',side_effect=lambda:clock[0]), patch.object(ce.time,'sleep',side_effect=lambda delay:clock.__setitem__(0,clock[0]+delay)):
+            result=telemetry.flush(self.root,transfer_general_to='1wave')
+        self.assertEqual(result.persistence,'deferred');self.assertAlmostEqual(clock[0],.085)
+        self.assertEqual(lease_calls[0],4);self.assertEqual(sql_calls[0],3)
+        with patch.object(ce.time,'sleep') as sleep:
+            with self.assertRaises(PermissionError):ce._with_busy_retry(lambda: (_ for _ in ()).throw(PermissionError(13,'new event')))
+        sleep.assert_not_called();self.assertIsNone(ce.read_gap_reason(self.root))
+
+    def test_default_workflow_wrapped_carrier_failure_still_commits(self):
+        import runtime_lock
+        telemetry = ce.ProcessTelemetry(self.root)
+        with patch.object(runtime_lock, "_open_lock_carrier", side_effect=PermissionError(13, "carrier")):
+            public = telemetry.record_workflow(
+                "1wave", "implement", "wf_implement_wave",
+                {"captured": True, "prompt_surface_tokens": 12},
+                invocation_id="workflow-default",
+            )
+        self.assertEqual(public["persistence"], "durable")
+        self.assertTrue(public["credited"])
+        self.assertTrue(telemetry._lease_attempted)
+        self.assertIsNone(telemetry._lease_handle)
+        self.assertIsNone(ce.read_gap_reason(self.root))
+        self.assertEqual(ce.read_wave_snapshot(self.root, "1wave")["totals"]["calls"], 1)
+
+    def test_retry_sleep_releases_telemetry_lock_for_concurrent_retrieval(self):
+        telemetry=self.seed();sleeping=threading.Event();recorded=threading.Event();results=[]
+        original=ce._open_write_store_once;clock=[0.0]
+        def store(root):
+            if threading.current_thread().name=='deferred-flush-test':raise PermissionError(13,'busy')
+            return original(root)
+        def sleep(delay):
+            sleeping.set();self.assertTrue(recorded.wait(2));clock[0]+=.2
+        with patch.object(ce,'_open_write_store_once',side_effect=store), patch.object(ce,'BUSY_RETRY_BUDGET_SECONDS',.1), patch.object(ce.time,'monotonic',side_effect=lambda:clock[0]), patch.object(ce.time,'sleep',side_effect=sleep):
+            worker=threading.Thread(target=lambda:results.append(telemetry.flush(self.root,transfer_general_to='1wave')),name='deferred-flush-test')
+            worker.start()
+            try:
+                self.assertTrue(sleeping.wait(2))
+                record=threading.Thread(target=lambda:(results.append(telemetry.record_retrieval(_metric(),event_id='concurrent')),recorded.set()))
+                record.start();record.join(2);self.assertFalse(record.is_alive())
+            finally:
+                recorded.set();worker.join(2)
+            self.assertFalse(worker.is_alive())
+        self.assertEqual(results[0]['persistence'],'durable')
+        self.assertEqual(results[1].persistence,'deferred')
+
+    def test_empty_and_unreadable_markers_are_named_and_clear_guidance_is_honest(self):
+        ce.gap_path(self.root).parent.mkdir(parents=True)
+        for raw, reason, label in ((b'',ce.EMPTY_GAP_REASON,'empty'),(b'{broken',ce.UNREADABLE_GAP_REASON,'unreadable')):
+            ce.gap_path(self.root).write_bytes(raw)
+            self.assertEqual(ce.read_gap_reason(self.root),reason)
+            self.assertNotEqual(reason,{});self.assertIsNotNone(reason)
+            diagnostic=ce.read_store_health(self.root)['diagnostic']
+            self.assertIn('marker is '+label,diagnostic);self.assertIn('interrupted write',diagnostic)
+            self.assertIn(ce.CLEAR_GAP_COMMAND,diagnostic)
+        ce.gap_path(self.root).write_text('{}')
+        self.assertEqual(ce.read_gap_reason(self.root),{})
+
+    def test_committed_transfer_close_error_releases_remaining_orphans(self):
+        main=self.seed();orphans=[ce.ProcessTelemetry(self.root) for _ in range(2)]
+        for i,orphan in enumerate(orphans):
+            orphan.record_retrieval(_metric(source_id='orphan'+str(i)),event_id='orphan'+str(i))
+            ce._unlock_lease(orphan._lease_handle);orphan._lease_handle=None
+        original_open=ce._open_write_store_once;original_unlock=ce._unlock_lease;released=[]
+        class Connection:
+            def __init__(self,conn):self.conn=conn
+            def __getattr__(self,name):return getattr(self.conn,name)
+            def close(self):self.conn.close();raise PermissionError(13,'closed')
+        def unlock(handle,**kwargs):
+            released.append(handle);original_unlock(handle,**kwargs)
+            if len(released)==1:raise PermissionError(13,'release cleanup')
+        with patch.object(ce,'_open_write_store_once',side_effect=lambda root:Connection(original_open(root))), patch.object(ce,'_unlock_lease',side_effect=unlock), contextlib.redirect_stderr(io.StringIO()) as log:
+            result=main.flush(self.root,transfer_general_to='1wave')
+        self.assertTrue(result.success);self.assertEqual(len(released),2)
+        self.assertEqual(result.touched_waves,frozenset({'1wave'}));self.assertIsNone(ce.read_gap_reason(self.root))
+        self.assertEqual(ce.read_general_totals(self.root)['calls'],0)
+        self.assertIn('lease cleanup failed',log.getvalue())
+        self.assertEqual(ce.read_wave_snapshot(self.root,'1wave')['totals']['calls'],3)
+
+    def test_unproven_atomicity_is_poisoned_instead_of_retryable(self):
+        telemetry=self.seed();original=ce._open_write_store_once
+        for committed_before_error in (False,True):
+            with self.subTest(committed_before_error=committed_before_error):
+                class Connection:
+                    def __init__(self,conn):self.conn=conn
+                    def __getattr__(self,name):return getattr(self.conn,name)
+                    def commit(self):
+                        if committed_before_error:self.conn.commit()
+                        raise PermissionError(13,'commit outcome')
+                    def rollback(self):
+                        if not committed_before_error:raise PermissionError(13,'rollback')
+                        return self.conn.rollback()
+                with patch.object(ce,'_open_write_store_once',side_effect=lambda root:Connection(original(root))),patch.object(ce,'BUSY_RETRY_BUDGET_SECONDS',0):
+                    result=telemetry.flush(self.root,transfer_general_to='1wave')
+                self.assertEqual(result.persistence,'poisoned')
+                self.assertIn('unproven',result.error)
+                self.assertEqual(ce.read_gap_reason(self.root)['operation'],'flush')
+                ce.gap_path(self.root).unlink()
+
+    def test_actual_own_lease_busy_and_both_sharing_wrappers_are_deferred(self):
+        import runtime_lock
+        seeded=self.seed()
+        telemetry=ce.ProcessTelemetry(self.root);telemetry.producer_id=seeded.producer_id
+        with patch.object(ce,'BUSY_RETRY_BUDGET_SECONDS',0):
+            result=telemetry.flush(self.root,transfer_general_to='1wave')
+        self.assertEqual(result.persistence,'deferred');self.assertFalse(telemetry._lease_attempted)
+        self.assertIsNone(ce.read_gap_reason(self.root))
+        other=ce.ProcessTelemetry(self.root)
+        for code in (32,33):
+            exc=OSError(5,'carrier sharing');exc.winerror=code
+            with patch.object(runtime_lock,'_open_lock_carrier',side_effect=exc),patch.object(ce,'BUSY_RETRY_BUDGET_SECONDS',0):
+                result=other.flush(self.root,transfer_general_to='1wave')
+            self.assertEqual(result.persistence,'deferred');self.assertFalse(other._lease_attempted)
+            self.assertIsNone(ce.read_gap_reason(self.root))
 
 
 if __name__ == "__main__":

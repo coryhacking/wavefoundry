@@ -70,12 +70,12 @@ def read_text(path: Path) -> str:
     except OSError:
         # Can't stat (missing / permission) — fall back to a direct read so the caller sees the real
         # error path unchanged, and do not cache.
-        return path.read_text(encoding="utf-8", errors="replace")
+        return path.read_text(encoding="utf-8", errors="replace").removeprefix("\ufeff")
     mtime_ns, size = st.st_mtime_ns, st.st_size
     cached = _READ_TEXT_CACHE.get(path)
     if cached is not None and cached[0] == mtime_ns and cached[1] == size:
         return cached[2]
-    text = path.read_text(encoding="utf-8", errors="replace")
+    text = path.read_text(encoding="utf-8", errors="replace").removeprefix("\ufeff")
     _READ_TEXT_CACHE[path] = (mtime_ns, size, text)
     return text
 
@@ -200,7 +200,7 @@ def read_record_text(root: Path, path: Path) -> str | None:
     except OSError:
         record_refusal(root, path, RECORD_CAUSE_UNREADABLE)
         return None
-    text = data.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+    text = data.decode("utf-8", errors="replace").removeprefix("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
     try:
         after = os.lstat(path)
     except OSError:

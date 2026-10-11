@@ -287,8 +287,8 @@ def _open_log(root: Path, mode: str = "w") -> None:
     _close_log()
     log_path = upgrade_log_path(root)
     try:
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        _log_file = log_path.open(mode, encoding="utf-8", buffering=1)  # line-buffered
+        import contained_files
+        _log_file = contained_files.open_contained_append(root, log_path, truncate=mode == "w")
     except OSError as exc:
         print(f"  ⚠  Could not open upgrade log {log_path}: {exc}", flush=True)
 
@@ -1190,13 +1190,27 @@ def _load_extension_module(zip_path: Path | None) -> types.ModuleType | None:
     if zip_path is None:
         return None
 
+    frozen_archive = None
+    if zip_path.name == "index-guard-feature.zip":
+        import io
+        import upgrade_lib
+        import upgrade_extensions
+        recovery_root = zip_path.parents[3]
+        lock = upgrade_lib.read_upgrade_lock(recovery_root)
+        if isinstance(lock, dict) and isinstance(lock.get("index_guard_handoff"), dict) and "durable_pack" in lock["index_guard_handoff"]:
+            proven = upgrade_extensions.validate_index_guard_durable_pack(recovery_root, lock)
+            data, _opened, _resolved = upgrade_extensions._read_guard_pack(recovery_root, proven, upgrade_extensions._guard_contained_helper())
+            if hashlib.sha256(data).hexdigest() != lock["index_guard_handoff"]["durable_pack"]["sha256"]:
+                raise ValueError("index_guard_durable_pack_invalid: changed bytes before extension loading")
+            frozen_archive = io.BytesIO(data)
+
     CANDIDATES = (
         ".wavefoundry/framework/scripts/upgrade_extensions.py",
         "framework/scripts/upgrade_extensions.py",
     )
 
     try:
-        with zipfile.ZipFile(zip_path, "r") as zf:
+        with zipfile.ZipFile(frozen_archive if frozen_archive is not None else zip_path, "r") as zf:
             names = set(zf.namelist())
             for candidate in CANDIDATES:
                 if candidate not in names:
@@ -1338,6 +1352,20 @@ def _confirm_proceed(yes: bool) -> bool:
         return False
 
 
+def _run_upgrade_child(cmd, root: Path, phase: str, **kwargs):
+    import child_tee
+    result = child_tee.run(cmd, root=root, phase=phase, **kwargs)
+    tail = getattr(result, "tail", "")
+    if result.returncode and isinstance(tail, str) and tail:
+        _log("  Child failure tail (stream order is best-effort):\n" + tail)
+    return result
+
+
+def _child_failure(message: str, result) -> str:
+    tail = getattr(result, "tail", "")
+    return message + ("\n" + tail if isinstance(tail, str) and tail else "")
+
+
 def _run(cmd: list[str], root: Path, check: bool = True) -> subprocess.CompletedProcess:
     return subprocess_util.isolated_run(cmd, cwd=str(root), check=check)
 
@@ -1379,6 +1407,19 @@ def _ensure_scripts_on_path() -> None:
         sys.path.insert(0, str(SCRIPTS_DIR))
 
 
+def _check_installed_review_plan_prompt(root: Path) -> None:
+    # A legacy installed tree may lack this helper; incoming post_preflight is
+    # the early-detection authority for that supported old-code window.
+    try:
+        import review_plan_prompt_check
+    except ImportError:
+        return
+    result = review_plan_prompt_check.check_review_plan_prompt(root)
+    if result["blocked"]:
+        _err(result["message"])
+        raise SystemExit(3)
+
+
 def phase_dry_run(root: Path) -> int:
     """Print the full upgrade plan and hook inventory without touching anything on disk.
 
@@ -1391,12 +1432,14 @@ def phase_dry_run(root: Path) -> int:
     human-readable line and the summary's ``preview_logs`` name each one this
     run wrote, repository-relative.
 
-    Exit codes: always 0 (dry-run never fails the upgrade).
+    Exit codes: 0, or 3 for a blocked installed review-plan prompt.
     """
     _ensure_scripts_on_path()
     import upgrade_lib
 
     _log("\n── Dry Run ── (no changes will be made) ─────────────────────────────────")
+
+    _check_installed_review_plan_prompt(root)
 
     # Advisory lock check
     existing_lock = upgrade_lib.read_upgrade_lock(root)
@@ -1635,6 +1678,8 @@ def phase_preflight(
     Exits with code 3 on any blocking pre-flight failure.
     """
     import upgrade_lib
+
+    _check_installed_review_plan_prompt(root)
 
     # Check for existing lock
     existing_lock = upgrade_lib.read_upgrade_lock(root)
@@ -1949,13 +1994,12 @@ def phase_surface_rendering(root: Path) -> None:
     # explicit operator consent line, never folded into the generic
     # surfaces-rendered line.
     allow_before = _read_permissions_allow(root)
-    result = subprocess_util.isolated_run(
+    result = _run_upgrade_child(
         [_preferred_python(), str(script), "--repo-root", str(root), "--include-permissions"],
         cwd=str(root),
-        check=False,
-    )
+        check=False, root=root, phase="surface-render")
     if result.returncode != 0:
-        _err("Surface rendering failed.")
+        _err(_child_failure("Surface rendering failed.", result))
         sys.exit(2)
     _log("  Surfaces rendered.")
     try:
@@ -2039,7 +2083,7 @@ def _ensure_rendered_permissions_backstop(root: Path) -> None:
         if not script.exists():
             return
         allow_before = _read_permissions_allow(root)
-        result = subprocess_util.isolated_run(
+        result = _run_upgrade_child(
             [
                 _preferred_python(),
                 str(script),
@@ -2051,8 +2095,7 @@ def _ensure_rendered_permissions_backstop(root: Path) -> None:
                 "--permissions-only",
             ],
             cwd=str(root),
-            check=False,
-        )
+            check=False, root=root, phase="permissions-backstop")
         if result.returncode != 0:
             _log(
                 f"  ⚠  Permissions render backstop exited {result.returncode} — continuing "
@@ -2201,7 +2244,7 @@ def phase_pruning(root: Path) -> int | None:
             old_manifest = Path(staging) / "MANIFEST"
             old_manifest.write_bytes(snapshot["manifest"].encode("utf-8"))
             cmd = [_preferred_python(), str(script), "--old-manifest", str(old_manifest)]
-            result = subprocess_util.isolated_run(cmd, cwd=str(root), capture_output=True, text=True, check=False)
+            result = _run_upgrade_child(cmd, cwd=str(root), capture_output=True, text=True, check=False, root=root, phase="pruning")
     except (OSError, ValueError) as exc:
         _log(f"  Pruning could not be proven; retaining MANIFEST snapshot: {exc}")
         return None
@@ -2526,12 +2569,11 @@ def phase_docs_gate(root: Path) -> None:
         # Wave 1zime (1zimk): both children resolve their root from PROJECT_ROOT
         # before the working directory, so pin it to the target; an inherited
         # value naming another repository would garden and lint THAT tree.
-        result = subprocess_util.isolated_run(
+        result = _run_upgrade_child(
             [_preferred_python(), str(py_script)], cwd=str(root), check=False,
-            env={**os.environ, "PROJECT_ROOT": str(root)},
-        )
+            env={**os.environ, "PROJECT_ROOT": str(root)}, root=root, phase="docs-gate")
         if result.returncode != 0:
-            _err(f"Docs gate failed: {label} exited {result.returncode}")
+            _err(_child_failure(f"Docs gate failed: {label} exited {result.returncode}", result))
             sys.exit(1)
 
     _log("  Docs gate: PASSED")
@@ -2684,12 +2726,11 @@ def _verify_storage_publication(root: Path) -> None:
         return
     if receipt["state"] not in {"published", "verified", "cleanup_pending"}:
         raise RuntimeError("storage_publication_incomplete: resume standard wf_upgrade; receipt retained")
-    verification = subprocess_util.isolated_run(
+    verification = _run_upgrade_child(
         [_preferred_python(), str(SCRIPTS_DIR / "sqlite_storage_migration.py"),
-         "--verify", str(root)], cwd=str(root), check=False,
-    )
+         "--verify", str(root)], cwd=str(root), check=False, root=root, phase="storage-verify")
     if verification.returncode != 0:
-        raise RuntimeError("storage_new_process_verification_failed: cleanup remains blocked")
+        raise RuntimeError(_child_failure("storage_new_process_verification_failed: cleanup remains blocked", verification))
 
 
 def _enforce_index_guard_before_children(root: Path) -> None:
@@ -2746,13 +2787,12 @@ def phase_index_update(root: Path) -> bool:
             if model_lock.get("model_bundle_path"):
                 model_env["WAVEFOUNDRY_MODEL_BUNDLE"] = str(model_lock["model_bundle_path"])
                 model_env["WAVEFOUNDRY_MODEL_BUNDLE_MODEL_SET_VERSION"] = str(model_lock.get("model_bundle_model_set_version") or "")
-            warm = subprocess_util.isolated_run(
+            warm = _run_upgrade_child(
                 [_preferred_python(), str(SCRIPTS_DIR / "setup_index.py"), "--root", str(root), "--prewarm-only"],
-                cwd=str(root), check=False, env=model_env,
-            )
+                cwd=str(root), check=False, env=model_env, root=root, phase="prewarm")
             if warm.returncode != 0:
                 raise sqlite_storage_migration.MigrationRequired(
-                    "storage_rebuild_models_unavailable: model preflight failed; legacy sources and receipt retained")
+                    _child_failure("storage_rebuild_models_unavailable: model preflight failed; legacy sources and receipt retained", warm))
         sqlite_storage_migration.migrate_legacy(root)
     sqlite_storage_migration.begin_upgrade_publication(root)
     _log("\n── Phase 4: Index update ──")
@@ -2780,14 +2820,13 @@ def phase_index_update(root: Path) -> bool:
         child_env["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"] = grant_token
     published = True
     _enforce_index_guard_before_children(root)
-    result = subprocess_util.isolated_run(
+    result = _run_upgrade_child(
         [_preferred_python(), str(setup_script), "--root", str(root)] + (["--full"] if rebuild_storage else []),
         cwd=str(root),
         check=False,
-        env=child_env,
-    )
+        env=child_env, root=root, phase="index-update")
     if result.returncode != 0:
-        message = f"Semantic index update exited {result.returncode}"
+        message = _child_failure(f"Semantic index update exited {result.returncode}", result)
         if migration_pending:
             raise RuntimeError(message + " — storage migration retains its receipt and legacy sources")
         if memory_run_id:
@@ -2830,20 +2869,19 @@ def phase_index_update(root: Path) -> bool:
     if grant_token:
         graph_env["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"] = grant_token
     _enforce_index_guard_before_children(root)
-    graph_result = subprocess_util.isolated_run(
+    graph_result = _run_upgrade_child(
         [_preferred_python(), str(setup_script), "--root", str(root), "--graph-only"] + (["--full"] if rebuild_storage else []),
         cwd=str(root),
         check=False,
-        env=graph_env,
-    )
+        env=graph_env, root=root, phase="graph-update")
     if graph_result.returncode != 0:
         if migration_pending:
-            raise RuntimeError("Graph index update failed during storage migration; receipt and legacy sources retained")
+            raise RuntimeError(_child_failure("Graph index update failed during storage migration; receipt and legacy sources retained", graph_result))
         # 1u44n recorded justification: the graph store sits outside the
         # semantic build epoch and the first-query rebuild remains its safety
         # net, so this stays a warning — it cannot produce a false-success
         # `index_update` field.
-        _log(f"  ⚠  Graph index update exited {graph_result.returncode} — continuing (first-query rebuild remains the safety net).")
+        _log(_child_failure(f"  ⚠  Graph index update exited {graph_result.returncode} — continuing (first-query rebuild remains the safety net).", graph_result))
 
     if os.environ.get("WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", "").strip():
         _log("  Phase 4c: skipped — child preparation finished; epoch publication is pending the parent.")
@@ -2954,35 +2992,33 @@ def phase_index_rebuild(root: Path) -> bool:
     published = True
     _log("  Phase 4a: rebuilding docs and code index layers (blocking) ...")
     _enforce_index_guard_before_children(root)
-    result = subprocess_util.isolated_run(
+    result = _run_upgrade_child(
         [_preferred_python(), str(setup_script), "--root", str(root), "--full"],
         cwd=str(root),
         check=False,
-        env=blocking_env,
-    )
+        env=blocking_env, root=root, phase="index-rebuild")
     if result.returncode != 0:
         # 1u44n: OBSERVED failure, not a silent warning (see phase_index_update).
         published = False
-        _err(
+        _err(_child_failure(
             f"Index publication FAILED: Semantic index rebuild exited "
             f"{result.returncode}; the semantic index epoch is incomplete. "
-            "Recover with index_build, then confirm with index_health."
-        )
+            "Recover with index_build, then confirm with index_health.", result
+        ))
 
     # Phase 4b: rebuild the GRAPH index too (blocking; fast, no embedding) —
     # symmetric with the semantic full rebuild.
     _log("  Phase 4b: rebuilding graph index (blocking) ...")
     _enforce_index_guard_before_children(root)
-    graph_result = subprocess_util.isolated_run(
+    graph_result = _run_upgrade_child(
         [_preferred_python(), str(setup_script), "--root", str(root), "--graph-only", "--full"],
         cwd=str(root),
         check=False,
-        env=blocking_env,
-    )
+        env=blocking_env, root=root, phase="graph-rebuild")
     if graph_result.returncode != 0:
         # 1u44n recorded justification: graph sits outside the semantic build
         # epoch; the first-query rebuild remains the safety net (warning only).
-        _log(f"  ⚠  Graph index rebuild exited {graph_result.returncode} — continuing (first-query rebuild remains the safety net).")
+        _log(_child_failure(f"  ⚠  Graph index rebuild exited {graph_result.returncode} — continuing (first-query rebuild remains the safety net).", graph_result))
 
     _log(
         "  Phase 4c: skipped — the foreground setup pass already published "
@@ -3620,7 +3656,35 @@ def phase_cleanup(
             )
             raise SystemExit(1)
 
-    upgrade_lib.remove_upgrade_lock(root)
+    guard_record = lock_state.get("index_guard_handoff")
+    if isinstance(guard_record, dict) and "durable_pack" in guard_record:
+        import upgrade_extensions
+        if (index_update_failed or lock_state.get("index_publication_failed")
+                or lock_state.get("memory_backfill_state") not in {None, "indexed"}
+                or guard_record.get("hosts_stopped_confirmed") is not True):
+            _err("Owned continuation archive retained: index/memory/host completion is not proven.")
+            raise SystemExit(1)
+        # Re-read after fatal storage/dashboard obligations; terminal proof must
+        # bind the same owned file before its deliberately irreversible unlink.
+        completed_lock = upgrade_lib.read_upgrade_lock(root) or {}
+        guard_record = completed_lock.get("index_guard_handoff")
+        try:
+            upgrade_extensions.validate_index_guard_durable_pack(root, completed_lock)
+            guard_record["terminal_cleanup"] = {
+                "version": 1, "state": "fatal_obligations_complete",
+                "proof": dict(guard_record["durable_pack"]), "storage_cleanup_complete": True,
+                "dashboard_restart_complete": True, "fatal_cleanup_complete": True,
+            }
+            if not upgrade_lib.update_upgrade_lock(root, index_guard_handoff=guard_record):
+                raise ValueError("index_guard_terminal_checkpoint_write_failed")
+            completed_lock = upgrade_lib.read_upgrade_lock(root)
+            upgrade_extensions.finalize_index_guard_terminal_cleanup(root, completed_lock, _cleanup_verified_pack)
+        except (OSError, ValueError) as exc:
+            _err(f"Owned archive cleanup failed; checkpoint retained for --cleanup retry: {exc}")
+            raise SystemExit(1) from None
+    elif not upgrade_lib.remove_upgrade_lock(root):
+        _err("Upgrade checkpoint removal failed; retry --cleanup.")
+        raise SystemExit(1)
     _log("  Upgrade lock removed — dashboard will trigger post-upgrade reindex.")
 
     _warn_if_background_code_incomplete(root)
@@ -5052,7 +5116,7 @@ def _memory_action_required_pause(root: Path, exc: BaseException) -> dict | None
     return action
 
 
-def _report_action_required_pause(action: dict) -> None:
+def _report_action_required_pause(action: dict, root: Path | None = None) -> None:
     """Checkpoint wording for a designed action-required pause (never failure prose)."""
     state = str(action.get("state") or "action required")
     resume_phase = str(action.get("resume_phase") or "resume_after_memory")
@@ -5062,6 +5126,7 @@ def _report_action_required_pause(action: dict) -> None:
         "the upgrade lock keeps the checkpoint state for resume. Complete "
         "the reported memory work, then call "
         f"wf_upgrade(phase='{resume_phase}') to continue the upgrade."
+        + ("\n" + __import__('sqlite_storage_migration').resume_guidance(root, resume_flag='--resume-after-memory')["guidance"] if root is not None else "")
     )
 
 
@@ -5502,6 +5567,39 @@ def main(argv: list[str] | None = None) -> int:
         _err("--rebuild-storage selects recovery during ordinary upgrade resume; use the retained continuation command with its original --pack, not a standalone phase.")
         return 2
 
+    # Terminal finalization precedes receipt restoration, memory backstops and
+    # archive resolution. It can authorize absence only after fatal obligations.
+    if args.cleanup:
+        terminal_lock = upgrade_lib.read_upgrade_lock(root)
+        terminal_record = terminal_lock.get("index_guard_handoff") if isinstance(terminal_lock, dict) else None
+        if isinstance(terminal_record, dict) and "terminal_cleanup" in terminal_record:
+            import lifecycle_lock
+            import upgrade_extensions
+            _open_log(root, mode="a")
+            try:
+                with lifecycle_lock.lifecycle_publication_transaction(root):
+                    terminal_lock = upgrade_lib.read_upgrade_lock(root)
+                    upgrade_extensions.finalize_index_guard_terminal_cleanup(root, terminal_lock, _cleanup_verified_pack)
+                _log("Terminal cleanup finalized; upgrade checkpoint removed.")
+                return 0
+            except (OSError, ValueError, lifecycle_lock.LifecycleLockBusy, lifecycle_lock.LifecycleLockUnavailable) as exc:
+                _err(f"Terminal cleanup refused; checkpoint retained for --cleanup retry: {exc}")
+                return 1
+            finally:
+                _close_log()
+
+    locator_lock = upgrade_lib.read_upgrade_lock(root)
+    locator_record = locator_lock.get("index_guard_handoff") if isinstance(locator_lock, dict) else None
+    if isinstance(locator_record, dict) and "durable_pack" in locator_record:
+        import upgrade_extensions
+        try:
+            if "terminal_cleanup" in locator_record:
+                raise ValueError("index_guard_terminal_cleanup_only: run --cleanup")
+            upgrade_extensions.validate_index_guard_durable_pack(root, locator_lock)
+        except (OSError, ValueError) as exc:
+            _err(f"Retained continuation refused before archive loading: {exc}")
+            return 1
+
     import sqlite_storage_migration
     sqlite_storage_migration.restore_checkpoint(root)
     if args.confirm_hosts_stopped:
@@ -5517,6 +5615,9 @@ def main(argv: list[str] | None = None) -> int:
         as the original run, even if a new zip has since arrived in the repo root.
         Falls back to ``_find_zip`` for locks written before this field existed.
         """
+        if lock and isinstance(lock.get("index_guard_handoff"), dict) and "durable_pack" in lock["index_guard_handoff"]:
+            import upgrade_extensions
+            return upgrade_extensions.validate_index_guard_durable_pack(root, lock)
         if lock:
             recorded = lock.get("zip_path")
             if recorded:
@@ -6188,6 +6289,7 @@ def main(argv: list[str] | None = None) -> int:
                         "kind": "historical_memory",
                         "state": "awaiting_memory_validation",
                         "resume_phase": "resume_after_memory",
+                        **sqlite_storage_migration.resume_guidance(root, resume_flag="--resume-after-memory"),
                         "run_id": run_id,
                         "token": uuid.uuid4().hex,
                     },
@@ -6202,6 +6304,7 @@ def main(argv: list[str] | None = None) -> int:
                     + "\nReload MCP, run memory_backfill(mode='create', "
                     "entry_path='upgrade') and memory_validate, then call "
                     "wf_upgrade(phase='resume_after_memory')."
+                    + "\n" + sqlite_storage_migration.resume_guidance(root, resume_flag="--resume-after-memory")["guidance"]
                 )
                 return backfill.ACTION_REQUIRED_EXIT
             if memory_state == "ready_for_index":
@@ -6209,11 +6312,13 @@ def main(argv: list[str] | None = None) -> int:
                     "  Review-state projection and docs gate PASSED on resume; "
                     "the historical-memory checkpoint is ready. Run "
                     "wf_upgrade(phase='resume_after_memory') to publish the index."
+                    + "\n" + sqlite_storage_migration.resume_guidance(root, resume_flag="--resume-after-memory")["guidance"]
                 )
             else:
                 _log(
                     "  Review-state projection, docs gate, and historical-memory "
                     "publication are complete. Run --cleanup to finish the upgrade."
+                    + "\n" + sqlite_storage_migration.resume_guidance(root, resume_flag="--cleanup")["guidance"]
                 )
         finally:
             _close_log()
@@ -6236,511 +6341,534 @@ def main(argv: list[str] | None = None) -> int:
     except (lifecycle_lock.LifecycleLockBusy, lifecycle_lock.LifecycleLockUnavailable) as exc:
         _err(_strict_transaction_refusal(exc))
         return 3
+    upgrade_transaction_open = True
     try:
-        from_version, to_version, zip_path = phase_preflight(
-            root,
-            yes=args.yes,
-            explicit_pack=Path(args.pack) if args.pack else None,
-        )
-    except BaseException:
-        upgrade_transaction.__exit__(*sys.exc_info())
-        raise
-
-    selected_feature_zip = zip_path
-    selected_model_bundle = _matching_model_bundle(selected_feature_zip) if selected_feature_zip is not None else None
-    if zip_path is not None:
-        try:
-            zip_path = _stage_pack_for_consumption(
-                zip_path,
-                args.expected_pack_sha256,
-            )
-        except (OSError, ValueError) as exc:
-            upgrade_transaction.__exit__(*sys.exc_info())
-            _err(f"upgrade_protocol_invalid: cannot freeze selected feature pack: {exc}")
-            return 3
-
-    # Build context and load extension module from zip (before extraction).
-    ctx = UpgradeContext(root, from_version, to_version, zip_path, args.yes)
-    # Hooks consume the private verified copy, but restart commands need the
-    # selected archive's locator. Content hashes, not temporary names, bind it.
-    ctx.selected_feature_zip = selected_feature_zip
-    ctx.rebuild_storage = args.rebuild_storage
-    ext_mod = _load_extension_module(zip_path)
-
-    _run_hook("post_preflight", ctx, ext_mod)
-
-    # The complete review-policy/config/carrier/wave plan is a true preflight:
-    # no manifest copy, checkpoint, extraction, rendering, or policy write may
-    # precede it. The immutable observations are revalidated by the apply step.
-    import review_policy_upgrade
-
-    try:
-        policy_plan = review_policy_upgrade.plan_review_policy_upgrade(root)
-    except ValueError as exc:
-        upgrade_transaction.__exit__(*sys.exc_info())
-        _err(f"upgrade review-policy preflight failed before mutation: {exc}")
-        return 1
-
-    # Preserve target-bound authority even when a previous partial extraction
-    # replaced MANIFEST but never reached VERSION.
-    try:
-        snapshot_created = _save_old_manifest_snapshot(
-            root, str(to_version or _read_pack_version(root)),
-        )
-    except (OSError, ValueError) as exc:
-        upgrade_transaction.__exit__(*sys.exc_info())
-        _err(f"upgrade stopped before extraction: cannot preserve MANIFEST: {exc}")
-        return 1
-
-    try:
-        # Write upgrade lock (zip_path recorded so --rebuild-index / --cleanup can
-        # reload the same extension module without guessing from the current repo state).
-        pack_protocol = 2
-        if zip_path is not None:
-            try:
-                pack_protocol = int(
-                    __import__("upgrade_protocol").read_pack_protocol(zip_path)[
-                        "upgrade_protocol_version"
-                    ]
-                )
-            except ValueError:
-                # phase_preflight is the mandatory fail-closed validator. This
-                # compatibility fallback is reachable only by tests/embedded
-                # callers that replace that boundary wholesale.
-                pack_protocol = 2
-        upgrade_lib.write_upgrade_lock(
-            root,
-            from_version=from_version,
-            to_version=to_version or "unknown",
-            zip_path=zip_path,
-            runner_protocol=2,
-            pack_protocol=pack_protocol,
-        )
-        verified_pack_identity = _VERIFIED_PACK_IDENTITIES.get(str(zip_path))
-        if verified_pack_identity is not None:
-            upgrade_lib.update_upgrade_lock(root, verified_pack_identity=verified_pack_identity)
-        if selected_feature_zip is not None:
-            upgrade_lib.update_upgrade_lock(
-                root,
-                **_model_bundle_lock_fields(selected_feature_zip, selected_model_bundle),
-            )
-            if selected_model_bundle is not None:
-                _log(f"  Matching offline model-set asset found: {selected_model_bundle.name}")
-        _log("  Upgrade lock written — dashboard will pause indexing.")
-
-        # Open the upgrade log and tell the operator where to watch it.
         _open_log(root, mode="w")
         log_path = upgrade_log_path(root)
         _log(f"  Upgrade log: {log_path}")
         _log(f"  Watch:       tail -f {log_path}")
+        try:
+            from_version, to_version, zip_path = phase_preflight(
+                root,
+                yes=args.yes,
+                explicit_pack=Path(args.pack) if args.pack else None,
+            )
+        except BaseException:
+            upgrade_transaction.__exit__(*sys.exc_info())
+            upgrade_transaction_open = False
+            raise
 
-    except BaseException:
-        if snapshot_created:
-            _discard_old_manifest_snapshot(root)
-        upgrade_transaction.__exit__(*sys.exc_info())
-        _close_log()
-        raise
-
-    # Wave 1p44o — data-safety: track whether the tree has been mutated (zip
-    # extracted / surfaces rendered / files pruned) and which phase is running,
-    # so the except SystemExit handler can RETAIN the lock with a failure marker
-    # on a post-mutation failure instead of tearing the guard down on a
-    # half-replaced tree.
-    tree_mutated = False
-    current_phase = "init"
-
-    try:
-        # Packaged upgrades execute the new pre-extract migration from the zip.
-        # A current-tree upgrade has no extension module, so run that same
-        # shipped migration directly before any framework mutation.
-        if zip_path is None:
-            current_phase = "runtime_lock_cutover"
-            import upgrade_extensions
-
-            upgrade_extensions.pre_extract(ctx)
-            import sqlite_storage_migration
-            sqlite_storage_migration.prepare_upgrade(ctx)
-
-        # Wave 1p3dk / 1p3ho: snapshot the consumer's pre-existing framework
-        # version constants BEFORE extract so we can log any transitions in
-        # the upgrade output. The transitions themselves are operator-visible
-        # signals; the indexer's `build_index` auto-escalate handles
-        # chunker/walker rebuilds and the graph layer rebuilds on first query
-        # when GRAPH_BUILDER_VERSION advances. We log, then trust.
-        ctx.pre_extract_chunker_versions = _snapshot_pre_extract_chunker_versions(root)
-        _pre_extract_all_versions = _snapshot_pre_extract_versions(root)
-
-        # Apply zip if found
-        if zip_path:
-            current_phase = "extract"
-            _run_hook("pre_extract", ctx, ext_mod)
-            # Wave 1p44r — extract idempotence: if the on-disk framework already
-            # equals to_version, do NOT destructively re-extract (e.g. when retrying
-            # preflight_to_docs_gate after a docs-gate failure on an at-target tree).
-            if _tree_already_at(root, to_version):
-                _log(
-                    f"\n── Phase 0b: Tree already at {to_version} — "
-                    "skipping re-extract (idempotent) ──"
+        selected_feature_zip = zip_path
+        selected_model_bundle = _matching_model_bundle(selected_feature_zip) if selected_feature_zip is not None else None
+        if zip_path is not None:
+            try:
+                zip_path = _stage_pack_for_consumption(
+                    zip_path,
+                    args.expected_pack_sha256,
                 )
-            else:
-                _log(f"\n── Phase 0b: Applying zip {zip_path.name} ──")
-                with zipfile.ZipFile(zip_path, "r") as zf:
-                    tree_mutated = True  # A failed extraction can already have written files.
-                    _skipped_members = _extract_feature_members(zf, root)
-                    _withheld_names = _withheld_member_names(zf)
-                # Tree is now half-replaced — from here a failure must RETAIN the
-                # lock (wave 1p44o) rather than remove it.
-                tree_mutated = True
-                _log(f"  Extracted {zip_path.name}")
-                if _skipped_members:
-                    _log(
-                        f"  Withheld {_skipped_members} non-feature or preexisting "
-                        "project-owned member(s) from extraction: "
-                        f"{_describe_withheld_members(_withheld_names)}."
+            except (OSError, ValueError) as exc:
+                upgrade_transaction.__exit__(*sys.exc_info())
+                upgrade_transaction_open = False
+                _err(f"upgrade_protocol_invalid: cannot freeze selected feature pack: {exc}")
+                return 3
+
+        # Build context and load extension module from zip (before extraction).
+        ctx = UpgradeContext(root, from_version, to_version, zip_path, args.yes)
+        # Hooks consume the private verified copy, but restart commands need the
+        # selected archive's locator. Content hashes, not temporary names, bind it.
+        ctx.selected_feature_zip = selected_feature_zip
+        ctx.rebuild_storage = args.rebuild_storage
+        ext_mod = _load_extension_module(zip_path)
+
+        try:
+            _run_hook("post_preflight", ctx, ext_mod)
+        except BaseException:
+            _cleanup_verified_pack(zip_path, _VERIFIED_PACK_IDENTITIES.get(str(zip_path)))
+            raise
+
+        # The complete review-policy/config/carrier/wave plan is a true preflight:
+        # no manifest copy, checkpoint, extraction, rendering, or policy write may
+        # precede it. The immutable observations are revalidated by the apply step.
+        import review_policy_upgrade
+
+        try:
+            policy_plan = review_policy_upgrade.plan_review_policy_upgrade(root)
+        except ValueError as exc:
+            upgrade_transaction.__exit__(*sys.exc_info())
+            upgrade_transaction_open = False
+            _err(f"upgrade review-policy preflight failed before mutation: {exc}")
+            return 1
+
+        # Preserve target-bound authority even when a previous partial extraction
+        # replaced MANIFEST but never reached VERSION.
+        try:
+            snapshot_created = _save_old_manifest_snapshot(
+                root, str(to_version or _read_pack_version(root)),
+            )
+        except (OSError, ValueError) as exc:
+            upgrade_transaction.__exit__(*sys.exc_info())
+            upgrade_transaction_open = False
+            _err(f"upgrade stopped before extraction: cannot preserve MANIFEST: {exc}")
+            return 1
+
+        try:
+            # Write upgrade lock (zip_path recorded so --rebuild-index / --cleanup can
+            # reload the same extension module without guessing from the current repo state).
+            pack_protocol = 2
+            if zip_path is not None:
+                try:
+                    pack_protocol = int(
+                        __import__("upgrade_protocol").read_pack_protocol(zip_path)[
+                            "upgrade_protocol_version"
+                        ]
                     )
-            _run_hook("post_extract", ctx, ext_mod)
-
-            # Note any framework version transitions in the upgrade log.
-            # Don't branch on them — Phase 4 always runs phase_index_update at
-            # the end, and the indexer's auto-escalate routes to full rebuild
-            # when needed. The log is the operator-visible signal that the
-            # rebuild will be substantial rather than incremental.
-            _transitions = _detect_version_transitions(_pre_extract_all_versions, root)
-            if _transitions:
-                _log("\n⚠  Framework version transitions detected:")
-                for _name, _old, _new in _transitions:
-                    _log(f"   {_name}: {_old} → {_new}")
-                _log(
-                    "   Phase 4 will run a full re-embed where the semantic "
-                    "versions changed (indexer auto-escalate); the graph layer "
-                    "is re-extracted in Phase 4b during THIS upgrade when "
-                    "GRAPH_BUILDER_VERSION advanced (graph-only, fresh "
-                    "subprocess). Reload MCP (wf_reload_mcp) or restart the "
-                    "host after the upgrade so a running server does not keep "
-                    "the old graph extractor."
+                except ValueError:
+                    # phase_preflight is the mandatory fail-closed validator. This
+                    # compatibility fallback is reachable only by tests/embedded
+                    # callers that replace that boundary wholesale.
+                    pack_protocol = 2
+            upgrade_lib.write_upgrade_lock(
+                root,
+                from_version=from_version,
+                to_version=to_version or "unknown",
+                zip_path=zip_path,
+                runner_protocol=2,
+                pack_protocol=pack_protocol,
+            )
+            verified_pack_identity = _VERIFIED_PACK_IDENTITIES.get(str(zip_path))
+            if verified_pack_identity is not None:
+                upgrade_lib.update_upgrade_lock(root, verified_pack_identity=verified_pack_identity)
+            if selected_feature_zip is not None:
+                upgrade_lib.update_upgrade_lock(
+                    root,
+                    **_model_bundle_lock_fields(selected_feature_zip, selected_model_bundle),
                 )
-                # Track for compat with v1 tests + post-condition path.
-                _chunker_transition = next(
-                    ((o, n) for nm, o, n in _transitions if nm.startswith("CHUNKER_VERSION")),
-                    None,
+                if selected_model_bundle is not None:
+                    _log(f"  Matching offline model-set asset found: {selected_model_bundle.name}")
+            _log("  Upgrade lock written — dashboard will pause indexing.")
+
+
+        except BaseException:
+            if snapshot_created:
+                _discard_old_manifest_snapshot(root)
+            upgrade_transaction.__exit__(*sys.exc_info())
+            upgrade_transaction_open = False
+            _close_log()
+            raise
+
+        # Wave 1p44o — data-safety: track whether the tree has been mutated (zip
+        # extracted / surfaces rendered / files pruned) and which phase is running,
+        # so the except SystemExit handler can RETAIN the lock with a failure marker
+        # on a post-mutation failure instead of tearing the guard down on a
+        # half-replaced tree.
+        tree_mutated = False
+        current_phase = "init"
+
+        try:
+            # Packaged upgrades execute the new pre-extract migration from the zip.
+            # A current-tree upgrade has no extension module, so run that same
+            # shipped migration directly before any framework mutation.
+            if zip_path is None:
+                current_phase = "runtime_lock_cutover"
+                import upgrade_extensions
+
+                upgrade_extensions.pre_extract(ctx)
+                import sqlite_storage_migration
+                sqlite_storage_migration.prepare_upgrade(ctx)
+
+            # Wave 1p3dk / 1p3ho: snapshot the consumer's pre-existing framework
+            # version constants BEFORE extract so we can log any transitions in
+            # the upgrade output. The transitions themselves are operator-visible
+            # signals; the indexer's `build_index` auto-escalate handles
+            # chunker/walker rebuilds and the graph layer rebuilds on first query
+            # when GRAPH_BUILDER_VERSION advances. We log, then trust.
+            ctx.pre_extract_chunker_versions = _snapshot_pre_extract_chunker_versions(root)
+            _pre_extract_all_versions = _snapshot_pre_extract_versions(root)
+
+            # Apply zip if found
+            if zip_path:
+                current_phase = "extract"
+                _run_hook("pre_extract", ctx, ext_mod)
+                # Wave 1p44r — extract idempotence: if the on-disk framework already
+                # equals to_version, do NOT destructively re-extract (e.g. when retrying
+                # preflight_to_docs_gate after a docs-gate failure on an at-target tree).
+                if _tree_already_at(root, to_version):
+                    _log(
+                        f"\n── Phase 0b: Tree already at {to_version} — "
+                        "skipping re-extract (idempotent) ──"
+                    )
+                else:
+                    _log(f"\n── Phase 0b: Applying zip {zip_path.name} ──")
+                    with zipfile.ZipFile(zip_path, "r") as zf:
+                        tree_mutated = True  # A failed extraction can already have written files.
+                        _skipped_members = _extract_feature_members(zf, root)
+                        _withheld_names = _withheld_member_names(zf)
+                    # Tree is now half-replaced — from here a failure must RETAIN the
+                    # lock (wave 1p44o) rather than remove it.
+                    tree_mutated = True
+                    _log(f"  Extracted {zip_path.name}")
+                    if _skipped_members:
+                        _log(
+                            f"  Withheld {_skipped_members} non-feature or preexisting "
+                            "project-owned member(s) from extraction: "
+                            f"{_describe_withheld_members(_withheld_names)}."
+                        )
+                _run_hook("post_extract", ctx, ext_mod)
+
+                # Note any framework version transitions in the upgrade log.
+                # Don't branch on them — Phase 4 always runs phase_index_update at
+                # the end, and the indexer's auto-escalate routes to full rebuild
+                # when needed. The log is the operator-visible signal that the
+                # rebuild will be substantial rather than incremental.
+                _transitions = _detect_version_transitions(_pre_extract_all_versions, root)
+                if _transitions:
+                    _log("\n⚠  Framework version transitions detected:")
+                    for _name, _old, _new in _transitions:
+                        _log(f"   {_name}: {_old} → {_new}")
+                    _log(
+                        "   Phase 4 will run a full re-embed where the semantic "
+                        "versions changed (indexer auto-escalate); the graph layer "
+                        "is re-extracted in Phase 4b during THIS upgrade when "
+                        "GRAPH_BUILDER_VERSION advanced (graph-only, fresh "
+                        "subprocess). Reload MCP (wf_reload_mcp) or restart the "
+                        "host after the upgrade so a running server does not keep "
+                        "the old graph extractor."
+                    )
+                    # Track for compat with v1 tests + post-condition path.
+                    _chunker_transition = next(
+                        ((o, n) for nm, o, n in _transitions if nm.startswith("CHUNKER_VERSION")),
+                        None,
+                    )
+                    if _chunker_transition is not None:
+                        ctx.chunker_version_bumped = True
+                        ctx.chunker_version_transition = _chunker_transition
+                else:
+                    # 1p5do: no transitions detected — surface the rebuild signal when there was no
+                    # baseline to compare against (otherwise this stays silent exactly when it matters).
+                    _warn_if_no_version_baseline(_pre_extract_all_versions, root)
+
+            # Apply the preflighted review-policy plan before any renderer can
+            # rewrite the carrier bytes that the plan deliberately fingerprints.
+            # Extraction may replace framework code, but the already-imported
+            # module and immutable plan remain the transaction authority.
+            current_phase = "review_policy_migration"
+
+            def _policy_checkpoint(phase: str, relative_path: str) -> None:
+                upgrade_lib.update_upgrade_lock(
+                    root,
+                    current_phase=phase,
+                    last_completed_path=relative_path,
                 )
-                if _chunker_transition is not None:
-                    ctx.chunker_version_bumped = True
-                    ctx.chunker_version_transition = _chunker_transition
-            else:
-                # 1p5do: no transitions detected — surface the rebuild signal when there was no
-                # baseline to compare against (otherwise this stays silent exactly when it matters).
-                _warn_if_no_version_baseline(_pre_extract_all_versions, root)
 
-        # Apply the preflighted review-policy plan before any renderer can
-        # rewrite the carrier bytes that the plan deliberately fingerprints.
-        # Extraction may replace framework code, but the already-imported
-        # module and immutable plan remain the transaction authority.
-        current_phase = "review_policy_migration"
-
-        def _policy_checkpoint(phase: str, relative_path: str) -> None:
+            policy_summary = review_policy_upgrade.apply_review_policy_upgrade(
+                root, policy_plan, checkpoint=_policy_checkpoint
+            )
             upgrade_lib.update_upgrade_lock(
                 root,
-                current_phase=phase,
-                last_completed_path=relative_path,
+                current_phase="review_policy_migration_complete",
+                review_policy_migration=policy_summary,
+            )
+            _log(
+                "\n── Phase 0c: Review-policy migration ──\n  "
+                + json.dumps(policy_summary, sort_keys=True)
             )
 
-        policy_summary = review_policy_upgrade.apply_review_policy_upgrade(
-            root, policy_plan, checkpoint=_policy_checkpoint
-        )
-        upgrade_lib.update_upgrade_lock(
-            root,
-            current_phase="review_policy_migration_complete",
-            review_policy_migration=policy_summary,
-        )
-        _log(
-            "\n── Phase 0c: Review-policy migration ──\n  "
-            + json.dumps(policy_summary, sort_keys=True)
-        )
+            # Phase 1
+            current_phase = "surface_rendering"
+            _run_hook("pre_surface_rendering", ctx, ext_mod)
+            tree_mutated = True  # Rendering may partially mutate before raising.
+            phase_surface_rendering(root)
+            # Surface rendering mutates the tree even when no zip was applied
+            # (upgrade-from-current-tree path) — mark mutated here too.
+            tree_mutated = True
+            _run_hook("post_surface_rendering", ctx, ext_mod)
 
-        # Phase 1
-        current_phase = "surface_rendering"
-        _run_hook("pre_surface_rendering", ctx, ext_mod)
-        tree_mutated = True  # Rendering may partially mutate before raising.
-        phase_surface_rendering(root)
-        # Surface rendering mutates the tree even when no zip was applied
-        # (upgrade-from-current-tree path) — mark mutated here too.
-        tree_mutated = True
-        _run_hook("post_surface_rendering", ctx, ext_mod)
+            # Wave 1p44p follow-up — stamp framework_revision now that VERSION is
+            # extracted and the manifest is rendered, so the installed-revision marker
+            # tracks the pack instead of freezing at the pre-upgrade value.
+            if _stamp_manifest_revision(root):
+                _log(f"  Installed revision: stamped framework_revision = {_read_pack_version(root)}")
 
-        # Wave 1p44p follow-up — stamp framework_revision now that VERSION is
-        # extracted and the manifest is rendered, so the installed-revision marker
-        # tracks the pack instead of freezing at the pre-upgrade value.
-        if _stamp_manifest_revision(root):
-            _log(f"  Installed revision: stamped framework_revision = {_read_pack_version(root)}")
+            # Phase 2
+            current_phase = "pruning"
+            _run_hook("pre_pruning", ctx, ext_mod)
+            pruned_count = phase_pruning(root)
+            if pruned_count is not None:
+                _discard_old_manifest_snapshot(root)
+            # Persist the prune count so --cleanup can report it accurately.
+            upgrade_lib.update_upgrade_lock(root, pruned_count=pruned_count)
+            _run_hook("post_pruning", ctx, ext_mod)
 
-        # Phase 2
-        current_phase = "pruning"
-        _run_hook("pre_pruning", ctx, ext_mod)
-        pruned_count = phase_pruning(root)
-        if pruned_count is not None:
-            _discard_old_manifest_snapshot(root)
-        # Persist the prune count so --cleanup can report it accurately.
-        upgrade_lib.update_upgrade_lock(root, pruned_count=pruned_count)
-        _run_hook("post_pruning", ctx, ext_mod)
+            # Wave 1u8r2: retire the old generated per-record memory pointers
+            # before docs lint and index publication. The archive bodies are the
+            # authority; projects without the exact legacy directory are untouched.
+            current_phase = "legacy_memory_pointer_migration"
+            import memory_records
+            migrated_manifest = memory_records.migrate_legacy_memory_pointers(root)
+            if migrated_manifest is not None:
+                _log(f"  Migrated legacy memory pointers to {migrated_manifest}")
 
-        # Wave 1u8r2: retire the old generated per-record memory pointers
-        # before docs lint and index publication. The archive bodies are the
-        # authority; projects without the exact legacy directory are untouched.
-        current_phase = "legacy_memory_pointer_migration"
-        import memory_records
-        migrated_manifest = memory_records.migrate_legacy_memory_pointers(root)
-        if migrated_manifest is not None:
-            _log(f"  Migrated legacy memory pointers to {migrated_manifest}")
+            # Phase 2b — Wave 1p44z: materialize the committer-derived secrets policy
+            # BEFORE the first docs gate (which runs the secrets scan), so a fresh
+            # project is never blocked by the framework-default confirmation threshold.
+            current_phase = "policy_materialization"
+            _log("\n── Phase 2b: Secrets policy ──")
+            _log(f"  {materialize_secrets_policy(root)}")
 
-        # Phase 2b — Wave 1p44z: materialize the committer-derived secrets policy
-        # BEFORE the first docs gate (which runs the secrets scan), so a fresh
-        # project is never blocked by the framework-default confirmation threshold.
-        current_phase = "policy_materialization"
-        _log("\n── Phase 2b: Secrets policy ──")
-        _log(f"  {materialize_secrets_policy(root)}")
-
-        # Phase 2c — provision/migrate the lifecycle-ID scheme-v2 policy
-        # (epoch = rollout date, offset clears scanned history). Idempotent:
-        # a repo already on v2 is left unchanged. RuntimeError (corrupt config /
-        # failed atomic write) converts to SystemExit so the pipeline's failure
-        # handler records failed_phase in the retained lock and closes the log
-        # instead of leaking a raw traceback.
-        current_phase = "lifecycle_policy_materialization"
-        _log("\n── Phase 2c: Lifecycle-ID policy ──")
-        try:
-            _log(f"  {materialize_lifecycle_policy(root)}")
-        except RuntimeError as exc:
-            _err(f"  ERROR: {exc}")
-            raise SystemExit(1)
-
-        current_phase = "review_sidecar_cleanup"
-        sidecar_counts = phase_review_evidence_sidecar_cleanup(
-            root, from_version=from_version, current_lock_held=True
-        )
-        upgrade_lib.update_upgrade_lock(
-            root,
-            current_phase="review_sidecar_cleanup_complete",
-            review_sidecar_cleanup=sidecar_counts,
-        )
-        _log(
-            "\n── Phase 2d: Retired review-evidence sidecar cleanup ──\n  "
-            + json.dumps(sidecar_counts, sort_keys=True)
-            + (
-                "\n  Full restart of every attached MCP/agent host (including "
-                "this one) is required before lifecycle mutation resumes."
-                if sidecar_counts.get("restart_required")
-                else ""
-            )
-        )
-
-        # Phase 3
-        current_phase = "docs_gate"
-        _run_hook("pre_docs_gate", ctx, ext_mod)
-        phase_docs_gate(root)
-        # A prior attempt may have retained a docs-gate failure before the
-        # operator repaired the exact worklist.  Successful lint is the
-        # authority that clears that stale marker; the following memory pause
-        # is action-required state, never another docs failure.
-        upgrade_lib.update_upgrade_lock(
-            root,
-            current_phase="docs_gate_complete",
-            failed_phase=None,
-            failed_at=None,
-        )
-        # Wave 1zeyo (1zeyn): until the memory run is recorded below, a failure
-        # is a post-docs-gate crash, not the memory pause.
-        current_phase = POST_DOCS_GATE_PHASE
-        _run_hook("post_docs_gate", ctx, ext_mod)
-
-        # Historical memory is reconciled by the newly extracted implementation
-        # before index publication.  The retained upgrade lock mirrors only the
-        # run id/current gate; memory-state.sqlite owns the authoritative work.
-        import memory_backfill
-
-        memory_run_id = memory_backfill.ensure_run(root, "upgrade")
-        memory_summary = memory_backfill.sync_inventory(root, memory_run_id)
-        memory_summary = memory_backfill.reconcile_index_publication(
-            root, memory_run_id
-        )
-        memory_processed: list[dict[str, Any]] = []
-        memory_worklist: dict[str, Any] = {}
-        if memory_summary["state"] == "awaiting_validation":
-            # Run the exact same bounded producer used by the public
-            # memory_backfill tool while this process already owns lifecycle
-            # + publication.  Auto-advance only when the resulting run-wide
-            # summary is genuinely clear; an initially empty candidate page is
-            # not treated as proof that unprocessed historical waves have no
-            # material evidence.
+            # Phase 2c — provision/migrate the lifecycle-ID scheme-v2 policy
+            # (epoch = rollout date, offset clears scanned history). Idempotent:
+            # a repo already on v2 is left unchanged. RuntimeError (corrupt config /
+            # failed atomic write) converts to SystemExit so the pipeline's failure
+            # handler records failed_phase in the retained lock and closes the log
+            # instead of leaking a raw traceback.
+            current_phase = "lifecycle_policy_materialization"
+            _log("\n── Phase 2c: Lifecycle-ID policy ──")
             try:
-                import server_impl
+                _log(f"  {materialize_lifecycle_policy(root)}")
+            except RuntimeError as exc:
+                _err(f"  ERROR: {exc}")
+                raise SystemExit(1)
 
-                (
-                    memory_processed,
-                    memory_summary,
-                    memory_worklist,
-                ) = server_impl._memory_backfill_batch_locked(
-                    root,
-                    backfill=memory_backfill,
-                    run_id=memory_run_id,
-                    candidate_budget=memory_backfill.MAX_CANDIDATES_PER_CALL,
+            current_phase = "review_sidecar_cleanup"
+            sidecar_counts = phase_review_evidence_sidecar_cleanup(
+                root, from_version=from_version, current_lock_held=True
+            )
+            upgrade_lib.update_upgrade_lock(
+                root,
+                current_phase="review_sidecar_cleanup_complete",
+                review_sidecar_cleanup=sidecar_counts,
+            )
+            _log(
+                "\n── Phase 2d: Retired review-evidence sidecar cleanup ──\n  "
+                + json.dumps(sidecar_counts, sort_keys=True)
+                + (
+                    "\n  Full restart of every attached MCP/agent host (including "
+                    "this one) is required before lifecycle mutation resumes."
+                    if sidecar_counts.get("restart_required")
+                    else ""
                 )
-            except Exception as exc:  # noqa: BLE001 — recovery remains the public memory path
-                memory_summary = memory_backfill.run_summary(root, memory_run_id)
-                memory_worklist = memory_backfill.validation_worklist(
-                    root,
-                    memory_run_id,
-                    limit=memory_backfill.MAX_CANDIDATES_PER_CALL,
-                )
-                _log(
-                    "Historical-memory automatic bounded extraction was unavailable; "
-                    f"the durable recovery path remains active: {type(exc).__name__}: {exc}"
-                )
-        upgrade_lib.update_upgrade_lock(
-            root,
-            current_phase="awaiting_memory_validation",
-            memory_backfill_run_id=memory_run_id,
-            memory_backfill_state=memory_summary["state"],
-            memory_backfill_pending=(
-                memory_summary["remaining_waves"]
-                + memory_summary["candidates_pending"]
-                + memory_summary["failures"]
-            ),
-            memory_backfill_last_failure=memory_summary["last_failure"],
-        )
-        current_phase = "awaiting_memory_validation"
-        if memory_summary["state"] == "awaiting_validation":
-            import uuid
+            )
 
+            # Phase 3
+            current_phase = "docs_gate"
+            _run_hook("pre_docs_gate", ctx, ext_mod)
+            phase_docs_gate(root)
+            # A prior attempt may have retained a docs-gate failure before the
+            # operator repaired the exact worklist.  Successful lint is the
+            # authority that clears that stale marker; the following memory pause
+            # is action-required state, never another docs failure.
+            upgrade_lib.update_upgrade_lock(
+                root,
+                current_phase="docs_gate_complete",
+                failed_phase=None,
+                failed_at=None,
+            )
+            # Wave 1zeyo (1zeyn): until the memory run is recorded below, a failure
+            # is a post-docs-gate crash, not the memory pause.
+            current_phase = POST_DOCS_GATE_PHASE
+            _run_hook("post_docs_gate", ctx, ext_mod)
+
+            # Historical memory is reconciled by the newly extracted implementation
+            # before index publication.  The retained upgrade lock mirrors only the
+            # run id/current gate; memory-state.sqlite owns the authoritative work.
+            import memory_backfill
+
+            memory_run_id = memory_backfill.ensure_run(root, "upgrade")
+            memory_summary = memory_backfill.sync_inventory(root, memory_run_id)
+            memory_summary = memory_backfill.reconcile_index_publication(
+                root, memory_run_id
+            )
+            memory_processed: list[dict[str, Any]] = []
+            memory_worklist: dict[str, Any] = {}
+            if memory_summary["state"] == "awaiting_validation":
+                # Run the exact same bounded producer used by the public
+                # memory_backfill tool while this process already owns lifecycle
+                # + publication.  Auto-advance only when the resulting run-wide
+                # summary is genuinely clear; an initially empty candidate page is
+                # not treated as proof that unprocessed historical waves have no
+                # material evidence.
+                try:
+                    import server_impl
+
+                    (
+                        memory_processed,
+                        memory_summary,
+                        memory_worklist,
+                    ) = server_impl._memory_backfill_batch_locked(
+                        root,
+                        backfill=memory_backfill,
+                        run_id=memory_run_id,
+                        candidate_budget=memory_backfill.MAX_CANDIDATES_PER_CALL,
+                    )
+                except Exception as exc:  # noqa: BLE001 — recovery remains the public memory path
+                    memory_summary = memory_backfill.run_summary(root, memory_run_id)
+                    memory_worklist = memory_backfill.validation_worklist(
+                        root,
+                        memory_run_id,
+                        limit=memory_backfill.MAX_CANDIDATES_PER_CALL,
+                    )
+                    _log(
+                        "Historical-memory automatic bounded extraction was unavailable; "
+                        f"the durable recovery path remains active: {type(exc).__name__}: {exc}"
+                    )
             upgrade_lib.update_upgrade_lock(
                 root,
                 current_phase="awaiting_memory_validation",
-                action_required={
-                    "kind": "historical_memory",
-                    "state": "awaiting_memory_validation",
-                    "resume_phase": "resume_after_memory",
-                    "run_id": memory_run_id,
-                    "token": uuid.uuid4().hex,
-                },
-                # Older dashboards retain a dead-PID lock only through this
-                # compatibility lease; new readers classify action_required.
-                failed_phase="awaiting_memory_validation",
-                failed_at=None,
+                memory_backfill_run_id=memory_run_id,
+                memory_backfill_state=memory_summary["state"],
+                memory_backfill_pending=(
+                    memory_summary["remaining_waves"]
+                    + memory_summary["candidates_pending"]
+                    + memory_summary["failures"]
+                ),
+                memory_backfill_last_failure=memory_summary["last_failure"],
             )
-            _log(
-                "\nHistorical memory requires bounded extraction and agent validation "
-                "before Phase 4.\n"
-                + json.dumps(memory_summary, sort_keys=True)
-                + "\n"
-                + json.dumps(memory_worklist, sort_keys=True)
-                + "\nautomatic_batch="
-                + json.dumps(memory_processed, sort_keys=True)
-                + "\nReload MCP, run memory_backfill(mode='create', "
-                "entry_path='upgrade') and memory_validate, then call "
-                "wf_upgrade(phase='resume_after_memory')."
-            )
-            upgrade_transaction.__exit__(None, None, None)
-            _close_log()
-            return memory_backfill.ACTION_REQUIRED_EXIT
-        # Phase 4 — Wave 1p3dk / 1p3ho: always run index update at the end of
-        # upgrade so operators don't have to remember a separate
-        # `--update-index` invocation. The indexer's `build_index`
-        # auto-escalate handles both cases (chunker/walker bumped → full
-        # rebuild; otherwise → incremental). Trust the indexer to do whatever
-        # it needs; the version-transition log in Phase 0b already signals to
-        # the operator what to expect.
-        current_phase = "index_update"
-        _run_hook("pre_index_update", ctx, ext_mod)
-        publication_pending = (
-            int(memory_summary.get("candidates_drafted") or 0) > 0
-            and memory_summary["state"] == "ready_for_index"
-        )
-        index_published = True
-        if publication_pending:
-            with memory_backfill.index_publication_scope(memory_run_id):
-                phase_index_update_parent_owned(root, memory_run_id)
-        else:
-            index_published = bool(phase_index_update(root))
-        if publication_pending:
-            memory_backfill.complete_index_publication(root, memory_run_id)
-        _run_hook("post_index_update", ctx, ext_mod)
-        # 1u44n: stamp the lock from the OBSERVED outcome only. On failure the
-        # upgrade still completes (the documented recovery is index_build +
-        # index_health, which needs no retained lock), but nothing may claim
-        # the phase succeeded: no index_rebuilt_at, no "indexed" state.
-        _record_index_publication_outcome(root, index_published)
-        if index_published:
-            upgrade_lib.update_upgrade_lock(
-                root,
-                memory_backfill_state="indexed",
-            )
+            current_phase = "awaiting_memory_validation"
+            if memory_summary["state"] == "awaiting_validation":
+                import uuid
 
-    except SystemExit as exc:
-        # A phase or hook failed (phase_docs_gate raises sys.exit(1) on a docs
-        # gate failure; hooks may sys.exit too). Only discard a snapshot created
-        # by this attempt when no framework writer has started.
-        if snapshot_created and not tree_mutated:
-            _discard_old_manifest_snapshot(root)
-        # Wave 1uf67: the typed action-required memory checkpoint (exit code 4
-        # with a token/run-id-bearing action_required block in the lock) is a
-        # designed pause, not a failure. Skip failure finalization so the
-        # checkpoint's lock state stays untouched, and print checkpoint
-        # wording instead of failure prose.
-        import upgrade_extensions
-        guard_action = upgrade_extensions.read_index_guard_action(root, exc.code)
-        if guard_action is not None and getattr(exc, "index_guard_token", None) == guard_action.get("token"):
-            _log("Index upgrade paused: stop the repository hosts and run the reported confirmation command. The upgrade checkpoint is retained.")
+                upgrade_lib.update_upgrade_lock(
+                    root,
+                    current_phase="awaiting_memory_validation",
+                    action_required={
+                        "kind": "historical_memory",
+                        "state": "awaiting_memory_validation",
+                        "resume_phase": "resume_after_memory",
+                        **sqlite_storage_migration.resume_guidance(root, resume_flag="--resume-after-memory"),
+                        "run_id": memory_run_id,
+                        "token": uuid.uuid4().hex,
+                    },
+                    # Older dashboards retain a dead-PID lock only through this
+                    # compatibility lease; new readers classify action_required.
+                    failed_phase="awaiting_memory_validation",
+                    failed_at=None,
+                )
+                _log(
+                    "\nHistorical memory requires bounded extraction and agent validation "
+                    "before Phase 4.\n"
+                    + json.dumps(memory_summary, sort_keys=True)
+                    + "\n"
+                    + json.dumps(memory_worklist, sort_keys=True)
+                    + "\nautomatic_batch="
+                    + json.dumps(memory_processed, sort_keys=True)
+                    + "\nReload MCP, run memory_backfill(mode='create', "
+                    "entry_path='upgrade') and memory_validate, then call "
+                    "wf_upgrade(phase='resume_after_memory')."
+                    + "\n" + sqlite_storage_migration.resume_guidance(root, resume_flag="--resume-after-memory")["guidance"]
+                )
+                upgrade_transaction.__exit__(None, None, None)
+                upgrade_transaction_open = False
+                _close_log()
+                return memory_backfill.ACTION_REQUIRED_EXIT
+            # Phase 4 — Wave 1p3dk / 1p3ho: always run index update at the end of
+            # upgrade so operators don't have to remember a separate
+            # `--update-index` invocation. The indexer's `build_index`
+            # auto-escalate handles both cases (chunker/walker bumped → full
+            # rebuild; otherwise → incremental). Trust the indexer to do whatever
+            # it needs; the version-transition log in Phase 0b already signals to
+            # the operator what to expect.
+            current_phase = "index_update"
+            _run_hook("pre_index_update", ctx, ext_mod)
+            publication_pending = (
+                int(memory_summary.get("candidates_drafted") or 0) > 0
+                and memory_summary["state"] == "ready_for_index"
+            )
+            index_published = True
+            if publication_pending:
+                with memory_backfill.index_publication_scope(memory_run_id):
+                    phase_index_update_parent_owned(root, memory_run_id)
+            else:
+                index_published = bool(phase_index_update(root))
+            if publication_pending:
+                memory_backfill.complete_index_publication(root, memory_run_id)
+            _run_hook("post_index_update", ctx, ext_mod)
+            # 1u44n: stamp the lock from the OBSERVED outcome only. On failure the
+            # upgrade still completes (the documented recovery is index_build +
+            # index_health, which needs no retained lock), but nothing may claim
+            # the phase succeeded: no index_rebuilt_at, no "indexed" state.
+            _record_index_publication_outcome(root, index_published)
+            if index_published:
+                upgrade_lib.update_upgrade_lock(
+                    root,
+                    memory_backfill_state="indexed",
+                )
+
+        except SystemExit as exc:
+            # A phase or hook failed (phase_docs_gate raises sys.exit(1) on a docs
+            # gate failure; hooks may sys.exit too). Only discard a snapshot created
+            # by this attempt when no framework writer has started.
+            if snapshot_created and not tree_mutated:
+                _discard_old_manifest_snapshot(root)
+            # Wave 1uf67: the typed action-required memory checkpoint (exit code 4
+            # with a token/run-id-bearing action_required block in the lock) is a
+            # designed pause, not a failure. Skip failure finalization so the
+            # checkpoint's lock state stays untouched, and print checkpoint
+            # wording instead of failure prose.
+            import upgrade_extensions
+            guard_action = upgrade_extensions.read_index_guard_action(root, exc.code)
+            if guard_action is not None and getattr(exc, "index_guard_token", None) == guard_action.get("token"):
+                _log("Index upgrade paused: stop the repository hosts and run the reported confirmation command. The upgrade checkpoint is retained.")
+                upgrade_transaction.__exit__(*sys.exc_info())
+                upgrade_transaction_open = False
+                _close_log()
+                raise
+            action_required = _memory_action_required_pause(root, exc)
+            if action_required is not None:
+                _report_action_required_pause(action_required, root)
+            else:
+                # Wave 1p44o — retain the lock with a failure marker on a
+                # post-mutation failure (half-replaced tree); remove it only on a
+                # pre-mutation failure.
+                _finalize_failed_upgrade(root, tree_mutated, current_phase)
             upgrade_transaction.__exit__(*sys.exc_info())
+            upgrade_transaction_open = False
             _close_log()
             raise
-        action_required = _memory_action_required_pause(root, exc)
-        if action_required is not None:
-            _report_action_required_pause(action_required)
-        else:
-            # Wave 1p44o — retain the lock with a failure marker on a
-            # post-mutation failure (half-replaced tree); remove it only on a
-            # pre-mutation failure.
+        except BaseException:
+            if snapshot_created and not tree_mutated:
+                _discard_old_manifest_snapshot(root)
             _finalize_failed_upgrade(root, tree_mutated, current_phase)
-        upgrade_transaction.__exit__(*sys.exc_info())
+            upgrade_transaction.__exit__(*sys.exc_info())
+            upgrade_transaction_open = False
+            _close_log()
+            raise
+
+        upgrade_transaction.__exit__(None, None, None)
+        upgrade_transaction_open = False
+
+        # Wave 1p8kz — emit the structured summary sentinel now (end of the default primary phase) so the
+        # wf_upgrade() call returns data['summary'] WITH the 1p8et reconciliation findings, instead of
+        # only on the separate --cleanup phase (where the agent often isn't looking). Full operator prose
+        # still prints at cleanup. Wave 1u44o: the summary is DELEGATED to the freshly extracted tree's
+        # producer (this process imported the OLD module before Phase 0b extraction, so its own builder
+        # is the one-cycle-late reporting window); the in-process builder survives only as the marked
+        # degradation fallback inside this single mutually exclusive emit site.
+        _emit_primary_summary_via_delegate_or_fallback(
+            root,
+            from_version,
+            to_version,
+            zip_path,
+            pruned_count,
+            review_sidecar_cleanup=sidecar_counts,
+            index_published=index_published,
+        )
+
+        _log(
+            "\n✓ Phases 0–4 complete. Proceed with agent editing pass, then run:\n"
+            "    upgrade-wavefoundry --cleanup\n"
+            "\n(Re-run upgrade-wavefoundry --update-index manually only if you edit "
+            "additional files post-upgrade and want the index refreshed.)"
+        )
         _close_log()
-        raise
-    except BaseException:
-        if snapshot_created and not tree_mutated:
-            _discard_old_manifest_snapshot(root)
-        _finalize_failed_upgrade(root, tree_mutated, current_phase)
-        upgrade_transaction.__exit__(*sys.exc_info())
-        _close_log()
-        raise
 
-    upgrade_transaction.__exit__(None, None, None)
+        return 0
 
-    # Wave 1p8kz — emit the structured summary sentinel now (end of the default primary phase) so the
-    # wf_upgrade() call returns data['summary'] WITH the 1p8et reconciliation findings, instead of
-    # only on the separate --cleanup phase (where the agent often isn't looking). Full operator prose
-    # still prints at cleanup. Wave 1u44o: the summary is DELEGATED to the freshly extracted tree's
-    # producer (this process imported the OLD module before Phase 0b extraction, so its own builder
-    # is the one-cycle-late reporting window); the in-process builder survives only as the marked
-    # degradation fallback inside this single mutually exclusive emit site.
-    _emit_primary_summary_via_delegate_or_fallback(
-        root,
-        from_version,
-        to_version,
-        zip_path,
-        pruned_count,
-        review_sidecar_cleanup=sidecar_counts,
-        index_published=index_published,
-    )
-
-    _log(
-        "\n✓ Phases 0–4 complete. Proceed with agent editing pass, then run:\n"
-        "    upgrade-wavefoundry --cleanup\n"
-        "\n(Re-run upgrade-wavefoundry --update-index manually only if you edit "
-        "additional files post-upgrade and want the index refreshed.)"
-    )
-    _close_log()
-
-    return 0
-
+    finally:
+        try:
+            if upgrade_transaction_open:
+                upgrade_transaction.__exit__(*sys.exc_info())
+        finally:
+            _close_log()
 
 if __name__ == "__main__":
     sys.exit(main())

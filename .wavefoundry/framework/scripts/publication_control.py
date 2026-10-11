@@ -114,11 +114,11 @@ def publication_checkpoint_reason(
         return None
     return (
         f"upgrade_in_progress: publication by {producer} is blocked while "
-        f"Upgrade is at {phase}; " + _checkpoint_recovery_tail(checkpoint)
+        f"Upgrade is at {phase}; " + _checkpoint_recovery_tail(checkpoint, root)
     )
 
 
-def _checkpoint_recovery_tail(checkpoint: dict[str, Any]) -> str:
+def _checkpoint_recovery_tail(checkpoint: dict[str, Any], root: Path | None = None) -> str:
     """Compose the refusal recovery guidance ONCE for every consumer (1u44n).
 
     Both refusal surfaces (the MCP ``index_build`` diagnostic strip and the
@@ -134,6 +134,13 @@ def _checkpoint_recovery_tail(checkpoint: dict[str, Any]) -> str:
         continuation = action.get("command") if isinstance(action, dict) else None
         return ("resume the recorded wf setup continuation: " + continuation if continuation
                 else "rerun ordinary wf setup to finish installed-checkout reconciliation; retain the checkpoint and index")
+    guidance = ""
+    if root is not None:
+        from sqlite_storage_migration import resume_guidance
+
+        command = resume_guidance(root, checkpoint)
+        if command:
+            guidance = ". " + command["guidance"]
     pending: int | None
     try:
         pending = int(checkpoint.get("memory_backfill_pending"))
@@ -146,11 +153,13 @@ def _checkpoint_recovery_tail(checkpoint: dict[str, Any]) -> str:
             "while the upgrade is still non-terminal), then "
             "wf_upgrade(phase='cleanup'), then index_build; confirm with "
             "index_health"
+            + guidance
         )
     return (
         "retry or resume Upgrade to a terminal state; if the upgrade is "
         "paused for historical memory, run memory_backfill and "
         "memory_validate, then wf_upgrade(phase='resume_after_memory')"
+        + guidance
     )
 
 

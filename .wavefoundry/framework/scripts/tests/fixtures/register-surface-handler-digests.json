@@ -1,6 +1,6 @@
 {
   "captured_at": "f4063a85",
-  "description": "SHA-256 of each @mcp.tool handler's exact source (decorators through last line, dedented) inside register_mcp_surface, captured before wave 1y0h1 edited server_impl.py. Wave 1ypxw updates only wf_review_wave and wf_review_event for approved receipt-currency docstrings; all other captured hashes are retained. Wave 1z8tz updates only docs_search and code_search for the restored tag vocabulary (memory) and the rechunk remedy in their docstrings. Wave 1zlu1 adds wf_close_change and updates only wf_create_wave for its new optional parent parameter. Wave 1zyc3 updates only wf_review_event for its new optional attested_by parameter. Wave 1zyc5 updates only seed_get, wf_get_prompt and wf_help for the renamed planning help goal and prompt examples in their docstrings. Wave 1zyb4 (change 1zxnx) updates only wf_review_event for the council-delivery signoff key example in its docstring. Wave 203pu updates only wf_graph_report for the call_edge_counts docstring. Wave 2087n updates only memory_propose for explicit source-event selection; all other captured hashes are retained.",
+  "description": "SHA-256 of each @mcp.tool handler's exact source (decorators through last line, dedented) inside register_mcp_surface, captured before wave 1y0h1 edited server_impl.py. Wave 1ypxw updates only wf_review_wave and wf_review_event for approved receipt-currency docstrings; all other captured hashes are retained. Wave 1z8tz updates only docs_search and code_search for the restored tag vocabulary (memory) and the rechunk remedy in their docstrings. Wave 1zlu1 adds wf_close_change and updates only wf_create_wave for its new optional parent parameter. Wave 1zyc3 updates only wf_review_event for its new optional attested_by parameter. Wave 1zyc5 updates only seed_get, wf_get_prompt and wf_help for the renamed planning help goal and prompt examples in their docstrings. Wave 1zyb4 (change 1zxnx) updates only wf_review_event for the council-delivery signoff key example in its docstring. Wave 203pu updates only wf_graph_report for the call_edge_counts docstring. Wave 2087n updates only memory_propose for explicit source-event selection; all other captured hashes are retained. Wave 20b3a (change 20b34) updates only wf_upgrade for root-qualified accounting-gap recovery guidance; all other captured hashes and handler-name pins are retained.",
   "handlers": {
     "code_ask": "d893cd2791ad0ade83b0a5d07997aa5afe049b7d5fd19a5b74cc890a31ae0ad9",
     "code_callgraph": "5fc05322e7ac0234ee2d14eb298175dd112fab1c21f66f032cba1db9928fa958",
@@ -89,7 +89,7 @@
     "wf_sync_surfaces": "b4c520bd01707213004ead459f6bf708d17fccc7b7568e395f9ff748b7b40ffd",
     "wf_techdocs_audit": "43bfeffc60c750836bd5a0bf08915d6af6a572cb50174da8984e0dda6aa0fb34",
     "wf_techdocs_baseline": "cfe3b264146d611f95a875991a406935ab5d42c7146348ef359f6e30c6a9e516",
-    "wf_upgrade": "35152333a72ac19fa2c7baa79c891c81927d74c8d85817b53e841eb6ec00cdfd",
+    "wf_upgrade": "b5df18890700134db88b77de02bdd84e4ee595cd7e50babcd2c5a0785c313e3d",
     "wf_upgrade_status": "d71048de3d6d6166f136091848d6c4794bef325f2602027d3fd286042113eb3c",
     "wf_validate_docs": "3607bfeaf41b0deccb84c3c6b64f0038350e0f9287fa8620ad16601903d313ca"
   },

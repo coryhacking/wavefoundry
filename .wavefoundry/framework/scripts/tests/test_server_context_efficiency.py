@@ -4446,5 +4446,192 @@ class PathFreeMonitorRowTests(unittest.TestCase):
         self.assertEqual(row["error"], message)
 
 
+class DeferredTransferBoundaryTests(unittest.TestCase):
+    def test_actual_projection_and_proxy_are_healthy_pending_then_retry(self):
+        from test_context_efficiency import _metric
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);_repo(root);wave='1defer pending-accounting'
+            wave_md=_waves_dir(root)/wave/_RECORD;wave_md.parent.mkdir(parents=True)
+            wave_md.write_text(f'{_TITLE}\n\nStatus: planned\n')
+            telemetry=ce.ProcessTelemetry(root)
+            try:
+                telemetry.record_retrieval(_metric(),event_id='pending')
+                handler=SimpleNamespace(root=root,telemetry=telemetry)
+                with patch.object(ce,'_open_write_store_once',side_effect=PermissionError(13,'transfer')),patch.object(ce,'BUSY_RETRY_BUDGET_SECONDS',0):
+                    projection,flushed=ce_handlers._flush_context_efficiency(handler,wave,transfer_general=True)
+                self.assertEqual(projection['persistence'],'deferred');self.assertEqual(projection['projection'],'pending')
+                self.assertEqual(projection['authority_status'],'healthy');self.assertTrue(projection['pending_transfer'])
+                self.assertEqual(flushed.touched_waves,frozenset());self.assertFalse(ce.gap_path(root).exists())
+                proxy=ce.workflow_proxy_after_flush({'persistence':'durable','credited':True},wave,flushed)
+                self.assertEqual(proxy['persistence'],'deferred');self.assertEqual(proxy['projection'],'pending')
+                self.assertNotIn('fatal_persistence_failure',proxy)
+                self.assertTrue(proxy['credited']) # the separate new event is already durable
+                with patch.object(ce,'_open_write_store_once',side_effect=PermissionError(13,'still locked')),patch.object(ce,'BUSY_RETRY_BUDGET_SECONDS',0):
+                    boundary=ce_handlers.project_pending_context_efficiency(handler)
+                self.assertTrue(boundary['ok']);self.assertEqual(boundary['projected'],[])
+                self.assertEqual(boundary['pending_general_transfer']['persistence'],'deferred')
+                boundary=ce_handlers.project_pending_context_efficiency(handler)
+                self.assertTrue(boundary['ok']);self.assertIn(wave,boundary['projected'])
+                self.assertIsNone(telemetry.pending_transfer)
+                self.assertEqual(ce.read_general_totals(root)['calls'],0)
+            finally:
+                ce._unlock_lease(telemetry._lease_handle)
+
+    def test_registered_upgrade_deferred_transfer_is_nonfatal_and_reported(self):
+        from test_context_efficiency import _metric
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);_repo(root);telemetry=ce.ProcessTelemetry(root)
+            handler=SimpleNamespace(root=root,telemetry=telemetry)
+            try:
+                telemetry.record_retrieval(_metric(),event_id='upgrade-pending')
+                with patch.object(ce,'_open_write_store_once',side_effect=PermissionError(13,'transfer')),patch.object(ce,'BUSY_RETRY_BUDGET_SECONDS',0):
+                    self.assertEqual(telemetry.flush(root,transfer_general_to='1defer pending').persistence,'deferred')
+                mcp=RecordingFastMCP();srv.register_mcp_surface(mcp,lambda:handler)
+                core={'status':'ok','data':{'passed':True},'diagnostics':[]}
+                with patch.object(ce,'_open_write_store_once',side_effect=PermissionError(13,'transfer')),patch.object(ce,'BUSY_RETRY_BUDGET_SECONDS',0),patch.object(srv,'wf_upgrade_response',return_value=core) as upgrade:
+                    result=mcp.tools['wf_upgrade']()
+                upgrade.assert_called_once();self.assertEqual(result['status'],'ok')
+                pending=result['data']['context_efficiency_projection']['pending_general_transfer']
+                self.assertEqual(pending['persistence'],'deferred');self.assertEqual(pending['projection'],'pending')
+                self.assertFalse(ce.gap_path(root).exists())
+            finally:ce._unlock_lease(telemetry._lease_handle)
+
+    def test_real_new_event_commit_plus_spool_failure_still_poisoned(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);_repo(root)
+            handler=SimpleNamespace(root=root,telemetry=ce.ProcessTelemetry(root))
+            try:
+                with patch.object(ce,'_open_write_store_once',side_effect=PermissionError(13,'commit')),patch.object(ce,'_spool_event',side_effect=PermissionError(13,'spool')):
+                    result=srv._record_retrieval_context(handler,'code_keyword',{'status':'ok','data':{'results':[]},'diagnostics':[]})
+                self.assertEqual(result['data']['context_avoided']['persistence'],'poisoned')
+                self.assertTrue(ce.gap_path(root).exists())
+                self.assertEqual(ce.read_store_health(root)['status'],'accounting_gap')
+            finally:ce._unlock_lease(handler.telemetry._lease_handle)
+
+    def test_pending_transfer_does_not_bypass_an_existing_accounting_gap(self):
+        from test_context_efficiency import _metric
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            telemetry = ce.ProcessTelemetry(root)
+            handler = SimpleNamespace(root=root, telemetry=telemetry)
+            try:
+                telemetry.record_retrieval(_metric(), event_id="pending-gap-control")
+                with patch.object(ce, "_open_write_store_once", side_effect=PermissionError(13, "transfer")), patch.object(ce, "BUSY_RETRY_BUDGET_SECONDS", 0):
+                    self.assertEqual(telemetry.flush(root, transfer_general_to="1wave").persistence, "deferred")
+                self.assertTrue(ce.poison_accounting_gap(root, error="real_new_event_loss"))
+                result = ce_handlers.project_pending_context_efficiency(handler)
+                self.assertFalse(result["ok"])
+                self.assertTrue(ce.gap_path(root).exists())
+            finally:
+                ce._unlock_lease(telemetry._lease_handle)
+
+    def test_architecture_and_public_contract_name_actual_deferred_behavior(self):
+        root=SCRIPTS_ROOT.parents[2]
+        text=(root/'docs/architecture/data-and-control-flow.md').read_text()
+        item=text.split('### Path 6a:',1)[1].split('\n9. ',1)[1].split('\n10. ',1)[0]
+        self.assertIn('FLUSH_RETRYABLE_EXCEPTIONS',item);self.assertIn('_is_retryable_flush_error',item)
+        self.assertIn('deferred',item);self.assertIn('general',item)
+        spec=(root/'docs/specs/mcp-tool-surface.md').read_text()
+        self.assertIn('durable | duplicate | spooled | deferred | poisoned | failed',spec)
+        self.assertIn('pending_general_transfer',spec)
+
+    def test_registered_public_reload_reports_pending_general_transfer(self):
+        probe = r"""
+import asyncio, json, tempfile, sqlite3
+from pathlib import Path
+from unittest.mock import patch
+import server
+with tempfile.TemporaryDirectory() as tmp:
+    root=Path(tmp);(root/'docs').mkdir();(root/'docs/workflow-config.json').write_text('{}')
+    mcp=server.build_server(root)
+    handler=server._get_handler()
+    import context_efficiency as ce
+    metric={'captured':True,'estimated_request_tokens':1,'estimated_returned_tokens':1,
+            'estimated_source_tokens':2,'estimated_avoided_tokens':0,'source_files_counted':0,
+            'source_files_verified':0,'source_files_estimated':0,'method':ce.RETRIEVAL_METHOD}
+    handler.telemetry.record_retrieval(metric,event_id='reload-general')
+    with patch.object(ce,'_open_write_store_once',side_effect=PermissionError(13,'transfer')), patch.object(ce,'BUSY_RETRY_BUDGET_SECONDS',0):
+        first=handler.telemetry.flush(root,transfer_general_to='1defer pending')
+        assert first.persistence=='deferred'
+        result=asyncio.run(mcp._tool_manager._tools['wf_reload_mcp'].fn())
+    assert result['status']=='ok', result
+    pending=result['data']['context_efficiency_projection']['pending_general_transfer']
+    assert pending['persistence']=='deferred' and pending['projection']=='pending',result
+    assert not ce.gap_path(root).exists()
+    conn=sqlite3.connect(ce.store_path(root))
+    try: assert conn.execute('SELECT COUNT(*) FROM telemetry_event WHERE wave_id IS NULL').fetchone()[0]==1
+    finally:conn.close()
+    server._get_handler().close()
+    print('registered reload healthy pending')
+"""
+        env=dict(os.environ,PYTHONPATH=str(SCRIPTS_ROOT),HF_HUB_OFFLINE='1',TRANSFORMERS_OFFLINE='1')
+        result=subprocess.run([sys.executable,'-B','-c',probe],env=env,capture_output=True,text=True,timeout=30)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('registered reload healthy pending',result.stdout)
+
+
+    def test_legacy_telemetry_without_pending_metadata_projects_durable_rows(self):
+        from test_context_efficiency import _metric
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            wave = "1legacy durable-projection"
+            wave_md = _waves_dir(root) / wave / _RECORD
+            wave_md.parent.mkdir(parents=True)
+            wave_md.write_text(f"{_TITLE}\n\nStatus: planned\n")
+            producer = ce.ProcessTelemetry(root)
+            self.addCleanup(lambda: ce._unlock_lease(producer._lease_handle))
+            producer.set_focus(wave, "plan")
+            producer.record_retrieval(_metric(), event_id="legacy-durable")
+
+            class LegacyTelemetry:
+                def flush(self, *_args, **_kwargs):
+                    raise AssertionError("no speculative flush without pending metadata")
+
+            legacy = LegacyTelemetry()
+            self.assertFalse(hasattr(legacy, "pending_transfer"))
+            handler = SimpleNamespace(root=root, telemetry=legacy)
+            try:
+                result = ce_handlers.project_pending_context_efficiency(handler)
+            except AttributeError as exc:
+                self.fail(f"legacy projection must not require pending metadata: {exc}")
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["projected"], [wave])
+            self.assertNotIn("pending_general_transfer", result)
+            self.assertIn("wave:context-efficiency", wave_md.read_text())
+            mcp = RecordingFastMCP()
+            srv.register_mcp_surface(mcp, lambda: handler)
+            with patch.object(srv, "wf_upgrade_response", return_value={"status": "ok", "data": {}, "diagnostics": []}) as upgrade:
+                public = mcp.tools["wf_upgrade"]()
+            upgrade.assert_called_once()
+            self.assertEqual(public["status"], "ok")
+            self.assertNotIn("context_efficiency_projection", public["data"])
+
+    def test_legacy_telemetry_without_pending_metadata_keeps_gap_barrier(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+
+            class LegacyTelemetry:
+                def flush(self, *_args, **_kwargs):
+                    raise AssertionError("no speculative flush without pending metadata")
+
+            handler = SimpleNamespace(root=root, telemetry=LegacyTelemetry())
+            self.assertTrue(ce.poison_accounting_gap(root, error="legacy-gap-control"))
+            result = ce_handlers.project_pending_context_efficiency(handler)
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["detail"]["authority_status"], "accounting_gap")
+            mcp = RecordingFastMCP()
+            srv.register_mcp_surface(mcp, lambda: handler)
+            with patch.object(srv, "wf_upgrade_response") as upgrade:
+                public = mcp.tools["wf_upgrade"]()
+            upgrade.assert_not_called()
+            self.assertEqual(public["status"], "error")
+            self.assertIn("context_efficiency_projection_failed", [entry["code"] for entry in public["diagnostics"]])
+            self.assertTrue(ce.gap_path(root).exists())
+
+
+
 if __name__ == "__main__":
     unittest.main()

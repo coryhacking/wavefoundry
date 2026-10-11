@@ -140,7 +140,18 @@ class ReceiptTests(unittest.TestCase):
          ('sqlite_storage_migration', 'migrate_legacy', 'live == source_path'),
          ('sqlite_storage_migration',
           'read_restart_action',
-          "action.get('root_identity') != receipt['root_identity']")}
+          "action.get('root_identity') != receipt['root_identity']"),
+         # 20b36: descriptor/ownership checks for the one retained upgrade pack,
+         # not storage snapshot comparisons; keep each reviewed expression exact.
+         ('upgrade_extensions', '_read_guard_pack', '_guard_file_identity(entry) != _guard_file_identity(opened)'),
+         ('upgrade_extensions', '_read_guard_pack', '_guard_file_identity(path.lstat()) != _guard_file_identity(opened)'),
+         ('upgrade_extensions', 'validate_index_guard_durable_pack', "proof.get('root_identity') != {'device': identity.st_dev, 'inode': identity.st_ino}"),
+         ('upgrade_extensions', 'validate_index_guard_durable_pack', "proof.get('root_identity') != record.get('root_identity')"),
+         ('upgrade_extensions', 'validate_index_guard_durable_pack', "len(proof['identity']) != 5"),
+         ('upgrade_extensions', 'validate_index_guard_durable_pack', "_guard_file_identity(entry) != proof['identity']"),
+         ('upgrade_extensions', 'validate_index_guard_durable_pack', "_guard_file_identity(opened) != proof['identity']"),
+         ('upgrade_extensions', '_retain_index_guard_pack', 'hashlib.sha256(retained).hexdigest() != digest'),
+         ('upgrade_extensions', 'finalize_index_guard_terminal_cleanup', "tmp_proof.get('identity') == _guard_file_identity(remaining)")}
         observed = set().union(*(scan(name, source) for name, source in sources.items()))
         self.assertEqual(observed, allowed)
         mutations = (
@@ -983,7 +994,7 @@ class NativeMigrationTests(unittest.TestCase):
         self.convert()
         run_id, scope = self._native_memory_scope()
         observed = []
-        with scope, patch.object(upgrade.subprocess_util, "isolated_run", side_effect=self._native_phase_children(observed)), \
+        with scope, patch.object(upgrade, "_run_upgrade_child", side_effect=self._native_phase_children(observed)), \
              contextlib.redirect_stdout(io.StringIO()):
             upgrade.phase_index_update_parent_owned(self.root, run_id)
         self.assertEqual(observed, [("all", "building"), ("graph", "building"), ("verify", "complete")])
@@ -997,7 +1008,7 @@ class NativeMigrationTests(unittest.TestCase):
         import upgrade_wavefoundry as upgrade
         self.convert()
         observed = []
-        with patch.object(upgrade.subprocess_util, "isolated_run", side_effect=self._native_phase_children(observed)), \
+        with patch.object(upgrade, "_run_upgrade_child", side_effect=self._native_phase_children(observed)), \
              contextlib.redirect_stdout(io.StringIO()):
             self.assertTrue(upgrade.phase_index_update(self.root))
         self.assertEqual(observed, [("all", "complete"), ("graph", "complete"), ("verify", "complete")])
@@ -1012,7 +1023,7 @@ class NativeMigrationTests(unittest.TestCase):
         run_id, scope = self._native_memory_scope()
         observed = []
         receipt_path = self.index / "upgrade-index-staging-receipt.json"
-        with scope, patch.object(upgrade.subprocess_util, "isolated_run", side_effect=self._native_phase_children(observed)), \
+        with scope, patch.object(upgrade, "_run_upgrade_child", side_effect=self._native_phase_children(observed)), \
              contextlib.redirect_stdout(io.StringIO()):
             with patch.dict(os.environ, {"WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT": str(receipt_path)}):
                 self.assertTrue(upgrade.phase_index_update(self.root))
@@ -1032,7 +1043,7 @@ class NativeMigrationTests(unittest.TestCase):
         run_id, scope = self._native_memory_scope()
         observed = []
         receipt_path = self.index / "upgrade-index-staging-receipt.json"
-        with scope, patch.object(upgrade.subprocess_util, "isolated_run", side_effect=self._native_phase_children(observed)), \
+        with scope, patch.object(upgrade, "_run_upgrade_child", side_effect=self._native_phase_children(observed)), \
              contextlib.redirect_stdout(io.StringIO()):
             with patch.dict(os.environ, {"WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT": str(receipt_path)}):
                 self.assertTrue(upgrade.phase_index_update(self.root))
@@ -1054,7 +1065,7 @@ class NativeMigrationTests(unittest.TestCase):
         run_id, scope = self._native_memory_scope()
         observed = []
         receipt_path = self.index / "upgrade-index-staging-receipt.json"
-        with scope, patch.object(upgrade.subprocess_util, "isolated_run", side_effect=self._native_phase_children(observed)), \
+        with scope, patch.object(upgrade, "_run_upgrade_child", side_effect=self._native_phase_children(observed)), \
              contextlib.redirect_stdout(io.StringIO()):
             with patch.dict(os.environ, {"WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT": str(receipt_path)}):
                 self.assertTrue(upgrade.phase_index_update(self.root))
@@ -1077,7 +1088,7 @@ class NativeMigrationTests(unittest.TestCase):
         self.convert()
         # A retry must invalidate a previous observed success before it starts.
         migration.record_upgrade_publication(self.root)
-        with patch.object(upgrade.subprocess_util, "isolated_run", side_effect=[
+        with patch.object(upgrade, "_run_upgrade_child", side_effect=[
                 subprocess.CompletedProcess([], 0), subprocess.CompletedProcess([], 1)]), \
              contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(RuntimeError, "Graph index update failed"):
@@ -1272,7 +1283,7 @@ class NativeMigrationTests(unittest.TestCase):
         self.confirm()
         with patch.object(setup_index, "ensure_deps"), \
              patch.object(setup_index, "ensure_migration_deps", side_effect=AssertionError("no legacy sources")), \
-             patch.object(upgrade.subprocess_util, "isolated_run", return_value=subprocess.CompletedProcess([], 1)), \
+             patch.object(upgrade, "_run_upgrade_child", return_value=subprocess.CompletedProcess([], 1)), \
              contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(RuntimeError, "Semantic index update"):
                 upgrade.phase_index_update(self.root)
@@ -1374,7 +1385,7 @@ class NativeMigrationTests(unittest.TestCase):
     def test_semantic_failure_stops_before_graph_during_migration(self):
         import upgrade_wavefoundry as upgrade
         self.convert()
-        with patch.object(upgrade.subprocess_util, "isolated_run", return_value=subprocess.CompletedProcess([], 1)) as child, \
+        with patch.object(upgrade, "_run_upgrade_child", return_value=subprocess.CompletedProcess([], 1)) as child, \
              contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(RuntimeError, "Semantic index update"):
                 upgrade.phase_index_update(self.root)
@@ -1521,6 +1532,139 @@ class NativeMigrationTests(unittest.TestCase):
             self.convert()
 
 
+
+class WritableStagedFsyncTests(unittest.TestCase):
+    """20b31: portable Windows descriptor semantics, outside native skip gates."""
+
+    @contextlib.contextmanager
+    def _windows_descriptor_semantics(self):
+        import builtins
+        original = (Path.open, builtins.open, io.open)
+        modes = {}
+        calls = []
+
+        def recording_open(fn):
+            def opened(path, mode="r", *args, **kwargs):
+                handle = fn(path, mode, *args, **kwargs)
+                modes[handle.fileno()] = mode
+                return handle
+            return opened
+
+        def fsync(fd):
+            mode = modes[fd]
+            calls.append(mode)
+            if not any(flag in mode for flag in "+wax"):
+                raise OSError(errno.EBADF, "read-only file descriptor")
+
+        with patch.object(Path, "open", recording_open(original[0])), \
+                patch("builtins.open", recording_open(original[1])), \
+                patch("io.open", recording_open(original[2])), \
+                patch.object(migration.os, "fsync", fsync):
+            yield fsync, calls
+
+    def _drive_real_staging_path(self, site, order):
+        import sqlite_runtime as runtime
+        import index_state_store as state_store
+        import indexer
+        import sqlite_vector_store as vectors
+
+        with tempfile.TemporaryDirectory() as tmp, contextlib.ExitStack() as controls:
+            root = Path(tmp)
+            index = root / ".wavefoundry/index"
+            index.mkdir(parents=True)
+            receipt = {"state": "quiesced", "migration_id": site,
+                       "hosts_stopped_confirmed": True, "artifacts": {},
+                       "source_sqlite_identity": None}
+            conn = MagicMock()
+            conn.execute.return_value.fetchone.return_value = (0,)
+
+            def store(directory, **kwargs):
+                migration.staged_database_path(directory).write_bytes(b"candidate bytes")
+                return SimpleNamespace(_conn=conn, close=lambda: order.append("store-close"))
+
+            def publish(root, receipt, staged, live):
+                # Exercise an actual atomic replace of the disposable candidate.
+                order.append("atomic-replace")
+                os.replace(staged, live)
+                self.assertEqual(live.read_bytes(), b"candidate bytes")
+                return {"state": "published"}
+
+            for name, value in {
+                "restore_checkpoint": None, "_refresh_hosts": None,
+                "_hosts_gone": None, "_assert_sources": None, "_write": None,
+                "_quiesce_source": None, "_source_fingerprint": {},
+                "_legacy_counts": {"docs": 0, "code": 0},
+            }.items():
+                controls.enter_context(patch.object(migration, name, return_value=value))
+            controls.enter_context(patch.object(runtime, "preflight", return_value=None))
+            controls.enter_context(patch.object(state_store, "IndexStateStore", side_effect=store))
+            controls.enter_context(patch.object(indexer, "_index_build_lock", side_effect=lambda *a: contextlib.nullcontext()))
+            controls.enter_context(patch.object(vectors, "capacity_qualification", return_value={"qualified": True}))
+            publication = controls.enter_context(patch.object(migration, "_publish_candidate", side_effect=publish))
+            if site == "legacy":
+                controls.enter_context(patch.object(migration, "detect", return_value={
+                    "receipt": receipt, "authority_diagnostic": None,
+                    "migration_required": True, "kind_required": False,
+                }))
+                controls.enter_context(patch.object(migration, "_database_schema", return_value="absent"))
+                result = migration.migrate_legacy(root, hosts_stopped=True)
+            else:
+                source = migration.source_database_path(index, receipt)
+                source.write_bytes(b"original source")
+                receipt["source_sqlite_identity"] = migration._identity(source)
+                controls.enter_context(patch.object(migration, "_database_schema", return_value="7"))
+                controls.enter_context(patch.object(runtime, "backup", side_effect=lambda src, dst: dst.write_bytes(src.read_bytes())))
+                for name, value in {
+                    "_layer_chunk_counts": {"docs": 0, "code": 0},
+                    "_reset_staged_graph": None, "_validate_staged_candidate": {},
+                }.items():
+                    controls.enter_context(patch.object(migration, name, return_value=value))
+                controls.enter_context(patch.object(migration, "_candidate_build_scope", side_effect=lambda *a: contextlib.nullcontext()))
+                controls.enter_context(patch.object(vectors, "PreparedUpdates", side_effect=lambda *a: contextlib.nullcontext()))
+                controls.enter_context(patch.object(indexer, "_build_index_locked", return_value={"failed": False}))
+                result = migration._migrate_schema8(root, index, receipt, runtime, state_store)
+            self.assertEqual(result["state"], "published")
+            publication.assert_called_once()
+
+    def test_both_real_staging_paths_require_writable_fsync_descriptors(self):
+        with self._windows_descriptor_semantics() as (fsync, calls):
+            # Positive and negative controls use the SAME portable fd-mode stub.
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "control"
+                path.write_bytes(b"unchanged")
+                with path.open("r+b") as handle:
+                    fsync(handle.fileno())
+                with path.open("rb") as handle:
+                    with self.assertRaises(OSError) as caught:
+                        fsync(handle.fileno())
+                    self.assertEqual(caught.exception.errno, errno.EBADF)
+            for site in ("legacy", "schema8"):
+                with self.subTest(site=site):
+                    before = len(calls)
+                    self._drive_real_staging_path(site, [])
+                    self.assertEqual(calls[before:], ["r+b"], "must reach the real staged-file flush")
+
+    def test_helper_preserves_empty_and_nonempty_file_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp, self._windows_descriptor_semantics() as (_, calls):
+            path = Path(tmp) / "candidate"
+            for body in (b"", b"\x00candidate\xff\r\n"):
+                with self.subTest(body=body):
+                    path.write_bytes(body)
+                    before = len(calls)
+                    migration._fsync_file(path)
+                    self.assertEqual(calls[before:], ["r+b"])
+                    self.assertEqual(path.read_bytes(), body)
+
+    def test_both_real_paths_flush_after_close_before_atomic_replace(self):
+        for site in ("legacy", "schema8"):
+            with self.subTest(site=site):
+                order = []
+                with patch.object(migration.os, "fsync", side_effect=lambda fd: order.append("fsync")) as flush:
+                    self._drive_real_staging_path(site, order)
+                flush.assert_called_once()
+                self.assertEqual(order, ["store-close", "fsync", "atomic-replace"])
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -1647,7 +1791,7 @@ class SchemaEightKindTests(unittest.TestCase):
             raise RuntimeError("injected after candidate completion")
         observed = []
         with scope, patch.object(setup_index, "ensure_deps"), \
-                patch.object(upgrade.subprocess_util, "isolated_run", side_effect=self._native_phase_children(observed)), \
+                patch.object(upgrade, "_run_upgrade_child", side_effect=self._native_phase_children(observed)), \
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             with patch.object(indexer, "_build_index_locked", side_effect=fail_after_build):
                 with self.assertRaisesRegex(RuntimeError, "injected after candidate"):

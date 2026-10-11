@@ -149,6 +149,9 @@ ROUTED = {
 
 # Timed calls that stay as they are, each with the reason. Only these (wave 1z8ox).
 EXCLUDED = {
+    ("child_tee.py", "run", "wait"): (
+        1, "foreground tee preserves isolated_run session flags and direct-child-only timeout; "
+           "readers drain independently, and current upgrade callers supply no timeout"),
     ("dashboard_server.py", "_watch_loop", "wait"): (1, "threading.Event.wait, not a subprocess"),
     ("run_tests.py", "_run_file", "run"): (1, "waits run in worker threads; a new session would stop Ctrl-C ending the suite"),
     ("setup_index.py", "_run_indexer", "wait"): (1, "Popen background build with its own lifecycle"),

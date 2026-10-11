@@ -77,6 +77,15 @@ def _environment(name: str, value: str | None):
             os.environ[name] = previous
 
 
+def _foreign_upgrade_guidance(root: Path, checkpoint: object, fallback: str) -> str:
+    helper = getattr(migration, "resume_guidance", None)
+    try:
+        result = helper(root, checkpoint) if callable(helper) and isinstance(checkpoint, dict) else None
+    except TypeError:
+        result = None  # An older restart_command has no resume_flag parameter.
+    return fallback + (". " + result["guidance"] if result else "")
+
+
 class session:
     """Hold setup ownership across provisioning, conversion and publication."""
 
@@ -106,7 +115,7 @@ class session:
                                and migration.prestaging_noop_shape(index_dir, receipt))
         if receipt and receipt["state"] != "complete":
             if receipt.get("entry_path") != "setup" or receipt.get("pack_path") or receipt.get("pack_sha256"):
-                raise MigrationRequired("storage_setup_foreign_upgrade: resume the recorded upgrade; its receipt and archive remain authoritative")
+                raise MigrationRequired(_foreign_upgrade_guidance(self.root, checkpoint, "storage_setup_foreign_upgrade: resume the recorded upgrade; its receipt and archive remain authoritative"))
             if not prestaging_noop:
                 validate_source_binding(self.root, receipt)
         if checkpoint == {}:
@@ -123,7 +132,7 @@ class session:
         if checkpoint is not None:
             if (not isinstance(checkpoint, dict) or checkpoint.get("entry_path") != "setup"
                     or checkpoint.get("zip_path")):
-                raise MigrationRequired("storage_setup_foreign_upgrade: finish the recorded upgrade before wf setup; checkpoint retained")
+                raise MigrationRequired(_foreign_upgrade_guidance(self.root, checkpoint, "storage_setup_foreign_upgrade: finish the recorded upgrade before wf setup; checkpoint retained"))
             if not prestaging_noop and checkpoint.get("installed_framework_sha256") != framework_fingerprint(self.root):
                 raise MigrationRequired("storage_setup_source_changed: restore the recorded framework before wf setup")
             if not storage_identity.compare_identity(checkpoint.get("root_identity"), migration._identity(self.root))["matches"]:

@@ -1188,7 +1188,7 @@ def memory_backfill_response(
         )
     elif entry_path_s == "upgrade":
         next_tools = ["wf_upgrade"]
-        usage = "wf_upgrade(phase='resume_after_memory')"
+        usage = "wf_upgrade(phase='resume_after_memory'). " + __import__("sqlite_storage_migration").resume_guidance(root, resume_flag="--resume-after-memory")["guidance"]
     elif entry_path_s == "setup":
         next_tools = []
         usage = "Rerun ordinary `wf setup`; it resumes the durable setup run."

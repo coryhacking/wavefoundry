@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-10-10
 
 ## What This Document Covers
 
@@ -208,6 +208,11 @@ not change the model or vector precision.
 
 
 ### Why `local_files_only=True` and `HF_HUB_OFFLINE=1`
+
+Cold downloads default to `HF_HUB_DISABLE_XET=1` before dependency imports. Set `HF_HUB_DISABLE_XET=0` to opt into Xet; the live environment also wins when Hub was imported earlier. All four online routes (clean Hub file, resident fastembed model, direct CPU indexer and optional MCP background warm-up) run the whole existing CA ladder under the same configured `setup.model_warm_timeout_seconds` wall deadline (1800 seconds by default) and scoped Xet/socket constants (`hf_hub_download_timeout_seconds` and `hf_hub_etag_timeout_seconds`, both 30 seconds by default). Repository settings apply outside setup main too; root-less helpers use defaults. Positive finite wall-clock durations are preserved through platform-sized waits sharing one original deadline; nonfinite durations use the default before ownership or worker launch. Cached local reads stay synchronous and query loading stays offline.
+
+A deadline abandons native work; it cannot cancel it. The worker retains its model/cache ownership and constants until it exits, so a same-model retry fails fast and cache files must remain untouched while it lives. Different-model workers can overlap process-global constants; this guard does not provide global isolation. The Hugging Face Hub 1.18.0 import-time constants and native `hf_xet.download_files` call support the timeout rationale; the historical Windows hang cause was inferred, and native Windows behavior and every supported dependency version were not reproduced.
+
 
 MCP servers run embedded in the IDE process. A surprise network call to HuggingFace Hub during a query would stall the agent for several seconds or fail silently in air-gapped environments. Forcing local-only mode makes query time both fast and predictable. The model is pre-downloaded and verified once by `setup_index.py`, which explicitly allows network access during setup.
 

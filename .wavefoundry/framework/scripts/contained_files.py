@@ -591,6 +591,81 @@ def unlink_contained(root, judged_path, *, expected_identity: "tuple[int, int]")
             os.close(dir_fd)
 
 
+def open_contained_append(root, path, *, mode: int = 0o600,
+                          truncate: bool = False, exclusive: bool = False):
+    """Open a line-buffered UTF-8 streaming log without following lexical links.
+
+    Unlike atomic document writes, streaming writes refuse even internal links.
+    Truncation happens only after the opened regular-file identity is proven.
+    Native Windows checks before and after the open retain the documented
+    by-path TOCTOU limit; its file ACL inherits from the parent directory.
+    ``exclusive`` reserves a generated child name without a collision race.
+    """
+    resolved_root = _resolved_root(root)
+    parts = _lexical_parts(root, path)
+    if not parts:
+        raise ContainedFileRefused(CAUSE_NOT_REGULAR)
+    parent = parts[:-1]
+    try:
+        parent_fd = open_contained_dir(resolved_root, parent)
+    except FileNotFoundError:
+        parent_fd = None
+    if parent_fd is not None:
+        os.close(parent_fd)
+    ensure_contained_dir(resolved_root, parent)
+    parent_fd = open_contained_dir(resolved_root, parent)
+    target = resolved_root.joinpath(*parts)
+    coordinates = {"dir_fd": parent_fd} if parent_fd is not None else {}
+    name = parts[-1] if parent_fd is not None else str(target)
+    fd = None
+    try:
+        try:
+            before = os.stat(name, follow_symlinks=False, **coordinates)
+        except FileNotFoundError:
+            before = None
+        if before is not None:
+            if _is_link_entry(target, before):
+                raise ContainedFileRefused(CAUSE_LINK_COMPONENT)
+            if not stat.S_ISREG(before.st_mode):
+                raise ContainedFileRefused(CAUSE_NOT_REGULAR)
+        if _is_runtime_lock(resolved_root, target, before):
+            raise ContainedFileRefused(CAUSE_RUNTIME_LOCK)
+        flags = (os.O_WRONLY | os.O_CREAT | os.O_APPEND
+                 | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+                 | getattr(os, "O_NONBLOCK", 0))
+        if exclusive:
+            flags |= os.O_EXCL
+        _checkpoint("append_open")
+        fd = os.open(name, flags, mode, **coordinates)
+        opened = os.fstat(fd)
+        after = os.stat(name, follow_symlinks=False, **coordinates)
+        if _is_link_entry(target, after):
+            raise ContainedFileRefused(CAUSE_LINK_COMPONENT)
+        if not stat.S_ISREG(opened.st_mode) or not stat.S_ISREG(after.st_mode):
+            raise ContainedFileRefused(CAUSE_NOT_REGULAR)
+        identity = (opened.st_dev, opened.st_ino)
+        if identity != (after.st_dev, after.st_ino) or (
+            before is not None and identity != (before.st_dev, before.st_ino)
+        ):
+            raise ContainedFileRefused(CAUSE_CHANGED)
+        if _is_runtime_lock(resolved_root, target, opened):
+            raise ContainedFileRefused(CAUSE_RUNTIME_LOCK)
+        if not _windows():
+            os.fchmod(fd, mode)
+        if truncate:
+            os.ftruncate(fd, 0)
+        handle = os.fdopen(fd, "a", encoding="utf-8", buffering=1)
+        fd = None
+        return handle
+    except OSError as exc:
+        raise _path_free(exc) from None
+    finally:
+        if fd is not None:
+            os.close(fd)
+        if parent_fd is not None:
+            os.close(parent_fd)
+
+
 def _write_all(fd: int, data: bytes) -> None:
     view = memoryview(data)
     while view:

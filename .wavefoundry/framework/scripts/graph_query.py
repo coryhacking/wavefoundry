@@ -1324,7 +1324,7 @@ class GraphQueryIndex:
             file_part, sep, qualified = nid.partition("::")
             if not sep or not file_part.endswith(".rs"):
                 continue
-            match = re.fullmatch(r"(.*)<([^<>]+) as ([^<>]+)>\.([^.]+)", qualified)
+            match = _re.fullmatch(r"(.*)<([^<>]+) as ([^<>]+)>\.([^.]+)", qualified)
             if match:
                 alias = f"{match[1]}{match[2]}.{match[4]}"
                 if symbol in (alias, f"{file_part}::{alias}"):

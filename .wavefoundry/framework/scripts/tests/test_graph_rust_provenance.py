@@ -40,7 +40,7 @@ fn read() { Profile::from_str(); Role::from_str(); }
 '''
 
 
-def expected_site(source: str, expression: str, occurrence: int = 0) -> dict:
+def expected_site(source: str, expression: str, occurrence: int = 0, *, source_file: str = PATH) -> dict:
     """Source oracle: byte and point coordinates of an explicitly named call."""
     raw = source.encode("utf-8")
     token = expression.encode("utf-8")
@@ -49,7 +49,7 @@ def expected_site(source: str, expression: str, occurrence: int = 0) -> dict:
         start = raw.index(token, start + 1)
     end = start + len(token)
     return {
-        "source_file": PATH, "start_byte": start, "end_byte": end,
+        "source_file": source_file, "start_byte": start, "end_byte": end,
         "line": raw[:start].count(b"\n") + 1,
         "column": start - (raw.rfind(b"\n", 0, start) + 1) + 1,
         "end_line": raw[:end].count(b"\n") + 1,
@@ -155,7 +155,7 @@ class RustPublishedProvenanceTests(unittest.TestCase):
         self.assertEqual(self.edge(self.response()["edges"], "execute", "Profile.as_str")["line"], 8)
 
     def test_missing_provenance_never_scans_same_name_for_a_precise_line(self):
-        # Old or non-Rust producers may prove a relationship without a span.
+        # Legacy or degraded producers may prove a relationship without a span.
         (self.root / "src").mkdir()
         (self.root / PATH).write_text(SAME_NAMES, encoding="utf-8")
         nodes = [{"id": f"{PATH}::{name}", "label": name.rsplit(".", 1)[-1],
@@ -169,8 +169,9 @@ class RustPublishedProvenanceTests(unittest.TestCase):
         self.assertNotIn("line", edge)
         self.assertEqual(edge["confidence"], "RECEIVER_RESOLVED")
 
-    def test_non_rust_target_and_confidence_are_preserved_without_guessed_location(self):
-        self.driver.write("src/plain.py", "def helper(): pass\ndef run(): helper()\n")
+    def test_non_rust_target_and_confidence_preserve_exact_persisted_location(self):
+        source = "def helper(): pass\ndef run(): helper()\n"
+        self.driver.write("src/plain.py", source)
         payload = self.driver.build_incremental({"src/plain.py"})
         expected = [(e["source"], e["target"], e["confidence"])
                     for e in payload["edges"] if e["relation"] == "calls"]
@@ -179,9 +180,11 @@ class RustPublishedProvenanceTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok", result)
         calls = [e for e in result["data"]["edges"] if e["relation"] == "calls"]
         self.assertEqual([(e["source"], e["target"], e["confidence"]) for e in calls], expected)
-        for edge in calls:
-            self.assertEqual(edge.get("call_sites"), [])
-            self.assertNotIn("line", edge)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(expected, [("src/plain.py::run", "src/plain.py::helper", "RECEIVER_RESOLVED")])
+        site = expected_site(source, "helper()", 1, source_file="src/plain.py")
+        self.assertEqual(calls[0].get("call_sites"), [site])
+        self.assertEqual(calls[0]["line"], site["line"])
 
     def test_previous_builder_cached_calls_are_reextracted_even_without_changed_paths(self):
         self.driver.write(PATH, SAME_NAMES)
@@ -203,8 +206,8 @@ class RustPublishedProvenanceTests(unittest.TestCase):
                           side_effect=real_extract) as extraction:
             rebuilt = self.driver.build_incremental(set())
         self.assertGreater(extraction.call_count, 0, "the old file cache must not be reused")
-        self.assertEqual(rebuilt["builder_version"], "54")
-        self.assertEqual(self.g.read_state_builder_version(self.driver.index_dir), "54")
+        self.assertEqual(rebuilt["builder_version"], "55")
+        self.assertEqual(self.g.read_state_builder_version(self.driver.index_dir), "55")
         self.assert_spans(rebuilt["edges"])
         fresh = self.driver.build_oracle()
         self.assert_spans(fresh["edges"])

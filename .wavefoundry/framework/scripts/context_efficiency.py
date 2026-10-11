@@ -14,6 +14,7 @@ registration, or explicit projection mutation.
 from __future__ import annotations
 
 import codecs
+import errno
 import json
 import os
 import secrets
@@ -531,7 +532,7 @@ def producer_lease_path(root: Path, producer_id: str) -> Path:
     return Path(root) / PRODUCER_LEASE_RELATIVE_DIR / f"{producer_id}.lock"
 
 
-def _try_lock_lease(path: Path, *, create: bool) -> tuple[Any | None, bool]:
+def _try_lock_lease(path: Path, *, create: bool, demanded: bool = False) -> tuple[Any | None, bool]:
     """Try to hold one producer lease without waiting.
 
     Missing probe files are deliberately indeterminate rather than abandoned:
@@ -544,17 +545,20 @@ def _try_lock_lease(path: Path, *, create: bool) -> tuple[Any | None, bool]:
         lock = RuntimeFileLock(path, blocking=False)
         lock.acquire()
         return lock, True
-    except (RuntimeLockBusy, RuntimeLockError):
+    except (RuntimeLockBusy, RuntimeLockError) as exc:
+        if create and demanded and _is_retryable_flush_error(exc):
+            raise
         return None, False
 
 
-def _unlock_lease(handle: Any | None) -> None:
+def _unlock_lease(handle: Any | None, *, raise_errors: bool = False) -> None:
     if handle is None:
         return
     try:
         handle.release()
     except RuntimeLockError:
-        pass
+        if raise_errors:
+            raise
 
 
 
@@ -1043,17 +1047,42 @@ def _is_busy_error(exc: BaseException) -> bool:
     return "locked" in message or "busy" in message
 
 
-def _with_busy_retry(attempt: Callable[[], Any]) -> Any:
-    """Run ``attempt`` again after a busy/locked error until the budget ends."""
+# Transfer retries deliberately differ from new-event commit/spool policy.
+FLUSH_RETRYABLE_EXCEPTIONS = (PermissionError, RuntimeLockBusy)
 
+
+def _is_retryable_flush_error(exc: BaseException) -> bool:
+    def direct(error):
+        return (isinstance(error, FLUSH_RETRYABLE_EXCEPTIONS)
+                or _is_busy_error(error)
+                or (isinstance(error, OSError) and getattr(error, "winerror", None) in (32, 33)))
+    if direct(exc):
+        return True
+    if isinstance(exc, RuntimeLockError):
+        current = exc
+        seen = set()
+        for _ in range(8):
+            if current is None or id(current) in seen:
+                break
+            seen.add(id(current))
+            if direct(current) or getattr(current, "errno", None) in (errno.EACCES, errno.EPERM):
+                return True
+            current = current.__cause__ or current.__context__
+    return False
+
+
+def _with_busy_retry(attempt: Callable[[], Any], *, retryable=None) -> Any:
+    """Retry inside one absolute budget. Default event-write policy stays SQLite-only."""
+    if retryable is None:
+        retryable = _is_busy_error
     deadline = time.monotonic() + BUSY_RETRY_BUDGET_SECONDS
     delays = iter(BUSY_RETRY_DELAYS)
     delay = 0.0
     while True:
         try:
             return attempt()
-        except sqlite3.OperationalError as exc:
-            if not _is_busy_error(exc):
+        except Exception as exc:
+            if not retryable(exc):
                 raise
             delay = next(delays, delay)
             if time.monotonic() + delay > deadline:
@@ -1149,24 +1178,36 @@ def _write_gap_sentinel(
         return path.exists()
 
 
-def read_gap_reason(root: Path) -> Optional[dict[str, str]]:
-    """Return the recorded gap reason, ``{}`` when unrecorded, None without a sentinel."""
+EMPTY_GAP_REASON = {"reason": "empty_marker"}
+UNREADABLE_GAP_REASON = {"reason": "unreadable_marker"}
 
+
+def read_gap_reason(root: Path) -> Optional[dict[str, str]]:
+    """Return a recorded reason, named empty/unreadable reason, or None without a marker."""
     path = gap_path(root)
     if not path.exists():
         return None
+    try:
+        raw = path.read_text(encoding="utf-8")
+        if raw == "":
+            return dict(EMPTY_GAP_REASON)
+        decoded = json.loads(raw)
+        if not isinstance(decoded, dict):
+            return dict(UNREADABLE_GAP_REASON)
+    except (OSError, UnicodeError, ValueError):
+        return dict(UNREADABLE_GAP_REASON)
     record = _read_reason_file(path)
     if not record:
         return {}
-    return {
-        key: record.get(key, "")
-        for key in ("recorded_at", "operation", "error_type", "message")
-    }
+    return {key: record.get(key, "") for key in ("recorded_at", "operation", "error_type", "message")}
 
 
 def _gap_diagnostic(reason: Optional[Mapping[str, str]]) -> str:
     text = "positive projection suppressed by durable accounting gap"
-    if reason and reason.get("recorded_at"):
+    if reason == EMPTY_GAP_REASON or reason == UNREADABLE_GAP_REASON:
+        label = "empty" if reason == EMPTY_GAP_REASON else "unreadable"
+        text += f" (marker is {label}; no reason was recorded or readable; external creation or an interrupted write can cause this)"
+    elif reason and reason.get("recorded_at"):
         cause = reason.get("error_type") or "error"
         if reason.get("message"):
             cause += f": {reason['message']}"
@@ -1976,24 +2017,39 @@ class ProcessTelemetry:
         self._lease_handle: Any | None = None
         self._lease_attempted = False
         self._lease_reclaimable = False
+        self._pending_transfer: tuple[str, str] | None = None
         # Compatibility-only buffers for direct unit callers that do not bind a
         # root. The production ImplHandler always binds one.
         self._compat_retrieval: list[dict[str, Any]] = []
         self._compat_workflow: list[tuple[str, str, str, dict[str, Any]]] = []
 
     @property
+    def pending_transfer(self) -> tuple[str, str] | None:
+        with self._lock:
+            return self._pending_transfer
+
+    @property
     def focus(self) -> Focus:
         with self._lock:
             return self._focus
 
-    def _ensure_lease(self) -> bool:
+    def _ensure_lease(self, *, demanded: bool = False) -> bool:
         if self.root is None:
             return False
+        if demanded and self._lease_handle is None:
+            # A prior best-effort event acquisition must not suppress this flush attempt.
+            self._lease_attempted = False
         if not self._lease_attempted:
             self._lease_attempted = True
-            handle, locked = _try_lock_lease(
-                producer_lease_path(self.root, self.producer_id), create=True
-            )
+            try:
+                handle, locked = _try_lock_lease(
+                    producer_lease_path(self.root, self.producer_id), create=True,
+                    **({"demanded": True} if demanded else {}),
+                )
+            except Exception:
+                if demanded:
+                    self._lease_attempted = False
+                raise
             self._lease_handle = handle
             self._lease_reclaimable = bool(locked)
         return self._lease_reclaimable
@@ -2229,16 +2285,19 @@ class ProcessTelemetry:
             for wave_id, stage, tool_name, metric in list(self._compat_workflow):
                 self.record_workflow(wave_id, stage, tool_name, metric)
             self._compat_workflow.clear()
+        if transfer_general_to is None and self.pending_transfer is not None:
+            transfer_general_to, transfer_stage = self.pending_transfer
         touched: set[str] = set()
+        committed = False
         try:
             if transfer_general_to:
-                with self._lock:
-                    self._ensure_lease()
-                def _transfer_once() -> None:
+                def _transfer_once_locked() -> None:
+                    nonlocal committed
+                    self._ensure_lease(demanded=True)
                     conn = _open_write_store_once(self.root)
                     orphan_leases: dict[str, Any] = {}
                     claimed_orphans: set[str] = set()
-                    committed = False
+                    commit_started = False
                     try:
                         for row in conn.execute(
                             "SELECT producer_id FROM producer_state "
@@ -2313,15 +2372,29 @@ class ProcessTelemetry:
                         if moved:
                             _touch_wave(conn, target)
                             touched.add(target)
+                        commit_started = True
                         conn.commit()
                         committed = True
-                    except Exception:
-                        conn.rollback()
+                    except Exception as transfer_exc:
+                        if commit_started and not conn.in_transaction:
+                            raise RuntimeError("context-efficiency transfer commit outcome is unproven") from transfer_exc
+                        try:
+                            conn.rollback()
+                        except Exception as rollback_exc:
+                            raise RuntimeError("context-efficiency transfer rollback failed; atomicity is unproven") from rollback_exc
                         raise
                     finally:
-                        conn.close()
+                        if not committed:
+                            touched.clear()
+                        try:
+                            conn.close()
+                        except Exception as cleanup_exc:
+                            print(f"[wavefoundry] context-efficiency transfer connection cleanup failed ({type(cleanup_exc).__name__}); committed={committed}", file=sys.stderr)
                         for producer_id, handle in orphan_leases.items():
-                            _unlock_lease(handle)
+                            try:
+                                _unlock_lease(handle, raise_errors=True)
+                            except Exception as cleanup_exc:
+                                print(f"[wavefoundry] context-efficiency transfer lease cleanup failed ({type(cleanup_exc).__name__}); committed={committed}", file=sys.stderr)
                             if committed and producer_id in claimed_orphans:
                                 try:
                                     producer_lease_path(
@@ -2329,11 +2402,24 @@ class ProcessTelemetry:
                                     ).unlink()
                                 except OSError:
                                     pass
-                _with_busy_retry(_transfer_once)
+                def _transfer_once():
+                    with self._lock:
+                        _transfer_once_locked()
+                _with_busy_retry(_transfer_once, retryable=_is_retryable_flush_error)
+            with self._lock:
+                if transfer_general_to:
+                    self._pending_transfer = None
             return FlushResult(
                 True, "durable", touched_waves=frozenset(touched)
             )
         except Exception as exc:
+            if committed:
+                return FlushResult(True, "durable", touched_waves=frozenset(touched))
+            touched.clear()
+            if _is_retryable_flush_error(exc):
+                with self._lock:
+                    self._pending_transfer = (str(transfer_general_to), transfer_stage)
+                return FlushResult(False, "deferred", touched_waves=frozenset(), error=f"{type(exc).__name__}: {exc}")
             poisoned = _write_gap_sentinel(Path(root), "flush", exc)
             return FlushResult(
                 False,
@@ -3118,6 +3204,10 @@ def workflow_proxy_after_flush(
     payload = dict(metric)
     if result.success:
         payload["persistence"] = payload.get("persistence", "durable")
+    elif result.persistence == "deferred":
+        payload["persistence"] = "deferred"
+        payload["projection"] = "pending"
+        payload["pending_transfer"] = True
     elif result.persistence == "poisoned":
         payload["persistence"] = "poisoned"
         payload["credited"] = False

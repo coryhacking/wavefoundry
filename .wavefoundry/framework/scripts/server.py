@@ -940,10 +940,14 @@ def build_server(root: Path):
                         "efficiency telemetry could not be projected.",
                     )
                 ],
-                usage="Resolve the projection failure, then call wf_reload_mcp() again.",
+                usage=((__import__("sqlite_storage_migration").accounting_gap_guidance(_get_handler().root)
+                        if (projection.get("detail") or {}).get("authority_status") == "accounting_gap" else "")
+                       + "Resolve the projection failure, then call wf_reload_mcp() again."),
             )
         result = perform_mcp_reload(notify="defer")
         data = result.get("data")
+        if isinstance(data, dict) and projection.get("pending_general_transfer"):
+            data["context_efficiency_projection"] = projection
         notification_required = False
         if isinstance(data, dict):
             notification_required = bool(

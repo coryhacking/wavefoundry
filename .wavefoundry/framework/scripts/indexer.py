@@ -9,13 +9,15 @@ import errno as errno_module
 import hashlib
 import json
 import os
+
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 import re
 import shutil
 import stat as stat_module
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Optional
 
@@ -32,6 +34,7 @@ import bytecode_cache  # noqa: E402
 if __name__ == "__main__":
     bytecode_cache.configure()
 
+from setup_index import ModelDownloadDeadline, model_download_root
 import index_compatibility
 index_compatibility.register_loaded_source()
 
@@ -3527,7 +3530,12 @@ def _resolve_build_embedders(
 INCREMENTAL_GPU_MIN_CHUNKS = accel_embedder.STATIC_BATCH if accel_embedder is not None else 32
 
 
-def _get_embedder(model_name: str, n_chunks: Optional[int] = None):
+def _get_embedder(model_name: str, n_chunks: Optional[int] = None, *, root=None):
+    with model_download_root(root) if root is not None else nullcontext():
+        return _get_embedder_inner(model_name, n_chunks)
+
+
+def _get_embedder_inner(model_name: str, n_chunks: Optional[int] = None):
     """Return an embedder (accel GPU/CPU-INT8, or fastembed) for model_name.
 
     Wave 1p4wy: cached per process so the ONNX/CoreML session (and its ~40s compile
@@ -3561,7 +3569,7 @@ def _get_embedder(model_name: str, n_chunks: Optional[int] = None):
     if accel_embedder is not None and not small_run:
         try:
             accel = accel_embedder.make_embedder(model_name, providers)
-        except index_compatibility.IndexCompatibilityError:
+        except (index_compatibility.IndexCompatibilityError, ModelDownloadDeadline):
             raise
         except Exception:
             accel = None
@@ -3632,9 +3640,9 @@ def _text_embedding_cached_first(text_embedding_cls, model_name: str, providers)
     except Exception:
         pass
     import setup_index
-    setup_index.ensure_ca_bundle_applied()
-    return setup_index.retry_with_ca_bundle_ladder(
+    return setup_index.download_with_deadline(
         lambda: text_embedding_cls(model_name=model_name, providers=providers), model_name,
+        os.environ.get("FASTEMBED_CACHE_PATH", str(FASTEMBED_CACHE_DEFAULT)),
     )
 
 
@@ -5510,13 +5518,14 @@ def _build_index_locked(
     # no-op writes never embed), so a layer with no new chunks correctly receives `None`.
     if build_docs or build_code:
         _progress(verbose, "build_index: resolving configured docs/code embedders")
-    docs_embedder, code_embedder = _resolve_build_embedders(
-        build_docs=build_docs,
-        build_code=build_code,
-        full=full,
-        docs_chunk_count=len(new_doc_chunks),
-        code_chunk_count=len(new_code_chunks),
-    )
+    with model_download_root(root):
+        docs_embedder, code_embedder = _resolve_build_embedders(
+            build_docs=build_docs,
+            build_code=build_code,
+            full=full,
+            docs_chunk_count=len(new_doc_chunks),
+            code_chunk_count=len(new_code_chunks),
+        )
 
     # Prepare the sole SQLite semantic format.
     semantic_db_path = index_dir

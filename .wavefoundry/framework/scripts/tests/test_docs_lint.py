@@ -5350,6 +5350,146 @@ class LifecyclePrefixWidthPatternTests(unittest.TestCase):
         self.assertIsNone(_SEC_ID_RE.match("1234-sec"))
 
 
+
+class ReviewCarrierCRLFParityTests(unittest.TestCase):
+    def _families(self, root):
+        import review_policy as policy
+        import render_agent_surfaces as ras
+        from wave_lint_lib.core_validators import check_review_policy_carrier_parity, check_review_protocol_carrier_parity
+        row = next(c for c in policy.REVIEW_POLICY_CARRIER_REGISTRY
+                   if c.owner == "renderer" and c.destination in policy.REVIEW_POLICY_SURFACE_BLOCKS)
+        protocol = next(iter(ras.review_protocol_carriers(root)))
+        return (
+            (row.destination, ras._upsert_review_policy_region, policy.REVIEW_POLICY_SURFACE_BLOCKS[row.destination], check_review_policy_carrier_parity),
+            (protocol.destination, ras._upsert_review_protocol_region, ras._carrier_protocol_block(protocol), check_review_protocol_carrier_parity),
+        )
+
+    def test_consistent_lf_and_crlf_regions_pass_but_content_drift_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for destination, helper, block, check in self._families(root):
+                path = root / destination
+                path.parent.mkdir(parents=True, exist_ok=True)
+                for newline in ("\n", "\r\n"):
+                    with self.subTest(destination=destination, newline=newline):
+                        text = helper("operator prefix\n", block).replace("\n", newline)
+                        path.write_bytes(text.encode("utf-8"))
+                        self.assertEqual(check(root, only={path}), [])
+                        path.write_bytes(text.replace(block.splitlines()[0], "changed owned content", 1).encode("utf-8"))
+                        self.assertTrue(any("differs" in finding for finding in check(root, only={path})))
+
+    def test_mixed_region_endings_and_stray_outside_crlf_report_drift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for destination, helper, block, check in self._families(root):
+                path = root / destination
+                path.parent.mkdir(parents=True, exist_ok=True)
+                lf = helper("operator prefix\n", block)
+                inside = block.splitlines()[0] + "\n"
+                variants = (
+                    lf.replace(inside, inside.replace("\n", "\r\n"), 1),
+                    lf.replace("\n", "\r\n").replace(inside.replace("\n", "\r\n"), inside, 1),
+                    lf + "operator stray\r\n",
+                )
+                for text in variants:
+                    with self.subTest(destination=destination, text=text[-30:]):
+                        path.write_bytes(text.encode("utf-8"))
+                        self.assertTrue(any("differs" in finding for finding in check(root, only={path})))
+
+
+
+class LeadingBOMDocsLintTests(unittest.TestCase):
+    """20b32: one leading mark, both read paths and actual Prepare metadata oracle."""
+
+    def setUp(self):
+        from wave_lint_lib import helpers
+        helpers.read_text_cache_clear()
+        self.addCleanup(helpers.read_text_cache_clear)
+
+    def test_prepare_metadata_oracle_accepts_owner_first_bom_change_doc(self):
+        from wave_lint_lib.metadata_validators import check_metadata
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / record_paths.PLANS_ROOT / "00001-bug bom-owner.md"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b"\xef\xbb\xbfOwner: Engineering\nStatus: planned\nLast verified: 2026-10-10\n")
+            self.assertEqual(check_metadata(root, path), [])
+
+    def test_full_findings_match_for_both_layouts_and_both_read_paths(self):
+        import argparse
+        from wave_lint_lib import cli, helpers
+        baseline = DocsLintFixtureTests().copy_fixture()
+        self.addCleanup(shutil.rmtree, baseline)
+        with tempfile.TemporaryDirectory() as tmp:
+            marked = Path(tmp) / "marked"
+            shutil.copytree(baseline, marked)
+            layouts = {
+                "owner-first": "Owner: Engineering\nStatus: planned\nLast verified: 2026-10-10\n\n# Fixture\n",
+                "heading-first": "# Fixture\n\nOwner: Engineering\nStatus: planned\nLast verified: 2026-10-10\n",
+            }
+            for directory in (record_paths.PLANS_ROOT, "docs/references"):
+                for label, content in layouts.items():
+                    rel = Path(directory) / ("00001-bug " + label + ".md")
+                    for root, prefix in ((baseline, b""), (marked, b"\xef\xbb\xbf")):
+                        path = root / rel
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_bytes(prefix + content.encode("utf-8"))
+            args = argparse.Namespace(scan_all=False, write_migration_audit=False,
+                                      migration_audit_path="docs/reports/wave-migration-audit.md", changed=False)
+            helpers.read_text_cache_clear()
+            expected = cli._run_full_checks(baseline, args)[0]
+            helpers.read_text_cache_clear()
+            actual = cli._run_full_checks(marked, args)[0]
+            self.assertEqual(actual, expected, "compare the full findings, not only Owner messages")
+            self.assertFalse(any("missing or invalid `Owner`" in item for item in actual))
+
+    def test_cold_and_cached_reads_strip_before_both_cache_stores(self):
+        from wave_lint_lib import helpers
+        import lifecycle_gate_support
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ordinary = root / "docs/references/bom.md"
+            record = root / record_paths.PLANS_ROOT / "00001-bug bom.md"
+            body = b"Owner: Engineering\nStatus: planned\n"
+            for path in (ordinary, record):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"\xef\xbb\xbf" + body)
+            expected = body.decode("utf-8")
+            self.assertEqual(helpers.read_text(ordinary), expected)
+            with patch.object(Path, "read_text", side_effect=AssertionError("cached ordinary read touched disk")):
+                self.assertEqual(helpers.read_text(ordinary), expected)
+            self.assertEqual(helpers._READ_TEXT_CACHE[ordinary][2], expected)
+            self.assertEqual(helpers.read_record_text(root, record), expected)
+            # inert-by-design: the populated record cache returns before the member byte reader.
+            with patch.object(lifecycle_gate_support, "_read_member_doc_bytes", side_effect=AssertionError("cached record read touched disk")) as member_read:
+                self.assertEqual(helpers.read_record_text(root, record), expected)
+            member_read.assert_not_called()
+            self.assertEqual(helpers._RECORD_TEXT_CACHE[record][1], expected)
+
+    def test_only_one_leading_mark_is_removed_and_interior_mark_is_preserved(self):
+        from wave_lint_lib import helpers
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for relative in ("docs/references/bom.md", record_paths.PLANS_ROOT + "/00001-bug bom.md"):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"\xef\xbb\xbf\xef\xbb\xbfOwner: Engineering\nBody \xef\xbb\xbf kept\xff\n")
+                actual = helpers.read_doc_text(root, path)
+                self.assertEqual(actual, "\ufeffOwner: Engineering\nBody \ufeff kept\ufffd\n")
+                path.write_bytes(b"Owner: Engineering\nBody \xef\xbb\xbf kept\n")
+                helpers.read_text_cache_clear()
+                self.assertEqual(helpers.read_doc_text(root, path), "Owner: Engineering\nBody \ufeff kept\n")
+
+    def test_direct_read_fallback_strips_one_leading_mark(self):
+        from wave_lint_lib import helpers
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "bom.md"
+            path.write_bytes(b"\xef\xbb\xbfOwner: Engineering\n")
+            with patch.object(Path, "stat", side_effect=PermissionError("stat unavailable")):
+                self.assertEqual(helpers.read_text(path), "Owner: Engineering\n")
+            self.assertNotIn(path, helpers._READ_TEXT_CACHE)
+
+
 if __name__ == "__main__":
     unittest.main()
 

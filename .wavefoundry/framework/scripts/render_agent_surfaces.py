@@ -323,90 +323,10 @@ LIFECYCLE_PROMPT_BASELINES: tuple[tuple[str, str], ...] = (
     (_vp_doc("close-change"), "close-change.prompt.md"),
 )
 
-REVIEW_PLAN_OLD_PROMPT = "docs/prompts/interrogate-plan.prompt.md"
-REVIEW_PLAN_NEW_PROMPT = "docs/prompts/review-plan.prompt.md"
-REVIEW_PLAN_LEGACY_CONTRACT_LINES: "tuple[tuple[str, str, str], ...]" = (
-    ("Heading", "# Interrogate This Plan", "# Review Plan"),
-    (
-        "Shortcut",
-        "Shortcut: **`Interrogate this plan`** | Alias: **`Stress-test this plan`**",
-        "Shortcut: **`Review plan`** | Aliases: **`Interrogate this plan`**, **`Stress-test this plan`**",
-    ),
-    (
-        "Purpose",
-        "Optional stress-test of a consolidated change doc before wave admission. Walks every unresolved decision branch in Requirements, Acceptance Criteria, and Scope.",
-        "Optional stress-test of a consolidated change doc, or the current wave record when no change is specified, before or after admission and before implementation. Walks every unresolved decision branch in Requirements, Acceptance Criteria, and Scope.",
-    ),
-    (
-        "Input fallback",
-        "Given a change doc as context:",
-        "Given a change doc as context, or the current wave record when no change is specified:",
-    ),
-    (
-        "When to use",
-        "- Before admitting a complex or high-risk change",
-        "- Before or after admitting a complex or high-risk change, but before implementation",
-    ),
-    (
-        "No-gate timing",
-        "**Interrogate this plan** is an optional stress-testing tool, not a required lifecycle step. Use it before or after authoring a change doc but before wave admission.",
-        "**Review plan** is an optional stress-testing tool, not a required lifecycle step. Use it before or after plan admission, at the operator's discretion, before implementation begins.",
-    ),
-    (
-        "Canonical source",
-        "See `.wavefoundry/framework/seeds/175-interrogate-plan.prompt.md` for the full interrogation contract.",
-        "See `.wavefoundry/framework/seeds/175-review-plan.prompt.md` for the full plan-review contract.",
-    ),
-)
-
-REVIEW_PLAN_EARLY_CANONICAL_CONTRACT_LINES: "tuple[tuple[str, str, tuple[str, ...]], ...]" = (
-    ("Heading", "# Interrogate This Plan Prompt", ("# Review Plan Prompt",)),
-    (
-        "Primary trigger",
-        "- `Interrogate this plan`",
-        ("- `Review plan`", "- `Interrogate this plan`"),
-    ),
-    (
-        "Canonical source",
-        "Use `.wavefoundry/framework/seeds/175-interrogate-plan.prompt.md` to:",
-        ("Use `.wavefoundry/framework/seeds/175-review-plan.prompt.md` to:",),
-    ),
-    (
-        "Input fallback",
-        "- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md` or `docs/plans/<change-id>.md`) or wave record (`docs/waves/<wave-id>/wave.md`).",
-        ("- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md` or `docs/plans/<change-id>.md`) or, when no change is specified, the current wave record (`docs/waves/<wave-id>/wave.md`).",),
-    ),
-    (
-        "Scope wording",
-        "- Do not re-plan or derive new scope during interrogation; record emergent scope items as follow-on candidates rather than introducing them inline.",
-        ("- Do not re-plan or derive new scope during plan review; record emergent scope items as follow-on candidates rather than introducing them inline.",),
-    ),
-    (
-        "No-gate identity",
-        "- Do not treat this as a required lifecycle gate; it is entirely voluntary before or after plan admission.",
-        ("- Do not treat **Review plan** as a required lifecycle gate; it is entirely voluntary before or after plan admission.",),
-    ),
-    (
-        "Bounded wording",
-        "- Keep interrogation bounded to Requirements, Acceptance Criteria, and Scope — do not re-examine explicitly resolved Decision Log entries.",
-        ("- Keep plan review bounded to Requirements, Acceptance Criteria, and Scope — do not re-examine explicitly resolved Decision Log entries.",),
-    ),
-    (
-        "Batch example",
-        "- In `--batch` mode (e.g. `Interrogate this plan --batch`): dump all unresolved questions as a numbered list rather than asking one at a time. Each item includes the recommended answer and source citation.",
-        ("- In `--batch` mode (e.g. `Review plan --batch`): dump all unresolved questions as a numbered list rather than asking one at a time. Each item includes the recommended answer and source citation.",),
-    ),
-)
-
-REVIEW_PLAN_LEGACY_CONTRACT_PROFILES = (
-    (
-        "shortcut-contract",
-        tuple(
-            (label, old_line, (new_line,))
-            for label, old_line, new_line in REVIEW_PLAN_LEGACY_CONTRACT_LINES
-        ),
-    ),
-    ("early-trigger-phrases-contract", REVIEW_PLAN_EARLY_CANONICAL_CONTRACT_LINES),
+from review_plan_prompt_check import (
+    REVIEW_PLAN_OLD_PROMPT, REVIEW_PLAN_NEW_PROMPT, REVIEW_PLAN_LEGACY_CONTRACT_LINES,
+    REVIEW_PLAN_EARLY_CANONICAL_CONTRACT_LINES, REVIEW_PLAN_LEGACY_CONTRACT_PROFILES,
+    classify_review_plan_prompt, line_content_and_ending,
 )
 
 # Scaffold templates materialized under the PLANS root (wave 1y0gz): the
@@ -2141,6 +2061,7 @@ def _carrier_protocol_block(carrier: ReviewProtocolCarrier) -> str:
 def _upsert_review_protocol_region(text: str, block: str) -> str | None:
     """Return text with the owned protocol block refreshed, or ``None`` on malformed markers."""
 
+    newline = "\r\n" if "\r\n" in text else "\n"
     text = _canonicalize_owned_markers(text)
     begin_count = text.count(REVIEW_PROTOCOL_MARKER_BEGIN)
     end_count = text.count(REVIEW_PROTOCOL_MARKER_END)
@@ -2151,6 +2072,7 @@ def _upsert_review_protocol_region(text: str, block: str) -> str | None:
         f"{block}\n"
         f"{REVIEW_PROTOCOL_MARKER_END}"
     )
+    marked = marked.replace("\r\n", "\n").replace("\n", newline)
     if begin_count == 1:
         region = re.compile(
             r"^" + re.escape(REVIEW_PROTOCOL_MARKER_BEGIN) + r"[ \t\r]*\n.*?^"
@@ -2159,17 +2081,22 @@ def _upsert_review_protocol_region(text: str, block: str) -> str | None:
         )
         if not region.search(text):
             return None
-        return region.sub(marked, text, count=1)
+        return region.sub(
+            lambda match: marked + ("\r" if match.group(0).endswith("\r") else ""),
+            text,
+            count=1,
+        )
     # Project-authored bytes are an exact prefix on first adoption. Do not use
     # rstrip(): trailing spaces and blank lines outside the owned region belong
     # to the project even when they look cosmetically redundant.
-    separator = "" if not text or text.endswith("\n") else "\n"
-    return text + separator + "\n" + marked + "\n"
+    separator = "" if not text or text.endswith("\n") else newline
+    return text + separator + newline + marked + newline
 
 
 def _upsert_review_policy_region(text: str, block: str) -> str | None:
     """Refresh the single registry-owned lifecycle policy block."""
 
+    newline = "\r\n" if "\r\n" in text else "\n"
     begin_count = text.count(REVIEW_POLICY_SURFACE_MARKER_BEGIN)
     end_count = text.count(REVIEW_POLICY_SURFACE_MARKER_END)
     if begin_count != end_count or begin_count > 1:
@@ -2178,6 +2105,7 @@ def _upsert_review_policy_region(text: str, block: str) -> str | None:
         f"{REVIEW_POLICY_SURFACE_MARKER_BEGIN}\n{block}\n"
         f"{REVIEW_POLICY_SURFACE_MARKER_END}"
     )
+    marked = marked.replace("\r\n", "\n").replace("\n", newline)
     if begin_count == 1:
         region = re.compile(
             r"^" + re.escape(REVIEW_POLICY_SURFACE_MARKER_BEGIN) + r"[ \t\r]*\n.*?^"
@@ -2186,18 +2114,22 @@ def _upsert_review_policy_region(text: str, block: str) -> str | None:
         )
         if not region.search(text):
             return None
-        return region.sub(marked, text, count=1)
+        return region.sub(
+            lambda match: marked + ("\r" if match.group(0).endswith("\r") else ""),
+            text,
+            count=1,
+        )
     if REVIEW_PROTOCOL_MARKER_BEGIN in text:
         # Keep project-authored suffix bytes at the end of an adopted review
         # carrier. The policy block belongs beside the existing framework-owned
         # review block, not after a project's trailing extension.
         return text.replace(
             REVIEW_PROTOCOL_MARKER_BEGIN,
-            marked + "\n\n" + REVIEW_PROTOCOL_MARKER_BEGIN,
+            marked + newline + newline + REVIEW_PROTOCOL_MARKER_BEGIN,
             1,
         )
-    separator = "" if not text or text.endswith("\n") else "\n"
-    return text + separator + "\n" + marked + "\n"
+    separator = "" if not text or text.endswith("\n") else newline
+    return text + separator + newline + marked + newline
 
 
 def _extract_marked_block(text: str, begin: str, end: str) -> "str | None":
@@ -2638,77 +2570,28 @@ def migrate_review_plan_prompt(repo_root: Path) -> list[str]:
     old_present = old_lexical.exists() or old_lexical.is_symlink()
     new_present = new_lexical.exists() or new_lexical.is_symlink()
 
-    if old_present and new_present:
-        raise RuntimeError(
-            "review-plan prompt migration blocked: both "
-            f"{REVIEW_PLAN_OLD_PROMPT} and {REVIEW_PLAN_NEW_PROMPT} exist; "
-            "both were preserved. Merge any project-authored prose into the new prompt, "
-            "remove the old prompt, and rerun the upgrade."
-        )
-    if not old_present:
+    old_state = {"exists": old_present, "linked": old_lexical.is_symlink(),
+                 "regular": old_lexical.is_file()}
+    new_state = {"exists": new_present}
+    # Structural refusals use the same classifier before contained-path reads.
+    if not old_present or new_present or old_state["linked"] or not old_state["regular"]:
+        result = classify_review_plan_prompt(old_state, new_state)
+        if result["blocked"]:
+            raise RuntimeError(result["message"])
         return []
-    if old_lexical.is_symlink():
-        raise RuntimeError(
-            "review-plan prompt migration blocked: the legacy prompt is a symlink; "
-            f"replace {REVIEW_PLAN_OLD_PROMPT} with a regular file before retrying."
-        )
-
     old_path = _contained_review_carrier_path(repo_root, REVIEW_PLAN_OLD_PROMPT)
     new_path = _contained_review_carrier_path(repo_root, REVIEW_PLAN_NEW_PROMPT)
-    if not old_path.is_file():
-        raise RuntimeError(
-            "review-plan prompt migration blocked: the legacy prompt is not a regular file; "
-            f"preserve and resolve {REVIEW_PLAN_OLD_PROMPT} before retrying."
-        )
     try:
         raw, source_mode, judged_source, source_identity = _read_move_source_identity(repo_root, REVIEW_PLAN_OLD_PROMPT)
-        original = raw.decode("utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        raise RuntimeError(
-            "review-plan prompt migration blocked: the legacy prompt could not be read as "
-            f"UTF-8: {REVIEW_PLAN_OLD_PROMPT} ({_failure_class(exc)})"
-        ) from None
-
+        old_state["bytes"] = raw
+    except OSError as exc:
+        old_state["error"] = _failure_class(exc)
+    result = classify_review_plan_prompt(old_state, new_state)
+    if result["blocked"]:
+        raise RuntimeError(result["message"])
+    original = result["original"]
     physical_lines = original.splitlines(keepends=True)
-
-    def line_content_and_ending(physical_line: str) -> tuple[str, str]:
-        if physical_line.endswith("\r\n"):
-            return physical_line[:-2], "\r\n"
-        if physical_line.endswith(("\r", "\n")):
-            return physical_line[:-1], physical_line[-1:]
-        return physical_line, ""
-
-    logical_lines = [line_content_and_ending(line)[0] for line in physical_lines]
-    profile_checks = [
-        (
-            profile_name,
-            profile,
-            [
-                label
-                for label, old_line, _new_lines in profile
-                if logical_lines.count(old_line) != 1
-            ],
-        )
-        for profile_name, profile in REVIEW_PLAN_LEGACY_CONTRACT_PROFILES
-    ]
-    recognized = [
-        (profile_name, profile)
-        for profile_name, profile, unrecognized in profile_checks
-        if not unrecognized
-    ]
-    if len(recognized) != 1:
-        details = "; ".join(
-            f"{profile_name}: {', '.join(unrecognized) if unrecognized else 'matched'}"
-            for profile_name, _profile, unrecognized in profile_checks
-        )
-        raise RuntimeError(
-            "review-plan prompt migration blocked: the legacy prompt has customized or "
-            "unrecognized canonical contract lines, or mixes recognized profiles; the old prompt was preserved and the "
-            "new skill/baseline were not rendered. Resolve these fields manually or restore "
-            f"one exact legacy profile before retrying: {details}."
-        )
-
-    _profile_name, profile = recognized[0]
+    profile = result["profile"]
     replacements = {
         old_line: new_lines
         for _label, old_line, new_lines in profile

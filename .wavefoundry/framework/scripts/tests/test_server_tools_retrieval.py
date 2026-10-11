@@ -8314,9 +8314,11 @@ class BackgroundModelDownloadTests(unittest.TestCase):
         """If _ensure_model_cached raises for the first model, subsequent models are still attempted."""
         idx = self._make_index()
         call_log = []
+        call_context = []
 
-        def fake_ensure(model_name, model_type):
+        def fake_ensure(model_name, model_type, *, root=None):
             call_log.append(model_name)
+            call_context.append((model_name, model_type, root))
             if len(call_log) == 1:
                 raise RuntimeError("simulated download failure")
 
@@ -8338,9 +8340,16 @@ class BackgroundModelDownloadTests(unittest.TestCase):
 
                     if threads:
                         threads[0].join(timeout=5)
+                        self.assertFalse(threads[0].is_alive())
 
         # Both models should have been attempted (first fails, second and third still called)
         self.assertGreaterEqual(len(call_log), 2)
+        self.assertEqual(len(threads), 1)
+        self.assertEqual(call_context, [
+            ("model-A", "embedding", self.root),
+            ("model-B", "embedding", self.root),
+            ("reranker-X", "reranker", self.root),
+        ])
 
     def test_get_reranker_does_not_cache_none_on_failure(self):
         """_get_reranker() must leave self._reranker as None when it cannot load the model."""
@@ -9904,9 +9913,9 @@ class TestCodeCallhierarchy(unittest.TestCase):
         self.assertEqual(data.get("outgoing", []), [])
         self.assertEqual(data.get("incoming", []), [])
 
-    # AC-5: incoming entries carry line + snippet from file scan
+    # AC-5: incoming entries carry persisted invocation coordinates
     def test_incoming_line_numbers(self):
-        """AC-5: incoming entries have line numbers and snippets from targeted file scan."""
+        """AC-5: Incoming lines use explicit edge provenance; unproven snippets stay null."""
         self._add("src/svc.py", "def service():\n    pass\n\ndef caller():\n    service()\n")
         self._write_graph(
             nodes=[
@@ -9916,7 +9925,7 @@ class TestCodeCallhierarchy(unittest.TestCase):
                  "source_file": "src/svc.py", "source_location": "4:0"},
             ],
             edges=[
-                {"source": "src/svc.py::caller", "target": "src/svc.py::service", "relation": "calls"},
+                {"source": "src/svc.py::caller", "target": "src/svc.py::service", "relation": "calls", "call_sites": [{"source_file": "src/svc.py", "line": 5, "column": 5, "end_line": 5, "end_column": 14}]},
             ],
         )
         result = self._call("service", direction="incoming")
@@ -9925,9 +9934,9 @@ class TestCodeCallhierarchy(unittest.TestCase):
         self.assertEqual(len(incoming), 1)
         self.assertEqual(incoming[0]["name"], "caller")
         self.assertEqual(incoming[0]["line"], 5)
-        self.assertIn("service()", incoming[0]["snippet"])
+        self.assertIsNone(incoming[0]["snippet"])
         self.assertEqual(incoming[0]["call_site"], {
-            "file": "src/svc.py", "line": 5, "snippet": incoming[0]["snippet"],
+            "file": "src/svc.py", "line": 5, "column": 5, "end_line": 5, "end_column": 14, "snippet": None, "provenance": "indexed",
         })
 
     # Outgoing definitions and caller snippets use separate coordinates.
@@ -9945,8 +9954,8 @@ class TestCodeCallhierarchy(unittest.TestCase):
                  "source_file": "src/worker.py", "source_location": "6:0"},
             ],
             edges=[
-                {"source": "src/worker.py::process", "target": "src/worker.py::helper", "relation": "calls"},
-                {"source": "src/worker.py::process", "target": "src/worker.py::validate", "relation": "calls"},
+                {"source": "src/worker.py::process", "target": "src/worker.py::helper", "relation": "calls", "call_sites": [{"source_file": "src/worker.py", "line": 2, "column": 5, "end_line": 2, "end_column": 13}]},
+                {"source": "src/worker.py::process", "target": "src/worker.py::validate", "relation": "calls", "call_sites": [{"source_file": "src/worker.py", "line": 3, "column": 5, "end_line": 3, "end_column": 15}]},
             ],
         )
         result = self._call("process", direction="outgoing")
@@ -9961,7 +9970,7 @@ class TestCodeCallhierarchy(unittest.TestCase):
             self.assertIsNone(entry["snippet"])
             self.assertEqual(entry["call_site"]["file"], "src/worker.py")
             self.assertEqual(entry["call_site"]["line"], invocation)
-            self.assertIn(entry["name"] + "()", entry["call_site"]["snippet"])
+            self.assertIsNone(entry["call_site"]["snippet"])
 
     def test_cross_file_definition_and_call_site_bounds(self):
         self._add("src/caller.py", "def caller():\n" + "    # padding\n" * 30 + "    helper()\n")
@@ -9974,7 +9983,7 @@ class TestCodeCallhierarchy(unittest.TestCase):
                  "source_file": "src/callee.py", "source_location": "1:0"},
             ],
             edges=[{"source": "src/caller.py::caller", "target": "src/callee.py::helper",
-                    "relation": "calls", "confidence": "RECEIVER_RESOLVED"}],
+                    "relation": "calls", "confidence": "RECEIVER_RESOLVED", "call_sites": [{"source_file": "src/caller.py", "line": 32, "column": 5, "end_line": 32, "end_column": 13}]}],
         )
         outgoing_response = self._call("caller", direction="outgoing")
         incoming_response = self._call("helper", direction="incoming")
@@ -9987,14 +9996,13 @@ class TestCodeCallhierarchy(unittest.TestCase):
         self.assertEqual(outgoing[0]["call_site"], incoming[0]["call_site"])
         self.assertEqual(outgoing[0]["call_site"]["line"], 32)
         self.assertEqual(outgoing[0]["call_site"]["file"], "src/caller.py")
-        self.assertIn("helper()", outgoing[0]["call_site"]["snippet"])
+        self.assertIsNone(outgoing[0]["call_site"]["snippet"])
         for row in outgoing + incoming:
             for location in (row, row["call_site"]):
                 count = len((self.root / location["file"]).read_text().splitlines())
                 self.assertGreater(location["line"], 0)
                 self.assertLessEqual(location["line"], count)
-        self.assertEqual(self.srv._context_source_paths("code_callhierarchy", outgoing_response),
-                         ["src/caller.py"])
+        self.assertEqual(self.srv._context_source_paths("code_callhierarchy", outgoing_response), [])
 
     def test_outgoing_missing_and_external_locations_stay_null(self):
         self._add("src/caller.py", "def caller(): pass\n")
@@ -12956,8 +12964,8 @@ class TestWaveGraphReportCollapseIntegration(unittest.TestCase):
 
 class TestJavaMethodReferenceCallSites(unittest.TestCase):
     """130r7-bug: Java `method_reference` AST nodes classify as call_sites so
-    code_callhierarchy.incoming attaches line+snippet to entries that only
-    reference the target via method references (Foo::bar, this::bar)."""
+    Explicit method-reference graph provenance is accepted without rescanning.
+    This fixture makes no claim that the ordinary indexer extracts that syntax."""
 
     @classmethod
     def setUpClass(cls):
@@ -12985,9 +12993,7 @@ class TestJavaMethodReferenceCallSites(unittest.TestCase):
         gfs.publish_graph_payload(self.root, {"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges})
 
     def test_method_reference_callsite_attaches_line_and_snippet(self):
-        """A caller that references the target via `Helper::process` (method reference syntax)
-        must produce a non-null line/snippet on the incoming entry. Pre-130r7 the line/snippet
-        was null because `method_reference` wasn't in `_TS_CALL_PARENT_TYPES['java']`."""
+        """Persisted method-reference coordinates survive; snippet proof is absent."""
         self._add("src/Helper.java", "class Helper {\n    int process(int n) { return n + 1; }\n}\n")
         self._add(
             "src/Stream.java",
@@ -13004,7 +13010,7 @@ class TestJavaMethodReferenceCallSites(unittest.TestCase):
                 {"id": "src/Stream.java::StreamCaller.run", "label": "run", "kind": "function", "source_file": "src/Stream.java", "source_location": "3:4"},
             ],
             edges=[
-                {"source": "src/Stream.java::StreamCaller.run", "target": "src/Helper.java::Helper.process", "relation": "calls"},
+                {"source": "src/Stream.java::StreamCaller.run", "target": "src/Helper.java::Helper.process", "relation": "calls", "call_sites": [{"source_file": "src/Stream.java", "line": 4, "column": 59, "end_line": 4, "end_column": 74}]},
             ],
         )
         result = self.srv.code_callhierarchy_response(self.root, "process", None, "incoming")
@@ -13013,12 +13019,11 @@ class TestJavaMethodReferenceCallSites(unittest.TestCase):
         self.assertEqual(len(incoming), 1)
         entry = incoming[0]
         self.assertEqual(entry.get("name"), "run")
-        # The line attribution must succeed because the method-reference identifier
-        # `process` (parent: method_reference) is now classified as call_sites.
+        # The location comes from this edge's explicit provenance.
         self.assertIsNotNone(entry.get("line"), f"line still null for method-reference caller: {entry}")
-        self.assertIsNotNone(entry.get("snippet"))
-        # Snippet should be the line containing `Helper::process`.
-        self.assertIn("Helper::process", entry["snippet"])
+        self.assertIsNone(entry.get("snippet"))
+        # Source freshness has not been proven against the published generation.
+        self.assertEqual(entry["call_site"]["line"], 4)
 
     def test_traditional_method_invocation_still_works(self):
         """Sanity: adding `method_reference` to the call-parent set does not break
@@ -13039,7 +13044,7 @@ class TestJavaMethodReferenceCallSites(unittest.TestCase):
                 {"id": "src/Plain.java::PlainCaller.run", "label": "run", "kind": "function", "source_file": "src/Plain.java", "source_location": "2:4"},
             ],
             edges=[
-                {"source": "src/Plain.java::PlainCaller.run", "target": "src/Helper.java::Helper.process", "relation": "calls"},
+                {"source": "src/Plain.java::PlainCaller.run", "target": "src/Helper.java::Helper.process", "relation": "calls", "call_sites": [{"source_file": "src/Plain.java", "line": 4, "column": 16, "end_line": 4, "end_column": 28}]},
             ],
         )
         result = self.srv.code_callhierarchy_response(self.root, "process", None, "incoming")
@@ -13047,7 +13052,8 @@ class TestJavaMethodReferenceCallSites(unittest.TestCase):
         self.assertEqual(len(incoming), 1)
         entry = incoming[0]
         self.assertIsNotNone(entry.get("line"))
-        self.assertIn("h.process(5)", entry["snippet"])
+        self.assertEqual(entry["call_site"]["line"], 4)
+        self.assertIsNone(entry["snippet"])
 
 
 class TestJavaReceiverTypeResolution(unittest.TestCase):
@@ -13844,10 +13850,11 @@ class TestCsharpAdviceEmptyIncomingDetection(unittest.TestCase):
 
 
 class TestKotlinReferenceResolution(unittest.TestCase):
-    """130tc: Kotlin is now in `_TREE_SITTER_REFERENCE_LANGS` with
-    `callable_reference` classified as a call parent type — so a caller
-    referencing the target via `Helper::process` or `::handle` gets
-    proper line+snippet attribution on `code_callhierarchy.incoming`."""
+    """Kotlin reference scanning and stored hierarchy provenance are distinct.
+
+    Callable-reference scanner support does not make a manually published
+    graph edge authoritative for invocation coordinates or source snippets.
+    """
 
     @classmethod
     def setUpClass(cls):
@@ -13874,7 +13881,7 @@ class TestKotlinReferenceResolution(unittest.TestCase):
         import json
         gfs.publish_graph_payload(self.root, {"schema_version": "1", "layer": "project", "nodes": nodes, "edges": edges})
 
-    def test_kotlin_callable_reference_attributes_line_and_snippet(self):
+    def test_kotlin_callable_reference_scanner_does_not_supply_missing_graph_sites(self):
         self._add("src/Helper.kt", "class Helper {\n    fun process(n: Int): Int = n + 1\n}\n")
         self._add(
             "src/Stream.kt",
@@ -13898,10 +13905,31 @@ class TestKotlinReferenceResolution(unittest.TestCase):
         incoming = result["data"]["incoming"]
         self.assertEqual(len(incoming), 1)
         entry = incoming[0]
-        self.assertIsNotNone(entry.get("line"), f"line still null for Kotlin callable-reference: {entry}")
-        self.assertIn("Helper::process", entry.get("snippet", ""))
+        self.assertIsNone(entry["line"])
+        self.assertIsNone(entry["snippet"])
+        self.assertIsNone(entry["call_site"])
+        self.assertEqual(entry["call_sites"], [])
+        outgoing = self.srv.code_callhierarchy_response(
+            self.root, "src/Stream.kt::StreamCaller.run", None, "outgoing")
+        self.assertEqual(outgoing["status"], "ok")
+        self.assertEqual(len(outgoing["data"]["outgoing"]), 1)
+        callee = outgoing["data"]["outgoing"][0]
+        self.assertEqual(callee["line"], 2)  # definition line, not an invocation
+        self.assertIsNone(callee["snippet"])
+        self.assertIsNone(callee["call_site"])
+        self.assertEqual(callee["call_sites"], [])
+        # Preserve the original callable_reference scanner oracle directly;
+        # this is not a claim that the graph producer emits reference edges.
+        references = self.srv._treesitter_references(
+            self.root, "process", restrict_files=frozenset({"src/Stream.kt"}))
+        self.assertEqual(len(references), 1)
+        self.assertEqual(references[0]["path"], "src/Stream.kt")
+        self.assertEqual(references[0]["line"], 3)
+        self.assertEqual(references[0]["method"], "treesitter_reference")
+        self.assertEqual(references[0]["reference_kind"], "call_sites")
+        self.assertIn("Helper::process", references[0]["snippet"])
 
-    def test_kotlin_traditional_call_still_works(self):
+    def test_kotlin_traditional_call_uses_explicit_stored_site_in_both_directions(self):
         self._add("src/Helper.kt", "class Helper {\n    fun process(): Int = 1\n}\n")
         self._add(
             "src/Plain.kt",
@@ -13912,21 +13940,52 @@ class TestKotlinReferenceResolution(unittest.TestCase):
             "    }\n"
             "}\n",
         )
+        # This consumer fixture supplies explicit provenance; real Kotlin
+        # ordinary-call extraction is covered by the publication matrix.
+        raw = (self.root / "src/Plain.kt").read_bytes()
+        token = b"h.process()"
+        self.assertEqual(raw.count(token), 1)
+        start = raw.index(token)
+        end = start + len(token)
+        site = {
+            "source_file": "src/Plain.kt", "start_byte": start, "end_byte": end,
+            "line": 4, "column": start - (raw.rfind(b"\n", 0, start) + 1) + 1,
+            "end_line": 4, "end_column": end - (raw.rfind(b"\n", 0, end) + 1) + 1,
+        }
         self._write_graph(
             nodes=[
                 {"id": "src/Helper.kt::Helper.process", "label": "process", "kind": "function", "source_file": "src/Helper.kt", "source_location": "2:4"},
                 {"id": "src/Plain.kt::PlainCaller.run", "label": "run", "kind": "function", "source_file": "src/Plain.kt", "source_location": "2:4"},
             ],
             edges=[
-                {"source": "src/Plain.kt::PlainCaller.run", "target": "src/Helper.kt::Helper.process", "relation": "calls"},
+                {"source": "src/Plain.kt::PlainCaller.run", "target": "src/Helper.kt::Helper.process", "relation": "calls", "call_sites": [site]},
             ],
         )
         result = self.srv.code_callhierarchy_response(self.root, "process", None, "incoming")
         incoming = result["data"]["incoming"]
         self.assertEqual(len(incoming), 1)
         entry = incoming[0]
-        self.assertIsNotNone(entry.get("line"))
-        self.assertIn("h.process()", entry.get("snippet", ""))
+        expected_site = {key: value for key, value in site.items() if key != "source_file"}
+        expected_site.update(file="src/Plain.kt", snippet=None, provenance="indexed")
+        self.assertEqual(entry["line"], 4)
+        self.assertIsNone(entry["snippet"])
+        self.assertEqual(entry["call_sites"], [expected_site])
+        self.assertEqual(entry["call_site"], expected_site)
+        outgoing = self.srv.code_callhierarchy_response(
+            self.root, "src/Plain.kt::PlainCaller.run", None, "outgoing")
+        self.assertEqual(outgoing["status"], "ok")
+        self.assertEqual(len(outgoing["data"]["outgoing"]), 1)
+        callee = outgoing["data"]["outgoing"][0]
+        self.assertEqual(callee["line"], 2)
+        self.assertIsNone(callee["snippet"])
+        self.assertEqual(callee["call_sites"], [expected_site])
+        self.assertEqual(callee["call_site"], expected_site)
+        references = self.srv._treesitter_references(
+            self.root, "process", restrict_files=frozenset({"src/Plain.kt"}))
+        self.assertEqual(len(references), 1)
+        self.assertEqual(references[0]["line"], 4)
+        self.assertEqual(references[0]["reference_kind"], "call_sites")
+        self.assertIn("h.process()", references[0]["snippet"])
 
 
 class TestMcpWrapperParameterExposure(unittest.TestCase):
@@ -18728,3 +18787,236 @@ class ReapStateSurfaceTests(unittest.TestCase):
             self.srv._reap_state_block(self.root),
             self.iss.reap_state_for_index(self.index_dir),
         )
+
+
+class TestRustContainingImpact(TestCodeGraphTools):
+    """2073t: canonical published graphs reach the actual impact response."""
+
+    def test_published_rust_and_mixed_non_exact_impact(self):
+        nodes = [
+            {"id": "src/lib.rs::collect", "label": "collect", "kind": "function", "source_file": "src/lib.rs"},
+            {"id": "src/lib.rs::<Bucket as Iterator>.finish", "label": "finish", "kind": "function", "source_file": "src/lib.rs"},
+            {"id": "src/api.py::serve", "label": "serve", "kind": "function", "source_file": "src/api.py"},
+            {"id": "src/main.py::caller", "label": "caller", "kind": "function", "source_file": "src/main.py"},
+        ]
+        gfs.publish_graph_payload(self.root, {"nodes": nodes, "edges": [
+            {"source": "src/main.py::caller", "target": n["id"], "relation": "calls", "confidence": "RECEIVER_RESOLVED"}
+            for n in nodes[:3]]})
+        for query, nid in (("collect", nodes[0]["id"]), ("Bucket.finish", nodes[1]["id"]), ("serve", nodes[2]["id"])):
+            with self.subTest(query=query):
+                bare = self.srv.code_impact_response(self.root, symbol=query)
+                exact = self.srv.code_impact_response(self.root, symbol=nid)
+                self.assertEqual(bare["status"], "ok")
+                self.assertEqual(bare["data"], exact["data"] | {"symbol": query})
+                self.assertIn("src/main.py::caller", {a["node_id"] for a in bare["data"]["affected"]})
+        missing = self.srv.code_impact_response(self.root, symbol="absent")
+        self.assertEqual(missing["status"], "error")
+        self.assertIn("graph_symbol_not_found", [d["code"] for d in missing["diagnostics"]])
+
+
+class TestPersistedCallProvenance(unittest.TestCase):
+    """2073s: real extraction, canonical publication, actual served directions."""
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = _make_repo(Path(self.tmp.name))
+
+    def _publish(self, sites, *, source=None):
+        if source is not None:
+            (self.root / "demo.py").write_text(source, encoding="utf-8")
+        nodes = [{"id": "demo.py::execute", "label": "execute", "kind": "function",
+                  "source_file": "demo.py", "source_location": "2:0"},
+                 {"id": "demo.py::collect", "label": "collect", "kind": "function",
+                  "source_file": "demo.py", "source_location": "1:0"}]
+        edge = {"source": nodes[0]["id"], "target": nodes[1]["id"],
+                "relation": "calls", "confidence": "RECEIVER_RESOLVED", "call_sites": sites}
+        gfs.publish_graph(self.root, nodes=nodes, edges=[edge], communities=[])
+        return edge
+
+    def _both_entries(self, caller="demo.py::execute", callee="demo.py::collect"):
+        outgoing = self.srv.code_callhierarchy_response(self.root, caller, direction="outgoing")
+        incoming = self.srv.code_callhierarchy_response(self.root, callee, direction="incoming")
+        self.assertEqual(outgoing["status"], "ok")
+        self.assertEqual(incoming["status"], "ok")
+        self.assertEqual(len(outgoing["data"]["outgoing"]), 1)
+        self.assertEqual(len(incoming["data"]["incoming"]), 1)
+        return outgoing["data"]["outgoing"][0], incoming["data"]["incoming"][0]
+
+    def test_all_code_modes_extract_publish_and_serve_repeated_sites(self):
+        import graph_indexer as gi
+        from test_graph_indexer import CALL_PROVENANCE_SOURCES, expected_invocation_sites
+        base_root = self.root
+        for language, (path, source, expression) in CALL_PROVENANCE_SOURCES.items():
+            with self.subTest(language=language):
+                self.root = base_root / language
+                self.root.mkdir()
+                target = self.root / path
+                target.write_text(source, encoding="utf-8")
+                session = gi.GraphIndexSession(root=self.root, index_dir=self.root / ".wavefoundry/index",
+                    layer="project", files=[target], current_file_meta={}, walker_version="1",
+                    chunker_version="1", state={})
+                try:
+                    session.record_file(path, source)
+                    graph = session.finalize()
+                finally:
+                    session.close_store()
+                edge, = [e for e in graph["edges"] if e["relation"] == "calls"
+                         and e["source"].endswith("execute") and e["target"].endswith("collect")]
+                gfs.publish_graph(self.root, graph=graph, communities=[])
+                out, inc = self._both_entries(edge["source"], edge["target"])
+                expected = [{"file": site.pop("source_file"), **site, "snippet": None, "provenance": "indexed"}
+                            for site in expected_invocation_sites(path, source, expression)]
+                for entry in (out, inc):
+                    self.assertEqual(entry["call_sites"], expected)
+                    self.assertEqual(entry["call_site"], expected[0])
+                    self.assertEqual(entry["confidence"], edge["confidence"])
+                    self.assertEqual(entry["relation"], "calls")
+                    self.assertIsNone(entry["snippet"])
+                self.assertEqual(inc["line"], expected[0]["line"])
+
+    def test_stored_sites_ignore_other_receivers_macros_and_adjacent_callers(self):
+        source = "def collect(): pass\ndef execute(other):\n    other.collect(); collect_macro(); collect(); collect()\ndef unrelated():\n    collect()\n"
+        sites = [{"source_file": "demo.py", "line": 3, "column": c,
+                  "end_line": 3, "end_column": c + 9} for c in (39, 50)]
+        edge = self._publish([sites[1], sites[0], sites[1]], source=source)
+        before = json.loads(json.dumps(edge))
+        out, inc = self._both_entries()
+        self.assertEqual([s["column"] for s in out["call_sites"]], [39, 50])
+        self.assertEqual(out["call_sites"], inc["call_sites"])
+        self.assertEqual(out["call_site"], inc["call_site"])
+        self.assertEqual(out["line"], 1)
+        self.assertEqual(inc["line"], 3)
+        self.assertEqual(edge, before)
+
+    def test_byte_order_precedes_legacy_line_order_and_does_not_mutate(self):
+        from wf_server.graph_handlers import _edge_call_sites
+        first = {"source_file": "demo.py", "line": 8, "column": 1, "end_line": 8, "end_column": 10, "start_byte": 40, "end_byte": 49}
+        second = {"source_file": "demo.py", "line": 2, "column": 1, "end_line": 2, "end_column": 10, "start_byte": 80, "end_byte": 89}
+        legacy = {"source_file": "demo.py", "line": 1, "column": 1, "end_line": 1, "end_column": 10}
+        edge = {"call_sites": [legacy, second, first, first]}
+        before = json.loads(json.dumps(edge))
+        self.assertEqual([s["line"] for s in _edge_call_sites(edge, "demo.py")], [8, 2, 1])
+        self.assertEqual(edge, before)
+
+    def test_absent_changed_and_unreadable_source_never_supplies_snippets(self):
+        site = {"source_file": "demo.py", "line": 42, "column": 3, "end_line": 42, "end_column": 12,
+                "snippet": "untrusted embedded text"}
+        self._publish([site])
+        for source in (None, "def collect(): pass\ndef execute(): collect()\n", "changed completely\n"):
+            with self.subTest(source=source):
+                if source is not None:
+                    (self.root / "demo.py").write_text(source)
+                with patch.object(self.srv, "_scan_all_call_sites_in_file", side_effect=AssertionError("modern graph must not scan")), \
+                     patch.object(self.srv, "_scan_call_sites_in_file", side_effect=AssertionError("modern graph must not scan")):
+                    out, inc = self._both_entries()
+                self.assertEqual(out["call_site"]["line"], 42)
+                self.assertEqual(out["call_site"]["provenance"], "indexed")
+                self.assertIsNone(out["call_site"]["snippet"])
+                self.assertIsNone(inc["snippet"])
+
+    def test_missing_malformed_and_wrong_file_provenance_is_unknown(self):
+        valid = {"source_file": "demo.py", "line": 3, "column": 1, "end_line": 3, "end_column": 10}
+        invalid = [None, [], {"source_file": "wrong.py"}, {"line": True}, {"column": 0},
+                   {"end_line": 2}, {"end_column": 1}, {"start_byte": 1},
+                   {"start_byte": True, "end_byte": 10}, {"start_byte": 10, "end_byte": 9},
+                   {"start_byte": 1, "end_byte": 2}]
+        for bad in invalid:
+            with self.subTest(bad=bad):
+                sites = [valid | bad] if isinstance(bad, dict) else bad
+                self._publish(sites, source="def collect(): pass\ndef execute():\n collect()\n")
+                out, inc = self._both_entries()
+                for entry in (out, inc):
+                    self.assertEqual(entry["call_sites"], [])
+                    self.assertIsNone(entry["call_site"])
+                    self.assertIsNone(entry["snippet"])
+                self.assertIsNone(inc["line"])
+
+    def test_regex_fallback_edges_have_unknown_invocations(self):
+        import graph_indexer as gi
+        source = "function collect() {}\nfunction execute() { collect(); }\n"
+        session = gi.GraphIndexSession(root=self.root, index_dir=self.root / ".wavefoundry/index", layer="project",
+            files=[], current_file_meta={}, walker_version="1", chunker_version="1", state={})
+        self.addCleanup(session.close_store)
+        with patch.object(gi, "_ts_get_parser", return_value=None):
+            artifact = session._extract_code_artifact("fallback.js", source)
+        edges = [e for e in artifact["edges"] if e["relation"] == "calls"]
+        self.assertTrue(edges, "degraded fixture must emit actual edges")
+        self.assertTrue(all(not e.get("call_sites") for e in edges))
+        gfs.publish_graph(self.root, nodes=artifact["nodes"], edges=artifact["edges"], communities=[])
+        edge = edges[0]
+        # Fallback can invent caller ownership; sites stay unknown even on real edges.
+        outgoing = self.srv.code_callhierarchy_response(self.root, edge["source"], direction="outgoing", include_external=True)
+        incoming = self.srv.code_callhierarchy_response(self.root, edge["target"], direction="incoming", include_external=True)
+        for response, direction in ((outgoing, "outgoing"), (incoming, "incoming")):
+            self.assertEqual(response["status"], "ok")
+            self.assertTrue(response["data"][direction])
+            for entry in response["data"][direction]:
+                self.assertIsNone(entry["call_site"])
+                self.assertEqual(entry["call_sites"], [])
+
+    def test_syntax_families_survive_publication_and_both_directions(self):
+        import graph_indexer as gi
+        from test_graph_indexer import CALL_PROVENANCE_SYNTAX, expected_invocation_sites
+        base_root = self.root
+        for language, (path, source, expressions) in CALL_PROVENANCE_SYNTAX.items():
+            with self.subTest(language=language):
+                self.root = base_root / language
+                self.root.mkdir()
+                target = self.root / path
+                target.write_text(source, encoding="utf-8")
+                session = gi.GraphIndexSession(root=self.root, index_dir=self.root / ".wavefoundry/index", layer="project",
+                    files=[target], current_file_meta={}, walker_version="1", chunker_version="1", state={})
+                try:
+                    session.record_file(path, source)
+                    graph = session.finalize()
+                finally:
+                    session.close_store()
+                calls = [e for e in graph["edges"] if e["relation"] == "calls" and e["source"].endswith("execute")]
+                self.assertTrue(calls)
+                gfs.publish_graph(self.root, graph=graph, communities=[])
+                surfaced = []
+                for edge in calls:
+                    directions = [(edge["source"], "outgoing", edge["target"])]
+                    # External call IDs need not have graph nodes; incoming symbol
+                    # resolution remains the existing project-node contract.
+                    if not edge["target"].startswith("external::"):
+                        directions.append((edge["target"], "incoming", edge["source"]))
+                    for query, direction, endpoint in directions:
+                        response = self.srv.code_callhierarchy_response(self.root, query, direction=direction, include_external=True)
+                        self.assertEqual(response["status"], "ok")
+                        entry, = [e for e in response["data"][direction] if e["node_id"] == endpoint]
+                        self.assertEqual(entry["confidence"], edge["confidence"])
+                        self.assertEqual(len(entry["call_sites"]), len(edge["call_sites"]))
+                        surfaced.extend(entry["call_sites"])
+                for expression in expressions:
+                    for site in expected_invocation_sites(path, source, expression):
+                        expected = {"file": site.pop("source_file"), **site, "snippet": None, "provenance": "indexed"}
+                        self.assertIn(expected, surfaced)
+
+    def test_unsafe_caller_paths_and_non_list_sites_stay_unknown(self):
+        from wf_server.graph_handlers import _edge_call_sites
+        for path in ("../outside.py", "/outside.py", "C:\\outside.py", "external", ""):
+            with self.subTest(path=path):
+                site = {"source_file": path, "line": 1, "column": 1, "end_line": 1, "end_column": 3}
+                self.assertEqual(_edge_call_sites({"call_sites": [site]}, path), [])
+        self.assertEqual(_edge_call_sites({"call_sites": {"line": 1}}, "demo.py"), [])
+        self.assertEqual(_edge_call_sites({"call_sites": ["bad", None, {}]}, "demo.py"), [])
+
+    def test_legacy_rows_remain_unknown_even_when_java_scan_finds_a_match(self):
+        path = "Legacy.java"
+        (self.root / path).write_text("class Legacy { void collect() {} void execute() { collect(); } }")
+        nodes = [{"id": path + "::Legacy." + name, "label": name, "kind": "function",
+                  "source_file": path, "source_location": "1:0"} for name in ("execute", "collect")]
+        gfs.publish_graph(self.root, nodes=nodes, edges=[{"source": nodes[0]["id"], "target": nodes[1]["id"],
+                          "relation": "calls", "confidence": "EXTRACTED"}], builder_version="0")
+        with patch.object(self.srv._load_graph_query(), "_ensure_graph_builder_current", return_value=None):
+            out, inc = self._both_entries(nodes[0]["id"], nodes[1]["id"])
+        for entry in (out, inc):
+            self.assertIsNone(entry["call_site"])
+            self.assertEqual(entry["call_sites"], [])
+            self.assertIsNone(entry["snippet"])
+        self.assertIsNone(inc["line"])

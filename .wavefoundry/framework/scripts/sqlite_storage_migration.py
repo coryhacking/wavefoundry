@@ -798,8 +798,42 @@ def _refresh_hosts(root: Path, receipt: dict) -> None:
     _write(Path(root) / ".wavefoundry/index", receipt)
 
 
+_RESUME_FLAGS = frozenset({"--resume-after-gate", "--resume-after-memory", "--update-index", "--cleanup"})
+
+
+def _quote_argument(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'" if os.name == "nt" else shlex.quote(value)
+
+
+def _checkpoint_resume_flag(checkpoint: dict) -> str | None:
+    if not isinstance(checkpoint, dict) or checkpoint.get("entry_path") == "setup":
+        return None
+    current, failed = checkpoint.get("current_phase"), checkpoint.get("failed_phase")
+    current = current if isinstance(current, str) else None
+    failed = failed if isinstance(failed, str) else None
+    # Memory ownership wins over a failed index child. Legacy post-docs pauses
+    # without a typed action still require the docs-gate recovery first.
+    if failed == "post_docs_gate" or (failed == "awaiting_memory_validation"
+            and current == "docs_gate_complete" and not checkpoint.get("action_required")):
+        return "--resume-after-gate"
+    if current in {"awaiting_memory_validation", "awaiting_memory_publication", "memory_resume_preflight"}:
+        return "--resume-after-memory"
+    if current == "index_complete":
+        return "--cleanup"
+    if failed in {"docs_gate", "post_docs_gate"} or current == "docs_gate":
+        return "--resume-after-gate"
+    if failed in {"awaiting_memory_validation", "awaiting_memory_publication"}:
+        return "--resume-after-memory"
+    if failed in {"index_update", "index_rebuild", "index_publication_failed"} or current in {"index_update", "index_rebuild", "index_publication_failed"}:
+        return "--update-index"
+    if failed in {"cleanup", "dashboard_restart", "retired_model_cleanup"} or current in {"cleanup", "dashboard_restart", "retired_model_cleanup"}:
+        return "--cleanup"
+    return None
+
+
 def restart_command(root: Path, pack_path: str | None, rebuild_storage: bool = False,
-                    *, entry_path: str = "upgrade", setup_args: list[str] | None = None) -> dict:
+                    *, entry_path: str = "upgrade", setup_args: list[str] | None = None,
+                    resume_flag: str | None = None) -> dict:
     executable = sys.executable
     console = Path(executable)
     if os.name == "nt" and console.stem.lower() == "pythonw" and console.suffix.lower() == ".exe":
@@ -814,18 +848,42 @@ def restart_command(root: Path, pack_path: str | None, rebuild_storage: bool = F
             elif not arg.startswith("--root=") and arg not in {"--confirm-hosts-stopped", "--rebuild-storage"}:
                 argv.append(arg)
     argv += ["--root", str(Path(root).resolve())]
-    if pack_path:
+    if resume_flag is not None:
+        if entry_path != "upgrade" or resume_flag not in _RESUME_FLAGS:
+            raise ValueError("unsupported upgrade continuation")
+        argv.append(resume_flag)
+    elif pack_path:
         argv += ["--pack", pack_path]
     argv += (["--confirm-hosts-stopped"] if entry_path == "setup"
              else ["--yes", "--confirm-hosts-stopped"])
     if rebuild_storage:
         argv.append("--rebuild-storage")
     if os.name == "nt":
-        command = "& " + " ".join("'" + arg.replace("'", "''") + "'" for arg in argv)
+        command = "& " + " ".join(_quote_argument(arg) for arg in argv)
         shell = "PowerShell"
     else:
-        command, shell = shlex.join(argv), "POSIX shell"
+        command, shell = " ".join(_quote_argument(arg) for arg in argv), "POSIX shell"
     return {"command_argv": argv, "command": command, "command_shell": shell}
+
+
+
+def resume_guidance(root: Path, checkpoint: dict | None = None, *, resume_flag: str | None = None) -> dict | None:
+    """Render operator-only guidance without changing continuation authorization."""
+    flag = resume_flag if resume_flag is not None else _checkpoint_resume_flag(checkpoint or {})
+    if flag is None:
+        return None
+    command = restart_command(root, None, resume_flag=flag)
+    return {**command, "operator_run": True, "requires_hosts_stopped": True,
+            "agent_execution_allowed": False,
+            "guidance": "Operator-run from an external terminal after every Wavefoundry host is stopped; agents must not execute: " + command["command"]}
+
+
+def accounting_gap_guidance(root: Path) -> str:
+    dispatcher = r".\.wavefoundry\bin\wf.cmd" if os.name == "nt" else "./.wavefoundry/bin/wf"
+    return ("From the repository root " + _quote_argument(str(Path(root).resolve()))
+            + ", run " + dispatcher + " clear-accounting-gap. Clearing the marker discards no waves, docs or memories; "
+            "unsealed, non-closed waves stay marked accounting_gap and their totals stay flagged incomplete. "
+            "Events that failed and were not spooled are not backfilled. ")
 
 
 def read_restart_action(root: Path, exit_code: int, invocation_token: str) -> dict | None:
@@ -1256,6 +1314,12 @@ def _legacy_batches(index_dir: Path, layer: str):
                                 + LEGACY_RECOVERY_GUIDANCE) from exc
 
 
+def _fsync_file(path: Path) -> None:
+    """Flush an owned staging file through a writable descriptor on every host."""
+    with path.open("r+b") as handle:
+        os.fsync(handle.fileno())
+
+
 def _sync_directory(path: Path) -> None:
     try:
         fd = os.open(path, os.O_RDONLY)
@@ -1570,8 +1634,7 @@ def migrate_legacy(root: Path, hosts_stopped: bool = False) -> dict:
         receipt.update(state="validated", staging_pid=os.getpid())
         _write(index_dir, receipt)
         # All handles are closed. Flush the staging file before atomic replace.
-        with staged.open("rb") as handle:
-            os.fsync(handle.fileno())
+        _fsync_file(staged)
         _quiesce_source(runtime, source_path)
         receipt.update(state="cutover_pending", candidate_sha256=_file_hash(staged),
                        published_sqlite_identity=_identity(staged),
@@ -1740,7 +1803,10 @@ def _resume_schema8_cutover(root: Path, index_dir: Path, receipt: dict,
                             "need verification. " + _forward_recovery(source))
 
 
-_candidate_build = ContextVar("sqlite_migration_candidate_build", default=None)
+# MCP reload refreshes functions in place while an owned candidate scope may
+# still hold a token belonging to this exact ContextVar.
+if "_candidate_build" not in globals():
+    _candidate_build = ContextVar("sqlite_migration_candidate_build", default=None)
 
 
 @contextmanager
@@ -1878,8 +1944,7 @@ def _migrate_schema8(root: Path, index_dir: Path, receipt: dict, runtime, state_
 
     _assert_sources(index_dir, receipt)
     _hosts_gone(receipt)
-    with staged.open("rb") as handle:
-        os.fsync(handle.fileno())
+    _fsync_file(staged)
     _quiesce_source(runtime, source)
     if _identity(source) != source_snapshot:
         raise MigrationRequired(f"storage_source_identity_changed: {source.name}. "

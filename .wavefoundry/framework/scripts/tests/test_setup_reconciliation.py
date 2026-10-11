@@ -227,9 +227,11 @@ class SetupReceiptTests(unittest.TestCase):
              patch.object(setup, "upgrade_lib", older), self._denied_lock_stat():
             with self.assertRaisesRegex(setup.MigrationRequired, "storage_setup_foreign_upgrade"):
                 migration.restore_checkpoint(self.root)
-            with self.assertRaisesRegex(setup.MigrationRequired, "storage_setup_foreign_upgrade"):
+            with self.assertRaisesRegex(setup.MigrationRequired, "storage_setup_foreign_upgrade") as refused:
                 with setup.session(self.root, []):
                     self.fail("an uninspectable lock was accepted")
+            self.assertNotIn("--resume", str(refused.exception))
+            self.assertNotIn("Operator-run", str(refused.exception))
 
     def test_no_database_old_host_requires_handoff_and_refuses_live_resume(self):
         host = {"kind": "mcp", "pid": 12345}

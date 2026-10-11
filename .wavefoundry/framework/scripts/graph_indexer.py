@@ -41,10 +41,11 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "54"
+GRAPH_BUILDER_VERSION = "55"
 # 52 (1xtnq): callable identity, receiver provenance and lexical Java scope.
 # 52 (1xtns): structural callee leaves and malformed-external refusal.
 # 53 (201wg): unowned member calls stay external (`unowned_member_call`).
+# 55 (2073s): ordinary Python/shared tree-sitter invocation coordinates.
 # Bump on emitted-graph changes; prior history is recorded in CHANGELOG.md.
 GRAPH_DIRNAME = "graph"
 
@@ -12779,6 +12780,11 @@ class GraphIndexSession:
                         stack.append(value)
             return mvars
 
+        # AST columns are UTF-8 byte offsets, matching tree-sitter coordinates.
+        line_byte_offsets = [0]
+        for source_line in source_text.encode("utf-8").splitlines(keepends=True):
+            line_byte_offsets.append(line_byte_offsets[-1] + len(source_line))
+
         class CallCollector(ast.NodeVisitor):
             def __init__(self, current_symbol: str, scope_class: str | None = None, local_types: dict[str, tuple[str, str]] | None = None, module_vars: dict[str, str] | None = None, local_names: set[str] | None = None, attr_types: dict[str, tuple[str, str]] | None = None, module_types: dict[str, tuple[str, str]] | None = None) -> None:
                 self.current_symbol = current_symbol
@@ -12794,10 +12800,10 @@ class GraphIndexSession:
                 # a same-name constant (shadowing guard), so it never emits a reads edge.
                 self.local_names: set[str] = local_names or set()
                 # Wave 131bt (1319q) + 1p9q4: tuples of (source, target,
-                # explicit_confidence_or_None). None → the emit loop derives the
+                # explicit_confidence_or_None, invocation_site). None → the emit loop derives the
                 # confidence from the target (same-file bound → RECEIVER_RESOLVED,
                 # else EXTRACTED); a string is the resolver-determined level.
-                self.calls: list[tuple[str, str, str | None]] = []
+                self.calls: list[tuple[str, str, str | None, dict[str, Any]]] = []
                 # Wave 1p4ls: (source, constant_target) reads of a same-file constant.
                 self.reads: list[tuple[str, str]] = []
                 # Wave 1p7dh: (source, literal_key) config-key read candidates from
@@ -12818,7 +12824,14 @@ class GraphIndexSession:
             def visit_Call(self, node: ast.Call) -> Any:  # noqa: N802
                 target, conf = self._resolve_call(node.func)
                 if target:
-                    self.calls.append((self.current_symbol, target, conf))
+                    site = {
+                        "source_file": rel_path,
+                        "start_byte": line_byte_offsets[node.lineno - 1] + node.col_offset,
+                        "end_byte": line_byte_offsets[node.end_lineno - 1] + node.end_col_offset,
+                        "line": node.lineno, "column": node.col_offset + 1,
+                        "end_line": node.end_lineno, "end_column": node.end_col_offset + 1,
+                    }
+                    self.calls.append((self.current_symbol, target, conf, site))
                 # Wave 1p7dh: a string-literal first arg to a `.get("KEY")` getter
                 # is a config-key read candidate (bounded later by node match).
                 if (
@@ -12987,7 +13000,7 @@ class GraphIndexSession:
                     # A nested function inside a method still sees the enclosing
                     # class's `self` — propagate the current attr_types.
                     collect_calls(stmt.body, f"{rel_path}::{func_qname}", scope_class=scope_class, owner_node=stmt, attr_types=attr_types)
-            for src, target, conf in collector.calls:
+            for src, target, conf, site in collector.calls:
                 # Wave 1p7dg / 1p9q4: derive the edge confidence. An explicit level
                 # from `_resolve_call` (RECEIVER_RESOLVED for an annotation-typed
                 # receiver, CONSTRUCTION_RESOLVED for a constructor-assignment
@@ -13018,7 +13031,9 @@ class GraphIndexSession:
                     confidence = "RECEIVER_RESOLVED"
                 else:
                     confidence = "EXTRACTED"
-                edges.append(_edge(src, target, "calls", confidence=confidence))
+                edge = _edge(src, target, "calls", confidence=confidence)
+                edge["call_sites"] = [site]
+                edges.append(edge)
             # Wave 1p4ls: same-file constant reads (deduped per (reader, constant)).
             for src, target in dict.fromkeys(collector.reads):
                 edges.append(_edge(src, target, GRAPH_READS_RELATION, confidence="EXTRACTED"))
@@ -13442,8 +13457,10 @@ class GraphIndexSession:
                 edge["receiver_unknown"] = True
             if unowned_member:
                 edge[_UNOWNED_MEMBER_KEY] = True
-            if lang_key == "rust" and relation == "calls" and current_call_site is not None:
+            if relation == "calls" and current_call_site is not None:
                 edge["call_sites"] = [current_call_site]
+            if lang_key == "rust" and relation == "calls" and current_call_site is not None:
+                # Rust resolves each occurrence before merging receiver evidence.
                 rust_call_edges.append(edge)
             else:
                 _merge_call_evidence(edge_map, key, edge)
@@ -14266,7 +14283,7 @@ class GraphIndexSession:
             source_symbol = _src_symbol
             node = _call_node
             node_type = _call_node_type
-            current_call_site = _call_site(node, rel_path) if lang_key == "rust" else None
+            current_call_site = _call_site(node, rel_path)
             scope_signatures = _scope_signatures
             # Wave 1p7dh: capture OTel TypeInstrumentation target strings as the
             # enclosing class's `instruments` property. Scoped to the SPI

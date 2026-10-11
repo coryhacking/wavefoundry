@@ -199,6 +199,28 @@ def _operator_python(executable: str, *, platform_name: str | None = None) -> st
 
 
 def post_preflight(ctx):
+    """Protocol refusal takes precedence over project-prompt migration."""
+    _check_protocol(ctx)
+    _check_review_plan_prompt(ctx)
+
+
+def _check_review_plan_prompt(ctx):
+    if getattr(ctx, "zip_path", None) is None:
+        return
+    try:
+        checker = _incoming_framework_module("review_plan_prompt_check", ctx.zip_path)
+    except _IncomingModuleUnavailable as exc:
+        print(f"WARNING: incoming review-plan prompt checker unavailable ({exc}); continuing without early detection.", flush=True)
+        return
+    result = checker.check_review_plan_prompt(Path(ctx.root))
+    if result["blocked"]:
+        print(json.dumps({"status": "error", "code": "review_plan_prompt_migration_blocked",
+                          "path": result["path"], "message": result["message"],
+                          "recovery_pointer": result["recovery_pointer"]}, sort_keys=True), flush=True)
+        raise RuntimeError(result["message"])
+
+
+def _check_protocol(ctx):
     """Stop a protocol-1 runner before it can enter extraction.
 
     The supported-floor runner already invokes this incoming hook but has no
@@ -723,6 +745,11 @@ def _validate_index_guard_handoff(root, lock, record, package=..., target=None):
             or record.get("target_version") != (target if target is not None else lock.get("to_version"))
             or not isinstance(record.get("token"), str) or not record["token"]):
         raise ValueError("index_guard_checkpoint_invalid: preserve checkpoint and original package")
+    if "durable_pack" in record:
+        helper = _guard_contained_helper(package)
+        proven = validate_index_guard_durable_pack(root, lock, helper=helper)
+        if package is not None and Path(package) != proven:
+            raise ValueError("index_guard_durable_pack_invalid: caller locator differs")
     expected = record.get("pack_sha256")
     if expected is not None:
         if (not re.fullmatch(r"[0-9a-f]{64}", str(expected)) or not package
@@ -794,7 +821,222 @@ def _capture_index_guard_handoff(ctx):
         raise ValueError("index_guard_checkpoint_write_failed")
 
 
-def enforce_index_guard_handoff(ctx):
+# One checkpoint-owned continuation archive; never an archive discovery/cache API.
+_INDEX_GUARD_PACK_REL = '.wavefoundry/cache/upgrade/index-guard-feature.zip'
+_INDEX_GUARD_MEMORY_PHASES = frozenset({'awaiting_memory_validation', 'awaiting_memory_publication', 'memory_resume_preflight', 'index_complete'})
+_INDEX_GUARD_UPDATE_PHASES = frozenset({'docs_gate_complete', 'index_complete'})
+
+
+def _guard_file_identity(entry):
+    return [entry.st_dev, entry.st_ino, entry.st_size, entry.st_mtime_ns, entry.st_ctime_ns]
+
+
+def _guard_contained_helper(package=None):
+    if Path(__file__).is_absolute():
+        import contained_files
+        return contained_files
+    return _incoming_framework_module('contained_files', package)
+
+
+def _read_guard_pack(root, path, helper):
+    path = _guard_owned_path(root, path)
+    entry = path.lstat()
+    if not stat.S_ISREG(entry.st_mode) or entry.st_nlink != 1:
+        raise ValueError('index_guard_durable_pack_invalid: not an exclusively owned regular file')
+    data, opened, resolved = helper.read_contained_identity(root, path, max_bytes=entry.st_size)
+    if opened.st_nlink != 1 or _guard_file_identity(entry) != _guard_file_identity(opened):
+        raise ValueError('index_guard_durable_pack_invalid: file identity changed')
+    if _guard_file_identity(path.lstat()) != _guard_file_identity(opened):
+        raise ValueError('index_guard_durable_pack_invalid: file changed during read')
+    return data, opened, resolved
+
+
+def validate_index_guard_durable_pack(root, lock, *, allow_terminal_absence=False, helper=None):
+    """Validate strict root/token/target/locator/identity/hash before archive code."""
+    root = Path(root).resolve(strict=True)
+    record = lock.get(_INDEX_GUARD_HANDOFF)
+    proof = record.get('durable_pack') if isinstance(record, dict) else None
+    if not isinstance(proof, dict):
+        raise ValueError('index_guard_durable_pack_invalid: missing ownership proof')
+    identity = root.stat()
+    path = root / _INDEX_GUARD_PACK_REL
+    if (type(proof.get('version')) is not int or proof['version'] != 1
+            or proof.get('path') != _INDEX_GUARD_PACK_REL
+            or proof.get('root') != str(root) or record.get('root') != str(root)
+            or proof.get('root_identity') != {'device': identity.st_dev, 'inode': identity.st_ino}
+            or proof.get('root_identity') != record.get('root_identity')
+            or not isinstance(proof.get('token'), str) or not proof['token']
+            or proof['token'] != record.get('token')
+            or not isinstance(proof.get('target_version'), str) or not proof['target_version']
+            or proof['target_version'] != lock.get('to_version')
+            or proof['target_version'] != record.get('target_version')
+            or not re.fullmatch(r'[0-9a-f]{64}', str(proof.get('sha256')))
+            or proof['sha256'] != record.get('pack_sha256')
+            or lock.get('zip_path') != str(path) or record.get('pack_path') != str(path)
+            or not isinstance(proof.get('identity'), list) or len(proof['identity']) != 5
+            or any(type(value) is not int for value in proof['identity'])):
+        raise ValueError('index_guard_durable_pack_invalid: ownership binding mismatch')
+    _guard_owned_path(root, path)
+    try:
+        entry = path.lstat()
+    except FileNotFoundError:
+        if allow_terminal_absence:
+            validate_index_guard_terminal_cleanup(root, lock)
+            return None
+        raise ValueError('index_guard_durable_pack_invalid: owned archive is missing') from None
+    if _guard_file_identity(entry) != proof['identity']:
+        raise ValueError('index_guard_durable_pack_invalid: replaced file identity')
+    helper = helper or _guard_contained_helper()
+    data, opened, resolved = _read_guard_pack(root, path, helper)
+    if _guard_file_identity(opened) != proof['identity'] or hashlib.sha256(data).hexdigest() != proof['sha256']:
+        raise ValueError('index_guard_durable_pack_invalid: changed archive bytes')
+    return resolved
+
+
+def _retain_index_guard_pack(ctx, lock, record):
+    root = Path(ctx.root).resolve(strict=True)
+    source = Path(lock['zip_path'])
+    helper = _guard_contained_helper(source)
+    if 'durable_pack' in record:
+        validate_index_guard_durable_pack(root, lock, helper=helper)
+        return {}
+    target = _guard_owned_path(root, root / _INDEX_GUARD_PACK_REL)
+    try:
+        target.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        raise ValueError('index_guard_durable_pack_occupied: unowned slot; preserve it and inspect the checkpoint')
+    # The consumed verified source is distinct from the external selected pack.
+    source_entry = source.lstat()
+    if not stat.S_ISREG(source_entry.st_mode) or source_entry.st_nlink != 1 or getattr(source_entry, 'st_file_attributes', 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+        raise ValueError('index_guard_package_changed: consumed source is linked or not regular')
+    source_read = source.parent.resolve(strict=True) / source.name
+    data, _, _ = _read_guard_pack(source_read.parent, source_read, helper)
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != record.get('pack_sha256'):
+        raise ValueError('index_guard_package_changed: consumed archive differs from checkpoint')
+    helper.ensure_contained_dir(root, target.parent.relative_to(root).parts)
+    directory = helper.open_contained_dir(root, target.parent.relative_to(root).parts)
+    temporary = None
+    try:
+        temporary, fd = helper._create_temporary(target.name, 0o600, dir_fd=directory, parent=target.parent)
+        try:
+            helper._write_all(fd, data)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        # Exclusive publication: neither POSIX replace nor a same-hash occupant
+        # can confer ownership. Revalidate parent components immediately first.
+        _guard_owned_path(root, target)
+        if directory is not None:
+            os.link(temporary, target.name, src_dir_fd=directory, dst_dir_fd=directory, follow_symlinks=False)
+            os.unlink(temporary, dir_fd=directory)
+        else:
+            os.link(target.parent / temporary, target, follow_symlinks=False)
+            os.unlink(target.parent / temporary)
+        temporary = None
+    finally:
+        if temporary is not None:
+            helper._remove_temporary(temporary, dir_fd=directory, parent=target.parent)
+        if directory is not None:
+            os.close(directory)
+    retained, opened, _ = _read_guard_pack(root, target, helper)
+    if hashlib.sha256(retained).hexdigest() != digest:
+        raise ValueError('index_guard_durable_pack_invalid: publication changed')
+    record['durable_pack'] = {'version': 1, 'path': _INDEX_GUARD_PACK_REL, 'sha256': digest,
+        'root': str(root), 'root_identity': record['root_identity'], 'token': record['token'],
+        'target_version': record['target_version'], 'identity': _guard_file_identity(opened)}
+    record['pack_path'] = str(target)
+    return {'zip_path': str(target), 'original_staged_pack_path': str(source)}
+
+
+def _index_guard_resume_flag(ctx, lock, migration, *, pre_docs=False):
+    """Positive persisted provenance only; ordinary full restart is the default."""
+    if pre_docs or getattr(ctx, 'rebuild_storage', False) or lock.get('restart_action'):
+        return None
+    receipt = migration.read_receipt(Path(ctx.root) / '.wavefoundry/index')
+    if receipt is not None and receipt.get('state') != 'complete':
+        return None
+    import inspect
+    if 'resume_flag' not in inspect.signature(migration.restart_command).parameters:
+        return None
+    target = lock.get('to_version')
+    try:
+        actual = (Path(ctx.root) / '.wavefoundry/framework/VERSION').read_text(encoding='utf-8').strip()
+    except (OSError, UnicodeError):
+        return None
+    if not target or target == 'unknown' or actual != target:
+        return None
+    phase = lock.get('current_phase')
+    if lock.get('failed_phase') not in {None, 'awaiting_memory_validation', 'index_update'}:
+        return None
+    run_id = lock.get('memory_backfill_run_id')
+    if run_id:
+        try:
+            with _scripts_on_sys_path(Path(ctx.root) / '.wavefoundry/framework/scripts'):
+                import memory_backfill
+                summary = memory_backfill.run_summary(Path(ctx.root), run_id)
+        except Exception:
+            return None
+        if not isinstance(summary, dict) or summary.get('state') not in {'awaiting_validation', 'ready_for_index', 'indexed'}:
+            return None
+        legacy = phase in {None, 'preflight'} and lock.get('runner_protocol') is None
+        if phase in _INDEX_GUARD_MEMORY_PHASES or legacy:
+            return '--resume-after-memory'
+        if summary.get('state') != 'indexed':
+            return None
+    elif lock.get('memory_backfill_state') not in {None, 'indexed'}:
+        return None
+    if phase in _INDEX_GUARD_UPDATE_PHASES:
+        return '--update-index'
+    return None
+
+
+def validate_index_guard_terminal_cleanup(root, lock):
+    record = lock.get(_INDEX_GUARD_HANDOFF)
+    terminal = record.get('terminal_cleanup') if isinstance(record, dict) else None
+    if (not isinstance(terminal, dict) or type(terminal.get('version')) is not int or terminal['version'] != 1
+            or terminal.get('state') != 'fatal_obligations_complete'
+            or terminal.get('proof') != record.get('durable_pack')
+            or not isinstance(terminal.get('proof'), dict)
+            or any(terminal.get(key) is not True for key in
+                   ('storage_cleanup_complete', 'dashboard_restart_complete', 'fatal_cleanup_complete'))
+            or lock.get('failed_phase') or lock.get('index_publication_failed')
+            or lock.get('dashboard_restart_pending')
+            or lock.get('memory_backfill_state') not in {None, 'indexed'}
+            or record.get('hosts_stopped_confirmed') is not True):
+        raise ValueError('index_guard_terminal_cleanup_invalid: fatal obligations are not proven complete')
+    return terminal
+
+
+def finalize_index_guard_terminal_cleanup(root, lock, cleanup_tmp):
+    """Only validated terminal cleanup permits deliberate archive absence."""
+    validate_index_guard_terminal_cleanup(root, lock)
+    path = validate_index_guard_durable_pack(root, lock, allow_terminal_absence=True)
+    helper = _guard_contained_helper()
+    if path is not None:
+        proof = lock[_INDEX_GUARD_HANDOFF]['durable_pack']
+        helper.unlink_contained(root, path, expected_identity=tuple(proof['identity'][:2]))
+    staged = lock.get('original_staged_pack_path')
+    tmp_proof = lock.get('verified_pack_identity')
+    if staged and isinstance(tmp_proof, dict):
+        cleanup_tmp(Path(staged), tmp_proof)
+        try:
+            remaining = Path(staged).lstat()
+        except FileNotFoundError:
+            remaining = None
+        if remaining is not None and tmp_proof.get('path') == str(staged) and tmp_proof.get('identity') == _guard_file_identity(remaining):
+            raise ValueError('index_guard_terminal_cleanup_failed: separately owned TMP archive retained; retry --cleanup')
+    import upgrade_lib
+    current = upgrade_lib.read_upgrade_lock(root)
+    if not isinstance(current, dict) or current.get(_INDEX_GUARD_HANDOFF) != lock.get(_INDEX_GUARD_HANDOFF):
+        raise ValueError('index_guard_terminal_cleanup_invalid: checkpoint changed')
+    if not upgrade_lib.remove_upgrade_lock(root):
+        raise ValueError('index_guard_terminal_cleanup_failed: checkpoint retained; retry --cleanup')
+
+
+def enforce_index_guard_handoff(ctx, *, pre_docs=False):
     """First-hop host quiescence, independent of storage conversion receipts."""
     if getattr(ctx, "dry_run", False):
         return
@@ -848,17 +1090,24 @@ def enforce_index_guard_handoff(ctx):
     if reason:
         storage_receipt = migration.read_receipt(root / ".wavefoundry/index")
         rebuild = bool(getattr(ctx, "rebuild_storage", False)) or migration.rebuild_requested(storage_receipt)
-        command = migration.restart_command(root, record.get("pack_path"), rebuild)
+        resume_flag = None if rebuild else _index_guard_resume_flag(ctx, lock, migration, pre_docs=pre_docs)
+        retained_fields = {}
+        if resume_flag and lock.get("zip_path"):
+            retained_fields = _retain_index_guard_pack(ctx, lock, record)
+            lock.update(retained_fields)
+        command = (migration.restart_command(root, None, resume_flag=resume_flag)
+                   if resume_flag else migration.restart_command(root, record.get("pack_path"), rebuild))
         record["action"] = {"status": "action_required", "code": "index_guard_restart_required",
                             "reason": reason, "kind": "index_guard_handoff", "token": record["token"],
                             "invocation_token": os.environ.get(migration.INVOCATION_ENV), **command,
                             "old_hosts": record["old_hosts"], "discovery_limits": limits,
                             "message": "Stop this repository's Wavefoundry hosts, including hosts discovery cannot observe, then run the retained command in an external terminal. Keep the checkpoint and original package. No index publication is permitted before confirmation."}
     else:
+        retained_fields = {}
         record.pop("action", None)
         record["hosts_stopped_confirmed"] = True
-    if not upgrade_lib.update_upgrade_lock(root, **{_INDEX_GUARD_HANDOFF: record}):
-        raise ValueError("index_guard_checkpoint_write_failed")
+    if not upgrade_lib.update_upgrade_lock(root, **retained_fields, **{_INDEX_GUARD_HANDOFF: record}):
+        raise ValueError("index_guard_checkpoint_write_failed: published slot may be occupied; do not guess ownership")
     if reason:
         print(json.dumps(record["action"], sort_keys=True), flush=True)
         pause = SystemExit(3)
@@ -987,7 +1236,7 @@ def legacy_index_guard_restart_action(root: Path, exit_code: int,
 
 
 def pre_index_rebuild(ctx):
-    enforce_index_guard_handoff(ctx)
+    enforce_index_guard_handoff(ctx, pre_docs=True)
 
 
 # Wave 1yxyw: the moved server modules whose flat aliases are retired. This is
@@ -2790,6 +3039,8 @@ def _arm_memory_action_required(ctx, *, state: str, run_id: str) -> None:
     dead-PID lock only when ``failed_phase`` is truthy, so that field is a
     short-lived compatibility lease, not a public failure claim.
     """
+    from sqlite_storage_migration import resume_guidance
+
     token = uuid.uuid4().hex
     _update_upgrade_state(
         ctx.root,
@@ -2798,6 +3049,7 @@ def _arm_memory_action_required(ctx, *, state: str, run_id: str) -> None:
             "kind": "historical_memory",
             "state": state,
             "resume_phase": "resume_after_memory",
+            **resume_guidance(ctx.root, resume_flag="--resume-after-memory"),
             "run_id": run_id,
             "token": token,
         },
@@ -2842,7 +3094,9 @@ def _arm_memory_action_required(ctx, *, state: str, run_id: str) -> None:
 
 def _pause_for_memory_action(ctx, *, state: str, run_id: str, message: str) -> None:
     _arm_memory_action_required(ctx, state=state, run_id=run_id)
-    print(message, flush=True)
+    from sqlite_storage_migration import resume_guidance
+
+    print(message + "\n" + resume_guidance(ctx.root, resume_flag="--resume-after-memory")["guidance"], flush=True)
     raise SystemExit(4)
 
 
@@ -2918,7 +3172,8 @@ def post_index_update(ctx):
     if summary["state"] != "indexed":
         raise RuntimeError(
             "candidate-bearing historical-memory publication requires the "
-            "newly installed resume_after_memory runner"
+            "newly installed resume_after_memory runner. "
+            + __import__("sqlite_storage_migration").resume_guidance(ctx.root, resume_flag="--resume-after-memory")["guidance"]
         )
     _update_upgrade_state(ctx.root, memory_backfill_state="indexed")
 
@@ -3830,7 +4085,7 @@ def _post_extract(ctx):
             spec.loader.exec_module(migration)
             migration.prepare_upgrade(ctx)
             ctx._index_guard_migration_module = migration
-        enforce_index_guard_handoff(ctx)
+        enforce_index_guard_handoff(ctx, pre_docs=True)
 
     # Wave 1p3iv (1p3j7): convergence half — runs on every upgrade.
     _run_convergence_migration(ctx)

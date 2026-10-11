@@ -13,6 +13,8 @@ import inspect
 import json
 import math
 import os
+
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 import tempfile
 from contextlib import contextmanager, nullcontext
 import re
@@ -94,6 +96,7 @@ for _wll_key in list(sys.modules):
             "index_source_guard",
             "path_containment",
             "contained_files",  # wave 200ey: contained repository reads and writes
+            "child_tee",  # wave 20b3a: current canonical child-output sanitization
             "advisory_lint_identity",
             "mcp_tool_extensions",
             # Wave 1zls8: the roster validates through the declaration module
@@ -115,7 +118,7 @@ for _wll_key in list(sys.modules):
 # ``upgrade_extensions._reload_in_place`` idiom). The whole reload runs under
 # the module's ``process_hold_guard()``, so no in-process acquire or reader
 # check interleaves with it.
-_IN_PLACE_RELOAD_MODULES = ("runtime_lock",)
+_IN_PLACE_RELOAD_MODULES = ("runtime_lock", "sqlite_storage_migration")
 
 
 def _reload_module_in_place(name: str) -> None:
@@ -1295,7 +1298,7 @@ def _offline_model_env():
             os.environ["HF_HUB_OFFLINE"] = prior
 
 
-def _ensure_model_cached(model_name: str, model_type: str) -> None:
+def _ensure_model_cached(model_name: str, model_type: str, *, root=None) -> None:
     """Download model files to cache without loading into server working memory.
 
     The instantiated model object is immediately discarded — this function's
@@ -1315,7 +1318,9 @@ def _ensure_model_cached(model_name: str, model_type: str) -> None:
             _wf_log(f"[wavefoundry] accel_embedder unavailable; skipping reranker prewarm: {model_name}")
             return
         try:
-            reranker = accel_embedder.make_reranker(model_name, [])  # online: downloads + compiles
+            import setup_index
+            with setup_index.model_download_root(root):
+                reranker = accel_embedder.make_reranker(model_name, [])  # online: downloads + compiles
             if reranker is not None:
                 _wf_log(f"[wavefoundry] reranker prewarmed: {model_name} ({reranker.provider})")
             else:
@@ -1348,8 +1353,8 @@ def _ensure_model_cached(model_name: str, model_type: str) -> None:
             except TypeError:
                 TextEmbedding(model_name=model_name)
 
-        setup_index.ensure_ca_bundle_applied()
-        setup_index.retry_with_ca_bundle_ladder(_download_attempt, model_name)
+        setup_index.download_with_deadline(_download_attempt, model_name,
+            os.environ.get("FASTEMBED_CACHE_PATH", str(FASTEMBED_CACHE_DEFAULT)), root=root)
         _wf_log(f"[wavefoundry] Model cached: {model_name}")
 
 
@@ -2048,7 +2053,7 @@ class WaveIndex:
 
             for model_type, model_name in all_models:
                 try:
-                    _ensure_model_cached(model_name, model_type)
+                    _ensure_model_cached(model_name, model_type, root=self.root)
                 except Exception as exc:
                     _wf_log(f"[wavefoundry] Background download failed for {model_name}: {exc}")
 
@@ -24499,11 +24504,16 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                         "efficiency telemetry could not be projected.",
                     )
                 ],
-                usage="Resolve the projection failure, then retry wf_upgrade.",
+                usage=((__import__("sqlite_storage_migration").accounting_gap_guidance(handler.root)
+                        if (projection.get("detail") or {}).get("authority_status") == "accounting_gap" else "")
+                       + "Resolve the projection failure, then retry wf_upgrade."),
             )
-        return wf_upgrade_response(handler.root, phase=phase,
-                                   confirm_hosts_stopped=confirm_hosts_stopped,
-                                   rebuild_storage=rebuild_storage)
+        response = wf_upgrade_response(handler.root, phase=phase,
+                                       confirm_hosts_stopped=confirm_hosts_stopped,
+                                       rebuild_storage=rebuild_storage)
+        if projection.get("pending_general_transfer"):
+            _context_data(response)["context_efficiency_projection"] = projection
+        return response
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wf_upgrade_status(**kwargs: Any) -> dict[str, Any]:

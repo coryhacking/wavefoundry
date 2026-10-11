@@ -1063,6 +1063,7 @@ class IndexerAccelDispatchTests(unittest.TestCase):
         fake_fastembed = type(sys)("fastembed")
         fake_fastembed.TextEmbedding = fake_te
         fake_setup_index = MagicMock()
+        fake_setup_index.download_with_deadline.side_effect = lambda attempt, model_name, cache_dir, **kw: (fake_setup_index.ensure_ca_bundle_applied(), fake_setup_index.retry_with_ca_bundle_ladder(attempt, model_name))[1]
         fake_setup_index.retry_with_ca_bundle_ladder.side_effect = lambda attempt, model_name: attempt()
         with patch.object(self.idx, "_onnx_providers", return_value=["CPUExecutionProvider"]), \
              patch.object(self.idx.accel_embedder, "make_embedder", return_value=None), \
@@ -1086,6 +1087,7 @@ class IndexerAccelDispatchTests(unittest.TestCase):
         fake_fastembed = type(sys)("fastembed")
         fake_fastembed.TextEmbedding = fake_te
         fake_setup_index = MagicMock()
+        fake_setup_index.download_with_deadline.side_effect = lambda attempt, model_name, cache_dir, **kw: (fake_setup_index.ensure_ca_bundle_applied(), fake_setup_index.retry_with_ca_bundle_ladder(attempt, model_name))[1]
         fake_setup_index.raise_with_ca_bundle_diagnostic.side_effect = lambda model, exc: (_ for _ in ()).throw(exc)
 
         def fake_retry(attempt, model_name):
@@ -1111,6 +1113,7 @@ class IndexerAccelDispatchTests(unittest.TestCase):
         fake_fastembed = type(sys)("fastembed")
         fake_fastembed.TextEmbedding = lambda **kw: fake_te
         fake_setup_index = MagicMock()
+        fake_setup_index.download_with_deadline.side_effect = lambda attempt, model_name, cache_dir, **kw: (fake_setup_index.ensure_ca_bundle_applied(), fake_setup_index.retry_with_ca_bundle_ladder(attempt, model_name))[1]
         with patch.object(self.idx, "_onnx_providers", return_value=["CPUExecutionProvider"]), \
              patch.object(self.idx.accel_embedder, "make_embedder", return_value=None), \
              patch.dict(sys.modules, {"fastembed": fake_fastembed, "setup_index": fake_setup_index}):
@@ -1151,6 +1154,7 @@ class HfDownloadCachedFirstTests(unittest.TestCase):
 
         fake_hub = types.SimpleNamespace(hf_hub_download=fake_dl)
         fake_setup_index = MagicMock()
+        fake_setup_index.download_with_deadline.side_effect = lambda attempt, model_name, cache_dir, **kw: (fake_setup_index.ensure_ca_bundle_applied(), fake_setup_index.retry_with_ca_bundle_ladder(attempt, model_name))[1]
         fake_setup_index.retry_with_ca_bundle_ladder.side_effect = lambda attempt, model_name: attempt()
         with patch.dict(sys.modules, {"huggingface_hub": fake_hub, "setup_index": fake_setup_index}):
             with contextlib.redirect_stderr(io.StringIO()):
@@ -1174,6 +1178,7 @@ class HfDownloadCachedFirstTests(unittest.TestCase):
 
         fake_hub = types.SimpleNamespace(hf_hub_download=fake_dl)
         fake_setup_index = MagicMock()
+        fake_setup_index.download_with_deadline.side_effect = lambda attempt, model_name, cache_dir, **kw: (fake_setup_index.ensure_ca_bundle_applied(), fake_setup_index.retry_with_ca_bundle_ladder(attempt, model_name))[1]
         fake_setup_index.retry_with_ca_bundle_ladder.side_effect = lambda attempt, model_name: attempt()
         # F-1vglb-01: the SAME upstream is pinned at different revisions per target cache
         # (fastembed listed first, as in the real manifest); the clean-ONNX helper must pin
@@ -1231,6 +1236,7 @@ class HfDownloadCachedFirstTests(unittest.TestCase):
 
         fake_hub = types.SimpleNamespace(hf_hub_download=fake_dl)
         fake_setup_index = MagicMock()
+        fake_setup_index.download_with_deadline.side_effect = lambda attempt, model_name, cache_dir, **kw: (fake_setup_index.ensure_ca_bundle_applied(), fake_setup_index.retry_with_ca_bundle_ladder(attempt, model_name))[1]
         fake_setup_index.retry_with_ca_bundle_ladder.side_effect = lambda attempt, model_name: attempt()
         fake_bundle = MagicMock()
         fake_bundle.load_canonical_verification_manifest.return_value = {"components": [
@@ -1271,6 +1277,7 @@ class HfDownloadCachedFirstTests(unittest.TestCase):
 
         fake_hub = types.SimpleNamespace(hf_hub_download=fake_dl)
         fake_setup_index = MagicMock()
+        fake_setup_index.download_with_deadline.side_effect = lambda attempt, model_name, cache_dir, **kw: (fake_setup_index.ensure_ca_bundle_applied(), fake_setup_index.retry_with_ca_bundle_ladder(attempt, model_name))[1]
         fake_setup_index.raise_with_ca_bundle_diagnostic.side_effect = lambda model, exc: (_ for _ in ()).throw(exc)
 
         def fake_retry(attempt, model_name):
@@ -1291,6 +1298,7 @@ class HfDownloadCachedFirstTests(unittest.TestCase):
         # Wave 1p939 AC-3: a cache hit never reaches the CA-bundle call at all.
         fake_hub = types.SimpleNamespace(hf_hub_download=lambda *a, **k: "/cache/model.onnx")
         fake_setup_index = MagicMock()
+        fake_setup_index.download_with_deadline.side_effect = lambda attempt, model_name, cache_dir, **kw: (fake_setup_index.ensure_ca_bundle_applied(), fake_setup_index.retry_with_ca_bundle_ladder(attempt, model_name))[1]
         with patch.dict(sys.modules, {"huggingface_hub": fake_hub, "setup_index": fake_setup_index}):
             self.accel._hf_download_cached_first("repo", "model.onnx", "/cache")
         fake_setup_index.ensure_ca_bundle_applied.assert_not_called()
@@ -1315,6 +1323,7 @@ class EnsureFastembedModelCachedCaTests(unittest.TestCase):
 
         fake_fastembed = types.SimpleNamespace(TextEmbedding=fake_te)
         fake_setup_index = MagicMock()
+        fake_setup_index.download_with_deadline.side_effect = lambda attempt, model_name, cache_dir, **kw: (fake_setup_index.ensure_ca_bundle_applied(), fake_setup_index.retry_with_ca_bundle_ladder(attempt, model_name))[1]
         fake_setup_index.retry_with_ca_bundle_ladder.side_effect = lambda attempt, model_name: attempt()
         with patch.dict(sys.modules, {"fastembed": fake_fastembed, "setup_index": fake_setup_index}):
             self.accel._ensure_fastembed_model_cached("Snowflake/snowflake-arctic-embed-s")
@@ -1326,6 +1335,7 @@ class EnsureFastembedModelCachedCaTests(unittest.TestCase):
         # AC-3: a cache hit never reaches the CA-bundle call.
         fake_fastembed = types.SimpleNamespace(TextEmbedding=lambda **k: MagicMock())
         fake_setup_index = MagicMock()
+        fake_setup_index.download_with_deadline.side_effect = lambda attempt, model_name, cache_dir, **kw: (fake_setup_index.ensure_ca_bundle_applied(), fake_setup_index.retry_with_ca_bundle_ladder(attempt, model_name))[1]
         with patch.dict(sys.modules, {"fastembed": fake_fastembed, "setup_index": fake_setup_index}):
             self.accel._ensure_fastembed_model_cached("Snowflake/snowflake-arctic-embed-s")
         fake_setup_index.ensure_ca_bundle_applied.assert_not_called()
@@ -1341,6 +1351,7 @@ class EnsureFastembedModelCachedCaTests(unittest.TestCase):
 
         fake_fastembed = types.SimpleNamespace(TextEmbedding=fake_te)
         fake_setup_index = MagicMock()
+        fake_setup_index.download_with_deadline.side_effect = lambda attempt, model_name, cache_dir, **kw: (fake_setup_index.ensure_ca_bundle_applied(), fake_setup_index.retry_with_ca_bundle_ladder(attempt, model_name))[1]
         fake_setup_index.retry_with_ca_bundle_ladder.side_effect = lambda attempt, model_name: attempt()
         buf = io.StringIO()
         with patch.dict(sys.modules, {"fastembed": fake_fastembed, "setup_index": fake_setup_index}), \

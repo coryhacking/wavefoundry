@@ -1,0 +1,180 @@
+def _load_extension_module(zip_path: Path | None) -> types.ModuleType | None:
+    """Load ``upgrade_extensions.py`` from inside the zip without extracting it.
+
+    The extension module is read from the *new* pack before any files are
+    written to disk, so its ``pre_extract`` hook fires at the right time.
+
+    Returns the loaded module, or ``None`` when:
+    - no zip is provided (upgrading from current tree)
+    - the zip contains no extension module
+    - loading fails (logged as a warning — never fatal)
+    """
+    if zip_path is None:
+        return None
+
+    CANDIDATES = (
+        ".wavefoundry/framework/scripts/upgrade_extensions.py",
+        "framework/scripts/upgrade_extensions.py",
+    )
+
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            names = set(zf.namelist())
+            for candidate in CANDIDATES:
+                if candidate not in names:
+                    continue
+                source = zf.read(candidate).decode("utf-8")
+                mod = types.ModuleType("upgrade_extensions")
+                mod.__file__ = candidate
+                try:
+                    exec(compile(source, candidate, "exec"), mod.__dict__)
+                except SyntaxError as exc:
+                    _log(f"  ⚠  upgrade_extensions.py syntax error — skipping: {exc}")
+                    return None
+                except Exception as exc:  # noqa: BLE001
+                    _log(f"  ⚠  upgrade_extensions.py load error — skipping: {exc}")
+                    return None
+                _log(f"  Extension module loaded from zip ({candidate}).")
+                return mod
+    except (OSError, zipfile.BadZipFile) as exc:
+        _log(f"  ⚠  Could not open zip to load upgrade_extensions: {exc}")
+    return None
+
+def _run_hook(
+    name: str,
+    ctx: UpgradeContext,
+    ext_mod: types.ModuleType | None,
+) -> None:
+    """Run a named hook through both the extension module and convention scripts.
+
+    Layers are called in order — extension module first, convention script second.
+    Both always run for a given hook name (additive, not exclusive).
+
+    Hook names use underscores (``pre_surface_rendering``); convention script
+    filenames use dashes (``pre-surface-rendering``).
+
+    A hook failure (exception or non-zero exit) calls ``sys.exit(3)``.
+    """
+    # 1. Extension module hook
+    if ext_mod is not None:
+        hook_fn = getattr(ext_mod, name, None)
+        if callable(hook_fn):
+            try:
+                hook_fn(ctx)
+            except SystemExit:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                _err(f"Extension hook '{name}' raised: {exc}")
+                sys.exit(3)
+
+    # 2. Convention script: .wavefoundry/hooks/<name-with-dashes>
+    script_name = name.replace("_", "-")
+    hooks_dir = ctx.root / ".wavefoundry" / "hooks"
+    # Wave 1p9hm: resolve the convention hook in an OS-aware way. On POSIX an extensionless executable
+    # is run directly — os.access(X_OK) is meaningful there. On Windows os.access(X_OK) is a no-op
+    # (True for any file) and an extensionless file cannot be spawned by path — the resulting OSError
+    # previously escaped the TimeoutExpired-only except and crashed the upgrade. So on Windows prefer an
+    # explicit `<name>.py` (run via the interpreter) or `<name>.cmd`/`.bat` (self-executable by
+    # extension), and skip a bare extensionless hook with a warning rather than crashing.
+    hook_cmd: list[str] | None = None
+    if os.name == "nt":
+        py_hook = hooks_dir / f"{script_name}.py"
+        ext_hook = next(
+            (hooks_dir / f"{script_name}{suffix}" for suffix in (".cmd", ".bat")
+             if (hooks_dir / f"{script_name}{suffix}").exists()),
+            None,
+        )
+        if py_hook.exists():
+            hook_cmd = [_preferred_python(), str(py_hook)]
+        elif ext_hook is not None:
+            # Run the batch hook through `cmd /c` — isolated_run calls subprocess.run WITHOUT
+            # shell=True, and Windows CreateProcess cannot launch a .cmd/.bat by path (it raises
+            # WinError 193, which would escape the TimeoutExpired-only except and crash the upgrade —
+            # the very crash class this branch exists to prevent).
+            hook_cmd = ["cmd", "/c", str(ext_hook)]
+        elif (hooks_dir / script_name).exists():
+            _log(
+                f"  Skipping convention hook '{script_name}': on Windows a hook needs a runnable "
+                f"extension — add {script_name}.py or {script_name}.cmd."
+            )
+    else:
+        hook_path = hooks_dir / script_name
+        if hook_path.exists() and os.access(str(hook_path), os.X_OK):
+            hook_cmd = [str(hook_path)]
+
+    if hook_cmd is not None:
+        env = {
+            **os.environ,
+            "WF_FROM_VERSION": ctx.from_version or "",
+            "WF_TO_VERSION": ctx.to_version or "",
+            "WF_ROOT": str(ctx.root),
+            "WF_YES": "1" if ctx.yes else "0",
+        }
+        try:
+            result = subprocess_util.isolated_run(
+                hook_cmd, env=env, cwd=str(ctx.root),
+                check=False, timeout=_HOOK_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired:
+            _err(
+                f"Convention hook '{script_name}' timed out after "
+                f"{_HOOK_TIMEOUT_S}s — aborting upgrade."
+            )
+            sys.exit(3)
+        if result.returncode != 0:
+            _err(
+                f"Convention hook '{script_name}' exited {result.returncode} "
+                "— aborting upgrade."
+            )
+            sys.exit(3)
+
+def _finalize_failed_upgrade(root: Path, tree_mutated: bool, current_phase: str) -> None:
+    """Decide the upgrade lock's fate when an in-progress upgrade phase fails.
+
+    Wave 1p44o data-safety contract:
+
+    - ``tree_mutated`` True  → the tree is half-replaced (zip extracted and/or
+      surfaces rendered/pruned). RETAIN the lock and stamp it with a failure
+      marker (``failed_phase`` / ``failed_at``) so the dashboard watcher stays
+      paused and ``--cleanup`` / resume can read the real state. Do NOT remove it.
+    - ``tree_mutated`` False → failure happened before any tree mutation; remove
+      the lock so a clean retry isn't blocked (pre-1p44o behavior preserved).
+
+    Extracted from the ``except SystemExit:`` handler so the data-safety decision
+    is unit-testable in isolation.
+    """
+    import upgrade_lib
+
+    state = upgrade_lib.read_upgrade_lock(root) or {}
+    restart_pending = bool(state.get("dashboard_restart_pending"))
+    if tree_mutated or restart_pending:
+        upgrade_lib.update_upgrade_lock(
+            root,
+            failed_phase=current_phase,
+            failed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        )
+        if current_phase == "docs_gate":
+            recovery = (
+                "Resolve the docs findings, then run --resume-after-gate. "
+                "Index publication and cleanup remain blocked until that "
+                "recovery succeeds."
+            )
+        elif current_phase == "review_sidecar_cleanup":
+            recovery = (
+                "Stop the dashboard and every attached MCP/agent host, then "
+                "re-run the full upgrade; mixed-version lifecycle mutation "
+                "during upgrade is unsupported."
+            )
+        else:
+            recovery = (
+                "Resolve the failure, then re-run the full upgrade to restore "
+                "a clean state."
+            )
+        _err(
+            f"Upgrade failed during phase '{current_phase}'. The upgrade lock "
+            "has been RETAINED with a failure marker so dashboard restart intent "
+            "and any partially replaced tree remain visible. Inspect "
+            f".wavefoundry/upgrade-in-progress.json. {recovery}"
+        )
+    else:
+        upgrade_lib.remove_upgrade_lock(root)

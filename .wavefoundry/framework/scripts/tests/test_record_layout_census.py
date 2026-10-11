@@ -127,7 +127,8 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("indexer.py", "# (docs/waves/ evidence census_results.json)."): "comment",
     ("indexer.py", "canonical per-wave ``docs/waves/<wave>/events.jsonl``"): "comment",
     ("install_log_lib.py", "`docs/waves/00000 wave-zero-plans-and-specs/wave.md`"): "comment",
-    ("render_agent_surfaces.py", "- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md`"): "message",
+    # Shared stock-profile wording moved from the renderer; never resolved as a path.
+    ("review_plan_prompt_check.py", "- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md`"): "message",
     ("review_evidence.py", "``docs/waves/<one wave directory>/events.jsonl`` occupies"): "docstring",
     ("review_evidence.py", "direct child directory of ``docs/waves/`` holding the fixed sibling"): "docstring",
     ("review_policy.py", "the leading fragment (`docs/waves/1uo1x`)"): "docstring",

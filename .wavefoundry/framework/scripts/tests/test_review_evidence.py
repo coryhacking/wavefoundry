@@ -5386,5 +5386,29 @@ class EphemeralArtifactTokensTests(unittest.TestCase):
             self.assertEqual(subject.artifact_path_tokens("test:unit /tmp/a"), ("/tmp/a",))
 
 
+
+class ReviewEvidenceCRLFHeadingTests(unittest.TestCase):
+    def test_canonical_record_crlf_heading_matches_and_projects_like_lf(self):
+        from server_tools_support import load_server
+        srv = load_server()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir()
+            (root / "docs/workflow-config.json").write_bytes(b'{"wave_review":{"enabled":true}}\n')
+            with patch.object(srv._lifecycle_module(), "build_id", return_value="00001 crlf-heading"):
+                result = srv.create_wave(root, "crlf-heading", mode="create")
+            path = root / result["path"]
+            self.assertEqual(subject.validate_external_review_evidence(path).errors, ())
+            lf = path.read_text("utf-8")
+            crlf = lf.replace("\n", "\r\n")
+            path.write_bytes(crlf.encode("utf-8"))
+            self.assertEqual(len(list(subject._REVIEW_EVIDENCE_SECTION_RE.finditer(crlf))), 1)
+            keys = ["council-readiness", "operator-signoff"]
+            self.assertEqual(subject._status_block_row_keys(crlf), subject._status_block_row_keys(lf))
+            for text in (lf, crlf):
+                rendered = subject.render_review_status_projection(text, (), keys)
+                self.assertEqual(rendered.replace("\r\n", "\n"), subject.render_review_status_projection(lf, (), keys))
+
+
 if __name__ == "__main__":
     unittest.main()

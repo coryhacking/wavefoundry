@@ -673,6 +673,30 @@ def _bounded_upgrade_summary(summary: Mapping[str, Any]) -> dict[str, Any]:
     return bounded
 
 
+def _bounded_upgrade_output(text: str, *, cap_chars: int, truncation_hint: str = "") -> tuple[str, bool]:
+    """Upgrade-only middle elision; shared docs subprocess bounds stay prefix-only."""
+    if len(text) <= cap_chars:
+        return text, False
+    marker = "\n[... upgrade output elided; " + truncation_hint + " ...]\n"
+    if cap_chars <= len(marker):
+        return text[-cap_chars:] if cap_chars else "", True
+    keep = cap_chars - len(marker)
+    head = keep // 2
+    return text[:head] + marker + text[-(keep - head):], True
+
+
+def _upgrade_error_tail(output: str) -> str:
+    token = os.environ.get("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN", "")
+    if token:
+        output = output.replace(token, "[REDACTED]")
+    from child_tee import clean_output
+
+    output = clean_output(output, token)
+    lines = [line[-4096:] for line in output.splitlines()
+             if re.search(r"ERROR:|fail(?:ed|ure)?|Traceback|Exception", line, re.IGNORECASE)]
+    return "\n".join(lines[-20:])[-4000:]
+
+
 def _bounded_upgrade_response_envelope(response: dict[str, Any]) -> dict[str, Any]:
     """Keep the complete public upgrade envelope within its named host cap."""
 
@@ -750,7 +774,10 @@ def _bounded_upgrade_response_envelope(response: dict[str, Any]) -> dict[str, An
         marker = (
             "\n[... response envelope capped; see log_path for the complete run ...]"
         )
-        data["output"] = output[:keep] + marker if keep else marker.strip()
+        data["output"], _ = _bounded_upgrade_output(
+            output, cap_chars=max(512, keep),
+            truncation_hint="response envelope capped; see log_path",
+        )
         data["output_truncated"] = True
 
     # Legitimate upgrade envelopes fit after the repo-sized summary/worklist
@@ -775,6 +802,9 @@ def _bounded_upgrade_response_envelope(response: dict[str, Any]) -> dict[str, An
             "exit_code",
             "state",
             "log_path",
+            "output",
+            "output_truncated",
+            "error_tail",
             "output_total_chars",
             "summary",
             "memory_backfill",
@@ -833,6 +863,10 @@ def _bounded_upgrade_response_envelope(response: dict[str, Any]) -> dict[str, An
             "exit_code",
             "state",
             "log_path",
+            "output",
+            "output_truncated",
+            "output_total_chars",
+            "error_tail",
             "bridge_release_required",
             "response_cap_chars",
             "response_total_chars_before_bound",
@@ -910,6 +944,10 @@ def _bounded_upgrade_response_envelope(response: dict[str, Any]) -> dict[str, An
             "response_truncated": True,
             "response_hard_compacted": True,
         }
+        if isinstance(data, dict):
+            for key in ("output", "output_truncated", "output_total_chars", "error_tail", "exit_code"):
+                if key in data:
+                    terminal_data[key] = data[key]
         if compact_bridge is not None:
             terminal_data["bridge_release_required"] = compact_bridge
         response = {
@@ -960,6 +998,13 @@ def _bounded_upgrade_response_envelope(response: dict[str, Any]) -> dict[str, An
             ],
         }
 
+    data = response.get("data")
+    if isinstance(data, dict) and isinstance(data.get("output"), str):
+        while len(json.dumps(response, ensure_ascii=False, default=str)) > UPGRADE_RESPONSE_CAP_CHARS and len(data["output"]) > 512:
+            data["output"], _ = _bounded_upgrade_output(
+                data["output"], cap_chars=max(512, len(data["output"]) // 2),
+                truncation_hint="response envelope capped; see log_path")
+            data["output_truncated"] = True
     return response
 
 
@@ -1093,7 +1138,7 @@ def _cutover_restart_required(root: Path, summary: dict[str, Any] | None) -> boo
     return isinstance(counts, dict) and bool(counts.get("restart_required"))
 
 
-def _upgrade_next_step(phase: str) -> tuple[str, list[str]]:
+def _upgrade_next_step(phase: str, root: Path | None = None) -> tuple[str, list[str]]:
     """Return a phase-aware ``(next_step, next_tools)`` for the wf_upgrade response (wave 1p8eu)."""
     if phase == "preflight_to_docs_gate":
         return (
@@ -1117,10 +1162,11 @@ def _upgrade_next_step(phase: str) -> tuple[str, list[str]]:
             ["wf_reload_mcp", "wf_upgrade_status"],
         )
     if phase == "resume_after_gate":
+        guidance = (" " + __import__("sqlite_storage_migration").resume_guidance(root, resume_flag="--resume-after-memory")["guidance"] if root is not None else "")
         return (
             "Docs gate recovery also established or refreshed the historical-memory "
             "checkpoint. Inspect the returned memory worklist; validate any pending "
-            "candidates, then call wf_upgrade(phase='resume_after_memory').",
+            "candidates, then call wf_upgrade(phase='resume_after_memory')." + guidance,
             ["memory_backfill", "memory_validate", "wf_upgrade_status"],
         )
     if phase == "resume_after_memory":
@@ -1218,16 +1264,6 @@ def wf_upgrade_response(
     if mode == "dry_run":
         cmd = [server_impl._preferred_python(), str(upgrade_script), "--root", str(root), "--dry-run"]
     else:
-        # Pre-create the log file so log_path in the response is always valid,
-        # even if the upgrade fails before the script opens it.  The upgrade
-        # script manages truncation (mode="w") and appending (mode="a") itself.
-        _log_path = root / ".wavefoundry" / "logs" / "upgrade.log"
-        try:
-            _log_path.parent.mkdir(parents=True, exist_ok=True)
-            _log_path.touch(exist_ok=True)
-        except OSError:
-            pass
-
         # All apply-mode phases run non-interactively (no TTY in MCP).
         cmd = [server_impl._preferred_python(), str(upgrade_script), "--root", str(root), "--yes"]
         if phase == "update_index":
@@ -1274,20 +1310,11 @@ def wf_upgrade_response(
         if mode == "apply"
         else None
     )
-    displayed_output, output_truncated = server_impl._bounded_subprocess_output(
-        output,
-        cap_chars=UPGRADE_OUTPUT_CAP_CHARS,
-        truncation_hint=(
-            "see log_path for the complete run"
-            if log_path is not None
-            else "full output is available only from an apply-mode upgrade log"
-        ),
-    )
     data = {
         "phase": phase,
         "exit_code": result.returncode,
-        "output": displayed_output.strip(),
-        "output_truncated": output_truncated,
+        "output": output.strip(),
+        "output_truncated": False,
         "output_total_chars": len(output),
         "log_path": log_path,
     }
@@ -1365,9 +1392,23 @@ def wf_upgrade_response(
         else None
     )
 
+    displayed_output, output_truncated = _bounded_upgrade_output(
+        output,
+        cap_chars=UPGRADE_OUTPUT_CAP_CHARS,
+        truncation_hint=(
+            "see log_path for the complete run"
+            if log_path is not None
+            else "full output is available only from an apply-mode upgrade log"
+        ),
+    )
+    data["output"] = displayed_output.strip()
+    data["output_truncated"] = output_truncated
+    if result.returncode != 0:
+        data["error_tail"] = _upgrade_error_tail(output)
+
     # Wave 1p8eu / F2 — compute the phase-aware next step + next_tools BEFORE the returncode check so
     # both the success AND the failure response carry them.
-    _next_step, _next_tools = _upgrade_next_step(phase)
+    _next_step, _next_tools = _upgrade_next_step(phase, root)
     if result.returncode != 0 and (
         phase == "resume_after_gate" or "--resume-after-gate" in output
     ):
@@ -1497,6 +1538,7 @@ def wf_upgrade_response(
             "memory backfill and focused validation, then call "
             "wf_upgrade(phase='resume_after_memory')."
             )
+            action["next_step"] += " " + __import__("sqlite_storage_migration").resume_guidance(root, resume_flag="--resume-after-memory")["guidance"]
             return _bounded_upgrade_response_envelope(action)
     if result.returncode != 0:
         bridge_handoff = _parse_bridge_release_required(output)

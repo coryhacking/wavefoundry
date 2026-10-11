@@ -9156,7 +9156,7 @@ class GraphBuilderVersionTests(unittest.TestCase):
     """Wave 1p4ls AC-3: the node/edge shape changed (constant nodes + reads edge) so the builder
     version is bumped, forcing a full re-extract against any older cache."""
 
-    def test_graph_builder_version_is_44(self):
+    def test_graph_builder_version_is_55(self):
         # 1p4ls bumped 25→26 (constant nodes + reads edge); 1p4q4 bumped 26→27 (TS enum member nodes);
         # 1p4q4 review bumped 27→28 (namespace-prefixed enum members + short-symbol-prune exemption);
         # 1p4up bumped 28→29 (member-access constant reads — new function→constant `reads` edges);
@@ -9244,7 +9244,7 @@ class GraphBuilderVersionTests(unittest.TestCase):
         # Wave 1x5tq (1x8e1): unresolved doc targets persist for selective retries.
         # Wave 203pu (201wg) bumped 52->53: an unowned member call keeps its
         # external target and carries `unowned_member_call`.
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "54")
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "55")
 
 
 class OversizedTreeSitterGuardTests(unittest.TestCase):
@@ -12355,3 +12355,171 @@ class MemoryGraphExtractionTests(unittest.TestCase):
         node = refreshed._node_by_id.get("docs/agents/memory/mem-fragile-tools.md")
         self.assertIsNotNone(node, "the cache must reload after the memory write")
         self.assertEqual(node.get("kind"), "memory")
+
+
+# 2073s: one real invocation family for every ordinary code-mode registry entry.
+CALL_PROVENANCE_SOURCES = {
+    "python": ("demo.py", "def collect(): pass\ndef execute():\n    collect(); collect()\n", "collect()"),
+    "javascript": ("demo.js", "function collect() {}\nfunction execute() { collect(); collect(); }\n", "collect()"),
+    "typescript": ("demo.ts", "function collect(): void {}\nfunction execute(): void { collect(); collect(); }\n", "collect()"),
+    "go": ("demo.go", "package demo\nfunc collect() {}\nfunc execute() { collect(); collect() }\n", "collect()"),
+    "rust": ("demo.rs", "fn collect() {}\nfn execute() { collect(); collect(); }\n", "collect()"),
+    "java": ("Demo.java", "class Demo { static void collect() {}\nstatic void execute() { collect(); collect(); } }\n", "collect()"),
+    "c": ("demo.c", "void collect() {}\nvoid execute() { collect(); collect(); }\n", "collect()"),
+    "cpp": ("demo.cpp", "void collect() {}\nvoid execute() { collect(); collect(); }\n", "collect()"),
+    "csharp": ("Demo.cs", "class Demo { static void collect() {}\nstatic void execute() { collect(); collect(); } }\n", "collect()"),
+    "bash": ("demo.sh", "collect() { :; }\nexecute() { collect; collect; }\n", "collect"),
+    "kotlin": ("demo.kt", "fun collect() {}\nfun execute() { collect(); collect() }\n", "collect()"),
+    "swift": ("demo.swift", "func collect() {}\nfunc execute() { collect(); collect() }\n", "collect()"),
+    "objc": ("Widget.m", "@implementation Widget\n- (void)collect {}\n- (void)execute { [self collect]; [self collect]; }\n@end\n", "[self collect]"),
+    "scala": ("Demo.scala", "object Demo { def collect(): Unit = {}\ndef execute(): Unit = { collect(); collect() } }\n", "collect()"),
+    "ruby": ("demo.rb", "def collect()\nend\ndef execute()\n  collect(); collect()\nend\n", "collect()"),
+    "php": ("demo.php", "<?php\nfunction collect() {}\nfunction execute() { collect(); collect(); }\n", "collect()"),
+}
+
+
+def expected_invocation_sites(path, source, expression, *, after="execute"):
+    """Independent literal-expression oracle, including UTF-8/multiline offsets."""
+    result = []
+    cursor = source.index(after) + len(after)
+    while (start := source.find(expression, cursor)) >= 0:
+        end = start + len(expression)
+        # A bare expression must not be a suffix inside another receiver call.
+        if expression[0].isalpha() and start and (source[start - 1].isalnum() or source[start - 1] in "._"):
+            cursor = end
+            continue
+        line = source.count("\n", 0, start) + 1
+        end_line = source.count("\n", 0, end) + 1
+        line_start = source.rfind("\n", 0, start) + 1
+        end_line_start = source.rfind("\n", 0, end) + 1
+        result.append({"source_file": path,
+                       "start_byte": len(source[:start].encode()), "end_byte": len(source[:end].encode()),
+                       "line": line, "column": len(source[line_start:start].encode()) + 1,
+                       "end_line": end_line, "end_column": len(source[end_line_start:end].encode()) + 1})
+        cursor = end
+    return result
+
+
+class _CallProvenanceFixture:
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def _extract(self, path, source):
+        target = self.root / path
+        target.write_text(source, encoding="utf-8")
+        session = self.mod.GraphIndexSession(
+            root=self.root, index_dir=self.root / ".wavefoundry/index", layer="project",
+            files=[target], current_file_meta={}, walker_version="1", chunker_version="1", state={})
+        self.addCleanup(session.close_store)
+        session.record_file(path, source)
+        return session.finalize()
+
+class CallProvenanceExtractionTests(_CallProvenanceFixture, unittest.TestCase):
+    def test_every_code_mode_preserves_repeated_exact_invocations(self):
+        code_modes = {k for k, v in self.mod._TS_LANGUAGE_PROFILES.items() if v.mode == "code" and v.call_node_types}
+        self.assertEqual(set(CALL_PROVENANCE_SOURCES), code_modes | {"python"})
+        for language, (path, source, expression) in CALL_PROVENANCE_SOURCES.items():
+            with self.subTest(language=language):
+                if language != "python":
+                    self.assertIsNotNone(self.mod._ts_get_parser(language), f"qualification needs {language} parser")
+                graph = self._extract(path, source)
+                calls = [e for e in graph["edges"] if e["relation"] == "calls"
+                         and e["source"].endswith("execute") and e["target"].endswith("collect")]
+                self.assertEqual(len(calls), 1, calls)
+                expected = expected_invocation_sites(path, source, expression)
+                self.assertEqual(len(expected), 2)
+                self.assertEqual(calls[0].get("call_sites"), expected)
+
+    def test_python_unicode_multiline_and_same_line_byte_coordinates(self):
+        path = "unicode.py"
+        source = 'def collect(value=None): pass\ndef execute():\n    text = "é🦀"; collect(text); collect(\n        text\n    )\n'
+        graph = self._extract(path, source)
+        calls = [e for e in graph["edges"] if e["relation"] == "calls"]
+        self.assertEqual(len(calls), 1)
+        expected = (expected_invocation_sites(path, source, "collect(text)")
+                    + expected_invocation_sites(path, source, "collect(\n        text\n    )"))
+        self.assertEqual(calls[0]["call_sites"], expected)
+
+    def test_builder_bump_invalidates_unchanged_old_records(self):
+        index_dir = self.root / ".wavefoundry/index"
+        state, store = open_graph_state(self.mod, index_dir)
+        self.addCleanup(state.close)
+        versions = store._expected_versions() | {"builder_version": "54"}
+        for key, value in versions.items():
+            state._conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)",
+                                (store.meta_key(key), value))
+        state._conn.execute("INSERT INTO graph_file_state(path, layer, source_hash, record, extracted_at) VALUES (?,?,?,?,?)",
+                            ("old.py", "project", "old-hash", b"old-record", 0))
+        self.assertFalse(store.ensure_current())
+        self.assertTrue(store.reset_pending)
+        self.assertEqual(store.paths_with_hashes(), {})
+        self.assertEqual(state._conn.execute("SELECT source_hash FROM graph_file_state").fetchone()[0], "old-hash")
+
+
+class PythonPhysicalLineProvenanceTests(_CallProvenanceFixture, unittest.TestCase):
+    def test_unicode_string_separators_and_crlf_are_not_ast_line_boundaries(self):
+        for separator in ("\u2028", "\u2029", "\x85", "\v", "\f"):
+            for newline in ("\n", "\r\n", "\r"):
+                with self.subTest(separator=repr(separator), newline=repr(newline)):
+                    source = newline.join(["def collect(): pass", "def execute():",
+                                           "    label = 'é" + separator + "x'", "    collect()", ""])
+                    graph = self._extract("physical.py", source)
+                    edge, = [e for e in graph["edges"] if e["relation"] == "calls"]
+                    site, = edge["call_sites"]
+                    expected = source.encode().rindex(b"collect()")
+                    self.assertEqual((site["start_byte"], site["end_byte"]), (expected, expected + 9))
+                    self.assertEqual((site["line"], site["column"]), (4, 5))
+
+
+CALL_PROVENANCE_SYNTAX = {
+    "javascript": ("construct.js", "class Vessel {}\nfunction execute() { const text = 'é🦀'; new Vessel(); }\n", ("new Vessel()",)),
+    "typescript": ("construct.ts", "class Vessel {}\nfunction execute() { new Vessel(); }\n", ("new Vessel()",)),
+    "go": ("construct.go", "package demo\ntype Vessel struct {}\nfunc execute() { _ = Vessel{} }\n", ("Vessel{}",)),
+    "rust": ("construct.rs", "struct Vessel {}\nfn collect() {}\nfn execute() { let v = Vessel {}; collect!(); collect(); }\n", ("Vessel {}", "collect!()", "collect()")),
+    "java": ("Construct.java", "class Vessel {}\nclass Construct { static void execute() { new Vessel(); } }\n", ("new Vessel()",)),
+    "csharp": ("Construct.cs", "class Vessel {}\nclass Construct { static void execute() { new Vessel(); } }\n", ("new Vessel()",)),
+    "php": ("construct.php", "<?php\nclass Vessel { function collect() {} static function finish() {} }\nfunction execute() { $v = new Vessel(); $v->collect(); Vessel::finish(); }\n", ("new Vessel()", "$v->collect()", "Vessel::finish()")),
+    "javascript_multiline": ("multiline.js", "function collect(value) {}\nfunction execute(other) { const text = 'é🦀'; (other()).collect(); collect(\n text\n); collect(text); }\n", ("(other()).collect()", "collect(\n text\n)", "collect(text)")),
+    "python_receivers": ("receivers.py", "class Known:\n    def collect(self): pass\ndef collect(value=None): pass\ndef execute(other, known: Known):\n    other.collect(); known.collect(); collect()\n", ("known.collect()", "collect()")),
+}
+
+
+class CallProvenanceSyntaxTests(_CallProvenanceFixture, unittest.TestCase):
+    def test_existing_construction_macro_and_member_families_keep_sites(self):
+        for language, (path, source, expressions) in CALL_PROVENANCE_SYNTAX.items():
+            with self.subTest(language=language):
+                graph = self._extract(path, source)
+                calls = [e for e in graph["edges"] if e["relation"] == "calls" and e["source"].endswith("execute")]
+                self.assertTrue(calls)
+                sites = [s for edge in calls for s in edge.get("call_sites", [])]
+                for expression in expressions:
+                    expected = expected_invocation_sites(path, source, expression)
+                    self.assertTrue(expected, expression)
+                    for site in expected:
+                        self.assertIn(site, sites, (expression, calls))
+
+
+class NonCallableRegistryProvenanceTests(_CallProvenanceFixture, unittest.TestCase):
+    def test_configuration_markup_and_sql_do_not_manufacture_ordinary_calls(self):
+        formats = {
+            "html": ("demo.html", '<span>collect()</span>'),
+            "xml": ("demo.xml", '<root>collect()</root>'),
+            "sql": ("demo.sql", "SELECT 'collect()';"),
+            "yaml": ("demo.yaml", 'value: "collect()"'),
+            "toml": ("demo.toml", 'value = "collect()"'),
+            "json": ("demo.json", '{"value":"collect()"}'),
+            "css": ("demo.css", 'span { content: "collect()"; }'),
+            "scss": ("demo.scss", 'span { content: "collect()"; }'),
+            "make": ("Makefile", 'VALUE := collect()\n'),
+            "hcl": ("demo.tf", 'value = "collect()"'),
+            "powershell": ("demo.ps1", '$value = "collect()"'),
+        }
+        non_code = {k for k, v in self.mod._TS_LANGUAGE_PROFILES.items() if v.mode != "code"}
+        self.assertEqual(set(formats), non_code)
+        for language, (path, source) in formats.items():
+            with self.subTest(language=language):
+                graph = self._extract(path, source)
+                self.assertFalse([e for e in graph["edges"] if e["relation"] == "calls"])

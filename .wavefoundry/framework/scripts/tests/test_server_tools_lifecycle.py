@@ -12775,7 +12775,7 @@ class SignoffLatestStateTests(unittest.TestCase):
         (1seav's final APPROVED verdict and operator closure direction were
         recorded 2026-07-13; its earlier withdrawn rounds remain visible as
         superseded lines and must not block)."""
-        repo = Path(load_server().__file__).resolve().parents[3]
+        repo = Path(__file__).resolve().parents[4]
         for wave_dir, expect_delivery, expect_operator in (
             ("docs/waves/1seav search-freshness-degraded-retrieval", True, True),
             ("docs/waves/1sed7 sqlite-only-index-state", True, True),
@@ -16547,6 +16547,30 @@ class SharedDeliveryEvaluatorContractTests(unittest.TestCase):
         self.assertEqual(unit_source.count("_evaluate_shared_delivery_state("), 1)
         self.assertIn(gates.shared_delivery_gate, gates.REVIEW_GATES)
         self.assertIn(gates.shared_delivery_gate, gates.CLOSE_SHARED_GATES)
+
+
+
+class PrepareCRLFPublicationTests(unittest.TestCase):
+    def test_prepare_publication_keeps_existing_all_lf_policy(self):
+        srv = load_server()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = _make_repo(Path(tmp))
+            with patch.object(srv._lifecycle_module(), "build_id", return_value="00001 prepare-crlf"):
+                result = srv.create_wave(root, "prepare-crlf", mode="create")
+            path = root / result["path"]
+            self.assertEqual(srv.validate_external_review_evidence(path).errors, ())
+            original = path.read_text("utf-8")
+            state = {"required_lanes": [], "records": (), "receipt_append_required": False}
+            expected = srv._publish_prepare_policy_state(root, path, original, state).encode("utf-8")
+            self.assertEqual(path.read_bytes(), expected)
+            path.write_bytes(original.replace("\n", "\r\n").encode("utf-8"))
+            normalized, error = srv._read_wave_record_text(path)
+            self.assertIsNone(error)
+            self.assertEqual(normalized, original)
+            actual = srv._publish_prepare_policy_state(root, path, normalized, state)
+            self.assertEqual(actual.encode("utf-8"), expected)
+            self.assertEqual(path.read_bytes(), expected)
+            self.assertNotIn(b"\r", path.read_bytes())
 
 
 if __name__ == "__main__":

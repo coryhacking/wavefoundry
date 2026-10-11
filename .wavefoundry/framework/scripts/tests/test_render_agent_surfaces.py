@@ -4698,5 +4698,61 @@ class MovePublicationIdentityTests(unittest.TestCase):
             self.assertIsNone(ras._write_review_carrier_text(root / "carrier.md", b"carrier", exclusive=True, root=root))
 
 
+
+class ReviewCarrierCRLFUpsertTests(unittest.TestCase):
+    def _families(self):
+        policy = next(c for c in review_policy.REVIEW_POLICY_CARRIER_REGISTRY
+                      if c.owner == "renderer" and c.destination in review_policy.REVIEW_POLICY_SURFACE_BLOCKS)
+        with tempfile.TemporaryDirectory() as tmp:
+            protocol = next(iter(ras.review_protocol_carriers(Path(tmp))))
+        return (
+            ("policy", ras._upsert_review_policy_region, review_policy.REVIEW_POLICY_SURFACE_BLOCKS[policy.destination], ras.REVIEW_POLICY_SURFACE_MARKER_BEGIN, ras.REVIEW_POLICY_SURFACE_MARKER_END),
+            ("protocol", ras._upsert_review_protocol_region, ras._carrier_protocol_block(protocol), ras.REVIEW_PROTOCOL_MARKER_BEGIN, ras.REVIEW_PROTOCOL_MARKER_END),
+        )
+
+    def test_replacement_preserves_newlines_outside_bytes_and_idempotence(self):
+        for family, helper, block, begin, end in self._families():
+            for newline in ("\n", "\r\n"):
+                with self.subTest(family=family, newline=newline):
+                    canonical = helper("operator prefix  \n", block)
+                    text = (canonical + "operator suffix  \n").replace("\n", newline)
+                    dirty = text.replace(block.splitlines()[0], "stale owned line", 1)
+                    updated = helper(dirty, block)
+                    self.assertEqual(updated, text)
+                    self.assertTrue(updated.startswith("operator prefix  " + newline))
+                    self.assertTrue(updated.endswith("operator suffix  " + newline))
+                    self.assertEqual(helper(updated, block), updated)
+                    if newline == "\r\n":
+                        self.assertIsNone(re.search(rb"(?<!\r)\n", updated.encode("utf-8")))
+                    else:
+                        self.assertNotIn("\r", updated)
+
+    def test_first_adoption_and_policy_before_protocol_use_carrier_newline(self):
+        for family, helper, block, begin, end in self._families():
+            with self.subTest(family=family):
+                text = "operator prefix  \r\nlast operator line"
+                updated = helper(text, block)
+                self.assertTrue(updated.startswith(text))
+                self.assertIsNone(re.search(rb"(?<!\r)\n", updated.encode("utf-8")))
+                self.assertEqual(helper(updated, block), updated)
+        protocol = self._families()[1]
+        text = protocol[1]("operator prefix\n", protocol[2]).replace("\n", "\r\n") + "operator suffix\r\n"
+        policy = self._families()[0]
+        updated = policy[1](text, policy[2])
+        self.assertTrue(updated.endswith("operator suffix\r\n"))
+        self.assertIsNone(re.search(rb"(?<!\r)\n", updated.encode("utf-8")))
+
+    def test_stray_crlf_rebuilds_only_owned_region_with_crlf(self):
+        for family, helper, block, begin, end in self._families():
+            with self.subTest(family=family):
+                text = helper("operator prefix\n", block) + "operator stray\r\noperator suffix\n"
+                updated = helper(text, block)
+                self.assertTrue(updated.startswith("operator prefix\n\n"))
+                self.assertTrue(updated.endswith("operator stray\r\noperator suffix\n"))
+                owned = updated[updated.index(begin):updated.index(end) + len(end)]
+                self.assertIn("\r\n", owned)
+                self.assertNotRegex(owned, r"(?<!\r)\n")
+
+
 if __name__ == "__main__":
     unittest.main()

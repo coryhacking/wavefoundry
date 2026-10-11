@@ -326,6 +326,13 @@ def _flush_context_efficiency(
             transfer_stage=transfer_stage,
             checkpoint_floors=None,
         )
+        if flushed.persistence == "deferred":
+            return (
+                {"persistence": "deferred", "projection": "pending",
+                 "pending_transfer": True, "authority_status": "healthy",
+                 "error": flushed.error, "wave_id": canonical_wave},
+                flushed,
+            )
         if not flushed.success:
             return (
                 {
@@ -378,9 +385,23 @@ def project_pending_context_efficiency(
 ) -> dict[str, Any]:
     """Project every pending durable wave generation before reload/upgrade."""
 
-    return project_pending_context_efficiency_root(
+    pending_transfer = getattr(handler.telemetry, "pending_transfer", None)
+    flushed = None
+    if pending_transfer is not None:
+        flushed = handler.telemetry.flush(handler.root)
+        if not flushed.success and flushed.persistence != "deferred":
+            return {"ok": False, "projected": [], "failed_wave": pending_transfer[0],
+                    "detail": {"persistence": flushed.persistence, "projection": "pending",
+                               "error": flushed.error}}
+    result = project_pending_context_efficiency_root(
         handler.root, handler=handler, automatic=False
     )
+    if flushed is not None and flushed.persistence == "deferred":
+        result["pending_general_transfer"] = {
+            "persistence": "deferred", "projection": "pending",
+            "wave_id": pending_transfer[0], "error": flushed.error,
+        }
+    return result
 
 
 def project_pending_context_efficiency_root(

@@ -214,7 +214,7 @@ RESERVED_MODULE_NAMES = frozenset({
 # lists.
 FRAMEWORK_SCRIPT_MODULE_NAMES = frozenset({
     '_tag_utils', 'accel_embedder', 'advisory_lint_identity', 'agent_surface_integrity', 'ann_reference_eval', 'build_pack',
-    'build_scan_allowlist', 'bytecode_cache', 'change_doc_checklist', 'check_version', 'chunker', 'cli_stdio',
+    'build_scan_allowlist', 'bytecode_cache', 'change_doc_checklist', 'check_version', 'child_tee', 'chunker', 'cli_stdio',
     'commit_provenance', 'contained_files', 'context_efficiency', 'dashboard_handlers', 'dashboard_lib',
     'dashboard_server', 'design_token_build', 'docs_gardener', 'docs_lint', 'eval_chunker',
     'exploration_avoided', 'gardener_metadata', 'gen_codebase_map', 'gpu_doctor',
@@ -228,7 +228,7 @@ FRAMEWORK_SCRIPT_MODULE_NAMES = frozenset({
     'project_context_efficiency', 'provider_policy', 'prune_framework', 'public_contract',
     'publication_control', 'qualification_report', 'qualification_worker', 'reconcile_scan', 'record_paths', 'render_agent_surfaces',
     'render_platform_surfaces', 'repair_ppol_memory_staging', 'repo_root', 'retrieval_eval',
-    'review_evidence', 'review_policy', 'review_policy_reconcile', 'review_policy_upgrade',
+    'review_plan_prompt_check', 'review_evidence', 'review_policy', 'review_policy_reconcile', 'review_policy_upgrade',
     'run_secrets_scan', 'run_tests', 'runtime_advisory', 'runtime_lock', 'scan_secrets',
     'scanner_skips', 'score_context_efficiency_pairs', 'sensor_runner', 'server', 'server_impl',
     'setup_index', 'setup_readiness', 'setup_reconciliation', 'setup_requirements',

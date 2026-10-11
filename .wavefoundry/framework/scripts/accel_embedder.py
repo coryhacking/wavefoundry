@@ -20,6 +20,8 @@ from __future__ import annotations
 import glob
 import hashlib
 import os
+
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 import re
 import shutil
 import sys
@@ -27,6 +29,7 @@ from pathlib import Path
 from typing import Iterable, Iterator, Optional
 
 import subprocess_util
+from setup_index import ModelDownloadDeadline
 import venv_bootstrap  # stdlib-only; onnxruntime telemetry off (change 1z8or)
 
 STATIC_BATCH = 32
@@ -304,9 +307,8 @@ def _hf_download_cached_first(repo: str, filename: str, cache_dir: str) -> str:
     # then fall back through the same reactive candidate ladder _warm_model uses on a cert-verify
     # failure (delivery-phase council finding: the proactive step alone isn't full ladder parity).
     import setup_index
-    setup_index.ensure_ca_bundle_applied()
-    path = setup_index.retry_with_ca_bundle_ladder(
-        lambda: hf_hub_download(repo, filename, **download_kwargs), repo,
+    path = setup_index.download_with_deadline(
+        lambda: hf_hub_download(repo, filename, **download_kwargs), repo, cache_dir,
     )
     if revision:
         # huggingface_hub writes refs/<revision> only when the revision is symbolic; a
@@ -370,6 +372,8 @@ def _resolve_clean_onnx(model_name: str) -> Optional[tuple[str, str]]:
     try:
         onnx_path = _hf_download_cached_first(repo, onnx_file, str(_CLEAN_ONNX_CACHE))
         tok_path = _hf_download_cached_first(repo, tok_file, str(_CLEAN_ONNX_CACHE))
+    except ModelDownloadDeadline:
+        raise
     except Exception as exc:
         # Wave 1p939 (delivery-phase fix): log before degrading so a persisting CA-trust failure
         # is operator-visible instead of silently looking like a GPU/accel failure (the diagnostic
@@ -400,22 +404,27 @@ def _ensure_fastembed_model_cached(model_name: str) -> None:
         # unauthenticated-request warning); download only on a genuine cache miss.
         try:
             TextEmbedding(model_name=model_name, cache_dir=cache_dir, local_files_only=True)
+        except ModelDownloadDeadline:
+            raise
         except Exception:
             # Wave 1p939: apply the same CA ladder wf setup uses before the online attempt, then
             # fall back through the reactive candidate ladder on a persisting cert-verify failure
             # (delivery-phase fix: this was the one named call site still missing ladder parity).
             import setup_index
-            setup_index.ensure_ca_bundle_applied()
             try:
-                setup_index.retry_with_ca_bundle_ladder(
-                    lambda: TextEmbedding(model_name=model_name, cache_dir=cache_dir), model_name,
+                setup_index.download_with_deadline(
+                    lambda: TextEmbedding(model_name=model_name, cache_dir=cache_dir), model_name, cache_dir,
                 )
+            except ModelDownloadDeadline:
+                raise
             except Exception as exc:
                 # Log before this function's own best-effort swallow degrades to the CPU path —
                 # see _resolve_clean_onnx.
                 print(f"[wavefoundry] resident model fetch for {model_name!r} failed ({exc}); "
                       "falling back to the CPU embedder path.", file=sys.stderr, flush=True)
                 raise
+    except ModelDownloadDeadline:
+        raise
     except Exception:
         pass
 
@@ -440,18 +449,20 @@ def _resolve_model_files(model_name: str) -> Optional[tuple[str, str]]:
     clean = _resolve_clean_onnx(model_name)
     if clean is not None:
         return clean
-    repo = _model_repo_dir(model_name)
-    if repo is None:
-        # Cold cache + a launcher that skipped prewarm: fetch the resident model, then retry.
-        _ensure_fastembed_model_cached(model_name)
+    def resident_files():
         repo = _model_repo_dir(model_name)
-    if repo is None:
+        if repo is None:
+            return None
+        weights = [p for p in repo.glob("snapshots/**/*.onnx") if p.is_file()]
+        tokenizers = [p for p in repo.glob("snapshots/*/tokenizer.json") if p.is_file()]
+        if weights and tokenizers:
+            return os.path.realpath(weights[0]), str(tokenizers[0])
         return None
-    onnx_files = glob.glob(str(repo / "snapshots" / "*" / "**" / "*.onnx"), recursive=True)
-    tok_files = glob.glob(str(repo / "snapshots" / "*" / "tokenizer.json"))
-    if not onnx_files or not tok_files:
-        return None
-    return os.path.realpath(onnx_files[0]), tok_files[0]
+    files = resident_files()
+    if files is None:
+        _ensure_fastembed_model_cached(model_name)
+        files = resident_files()
+    return files
 
 
 # Wave 1p935 (CPU-INT8 embedder): mirrors RERANKER_CPU_ONNX_FILE below — a gold-labeled NL→code
@@ -472,6 +483,8 @@ def _resolve_embedder_cpu_files(model_name: str) -> Optional[tuple[str, str]]:
     try:
         onnx_path = _hf_download_cached_first(repo, EMBEDDER_CPU_ONNX_FILE, str(_CLEAN_ONNX_CACHE))
         tok_path = _hf_download_cached_first(repo, tok_file, str(_CLEAN_ONNX_CACHE))
+    except ModelDownloadDeadline:
+        raise
     except Exception as exc:
         print(f"[wavefoundry] embedder CPU ONNX fetch for {model_name!r} failed ({exc}); falling "
               "back to the fastembed-resident model.", file=sys.stderr, flush=True)
@@ -872,6 +885,8 @@ def make_embedder(model_name: str, providers: Iterable[str]):
                 return embedder
             if CUDA_PROVIDER in gpu:
                 _warn_cuda12_gap_if_present()  # CUDA selected but didn't offload — surface the gap
+        except ModelDownloadDeadline:
+            raise
         except Exception:
             if CUDA_PROVIDER in gpu:
                 _warn_cuda12_gap_if_present()
@@ -882,6 +897,8 @@ def make_embedder(model_name: str, providers: Iterable[str]):
     # unregistered models. Matches _predicted_precision_class: no-GPU + in CLEAN_ONNX_SOURCES → int8.
     try:
         return StaticShapeEmbedder(model_name, ["CPUExecutionProvider"])
+    except ModelDownloadDeadline:
+        raise
     except Exception:
         return None
 

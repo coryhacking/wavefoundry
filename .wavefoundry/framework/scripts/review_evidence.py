@@ -2763,8 +2763,9 @@ def resolve_review_authority(
     )
 
 
+# Defensive CRLF heading tolerance; upgrade owns the normalize/restore seam.
 _REVIEW_EVIDENCE_SECTION_RE = re.compile(
-    r"(?ms)^## Review Evidence[ \t]*$\n(?P<body>.*?)(?=^##\s|\Z)"
+    r"(?ms)^## Review Evidence[ \t\r]*$\n(?P<body>.*?)(?=^##\s|\Z)"
 )
 _GENERATED_SIGNOFF_LINE_RE = re.compile(
     r"(?m)^\s*-\s*(?P<key>[a-z0-9-]+):\s*"

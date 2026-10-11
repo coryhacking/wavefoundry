@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: supported
-Last verified: 2026-09-29
+Last verified: 2026-10-10
 
 ## SQLite conversion qualification (1xjmm)
 
@@ -130,3 +130,15 @@ All critical (C), medium (M), and low (L) items identified in this scoping asses
 Python 3.13 or newer is recommended. Python 3.11 and 3.12 are deprecated but remain allowed; the minimum is still 3.11. No removal release is scheduled. Dependencies must support the selected interpreter; this recommendation does not qualify every future Python release.
 
 The notice appears once per `wf` invocation or direct MCP serving startup, on stderr. Inspect `setup_readiness.advisories` through index health when host logs are hidden. It does not request repair or change command success. Follow the [runtime transition procedure](../../.wavefoundry/framework/README.md#python-runtime-advisory-and-transition): select PATH `python3` for setup and the restarted host, stop shared-environment consumers or propagate an isolated environment override, and retain pending recovery ownership. Ordinary setup may replace an incompatible tool environment; the advisory never does.
+
+## Review-plan prompt migration recovery
+
+An upgrade can refuse the legacy Review Plan prompt when its exact legacy contract lines were customized, when both legacy and new prompt paths exist, or when the legacy entry is linked, not a regular file, unreadable or not UTF-8. The incoming pack checks this before checkpoint, framework, policy or operating-document mutation on runners carrying the `post_preflight` hook (the executed v1.15.4 hook ABI is supported). Early runtime locks, temporary verified staging and the diagnostic upgrade log are permitted. Old-runner dry runs do not invoke that hook; a missing incoming checker warns and continues, and edits between preflight and rendering can still fail during rendering.
+
+Preserve project prose and aliases; locate the legacy prompt using the path reported in the refusal. Create `docs/prompts/review-plan.prompt.md` from the packaged `.wavefoundry/framework/install/lifecycle-prompts/review-plan.prompt.md` template, merge the project prose and aliases, remove the old prompt, and update `docs/prompts/index.md` and the prompt manifest. Retry the upgrade after that repair. A retry is safe, but avoids marking waves for re-Prepare only when the migrated policy is byte-identical, carrier reconciliation has no edits and the evaluator is current. Changed policy/carriers or a stale evaluator legitimately require re-Prepare. A preflight refusal leaves no new upgrade checkpoint; an older already-mutated run retains its failed checkpoint and must follow the existing recovery guidance.
+
+## Retained index-guard continuation
+
+Use the checkpoint's emitted continuation command after stopping its recorded hosts. Proven post-docs handoffs use `--resume-after-memory` or `--update-index` with `--confirm-hosts-stopped`; unproven, pre-docs and storage/rebuild states keep the full upgrade command. Pack-backed continuations own one verified file at `.wavefoundry/cache/upgrade/index-guard-feature.zip`, independently of temporary staging and the external original. Do not replace that file with a matching archive: its root, token, target, file identity and hash must match the checkpoint. Links, junctions/reparse points, nonregular files, multilinks and permission failures refuse; Windows reparse/permission coverage is injected simulation, not native Windows qualification.
+
+Paused or failed publication, validation or cleanup retains recovery authority. After fatal storage/dashboard obligations succeed, cleanup records terminal completion before deleting the owned archive. If archive or checkpoint deletion fails, retry `--cleanup`; the validated terminal checkpoint permits this retry even after the archive was deliberately removed, without loading it or running rendering/indexing again. Ordinary resume still requires the owned archive. Fresh-process lost-TMP tests demonstrate restart recovery with bounded fake index children, not a measured reboot. The final identity-check/unlink sequence is not atomic against concurrent replacement.

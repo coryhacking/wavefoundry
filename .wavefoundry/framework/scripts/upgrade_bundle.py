@@ -181,11 +181,15 @@ def _post_docs_gate_failure(state: object) -> bool:
 def _recovery(root: Path, bridge: dict, feature_state: str) -> dict:
     runner = root / ".wavefoundry/framework/scripts/upgrade_wavefoundry.py"
     if feature_state == "awaiting_memory_validation":
+        from sqlite_storage_migration import resume_guidance
+
+        guidance = resume_guidance(root, resume_flag="--resume-after-memory")
         return {
+            **guidance,
             "kind": "restart_then_resume_memory",
             "instruction": (
                 "Restart every attached agent/MCP host, complete the reported memory work, "
-                "then call wf_upgrade(phase='resume_after_memory')."
+                "then call wf_upgrade(phase='resume_after_memory'). " + guidance["guidance"]
             ),
         }
     if feature_state == "primary_phase_complete":

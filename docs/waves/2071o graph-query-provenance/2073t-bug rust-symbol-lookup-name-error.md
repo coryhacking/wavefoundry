@@ -1,17 +1,17 @@
 # Restore symbol lookup in Rust-containing graphs
 
 Change ID: `2073t-bug rust-symbol-lookup-name-error`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-10-09
+Status: implemented
+Last verified: 2026-10-10
 Wave: 2071o graph-query-provenance
 
 ## Rationale
 
 Tensorwell reported code_impact failing with an undefined re. A fresh upstream canonical Rust graph reproduces the actual served handler NameError for symbol='collect', while the exact node ID succeeds. GraphQueryIndex.resolve_symbol imports re as _re but its Rust trait-alias recognition calls re.fullmatch before ordinary suffix/label matching.
 
-The operator requested Plan, Prepare and Review only. No implementation, activation, closure, commit, push or package build is authorized by this request.
+The operator now authorizes preparation, review and implementation. Scope probes confirm this is Rust-triggered but affects non-exact lookup for every language in a mixed Rust graph. Closure remains operator-owned.
 
 ## Requirements
 
@@ -31,20 +31,20 @@ The operator requested Plan, Prepare and Review only. No implementation, activat
 - `.wavefoundry/framework/scripts/tests/test_graph_query.py`
 - `.wavefoundry/framework/scripts/tests/test_server_tools_retrieval.py`
 
-**Out of scope:** Broader Rust extraction/inference, trait symbol identity redesign, graph refresh policy, new lookup modes, and implementation during this request.
+**Out of scope:** Broader Rust extraction/inference, trait symbol identity redesign, graph refresh policy, new lookup modes.
 
 ## Acceptance Criteria
 
-- [ ] AC-1: Bare-symbol code_impact reaches the published Rust fixture and returns its existing successful impact contract without NameError; exact-ID lookup retains its result. Oracle: actual response comparisons against canonical graph fixtures.
-- [ ] AC-2: Supported Rust trait aliases and mixed-language label/suffix lookups retain their intended identity and ambiguity semantics. Oracle: direct resolver tests plus served callers, with independently specified graph IDs.
-- [ ] AC-3: An undefined regex binding or over-broad alias/ambiguity match is detected by selected regression controls. Oracle: safe pre-fix/injected-old behavior and invalid/ambiguous controls, not merely source-string assertions.
+- [x] AC-1: Bare-symbol code_impact reaches the published Rust fixture and returns its existing successful impact contract without NameError; exact-ID lookup retains its result. Oracle: actual response comparisons against canonical graph fixtures.
+- [x] AC-2: Supported Rust trait aliases and mixed-language label/suffix lookups retain their intended identity and ambiguity semantics. Oracle: direct resolver tests plus served callers, with independently specified graph IDs.
+- [x] AC-3: An undefined regex binding or over-broad alias/ambiguity match is detected by selected regression controls. Oracle: safe pre-fix/injected-old behavior and invalid/ambiguous controls, not merely source-string assertions.
 
 ## Tasks
 
-- [ ] Add served-path or scanner regression coverage reproducing the confirmed defects with realistic adjacent controls.
-- [ ] Implement only the admitted requirements and preserve the stated compatibility boundaries.
-- [ ] Run affected tests and selected known-bad controls; record actual AC evidence as each completes.
-- [ ] Complete independent delivery review and applicable framework qualification before proposing closure.
+- [x] Add served-path or scanner regression coverage reproducing the confirmed defects with realistic adjacent controls.
+- [x] Implement only the admitted requirements and preserve the stated compatibility boundaries.
+- [x] Run affected tests and selected known-bad controls; record actual AC evidence as each completes.
+- [x] Complete independent delivery review and applicable framework qualification before proposing closure.
 
 ## Agent Execution Graph
 
@@ -76,6 +76,12 @@ docs/architecture/graph-index-system.md (consulted; no ownership or lookup-contr
 
 | Date | Update | Evidence |
 | --- | --- | --- |
+| 2026-10-10 | Repair1 frozen:1175affected-module tests/0skips,105final quality/0skips;10qualified mutants killed. Runtime/requirements and historical originals unchanged. | Exact parity/source-byte/Kotlin controls and new11path fingerprint summarized in wave.md; independent rechecks pending |
+| 2026-10-10 | First delivery council withholds qualification for current fixture/report drift and a false architecture mechanism paragraph. Typed cycle1 repair starts; admitted requirements unchanged. | Bounded five-path repair, fresh affected-lane review, then quiet full suite |
+| 2026-10-10 | The Session Handoff section preserves the original planning checkpoint; current implementation/qualification status is in this Progress Log, wave.md and docs/agents/session-handoff.md. No admitted requirement changed. | Preserve current review-policy receipt; completion markers are bookkeeping only |
+| 2026-10-10 | Behavioral ACs verified on frozen implementation: final58focused tests/0skips8.581s;13disposable mutants killed. Full qualification and independent delivery remain pending. | Canonical CallProvenanceExtractionTests, PythonPhysicalLineProvenanceTests, TestPersistedCallProvenance, RustContainingSymbolLookupTests and TestRustContainingImpact; mutation table in wave.md |
+| 2026-10-10 | AC-1/AC-2 pass:4focused tests,0skips; only existing regex binding changed. Rust-only/non-Rust/mixed, exact-ID, absent, trait aliases and existing suffix/label ambiguity outcomes verified, including actual canonical published code_impact. AC-3 mutation and independent delivery remain pending. | RustContainingSymbolLookupTests(test_rust_non_rust_and_mixed_lookups, test_trait_alias_unique_and_ambiguous, test_suffix_shortest_callable_and_label_ambiguity); TestRustContainingImpact.test_published_rust_and_mixed_non_exact_impact |
+| 2026-10-10 | Readback: fix the existing _re binding in shared resolve_symbol, preserving exact-ID, suffix/label and ambiguity semantics. Bare Python queries currently crash after a Rust symbol enters the graph; afterwards existing lookups and Rust trait aliases should resolve normally. AC-1–AC-3; graph_query.py and focused resolver/actual code_impact tests. No inference or identity redesign. | Current typed readiness; actual source/extraction/publication/public-handler known-bad controls |
 | 2026-10-09 | Plan only. Current defect mechanisms exercised by the finite upstream scratch probe; no repaired behavior claimed. Downstream cost measurements are attributed, with upstream identity verification only for the named profile. | Wave baseline captures; updated Tensorwell diagnostic report |
 | 2026-10-09 | Optional Review plan resolves contract branches from source and accepted summary ADR: stored provenance, nullable unproven snippets, compatible singular fields; bounded scope/work and reporting state; preserve producer protocol. No unresolved operator choice or implementation authorization inferred. | Requirements and Decision Log |
 

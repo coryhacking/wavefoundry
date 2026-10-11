@@ -1,7 +1,7 @@
 """Graph response handlers; registration and shared dependencies stay in server_impl."""
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, Callable, Iterable, Mapping, Optional, Sequence
 
 
@@ -46,6 +46,50 @@ def _attach_auto_rebuild_diag(envelope: dict[str, Any], index: Any) -> dict[str,
         return envelope
     envelope["diagnostics"] = [diag, *existing]
     return envelope
+
+def _edge_call_sites(edge: Mapping[str, Any], caller_file: Any) -> list[dict[str, Any]]:
+    """Copy valid persisted invocation coordinates, sorted independently of arrival.
+
+    Snippets stay unknown: a source read alone cannot prove the published
+    generation's text is current. Legacy/invalid rows never trigger a name scan.
+    """
+    if (not isinstance(caller_file, str) or not caller_file
+            or caller_file == "external" or Path(caller_file).is_absolute()
+            or PureWindowsPath(caller_file).is_absolute()
+            or ".." in caller_file.replace("\\", "/").split("/")):
+        return []
+    raw_sites = edge.get("call_sites")
+    if not isinstance(raw_sites, list):
+        return []
+    valid: dict[tuple[int, ...], dict[str, Any]] = {}
+    for site in raw_sites:
+        if not isinstance(site, dict) or site.get("source_file") != caller_file:
+            continue
+        keys = ("line", "column", "end_line", "end_column")
+        if any(type(site.get(key)) is not int or site[key] <= 0 for key in keys):
+            continue
+        coordinates = tuple(site[key] for key in keys)
+        if coordinates[2:] <= coordinates[:2]:
+            continue
+        has_bytes = "start_byte" in site or "end_byte" in site
+        if has_bytes and (type(site.get("start_byte")) is not int
+                          or type(site.get("end_byte")) is not int
+                          or not 0 <= site["start_byte"] < site["end_byte"]):
+            continue
+        if has_bytes:
+            span = site["end_byte"] - site["start_byte"]
+            if coordinates[0] == coordinates[2] and span != coordinates[3] - coordinates[1]:
+                continue
+            if coordinates[0] != coordinates[2] and span < coordinates[2] - coordinates[0] + coordinates[3] - 1:
+                continue
+        result = {"file": caller_file, **{key: site[key] for key in keys}, "snippet": None, "provenance": "indexed"}
+        if has_bytes:
+            result.update(start_byte=site["start_byte"], end_byte=site["end_byte"])
+        identity = ((0, site["start_byte"], site["end_byte"], *coordinates) if has_bytes
+                    else (1, *coordinates, -1, -1))
+        valid[identity] = result
+    return [valid[key] for key in sorted(valid)]
+
 
 def code_callhierarchy_response(
     root: Path,
@@ -139,11 +183,6 @@ def code_callhierarchy_response(
 
     node = index.get_node(node_id) or {}
     definition_file = node.get("source_file") or (node_id.split("::")[0] if "::" in node_id else node_id)
-    _cloc = node.get("source_location") or "0:0"
-    try:
-        _current_start = int(str(_cloc).split(":")[0])
-    except (ValueError, IndexError):
-        _current_start = 0
 
     data: dict[str, Any] = {
         "symbol": symbol,
@@ -185,7 +224,7 @@ def code_callhierarchy_response(
         # properties, not node properties, so the callers below attach them.
         return {
             "name": label, "file": src, "line": None, "snippet": None,
-            "call_site": None,
+            "call_site": None, "call_sites": [],
             "node_id": nid, "kind": n.get("kind"),
             "community": c_label, "community_id": c_id, "_start_line": start_line,
         }
@@ -201,6 +240,14 @@ def code_callhierarchy_response(
         """
         entry["relation"] = edge.get("relation") or "calls"
         entry["confidence"] = edge.get("confidence")
+        # Invocation coordinates belong to this edge's caller, never a label scan.
+        caller_id = edge.get("source")
+        caller = (index.get_node(caller_id) or {}) if isinstance(caller_id, str) else {}
+        caller_file = caller.get("source_file") or (
+            caller_id.split("::", 1)[0] if isinstance(caller_id, str) else None)
+        sites = _edge_call_sites(edge, caller_file)
+        entry["call_sites"] = sites
+        entry["call_site"] = dict(sites[0]) if sites else None
         return entry
 
     # Accumulator for advice-pattern diagnostics emitted on the incoming branch.
@@ -227,31 +274,12 @@ def code_callhierarchy_response(
             if sek:
                 entry["self_edge_kind"] = sek
             out_entries.append((tgt, entry))
-        # Batch: scan definition_file once for all non-external callees
-        if definition_file:
-            callee_names = [
-                entry["name"] for tgt_id, entry in out_entries
-                if not tgt_id.startswith("external::")
-            ]
-            all_out_sites = _scan_all_call_sites_in_file(root, callee_names, definition_file)
-        else:
-            all_out_sites = {}
         outgoing: list[dict[str, Any]] = []
         external_outgoing_count = 0
         for tgt_id, entry in out_entries:
             is_external = tgt_id.startswith("external::") or entry.get("file") == "external"
             if not is_external and entry["_start_line"] > 0:
                 entry["line"] = entry["_start_line"]
-            if not is_external and definition_file:
-                sites = all_out_sites.get(entry["name"], [])
-                ref = _first_call_site_at_or_after(sites, _current_start)
-                if ref:
-                    # Definition and invocation belong to different files.
-                    # Keep the caller's text with its own source coordinates.
-                    entry["call_site"] = {
-                        "file": definition_file, "line": ref["line"],
-                        "snippet": ref.get("snippet"),
-                    }
             entry.pop("_start_line", None)
             if is_external:
                 external_outgoing_count += 1
@@ -276,9 +304,11 @@ def code_callhierarchy_response(
             sek = e.get("self_edge_kind")
             if sek:
                 entry["self_edge_kind"] = sek
+            if entry["call_site"]:
+                entry["line"] = entry["call_site"]["line"]
             incoming_raw.append((src, entry))
 
-        # Group by source file — scan each file once
+        # Group source files for the legacy Java receiver filter only
         by_file: dict[str, list[tuple[str, dict[str, Any]]]] = {}
         for src_id, entry in incoming_raw:
             f = entry.get("file", "")
@@ -309,17 +339,19 @@ def code_callhierarchy_response(
         _scan_label = node.get("label") or symbol
         _excluded_caller_ids: set[str] = set()
         for source_file, file_entries in by_file.items():
-            sites = _scan_call_sites_in_file(root, _scan_label, source_file)
-            if not sites:
-                continue
             _apply_receiver_filter = bool(
                 _expected_owner_class
                 and source_file.endswith(".java")
                 and not _receiver_filter_redundant
             )
+            if not _apply_receiver_filter:
+                continue
+            # Legacy scans may reject phantom callers, but cannot prove location.
+            sites = _scan_call_sites_in_file(root, _scan_label, source_file)
+            if not sites:
+                continue
             # Sort callers by their definition start line to attribute call sites correctly
             sorted_entries = sorted(file_entries, key=lambda x: x[1].get("_start_line", 0))
-            used_lines: set[int] = set()
             for i, (_src_id, entry) in enumerate(sorted_entries):
                 start_line = entry.get("_start_line", 0)
                 next_start = (
@@ -331,9 +363,8 @@ def code_callhierarchy_response(
                     r for r in sites
                     if (r.get("line") or 0) >= start_line
                     and (r.get("line") or 0) < next_start
-                    and (r.get("line") or 0) not in used_lines
                 ]
-                if _apply_receiver_filter and in_scope:
+                if in_scope:
                     # Phantom-caller test: if EVERY in-scope call site has a
                     # definitive receiver-type mismatch, this caller is a
                     # simple-name attribution phantom — exclude it.
@@ -345,23 +376,6 @@ def code_callhierarchy_response(
                     if not has_match_or_uncertain:
                         _excluded_caller_ids.add(_src_id)
                         continue
-                    # Keep only matching-or-uncertain refs for line attribution.
-                    in_scope = [
-                        r for r in in_scope
-                        if r.get("_receiver_type") is None
-                        or r.get("_receiver_type") == _expected_owner_class
-                    ]
-                if not in_scope:
-                    continue
-                ref = in_scope[0]
-                line = ref.get("line") or 0
-                entry["line"] = line
-                entry["snippet"] = ref.get("snippet")
-                entry["call_site"] = {
-                    "file": entry["file"], "line": line,
-                    "snippet": ref.get("snippet"),
-                }
-                used_lines.add(line)
         if _excluded_caller_ids:
             incoming_raw = [
                 (sid, entry) for sid, entry in incoming_raw
