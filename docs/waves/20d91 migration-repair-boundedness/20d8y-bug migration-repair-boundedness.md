@@ -156,4 +156,3 @@ New-only delivery-workflow lacks machine identity and cannot safely authorize au
 Planned; no code edited and no AC/task complete. Coordinator owns Prepare/Council and future activation. Read this file and wave.md for durable scope/evidence. Global handoff is coordinator-owned.
 
 Review routing note: requested lanes are scope-specific; Prepare's actual policy-derived requirements and current Council gate remain authoritative. Product-owner and other unrequested specialties are not independently mandatory absent policy selection or a justified material finding.
-
