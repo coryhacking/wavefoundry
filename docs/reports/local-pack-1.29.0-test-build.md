@@ -6,17 +6,17 @@ Last verified: 2026-10-10
 
 ## Current artifact
 
-`1.29.0+pvta`: `/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.29.0.pvta.zip`.
+`1.29.0+pvto`: `/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.29.0.pvto.zip`.
 
-- SHA256: `f1c75259619047fe1ff2737889fc0ae52a9f19fb5568053c1cd85022306da73d`.
-- Size: 10,449,854 bytes; 258 outer ZIP members.
+- SHA256: `3517c7e425e3f4c04b5eeaf0f3bac57a05542ea202f1d91f3366eb63d6c6e6b5`.
+- Size: 10,449,911 bytes; 258 outer ZIP members.
 - Includes the completed graph, fixture, Windows/CRLF, upgrade diagnostics and resilience changes closed in waves `2071o`, `2080c`, `20asl`, `20b39`, `20b3a` and `20b3b`, committed and pushed as `91578966` before packaging.
-- All 247 framework source members match the qualified source exactly. Outer and embedded feature CRCs, selection hashes, executable bridge sources, protocol metadata and MANIFEST inventory pass. Packed changelog equals the complete root 1.29.0 section; VERSION and prompt manifest both read `1.29.0+pvta`. Internal composition files were removed.
+- All 247 framework source members match the qualified source exactly. Outer and embedded feature CRCs, selection hashes, executable bridge sources, protocol metadata and MANIFEST inventory pass. Packed changelog equals the complete root 1.29.0 section; VERSION and prompt manifest both read `1.29.0+pvto`. Internal composition files were removed.
 - Tests, runner, receipts, indexes, bytecode caches, benchmark captures and private wave records are absent. This is a local feature-only pack; no model asset, tag or GitHub release was built.
 
 ## Qualification
 
-Framework hash stayed `1b296ff8983a72a297a04f22e9f4b35dd68ccdeadfd392cc8f3dff32136b0640` through qualification, packaging and stamp copyback. Packaging used the operator-authorized isolated checkout, public tracked files and two test workers, with bytecode caching disabled. Required docs/garden/manifest gates remained enabled.
+Framework hash stayed `1b296ff8983a72a297a04f22e9f4b35dd68ccdeadfd392cc8f3dff32136b0640` through qualification, packaging and stamp copyback. The new local build reused all three complete execution-origin qualification reports after verifying unchanged framework inputs, worker inventory and exact skip comparisons. The qualified source is unchanged from pvta; only the build stamp is new. Tests used the operator-authorized isolated checkout and two workers, with bytecode caching disabled. Packaging used the clean source checkout before creating the next waves. Required docs/garden/manifest gates remained enabled.
 
 | Check | Result |
 | --- | --- |
@@ -38,4 +38,4 @@ Three replaceable execution-origin reports remain under ignored `.wavefoundry/ca
 
 ## Previous artifact
 
-`1.29.0+pvqp`, SHA256 `775f1f1536040424b8f413af6ca476043d876a2bcb702cf9258b00febeed14f4`, predates `20b39`, `20b3a` and `20b3b`. Its default/second/declared runs passed for source hash `c8d6a4134e202a505142cdd7ac3958048682eec85fad6207da27ac3671ffc88e`; those results do not qualify the current source. Older waived builds do not supply authority for pvta.
+`1.29.0+pvqp`, SHA256 `775f1f1536040424b8f413af6ca476043d876a2bcb702cf9258b00febeed14f4`, predates `20b39`, `20b3a` and `20b3b`. Its default/second/declared runs passed for source hash `c8d6a4134e202a505142cdd7ac3958048682eec85fad6207da27ac3671ffc88e`; those results do not qualify the current source. Older waived builds do not supply authority for pvto.
