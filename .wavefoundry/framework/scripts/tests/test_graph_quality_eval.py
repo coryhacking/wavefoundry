@@ -1006,7 +1006,15 @@ class ShippedReportPairTests(unittest.TestCase):
         self.assertEqual(self.post["relations"], fresh["relations"])
         self.assertEqual(self.post["totals"], fresh["totals"])
         self.assertEqual(self.post["corpus"]["digest"], fresh["corpus"]["digest"])
-        self.assertEqual(self.post["builder_versions"], fresh["builder_versions"])
+        # Preserve the builder-55 report's historical provenance. Builder 56
+        # changes Rust crate paths; this corpus has no Rust files. All quality
+        # results above and all other builder dimensions still compare exactly.
+        corpus = json.loads(CORPUS.read_text(encoding="utf-8"))
+        self.assertFalse(any(path.endswith(".rs") for path in corpus["files"]))
+        self.assertEqual(self.post["builder_versions"]["graph_builder_version"], "55")
+        self.assertEqual(fresh["builder_versions"]["graph_builder_version"], "56")
+        self.assertEqual(self.post["builder_versions"],
+                         {**fresh["builder_versions"], "graph_builder_version": "55"})
 
     def test_both_shipped_reports_describe_the_shipped_evaluator(self):
         # Requirement 9's reports must describe the instrument that ships, not
@@ -1301,8 +1309,8 @@ class GraphParityBaselineFixtureTests(unittest.TestCase):
         # precisely the eight Python invocation spans below on this corpus.
         # Verify them and their resulting fingerprint BEFORE projecting only
         # that additive metadata back to the historical comparison surface.
-        self.assertEqual(sections["graph"]["builder_version"], "55")
-        self.assertEqual(sections["communities"]["graph_builder_version"], "55")
+        self.assertEqual(sections["graph"]["builder_version"], "56")
+        self.assertEqual(sections["communities"]["graph_builder_version"], "56")
         self.assertEqual(sections["graph"]["call_integrity"], {
             "non_callable_call_targets": 0,
             "callable_wins_collisions": 0,

@@ -6,21 +6,17 @@ Last verified: 2026-10-11
 
 ## Current Session
 
-**Active wave:** None. All seven completed waves are closed.
+**Active wave:** *(none)*
 
-**Last closed wave:** `20dkl docs-line-ending-follow-through`: gardener newline preservation and managed docs LF checkout defaults.
+**Last closed:** `20e38 rust-cross-module-binding` — exact crate-relative Rust free calls and scoped aliases bind to unique targets, retain stored invocation sites and re-resolve after topology changes; builder 56. Prior memory wave `20e12` fixes the already-handled terminal batch. Both are closed with required typed approvals; canonical qualification passed 12,352 tests/185 files, 12 existing skips, with a matching green receipt.
 
-**Done:** Closed `20bw2`, `20cw2`, `20dkg`, `20d90`, `20d91`, `20d92` and `20dkl` after reconciling every AC/task, required independent delivery approval, terminal repair finding, memory/retrospective checkpoint and current green test receipt. Canonical behavior, evidence anchors and limitations remain in their wave records and authoritative ledgers; no new evidence folder was created. Private source reports remain outside commits. Removed 2,011,098,863 bytes of verified duplicate temporary checkouts/caches. Historical dirty-tree copies are compact baselines with reconstruction inventories; original pre-wave/pre-repair files and the unique retrieval database remain. Cited proof paths are preserved. The separate planned `20e63` document is preserved without implementation or closure.
+**Current work:** Operator authorized commit/push, then another local 1.29.0 test pack. Closure and cleanup are complete; source publication and packaging are in progress. All edit gates are closed. Unique proof remains temporary, with concise durable outcomes in the wave records.
 
-**Next:** Operator local testing with `1.29.0+pvyg`. Source/closures are committed as `6717540a`, cleanup/handoff as `2d079a8f`, and build stamps/report in the final build-record commit. No push, tag or published release was requested. The separate `20e63` plan remains a draft.
+**Build:** Existing 1.29.0+pvyg predates both repairs. The next local pack must carry the updated 1.29.0 changelog and qualify the distribution profiles. No release/tag or live consumer upgrade was requested.
 
-**Files touched:** Framework gardener, renderers, contained qualification publication, qualification reader/worker, review-policy guidance, lint prediction, associated tests, rendered hook/prompt surfaces, root attributes/changelog and canonical architecture/contributor docs. Full scope is recorded in the seven closed waves.
+**Workflow follow-up:** Operator wants routine ledger/progress updates to preserve completed review and qualification authority. Current approval evaluator distinguishes affected findings; the repository-change guard conflates test leaks and concurrent bookkeeping. Recommended follow-up is a prepared, verified qualification snapshot and explicit material-change-only review reuse, with no extra gates/files. No runner or policy change is included in this pack.
 
-**Test state:** All three packaging profiles passed all 185 files: default 12,336 tests /12 skips; second 12,328 /28; declared 12,336 /12. Exact skip comparisons passed with 16 marked default-only extras and no declared differences. Genuine receipt `2026-10-11T18:42:48.975913+00:00` is current for `de46cb4635a4aea5ea516912ce587ce911fd0958abd07c25fe80c1c0796cdc22` and was transferred byte-identically. Packaging docs/garden/manifest gates passed; see the existing local-pack report for details.
-
-**Local test pack:** `1.29.0+pvyg` at `/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.29.0.pvyg.zip`; SHA256 `f8f08baa3a18680c541a66f89896eabfd7b6f70b2d01160be141df63f5e0a630`. Built once from `2d079a8f` with all gates enabled. Existing bootstrap/model policy is unchanged; no release/tag/model asset was built. Disposable package checkout removed after verified durable artifact/report transfer; compact logs remain temporary.
-
-**Limits:** Native Windows, complete live consumer upgrade, live host/index behavior and actual model/network downloads remain unqualified. The 20dkl translation simulation is not a native Windows result. Loaded MCP reports changed framework/setup inputs; use current-file reads and fresh CLI execution, then restart/reconnect and inspect readiness before relying on loaded indexing. No manual setup/rebuild/reload was run. Source/seed edit gates are closed.
+**Other pending work:** Older unadmitted plans `1p30y`, `1p310`, `1rolq`, `1rppn`, `1rtar`, `1wq0b` remain outside this task. Generic Rust turbofish extraction remains a disclosed coverage limit; native Windows, complete Rust/Cargo resolution and live consumer/index qualification were not performed.
 
 ## Open questions / Deferred decisions
 

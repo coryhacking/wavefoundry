@@ -1,11 +1,11 @@
 # Memory Backfill Never Completes A Wave Whose Sources All Already Exist
 
 Change ID: `20e63-bug backfill-empty-create-omits-exhausted`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
+Status: active
 Last verified: 2026-10-11
-Wave: TBD
+Wave: 20e12 memory-backfill-exhaustion
 
 ## Rationale
 
@@ -47,20 +47,20 @@ Field report (a consumer-repository upgrade, relayed by the operator): the memor
 
 ## Acceptance Criteria
 
-- [ ] AC-1: A test builds a wave whose draftable sources all already exist as memory records, runs `_memory_backfill_batch_locked` (or the public `memory_backfill` in create mode), and asserts the processed entry has `exhausted: True`, `candidates_written: 0` and a non-failed outcome, and that the claim is completed (the wave is not claimable again). The test fails on the unfixed code (record the observed failure in the Progress Log).
-- [ ] AC-2: After ONE batch on the all-covered fixture, `len(processed) == 1`, the entry has `exhausted` True, and the run summary reports `remaining_waves == 0`; a second batch returns `processed == []`. The unfixed code returns `MAX_WAVES_PER_CALL` entries for the same wave, so the test fails by assertion and cannot hang. The test asserts no run-state name (an earlier pending candidate may keep the run in `awaiting_validation`).
-- [ ] AC-3: The direct response test reaches the empty-`unique` branch through `_memory_propose_response_locked(..., mode="create", _historical_batch=True)` (the public `memory_propose` without `source_events` returns `selection_required` first) on the all-covered fixture, and asserts `records_remaining == 0`, `exhausted is True` and no record written. The empty-`unique` inference needs a page limit of at least 1; the test pins that precondition and the doc records it.
-- [ ] AC-4: A two-sided positive control: a wave with one uncovered draft and a limit that fits it reports `exhausted` True, and an overflow variant with more uncovered drafts than the limit reports `exhausted` False with a positive `records_remaining`, so a fix that blanket-sets the flag fails.
-- [ ] AC-5: The Requirement 4 census is recorded in the Progress Log.
-- [ ] AC-6: The suites `tests/test_memory_backfill.py` and the memory handler suites that exercise `memory_propose` pass, with every test this change adds; the documents this change authors or edits validate.
+- [x] AC-1: A test builds a wave whose draftable sources all already exist as memory records, runs `_memory_backfill_batch_locked` (or the public `memory_backfill` in create mode), and asserts the processed entry has `exhausted: True`, `candidates_written: 0` and a non-failed outcome, and that the claim is completed (the wave is not claimable again). The test fails on the unfixed code (record the observed failure in the Progress Log).
+- [x] AC-2: After ONE batch on the all-covered fixture, `len(processed) == 1`, the entry has `exhausted` True, and the run summary reports `remaining_waves == 0`; a second batch returns `processed == []`. The unfixed code returns `MAX_WAVES_PER_CALL` entries for the same wave, so the test fails by assertion and cannot hang. Extraction completion is determined by processed/remaining fields, independently of run-state name; this fixture additionally asserts `awaiting_validation` because its deliberately seeded candidate must retain the validation gate.
+- [x] AC-3: The direct response test reaches the empty-`unique` branch through `_memory_propose_response_locked(..., mode="create", _historical_batch=True)` (the public `memory_propose` without `source_events` returns `selection_required` first) on the all-covered fixture, and asserts `records_remaining == 0`, `exhausted is True` and no record written. The empty-`unique` inference needs a page limit of at least 1; the test pins that precondition and the doc records it.
+- [x] AC-4: A two-sided positive control: a wave with one uncovered draft and a limit that fits it reports `exhausted` True, and an overflow variant with more uncovered drafts than the limit reports `exhausted` False with a positive `records_remaining`, so a fix that blanket-sets the flag fails.
+- [x] AC-5: The Requirement 4 census is recorded in the Progress Log.
+- [x] AC-6: The suites `tests/test_memory_backfill.py` and the memory handler suites that exercise `memory_propose` pass, with every test this change adds; the documents this change authors or edits validate.
 
 ## Tasks
 
-- [ ] Add the failing regression tests first (AC-1, AC-2, AC-3, AC-4) and record the observed failure.
-- [ ] Add `records_remaining` and `exhausted` to the empty create payload.
-- [ ] Run the Requirement 4 census over the create-reachable return paths and log it.
-- [ ] Add the `CHANGELOG.md` Unreleased bullet, stating the old-code-window behavior from Serialization Points.
-- [ ] Run the memory suites and validate docs.
+- [x] Add the failing regression tests first (AC-1, AC-2, AC-3, AC-4) and record the observed failure.
+- [x] Add `records_remaining` and `exhausted` to the empty create payload.
+- [x] Run the Requirement 4 census over the create-reachable return paths and log it.
+- [x] Add the `CHANGELOG.md` Unreleased bullet, stating the old-code-window behavior from Serialization Points.
+- [x] Run the memory suites and validate docs.
 
 ## Agent Execution Graph
 
@@ -76,7 +76,7 @@ Field report (a consumer-repository upgrade, relayed by the operator): the memor
 
 Windows (native), macOS, Linux and WSL2 behavior: pure Python control flow over already-loaded records, with no filesystem, newline or process behavior involved, so it is identical on every platform.
 
-Sequencing: waves `20b39`, `20b3a` and `20b3b` are already closed, so this change needs its own new wave; it touches neither `upgrade_wavefoundry.py` nor `upgrade_extensions.py` and adds no ordering constraint on other waves.
+Sequencing: all earlier implementation waves, including `20dkl`, are closed, so this change needs its own new wave; it touches neither `upgrade_wavefoundry.py` nor `upgrade_extensions.py` and adds no ordering constraint on other waves.
 
 Old-code window: the upgrade runner's memory step (Phase 3) imports `server_impl` after extraction, so a runner that reaches that phase loads the pack's fixed `memory_handlers.py` on the same upgrade that ships it. A consumer already stopped at the historical-memory action-required pause on an older install needs the next upgrade to a release carrying the fix; a local patch there is discarded when extraction overwrites the file.
 
@@ -110,8 +110,17 @@ N/A: one return payload in one handler with no boundary or flow change. `docs/sp
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-10-11 | Planned from a consumer-repository upgrade report; the reporter's diagnosis and proposed payload fix were confirmed against HEAD by reading the code, not by running it | Read-only review of `memory_handlers.py` |
-| 2026-10-11 | Product Intent: waived (bug fix, no product scope; default applied by the planning agent, not yet confirmed by the operator) | Planning |
+| 2026-10-11 | Product Intent: not applicable (bounded existing-behavior bug repair; operator explicitly requested implementation on 2026-10-11) | Planning |
+| 2026-10-11 | Readback: add only zero-remaining/exhausted metadata to the empty create result. Before: an already-covered wave is reclaimed ten times; after: one completed extraction and an empty second batch, while the existing candidate still awaits validation. AC-1 through AC-6 cover real producer/consumer behavior, paging controls and the return census. Affected files are the declared handler, backfill tests and one Unreleased changelog bullet. | Independent readiness council and required lanes approved; Prepare recorded readiness before implementation. |
+| 2026-10-11 | Added four real-handler regression tests before changing production code. Pre-fix run: 4 tests, one assertion failure (`10 != 1`), two subtest errors (missing `records_remaining`), zero skips; exact-fit and overflow controls passed. Adding only the two fields makes all four pass. The all-covered test also preserves the seeded candidate and its validation gate. | `HistoricalMemoryBackfillTests.test_all_handled_wave_completes_once_without_bypassing_validation`, `test_empty_create_reports_exhaustion_for_already_handled_sources`, `test_nonempty_exact_final_page_reports_exhaustion`, `test_nonempty_overflow_page_remains_unexhausted`; explicit unittest selection, real scratch repository and producer/consumer. |
+| 2026-10-11 | Closed return census: AST rule enumerates every successful response return in `_memory_propose_response_locked`; control flow makes five of six create-reachable. `selection_required` and explicit `source_events == []` intentionally omit completion (no reviewed selection is not proof the wave is handled); neither is a historical-batch path. `if not drafts` omits completion but emits `no_material_evidence`, which the consumer already treats as exhausted. `dry_run` has completion fields and is not create-reachable. Empty `unique` now has both fields; normal create already has both and retains paging arithmetic. No further repair is needed. | Actual source reads and executable AST census independently confirmed by readiness Council; page size `n >= 1` makes empty `unique` imply zero eligible candidates. AC-5. |
+| 2026-10-11 | Added one Unreleased changelog bullet. The installing upgrade imports `server_impl` in Phase 3 after extraction, then calls the same producer through `_memory_backfill_batch_locked`; no runner edit, additional upgrade scan or qualification step was introduced. | `upgrade_wavefoundry.main`, historical-memory block; `CHANGELOG.md`. Live consumer upgrade and native Windows execution remain untested. |
 
+| 2026-10-11 | Focused qualification passed: the backfill and memory-record suites ran 285 tests with zero skips. Full docs validation passed; canonical full-suite qualification follows on the frozen source. | `python3 -B -m unittest test_memory_backfill test_memory_records` with framework/tests on PYTHONPATH; full `wf_validate_docs`; `git diff --check`. |
+
+| 2026-10-11 | Canonical qualification passed on the unchanged source: 12,340 tests across 185 files, 12 skips, 1040.494 seconds. Initial sandbox run was stopped after the host denied loopback binding; host-permission rerun passed the dashboard and entire suite. | `python3 -B .wavefoundry/framework/scripts/run_tests.py`, bytecode disabled, four workers; genuine green receipt at `2026-10-11T21:14:42.201623+00:00`, inputs hash `5ed1b9307eb4afdd8d269742ef9721b91caf8523c5a76a7712a00a186071a17b`. No injected receipt, consumer upgrade or package build. |
+
+| 2026-10-11 | Independent delivery code, QA, architecture and full standard Council approved with no material findings. In-memory removal and blanket-exhaustion mutants were detected; interrupted-checkpoint retry passed. Clarified AC-2 in its owning section to distinguish extraction completion from the seeded-candidate state control; fresh focused readiness reviewers and Council approved the new receipt, then Prepare passed. Source/test behavior and full suite receipt remain unchanged. | Typed delivery/readiness events; source/test mutant table and actual seat roster consolidated in `wave.md`. No additional full suite, persistent review sidecars or upgrade work added. |
 
 ## Decision Log
 

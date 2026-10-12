@@ -9156,7 +9156,7 @@ class GraphBuilderVersionTests(unittest.TestCase):
     """Wave 1p4ls AC-3: the node/edge shape changed (constant nodes + reads edge) so the builder
     version is bumped, forcing a full re-extract against any older cache."""
 
-    def test_graph_builder_version_is_55(self):
+    def test_graph_builder_version_is_56(self):
         # 1p4ls bumped 25→26 (constant nodes + reads edge); 1p4q4 bumped 26→27 (TS enum member nodes);
         # 1p4q4 review bumped 27→28 (namespace-prefixed enum members + short-symbol-prune exemption);
         # 1p4up bumped 28→29 (member-access constant reads — new function→constant `reads` edges);
@@ -9244,7 +9244,7 @@ class GraphBuilderVersionTests(unittest.TestCase):
         # Wave 1x5tq (1x8e1): unresolved doc targets persist for selective retries.
         # Wave 203pu (201wg) bumped 52->53: an unowned member call keeps its
         # external target and carries `unowned_member_call`.
-        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "55")
+        self.assertEqual(load_graph_indexer().GRAPH_BUILDER_VERSION, "56")
 
 
 class OversizedTreeSitterGuardTests(unittest.TestCase):

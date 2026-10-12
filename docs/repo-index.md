@@ -35,7 +35,7 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 20219 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 20223 |
 | wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1503 |
 | 1xny3 sqlite-graph-consolidation-evaluation/graph_eval | `.wavefoundry/framework/scripts` | code | 520 |
 | upgrade | `.wavefoundry/framework/scripts` | code | 480 |

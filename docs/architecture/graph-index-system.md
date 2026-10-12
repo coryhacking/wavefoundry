@@ -2,11 +2,11 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-10
+Last verified: 2026-10-11
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
-> **Line citations** in older sections reference the `GRAPH_BUILDER_VERSION="29"`-era source (waves 1p4ls/1p4q4/1p4up); the current constant is `"55"` (wave `2071o`). Line numbers shift on builder version bumps — use function names as stable anchors when citing across versions.
+> **Line citations** in older sections reference the `GRAPH_BUILDER_VERSION="29"`-era source (waves 1p4ls/1p4q4/1p4up); the current constant is `"56"` (wave `20e38`). Line numbers shift on builder version bumps — use function names as stable anchors when citing across versions.
 
 ---
 
@@ -188,6 +188,11 @@ The registry contains Python plus 26 tree-sitter language/format profiles. Fifte
 
 **Decision note — same-scope disambiguation tier by language (wave `1p9q5` adds Rust).** The same-scope disambiguation tier — an ambiguous receiver type binds to a same-name candidate ONLY when a language-defined scope key matches, unique-survivor, refuse-on-ambiguity — now covers **Java/Kotlin/Go/C#/Rust**. Python/JS/TS deliberately **refuse** this tier (no directory/scope proxy for visibility; a standing decision, not a gap). For **Rust** (wave `1p9q5`), the scope key is a **crate-relative module path**, not a directory: `_build_rust_module_index` BFS-maps files to module paths from `mod foo;` declarations (harvested onto each `.rs` module node as `rust_mod_decls`) and `_rust_module_key` composes the file-module path with an inline-`mod {}` nesting suffix (`rust_inline_mods`), also honoring `#[path]` relocation, the crate root, and a per-file identity fallback for unreachable/ambiguous files (never a guessed parent). The `.rs` tier binds a receiver to a same-module definition only, ordered AFTER explicit-import disambiguation (which wins first). **Bounds:** no cross-crate resolution and no re-export (`pub use`) graph — a `use` re-export chain is not followed. On current-era repos the tier produces near-zero productive end-to-end binds (a Rust module ≈ one file, and same-file same-module calls already resolve at extraction via `symbol_lookup`); the durable deliverable is the module-path model plus the `rust_mod_decls`/`rust_inline_mods` node properties. C# was verify-and-close in the same wave (`_cs_ns`/`cs_file_ns` already normalize `namespace A.B;`, block, and nested declaration styles to one key; a file-scoped-namespace class carries no namespace prefix and does not participate in the C# tier).
 
+
+**Explicit Rust crate paths (wave `20e38`).** Direct `crate::module::function()` calls and visible imported aliases bind only to one indexed free-function definition at the complete path in the caller's unique crate. `_RustLexicalFacts` records scoped imports and ordered local/parameter/closure and match/conditional-pattern bindings once per file; imports are hoisted within their block or module, and child modules do not inherit parent uses. Match bindings stay within their arm; conditional bindings begin after their initializer, cover later let-chain conditions and the body, and do not enter an `else` or following statements. Each invocation retains a private proven-path or terminal-refusal marker in its extraction fragment. The marker is removed from published edges; stored expression spans and repeated occurrences remain intact. Non-project imports, shadowed or competing aliases, missing targets and ambiguous module ownership remain external without leaf-name fallback. The existing type-shaped `new` construction convention uses exact unique declared class paths for explicit crate calls; a module free function named `new` still uses the free-function path. Other associated/trait resolution and the global computed-receiver guard remain separate.
+
+`_build_rust_crate_context` builds ownership and complete target lookups once per changed merge, from the whole merged node set. Roots are indexed `lib.rs`/`main.rs` files; declared file modules and inline qualification establish paths. Shared files, cycles, duplicate paths and competing `name.rs`/`name/mod.rs` candidates refuse promotion. Changed module facts invalidate untouched explicit callers; callee changes use symbol deltas. A zero-change merge keeps the existing fast path. This bounded model does not discover Cargo roots/dependencies, expand macros, follow re-export/glob chains, resolve general `self`/`super` imports, or implement Rust type checking. Inline-module `#[path]` relocation remains unsupported; absolute, drive-prefixed, backslash and repository-escaping overrides are refused. Builder 56 refreshes older fragments through the existing invalidation path; no eager upgrade build or live consumer qualification is implied.
+
 ---
 
 ## Generation Pipeline (`graph_indexer.py`)
@@ -198,12 +203,12 @@ Four constants gate incremental reuse (`graph_indexer.py:27-37`):
 
 ```
 GRAPH_SCHEMA_VERSION  = "1"
-GRAPH_BUILDER_VERSION = "55"   # 55: Python/shared tree-sitter invocation coordinates; 54: Rust occurrence provenance; prior changes are recorded in CHANGELOG.md
+GRAPH_BUILDER_VERSION = "56"   # 56: scoped Rust crate-path free calls; 55: Python/shared tree-sitter invocation coordinates; 54: Rust occurrence provenance; prior changes are recorded in CHANGELOG.md
 ```
 
 The community-clustering layer (`graph_cluster.py`) carries its own `CLUSTER_BUILDER_VERSION = "12"` (10: seeded-RNG determinism + grab-bag split; 11: build-time betweenness section + `input_fingerprint` key, wave `1p9q3`).
 
-A supported forward version change in `schema_version`, `builder_version`, `walker_version`, or `chunker_version` forces re-extraction. `GraphStateStore.ensure_current()` records reset intent and presents empty extraction state; `update_graph_index()` widens the changed set. Scoped replacement of file records and merge state occurs inside the publication transaction, so the previous graph stays readable until commit. Newer or malformed populated versions are refused without reset. Builder 55 uses this ordinary invalidation path; it adds no eager upgrade scan or storage schema.
+A supported forward version change in `schema_version`, `builder_version`, `walker_version`, or `chunker_version` forces re-extraction. `GraphStateStore.ensure_current()` records reset intent and presents empty extraction state; `update_graph_index()` widens the changed set. Scoped replacement of file records and merge state occurs inside the publication transaction, so the previous graph stays readable until commit. Newer or malformed populated versions are refused without reset. Builder 56 uses this ordinary invalidation path; it adds no eager upgrade scan or storage schema.
 
 The exact operational-evidence policy transition `16` → `17` is an exception to
 walker-triggered re-extraction. The index coordinator first proves unchanged published

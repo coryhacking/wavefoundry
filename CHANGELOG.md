@@ -8,7 +8,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [1.29.0]
 
-**Operator-action note: graph builder version 52 -> 55.** The first graph query after upgrading runs a one-time synchronous graph rebuild; its duration depends on the repository. This invalidates graphs extracted with the old member-call binding and Rust method identities, and regenerates call-site provenance for ordinary Python AST and supported tree-sitter call expressions. Expect some call edges that previously targeted a project function to become `external::` targets carrying `unowned_member_call`, and fan-in rankings for commonly named functions to drop. Every tree-sitter language is affected where a member call has a computed receiver (a call result or subscript); Rust `.` and C/C++ `->` on non-`self` plain identifier receivers are also affected (C/C++ `.` is not). Python target resolution is unchanged. No eager repository rebuild or extra upgrade scan is added.
+**Operator-action note: graph builder version 52 -> 56.** The first graph query after upgrading runs a one-time synchronous graph rebuild; its duration depends on the repository. This invalidates graphs extracted with the old member-call binding and Rust method identities, and regenerates call-site provenance for ordinary Python AST and supported tree-sitter call expressions. Expect some call edges that previously targeted a project function to become `external::` targets carrying `unowned_member_call`, and fan-in rankings for commonly named functions to drop. Every tree-sitter language is affected where a member call has a computed receiver (a call result or subscript); Rust `.` and C/C++ `->` on non-`self` plain identifier receivers are also affected (C/C++ `.` is not). Python target resolution is unchanged. No eager repository rebuild or extra upgrade scan is added.
 
 ### Added
 
@@ -108,6 +108,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The journal migration preview no longer executes the distribution's declaration module; it reads the declaration statically. Upgrade extension helpers no longer leave the target's framework scripts directory on the module search path, and dry-run preview logs are never written through a link that leaves the repository. The review status now shows bracket characters in a self-attested approver name as replacement characters, so it cannot show a misleading handle; recorded approvals are unchanged. Reported by the Waveforge maintainers. Wave 200ey / 200ev.
 
 ### Fixed
+
+- Rust direct crate-qualified free calls and scoped import aliases bind to unique indexed crate/module definitions while preserving stored invocation sites. Shadowed/non-project aliases and ambiguous paths stay external; unchanged callers re-resolve after module topology changes. Graph builder 56 uses the existing one-time refresh path, with no eager upgrade build. Wave 20e38 / 20e13.
+
+- Historical memory backfill completes an already-covered wave after one zero-write extraction instead of repeatedly claiming it. Existing candidates still require validation and publication. The upgrade memory step loads this repair from the newly extracted framework; an install already paused on older code needs a fixed pack, which replaces any temporary local patch. Wave 20e12 / 20e63.
 
 - Gardener metadata and manifest writes preserve existing consistent LF/CRLF endings and create fresh files as LF. Generated docs LF checkout defaults precede project exceptions and leave launcher/batch policy unchanged; malformed docs-default markers refuse before attributes publication. No automatic renormalization or conversion hook. Wave 20dkl / 20dkk.
 - Qualification report parsing handles excessive JSON nesting and resource exhaustion; publication refuses final-component link swaps. Worker markers remain non-authoritative and visible to test code. Wave 20d90 / 20cyo.

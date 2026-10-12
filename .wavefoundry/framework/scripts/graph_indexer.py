@@ -41,7 +41,7 @@ except ImportError:  # pragma: no cover - exercised when tree-sitter is not inst
     _TSParser = None  # type: ignore[assignment]
 
 GRAPH_SCHEMA_VERSION = "1"
-GRAPH_BUILDER_VERSION = "55"
+GRAPH_BUILDER_VERSION = "56"
 # 52 (1xtnq): callable identity, receiver provenance and lexical Java scope.
 # 52 (1xtns): structural callee leaves and malformed-external refusal.
 # 53 (201wg): unowned member calls stay external (`unowned_member_call`).
@@ -5224,9 +5224,28 @@ class _RustLexicalFacts:
         self.bindings: dict[tuple[int, int], dict[str, list]] = {}
         self.constants: dict[tuple[str, str], list[str | None]] = {}
         self.binding_positions: dict[tuple[int, int], dict[str, list[int]]] = {}
+        self.imports: dict[tuple[int, int], dict[str, list[str]]] = {}
+        self.import_names: set[str] = set()
+        self.items: dict[tuple[int, int], set[str]] = {}
         stack = [root]
         while stack:
             node = stack.pop()
+            if node.type == "use_declaration":
+                scope = self.item_scope(node)
+                if scope is not None:
+                    names = self.imports.setdefault((scope.start_byte, scope.end_byte), {})
+                    for name, target in _rust_use_imports(node, source_bytes):
+                        self.import_names.add(name)
+                        names.setdefault(name, []).append(target)
+            elif node.type in ("function_item", "const_item", "static_item"):
+                scope, name = self.item_scope(node), node.child_by_field_name("name")
+                if scope is not None and name is not None:
+                    self.items.setdefault((scope.start_byte, scope.end_byte), set()).add(self.text(name))
+            elif node.type == "closure_parameters":
+                # Untyped closure parameters are patterns, not `parameter` nodes.
+                for pattern in node.named_children:
+                    if pattern.type != "parameter":
+                        self._bind(node.parent, pattern, node)
             if node.type in ("let_declaration", "parameter"):
                 pattern = node.child_by_field_name("pattern")
                 scope = node.parent
@@ -5235,6 +5254,24 @@ class _RustLexicalFacts:
                 self._bind(scope, pattern, node)
             elif node.type == "for_expression":
                 self._bind(node.child_by_field_name("body"), node.child_by_field_name("pattern"), node)
+            elif node.type == "match_arm":
+                pattern = node.child_by_field_name("pattern")
+                if pattern is not None:
+                    guard = pattern.child_by_field_name("condition")
+                    for part in pattern.named_children:
+                        if part != guard:
+                            self._bind(node, part, node)
+            elif node.type == "let_condition":
+                owner = node.parent
+                while owner is not None and owner.type not in ("if_expression", "while_expression"):
+                    owner = owner.parent
+                if owner is not None:
+                    pattern = node.child_by_field_name("pattern")
+                    body = owner.child_by_field_name("consequence" if owner.type == "if_expression" else "body")
+                    self._bind(body, pattern, node)
+                    # In a let chain only later conditions see this binding;
+                    # its own initializer and an `else` still see outer names.
+                    self._bind(owner.child_by_field_name("condition"), pattern, node)
             elif node.type == "const_item":
                 owner = _find_enclosing_rust_impl_type(node, source_bytes)
                 name = node.child_by_field_name("name")
@@ -5249,11 +5286,61 @@ class _RustLexicalFacts:
                 positions[name] = [self.visible_at(declaration) for declaration in declarations]
 
     @staticmethod
+    def item_scope(node):
+        scope = node.parent
+        while scope is not None and scope.type not in ("source_file", "declaration_list", "block"):
+            scope = scope.parent
+        return scope
+
+    def free_call(self, call):
+        """(spelling, proven crate path) or None for the existing receiver lane.
+
+        An empty path is a terminal refusal, retained in fragment provenance.
+        Imports are hoisted within their module/block; value bindings are
+        ordered. Closures can capture bindings, but modules do not inherit uses.
+        """
+        callee = call.child_by_field_name("function")
+        if callee is None:
+            return None
+        if callee.type == "scoped_identifier":
+            parts = self.text(callee).split("::")
+            if parts[0] == "crate":
+                path = ".".join(parts)
+                valid = all(re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", p) for p in parts)
+                return path, path if valid else ""
+            return None
+        if callee.type != "identifier":
+            return None
+        name = self.text(callee)
+        scope = call.parent
+        while scope is not None:
+            key = (scope.start_byte, scope.end_byte)
+            positions = self.binding_positions.get(key, {}).get(name, ())
+            if bisect.bisect_right(positions, call.start_byte):
+                return name, ""
+            imports = self.imports.get(key, {}).get(name, ())
+            items = self.items.get(key, ())
+            if imports:
+                if len(imports) == 1 and name not in items:
+                    path = imports[0]
+                    return path, path if path.startswith("crate.") else ""
+                return name, ""
+            if name in items:
+                # The generic extractor's file-wide alias table precedes its
+                # symbol lookup. Do not let it reinterpret a local item as a use.
+                return (name, "") if name in self.import_names else None
+            if scope.type in ("source_file", "mod_item"):
+                break
+            scope = scope.parent
+        # No import may be borrowed from another function, sibling block/module.
+        return (name, "") if name in self.import_names else None
+
+    @staticmethod
     def visible_at(declaration):
         # A let's own initializer sees the prior binding, even with an
         # explicit annotation on the new binding. Loop bindings are stored
         # in the body scope only; parameters precede the function body.
-        return declaration.end_byte if declaration.type == "let_declaration" else declaration.start_byte
+        return declaration.end_byte if declaration.type in ("let_declaration", "let_condition") else declaration.start_byte
 
     def text(self, node):
         return self.source[node.start_byte:node.end_byte].decode("utf-8", "replace")
@@ -10861,6 +10948,89 @@ def _rust_module_key(
     return base
 
 
+def _build_rust_crate_context(node_map: dict[str, dict[str, Any]]) -> dict:
+    """Unique file ownership and complete free-function paths, once per merge.
+
+    Each file is visited at most twice: one unique ownership, then an ambiguous
+    ownership propagated to descendants. Cycles/shared files never expand an
+    unbounded set of paths. No source reads or Cargo assumptions are involved.
+    """
+    files = {nid: node for nid, node in node_map.items()
+             if nid.endswith(".rs") and "::" not in nid}
+    children: dict[str, list[tuple[str, str]]] = {}
+    blocked_by_file: dict[str, set[str]] = {}
+    for file, node in files.items():
+        decls = node.get("rust_mod_decls", ())
+        counts: dict[str, int] = {}
+        for path in node.get("rust_inline_mods", ()):
+            counts[path] = counts.get(path, 0) + 1
+        for decl in decls:
+            path = decl.get("module_path")
+            if path:
+                counts[path] = counts.get(path, 0) + 1
+        blocked = blocked_by_file[file] = {path for path, count in counts.items() if count > 1}
+        for decl in decls:
+            path = decl.get("module_path")
+            if not path or any(".".join(path.split(".")[:i]) in blocked for i in range(1, len(path.split(".")) + 1)):
+                continue
+            inline, _, name = path.rpartition(".")
+            child_dir = _rust_child_dir(file)
+            if inline:
+                child_dir = _rust_norm_join(child_dir, inline.replace(".", "/"))
+            override = decl.get("path")
+            if override:
+                # Inline #[path] directory rules are intentionally unsupported.
+                # The legacy join clamps leading `..`; prove containment before
+                # using it, so an absent outside module cannot alias this repo.
+                depth = len(file.split("/")) - 1
+                escaped = False
+                for part in override.split("/"):
+                    depth += -1 if part == ".." else int(part not in ("", "."))
+                    escaped = escaped or depth < 0
+                unsafe_override = escaped or override.startswith("/") or "\\" in override or bool(re.match(r"^[A-Za-z]:", override))
+                candidates = [] if inline or unsafe_override else [_rust_norm_join(file.rpartition("/")[0], override)]
+            else:
+                candidates = [_rust_norm_join(child_dir, name + ".rs"),
+                              _rust_norm_join(child_dir, name + "/mod.rs")]
+            matches = [p for p in candidates if p in files]
+            if len(matches) == 1:
+                children.setdefault(file, []).append((matches[0], path))
+    owners: dict[str, tuple[str, str] | None] = {}
+    queue = [(f, (f, "crate")) for f in sorted(files)
+             if f.rsplit("/", 1)[-1] in ("lib.rs", "main.rs")]
+    head = 0
+    while head < len(queue):
+        file, owner = queue[head]
+        head += 1
+        if file in owners:
+            previous = owners[file]
+            if previous is None or previous == owner:
+                continue
+            owner = None
+        owners[file] = owner
+        for child, path in children.get(file, ()):
+            queue.append((child, (owner[0], owner[1] + "." + path) if owner else None))
+    targets: dict[tuple[str, str], list[str]] = {}
+    constructors: dict[tuple[str, str], list[str]] = {}
+    for nid, node in node_map.items():
+        file, _, qname = nid.partition("::")
+        owner = owners.get(file)
+        parts = qname.split(".")
+        blocked = blocked_by_file.get(file, ())
+        ambiguous_inline = any(".".join(parts[:i]) in blocked for i in range(1, len(parts)))
+        if owner and node.get("rust_free_function") == 1 and not ambiguous_inline:
+            targets.setdefault((owner[0], owner[1] + "." + qname), []).append(nid)
+        if owner and node.get("rust_constructor_count") == 1 and not ambiguous_inline:
+            constructors.setdefault((owner[0], owner[1] + "." + node["rust_constructor_path"]), []).append(nid)
+    return {"owners": owners, "targets": targets, "constructors": constructors}
+
+
+def _rust_topology_facts(nodes: list[dict[str, Any]]) -> dict:
+    """Small node-borne topology delta, independent of changed symbol names."""
+    return {str(n["id"]): (n.get("rust_mod_decls", []), n.get("rust_inline_mods", []))
+            for n in nodes if str(n.get("id", "")).endswith(".rs") and "::" not in str(n["id"])}
+
+
 def _build_candidate_indexes(
     node_map: dict[str, dict[str, Any]],
 ) -> tuple[dict[str, list[str]], dict[str, list[str]], dict[str, set[str]], dict[str, str], dict[str, dict]]:
@@ -11473,8 +11643,8 @@ def _output_fragment_edge(edge: dict[str, Any]) -> dict[str, Any] | None:
     """Fragment edge → payload edge (strip provenance); None for tombstones."""
     if _PROV_DROP in edge:
         return None
-    if _PROV_EXT in edge:
-        return {k: v for k, v in edge.items() if k not in (_PROV_EXT, _PROV_CONF)}
+    if _PROV_EXT in edge or "_rust_crate_path" in edge:
+        return {k: v for k, v in edge.items() if k not in (_PROV_EXT, _PROV_CONF, "_rust_crate_path")}
     return edge
 
 
@@ -11525,6 +11695,9 @@ def _edge_lookup_keys(raw_edge: dict[str, Any]) -> set[str]:
         # Wave 203pu (201wg): an unowned member call consults no index.
         return set()
     keys = {bare} | _head_keys
+    if raw_edge.get("_rust_crate_path", "").endswith(".new"):
+        # Exact constructor targets depend on the type, not a function `new`.
+        keys.add(raw_edge["_rust_crate_path"].split(".")[-2])
     if "." in bare:
         keys.add(bare.rsplit(".", 1)[-1])
         if bare.count(".") == 2:
@@ -11652,6 +11825,19 @@ def _resolve_fragment_edge(raw_edge: dict[str, Any], ctx: dict[str, Any]) -> dic
             return {**raw_edge, _PROV_DROP: True}
         return {**raw_edge, "target": target, _PROV_EXT: bare}
     conf = str(raw_edge.get("confidence") or "")
+    if rel == "calls" and "_rust_crate_path" in raw_edge:
+        path = raw_edge["_rust_crate_path"]
+        context = ctx.get("rust_crate_context", {})
+        owner = context.get("owners", {}).get(src.split("::", 1)[0])
+        candidates = context.get("targets", {}).get((owner[0], path), ()) if owner and path else ()
+        confidence = "RECEIVER_RESOLVED"
+        if not candidates and owner and path.endswith(".new"):
+            candidates = context.get("constructors", {}).get((owner[0], path[:-4]), ())
+            confidence = "CONSTRUCTION_RESOLVED"
+        if len(candidates) != 1:
+            return raw_edge
+        return {**raw_edge, "target": candidates[0], _PROV_EXT: bare,
+                "confidence": confidence, _PROV_CONF: conf}
     resolved, rewrote_exact = _resolve_external_call_target(
         src,
         bare,
@@ -13449,6 +13635,7 @@ class GraphIndexSession:
             source: str, target: str, relation: str, *, confidence: str,
             evidence: str | None = None, self_edge_kind: str | None = None,
             receiver_unknown: bool = False, unowned_member: bool = False,
+            rust_crate_path: str | None = None,
         ) -> None:
             key = (source, target, relation, confidence)
             edge = _edge(source, target, relation, confidence=confidence,
@@ -13457,6 +13644,8 @@ class GraphIndexSession:
                 edge["receiver_unknown"] = True
             if unowned_member:
                 edge[_UNOWNED_MEMBER_KEY] = True
+            if rust_crate_path is not None:
+                edge["_rust_crate_path"] = rust_crate_path
             if relation == "calls" and current_call_site is not None:
                 edge["call_sites"] = [current_call_site]
             if lang_key == "rust" and relation == "calls" and current_call_site is not None:
@@ -14019,6 +14208,19 @@ class GraphIndexSession:
                     qname = ".".join([*scope_names, name]) if scope_names else name
                     parent_symbol = scope_symbols[-1] if scope_symbols else module_id
                     node_id = register_symbol(qname, kind, node, parent_symbol)
+                    rust_module_scope = True
+                    if lang_key == "rust":
+                        ancestor = node.parent
+                        while ancestor is not None:
+                            if ancestor.type not in ("source_file", "declaration_list", "mod_item"):
+                                rust_module_scope = False
+                                break
+                            ancestor = ancestor.parent
+                    if lang_key == "rust" and node_type == "function_item" and rust_module_scope:
+                        node_map[node_id]["rust_free_function"] = node_map[node_id].get("rust_free_function", 0) + 1
+                    if lang_key == "rust" and node_type in ("struct_item", "enum_item", "union_item") and rust_module_scope:
+                        node_map[node_id]["rust_constructor_path"] = qname
+                        node_map[node_id]["rust_constructor_count"] = node_map[node_id].get("rust_constructor_count", 0) + 1
                     # Wave 1p9q5: Rust module-model harvest at the registration
                     # site (so the inline-mod qname matches the walker's exactly).
                     # A `mod name { … }` (has a `declaration_list` body) is an
@@ -14033,7 +14235,8 @@ class GraphIndexSession:
                             rust_inline_mods.append(qname)
                         else:
                             rust_mod_decls.append(
-                                {"name": name, "path": _rust_mod_path_attr(node, source_bytes)}
+                                {"name": name, "path": _rust_mod_path_attr(node, source_bytes),
+                                 "module_path": qname if rust_module_scope else None}
                             )
                     # Wave 1p9qh (1p9qa): Java/C# inheritance facts, buffered
                     # for the post-walk drain. Interface declarers additionally
@@ -14335,6 +14538,15 @@ class GraphIndexSession:
                         _seen_orm_candidates.add((_tt_marker, _tt_decl))
                         orm_entity_candidates.append((_tt_marker, _tt_decl))
                     _orm_dynamic[0] += _tt_dyn
+            # Explicit crate paths and lexical import refusals precede every
+            # local/receiver/leaf resolver, including construction (`new`).
+            if rust_facts is not None and node_type == "call_expression":
+                free_call = rust_facts.free_call(node)
+                if free_call is not None:
+                    spelling, proven_path = free_call
+                    add_edge(source_symbol, "external::" + spelling, "calls",
+                             confidence="EXTRACTED", rust_crate_path=proven_path)
+                    continue
             # Wave 131bt (1319s): construction-call resolution runs FIRST.
             construction_target = _resolve_construction_target(
                 node, node_type, source_bytes, symbol_lookup, symbol_lookup_kinds, lang_key
@@ -15432,11 +15644,13 @@ class GraphIndexSession:
             "cs_file_ns": cs_file_ns,
             "java_pkg_by_file": java_pkg_by_file,
             "rust_module_index": rust_module_index,
+            "rust_crate_context": _build_rust_crate_context(node_map),
         }
 
         # --- Symbol delta (Req-2): candidate-index keys whose candidate set
         # may have changed. Any edge consulting one of these keys re-resolves.
         delta_keys: set[str] = set()
+        rust_topology_changed = incremental and _rust_topology_facts(delta_nodes_old) != _rust_topology_facts(delta_nodes_new)
         if incremental:
             # Per-side unions (never one merged subset) — see delta_nodes_*
             # comment above for why the winner-picking collapse matters.
@@ -15469,14 +15683,14 @@ class GraphIndexSession:
                 ]
                 reresolved += len(entry["edges"])
                 continue
-            if not delta_keys:
+            if not delta_keys and not rust_topology_changed:
                 continue
             raw_edges = raw_edges_by_file[rel]
             new_edges: list[dict[str, Any]] | None = None
             stored_edges = entry.get("edges", [])
             for idx, raw_edge in enumerate(raw_edges):
                 keys = _edge_lookup_keys(raw_edge)
-                if not keys or keys.isdisjoint(delta_keys):
+                if not (rust_topology_changed and raw_edge.get("_rust_crate_path")) and (not keys or keys.isdisjoint(delta_keys)):
                     continue
                 resolved = _resolve_fragment_edge(raw_edge, ctx)
                 if new_edges is None:

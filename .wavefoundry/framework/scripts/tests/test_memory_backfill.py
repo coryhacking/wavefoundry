@@ -742,6 +742,95 @@ os._exit(23)
         self.assertLessEqual(response["data"]["candidates_drafted"], 20)
         self.assertGreater(response["data"]["remaining_waves"], 0)
 
+    def test_all_handled_wave_completes_once_without_bypassing_validation(self):
+        self._wave('1aaa closed')
+        preview = server_impl.memory_propose_response(self.root, '1aaa')
+        sources = [d['source_event'] for d in preview['data']['proposed']]
+        self.assertEqual(len(sources), 1)
+        seeded = server_impl.memory_propose_response(
+            self.root, '1aaa', mode='create', source_events=sources,
+            _defer_index_refresh=True,
+        )
+        self.assertEqual(seeded['data']['records_written'], 1)
+        first = server_impl.memory_backfill_response(
+            self.root, mode='create', limit=1, entry_path='upgrade',
+        )
+        self.assertEqual(first['status'], 'ok', first)
+        self.assertEqual(len(first['data']['processed']), 1)
+        processed = first['data']['processed'][0]
+        self.assertEqual(processed['outcome'], 'extracted')
+        self.assertIs(processed['exhausted'], True)
+        self.assertEqual(processed['candidates_written'], 0)
+        self.assertEqual(first['data']['remaining_waves'], 0)
+        self.assertEqual(first['data']['candidates_pending'], 1)
+        self.assertEqual(first['data']['state'], 'awaiting_validation')
+        self.assertEqual(memory_records.load_memory_records(self.root)[0]['status'], 'candidate')
+        second = server_impl.memory_backfill_response(
+            self.root, mode='create', limit=1, entry_path='upgrade',
+        )
+        self.assertEqual(second['status'], 'ok', second)
+        self.assertEqual(second['data']['processed'], [])
+        self.assertEqual(second['data']['remaining_waves'], 0)
+        self.assertEqual(len(memory_records.load_memory_records(self.root)), 1)
+
+    def test_empty_create_reports_exhaustion_for_already_handled_sources(self):
+        self._wave('1aaa closed')
+        sources = [d['source_event'] for d in server_impl.memory_propose_response(
+            self.root, '1aaa')['data']['proposed']]
+        self.assertEqual(len(sources), 1)
+        seeded = server_impl.memory_propose_response(
+            self.root, '1aaa', mode='create', source_events=sources,
+            _defer_index_refresh=True,
+        )
+        self.assertEqual(seeded['data']['records_written'], 1)
+        import wf_server.memory_handlers as handlers
+        historical = handlers._memory_propose_response_locked(
+            self.root, '1aaa', mode='create', limit=1,
+            _historical_batch=True, defer_index_refresh=True,
+        )
+        selected = server_impl.memory_propose_response(
+            self.root, '1aaa', mode='create', limit=1, source_events=sources,
+            _defer_index_refresh=True,
+        )
+        for name, response in [('historical', historical), ('explicit selection', selected)]:
+            with self.subTest(path=name):
+                self.assertEqual(response['status'], 'ok', response)
+                self.assertEqual(response['data']['records_written'], 0)
+                self.assertEqual(response['data']['records_remaining'], 0)
+                self.assertIs(response['data']['exhausted'], True)
+                self.assertEqual(response['data']['skipped_dispositions'], 1)
+                self.assertEqual(response['data']['written'], [])
+        self.assertEqual(len(memory_records.load_memory_records(self.root)), 1)
+
+    def test_nonempty_exact_final_page_reports_exhaustion(self):
+        self._wave('1aaa closed')
+        sources = [d['source_event'] for d in server_impl.memory_propose_response(
+            self.root, '1aaa')['data']['proposed']]
+        self.assertEqual(len(sources), 1)
+        response = server_impl.memory_propose_response(
+            self.root, '1aaa', mode='create', limit=1, source_events=sources,
+            _defer_index_refresh=True,
+        )
+        self.assertEqual(response['status'], 'ok', response)
+        self.assertEqual(response['data']['records_written'], 1)
+        self.assertEqual(response['data']['records_remaining'], 0)
+        self.assertIs(response['data']['exhausted'], True)
+
+    def test_nonempty_overflow_page_remains_unexhausted(self):
+        wave = self._wave('1aaa closed', decision=False)
+        self._add_decisions(wave, 2)
+        sources = [d['source_event'] for d in server_impl.memory_propose_response(
+            self.root, '1aaa')['data']['proposed']]
+        self.assertEqual(len(sources), 2)
+        response = server_impl.memory_propose_response(
+            self.root, '1aaa', mode='create', limit=1, source_events=sources,
+            _defer_index_refresh=True,
+        )
+        self.assertEqual(response['status'], 'ok', response)
+        self.assertEqual(response['data']['records_written'], 1)
+        self.assertEqual(response['data']['records_remaining'], 1)
+        self.assertIs(response['data']['exhausted'], False)
+
     def test_repeated_batches_exhaust_after_disposition_filtering(self):
         wave = self._wave("1aaa closed", decision=False)
         self._add_decisions(wave, 25)

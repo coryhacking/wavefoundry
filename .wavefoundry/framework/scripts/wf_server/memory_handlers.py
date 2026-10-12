@@ -989,7 +989,7 @@ def _memory_propose_response_locked(
     if any(supply.eligible_repository_targets(root, d["targets"]) != d["targets"] for d in unique):
         return server_impl._response("error", {"records_written": 0}, diagnostics=[_diagnostic("memory_target_changed", "A selected target became ineligible; nothing written.", recovery_tools=["memory_propose"], recovery_usage="")], next_tools=["memory_propose"], usage="")
     if not unique:
-        return server_impl._response("ok", {"records_written": 0, "records_promoted": 0, "records_proposed": 0, "written": [], "skipped_dispositions": skipped_dispositions, "skipped_duplicates": skipped_duplicates, "mode": mode}, diagnostics=[], next_tools=[], usage="")
+        return server_impl._response("ok", {"records_written": 0, "records_promoted": 0, "records_proposed": 0, "records_remaining": 0, "exhausted": True, "written": [], "skipped_dispositions": skipped_dispositions, "skipped_duplicates": skipped_duplicates, "mode": mode}, diagnostics=[], next_tools=[], usage="")
     _fence_token = _memory_fence(root)
     if _fence_token is None:
         return server_impl._response(
