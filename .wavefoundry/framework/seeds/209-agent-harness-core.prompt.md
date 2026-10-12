@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-05
+Last verified: 2026-10-12
 
 ## Purpose
 
@@ -65,7 +65,9 @@ Use existing wave records by default. A briefing packet, reviewer report, counci
 
 After a successful typed write, consume its returned continuation actions and current receipt identity. Do not follow an accepted write with an extra list or whole-review call merely to rediscover that state. If the response is incomplete, the tree moved, or authority is unresolved, inspect the affected state through the canonical tool.
 
-Batch review bookkeeping and final documentation reconciliation before the final quiet canonical suite. Reuse a current successful test receipt only when its input identity matches; changed inputs, a red result, or missing/unreadable proof still stop qualification. Required specialist/Council authority, exact test qualification and final full documentation validation remain unchanged; advisory lint is not a cached hard-gate result.
+Finish source, test, configuration, edit-gate and substantive plan edits before the final canonical suite. Validated routine bookkeeping may continue: append typed review events through the canonical writer, let it refresh their generated views, and record progress/status/ordinary completion in the existing recognized wave/change carriers. Those changes alone do not require another suite or reviewer cycle. Use the canonical `## Progress Log` for continuation during a run; update the standalone session handoff outside the run because it has no filename-based exemption. Keep scope, requirements, AC meaning and authority changes in their owning substantive sections.
+
+The source runner checks both ledger endpoints and their append relationship, verifies generated views, and compares authored content with the existing policy normalizer. Corrupt, rewritten or policy-rotating ledgers, forged views and unclassified changes remain failures. Supported test workers are prevented from writing the protected carriers; this is an accidental-write guard, not writer authentication or a hostile-code sandbox. Actual findings retain their phase/lane effects, and material plan changes retain the existing re-Prepare rules. Reuse a successful test receipt only when its source input identity matches; changed inputs, a red result, or missing/unreadable proof still stop qualification. Required specialist/Council authority, exact test qualification and final full documentation validation remain unchanged; advisory lint is not a cached hard-gate result.
 
 When the operator authorizes closure and current review authority proves readiness, perform one canonical close mutation. Use dry-run to resolve uncertain checks, not as a compulsory extra gate. The close mutation still evaluates its hard gates, and a failed gate must be resolved before retrying; no result cache or prose summary replaces those checks.
 

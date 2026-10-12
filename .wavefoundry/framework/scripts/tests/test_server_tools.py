@@ -2824,6 +2824,33 @@ class SetupReadinessOnStartAndReloadTests(unittest.TestCase):
         self.assertTrue(result["data"]["upgraded"])
         self.assertIn("index_runtime_stale", [d["code"] for d in result["diagnostics"]])
 
+    def test_registered_upgrade_cleans_display_before_cap_without_reinterpreting_summary(self):
+        self._build()
+        import server_impl as impl
+        tool = self.runner._mcp._tool_manager._tools["wf_upgrade"]
+        token = "0123456789abcdef" * 4
+        summary = {"index_update": "publication failed", "to_version": "version\x00raw"}
+        full = ("\x1b[31mHEAD\r\x00\x85\n" + token[:31] + "\x00" + token[31:] +
+                "\x1b]0;title\x07\n" + "\x00" * 70000 +
+                "\nWAVE_UPGRADE_SUMMARY_JSON:" + json.dumps(summary) + "\nFINAL\n")
+        for code, status in ((0, "ok"), (7, "error")):
+            with self.subTest(code=code), patch.dict(os.environ, {"WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN": token}), \
+                    patch.object(impl, "_mcp_subprocess_run", return_value=subprocess.CompletedProcess([], code, full, "")):
+                response = tool.fn(phase="update_index")
+            data = response["data"]
+            self.assertEqual(response["status"], status)
+            self.assertEqual(data["exit_code"], code)
+            self.assertEqual(data["summary"]["to_version"], summary["to_version"])
+            self.assertEqual(data["summary"]["index_update"], "publication failed")
+            self.assertIn("index_publication_failed", [d["code"] for d in response["diagnostics"]])
+            self.assertEqual(data["output_total_chars"], len(full))
+            self.assertFalse(data["output_truncated"], "removed controls must not consume the display cap")
+            self.assertIn("HEAD", data["output"])
+            self.assertIn("FINAL", data["output"])
+            self.assertIn("[REDACTED]", data["output"])
+            for forbidden in (token, token[:31], token[31:], "\x1b", "\r", "\x00", "\x85", "title"):
+                self.assertNotIn(forbidden, data["output"])
+
     def test_wf_reload_mcp_stays_unwrapped(self):
         self._build()
         tool = self.runner._mcp._tool_manager._tools["wf_reload_mcp"]
@@ -5535,6 +5562,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
             zip_path=None, dry_run=False, storage_migration_protocol=1,
         )
         invocation_tokens = []
+        publisher_token = "publisher-known-token-0123456789"
 
         def pause_child(cmd, **kwargs):
             invocation_tokens.append(kwargs["env"][migration.INVOCATION_ENV])
@@ -5544,9 +5572,10 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
                 with self.assertRaises(SystemExit) as paused:
                     migration.prepare_upgrade(context)
             return subprocess.CompletedProcess(cmd, paused.exception.code,
-                                               stdout=stream.getvalue(), stderr="")
+                                               stdout=stream.getvalue() + "\x1b[31m" + publisher_token + "\x00\r", stderr="")
 
-        with patch.object(self.srv, "_mcp_subprocess_run", side_effect=pause_child):
+        with patch.object(self.srv, "_mcp_subprocess_run", side_effect=pause_child), \
+                patch.dict(os.environ, {"WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN": publisher_token}):
             result = self.srv.wf_upgrade_response(self.root)
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["state"], "restart_required")
@@ -5558,6 +5587,9 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         self.assertIn("non-MCP shell", result["next_step"])
         self.assertNotIn("wf_reload_mcp", result["next_tools"])
         self.assertTrue((index / migration.RECEIPT).exists())
+        self.assertIn("[REDACTED]", result["data"]["output"])
+        for forbidden in (publisher_token, "\x1b", "\x00", "\r"):
+            self.assertNotIn(forbidden, result["data"]["output"])
 
         # Same durable receipt, different child invocation: a real exit 3 must
         # remain an error even if its output repeats the old pause message.

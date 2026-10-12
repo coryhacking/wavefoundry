@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-11
+Last verified: 2026-10-12
 
 ## Configuration
 
@@ -202,6 +202,10 @@ The optional qualification-report writer selects `write_contained_bytes(no_links
 
 - `.wavefoundry/framework/scripts/wave_lint_lib/` — shared modules for docs_lint: `link_validators.py`, `metadata_validators.py`, `context.py`, `helpers.py`.
 - These are internal to `.wavefoundry/framework/scripts/`; not exposed as a public library.
+
+Runtime deadline configuration uses the shared contained reader with an explicit 8 MiB cap before timed download work; unsuitable carriers retain shipped per-key defaults and lock-held caps. The incoming `review_plan_prompt_check` is an intentional standalone boundary: supported older zip loaders execute it with standard-library imports only, so its 8 MiB descriptor observer owns a small lexical parent/final-link refusal rather than importing installed framework helpers. POSIX opens parents relative to held descriptors with no-follow/nonblocking flags and checks opened identities before reading. The path fallback rejects observable links/reparse points and checks identity, but retains a directory-component swap window; native Windows race closure is not qualified. Byte/type bounds do not enforce a total filesystem I/O deadline.
+
+Accounting-gap diagnostics read live and `.clearing` reason carriers through shared containment with a fixed 64 KiB cap. Live reasons are decoded and normalized from one read; malformed, oversized, undecodable, nonobject or parser/resource failures return the named unreadable diagnostic, while empty markers and valid empty objects retain their established results. Diagnostics never modify the marker or store. Explicit clear retains its first-record reason handling and transaction authority: affected waves remain marked and a fresh concurrent marker keeps the gap in force. These guarantees apply to the existing live-marker authority, without redesigning separate presence checks.
 
 ## Observability
 

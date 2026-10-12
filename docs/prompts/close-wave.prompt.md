@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-10
+Last verified: 2026-10-12
 
 Shortcut: **`Close wave`**
 
@@ -37,7 +37,7 @@ Reconcile the applicable items in wave.md; existing hard gates and required type
 
 ## Final validation cadence
 
-Batch bookkeeping, canonical documentation and surface rendering before the quiet final canonical source suite. Reuse a matching current green receipt; changed, red or unproven inputs still require fresh qualification. Consume successful typed-write continuation actions without an extra full-review/list loop. When current authority already proves readiness and the operator has authorized closure, perform one close mutation; use dry-run for unresolved checks rather than a compulsory extra gate. Fresh full docs validation and required independent reviewers remain unchanged.
+Finish material documentation, source and surface-rendering edits before the canonical source suite. Validated routine ledger/projection updates and normalized progress/status/completion may continue under seed 209's Continuation And Qualification Discipline; they alone require neither another suite nor another reviewer cycle. Use Progress Log during a run and update the standalone session handoff outside it. Reuse a matching current green receipt; changed, red or unproven inputs still require fresh qualification. Consume successful typed-write continuation actions without an extra full-review/list loop. When current authority already proves readiness and the operator has authorized closure, perform one close mutation; use dry-run for unresolved checks rather than a compulsory extra gate. Fresh full docs validation and required independent reviewers remain unchanged.
 
 Consumer upgrades retain render → docs gate → existing bounded historical-memory checkpoint → incremental index ordering, without source/profile qualification, routine evidence generation or broad recuration.
 

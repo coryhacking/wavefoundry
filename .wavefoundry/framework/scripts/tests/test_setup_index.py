@@ -2306,6 +2306,39 @@ class SetupPhase1DeadlineTests(unittest.TestCase):
     def test_setup_deadlines_none_root_returns_all_defaults(self):
         self.assertEqual(self.mod._setup_deadlines(None), dict(self.mod._SETUP_DEADLINE_KEYS))
 
+    def test_setup_deadlines_bounded_real_carriers_return_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
+            root = Path(tmp)
+            self._write_config(root, {})
+            config = root / "docs/workflow-config.json"
+            valid = b'{"setup":{"model_warm_timeout_seconds":7}}'
+            for raw in (valid + b' ' * self.mod.DEFAULT_MAX_BYTES, b'\xff', b'[]',
+                        b'{"setup":' + b'[' * 2000 + b'0' + b']' * 2000 + b'}'):
+                with self.subTest(size=len(raw)):
+                    config.write_bytes(raw)
+                    self.assertEqual(self.mod._setup_deadlines(root), dict(self.mod._SETUP_DEADLINE_KEYS))
+            config.unlink()
+            config.mkdir()
+            self.assertEqual(self.mod._setup_deadlines(root), dict(self.mod._SETUP_DEADLINE_KEYS))
+            config.rmdir()
+            target = Path(outside) / "config.json"
+            target.write_bytes(valid)
+            if os.name == 'posix':
+                config.symlink_to(target)
+                self.assertEqual(self.mod._setup_deadlines(root), dict(self.mod._SETUP_DEADLINE_KEYS))
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "POSIX FIFO fixture")
+    def test_setup_deadlines_fifo_returns_defaults_without_opening(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir()
+            os.mkfifo(root / "docs/workflow-config.json")
+            code = ('import sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]); '
+                    'import setup_index as s; assert s._setup_deadlines(Path(sys.argv[2])) == dict(s._SETUP_DEADLINE_KEYS)')
+            result = subprocess.run([sys.executable, '-B', '-c', code, str(SCRIPTS_ROOT), str(root)],
+                                    capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_setup_deadlines_missing_file_returns_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:
             d = self.mod._setup_deadlines(Path(tmp))
@@ -2329,6 +2362,19 @@ class SetupPhase1DeadlineTests(unittest.TestCase):
         self.assertEqual(d["venv_create_timeout_seconds"], self.mod.VENV_CREATE_TIMEOUT_DEFAULT)
         self.assertEqual(d["dep_install_timeout_seconds"], self.mod.DEP_INSTALL_TIMEOUT_DEFAULT)
         self.assertEqual(d["model_warm_timeout_seconds"], self.mod.MODEL_WARM_TIMEOUT_DEFAULT)
+
+    def test_setup_deadlines_numeric_overflow_is_isolated_per_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for rejected_key in self.mod._SETUP_DEADLINE_KEYS:
+                for value in (10 ** 400, True, float("inf")):
+                    with self.subTest(key=rejected_key, value=value):
+                        block = dict.fromkeys(self.mod._SETUP_DEADLINE_KEYS, 7)
+                        block[rejected_key] = value
+                        self._write_config(root, block)
+                        expected = dict.fromkeys(self.mod._SETUP_DEADLINE_KEYS, 7.0)
+                        expected[rejected_key] = self.mod._SETUP_DEADLINE_KEYS[rejected_key]
+                        self.assertEqual(self.mod._setup_deadlines(root), expected)
 
     # --- AC-1: venv / uv / dep-install spawn timeouts (loud, stage-named) -----------------------------
 

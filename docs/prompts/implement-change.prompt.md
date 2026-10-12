@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-07
+Last verified: 2026-10-12
 
 Shortcut: **`Implement change`**
 
@@ -39,6 +39,8 @@ Correct an agent-only misreading directly from the established requirement. Rout
 7. If the operator requests a follow-up that still belongs to the current wave and the scope fits an admitted change, update that existing change's Acceptance Criteria and Tasks instead of opening a new change; create a new change only when the new work is materially different or needs separate tracking.
 
 ## Guardrails
+
+Follow seed 209's Continuation And Qualification Discipline: finish material verification-input edits before the canonical suite. Validated routine ledger/projection updates and normalized progress/status/completion may continue without another suite or reviewer cycle solely for recording them. Use the canonical Progress Log during a run and update the standalone session handoff outside it. Reuse only a successful receipt matching current inputs; material changes, actual findings and required reviews retain their existing effects.
 
 - Prefer the smallest correct change; do not refactor adjacent code unless required.
 - After changes, verify they actually address the stated problem.

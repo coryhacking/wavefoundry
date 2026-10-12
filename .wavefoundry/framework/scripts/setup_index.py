@@ -47,6 +47,7 @@ import provider_policy
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
 import workflow_include_prefixes  # stdlib-only workflow prefix reader (change 2038p)
+from contained_files import DEFAULT_MAX_BYTES, read_contained_bytes
 
 # Wave 1p8gv: setup is a direct CLI entry (`wf update-indexes`, setup_wavefoundry step 1) that prints
 # non-ASCII; reconfigure stdout/stderr to UTF-8 so it never raises on a cp1252 Windows console.
@@ -390,49 +391,49 @@ def _run_install_step(cmd, **kwargs):
 # The exact uv a bootstrap installs when neither the tool venv nor PATH has one (wave 1zicq). An
 # existing uv of any version is used as-is. Review and bump at release (package-wavefoundry checklist)
 # to a release public for at least the package-age window.
-UV_BOOTSTRAP_REQUIREMENT = "uv==0.12.4"
+UV_BOOTSTRAP_REQUIREMENT = "uv==0.12.17"
 
 # Every wheel PyPI publishes for UV_BOOTSTRAP_REQUIREMENT, as (filename, sha256) from
 # https://pypi.org/pypi/uv/<version>/json (wave 1zimd). pip installs only a wheel matching one of
 # these hashes; the filenames are for review. A version bump replaces the whole table in the same
 # commit (package-wavefoundry checklist step 3); the suite fails on a filename for another version.
 UV_BOOTSTRAP_WHEEL_SHA256 = (
-    ("uv-0.12.4-py3-none-linux_armv6l.whl",
-     "9c343a7251d1b4c47e467fd38ae16448e9d1607a645e332a95439bfb2a74b66e"),
-    ("uv-0.12.4-py3-none-macosx_10_12_x86_64.whl",
-     "bdb7de1a0f70eaf957d782f84b3d39a9248d3ffd8dbf845304c623f70421870c"),
-    ("uv-0.12.4-py3-none-macosx_11_0_arm64.whl",
-     "004e75a64fa44619b0e3bb267c206a6920e65b78c963863b649c3bcdfd870610"),
-    ("uv-0.12.4-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.musllinux_1_1_aarch64.whl",
-     "faf6430497f3bf6a1c92d10215cd4097c8094d57955fbe563b30ba3add62a9c9"),
-    ("uv-0.12.4-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.musllinux_1_1_armv7l.whl",
-     "221744261e47b140bc29de6be9900f6d7153d1ddc2e652b24c6838beadadb032"),
-    ("uv-0.12.4-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.whl",
-     "7517ae9cad6c0762fc1ee263980077e8715cc15976ee7516136a26f195792c71"),
-    ("uv-0.12.4-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl",
-     "18a76d7d479c13fcac26e8dac42e5ac753feb076cce2b0fd7e936e5837aae89b"),
-    ("uv-0.12.4-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl",
-     "dc5ce8196d448fc704f6c74cd6bd3a1183f82f87620f3985bae3bddab0a01dd1"),
-    ("uv-0.12.4-py3-none-manylinux_2_17_s390x.manylinux2014_s390x.whl",
-     "6b77b36b64ff260d09fc02c440a3c392d9bff77389a5a91d3a663aab074375d0"),
-    ("uv-0.12.4-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
-     "3bb292d959fa73000d524159cd5f3c1aa1cf2db9cc3005ccdec06911a9998e84"),
-    ("uv-0.12.4-py3-none-manylinux_2_28_aarch64.whl",
-     "2b387bf72accc04c50f27808188c5ecd82bd123bf87cb9bb1b01b9c5344a506f"),
-    ("uv-0.12.4-py3-none-manylinux_2_31_riscv64.musllinux_1_1_riscv64.whl",
-     "81c03a57524b8f9cf1530fc9cc69aea0a2a16d73e5dbcf5d40043b2a68a9d43b"),
-    ("uv-0.12.4-py3-none-manylinux_2_31_riscv64.whl",
-     "54635bc94277b72189b1159cc12a95e12fd92b78c84b6df4a6aecbd08edc7837"),
-    ("uv-0.12.4-py3-none-musllinux_1_1_i686.whl",
-     "8d3744d48969ecd5ca7dc766e1223f0d39106fc1ad433bae8edd45c915a1187c"),
-    ("uv-0.12.4-py3-none-musllinux_1_1_x86_64.whl",
-     "9338a8bc8e8a350ec6f954178326e6fdc8872df2f14a233644973ac7fc46aa5e"),
-    ("uv-0.12.4-py3-none-win32.whl",
-     "dc9e67e1068bc1140ebae3a5fe26c0355ab03af254d668c5b8824984b9c02126"),
-    ("uv-0.12.4-py3-none-win_amd64.whl",
-     "a49cf2bde46a181f3d22927221a8e9f1254c38b7d810a3d3a697c42f5053537f"),
-    ("uv-0.12.4-py3-none-win_arm64.whl",
-     "3dc929ea44123d4f5492cebe9dc09852152509113134030473a70fbd702d62f0"),
+    ("uv-0.12.17-py3-none-linux_armv6l.whl",
+     "4f1388538170cc50f5e92f7eae99490bb402ceb0f327b23c0aa9433f3049144d"),
+    ("uv-0.12.17-py3-none-macosx_10_12_x86_64.whl",
+     "66d89d88ca5c9539ba09bbc1edf0247d38ee5ad6b2481d8922efa33079d9e130"),
+    ("uv-0.12.17-py3-none-macosx_11_0_arm64.whl",
+     "c33d2fb4fb407678e2da3907376e7f5a7a38ae11e53d608bb7be70c1ecb6f223"),
+    ("uv-0.12.17-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.musllinux_1_1_aarch64.whl",
+     "eea6e1b0eb66d7f058312239a6863dd32ee0dd4da7fc08626ac85468e3d7bca6"),
+    ("uv-0.12.17-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.musllinux_1_1_armv7l.whl",
+     "2e45d48d847fd76152a985f0b5e5679539a888c88a10ac48f43d6f349ac3b7e2"),
+    ("uv-0.12.17-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.whl",
+     "db57a703cb9d871a84d4d794fedf2117ac228014a76694bced2d1c6fce90fd5f"),
+    ("uv-0.12.17-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl",
+     "d8979ca62f7e0087323a7111236182b17f67c31fe095b005562dfdaf0505de94"),
+    ("uv-0.12.17-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl",
+     "e926f1aa9832208a071e3e2dc3d3cf66bb75d37dce7891633943a320cc0b37b7"),
+    ("uv-0.12.17-py3-none-manylinux_2_17_s390x.manylinux2014_s390x.whl",
+     "71b20540459e1ab435a583bbd91f3cfc40766c0604c9643a9bd5ccfb16bbeb7c"),
+    ("uv-0.12.17-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+     "9e25bb39e1674799c408345a6397ebc2c7c719d498be0ce9d935466d36ceacf5"),
+    ("uv-0.12.17-py3-none-manylinux_2_28_aarch64.whl",
+     "e2bc5ec70e395fc5769becd1b81f6cedc66d23ccaf1392743f0f8c9cfe81b18c"),
+    ("uv-0.12.17-py3-none-manylinux_2_31_riscv64.musllinux_1_1_riscv64.whl",
+     "3e002a33a6ba58a4250a48266cbd4f7852b80b24407b076475ef8b9b2022d7a4"),
+    ("uv-0.12.17-py3-none-manylinux_2_31_riscv64.whl",
+     "0a1769a605844705d75f26495a8e3bd1146637872283b3490b7b988a48814b7e"),
+    ("uv-0.12.17-py3-none-musllinux_1_1_i686.whl",
+     "f766d9f33f8c7960a7b55e7141c86b4ff8567a5150f2dc240e39610697f8cf9b"),
+    ("uv-0.12.17-py3-none-musllinux_1_1_x86_64.whl",
+     "8e161c9f57c31945caa3a8949116b84b006337e5f33d545d25fafffcfa6c4b6a"),
+    ("uv-0.12.17-py3-none-win32.whl",
+     "c5f5dcdce504028c4946cb2992113cafb4bb15276c57346cbb4ffd93dd19eeca"),
+    ("uv-0.12.17-py3-none-win_amd64.whl",
+     "7a14aafc5d5816cebfb8b61b8529fe6f9b99210363523fe2a9d441e757bd3cb7"),
+    ("uv-0.12.17-py3-none-win_arm64.whl",
+     "c900ee8de1d2294b08e81271b7635947c7ab6df74023b78caddf9a41038003f2"),
 )
 
 
@@ -2498,13 +2499,19 @@ def _setup_deadlines(root: Path | None) -> dict[str, float]:
     if root is None:
         return resolved
     try:
-        data = json.loads((root / "docs" / "workflow-config.json").read_text(encoding="utf-8"))
+        raw = read_contained_bytes(root, root / "docs" / "workflow-config.json",
+                                   max_bytes=DEFAULT_MAX_BYTES)
+        data = json.loads(raw.decode("utf-8"))
         block = data.get(SETUP_WORKFLOW_KEY) if isinstance(data, dict) else None
         if isinstance(block, dict):
             for key in _SETUP_DEADLINE_KEYS:
                 val = block.get(key)
-                if isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0 and math.isfinite(val):
-                    resolved[key] = min(float(val), _LOCK_HELD_DEADLINE_CAPS.get(key, float("inf")))
+                try:
+                    if isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0 and math.isfinite(val):
+                        resolved[key] = min(float(val), _LOCK_HELD_DEADLINE_CAPS.get(key, float("inf")))
+                except OverflowError:
+                    # A JSON integer can exceed float range; retain only this key's default.
+                    continue
     except Exception:
         pass
     return resolved

@@ -1392,8 +1392,10 @@ def wf_upgrade_response(
         else None
     )
 
+    from child_tee import clean_output
+    display_output = clean_output(output, str(os.environ.get("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN") or ""))
     displayed_output, output_truncated = _bounded_upgrade_output(
-        output,
+        display_output,
         cap_chars=UPGRADE_OUTPUT_CAP_CHARS,
         truncation_hint=(
             "see log_path for the complete run"

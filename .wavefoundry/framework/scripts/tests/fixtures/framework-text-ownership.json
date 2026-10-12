@@ -215,6 +215,7 @@
     "scripts/tests/fixtures/tool-surface-golden/declared.json",
     "scripts/tests/fixtures/upgrade_old_runner/record_paths_v1_27_0.py.txt",
     "scripts/tests/fixtures/upgrade_old_runner/record_paths_v1_28_0.py.txt",
+    "scripts/tests/fixtures/upgrade_old_runner/upgrade_runner_v1_22_0.py.txt",
     "scripts/tests/fixtures/upgrade_old_runner/vocabulary_profile_v1_28_0.py.txt",
     "scripts/tests/fixtures/vector_backend_eval_1xhbo.json",
     "scripts/tests/fixtures/vector_backend_eval_1xhbo_public.json",

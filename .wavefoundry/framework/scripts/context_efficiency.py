@@ -41,6 +41,7 @@ import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm
 from typing import Any, Callable, Iterable, Mapping, Optional
 from runtime_lock import RuntimeFileLock, RuntimeLockBusy, RuntimeLockError
 import record_paths  # record roots (wave 1y0gz)
+from contained_files import read_contained_bytes
 
 
 STORE_RELATIVE_PATH = Path(".wavefoundry/logs/context-efficiency.sqlite")
@@ -1180,23 +1181,28 @@ def _write_gap_sentinel(
 
 EMPTY_GAP_REASON = {"reason": "empty_marker"}
 UNREADABLE_GAP_REASON = {"reason": "unreadable_marker"}
+GAP_REASON_MAX_BYTES = 64 * 1024
 
 
 def read_gap_reason(root: Path) -> Optional[dict[str, str]]:
     """Return a recorded reason, named empty/unreadable reason, or None without a marker."""
     path = gap_path(root)
-    if not path.exists():
-        return None
     try:
-        raw = path.read_text(encoding="utf-8")
+        os.lstat(path)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return dict(UNREADABLE_GAP_REASON)
+    try:
+        raw = read_contained_bytes(root, path, max_bytes=GAP_REASON_MAX_BYTES).decode("utf-8")
         if raw == "":
             return dict(EMPTY_GAP_REASON)
         decoded = json.loads(raw)
         if not isinstance(decoded, dict):
             return dict(UNREADABLE_GAP_REASON)
-    except (OSError, UnicodeError, ValueError):
+        record = {key: str(value) for key, value in decoded.items()}
+    except (OSError, UnicodeError, ValueError, RecursionError, MemoryError):
         return dict(UNREADABLE_GAP_REASON)
-    record = _read_reason_file(path)
     if not record:
         return {}
     return {key: record.get(key, "") for key in ("recorded_at", "operation", "error_type", "message")}
@@ -3529,7 +3535,7 @@ def clear_accounting_gap(root: Path) -> dict[str, Any]:
     def _attempt() -> None:
         if not store.is_file():
             if _set_aside(False):
-                result["reason"] = _read_reason_file(aside)
+                result["reason"] = _read_reason_file(root, aside)
                 result["cleared"] = True
             return
         conn = _open_write_store_once(root)
@@ -3540,7 +3546,7 @@ def clear_accounting_gap(root: Path) -> dict[str, Any]:
             if not (flag or had_sentinel):
                 conn.rollback()
                 return
-            result["reason"] = _read_reason_file(aside) if had_sentinel else None
+            result["reason"] = _read_reason_file(root, aside) if had_sentinel else None
             for wave_id in wave_ids:
                 conn.execute(
                     "INSERT OR IGNORE INTO wave_state("
@@ -3600,15 +3606,15 @@ def _read_store_gap_flag(root: Path) -> bool:
         conn.close()
 
 
-def _read_reason_file(path: Path) -> dict[str, str]:
+def _read_reason_file(root: Path, path: Path) -> dict[str, str]:
     try:
-        text = path.read_text(encoding="utf-8").strip()
+        text = read_contained_bytes(root, path, max_bytes=GAP_REASON_MAX_BYTES).decode("utf-8").strip()
         record = json.loads(text.splitlines()[0]) if text else {}
-    except (OSError, ValueError, IndexError):
+        if not isinstance(record, dict):
+            return {}
+        return {key: str(value) for key, value in record.items()}
+    except (OSError, UnicodeError, ValueError, IndexError, RecursionError, MemoryError):
         return {}
-    if not isinstance(record, dict):
-        return {}
-    return {key: str(value) for key, value in record.items()}
 
 
 def _default_root() -> Path:

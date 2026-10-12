@@ -23,6 +23,9 @@ LINE_CAP_CHARS = 4096
 TAIL_LINES = 20
 LOG_NAME_RETRIES = 8
 RETAIN_RUNS = 5
+LOG_CAP_BYTES = 1024 * 1024
+LOG_TAIL_BYTES = 64 * 1024
+LOG_ELISION = "\n[... child log output elided; final tail follows ...]\n"
 _LOG_NAME = re.compile(r"upgrade-child-(\d{20}-[0-9a-f]{32})-([a-z0-9-]+)-(\d+)\.log\Z")
 _ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))")
 _RUNS: dict[str, str] = {}
@@ -89,12 +92,57 @@ def _open_child_log(root: Path, phase: str):
                 raise
         else:
             try:
+                # Make encoded-byte accounting match writes on Windows too.
+                handle.reconfigure(newline="\n")
                 _prune(root, run_id)
             except BaseException:
                 handle.close()
                 raise
             return handle, path
     raise AssertionError("bounded name retry exhausted")
+
+
+class _BoundedLog:
+    """Write the opening head, reserving a bounded suffix on the owned handle."""
+    def __init__(self, handle):
+        self.handle = handle
+        self.marker = LOG_ELISION.replace("\n", os.linesep)
+        self.head_remaining = LOG_CAP_BYTES - LOG_TAIL_BYTES - len(self.marker.encode("utf-8"))
+        self.total = 0
+        self.pending = b""
+        self.finalized = False
+
+    def write(self, value: str) -> None:
+        # Preserve TextIOWrapper's existing platform newline bytes, explicitly
+        # accounting for CRLF before writing through its LF-only handle.
+        encoded = value.replace("\n", os.linesep).encode("utf-8")
+        self.total += len(encoded)
+        head = encoded[:self.head_remaining].decode("utf-8", "ignore")
+        head_bytes = len(head.encode("utf-8"))
+        if head_bytes < len(encoded):
+            # Close the head at its first cut; never reorder later ASCII ahead
+            # of the pending suffix when a multibyte character straddles it.
+            self.head_remaining = 0
+        else:
+            self.head_remaining -= head_bytes
+        self.pending += encoded[head_bytes:]
+        if self.total > LOG_CAP_BYTES:
+            self.pending = self.pending[-LOG_TAIL_BYTES:].decode("utf-8", "ignore").encode("utf-8")
+        if head:
+            self.handle.write(head)
+            self.handle.flush()
+
+    def finalize(self) -> None:
+        if self.finalized:
+            return
+        self.finalized = True
+        suffix = self.pending.decode("utf-8")
+        if self.total > LOG_CAP_BYTES:
+            suffix = self.marker + suffix
+        if suffix:
+            self.handle.write(suffix)
+            self.handle.flush()
+        self.pending = b""
 
 
 class _Lines:
@@ -205,6 +253,7 @@ def run(cmd, *, root: Path, phase: str, cwd=None, env=None, timeout=None,
     child_env["PYTHONUNBUFFERED"] = "1"
     token = str(child_env.get("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN") or "")
     handle, log_path = _open_child_log(root, phase)
+    retained_log = _BoundedLog(handle)
     streams = {"stdout": deque(maxlen=TAIL_LINES), "stderr": deque(maxlen=TAIL_LINES)}
     captured = {"stdout": [], "stderr": []}
     write_lock = threading.Lock()
@@ -229,8 +278,7 @@ def run(cmd, *, root: Path, phase: str, cwd=None, env=None, timeout=None,
                 # A broken presentation destination must not stop draining the
                 # pipe and deadlock its producer. Record the I/O failure.
                 try:
-                    handle.write(value)
-                    handle.flush()
+                    retained_log.write(value)
                 except (OSError, ValueError) as exc:
                     reader_errors.append(type(exc).__name__)
             # A custom presentation sink may block. It never owns the file or
@@ -256,6 +304,12 @@ def run(cmd, *, root: Path, phase: str, cwd=None, env=None, timeout=None,
             reader_errors.append(type(exc).__name__)
         finally:
             pipe.close()
+
+    def finalize_log():
+        try:
+            retained_log.finalize()
+        except (OSError, ValueError) as exc:
+            reader_errors.append(type(exc).__name__)
 
     try:
         process = subprocess_util.isolated_popen(
@@ -283,6 +337,8 @@ def run(cmd, *, root: Path, phase: str, cwd=None, env=None, timeout=None,
             for thread in threads:
                 thread.join(0.2)
             raise
+        with write_lock:
+            finalize_log()
         result = subprocess.CompletedProcess(
             cmd, returncode,
             "".join(captured["stdout"]) if capture_output else "\n".join(value for _, value in streams["stdout"]),
@@ -300,4 +356,5 @@ def run(cmd, *, root: Path, phase: str, cwd=None, env=None, timeout=None,
     finally:
         with write_lock:
             stopped.set()
+            finalize_log()
             handle.close()

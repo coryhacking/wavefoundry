@@ -17,6 +17,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 import unittest.mock
@@ -43,6 +45,7 @@ def setUpModule() -> None:  # noqa: N802 (unittest name)
 
 _MUTANT_TEMPLATE = '''\
 import os
+import time
 import unittest
 from pathlib import Path
 
@@ -58,6 +61,12 @@ class Mutant(unittest.TestCase):
             target.write_bytes(os.environ["RG_CONTENT"].encode("utf-8"))
         elif action == "delete":
             target.unlink()
+        elif action == "wait":
+            Path(os.environ["RG_READY"]).touch()
+            deadline = time.monotonic() + 15
+            while not Path(os.environ["RG_RELEASE"]).exists():
+                if time.monotonic() > deadline: raise RuntimeError("publisher did not release worker")
+                time.sleep(0.01)
         elif action == "none":
             pass
 
@@ -81,7 +90,7 @@ class RepoGuardTestBase(unittest.TestCase):
         self.repo.mkdir()
         _git(self.repo, "init", "-q")
         (self.repo / ".gitignore").write_text(
-            "ignored/\n.wavefoundry/guard-overrides.json\n"
+            "ignored/\n.wavefoundry/locks/\n.wavefoundry/guard-overrides.json\n"
             ".wavefoundry/framework/test-cache.json\n.wavefoundry/framework/test-run.lock\n",
             encoding="utf-8",
         )
@@ -97,10 +106,14 @@ class RepoGuardTestBase(unittest.TestCase):
         self.cache_file = self.tmp / "test-cache.json"
         self._saved = {
             "_REPO_ROOT": run_tests._REPO_ROOT,
+            "_FRAMEWORK_DIR": run_tests._FRAMEWORK_DIR,
             "_TESTS_DIR": run_tests._TESTS_DIR,
             "_CACHE_FILE": run_tests._CACHE_FILE,
         }
         run_tests._REPO_ROOT = self.repo
+        run_tests._FRAMEWORK_DIR = self.repo / ".wavefoundry/framework"
+        run_tests._FRAMEWORK_DIR.mkdir()
+        (run_tests._FRAMEWORK_DIR / "source.py").write_text("old = 1\n")
         run_tests._TESTS_DIR = self.tests_dir
         run_tests._CACHE_FILE = self.cache_file
         self._patchers = [
@@ -134,6 +147,33 @@ class RepoGuardTestBase(unittest.TestCase):
         return ret, out.getvalue(), err.getvalue()
 
 
+    def _external_main(self, argv, publication):
+        ready, release = self.tmp / "ready", self.tmp / "release"
+        ready.unlink(missing_ok=True)
+        release.unlink(missing_ok=True)
+        failures = []
+        def publish():
+            try:
+                deadline = time.monotonic() + 15
+                while not ready.exists():
+                    if time.monotonic() > deadline:
+                        raise RuntimeError("worker did not reach publication barrier")
+                    time.sleep(0.01)
+                publication()
+            except BaseException as exc:
+                failures.append(exc)
+            finally:
+                release.touch()
+        thread = threading.Thread(target=publish)
+        with patch.dict(os.environ, RG_READY=str(ready), RG_RELEASE=str(release)):
+            thread.start()
+            result = self._main(argv, "wait", self.repo / "unused")
+            thread.join(20)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(failures, [], repr(failures))
+        return result
+
+
 class RepoStateSnapshotTests(RepoGuardTestBase):
     def test_snapshot_covers_tracked_untracked_and_the_gate_file(self):
         snap = run_tests.repo_state_snapshot(self.repo)
@@ -146,7 +186,7 @@ class RepoStateSnapshotTests(RepoGuardTestBase):
         (self.repo / "ignored").mkdir()
         (self.repo / "ignored" / "log.txt").write_text("x\n", encoding="utf-8")
         framework = self.repo / ".wavefoundry" / "framework"
-        framework.mkdir()
+        framework.mkdir(exist_ok=True)
         (framework / "test-cache.json").write_text("{}\n", encoding="utf-8")
         (framework / "test-run.lock").write_text("1\n", encoding="utf-8")
         snap = run_tests.repo_state_snapshot(self.repo)
@@ -277,6 +317,11 @@ class WaveRecordProjectionTests(RepoGuardTestBase):
         self.before_text = _projected_record(_RECORD_BODY)
         self.record.write_bytes(self.before_text.encode("utf-8"))
         _git(self.repo, "add", self.record_rel)
+
+    def _main(self, argv, action, target, content=None):
+        if action == "content":
+            return self._external_main(argv, lambda: target.write_text(content, encoding="utf-8"))
+        return super()._main(argv, action, target, content)
 
     def _assert_passed(self, ret, out, err):
         self.assertEqual(ret, 0, out + err)
@@ -437,6 +482,319 @@ class GitListingTimeoutTests(RepoGuardTestBase):
         self.assertIsNotNone(message)
         self.assertIn("REPOSITORY STATE NOT VERIFIED", message)
         self.assertIn("did not finish within 60s", message)
+
+
+class CanonicalBookkeepingTests(RepoGuardTestBase):
+    """Run the real worker while a separate coordinator publishes canonical state."""
+
+    def setUp(self):
+        super().setUp()
+        import review_evidence
+        import record_paths
+        import vocabulary_profile
+        self.evidence = review_evidence
+        self.wave = self.repo / record_paths.WAVES_ROOT / '1abcd example' / vocabulary_profile.RECORD_FILENAME
+        self.wave.parent.mkdir(parents=True)
+        self.ledger = self.wave.with_name('events.jsonl')
+        self.ledger.write_bytes(b'')
+        self.wave.write_text(self._render(
+            '# Wave 1abcd\n\nStatus: implementing\n'
+            + review_evidence.REVIEW_EVIDENCE_SOURCE_DECLARATION
+            + '\n\n## Objective\n\nPreserve material intent.\n\n## Review Evidence\n\n'
+            + review_evidence.empty_external_finding_synthesis_section()
+            + '\n## Progress Log\n\nInitial progress.\n', []))
+        self.change = self.wave.with_name('1abce-bug example.md')
+        self.change.write_text(f'# Example\n\n{vocabulary_profile.MEMBER_ID_LABEL}: `1abce-bug example`\n'
+                               f'{vocabulary_profile.MEMBER_STATUS_LABEL}: implementing\n'
+                               '\n## Acceptance Criteria\n\n- [ ] AC-1: Preserve the label.\n'
+                               '\n## Progress Log\n\nInitial progress.\n'
+                               '\n## Session Handoff\n\nSubstantive restriction.\n')
+
+    def _render(self, text, rows):
+        e = self.evidence
+        text = e.render_review_evidence_projection(text, rows)
+        return e.render_review_status_projection(text, rows, e.required_review_status_keys(self.repo, text, rows))
+
+    def _publish(self):
+        e = self.evidence
+        old, errors = e.parse_review_event_bytes(self.ledger.read_bytes())
+        self.assertEqual(errors, ())
+        rows, errors = e.build_compact_review_event(old, {
+            'event': 'run', 'actor': 'council-chair', 'context_id': 'bookkeeping',
+            'run_kind': 'initial_delivery', 'cycle': 0})
+        self.assertEqual(errors, ())
+        all_rows = [*old, *rows]
+        approval, errors = e.build_compact_review_event(all_rows, {
+            'event': 'approval', 'actor': 'qa-reviewer', 'context_id': 'independent-approval',
+            'signoff_key': 'qa-reviewer', 'approval_phase': 'delivery',
+            'fresh_context': True, 'independent': True, 'observed': 'checked current controls',
+            'artifact_or_test_id': 'test:canonical-bookkeeping',
+            'integrity_checks': {
+                'test_ran_without_unintended_skip': True, 'public_path_reached': True,
+                'boundary_values_realistic': True, 'assertions_non_vacuous': True,
+                'known_bad_detected': True, 'known_bad_detection_method': 'classifier mutant rejected'}})
+        self.assertEqual(errors, ())
+        all_rows.extend(approval)
+        with e.project_state_publication_lock(self.repo):
+            self.ledger.write_bytes(e.canonical_review_events_bytes(all_rows))
+            self.wave.write_text(self._render(self.wave.read_text().replace('Initial progress.', 'Recorded progress.'), all_rows))
+            self.change.write_text(self.change.read_text().replace('[ ] AC-1', '[x] AC-1').replace('Initial progress.', 'Recorded progress.'))
+
+    def _assert_rejected(self, publish):
+        ret, out, err = self._external_main(['--no-cache'], publish)
+        self.assertEqual(ret, 1, out + err)
+        self.assertFalse(self.cache_file.exists(), out + err)
+        self.assertIn('CHANGED', err)
+
+    def test_external_canonical_bookkeeping_passes_and_next_run_reuses_receipt(self):
+        with patch.object(run_tests, '_run_file', wraps=run_tests._run_file) as workers:
+            ret, out, err = self._external_main(['--no-cache'], self._publish)
+            self.assertEqual(ret, 0, out + err)
+            receipt = json.loads(self.cache_file.read_text())
+            self.assertEqual(receipt['result'], 'ok')
+            self.assertEqual(receipt['inputs_hash'], run_tests._hash_inputs())
+            ret, out, err = self._main([], 'none', self.change)
+            self.assertEqual(ret, 0, out + err)
+            self.assertEqual(workers.call_count, 1, out + err)
+
+    def test_disabling_classifier_is_detected_by_external_publisher_control(self):
+        with patch.object(run_tests, '_bookkeeping_changes', return_value=set()):
+            self._assert_rejected(self._publish)
+
+    def test_material_change_carriers_fail(self):
+        before = self.change.read_text()
+        for old, new in [('Preserve the label.', 'Alter the label.'),
+                         ('[ ] AC-1', '[~] AC-1'),
+                         ('Substantive restriction.', 'A changed restriction.')]:
+            with self.subTest(material=new):
+                self.change.write_text(before)
+                self._assert_rejected(lambda: self.change.write_text(before.replace(old, new)))
+
+    def test_source_change_with_same_size_and_restored_mtime_fails_final_hash(self):
+        source = run_tests._FRAMEWORK_DIR / 'source.py'
+        st = source.stat()
+        def publish():
+            source.write_text('new = 1\n')
+            os.utime(source, ns=(st.st_atime_ns, st.st_mtime_ns))
+        ret, out, err = self._external_main(['--no-cache'], publish)
+        self.assertEqual(ret, 1, out + err)
+        self.assertIn('INPUTS CHANGED', err)
+        self.assertFalse(self.cache_file.exists())
+
+    def test_corrupt_history_and_forged_views_fail(self):
+        self._publish()
+        baseline_ledger, baseline_wave = self.ledger.read_bytes(), self.wave.read_text()
+        variants = {
+            'malformed': lambda: self.ledger.write_bytes(baseline_ledger + b'not-json\n'),
+            'truncated': lambda: self.ledger.write_bytes(b''),
+            'rewritten': lambda: self.ledger.write_bytes(baseline_ledger.replace(b'bookkeeping', b'other-state')),
+            'forged_view': lambda: self.wave.write_text(baseline_wave.replace('no current executed approval', 'forged current approval')),
+            # negative-fixture: malformed source declaration must deny the bookkeeping exemption.
+            'false_declaration': lambda: self.wave.write_text(baseline_wave.replace('review-evidence-source: events.jsonl', 'review-evidence-source: `events.jsonl`')),
+        }
+        for name, publish in variants.items():
+            with self.subTest(change=name):
+                self.ledger.write_bytes(baseline_ledger)
+                self.wave.write_text(baseline_wave)
+                self._assert_rejected(publish)
+
+    def test_busy_publication_observation_fails_without_receipt(self):
+        e = self.evidence
+        with patch.object(e, 'project_state_publication_lock', side_effect=e.ProjectPublicationUnavailable('busy')):
+            ret, out, err = self._main(['--no-cache'], 'none', self.wave)
+        self.assertEqual(ret, 1, out + err)
+        self.assertIn('NOT VERIFIED', err)
+        self.assertFalse(self.cache_file.exists())
+
+    def test_valid_policy_receipt_append_is_material(self):
+        import review_policy
+        receipt, appended = review_policy.build_policy_receipt({
+            'schema_version': 1, 'evaluator_version': 7,
+            'policy_input_digest': 'changed-policy', 'delivery_mode': 'targeted',
+            'primer_depth': 'standard', 'council_seats': ['red-team'],
+            'requested_lanes': [], 'required_lanes': [],
+            'delivery_council_required': False}, None)
+        self.assertTrue(appended)
+        self.assertEqual(self.evidence.validate_review_evidence_records([receipt]), ())
+        def publish():
+            with self.evidence.project_state_publication_lock(self.repo):
+                self.ledger.write_bytes(self.evidence.canonical_review_events_bytes([receipt]))
+                self.wave.write_text(self._render(self.wave.read_text(), [receipt]))
+        self._assert_rejected(publish)
+
+    def test_unregistered_or_new_ledger_does_not_gain_an_exemption(self):
+        other = self.repo / 'docs' / 'events.jsonl'
+        self._assert_rejected(lambda: other.write_text('{}\n'))
+
+    def test_missing_worker_marker_mutant_reaches_and_changes_valid_progress(self):
+        import test_worker_guard
+        before = self.change.read_text()
+        after = before.replace('Initial progress.', 'Leaked worker progress.')
+        ret, out, err = self._main(['--no-cache'], 'content', self.change, after)
+        self.assertEqual(ret, 1, out + err)
+        self.assertEqual(self.change.read_text(), before)
+        self.assertFalse(self.cache_file.exists())
+        # Mutate the actual worker-environment boundary; mutating a copied
+        # helper could silently exercise the already-loaded outer module.
+        with patch.object(test_worker_guard, 'worker_environment', side_effect=lambda env, *_: env):
+            ret, out, err = self._main(['--no-cache'], 'content', self.change, after)
+        self.assertEqual(ret, 0, out + err)
+        self.assertEqual(self.change.read_text(), after)
+        self.assertTrue(self.cache_file.exists(), 'the negative control must expose the missing prevention')
+
+    def test_regular_file_replaced_by_symlink_is_not_bookkeeping(self):
+        fixture = self.tmp / 'replacement.md'
+        fixture.write_bytes(self.change.read_bytes())
+        def publish():
+            self.change.unlink()
+            self.change.symlink_to(fixture)
+        self._assert_rejected(publish)
+
+
+class ProtectedWorkerTests(RepoGuardTestBase):
+    def setUp(self):
+        super().setUp()
+        import record_paths
+        self.protected = self.repo / record_paths.WAVES_ROOT / '1abcd example' / 'events.jsonl'
+        self.protected.parent.mkdir(parents=True)
+        self.protected.write_text('protected\n')
+        self.scratch = self.tmp / 'scratch'
+        self.scratch.mkdir()
+
+    def _worker(self, code, *, reporting=False, import_time=False):
+        header = 'import os, sys, subprocess, shutil, unittest\nfrom pathlib import Path\n'
+        body = code if import_time else 'class Control(unittest.TestCase):\n    def test_operation(self):\n' + ''.join('        ' + line + '\n' for line in code.splitlines())
+        (self.tests_dir / 'test_mutant.py').write_text(header + body + '\n')
+        with patch.object(run_tests, '_QUALIFICATION_REQUESTED', reporting):
+            return run_tests._run_file(self.tests_dir / 'test_mutant.py')
+
+    def test_ordinary_and_reporting_workers_refuse_before_import_or_test_write(self):
+        before = self.protected.read_bytes()
+        for reporting in (False, True):
+            for import_time in (False, True):
+                with self.subTest(reporting=reporting, import_time=import_time):
+                    result = self._worker(f'Path({str(self.protected)!r}).write_text("bad")', reporting=reporting, import_time=import_time)
+                    self.assertNotEqual(result.returncode, 0, result.output)
+                    self.assertIn('PermissionError', result.output)
+                    self.assertEqual(self.protected.read_bytes(), before)
+
+    def test_supported_write_routes_refuse_and_fixture_writes_succeed(self):
+        p, scratch = repr(str(self.protected)), repr(str(self.scratch))
+        alias = self.scratch / 'linked'
+        alias.symlink_to(self.protected.parent, target_is_directory=True)
+        operations = [f'Path({p}).write_text("bad")',
+                      f'os.open({p}, os.O_WRONLY | os.O_APPEND)',
+                      f'Path({p}).unlink()',
+                      f'os.chdir(str(Path({p}).parent)); Path("events.jsonl").write_text("bad")',
+                      f'Path({str(alias / "events.jsonl")!r}).write_text("bad")',
+                      f'os.rename(str(Path({p}).parent), {str(self.scratch / "moved")!r})',
+                      f'shutil.rmtree(str(Path({p}).parent))',
+                      f'Path({scratch}, "replace").write_text("bad"); os.replace(str(Path({scratch}, "replace")), {p})',
+                      f'fd = os.open(str(Path({p}).parent), os.O_RDONLY); os.chdir({scratch}); os.open("events.jsonl", os.O_WRONLY, dir_fd=fd)']
+        for code in operations:
+            with self.subTest(code=code):
+                result = self._worker(code)
+                self.assertNotEqual(result.returncode, 0, result.output)
+                self.assertIn('PermissionError', result.output)
+                self.assertEqual(self.protected.read_text(), 'protected\n')
+        result = self._worker(f'fd = os.open({scratch}, os.O_RDONLY)\nos.chdir(str(Path({p}).parent))\nfd2 = os.open("new.txt", os.O_WRONLY | os.O_CREAT, 0o600, dir_fd=fd)\nos.write(fd2, b"fixture")\nos.close(fd2)\nos.close(fd)\nPath({scratch}, "nested").mkdir()\nPath({scratch}, "nested", "data").write_text("fixture")\nshutil.rmtree(Path({scratch}, "nested"))')
+        self.assertEqual(result.returncode, 0, result.output)
+        self.assertEqual((self.scratch / 'new.txt').read_bytes(), b'fixture')
+
+    def test_exec_and_fork_descendants_refuse_but_isolated_raw_write_limit_is_explicit(self):
+        child = f'from pathlib import Path; Path({str(self.protected)!r}).write_text("bad")'
+        result = self._worker(f'child = subprocess.run([sys.executable, "-B", "-c", {child!r}], capture_output=True, text=True)\nself.assertNotEqual(child.returncode, 0, child.stdout + child.stderr)\nself.assertIn("PermissionError", child.stderr)')
+        self.assertEqual(result.returncode, 0, result.output)
+        if hasattr(os, 'fork'):
+            result = self._worker(f'pid = os.fork()\nif pid == 0:\n    try: exec({child!r})\n    except PermissionError: os._exit(0)\n    os._exit(1)\nself.assertEqual(os.waitpid(pid, 0)[1], 0)')
+            self.assertEqual(result.returncode, 0, result.output)
+        self.assertEqual(self.protected.read_text(), 'protected\n')
+        # -I drops the inherited site hook. This admitted raw route is not an
+        # authentication boundary; unclassified bytes still fail the parent.
+        (self.tests_dir / 'test_mutant.py').write_text('import subprocess, sys, unittest\nclass Control(unittest.TestCase):\n    def test_raw(self):\n        subprocess.run([sys.executable, "-I", "-B", "-c", ' + repr(child) + '], check=True)\n')
+        ret, out, err = self._main(['--no-cache'], 'none', self.protected)
+        self.assertEqual(ret, 1, out + err)
+        self.assertIn('REPOSITORY CHANGED', err)
+        self.assertEqual(self.protected.read_text(), 'bad')
+        self.assertFalse(self.cache_file.exists())
+
+    def test_descriptor_protection_uses_host_primitive_when_tests_mock_fcntl(self):
+        code = (f'from unittest.mock import patch\n'
+                f'outside = os.open({str(self.scratch)!r}, os.O_RDONLY)\n'
+                f'inside = os.open({str(self.protected.parent)!r}, os.O_RDONLY)\n'
+                'try:\n'
+                '    with patch.dict(sys.modules, {"fcntl": object()}):\n'
+                '        fd = os.open("scratch.txt", os.O_WRONLY | os.O_CREAT, 0o600, dir_fd=outside)\n'
+                '        os.write(fd, b"allowed")\n'
+                '        os.close(fd)\n'
+                '        with self.assertRaises(PermissionError):\n'
+                '            os.open("events.jsonl", os.O_WRONLY, dir_fd=inside)\n'
+                'finally:\n'
+                '    os.close(outside)\n'
+                '    os.close(inside)')
+        result = self._worker(code)
+        self.assertEqual(result.returncode, 0, result.output)
+        self.assertEqual((self.scratch / 'scratch.txt').read_bytes(), b'allowed')
+        self.assertEqual(self.protected.read_text(), 'protected\n')
+
+    def test_nested_real_runner_preserves_outer_protection_and_allows_its_fixture(self):
+        inner = self.tmp / 'inner'
+        inner.mkdir()
+        inner_tests = inner / 'tests'
+        inner_tests.mkdir()
+        child = inner_tests / 'test_inner.py'
+        child.write_text('import unittest\nfrom pathlib import Path\nclass Inner(unittest.TestCase):\n'
+                         '    def test_leak(self):\n        Path(' + repr(str(self.protected)) + ').write_text("bad")\n')
+        code = (f'import run_tests\nrun_tests._REPO_ROOT = Path({str(inner)!r})\n'
+                f'run_tests._TESTS_DIR = Path({str(inner_tests)!r})\n'
+                f'result = run_tests._run_file(Path({str(child)!r}))\n'
+                'self.assertNotEqual(result.returncode, 0, result.output)\n'
+                'self.assertIn("PermissionError", result.output)')
+        result = self._worker(code)
+        self.assertEqual(result.returncode, 0, result.output)
+        self.assertEqual(self.protected.read_text(), 'protected\n')
+        child.write_text(child.read_text().replace(str(self.protected), str(inner / 'fixture.txt')))
+        result = self._worker(code.replace('self.assertNotEqual(result.returncode, 0, result.output)',
+                                          'self.assertEqual(result.returncode, 0, result.output)').replace(
+                                              'self.assertIn("PermissionError", result.output)',
+                                              'self.assertIn("Ran 1 test", result.output)'))
+        self.assertEqual(result.returncode, 0, result.output)
+        self.assertEqual((inner / 'fixture.txt').read_text(), 'bad')
+
+
+class RenamedBookkeepingProfileTests(unittest.TestCase):
+    def test_renamed_member_label_runs_real_publication_and_reuses_receipt(self):
+        import re
+        from record_layout_support import (
+            SHIPPED_DEFAULTS, apply_profile, copy_scripts_tree,
+            shipped_default_profile, with_vocabulary,
+        )
+        with tempfile.TemporaryDirectory(prefix='wf-bookkeeping-profile-') as tmp:
+            scripts = copy_scripts_tree(Path(tmp) / '.wavefoundry/framework')
+            target = scripts / 'tests' / Path(__file__).name
+            shutil.copy2(__file__, target)
+            profile = with_vocabulary(shipped_default_profile(),
+                                      MEMBER_ID_LABEL='Item (key)', MEMBER_STATUS_LABEL='Item State')
+            apply_profile(scripts, profile, modules=('vocabulary_profile',), python=sys.executable)
+            env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1')
+            env.pop('PYTHONPYCACHEPREFIX', None)
+            command = [sys.executable, '-B', str(target),
+                       'CanonicalBookkeepingTests.test_external_canonical_bookkeeping_passes_and_next_run_reuses_receipt']
+            passed = subprocess.run(command, cwd=scripts, env=env, capture_output=True, text=True, timeout=60)
+            self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
+            self.assertIn('Ran 1 test', passed.stderr)
+            # Known bad: pin the classifier's escaped field label back to the
+            # shipped vocabulary in this disposable profile, then rerun the
+            # same real-worker oracle. The renamed carrier must be rejected.
+            vocabulary = scripts / 'vocabulary_profile.py'
+            source = vocabulary.read_text()
+            old = 'MEMBER_ID_LABEL_RE = re.escape(MEMBER_ID_LABEL)'
+            fixed = re.escape(SHIPPED_DEFAULTS['vocabulary_profile']['MEMBER_ID_LABEL'])
+            self.assertEqual(source.count(old), 1)
+            vocabulary.write_text(source.replace(old, f'MEMBER_ID_LABEL_RE = {fixed!r}'))
+            rejected = subprocess.run(command, cwd=scripts, env=env, capture_output=True, text=True, timeout=60)
+            self.assertNotEqual(rejected.returncode, 0, rejected.stdout + rejected.stderr)
+            self.assertIn('REPOSITORY CHANGED DURING THE TEST RUN', rejected.stdout + rejected.stderr)
 
 
 class RunFileBytecodeEnvTests(unittest.TestCase):

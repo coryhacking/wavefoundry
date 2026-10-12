@@ -18,7 +18,7 @@ SCRIPTS = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS))
 import qualification_report as qualification
 import qualification_worker as worker
-from record_layout_support import apply_profile, shipped_default_profile
+from record_layout_support import SHIPPED_DECLARATION, apply_profile, shipped_default_profile
 
 CONTROL = '''import unittest
 from record_layout_support import default_profile_only
@@ -43,10 +43,9 @@ class QualificationCLITests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name).resolve()
         self.scripts = self.root / ".wavefoundry/framework/scripts"
-        shutil.copytree(SCRIPTS, self.scripts, ignore=shutil.ignore_patterns("test_*.py", "__pycache__"))
-        # This nested control starts from shipped vocabulary/layout even when
-        # the outer worker runs in an edited distribution-profile copy.
-        apply_profile(self.scripts, shipped_default_profile(), python=sys.executable)
+        shutil.copytree(SCRIPTS, self.scripts, ignore=lambda directory, names: set(shutil.ignore_patterns("test_*.py", "__pycache__")(directory, names)) - {"test_worker_guard.py"})
+        # Synthetic controls own a complete declaration as well as vocabulary/layout.
+        self.reset_profile()
         (self.scripts / "tests/test_control.py").write_text(CONTROL)
         (self.root / ".gitignore").write_text(".wavefoundry/cache/\n.wavefoundry/framework/test-cache.json\n.wavefoundry/framework/test-run.lock\n")
         self.env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", WAVEFOUNDRY_DISABLE_BYTECODE_CACHE="1")
@@ -54,6 +53,11 @@ class QualificationCLITests(unittest.TestCase):
         self.env.pop("PYTHONPYCACHEPREFIX", None)
         self.report = ".wavefoundry/cache/qualification/default.json"
         subprocess.run(["git", "init", "-q", str(self.root)], check=True, env=self.env)
+
+    def reset_profile(self):
+        profile = shipped_default_profile()
+        profile["modules"]["mcp_tool_extensions"] = json.loads(json.dumps(SHIPPED_DECLARATION))
+        return apply_profile(self.scripts, profile, python=sys.executable)
 
     def run_cli(self, *args):
         return subprocess.run([sys.executable, "-B", str(self.scripts / "run_tests.py"), *args],
@@ -66,6 +70,28 @@ class QualificationCLITests(unittest.TestCase):
         done = self.run_cli("--qualification-report", self.report)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         return self.read()
+
+    def test_custom_ambient_declaration_does_not_leak_into_nested_profiles(self):
+        (self.scripts / "custom_tools.py").write_text(
+            "def register(mcp, get_handler):\n"
+            "    @mcp.tool()\n"
+            "    def custom_inventory(): return {}\n", encoding="utf-8")
+        apply_profile(self.scripts, {"modules": {"mcp_tool_extensions": {
+            "EXTENSION_MODULES": ["custom_tools"],
+            "EXTENSION_TOOL_PREFIXES": ["custom_"],
+            "EXTENSION_TOOL_TIERS": {"custom_inventory": "write"},
+            "EXTENSION_LIFECYCLE_TOOLS": ["custom_inventory"],
+            "EXTENSION_ARTIFACT_PATH_FIELDS": {"custom_inventory": "paths"},
+            "EXTENSION_TOOL_ALIASES": {"wf_custom_help": "wf_help"},
+            "EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER": "journals_present",
+            "EXTENSION_SKILLS": {"custom-review": {"title": "Custom review",
+                "description": "Review this distribution.",
+                "prompt_doc": "docs/prompts/custom-review.prompt.md", "summary": ["Read the prompt."]}},
+        }}}, python=sys.executable)
+        loaded = self.reset_profile()
+        expected = json.loads(json.dumps(SHIPPED_DECLARATION))
+        self.assertEqual(loaded["mcp_tool_extensions"], expected)
+        self.test_profiles_export_exact_detail_before_cleanup_and_preserve_receipt()
 
     def test_real_worker_ignores_lookalikes_and_cache_reuses_only_exact_detail(self):
         report = self.qualify()

@@ -460,23 +460,15 @@ class MainCacheBehaviorTests(unittest.TestCase):
         self.assertEqual(data["inputs_hash"], "stable_hash")
         self.assertEqual(data["test_count"], 77)
 
-    def test_hash_computed_once_written_value_matches_pre_run_hash(self):
-        """Cache write must use the hash from before the run, not a second call."""
-        call_count = []
-
-        def counting_hash():
-            call_count.append(1)
-            return f"hash_{len(call_count)}"  # returns different value each call
-
-        with patch.object(run_tests, "_hash_inputs", side_effect=counting_hash), \
+    def test_post_run_hash_change_refuses_a_new_green_receipt(self):
+        """The receipt keeps pre-run identity only if final source is identical."""
+        with patch.object(run_tests, "_hash_inputs", side_effect=["before", "after"]) as digest, \
                 patch.object(run_tests, "_run_file", return_value=self._run_file_result(tests_run=10)), \
                 patch.object(sys, "argv", ["run_tests.py"]):
-            run_tests.main()
-
-        # hash_1 was computed before the run; it must be what's written
-        data = json.loads(run_tests._CACHE_FILE.read_text(encoding="utf-8"))
-        self.assertEqual(data["inputs_hash"], "hash_1")
-        self.assertEqual(len(call_count), 1)  # called exactly once
+            ret = run_tests.main()
+        self.assertEqual(ret, 1)
+        self.assertFalse(run_tests._CACHE_FILE.exists())
+        self.assertEqual(digest.call_count, 2)
 
     def test_no_cache_flag_not_forwarded_to_unittest(self):
         with patch.object(run_tests, "_hash_inputs", return_value="stable_hash"), \

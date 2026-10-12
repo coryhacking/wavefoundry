@@ -6,6 +6,7 @@ import json
 import multiprocessing
 import os
 import stat
+import subprocess
 import sys
 import tempfile
 import threading
@@ -254,6 +255,69 @@ def _publication_lock_holder(root: str, ready: object, release: object) -> None:
     with subject.project_state_publication_lock(Path(root)):
         ready.set()
         release.wait(10)
+
+
+class WorkerPublicationRefusalTests(unittest.TestCase):
+    def test_site_disabled_child_refuses_protected_publication_but_allows_fixture(self):
+        import test_worker_guard
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "protected"
+            fixture = Path(tmp) / "fixture"
+            root.mkdir()
+            fixture.mkdir()
+            env = test_worker_guard.worker_environment(
+                os.environ, root, (record_paths.WAVES_ROOT, record_paths.PLANS_ROOT))
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
+            env.pop("PYTHONPYCACHEPREFIX", None)
+            code = """import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import review_evidence
+root, fixture = map(Path, sys.argv[2:])
+try:
+    with review_evidence.project_state_publication_lock(root):
+        (root / 'published').write_text('forbidden')
+except PermissionError as error:
+    assert 'test worker cannot publish' in str(error), error
+else:
+    raise AssertionError('protected publication succeeded')
+with review_evidence.project_state_publication_lock(fixture):
+    (fixture / 'published').write_text('allowed')
+"""
+            result = subprocess.run(
+                [sys.executable, "-B", "-S", "-c", code, str(SCRIPTS_ROOT), str(root), str(fixture)],
+                env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(list(root.iterdir()), [], "refusal must precede lock-directory creation")
+            self.assertEqual((fixture / "published").read_text(), "allowed")
+
+    def test_unmarked_publication_and_malformed_marker(self):
+        import test_worker_guard
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+            env.pop("PYTHONPYCACHEPREFIX", None)
+            env.pop(test_worker_guard.MARKER, None)
+            code = """import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import review_evidence
+root = Path(sys.argv[2])
+with review_evidence.project_state_publication_lock(root):
+    (root / 'published').write_text('allowed')
+"""
+            command = [sys.executable, "-B", "-S", "-c", code, str(SCRIPTS_ROOT), str(root)]
+            result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual((root / "published").read_text(), "allowed")
+            (root / "published").unlink()
+            env[test_worker_guard.MARKER] = "malformed"
+            result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("invalid test-worker protection marker", result.stderr)
+            self.assertFalse((root / "published").exists())
 
 
 class ReviewEvidenceStateMachineTests(unittest.TestCase):
@@ -2666,6 +2730,15 @@ class ReviewStatusProjectionTests(unittest.TestCase):
                 "wave-council-delivery": "approved",
             },
         )
+
+    def test_valid_unrelated_review_append_preserves_existing_approvals(self) -> None:
+        lanes = ["qa-reviewer", "code-reviewer", "wave-council-readiness"]
+        rows = [self.approval(lane) for lane in lanes]
+        before = subject.review_status_rows(rows, lanes)
+        rows.extend(wave_records([review_run("later-empty-pass", candidates=[])]))
+        self.assertFalse(subject.validate_review_evidence_records(rows))
+        self.assertEqual(subject.review_status_rows(rows, lanes), before)
+        self.assertEqual({row["state"] for row in before}, {"approved"})
 
     def test_pending_readiness_finding_withholds_readiness_approval(self) -> None:
         pending = synthesis(

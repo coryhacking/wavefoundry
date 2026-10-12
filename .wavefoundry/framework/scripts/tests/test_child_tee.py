@@ -141,6 +141,137 @@ class ChildTeeTests(unittest.TestCase):
         self.assertFalse(calls[0]["start_new_session"])
         self.assertEqual(calls[0]["creationflags"], child_tee.subprocess_util.no_window_creationflags())
 
+    def test_utf8_log_cap_edges_keep_exact_small_bytes_head_and_final_tail(self):
+        cap = 1024 * 1024  # Independent filesystem contract, not the producer constant.
+        for size in (cap - 1, cap, cap + 1):
+            with self.subTest(size=size):
+                prefix, suffix = "HEAD" + os.linesep, "FINAL" + os.linesep
+                overhead = len((prefix + suffix).encode())
+                source = ("import sys; size=" + str(size) + "; "
+                          f"n=size-{overhead}; "
+                          "sys.stdout.write('HEAD\\n'+'é'*(n//2)+'x'*(n%2)+'FINAL\\n')")
+                result = self.run_child(source, timeout=10)
+                raw = Path(result.log_path).read_bytes()
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(result.log_errors, [])
+                self.assertLessEqual(len(raw), cap)
+                self.assertTrue(raw.startswith(prefix.encode()))
+                self.assertTrue(raw.endswith(suffix.encode()))
+                raw.decode("utf-8")  # Neither retained cut splits a character.
+                if size <= cap:
+                    n = size - overhead
+                    self.assertEqual(raw, (prefix + "é" * (n // 2) + "x" * (n % 2) + suffix).encode())
+                else:
+                    marker = child_tee.LOG_ELISION.replace("\n", os.linesep).encode()
+                    self.assertIn(marker, raw)
+                    head, tail = raw.split(marker)
+                    self.assertLessEqual(len(tail), 64 * 1024)
+                    self.assertGreater(len(head), 900000)
+
+    def test_large_two_pipe_logs_finalize_on_nonzero_exit_and_timeout(self):
+        source = ("import sys,time; print('OPENING'); "
+                  "exec(\"for i in range(160):\\n print('é'*4096)\\n print('🙂'*4096,file=sys.stderr)\"); "
+                  "print('FINAL-STDOUT'); print('FINAL-STDERR',file=sys.stderr); ")
+        result = self.run_child(source + "sys.exit(7)", timeout=10)
+        self.assertEqual(result.returncode, 7)
+        for value in (result.tail, Path(result.log_path).read_text()):
+            self.assertIn("FINAL-STDOUT", value)
+            self.assertIn("FINAL-STDERR", value)
+        self.assertIn("OPENING", Path(result.log_path).read_text())
+        self.assertLessEqual(Path(result.log_path).stat().st_size, child_tee.LOG_CAP_BYTES)
+        with self.assertRaises(subprocess.CalledProcessError) as failed:
+            self.run_child(source + "sys.exit(9)", check=True, timeout=10)
+        self.assertEqual(failed.exception.returncode, 9)
+        # Finalization is independent of how quickly a loaded host drains the
+        # large fixture. Observe both endings, then inject the wait timeout;
+        # the separate withheld-pipe test exercises real deadline expiry.
+        class ObservedOutput(io.StringIO):
+            def __init__(self, marker):
+                super().__init__()
+                self.marker = marker
+                self.seen = threading.Event()
+
+            def write(self, value):
+                count = super().write(value)
+                if self.marker in value:
+                    self.seen.set()
+                return count
+
+        self.out = ObservedOutput("FINAL-STDOUT")
+        self.err = ObservedOutput("FINAL-STDERR")
+        original_popen = child_tee.subprocess_util.isolated_popen
+
+        def timeout_after_output(*args, **kwargs):
+            process = original_popen(*args, **kwargs)
+            original_wait = process.wait
+
+            def wait(timeout=None):
+                if timeout is None:
+                    return original_wait()
+                deadline = time.monotonic() + 10
+                for sink in (self.out, self.err):
+                    self.assertTrue(sink.seen.wait(max(0, deadline - time.monotonic())),
+                                    "fixture did not deliver " + sink.marker)
+                self.assertIsNone(process.poll())
+                raise subprocess.TimeoutExpired(process.args, timeout)
+
+            process.wait = wait
+            return process
+
+        with patch.object(child_tee.subprocess_util, "isolated_popen", timeout_after_output):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                self.run_child(source + "time.sleep(30)", timeout=2)
+        for log in (self.root / ".wavefoundry/logs").glob("upgrade-child-*.log"):
+            raw = log.read_bytes()
+            self.assertLessEqual(len(raw), child_tee.LOG_CAP_BYTES)
+            self.assertIn(child_tee.LOG_ELISION.replace("\n", os.linesep).encode(), raw)
+            self.assertIn(b"FINAL-STDERR", raw)
+
+    def test_final_log_io_error_is_reported_and_both_pipes_still_drain(self):
+        actual = child_tee._open_child_log
+        handles = []
+        class FinalFailure:
+            def __init__(self, handle):
+                self.handle = handle
+            def write(self, value):
+                if "child log output elided" in value:
+                    raise OSError("fixture final append failure")
+                return self.handle.write(value)
+            def flush(self):
+                return self.handle.flush()
+            def close(self):
+                self.handle.close()
+        def opened(*args):
+            handle, path = actual(*args)
+            handles.append(handle)
+            return FinalFailure(handle), path
+        with patch.object(child_tee, "_open_child_log", side_effect=opened):
+            result = self.run_child("import sys; [print('x'*4096) for _ in range(300)]; print('FINAL-OUT'); print('FINAL-ERR',file=sys.stderr)", timeout=10)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("OSError", result.log_errors)
+        self.assertIn("FINAL-OUT", result.tail)
+        self.assertIn("FINAL-ERR", result.tail)
+        self.assertTrue(handles[0].closed)
+
+    def test_windows_newline_bytes_are_preserved_and_counted_before_cap(self):
+        cap = 1024 * 1024
+        for size in (cap - 1, cap, cap + 1):
+            with self.subTest(size=size), patch.object(child_tee.os, "linesep", "\r\n"):
+                source = ("import sys; size=" + str(size) + "; "
+                          "n=size-len(b'HEAD\\r\\nFINAL\\r\\n'); "
+                          "sys.stdout.write('HEAD\\n'+'é'*(n//2)+'x'*(n%2)+'FINAL\\n')")
+                result = self.run_child(source, timeout=10)
+                raw = Path(result.log_path).read_bytes()
+                self.assertLessEqual(len(raw), cap)
+                self.assertTrue(raw.startswith(b"HEAD\r\n"))
+                self.assertTrue(raw.endswith(b"FINAL\r\n"))
+                self.assertNotIn(b"\r\r\n", raw)
+                if size <= cap:
+                    n = size - len(b"HEAD\r\nFINAL\r\n")
+                    self.assertEqual(raw, ("HEAD\r\n" + "é" * (n // 2) + "x" * (n % 2) + "FINAL\r\n").encode())
+                else:
+                    self.assertIn(child_tee.LOG_ELISION.replace("\n", "\r\n").encode(), raw)
+
     def test_failed_presentation_sink_still_drains_with_bounded_errors(self):
         class ClosedSink:
             def write(self, value):

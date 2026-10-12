@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-11
+Last verified: 2026-10-12
 
 Shortcut: **`Implement wave`**
 
@@ -47,7 +47,7 @@ Before the first edit, call `memory_brief(context='pre_implementation', targets=
 
 Keep routine briefings, per-seat reports, probe captures, source baselines and green logs in task context or temporary storage outside the repository. Consolidate final outcomes and evidence in the existing wave/change records under seed 209's Review Artifact Discipline; preserve cited and unique proof, explaining retained exceptions inline in `wave.md`.
 
-Consume successful typed-write continuation actions and confirm current readiness/delivery authority without repeating unchanged review or list calls. Batch final bookkeeping before the final quiet canonical suite; reuse only a successful receipt matching current inputs. Required lanes, focused independent repair review and final full docs validation remain unchanged. An operator-authorized close uses one canonical mutation; dry-run resolves uncertain checks and is not a compulsory extra gate.
+Consume successful typed-write continuation actions and confirm current readiness/delivery authority without repeating unchanged review or list calls. Finish material verification-input edits before the canonical suite; validated routine ledger/projection updates and normalized progress/status/completion may continue under seed 209's Continuation And Qualification Discipline. Use Progress Log during a run and update the standalone session handoff outside it. Routine recording alone does not require another suite or reviewer cycle; reuse only a successful receipt matching current inputs. Required lanes, focused independent repair review and final full docs validation remain unchanged. An operator-authorized close uses one canonical mutation; dry-run resolves uncertain checks and is not a compulsory extra gate.
 
 Implementation is complete only when the admitted behavior, docs, tests, and review evidence agree. It does not authorize commit, release, or wave closure.
 

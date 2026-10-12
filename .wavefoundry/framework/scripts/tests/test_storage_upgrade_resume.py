@@ -32,7 +32,6 @@ import vocabulary_profile
 
 sys.path.insert(0, str(SCRIPTS / "tests"))
 from record_layout_support import localize_record_text, waves_dir  # noqa: E402
-from historical_fixture_support import historical_bytes  # noqa: E402
 
 # A separate driver process imports exactly the on-disk runner named by the
 # emitted command, then gives main its emitted arguments unchanged.
@@ -80,7 +79,7 @@ class StorageUpgradeProcessResumeTests(unittest.TestCase):
         shutil.copytree(SCRIPTS, self.installed, ignore=shutil.ignore_patterns("tests", "__pycache__"))
         self.runner = self.installed / "upgrade_wavefoundry.py"
         if self._testMethodName.startswith("test_old_main"):
-            self.runner.write_bytes(historical_bytes("v122-upgrade"))
+            self.runner.write_bytes((SCRIPTS / "tests/fixtures/upgrade_old_runner/upgrade_runner_v1_22_0.py.txt").read_bytes())
         (self.framework / "VERSION").write_text("1.22.0\n")
         (self.framework / "MANIFEST").write_bytes(self.OLD_MANIFEST)
         (self.framework / "seeds").mkdir()
@@ -148,6 +147,48 @@ class StorageUpgradeProcessResumeTests(unittest.TestCase):
         self.assertTrue(staged.name.startswith("wf-verified-pack-"))
         staged.unlink(missing_ok=True)
         return receipt
+
+    def test_framework_identity_and_layout_text_rename_preserves_real_resume(self):
+        # A distribution's finite text rewrite reaches current source, this
+        # fixture builder and the plaintext historical runner together.
+        copied = self.base / "renamed distribution"
+        scripts = copied / ".test-harness/tooling/scripts"
+        shutil.copytree(SCRIPTS, scripts,
+                        ignore=lambda directory, names: set(shutil.ignore_patterns("test_*.py", "__pycache__")(directory, names)) - {"test_worker_guard.py"})
+        test = scripts / "tests/test_storage_upgrade_resume.py"
+        test.write_bytes(Path(__file__).read_bytes())
+        replacements = (
+            (".wavefoundry/framework", ".test-harness/tooling"),
+            (".wavefoundry/index", ".test-harness/store"),
+            (".wavefoundry", ".test-harness"),
+            ("/framework/", "/tooling/"),
+            ('"framework"', '"tooling"'),
+            ("'framework'", "'tooling'"),
+            ('"index"', '"store"'),
+            ("'index'", "'store'"),
+            ("install-wavefoundry.md", "install-test-harness.md"),
+        )
+        for path in scripts.rglob("*"):
+            if path.is_file() and path.suffix in {".py", ".txt"}:
+                text = path.read_text(encoding="utf-8")
+                for old, new in replacements:
+                    text = text.replace(old, new)
+                path.write_text(text, encoding="utf-8")
+        old = scripts / "tests/fixtures/upgrade_old_runner/upgrade_runner_v1_22_0.py.txt"
+        self.assertIn('root / ".test-harness" / "tooling"', old.read_text())
+        self.assertIn('root / ".test-harness" / "store"', old.read_text())
+        self.assertIn('"install-test-harness.md"', old.read_text())
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", WAVEFOUNDRY_SKIP_PYTHON_HEAL="1")
+        env.pop("PYTHONPYCACHEPREFIX", None)
+        # Renaming the home locator must not select or provision another venv.
+        env["WAVEFOUNDRY_TOOL_VENV"] = sys.prefix
+        done = subprocess.run([sys.executable, "-B", str(test),
+            "StorageUpgradeProcessResumeTests.test_current_main_generated_command_restarts_with_new_private_copy",
+            "StorageUpgradeProcessResumeTests.test_old_main_pause_then_fresh_installed_main_relocated_pack_and_retry"],
+            cwd=copied, env=env, capture_output=True, text=True, timeout=180)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("Ran 2 tests", done.stderr)
+        self.assertNotIn("skipped", done.stderr)
 
     def test_current_main_generated_command_restarts_with_new_private_copy(self):
         receipt = self.pause()

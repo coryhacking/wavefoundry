@@ -4447,6 +4447,25 @@ class PathFreeMonitorRowTests(unittest.TestCase):
 
 
 class DeferredTransferBoundaryTests(unittest.TestCase):
+    def test_oversized_gap_reason_prevents_healthy_publication(self):
+        from test_context_efficiency import _metric
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); _repo(root)
+            telemetry = ce.ProcessTelemetry(root)
+            handler = SimpleNamespace(root=root, telemetry=telemetry)
+            try:
+                telemetry.record_retrieval(_metric(), event_id='bounded-gap')
+                marker = ce.gap_path(root)
+                raw = b'{"message":"gap"}' + b' ' * (64 * 1024)
+                marker.write_bytes(raw)
+                result = ce_handlers.project_pending_context_efficiency(handler)
+                self.assertFalse(result['ok'])
+                self.assertEqual(ce.read_gap_reason(root), ce.UNREADABLE_GAP_REASON)
+                self.assertEqual(ce.read_store_health(root)['status'], 'accounting_gap')
+                self.assertEqual(marker.read_bytes(), raw)
+            finally:
+                ce._unlock_lease(telemetry._lease_handle)
+
     def test_actual_projection_and_proxy_are_healthy_pending_then_retry(self):
         from test_context_efficiency import _metric
         with tempfile.TemporaryDirectory() as tmp:

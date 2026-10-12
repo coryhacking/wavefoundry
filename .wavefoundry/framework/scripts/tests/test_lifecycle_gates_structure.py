@@ -302,6 +302,7 @@ _RELOAD_RETAINED_FLAT_MODULES = {
     "sqlite_runtime": "process-wide SQLite binding, which must not change inside one process",
     "subprocess_util": "runner bootstrap (_RELOAD_BOOTSTRAP_EXCLUSIONS)",
     "techdocs_audit_lib": "stable audit API, imported lazily at call time",
+    "test_worker_guard": "test-worker process bootstrap: retain installed audit hook, os.open wrapper and protected-root state until restart; unmarked import is inert",
     "tree_sitter_cache": "process-wide parser cache, imported lazily",
     "upgrade_lib": "stable upgrade-lock helpers, imported lazily",
     "upgrade_wavefoundry": "upgrade runner, imported lazily; an upgrade ends with a restart or reload",
@@ -639,6 +640,8 @@ class LifecycleGateStructureTests(unittest.TestCase):
             - _purge_covered(omitted), {"index_source_guard"})
 
     def test_reload_refreshes_imported_siblings_and_source_guard_callable(self):
+        import os
+        import test_worker_guard
         from server_tools_support import _make_repo, load_server, load_thin_runner
         names = _direct_local_imports(_source("server_impl")) - _RELOAD_BOOTSTRAP_EXCLUSIONS
         with tempfile.TemporaryDirectory() as tmp, ExitStack() as patches:
@@ -647,6 +650,8 @@ class LifecycleGateStructureTests(unittest.TestCase):
             runner = load_thin_runner()
             try:
                 runner.build_server(root)
+                worker_open = os.open
+                worker_state = set(test_worker_guard._protected)
                 # Package modules are keyed by their package name: a retired
                 # flat alias no longer exists (wave 1yxyw).
                 package = _package_modules()
@@ -661,6 +666,11 @@ class LifecycleGateStructureTests(unittest.TestCase):
                 except Exception as exc:
                     self.fail(f"reload raised {type(exc).__name__}: {exc}")
                 self.assertEqual(response["status"], "ok", response)
+                self.assertIs(sys.modules["test_worker_guard"], test_worker_guard)
+                self.assertIs(os.open, worker_open)
+                self.assertEqual(test_worker_guard._protected, worker_state)
+                self.assertIs(importlib.import_module("review_evidence").refuse_publication,
+                              test_worker_guard.refuse_publication)
                 for name, old_module in old_modules.items():
                     fresh = sys.modules[key[name]]
                     self.assertIsNot(fresh, old_module, name)
@@ -804,8 +814,9 @@ class ReloadClosureGuardTests(unittest.TestCase):
         self.assertEqual(_in_place_reloaded(self.source), {"runtime_lock", "sqlite_storage_migration"})
         self.assertEqual(_reload_closure_problems(self.source, _RELOAD_RETAINED_FLAT_MODULES), [])
         self.assertEqual(_runtime_lock_binding_problems(self.source, _RUNTIME_LOCK_STALE_BINDINGS), [])
-        # 1zyv1 adds bytecode_cache (runner bootstrap); 200ew evicts lifecycle_id.
-        self.assertEqual(len(_RELOAD_RETAINED_FLAT_MODULES), 23)
+        # 1zyv1 adds bytecode_cache; 200ew evicts lifecycle_id; 20gff retains
+        # the test-worker bootstrap's installed process state.
+        self.assertEqual(len(_RELOAD_RETAINED_FLAT_MODULES), 24)
         self.assertNotIn("runtime_lock", _RELOAD_RETAINED_FLAT_MODULES)
         self.assertTrue(_RELOAD_BOOTSTRAP_EXCLUSIONS <= set(_RELOAD_RETAINED_FLAT_MODULES))
         self.assertTrue(all(reason.strip() for reason in _RELOAD_RETAINED_FLAT_MODULES.values()))

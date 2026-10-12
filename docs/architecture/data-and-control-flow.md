@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-11
+Last verified: 2026-10-12
 
 ## Runtime advisory boundary
 
@@ -699,6 +699,8 @@ recovery checkpoint, not mutual exclusion. Outside publishers fail fast while
 it exists, except `memory_backfill` and `memory_validate` at the exact
 `awaiting_memory_validation` pause. Resume reacquires both locks and repeats
 the complete read-only preflight before publication.
+
+Foreground upgrade children continuously drain stdout and stderr through `child_tee.run`. Generated contained child logs retain five run groups and at most 1 MiB of UTF-8 bytes per file, including platform newline bytes and any explicit elision marker. The owned append handle writes the opening head while reserving space for an unwritten suffix; outputs within the cap keep their exact bytes, and larger outputs finalize the marker plus up to 64 KiB of final tail on that same handle. Completion, nonzero failure and timeout cleanup attempt finalization; log I/O errors preserve diagnostic reporting and never stop a pipe drain. The MCP handler interprets full raw captured output for summary/status/recovery before cleaning returned display text with the known publisher token and applying its display cap. Full parser capture and the separate primary `upgrade.log` remain unbounded by this child-log budget.
 
 Upgrade extraction excludes the root fresh-install bootstrap as well as zipapp runner members. The incoming pre-extraction hook applies that exclusion to supported older active runners before any archive write; pre-existing root installers remain untouched across restarts.
 

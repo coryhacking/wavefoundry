@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-11
+Last verified: 2026-10-12
 
 ## Verification Commands
 
@@ -35,6 +35,26 @@ focused, never read or write the last-green cache or any timing data, and are
 diagnostic only: they are never delivery, release, or close-gate evidence. One
 complete canonical run (`python3 .wavefoundry/framework/scripts/run_tests.py`)
 remains the delivery authority.
+
+Finish material source, test, configuration, edit-gate and plan edits before
+that run. Routine coordinator bookkeeping may continue through canonical
+append-only review publication and normalized progress/status/completion in
+existing recognized wave/change records. The runner validates both ledger
+endpoints and generated views; it does not ignore a file merely because it is
+named `events.jsonl` or lives under `docs/`. Use the canonical Progress Log for
+continuation during a run, and update the standalone session handoff outside
+it. Valid routine recording alone requires neither another test run nor
+another review. Real findings retain their phase/lane effects; material plans
+retain the existing re-Prepare rules.
+
+The existing receipt is written only after the passing full suite, the
+repository guard and the final framework input-hash comparison succeed.
+Close and package consume that same matching receipt. Workers and ordinary
+Python descendants get a test-only accidental-write guard; it is not a
+hostile-code sandbox or authenticated writer boundary. See
+[repository-state guard](../architecture/testing-architecture.md#canonical-runner-measured-scheduling-and-the-server-tools-shard-family-wave-1tmtx)
+for supported operations and raw/isolated-child limits. This adds no copied
+qualification checkout, permanent evidence file or consumer-upgrade work.
 
 Timing telemetry (wave 1tmtx): every run prints per-file elapsed seconds, a
 bounded top-10 slowest-file summary, and aggregate worker service time; a
@@ -487,6 +507,6 @@ The notice appears once per `wf` invocation or direct MCP serving startup, on st
 
 Keep routine briefing packets, per-seat reports, raw probes, copied source and green worker logs in task context or temporary storage. wave.md retains final decisions, disagreements, source/profile identities, reproducible commands/results/limits, memory disposition and an evidence index. Keep immutable events.jsonl, admitted docs, cited originals and unreconstructable dirty-tree baselines. A permanent supporting artifact needs unique long-run value that canonical tests, exact Git history and the summary cannot preserve; explain the exception inline.
 
-Before close, reconcile mutable watchpoints and handoff. Prune only verified wave-owned, redundant, uncited material with contained identity-checked unlink; uncertain, unique or cited proof stays. No age expiry, automatic deletion, reference resolver, cleanup sidecar or extra gate is introduced. Consume successful typed-write continuation actions, batch documentation/render bookkeeping before the quiet final canonical suite, and reuse a current matching green test receipt. Changed, red or unproven inputs still require fresh qualification. A close dry-run is useful for unresolved checks; current authority permits one operator-authorized close mutation. Required specialists, readiness Council and fresh full docs gates remain unchanged.
+Before close, reconcile mutable watchpoints and handoff. Prune only verified wave-owned, redundant, uncited material with contained identity-checked unlink; uncertain, unique or cited proof stays. No age expiry, automatic deletion, reference resolver, cleanup sidecar or extra gate is introduced. Consume successful typed-write continuation actions, finish material documentation/render edits before the canonical suite, and reuse a current matching green test receipt. Validated routine bookkeeping may continue under the runner contract above without another suite or reviewer cycle solely for recording it. Changed, red or unproven inputs still require fresh qualification. A close dry-run is useful for unresolved checks; current authority permits one operator-authorized close mutation. Required specialists, readiness Council and fresh full docs gates remain unchanged.
 
 Review memory proposals before creating files: select only source events that change a future action and supplement canonical guidance. Use `memory_propose(..., mode='dry_run')`, then create with explicit `source_events`. Omitted or empty selection writes nothing. Put a no-new-memory retrospective in wave.md; actual pending selected candidates still require validation even if their targets disappear. Existing bounded historical-memory checkpoint semantics remain; consumer upgrades gain no source/profile suites, routine evidence generation or broad memory maintenance. Their existing render → docs gate → historical-memory checkpoint → incremental index order is preserved.

@@ -34,6 +34,7 @@ from pathlib import Path
 
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 import review_policy  # the pure lane helper is called through the module (wave 1zlu1)
+from test_worker_guard import refuse_publication
 from typing import Any, Iterable, Mapping
 from runtime_lock import (
     RuntimeFileLock,
@@ -1212,6 +1213,7 @@ def project_state_publication_lock(repo_root: Path, *, wait: bool = True):
     fixed: ``lifecycle-mutation.lock`` → this lock; never invert it.
     """
 
+    refuse_publication(repo_root)
     thread_lock_acquired = _WRITE_THREAD_LOCK.acquire(blocking=wait)
     if not thread_lock_acquired:
         raise ProjectPublicationUnavailable(

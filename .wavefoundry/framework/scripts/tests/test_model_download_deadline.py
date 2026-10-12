@@ -207,6 +207,26 @@ class ModelDownloadDeadlineTests(unittest.TestCase):
         self.assertEqual(stages, ['normalized', 'ownership', 'worker'])
         self.assertEqual(setup._MODEL_DOWNLOAD_OWNERS, {})
 
+    def test_oversized_config_falls_back_before_real_download_worker(self):
+        (self.root / 'docs/workflow-config.json').write_bytes(
+            b'{"setup":{"model_warm_timeout_seconds":0.001}}' + b' ' * setup.DEFAULT_MAX_BYTES)
+        observed = []
+        read_settings = setup._setup_deadlines
+        def settings(root):
+            result = read_settings(root)
+            self.assertEqual(result, dict(setup._SETUP_DEADLINE_KEYS))
+            self.assertEqual(setup._MODEL_DOWNLOAD_OWNERS, {})
+            observed.append('defaults')
+            return result
+        def work():
+            self.assertEqual(observed, ['defaults'])
+            time.sleep(.02)
+            return 'local-download'
+        with patch.object(setup, '_setup_deadlines', side_effect=settings):
+            self.assertEqual(setup.download_with_deadline(work, 'oversized-config',
+                self.root / 'cache', root=self.root), 'local-download')
+        self.assertEqual(setup._MODEL_DOWNLOAD_OWNERS, {})
+
     def test_wait_slices_preserve_one_original_deadline(self):
         (self.root/'docs/workflow-config.json').write_text(
             '{"setup":{"model_warm_timeout_seconds":10}}')

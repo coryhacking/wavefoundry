@@ -962,6 +962,48 @@ process.stdout.write(JSON.stringify(rendered.map(text)));
         self.assertNotIn("scripts/verify_vendored_scripts.py", entries)
         self.assertNotIn(".wavefoundry/framework/scripts/verify_vendored_scripts.py", names)
 
+    def test_worker_guard_ships_as_an_inert_production_dependency_without_startup_shim(self):
+        import shutil
+        import subprocess
+
+        fw = self.tmp / "mini-worker-fw"
+        scripts = fw / "scripts"
+        scripts.mkdir(parents=True)
+        for name in ("review_evidence", "test_worker_guard", "review_policy", "runtime_lock",
+                     "gardener_metadata", "record_paths", "vocabulary_profile"):
+            shutil.copy2(SCRIPTS_DIR / f"{name}.py", scripts / f"{name}.py")
+        shutil.copytree(SCRIPTS_DIR / "test_worker_bootstrap", scripts / "test_worker_bootstrap")
+        archive_path = build_pack.build_zip(
+            self.tmp, "1.0.0", "2tm5", framework_dir=fw,
+            write_version=False, update_manifest=False, inject_install_templates=False)
+        extracted = self.tmp / "extracted"
+        with zipfile.ZipFile(archive_path) as archive:
+            names = archive.namelist()
+            entries = set(archive.read(".wavefoundry/framework/MANIFEST").decode().splitlines())
+            self.assertIn("scripts/test_worker_guard.py", entries)
+            self.assertIn(".wavefoundry/framework/scripts/test_worker_guard.py", names)
+            self.assertFalse(any("test_worker_bootstrap" in name for name in (*names, *entries)))
+            archive.extractall(extracted)
+        installed = extracted / ".wavefoundry/framework/scripts"
+        code = """import os, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+before = (os.open, sys.dont_write_bytecode, sys.pycache_prefix)
+import review_evidence, test_worker_guard
+assert Path(review_evidence.__file__).parent == Path(sys.argv[1])
+assert Path(test_worker_guard.__file__).parent == Path(sys.argv[1])
+assert review_evidence.refuse_publication is test_worker_guard.refuse_publication
+test_worker_guard.install()
+review_evidence.refuse_publication(Path(sys.argv[1]))
+assert before == (os.open, sys.dont_write_bytecode, sys.pycache_prefix)
+"""
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+        env.pop("PYTHONPYCACHEPREFIX", None)
+        env.pop("WAVEFOUNDRY_TEST_WORKER_PROTECTED_ROOTS", None)
+        result = subprocess.run([sys.executable, "-B", "-I", "-c", code, str(installed)],
+                                env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_lint_exclusions_doc_ships_in_pack(self):
         """Wave 1p3b9 (1p3b5): the operator-visible `lint-exclusions.md`
         reference doc lives under `.wavefoundry/framework/docs/` so it ships

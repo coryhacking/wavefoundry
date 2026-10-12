@@ -2036,6 +2036,117 @@ class GapRecoveryTests(TempRootTest):
 
 
 
+class BoundedGapReasonTests(TempRootTest):
+    def marker(self, raw):
+        marker = ce.gap_path(self.root)
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_bytes(raw)
+        return marker
+
+    def test_real_malformed_carriers_keep_poison_without_writes(self):
+        self.assertEqual(ce.GAP_REASON_MAX_BYTES, 64 * 1024)
+        # Parser nesting limits vary by Python version; excessive bytes are a
+        # real independent bound, and resource exceptions are injected below.
+        deep = b'{"message":' + b'[' * (32 * 1024) + b'0' + b']' * (32 * 1024) + b'}'
+        for raw in (b'{"message":"x"}' + b' ' * (64 * 1024), b'\xff', b'[]', b'null', b'{', deep):
+            with self.subTest(size=len(raw)):
+                marker = self.marker(raw)
+                self.assertEqual(ce.read_gap_reason(self.root), ce.UNREADABLE_GAP_REASON)
+                health = ce.read_store_health(self.root)
+                self.assertEqual(health['status'], 'accounting_gap')
+                self.assertIn('marker is unreadable', health['diagnostic'])
+                self.assertEqual(marker.read_bytes(), raw)
+                self.assertFalse(ce.store_path(self.root).exists())
+
+    def test_valid_empty_and_structured_reason_use_one_bounded_read(self):
+        self.assertIsNone(ce.read_gap_reason(self.root))
+        for raw, expected in ((b'', ce.EMPTY_GAP_REASON), (b'{}', {}),
+                (b'{"recorded_at":"now","operation":"flush","error_type":"OSError","message":7}',
+                 {'recorded_at':'now','operation':'flush','error_type':'OSError','message':'7'})):
+            with self.subTest(raw=raw):
+                self.marker(raw)
+                with patch.object(ce, 'read_contained_bytes', wraps=ce.read_contained_bytes) as read:
+                    self.assertEqual(ce.read_gap_reason(self.root), expected)
+                read.assert_called_once_with(self.root, ce.gap_path(self.root), max_bytes=64 * 1024)
+
+    def test_observed_marker_read_failure_is_not_absence(self):
+        marker = self.marker(b'{}')
+        for failure in (FileNotFoundError(), PermissionError()):
+            with patch.object(ce, 'read_contained_bytes', side_effect=failure):
+                self.assertEqual(ce.read_gap_reason(self.root), ce.UNREADABLE_GAP_REASON)
+            self.assertEqual(marker.read_bytes(), b'{}')
+        if os.name == 'posix':
+            marker.unlink(); marker.symlink_to(self.root / 'missing-marker')
+            self.assertEqual(ce.read_gap_reason(self.root), ce.UNREADABLE_GAP_REASON)
+
+    def test_decode_parse_and_normalization_resource_errors_are_conservative(self):
+        marker = self.marker(b'{}')
+        for failure in (MemoryError, RecursionError):
+            class FailedDecode(bytes):
+                def decode(self, *args, **kwargs):
+                    raise failure('decode')
+            class FailedString:
+                def __str__(self):
+                    raise failure('normalization')
+            for phase in ('decode', 'parse', 'normalize'):
+                with self.subTest(failure=failure.__name__, phase=phase):
+                    if phase == 'decode':
+                        injection = patch.object(ce, 'read_contained_bytes', return_value=FailedDecode(b'{}'))
+                    elif phase == 'parse':
+                        injection = patch.object(ce.json, 'loads', side_effect=failure('parse'))
+                    else:
+                        injection = patch.object(ce.json, 'loads', return_value={'message':FailedString()})
+                    with injection:
+                        self.assertEqual(ce.read_gap_reason(self.root), ce.UNREADABLE_GAP_REASON)
+                        self.assertEqual(ce.read_store_health(self.root)['status'], 'accounting_gap')
+                        self.assertEqual(ce._read_reason_file(self.root, marker), {})
+                    self.assertEqual(marker.read_bytes(), b'{}')
+
+    def test_clear_first_record_is_bounded_and_marks_affected_waves(self):
+        _write_wave(self.root, '1bounded gap-read', 'active')
+        telemetry = ce.ProcessTelemetry(self.root)
+        try:
+            telemetry.set_focus('1bounded gap-read', 'implement')
+            telemetry.record_retrieval(_metric(), event_id='before-gap')
+            marker = self.marker(b'{"message":"too-large"}' + b' ' * (64 * 1024))
+            self.assertEqual(ce.read_wave_snapshot(self.root, '1bounded gap-read')['measurement_status'], 'accounting_gap')
+            cleared = ce.clear_accounting_gap(self.root)
+            self.assertTrue(cleared['cleared'])
+            self.assertEqual(cleared['reason'], {})
+            self.assertIn('1bounded gap-read', cleared['marked_waves'])
+            self.assertFalse(marker.exists())
+            self.assertEqual(ce.read_wave_snapshot(self.root, '1bounded gap-read')['measurement_status'], 'accounting_gap')
+            self.assertEqual(ce.read_store_health(self.root)['status'], 'healthy')
+        finally:
+            ce._unlock_lease(telemetry._lease_handle)
+        aside = marker.with_name(marker.name + '.clearing')
+        aside.write_bytes(b'{"message":"first"}\n{"message":"second"}\n')
+        self.assertEqual(ce._read_reason_file(self.root, aside), {'message':'first'})
+
+    def test_clear_keeps_a_concurrent_new_marker_after_unreadable_reason(self):
+        _write_wave(self.root, '1bounded gap-read', 'active')
+        telemetry = ce.ProcessTelemetry(self.root)
+        try:
+            telemetry.set_focus('1bounded gap-read', 'implement')
+            telemetry.record_retrieval(_metric(), event_id='before-new-gap')
+            marker = self.marker(b'\xff')
+            original = ce._read_reason_file
+            def new_gap(root, aside):
+                reason = original(root, aside)
+                self.assertEqual(reason, {})
+                self.assertTrue(ce.poison_accounting_gap(root, error='new_gap_during_clear'))
+                return reason
+            with patch.object(ce, '_read_reason_file', side_effect=new_gap):
+                cleared = ce.clear_accounting_gap(self.root)
+            self.assertTrue(cleared['cleared']); self.assertTrue(cleared['new_gap_recorded'])
+            self.assertTrue(marker.exists())
+            self.assertEqual(ce.read_gap_reason(self.root)['message'], 'new_gap_during_clear')
+            self.assertEqual(ce.read_store_health(self.root)['status'], 'accounting_gap')
+            self.assertEqual(ce.read_wave_snapshot(self.root, '1bounded gap-read')['measurement_status'], 'accounting_gap')
+        finally:
+            ce._unlock_lease(telemetry._lease_handle)
+
+
 class SpoolTests(TempRootTest):
     """Wave 1z2ma: a failed event commit is spooled and replayed, not poisoned."""
 

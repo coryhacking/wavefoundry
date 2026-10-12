@@ -40,6 +40,7 @@ EXCLUDED_REL_PATHS = {
     "scripts/tests/tmp",
     "scripts/tests",
     "scripts/run_tests.py",
+    "scripts/test_worker_bootstrap",  # source-host test startup only; the guard library ships
     "scripts/build_pack.py",
     "scripts/repair_ppol_memory_staging.py",  # one-off local repair; not a normal upgrade tool
     "scripts/build_scan_allowlist.py",  # source-host-only; top-imports build_pack (excluded) — don't ship

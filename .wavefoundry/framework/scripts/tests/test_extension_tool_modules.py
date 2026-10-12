@@ -4756,6 +4756,22 @@ class HelperModuleDeclarationTests(unittest.TestCase):
             framework_script_census_problems(SCRIPTS, mcp_tool_extensions.FRAMEWORK_SCRIPT_MODULE_NAMES, stems), []
         )
 
+    def test_worker_guard_is_a_registered_production_dependency_in_both_profiles(self):
+        self.assertIn("test_worker_guard", self.ext.FRAMEWORK_SCRIPT_MODULE_NAMES)
+        self.assertNotIn("sitecustomize", self.ext.FRAMEWORK_SCRIPT_MODULE_NAMES)
+        for declaration in ("", 'EXTENSION_MODULES = ("acme_tools",)\n'):
+            with self.subTest(declared=bool(declaration)):
+                root = self._census_tree(declaration)
+                for name in ("review_evidence", "test_worker_guard"):
+                    shutil.copy2(SCRIPTS / f"{name}.py", root / f"{name}.py")
+                if declaration:
+                    (root / "acme_tools.py").write_text("", encoding="utf-8")
+                listed = ("server", "listed_a", "listed_b", "mcp_tool_extensions", "review_evidence")
+                problems = self._census(root, listed)
+                self.assertEqual(len(problems), 1, problems)
+                self.assertIn("test_worker_guard", problems[0])
+                self.assertEqual(self._census(root, (*listed, "test_worker_guard")), [])
+
     def _census_tree(self, declaration: str = "", modules=("server", "listed_a", "listed_b")):
         root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, root, True)

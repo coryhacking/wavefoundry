@@ -1100,11 +1100,128 @@ class RunnerTopLevelAndChildTests(_ScratchCase):
         self.assertTrue(marker.exists())
         self.assert_no_in_tree_bytecode()
 
+    def test_guarded_workers_and_descendants_chain_customization_without_bytecode_writes(self):
+        rt = _load_runner()
+        custom = self.root / "prior-customization"
+        custom.mkdir()
+        trailing = self.root / "trailing-path"
+        trailing.mkdir()
+        (custom / "sibling.py").write_text("VALUE = 42\n", encoding="utf-8")
+        customization = custom / "sitecustomize.py"
+        self.prefix.mkdir(parents=True)
+        sentinel = self.prefix / "untouched"
+        sentinel.write_bytes(b"existing cache")
+        child_code = (
+            "import os, sys; "
+            "assert sys.dont_write_bytecode and sys.pycache_prefix is None; "
+            "assert 'PYTHONPYCACHEPREFIX' not in os.environ; "
+            "assert sys.modules['test_worker_guard']._installed; "
+            "assert getattr(sys, '_wf_prior_customizations', 0) == int(sys.argv[1])"
+        )
+        source = f"""import os, subprocess, sys, unittest
+import test_worker_guard
+class Startup(unittest.TestCase):
+    def test_startup(self):
+        self.assertTrue(sys.dont_write_bytecode)
+        self.assertIsNone(sys.pycache_prefix)
+        self.assertNotIn('PYTHONPYCACHEPREFIX', os.environ)
+        original = sys.modules['test_worker_guard']
+        test_worker_guard.install()
+        test_worker_guard.install()
+        self.assertIs(sys.modules['test_worker_guard'], original)
+        expected = int(os.environ['WF_EXPECT_CUSTOMIZATION'])
+        self.assertEqual(getattr(sys, '_wf_prior_customizations', 0), expected)
+        paths = os.environ['PYTHONPATH'].split(os.pathsep)
+        self.assertEqual(paths[-2:], [{str(custom)!r}, {str(trailing)!r}])
+        self.assertEqual(sum('test_worker_bootstrap' in p for p in paths), 1)
+        child = subprocess.run([sys.executable, '-c', {child_code!r}, str(expected)],
+                               cwd={str(self.root)!r}, capture_output=True, text=True, timeout=20)
+        self.assertEqual(child.returncode, 0, child.stdout + child.stderr)
+"""
+        (self.scripts / "tests" / "test_startup.py").write_text(source, encoding="utf-8")
+        source_caches = _pycache_dirs(SCRIPTS)
+        for chained in (False, True):
+            if chained:
+                customization.write_text(
+                    "import sibling, sys\nassert sibling.VALUE == 42\n"
+                    "assert __name__ == __spec__.name == 'sitecustomize'\n"
+                    "assert sys.modules[__name__].__loader__ is __loader__\n"
+                    "sys._wf_prior_customizations = getattr(sys, '_wf_prior_customizations', 0) + 1\n",
+                    encoding="utf-8")
+            for reporting in (False, True):
+                with self.subTest(chained=chained, reporting=reporting), \
+                        mock.patch.object(rt, "_TESTS_DIR", self.scripts / "tests"), \
+                        mock.patch.object(rt, "_SCRIPT_DIR", self.scripts), \
+                        mock.patch.object(rt, "_REPO_ROOT", self.root), \
+                        mock.patch.object(rt, "_QUALIFICATION_REQUESTED", reporting), \
+                        mock.patch.object(rt, "_test_runner_python", return_value=sys.executable), \
+                        mock.patch.dict(os.environ, {
+                            _PREFIX_ENV: str(self.prefix), "WF_EXPECT_CUSTOMIZATION": str(int(chained)),
+                            "PYTHONPATH": os.pathsep.join((str(custom), str(trailing)))}):
+                    result = rt._run_file(Path("test_startup.py"))
+                self.assertEqual(result.returncode, 0, result.output)
+                self.assertEqual(result.test_count, 1, result.output)
+        self.assertEqual({p.name: p.read_bytes() for p in self.prefix.iterdir()},
+                         {"untouched": b"existing cache"})
+        self.assertEqual(_pycache_dirs(custom), [])
+        self.assertEqual(_pycache_dirs(SCRIPTS), source_caches)
+        self.assert_no_in_tree_bytecode()
+
     def test_a_child_creates_no_cache_in_its_own_tree(self):
         parent = self.root / "parent-cache"
         parent.mkdir()
         self._drive(_child_env(**{_PREFIX_ENV: str(parent), "PYTHONDONTWRITEBYTECODE": "1"}))
         self.assertFalse(self.cache_root.exists())
+
+    def test_two_copied_bootstraps_preserve_nested_protection_and_chain_once(self):
+        import test_worker_guard
+
+        outer, inner = self.root / "outer", self.root / "inner"
+        targets = []
+        for repo in (outer, inner):
+            target = repo / "records" / "entry.md"
+            target.parent.mkdir(parents=True)
+            target.write_text("protected", encoding="utf-8")
+            targets.append(target)
+        prior = self.root / "prior"
+        prior.mkdir()
+        (prior / "sibling.py").write_text("VALUE = 42\n", encoding="utf-8")
+        (prior / "sitecustomize.py").write_text(
+            "import sys, sibling\nassert sibling.VALUE == 42\n"
+            "assert __name__ == __spec__.name == 'sitecustomize'\n"
+            "sys._wf_chained = getattr(sys, '_wf_chained', 0) + 1\n", encoding="utf-8")
+        spec = importlib.util.spec_from_file_location("nested_guard", self.scripts / "test_worker_guard.py")
+        copied = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(copied)
+        env = test_worker_guard.worker_environment(
+            _child_env(PYTHONDONTWRITEBYTECODE="1", PYTHONPATH=str(prior)), outer, ["records"])
+        env = copied.worker_environment(env, inner, ["records"])
+        code = """import sys
+from pathlib import Path
+assert sys._wf_chained == 1
+assert len(sys._wavefoundry_test_bootstrap_dirs) == 2
+if sys.argv[1] == 'marked':
+    assert sys.modules['test_worker_guard']._installed
+    for target in sys.argv[2:]:
+        try: Path(target).write_text('bad')
+        except PermissionError: pass
+        else: raise AssertionError('nested protected root is writable: ' + target)
+else:
+    assert 'test_worker_guard' not in sys.modules
+"""
+        for marked in (True, False):
+            with self.subTest(marked=marked):
+                child_env = dict(env)
+                if not marked:
+                    child_env.pop(test_worker_guard.MARKER)
+                done = _run([sys.executable, "-B", "-c", code, "marked" if marked else "unmarked",
+                             *(str(target) for target in targets)], cwd=self.root, env=child_env)
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertNotIn("Error in sitecustomize", done.stderr)
+                self.assertNotIn("RecursionError", done.stderr)
+        self.assertEqual([target.read_text() for target in targets], ["protected", "protected"])
+        self.assertEqual(_pycache_dirs(prior), [])
+        self.assert_no_in_tree_bytecode()
 
 
 # ---------------------------------------------------------------------------

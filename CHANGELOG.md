@@ -6,7 +6,7 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.29.0]
+## [1.29.0] - 2026-10-12
 
 **Operator-action note: graph builder version 52 -> 56.** The first graph query after upgrading runs a one-time synchronous graph rebuild; its duration depends on the repository. This invalidates graphs extracted with the old member-call binding and Rust method identities, and regenerates call-site provenance for ordinary Python AST and supported tree-sitter call expressions. Expect some call edges that previously targeted a project function to become `external::` targets carrying `unowned_member_call`, and fan-in rankings for commonly named functions to drop. Every tree-sitter language is affected where a member call has a computed receiver (a call result or subscript); Rust `.` and C/C++ `->` on non-`self` plain identifier receivers are also affected (C/C++ `.` is not). Python target resolution is unchanged. No eager repository rebuild or extra upgrade scan is added.
 
@@ -51,6 +51,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Fresh dependency setup bootstraps uv 0.12.17 with the complete verified wheel hash inventory. Existing uv installations remain unchanged; upgrading them is an explicit operator action. Wave 20gz3 / 20gz2.
+
+- Routine validated review-ledger and progress updates preserve existing qualification and approvals. Material source, plan and policy changes still invalidate the applicable evidence; ordinary test-worker writes to protected records are refused. Consumer upgrades gain no additional qualification or evidence pass. Wave 20gfj / 20gff.
+
 - Routine review packets and green logs stay temporary; final outcomes, decisions and retention exceptions live in `wave.md`. Close preserves immutable ledgers, cited originals, unique proof and unreconstructable baselines while removing verified redundant wave-owned files without adding a cleanup gate. Wave 2087n / 208qs.
 - Default retrieval excludes operational wave evidence while direct reads and typed history remain available. Compatible incremental updates remove excluded rows without re-embedding or extracting unchanged source, and reconcile graph communities separately; incompatible identities still require the existing rebuild path. Restart an MCP host that reports stale loaded index code before relying on retrieval. Wave 2087n / 20aqf.
 - Memory proposals require explicit source-event selection before creating candidates. Close reviews actual pending candidates independently of proposal eligibility and records no-new-memory decisions inline; ordinary upgrades retain the existing bounded historical-memory checkpoint. Wave 2087n / 20aqg.
@@ -89,6 +93,9 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- Bound configuration, migration-prompt and gap-marker reads; reject unsafe file types and handle oversized or deeply nested input conservatively. Invalid download deadlines fall back per key without discarding valid neighboring settings. Wave 20gfk / 20gfg.
+- Cap each retained child log at 1 MiB with an explicit elision marker and final diagnostic tail. Clean returned upgrade display text after raw protocol interpretation, preserving subprocess status and recovery decisions. Wave 20gx0 / 20gfh.
+
 - `python3 -B`, `PYTHONDONTWRITEBYTECODE`, explicit read-only configuration and `WAVEFOUNDRY_DISABLE_BYTECODE_CACHE=1` disable project bytecode-cache reads and writes after configuration. The test runner respects those controls, and controlled read-only children remove an inherited cache prefix before startup. Direct external launches must unset `PYTHONPYCACHEPREFIX` themselves; ordinary caching remains process-wide and source integrity checks do not authenticate cached bytecode. Wave 206fh / 206fi.
 - Prompt and lifecycle-document moves, rollback cleanup, rendered-file removals and stale-launcher cleanup remove only the identity-checked source or newly published entry through its parent descriptor where supported. Changed or non-owned destinations are retained; the final identity-check/unlink sequence remains non-atomic. Wave 206fh / 207y4.
 - `wf_map` excerpts and workflow-config reads use contained, bounded repository reads with an 8 MiB ceiling; linked leaf files and special files are refused with bounded fallback behavior. Wave 206fh / 207y5.
@@ -108,6 +115,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The journal migration preview no longer executes the distribution's declaration module; it reads the declaration statically. Upgrade extension helpers no longer leave the target's framework scripts directory on the module search path, and dry-run preview logs are never written through a link that leaves the repository. The review status now shows bracket characters in a self-attested approver name as replacement characters, so it cannot show a misleading handle; recorded approvals are unchanged. Reported by the Waveforge maintainers. Wave 200ey / 200ev.
 
 ### Fixed
+
+- Child-log finalization tests observe delivered output before a controlled timeout, avoiding load-dependent false failures while preserving real deadline checks. Wave 20gz5 / 20gz4.
+
+- Synthetic journal and qualification tests own their declaration baseline; the historical resume runner uses verified plaintext so layout-renaming distributions can exercise the same regression. Wave 20gx1 / 20gfi.
 
 - Rust direct crate-qualified free calls and scoped import aliases bind to unique indexed crate/module definitions while preserving stored invocation sites. Shadowed/non-project aliases and ambiguous paths stay external; unchanged callers re-resolve after module topology changes. Graph builder 56 uses the existing one-time refresh path, with no eager upgrade build. Wave 20e38 / 20e13.
 

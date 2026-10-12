@@ -3758,14 +3758,162 @@ class ReviewPlanPreflightTests(unittest.TestCase):
         self.assertIn('regular file', c.check_review_plan_prompt(self.root)['message'])
         self.old.rmdir(); self.old.write_bytes(b'\xff')
         self.assertIn('UTF-8', c.check_review_plan_prompt(self.root)['message'])
-        with patch.object(Path, 'is_symlink', return_value=True):
+        if os.name == 'posix':
+            target = self.root / 'linked-prompt'; target.write_bytes(b'legacy')
+            self.old.unlink(); self.old.symlink_to(target)
             result = c.check_review_plan_prompt(self.root)
             self.assertTrue(result['blocked'])
             self.assertIn('symlink', result['message'])
+            self.old.unlink(); self.old.write_bytes(b'legacy')
         entry = self.old.stat()
         reparse = types.SimpleNamespace(st_mode=entry.st_mode, st_file_attributes=1024)
-        with patch.object(c.os, 'lstat', side_effect=lambda p: reparse if Path(p) == self.old else (_ for _ in ()).throw(FileNotFoundError())):
+        real_lstat = c.os.lstat
+        with patch.object(c, '_DIR_FD_SUPPORTED', False), patch.object(c.os, 'lstat',
+                side_effect=lambda p: reparse if Path(p) == self.old else real_lstat(p)):
             self.assertIn('reparse', c.check_review_plan_prompt(self.root)['message'])
+
+    def test_checker_cap_edges_and_one_descriptor_observation(self):
+        import review_plan_prompt_check as c
+        self.assertEqual(c.PROMPT_MAX_BYTES, 8 * 1024 * 1024)
+        stock = ('\n'.join(line for _, line, _ in c.REVIEW_PLAN_LEGACY_CONTRACT_PROFILES[0][1]) + '\n').encode()
+        for size in (c.PROMPT_MAX_BYTES - 1, c.PROMPT_MAX_BYTES, c.PROMPT_MAX_BYTES + 1):
+            with self.subTest(size=size):
+                self.old.write_bytes(stock + b' ' * (size - len(stock)))
+                real_read = c.os.read
+                read_bytes = []
+                def counted(fd, limit):
+                    raw = real_read(fd, limit); read_bytes.append(len(raw)); return raw
+                with patch.object(Path, 'read_bytes', side_effect=AssertionError('second path open')), \
+                        patch.object(c.os, 'read', side_effect=counted):
+                    observation = c.observe_prompt(self.old, self.root)
+                self.assertLessEqual(sum(read_bytes), 8 * 1024 * 1024 + 1)
+                self.assertTrue(observation['exists'])
+                if size > c.PROMPT_MAX_BYTES:
+                    self.assertEqual(observation.get('error'), 'SizeLimit')
+                    self.assertNotIn('bytes', observation)
+                    self.assertTrue(c.check_review_plan_prompt(self.root)['blocked'])
+                else:
+                    self.assertEqual(len(observation['bytes']), size)
+                    self.assertFalse(c.check_review_plan_prompt(self.root)['blocked'])
+
+    def test_checker_lexical_parent_links_and_missing_parents(self):
+        import review_plan_prompt_check as c
+        shutil.rmtree(self.root / 'docs')
+        self.assertFalse(c.check_review_plan_prompt(self.root)['blocked'])
+        (self.root / 'docs').mkdir()
+        self.assertFalse(c.check_review_plan_prompt(self.root)['blocked'])
+        if os.name != 'posix':
+            (self.root / 'docs').rmdir(); (self.root / 'docs').write_bytes(b'not-directory')
+            self.assertTrue(c.check_review_plan_prompt(self.root)['blocked'])
+            return
+        with tempfile.TemporaryDirectory() as tmp:
+            outside = Path(tmp); (outside / 'prompts').mkdir()
+            stock = '\n'.join(line for _, line, _ in c.REVIEW_PLAN_LEGACY_CONTRACT_PROFILES[0][1])
+            (outside / 'prompts/interrogate-plan.prompt.md').write_text(stock)
+            shutil.rmtree(self.root / 'docs')
+            (self.root / 'docs').symlink_to(outside, target_is_directory=True)
+            for anchored in (c._DIR_FD_SUPPORTED, False):
+                with self.subTest(anchored=anchored), patch.object(c, '_DIR_FD_SUPPORTED', anchored):
+                    result = c.check_review_plan_prompt(self.root)
+                    self.assertTrue(result['blocked'])
+                    self.assertTrue(c.observe_prompt(self.old, self.root)['linked'])
+            (self.root / 'docs').unlink()
+        (self.root / 'docs').write_bytes(b'not-directory')
+        self.assertTrue(c.check_review_plan_prompt(self.root)['blocked'])
+
+    def test_checker_changed_regular_identity_refuses_before_read(self):
+        import review_plan_prompt_check as c
+        for anchored in (c._DIR_FD_SUPPORTED, False):
+            with self.subTest(anchored=anchored):
+                self.old.write_bytes(b'checked')
+                replacement = self.old.with_suffix('.replacement'); replacement.write_bytes(b'other')
+                real_open = c.os.open
+                swapped = []
+                def changed(name, flags, *args, **kwargs):
+                    if (str(name) == self.old.name or Path(name) == self.old) and not swapped:
+                        os.replace(replacement, self.old); swapped.append(True)
+                    return real_open(name, flags, *args, **kwargs)
+                with patch.object(c, '_DIR_FD_SUPPORTED', anchored), patch.object(c.os, 'open', side_effect=changed), \
+                        patch.object(c.os, 'read', side_effect=AssertionError('unsafe read')):
+                    result = c.observe_prompt(self.old, self.root)
+                self.assertEqual(result['error'], 'ChangedIdentity')
+                self.assertTrue(result['exists'])
+                self.assertEqual(swapped, [True])
+
+    @unittest.skipUnless(hasattr(os, 'O_NOFOLLOW') and hasattr(os, 'mkfifo'), 'POSIX descriptor fixtures')
+    def test_checker_parent_swap_and_fstat_failure_close_descriptors(self):
+        import review_plan_prompt_check as c
+        if not c._DIR_FD_SUPPORTED:
+            self.skipTest('descriptor-relative opens unavailable')
+        real_open, real_close, real_fstat = c.os.open, c.os.close, c.os.fstat
+        opened, closed = [], []
+        def track_open(*args, **kwargs):
+            fd = real_open(*args, **kwargs); opened.append(fd); return fd
+        def track_close(fd):
+            closed.append(fd); return real_close(fd)
+        def failed(fd):
+            raise OSError('fstat refusal')
+        with patch.object(c.os, 'open', side_effect=track_open), patch.object(c.os, 'close', side_effect=track_close), \
+                patch.object(c.os, 'fstat', side_effect=failed):
+            self.assertTrue(c.observe_prompt(self.old, self.root)['error'])
+        self.assertCountEqual(opened, closed)
+        with tempfile.TemporaryDirectory() as tmp:
+            outside = Path(tmp)
+            saved = self.root / 'saved-prompts'
+            def swap(name, flags, *args, **kwargs):
+                if str(name) == 'prompts':
+                    self.old.parent.rename(saved)
+                    self.old.parent.symlink_to(outside, target_is_directory=True)
+                return real_open(name, flags, *args, **kwargs)
+            with patch.object(c.os, 'open', side_effect=swap):
+                result = c.observe_prompt(self.old, self.root)
+            self.assertTrue(result['exists']); self.assertIn('error', result)
+
+    @unittest.skipUnless(hasattr(os, 'mkfifo'), 'POSIX FIFO fixture')
+    def test_checker_fifo_and_open_time_fifo_swap_do_not_block(self):
+        import review_plan_prompt_check as c
+        self.old.unlink(); os.mkfifo(self.old)
+        code = '''import sys,os
+from pathlib import Path
+sys.path.insert(0,sys.argv[1])
+import review_plan_prompt_check as c
+root=Path(sys.argv[2]); old=root/c.REVIEW_PLAN_OLD_PROMPT
+assert c.check_review_plan_prompt(root)['blocked']
+old.unlink(); old.write_bytes(b'checked')
+real=c.os.open
+def swapped(name,flags,*a,**kw):
+ if str(name)==old.name or Path(name)==old:
+  old.unlink(); os.mkfifo(old)
+ return real(name,flags,*a,**kw)
+c.os.open=swapped
+result=c.observe_prompt(old,root)
+assert result['exists'] and result.get('error') and 'bytes' not in result,result
+'''
+        result = subprocess.run([sys.executable, '-B', '-c', code, str(SCRIPTS_ROOT), str(self.root)],
+                                capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_actual_legacy_zip_hook_refuses_oversized_and_linked_carriers(self):
+        import review_plan_prompt_check as c
+        fixture = SCRIPTS_ROOT / 'tests/fixtures/upgrade_old_runner/preflight_hooks_v1_15_4.py.txt'
+        legacy = types.ModuleType('legacy_bounded_reads')
+        legacy.__dict__.update(Path=Path, types=types, zipfile=zipfile, sys=sys, os=os,
+                               _log=lambda msg: None, _err=lambda msg: None, UpgradeContext=object)
+        exec(compile(fixture.read_text(), str(fixture), 'exec'), legacy.__dict__)
+        stock = ('\n'.join(line for _, line, _ in c.REVIEW_PLAN_LEGACY_CONTRACT_PROFILES[0][1]) + '\n').encode()
+        self.old.write_bytes(stock + b' ' * c.PROMPT_MAX_BYTES)
+        for carrier in (('oversized', 'linked') if os.name == 'posix' else ('oversized',)):
+            if carrier == 'linked':
+                target = self.root / 'legacy-stock'; target.write_bytes(stock)
+                self.old.unlink(); self.old.symlink_to(target)
+            before = self.old.lstat()
+            with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as raised:
+                legacy._run_hook('post_preflight', self._ctx(), legacy._load_extension_module(self.pack))
+            self.assertEqual(raised.exception.code, 3)
+            after = self.old.lstat()
+            self.assertEqual((after.st_ino, after.st_size, after.st_mtime_ns),
+                             (before.st_ino, before.st_size, before.st_mtime_ns))
+            self.assertFalse((self.root / '.wavefoundry/upgrade-in-progress.json').exists())
 
     def test_checker_stdlib_only_in_restricted_import_process(self):
         code = '''import sys,builtins,runpy
@@ -3774,7 +3922,14 @@ def limited(name,*args,**kwargs):
  if name.split('.')[0] not in sys.stdlib_module_names: raise ImportError(name)
  return real(name,*args,**kwargs)
 builtins.__import__=limited
-runpy.run_path(sys.argv[1])
+checker=runpy.run_path(sys.argv[1])
+from pathlib import Path
+import tempfile
+with tempfile.TemporaryDirectory() as tmp:
+ root=Path(tmp); old=root/checker['REVIEW_PLAN_OLD_PROMPT']; old.parent.mkdir(parents=True)
+ profile=checker['REVIEW_PLAN_LEGACY_CONTRACT_PROFILES'][0][1]
+ old.write_text('\\n'.join(line for _,line,_ in profile))
+ assert not checker['check_review_plan_prompt'](root)['blocked']
 '''
         result = subprocess.run([sys.executable, '-I', '-B', '-c', code, str(SCRIPTS_ROOT / 'review_plan_prompt_check.py')], capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -13572,11 +13727,13 @@ class _JournalDeclarationFixture(_JournalMigrationFixture):
     def _declare(self, *, templates=(), hook="", helpers=(), helper_source=None,
                  helper_name="acme_journal_hooks", extra=""):
         text = (SCRIPTS_ROOT / "mcp_tool_extensions.py").read_text(encoding="utf-8")
-        for name, value in (
-            ("EXTENSION_HELPER_MODULES", tuple(helpers)),
-            ("EXTENSION_JOURNAL_TEMPLATES", templates),
-            ("EXTENSION_JOURNAL_PRE_MIGRATION_HOOK", hook),
-        ):
+        from record_layout_support import SHIPPED_DECLARATION
+
+        declaration = {**SHIPPED_DECLARATION,
+                       "EXTENSION_HELPER_MODULES": tuple(helpers),
+                       "EXTENSION_JOURNAL_TEMPLATES": templates,
+                       "EXTENSION_JOURNAL_PRE_MIGRATION_HOOK": hook}
+        for name, value in declaration.items():
             text, count = re.subn(
                 rf"(?m)^({name}(?:[ \t]*:[^=\n]*)?[ \t]*=[ \t]*)[^\n]*$",
                 lambda m, v=value: m.group(1) + repr(v),
@@ -13673,6 +13830,43 @@ class JournalDeclarationProblemTests(unittest.TestCase):
 
 
 class JournalDeclarationMigrationTests(_JournalDeclarationFixture, unittest.TestCase):
+    def test_fixture_resets_ambient_trigger_and_unrelated_declarations(self):
+        from record_layout_support import SHIPPED_DECLARATION
+
+        ambient = self.root / "ambient-scripts"
+        ambient.mkdir()
+        text = (SCRIPTS_ROOT / "mcp_tool_extensions.py").read_text(encoding="utf-8")
+        for name, value in {
+            "EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER": "journals_present",
+            "EXTENSION_TOOL_ALIASES": {"wf_custom_help": "wf_help"},
+            "EXTENSION_SKILLS": {"custom-review": {"title": "Custom review",
+                "description": "Review this distribution.",
+                "prompt_doc": "docs/prompts/custom-review.prompt.md", "summary": ["Read the prompt."]}},
+        }.items():
+            text, count = re.subn(
+                rf"(?m)^({name}(?:[ \t]*:[^=\n]*)?[ \t]*=[ \t]*)[^\n]*$",
+                lambda m, v=value: m.group(1) + repr(v), text)
+            self.assertEqual(count, 1, name)
+        (ambient / "mcp_tool_extensions.py").write_text(text, encoding="utf-8")
+        with patch.dict(globals(), SCRIPTS_ROOT=ambient):
+            self._declare(hook="acme_journal_hooks:prepare", helpers=("acme_journal_hooks",),
+                          helper_source=self._hook_source())
+        assignments = {}
+        for node in ast.parse((self.scripts / "mcp_tool_extensions.py").read_text()).body:
+            target = node.target if isinstance(node, ast.AnnAssign) else (
+                node.targets[0] if isinstance(node, ast.Assign) and len(node.targets) == 1 else None)
+            if isinstance(target, ast.Name) and target.id in SHIPPED_DECLARATION:
+                assignments[target.id] = ast.literal_eval(node.value)
+        self.assertEqual(assignments, {**SHIPPED_DECLARATION,
+            "EXTENSION_HELPER_MODULES": ("acme_journal_hooks",),
+            "EXTENSION_JOURNAL_PRE_MIGRATION_HOOK": "acme_journal_hooks:prepare"})
+        self._write_journal("operator.md", "preserve operator content")
+        self._gate("1.29.0")
+        self.assertEqual(self._hook_calls(), [])
+        self._gate("1.14.0")
+        self.assertEqual(len(self._hook_calls()), 1)
+
+
     """Wave 1zyb3 (1zxnv): declared pristine templates and the pre-migration
     hook, loaded by path from the extracted tree inside the 1.15.0 gate."""
 

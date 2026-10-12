@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-11
+Last verified: 2026-10-12
 
 ## Test Tiers
 
@@ -11,6 +11,7 @@ Last verified: 2026-10-11
 | Framework script unit tests | `docs_lint.py`, `build_pack.py` behavior | `.wavefoundry/framework/scripts/tests/` | `python3 .wavefoundry/framework/scripts/run_tests.py` |
 | Install reliability (wave 1yp0y) | Source opt-in for nine mandatory framework-internal constant claims; consumer fixture with packaged scripts remains exempt while structural checks stay active; invalid opt-in errors. Windows tests cover bounded `python3`/`python` diagnosis, strict early stop before setup writes, completed-log independent diagnosis, and policy-blocked IT guidance. Public sync fills an empty upgrade-policy region and preserves authored prose/permission boundaries; partial row 2.9 resumes by conditional catalog plus manifest and audits before completion. Mocked Windows branches do not qualify native execution; native diagnostic branches, standard-user repair, fresh-host MCP and hook evidence remain unverified and are operator-deferred to external testing after the next release (2026-09-22); see the wave post-release-windows-validation.md protocol. | Focused validator, setup, launcher, renderer and install-audit tests; native Windows runbook in `docs/references/native-windows-support.md` | Focused tests; native execution receipt pending |
 | Dashboard reader/server unit tests | `dashboard_lib.py`, `dashboard_server.py` snapshot and HTTP-handler contract | `.wavefoundry/framework/scripts/tests/test_dashboard_server.py` | `python3 .wavefoundry/framework/scripts/run_tests.py` |
+| Bounded upgrade diagnostics (wave 20gx0) | Real children measure UTF-8 filesystem bytes at 1 MiB minus one, exactly 1 MiB and plus one, asserting exact small bytes, opening context, explicit elision and final tail. Both pipes, nonzero/check failures, timeout finalization and final-append error reporting run through the owned append handle. CRLF byte accounting is simulated; native Windows execution remains unqualified. Registered upgrade success/error and restart controls preserve raw summary/status/recovery while proving known-token/control cleaning precedes the display cap. Disposable cap-removal and cleaning-removal controls must fail the owning assertions. Parser capture and the primary upgrade log are outside the cap claim. | `test_child_tee.py`, `test_upgrade_failure_surfacing.py`, `test_server_tools.py` | canonical focused runner; final combined qualification is separate |
 | Historical memory backfill | no-Git inventory, SQLite claim/replay, candidate-only writes, agent-validation gate, deferred publication | `.wavefoundry/framework/scripts/tests/test_memory_backfill.py`; setup/upgrade integration suites | canonical runner |
 | Review current-state projection | per-signoff derivation, causal withholding/reapproval, narrative preservation, malformed markers, bounded output | `test_review_evidence.py`; `test_server_tools_lifecycle.py`; upgrade suite | canonical runner |
 | CRLF review seams (wave 20b39) | Canonical CRLF fixtures pin both upgrade payloads, exact owned-region parity/newline preservation, LF byte identity, explicit LF-only ledger refusal and Prepare all-LF publication | `test_review_policy.py`, `test_review_evidence.py`, `test_render_agent_surfaces.py`, `test_docs_lint.py`, `test_server_tools_lifecycle.py` | canonical runner |
@@ -125,69 +126,83 @@ neither the cache file nor the timing manifest is a public compatibility API.
 `--file <basename>` (repeatable) is the focused diagnostic mode for repair
 loops: the same lock/subprocess/timeout/artifact-guard path, no cache or
 timing access, output labeled as focused. Focused runs are never delivery
-evidence — one full canonical isolated run remains the delivery authority.
+evidence — one full canonical run in isolated worker processes remains the
+delivery authority.
 
-**Repository-state guard (wave 1z8ox).** Tests write only under temporary
-roots (a `tempfile` directory or a copied fixture tree); a test that needs
-repository content reads it and writes elsewhere. The runner enforces this
-in `_execute_files`, so full, `--file` and `--schedule-control` runs behave
-the same. After it acquires the run lock it snapshots, by path, size and
-modification time, every tracked file, every untracked file that git does
-not ignore (`git ls-files -co --exclude-standard`), and the edit-gate state
-file `.wavefoundry/guard-overrides.json`. At the end of the run it snapshots
-again; any created, modified or deleted path fails the run, the paths are
-named, and no receipt is written. The only exclusions are the receipt
-(`test-cache.json`) and lock (`test-run.lock`) the runner writes itself. A
-concurrent edit by an operator or agent during the run, including opening
-or closing an edit gate, also trips the guard. The edit-gate file is
-compared by content hash rather than size and modification time. The one
-tolerated change is the framework's own context-efficiency projection: MCP
-calls record usage, and the Stop hook and the MCP quiet-period monitor
-publish it by rewriting the open wave record (`wave.md` under `docs/waves/`,
-both taken from the record layout modules) during the run. The snapshot
-keeps each wave record's bytes, and a wave record that changed is tolerated
-only when its text is identical after removing the projected regions (the
-`wave:context-efficiency` block with its state comment and the
-`wave:exploration-avoided` block, each with its heading); an edit outside
-those blocks, including one inside another marker region, still fails. Known
-limit: because those blocks are removed before comparing, a change confined
-to them is tolerated whatever its source, including an added, deleted or
-edited block of that kind. The
-`git ls-files` listing is timed (60 seconds) and ends its process tree on
-timeout. Outside a git checkout, or when the first listing times out, the
-guard is skipped with a stated message; when the end-of-run listing cannot
-be taken, the run fails with the cause stated. Ignored runtime paths
-(`.wavefoundry/logs/`, `.wavefoundry/index/`, `.wavefoundry/locks/`,
-`.wavefoundry/cache/`, `__pycache__`) and `.git/` are outside the standing guard, because the live
-host writes there during a run; test writes there are caught by an isolated
-census instead: a full run in a temporary clone that reproduces the working
-tree, with no MCP server attached, compared against a before-and-after
-snapshot of every file including `.git/`. The earlier check for a nested
-`.wavefoundry` under the scripts directory remains part of the same guard.
-The runner also sets `PYTHONDONTWRITEBYTECODE=1` in the worker environment,
-so Python children that tests spawn write no bytecode into the repository.
+**Repository-state guard (waves 1z8ox, 20gfj).** Tests write under temporary
+fixture roots; a test that needs repository content reads it and writes
+elsewhere. Full, focused and schedule-control runs use the same guard in
+`_execute_files`. After acquiring its run lock, the runner observes tracked
+and non-ignored untracked files (`git ls-files -co --exclude-standard`) plus
+`.wavefoundry/guard-overrides.json`, then compares the end state. The runner's
+receipt and run lock retain their existing exclusions. Material or
+unclassified changes fail with the affected paths and no new green receipt;
+edit-gate content is hashed. A final framework input hash also detects source
+changes even when size and modification time are restored. These are
+in-memory observations of the current checkout, not copied qualification
+checkouts or additional durable evidence.
 
-**Bytecode cache (change `1zyv1`).** `main()` (never the import, which the
+Existing canonical wave/change carriers and declared sibling ledgers are
+recognized through the layout/profile owners. Under the existing publication
+lock, the runner takes a short consistent observation of related bytes; it
+never holds that lock across test execution. A bounded lock/observation
+failure is reported. Both ledger endpoints must parse and validate, old bytes
+must remain an exact prefix, and no new policy receipt is tolerated. Generated
+review views must match their endpoint's canonical renderer. The authored
+remainder uses `gardener_metadata.canonical_review_policy_body`: ordinary
+status/date/completion and the canonical Progress Log may change, while AC
+labels, `[~]`, substantive handoff prose and plan meaning remain material.
+Existing context-efficiency projection normalization remains. A new, deleted,
+linked, malformed or uncertain carrier, a forged view or rewritten ledger
+cannot obtain the bookkeeping exemption. The standalone session handoff has
+no filename exemption; update it outside the run.
+
+`test_worker_guard.py` installs an audit hook before test imports in ordinary
+and optional-report workers. An inherited source-only
+`test_worker_bootstrap/sitecustomize.py` shim covers ordinary Python exec
+children, preserves existing search entries and chains the next file-based
+site customization; fork inherits the hook. Main-worker installation failure
+is fatal. Protected carrier writes through audited opens, replacement,
+deletion and relevant link/directory operations are refused, including
+supported relative, symlink-alias and descriptor-relative paths. Nested
+runners retain outer protected roots; unrelated scratch fixtures stay
+writable. Canonical publication also checks the inherited marker before
+mutating a protected root, including descendants launched without site
+initialization. The helper ships as a declared dependency of `review_evidence`;
+the bootstrap directory is excluded from packs. Unmarked production imports
+install no hook and change no cache policy.
+
+This is an accidental-write guard, not writer authentication or hostile-code
+isolation. Isolated/site-disabled Python, a cleared bootstrap environment,
+native or ctypes writes, shell programs and pre-opened descriptors are not
+universally intercepted. Unclassified resulting changes still fail; a bypass
+that produces exactly valid exempt bookkeeping can be indistinguishable from
+an external coordinator. The environment marker does not prove identity.
+The Git listing retains its 60-second process-tree deadline; absent Git or a
+failed initial listing reports the existing unavailable-guard condition, and
+an unavailable final listing fails. Ignored runtime paths and `.git/` remain
+outside the standing comparison; the nested framework-artifact check remains.
+No recurring copied-checkout census, extra receipt, upgrade scan or review
+stage is introduced. Workers retain `-B`, `PYTHONDONTWRITEBYTECODE=1` and removal
+of `PYTHONPYCACHEPREFIX` before startup.
+
+**Bytecode cache (changes `1zyv1`, `206fi`).** `main()` (never the import, which the
 close gate borrows) configures the project cache `.wavefoundry/cache/pycache/`
-through `bytecode_cache.configure`. A top-level run, including
-`python3 -B run_tests.py`, decides with the runner's authority: it flushes the
-cache when `.wavefoundry/framework/VERSION` changed, then warms it in a
-subprocess routed through `_run_tree_kill` (launched without `-B`, one
-`compileall` child per interpreter: the worker interpreter, the runner's and
-`$PYTHON` when set; each compiles the framework scripts directory and its own
-stdlib, purelib and platlib). The warm-up is required whenever a prefix is in
-use: a prefix makes Python ignore the installation's own `__pycache__`, so a
-cold read-only worker would recompile the standard library. Workers keep `-B`
-and `PYTHONDONTWRITEBYTECODE=1`, so they only read the cache and never cache
-scratch modules, and they receive `PYTHONPYCACHEPREFIX` only when the run's
-`configure()` left a prefix active (a refused, linked cache or a missing layout
-gives them none and runs no warm-up). An inherited `PYTHONPYCACHEPREFIX` marks a
-child runner (the second-profile copy, whose `_child_runner_env` passes the
-parent's prefix): it reuses that prefix read-only and does no warm-up and no
-cleanup, so no second cold cache is built per profile run. Each top-level run
-removes the cache's mirrors of the temporary directory, in both its given and
-resolved spelling, contained and without following links. The receipt hash
-walks `.wavefoundry/framework/` only, so the cache never changes it.
+through `bytecode_cache.configure`. `-B`, `PYTHONDONTWRITEBYTECODE=1`, explicit
+read-only configuration and `WAVEFOUNDRY_DISABLE_BYTECODE_CACHE=1` disable
+project-cache reads and writes after configuration, with no flush, warm-up or
+pruning; runner authority does not override them. Ordinary writable top-level
+runs may flush on VERSION change and warm the active process-wide prefix,
+including installation modules, through `_run_tree_kill`; warm-up failure is
+diagnostic only. Workers keep `-B` and `PYTHONDONTWRITEBYTECODE=1` and receive
+no `PYTHONPYCACHEPREFIX`. Profile-child identity uses
+`WAVEFOUNDRY_TEST_RUNNER_CHILD`, independently of cache policy; those runners
+use read-only configuration and never warm or prune. Only a writable
+top-level run with an active prefix removes its contained temporary mirrors.
+For an externally configured direct invocation, unset `PYTHONPYCACHEPREFIX`
+before startup: configuration cannot undo startup imports. Source/pack
+integrity does not authenticate cached bytecode. The cache remains outside the
+framework receipt hash. The worker bootstrap preserves these existing rules.
 
 The former 37k-line `test_server_tools.py` monolith is a three-shard family
 plus a non-discovered support module: `test_server_tools.py` (server
@@ -859,7 +874,7 @@ Minimum verification bar for any framework script change:
 
 ## Framework Script Hygiene
 
-Tests write only under temporary roots, never into the repository under test; the runner's repository-state guard (see the Canonical Runner section) fails a run that changes a tracked or non-ignored file or the edit-gate file.
+Tests write only under temporary roots, never into the repository under test. The runner's repository-state guard (see the Canonical Runner section) rejects material/unclassified tracked or non-ignored changes and edit-gate changes; supported worker writes to exemption-capable carriers are refused before mutation.
 
 Run tests with `python3 -B .wavefoundry/framework/scripts/run_tests.py`. Bytecode goes only to the project cache `.wavefoundry/cache/pycache/` (see **Bytecode cache** in the Canonical Runner section); a stray `__pycache__` under `.wavefoundry/framework/` is a defect to report, not routine cleanup, although the runner still removes any it finds under the framework directory.
 
@@ -918,4 +933,4 @@ qualification remain separate from these focused tests and from plan readiness.
 
 The report directory is outside framework input hashes and pack payloads. Linked, special, protected and unowned destinations are refused; an owned report is atomically replaced, including identical-content and mode-only writes. Publication carries the initially owned final identity (or initial absence), rechecks unlinked lexical parent identities against the held descriptor on POSIX, and refuses detected final or parent substitutions while preserving original and alternate targets. Native Windows checks and replaces by path; neither branch excludes all same-user changes in the final check-to-commit interval. Decoder recursion/memory failures become caught refusals. Compare reports with `qualification_report.py --compare <default> <candidate> --profile second|declared`; second-profile extras require execution-associated default-profile-only markers, while declared skips must match exactly. Missing workers, duplicates, contradictory observations and changed reasons refuse qualification. No consumer upgrade invokes this source-release facility.
 
-Routine review working packets and green transcripts stay temporary. Final evidence, source/profile identities, disagreements, reproducible commands, limits and retained unique-proof references belong in wave.md, with typed authority in immutable events.jsonl. Reuse a matching current receipt after bookkeeping and source freeze; independent required review and fresh full documentation gates remain mandatory.
+Routine review working packets and green transcripts stay temporary. Final evidence, source/profile identities, disagreements, reproducible commands, limits and retained unique-proof references belong in wave.md, with typed authority in immutable events.jsonl. Reuse a matching current receipt after source qualification; validated routine bookkeeping alone does not require another suite or reviewer cycle. Independent required review and fresh full documentation gates remain mandatory.

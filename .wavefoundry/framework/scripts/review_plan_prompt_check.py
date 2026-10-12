@@ -95,6 +95,11 @@ REVIEW_PLAN_LEGACY_CONTRACT_PROFILES = (
 )
 
 RECOVERY_POINTER = "docs/references/native-windows-support.md#review-plan-prompt-migration-recovery"
+PROMPT_MAX_BYTES = 8 * 1024 * 1024
+_DIR_FD_SUPPORTED = (
+    hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW")
+    and hasattr(os, "O_NONBLOCK") and {os.open, os.stat} <= os.supports_dir_fd
+)
 
 
 def line_content_and_ending(physical_line: str) -> tuple[str, str]:
@@ -151,24 +156,124 @@ def classify_review_plan_prompt(old: dict, new: dict) -> dict:
             "recovery_pointer": RECOVERY_POINTER}
 
 
-def observe_prompt(path: Path) -> dict:
-    """Plain read-only old-code-window observation; does not promise race closure."""
+def _linked_entry(entry) -> bool:
+    return stat.S_ISLNK(entry.st_mode) or bool(
+        getattr(entry, "st_file_attributes", 0)
+        & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 1024)
+    )
+
+
+def _same_entry(checked, opened) -> bool:
+    return (checked.st_dev, checked.st_ino) == (opened.st_dev, opened.st_ino)
+
+
+def _read_prompt_bytes(fd: int) -> bytes:
+    chunks = []
+    remaining = PROMPT_MAX_BYTES + 1
+    while remaining:
+        chunk = os.read(fd, min(remaining, 1024 * 1024))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def observe_prompt(path: Path, root: Path | None = None) -> dict:
+    """Bound one regular descriptor observation below a trusted root.
+
+    The optional root preserves direct callers (their parent is the anchor).
+    POSIX walks lexical parents by descriptor. The path fallback checks links
+    and opened identity, but retains a directory-component swap window on
+    native Windows; neither branch promises a total filesystem I/O deadline.
+    """
+    result = {"exists": True, "regular": True, "linked": False}
+    parent_fd = fd = None
+    observed = False
     try:
-        entry = os.lstat(path)
-    except (FileNotFoundError, NotADirectoryError):
-        return {"exists": False}
-    except OSError as exc:
-        return {"exists": True, "regular": True, "error": type(exc).__name__}
-    linked = path.is_symlink() or bool(getattr(entry, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 1024))
-    result = {"exists": True, "linked": linked, "regular": stat.S_ISREG(entry.st_mode)}
-    if result["regular"] and not linked:
+        path = Path(path)
+        root = Path(root) if root is not None else path.parent
+        lexical_root = Path(os.path.abspath(root))
+        candidate = path if path.is_absolute() else Path(os.path.abspath(path))
+        parts = candidate.relative_to(lexical_root).parts
+        if not parts or ".." in parts:
+            result["error"] = "OutsideRoot"
+            return result
+        trusted_root = lexical_root.resolve(strict=True)
+        current = trusted_root
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
+        if _DIR_FD_SUPPORTED:
+            parent_fd = os.open(trusted_root, flags | os.O_DIRECTORY | os.O_NOFOLLOW)
+        for name in parts[:-1]:
+            current = current / name
+            try:
+                entry = (os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+                         if parent_fd is not None else os.lstat(current))
+            except FileNotFoundError:
+                return {"exists": False}
+            observed = True
+            if _linked_entry(entry):
+                result["linked"] = True
+                return result
+            if not stat.S_ISDIR(entry.st_mode):
+                result["error"] = "NotADirectoryError"
+                return result
+            if parent_fd is not None:
+                next_fd = os.open(name, flags | os.O_DIRECTORY | os.O_NOFOLLOW,
+                                  dir_fd=parent_fd)
+                try:
+                    opened_parent = os.fstat(next_fd)
+                except BaseException:
+                    os.close(next_fd)
+                    raise
+                if not _same_entry(entry, opened_parent):
+                    os.close(next_fd)
+                    result["error"] = "ChangedIdentity"
+                    return result
+                os.close(parent_fd)
+                parent_fd = next_fd
+        target = current / parts[-1]
         try:
-            result["bytes"] = path.read_bytes()
-        except OSError as exc:
-            result["error"] = type(exc).__name__
+            entry = (os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)
+                     if parent_fd is not None else os.lstat(target))
+        except FileNotFoundError:
+            return {"exists": False}
+        observed = True
+        result.update(linked=_linked_entry(entry), regular=stat.S_ISREG(entry.st_mode))
+        if result["linked"] or not result["regular"]:
+            return result
+        if parent_fd is not None:
+            fd = os.open(parts[-1], flags | os.O_NOFOLLOW, dir_fd=parent_fd)
+        else:
+            fd = os.open(target, flags | getattr(os, "O_BINARY", 0)
+                         | getattr(os, "O_NOINHERIT", 0))
+        opened = os.fstat(fd)
+        after = (os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)
+                 if parent_fd is not None else os.lstat(target))
+        if (_linked_entry(after) or not stat.S_ISREG(opened.st_mode)
+                or not stat.S_ISREG(after.st_mode)
+                or not _same_entry(entry, opened) or not _same_entry(after, opened)):
+            result["error"] = "ChangedIdentity"
+            return result
+        raw = _read_prompt_bytes(fd)
+        if len(raw) > PROMPT_MAX_BYTES:
+            result["error"] = "SizeLimit"
+        else:
+            result["bytes"] = raw
+    except FileNotFoundError:
+        if not observed:
+            return {"exists": False}
+        result["error"] = "ChangedIdentity"
+    except (OSError, ValueError, RuntimeError, MemoryError) as exc:
+        result["error"] = type(exc).__name__
+    finally:
+        if fd is not None:
+            os.close(fd)
+        if parent_fd is not None:
+            os.close(parent_fd)
     return result
 
 
 def check_review_plan_prompt(root: Path) -> dict:
-    return classify_review_plan_prompt(observe_prompt(root / REVIEW_PLAN_OLD_PROMPT),
-                                      observe_prompt(root / REVIEW_PLAN_NEW_PROMPT))
+    return classify_review_plan_prompt(observe_prompt(root / REVIEW_PLAN_OLD_PROMPT, root),
+                                      observe_prompt(root / REVIEW_PLAN_NEW_PROMPT, root))

@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import unittest
+import test_worker_guard
 
 # Workers always stay read-only, including direct invocations without -B.
 if __name__ == "__main__" or sys.pycache_prefix is None:
@@ -79,6 +80,7 @@ def _protocol_output():
 
 
 def _run(directory, name, nonce, protocol_stream):
+    test_worker_guard.install()
     # Tests share this process and can read argv/nonce or emit matching frames.
     # The nonce correlates a worker protocol; it does not authenticate its code.
     suite = unittest.defaultTestLoader.discover(directory, pattern=name)

@@ -194,6 +194,25 @@ class UpgradeOutputTests(unittest.TestCase):
         self.assertTrue(result.startswith(text[:60000]))
         self.assertNotIn('TAIL', result)
 
+    def test_large_scrubbed_display_preserves_head_tail_and_raw_recovery_marker(self):
+        token = "publisher-known-token-0123456789"
+        full = ("\x1b[31mHEAD\x00\r\n" + token + "\n" + "x" * 90000 +
+                "\n--resume-after-gate\nFINAL\x85\n")
+        with patch.object(self.server, '_mcp_subprocess_run', return_value=subprocess.CompletedProcess([], 7, full, '')), \
+                patch.dict(os.environ, {"WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN": token}):
+            response = self.server.wf_upgrade_response(self.root)
+        data = response['data']
+        self.assertEqual(response['status'], 'error')
+        self.assertEqual(data['exit_code'], 7)
+        self.assertTrue(data['output_truncated'])
+        self.assertIn('elided', data['output'])
+        self.assertIn('HEAD', data['output'])
+        self.assertIn('FINAL', data['output'])
+        self.assertIn('[REDACTED]', data['output'])
+        for forbidden in (token, '\x1b', '\x00', '\r', '\x85'):
+            self.assertNotIn(forbidden, data['output'])
+        self.assertIn("wf_upgrade(phase='resume_after_gate')", response['next_step'])
+
 
 class UpgradeHelperReloadTests(unittest.TestCase):
     def test_reload_refreshes_helpers_and_consumers_preserving_candidate_scope(self):

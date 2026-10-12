@@ -29,12 +29,14 @@ output lines are never interleaved.
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 import datetime
 import hashlib
 import json
 import math
 import os
 import re
+import stat
 import subprocess
 import sys
 import time
@@ -413,6 +415,77 @@ def _content_digest(path: Path, st: os.stat_result) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+class _RepoSnapshot(dict):
+    """The existing observation plus enough identity to classify its carriers."""
+
+    def __init__(self, root: Path, carriers: dict[str, str]):
+        super().__init__()
+        self.root = root
+        self.carriers = carriers
+
+
+def _record_layout(root: Path):
+    try:
+        import record_paths
+        return record_paths.load_record_roots(root)
+    except Exception:  # No guessed layout may enable bookkeeping tolerance.
+        return None
+
+
+def _carrier_kinds(root: Path, rels: set[str]) -> dict[str, str]:
+    roots = _record_layout(root)
+    matcher = _wave_record_matcher(root)
+    if roots is None or matcher is None:
+        return {}
+    kinds = {}
+    depth = roots.max_depth if roots.nested else 1
+    for rel in rels:
+        path = Path(rel)
+        if rel.startswith(roots.plans_prefix) and len(path.relative_to(roots.plans_rel).parts) == 1:
+            if path.suffix == ".md":
+                kinds[rel] = "change"
+        elif rel.startswith(roots.waves_prefix):
+            parts = path.relative_to(roots.waves_rel).parts
+            if not 2 <= len(parts) <= depth + 1:
+                continue
+            if path.name == matcher[1]:
+                kinds[rel] = "wave"
+            elif (path.parent / matcher[1]).as_posix() in rels:
+                if path.name == "events.jsonl":
+                    kinds[rel] = "ledger"
+                elif path.suffix == ".md":
+                    kinds[rel] = "change"
+    return kinds
+
+
+@contextlib.contextmanager
+def _observation_lock(root: Path):
+    """Observe publication endpoints together, with a short bounded wait."""
+    import review_evidence
+
+    # Never wait while holding this lock and never retain it during workers.
+    for attempt in range(21):
+        with contextlib.ExitStack() as stack:
+            try:
+                stack.enter_context(review_evidence.project_state_publication_lock(root, wait=False))
+            except review_evidence.ProjectPublicationUnavailable:
+                if attempt == 20:
+                    raise RuntimeError("project publication remained busy during the 1s observation window") from None
+            else:
+                yield
+                return
+        time.sleep(0.05)
+
+
+def _regular_carrier(root: Path, path: Path) -> bool:
+    # Do not follow a linked ancestor into an apparently ordinary carrier.
+    while path != root:
+        if path.is_symlink():
+            return False
+        path = path.parent
+    return True
+
+
 def repo_state_snapshot(repo_root: Path | None = None) -> "dict[str, tuple | None] | None":
     """Wave 1z8ox (1z8ov): snapshot of the repository state a test must never change.
 
@@ -422,18 +495,21 @@ def repo_state_snapshot(repo_root: Path | None = None) -> "dict[str, tuple | Non
     control). Each entry maps a repo-relative POSIX path to ``(size,
     mtime_ns)``, or ``None`` when the path is absent. The edit-gate file is
     compared by content hash (``("sha256", digest)``), not size and mtime, and
-    each wave record also keeps its bytes (``(size, mtime_ns, bytes)``) so
-    ``_repo_state_changes`` can tolerate the framework's own context-efficiency
-    projection. Other files are stat only: the tree holds thousands. Ignored
-    runtime paths (logs, index, locks, ``__pycache__``) and ``.git/`` are
-    outside the snapshot; the isolated census covers those. The runner's own
+    canonical bookkeeping carriers also keep bytes (``(size, mtime_ns, bytes)``)
+    for semantic comparison and validation against their own ledger endpoints.
+    These observations briefly hold the existing publication lock. Other files
+    are stat only; the final framework hash also detects restored-mtime source
+    changes. Ignored runtime paths and ``.git/`` remain outside this guard.
+    Supported worker writes to record roots are refused before mutation; this
+    is not isolation against arbitrary native or bootstrap-bypassing writes.
+    The runner's own
     receipt and lock are excluded. Returns ``None`` when git is unavailable,
     the root is not a git checkout or the listing timed out, with the cause in
     ``_repo_state_unavailable_reason``, so the caller can state it.
     """
     global _repo_state_unavailable_reason
     _repo_state_unavailable_reason = ""
-    root = repo_root or _REPO_ROOT
+    root = (repo_root or _REPO_ROOT).absolute()
     try:
         # The listing ends its whole process tree on timeout (wave 1z8ox, 1z8ow).
         listing = _run_tree_kill(
@@ -460,22 +536,29 @@ def repo_state_snapshot(repo_root: Path | None = None) -> "dict[str, tuple | Non
         return None
     rels = {p for p in listing.stdout.decode("utf-8", errors="surrogateescape").split("\0") if p}
     rels.add(_GUARD_OVERRIDES_REL)
-    matcher = _wave_record_matcher(root)
-    snapshot: dict[str, tuple | None] = {}
-    for rel in rels:
-        if rel in _REPO_GUARD_EXCLUDE:
-            continue
-        path = root / rel
-        try:
-            st = os.lstat(path)
-            if rel == _GUARD_OVERRIDES_REL:
-                snapshot[rel] = ("sha256", _content_digest(path, st))
-            elif _is_wave_record(rel, matcher) and not os.path.islink(path):
-                snapshot[rel] = (st.st_size, st.st_mtime_ns, path.read_bytes())
-            else:
-                snapshot[rel] = (st.st_size, st.st_mtime_ns)
-        except OSError:
-            snapshot[rel] = None
+    carriers = _carrier_kinds(root, rels)
+    snapshot = _RepoSnapshot(root, carriers)
+    try:
+        with _observation_lock(root) if carriers else contextlib.nullcontext():
+            for rel in rels:
+                if rel in _REPO_GUARD_EXCLUDE:
+                    continue
+                path = root / rel
+                try:
+                    st = os.lstat(path)
+                    if rel == _GUARD_OVERRIDES_REL:
+                        snapshot[rel] = ("sha256", _content_digest(path, st))
+                    elif rel in carriers and stat.S_ISREG(st.st_mode) and _regular_carrier(root, path):
+                        snapshot[rel] = (st.st_size, st.st_mtime_ns, path.read_bytes())
+                    else:
+                        snapshot[rel] = (st.st_size, st.st_mtime_ns)
+                except OSError:
+                    snapshot[rel] = None
+    except (OSError, RuntimeError) as exc:
+        _repo_state_unavailable_reason = f"consistent publication observation unavailable ({type(exc).__name__})"
+        # A Git checkout that could not be observed is not the legacy no-Git
+        # skip. Propagate to the execution boundary so no receipt is issued.
+        raise RuntimeError(_repo_state_unavailable_reason) from exc
     return snapshot
 
 
@@ -503,9 +586,111 @@ def _projection_only_change(before: "tuple | None", after: "tuple | None") -> bo
     if not (isinstance(before, tuple) and isinstance(after, tuple)
             and len(before) == 3 and len(after) == 3):
         return False
-    if before[:2] == after[:2]:
-        return True  # size and mtime unchanged: not a change
     return _strip_projected_regions(before[2]) == _strip_projected_regions(after[2])
+
+
+def _carrier_bytes(snapshot: dict, rel: str) -> bytes:
+    value = snapshot.get(rel)
+    if not isinstance(value, tuple) or len(value) != 3 or not isinstance(value[2], bytes):
+        raise ValueError("carrier is absent, linked or unreadable")
+    return value[2]
+
+
+def _change_body(data: bytes, rel: str) -> bytes:
+    import gardener_metadata
+    import vocabulary_profile
+
+    text = data.decode("utf-8")
+    header = text.split("\n## ", 1)[0]
+    ids = re.findall(rf"(?m)^{vocabulary_profile.MEMBER_ID_LABEL_RE}: `([^`]+)`[ \t]*$", header)
+    stem = Path(rel).stem
+    if (ids != [stem] or not re.match(
+            r"^[a-z0-9]{5,6}-" + vocabulary_profile.CHANGE_KIND_RE + r"(?: |-)\S", stem)
+            or gardener_metadata.ambiguous_excluded_headings(text)):
+        raise ValueError("not an unambiguous canonical change carrier")
+    return gardener_metadata.canonical_review_policy_body(data)
+
+
+def _ledger_rows(data: bytes):
+    import review_evidence
+
+    rows, errors = review_evidence.parse_review_event_bytes(data)
+    if errors or review_evidence.validate_review_evidence_records(rows):
+        raise ValueError("invalid canonical ledger")
+    return rows
+
+
+def _wave_body(snapshot: _RepoSnapshot, rel: str, rows) -> bytes:
+    """Verify each generated view, then compare its authored remainder."""
+    import gardener_metadata
+    import review_evidence
+
+    text = _carrier_bytes(snapshot, rel).decode("utf-8")
+    source, errors = review_evidence.parse_review_evidence_source(text)
+    if errors or source != review_evidence.REVIEW_EVIDENCE_SOURCE:
+        raise ValueError("wave does not declare canonical external authority")
+    if gardener_metadata.ambiguous_excluded_headings(text):
+        raise ValueError("ambiguous bookkeeping carrier")
+    rendered = review_evidence.render_review_evidence_projection(text, rows)
+    rendered = review_evidence.render_review_status_projection(
+        rendered, rows, review_evidence.required_review_status_keys(snapshot.root, text, rows),
+    )
+    for begin, end in (
+            (review_evidence.FINDING_SYNTHESIS_MARKER_BEGIN, review_evidence.FINDING_SYNTHESIS_MARKER_END),
+            (review_evidence.REVIEW_STATUS_MARKER_BEGIN, review_evidence.REVIEW_STATUS_MARKER_END)):
+        if text.count(begin) != 1 or text.count(end) != 1:
+            raise ValueError("missing or duplicate generated view")
+        left, right = text.index(begin), text.index(end) + len(end)
+        if right <= left:
+            raise ValueError("reversed generated view")
+        rleft, rright = rendered.index(begin), rendered.index(end) + len(end)
+        if gardener_metadata.normalize_carriers(text[left:right]) != gardener_metadata.normalize_carriers(rendered[rleft:rright]):
+            raise ValueError("generated view differs from its ledger")
+        # The renderer also removes historical generated signoff lines. Its
+        # own output, not an independently duplicated rule, owns that delta.
+        rendered = rendered[:rleft] + "\n\n" + rendered[rright:]
+    # Normalize authored sections while their headings are still line-aligned;
+    # the telemetry seam deliberately collapses surrounding whitespace.
+    canonical = gardener_metadata.canonical_review_policy_body(rendered.encode("utf-8"))
+    return _strip_projected_regions(canonical).encode("utf-8")
+
+
+def _bookkeeping_changes(before: dict, after: dict, changed: set[str]) -> set[str]:
+    """Return only proved harmless deltas; any ambiguity keeps the strict guard."""
+    if not isinstance(before, _RepoSnapshot) or not isinstance(after, _RepoSnapshot):
+        return set()
+    import review_evidence
+
+    allowed = set()
+    waves = set()
+    matcher = _wave_record_matcher(before.root)
+    for rel in changed:
+        kind = before.carriers.get(rel)
+        if kind != after.carriers.get(rel) or kind is None:
+            continue
+        try:
+            if kind == "change":
+                if _change_body(_carrier_bytes(before, rel), rel) == _change_body(_carrier_bytes(after, rel), rel):
+                    allowed.add(rel)
+            elif kind in {"wave", "ledger"} and matcher is not None:
+                waves.add(rel if kind == "wave" else (Path(rel).parent / matcher[1]).as_posix())
+        except (UnicodeError, ValueError):
+            pass
+    for wave_rel in waves:
+        ledger_rel = (Path(wave_rel).parent / review_evidence.EVENTS_FILENAME).as_posix()
+        try:
+            old, new = _carrier_bytes(before, ledger_rel), _carrier_bytes(after, ledger_rel)
+            if not new.startswith(old):
+                continue
+            old_rows, new_rows = _ledger_rows(old), _ledger_rows(new)
+            if any(row.get("record_type") == review_evidence.REVIEW_POLICY_RECEIPT_RECORD_TYPE
+                   for row in new_rows[len(old_rows):]):
+                continue
+            if _wave_body(before, wave_rel, old_rows) == _wave_body(after, wave_rel, new_rows):
+                allowed.update({wave_rel, ledger_rel} & changed)
+        except (UnicodeError, ValueError, OSError, KeyError, TypeError):
+            pass
+    return allowed
 
 
 def _repo_state_changes(before: "dict[str, tuple | None]",
@@ -515,12 +700,17 @@ def _repo_state_changes(before: "dict[str, tuple | None]",
     A wave record whose only difference is the framework's own
     context-efficiency projection (DEL-F1) is not a change.
     """
-    changed = []
+    changed = set()
     for rel in sorted(set(before) | set(after)):
         b, a = before.get(rel), after.get(rel)
-        if b != a and not _projection_only_change(b, a):
-            changed.append(rel)
-    return changed
+        # Keep the pre-existing telemetry-only tolerance for wave records;
+        # ordinary three-part carrier tuples must never inherit it by shape.
+        telemetry = (getattr(before, "carriers", {}).get(rel) == "wave"
+                     and getattr(after, "carriers", {}).get(rel) == "wave"
+                     and _projection_only_change(b, a))
+        if b != a and not telemetry:
+            changed.add(rel)
+    return sorted(changed - _bookkeeping_changes(before, after, changed))
 
 
 def _stray_artifact_failure(preexisting: list[str],
@@ -539,7 +729,10 @@ def _stray_artifact_failure(preexisting: list[str],
     changed: list[str] = []
     unverified = ""
     if repo_before is not None:
-        repo_after = repo_state_snapshot(repo_root)
+        try:
+            repo_after = repo_state_snapshot(repo_root)
+        except RuntimeError:
+            repo_after = None
         if repo_after is None:
             unverified = _repo_state_unavailable_reason or "the second snapshot failed"
         else:
@@ -562,8 +755,9 @@ def _stray_artifact_failure(preexisting: list[str],
             "were created, modified or deleted:\n  "
             + "\n  ".join(changed)
             + "\nA concurrent edit by an operator or agent during the run, "
-            "including opening or closing an edit gate, also trips this guard; "
-            "if that is the cause, re-run once the tree is quiet. Otherwise fix "
+            "including opening or closing an edit gate, also trips this guard "
+            "unless it is validated canonical bookkeeping. Re-run after material "
+            "inputs settle. Otherwise fix "
             "the offending test to write under a temporary root."
         )
     if unverified:
@@ -945,8 +1139,15 @@ def _run_file(file_path: Path) -> FileResult:
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     # Read-only workers must receive no prefix before interpreter startup.
     _apply_bytecode_prefix(env)
+    import test_worker_guard
+    roots = _record_layout(_REPO_ROOT)
+    if roots is None:
+        return FileResult(file_path.name, 1, "Cannot establish worker record protection: invalid record layout.\n", 0, 0, 0, None)
+    env = test_worker_guard.worker_environment(env, _REPO_ROOT, (roots.waves_rel, roots.plans_rel))
     nonce = uuid.uuid4().hex
-    cmd = [_test_runner_python(), "-B", "-m", "unittest", "discover",
+    cmd = [_test_runner_python(), "-B", "-c",
+           "import test_worker_guard; test_worker_guard.install(); "
+           "import runpy; runpy.run_module('unittest', run_name='__main__')", "discover",
            "-s", str(_TESTS_DIR), "-p", file_path.name, "-v"]
     if _QUALIFICATION_REQUESTED:
         cmd = [_test_runner_python(), "-B", str(_SCRIPT_DIR / "qualification_worker.py"),
@@ -1118,7 +1319,12 @@ def _execute_files(ordered_files: list[Path]) -> tuple[int, list[FileResult]]:
     # Wave 1z8ox (1z8ov): snapshot tracked and non-ignored files plus the
     # edit-gate file, after the lock, so the end-of-run guard can name any
     # repository path the run created, modified or deleted.
-    repo_before = repo_state_snapshot()
+    try:
+        repo_before = repo_state_snapshot()
+    except RuntimeError as exc:
+        print(f"REPOSITORY STATE NOT VERIFIED BEFORE THE TEST RUN: {exc}", file=sys.stderr)
+        _release_run_lock(lock_file)
+        return 1, []
     if repo_before is None:
         print(
             f"run_tests: {_REPO_ROOT} could not be snapshotted "
@@ -1752,6 +1958,9 @@ def _main(opts: dict) -> int:
     # recorded by the counterbalanced control comparison (Requirement 4).
     order = _schedule_order(test_files, durations, "alphabetical")
     rc, results = _execute_files(order)
+    if rc == 0 and _hash_inputs() != inputs_hash:
+        print("FRAMEWORK INPUTS CHANGED DURING THE TEST RUN: no new green receipt; rerun after material inputs settle.", file=sys.stderr)
+        rc = 1
     if rc == 0:
         _write_cache(
             inputs_hash,
