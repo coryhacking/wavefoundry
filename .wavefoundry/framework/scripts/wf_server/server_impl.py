@@ -166,7 +166,7 @@ if __name__ == "__main__":
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 import repo_root  # shared cwd-independent root discovery (wave 1t3gt)
-from operator_identity import resolve_operator
+from operator_identity import resolve_local_user, resolve_operator
 import setup_readiness
 import index_source_guard
 import path_containment
@@ -11220,6 +11220,7 @@ def wf_review_event_response(
                 REQUEST_DIGEST_FIELD,
                 "policy_receipt_id",
                 "attested_by",
+                "local_user",
             }
         )
         .intersection(evidence_payload)
@@ -11508,12 +11509,20 @@ def wf_review_event_response(
                     "or supply a mapped operator_handle. Attribution omitted.",
                     advisory=True,
                 ))
+            local_user, local_user_reason = resolve_local_user()
+            if local_user is None:
+                stale_warnings.append(_diagnostic(
+                    "local_user_unresolved",
+                    f"{local_user_reason}. Local-account attribution omitted.",
+                    advisory=True,
+                ))
             appended, build_errors = build_identified_review_event(
                 current.records,
                 wave_md.parent.name,
                 semantic_event,
                 operator=operator,
                 attested_by=attested_name,
+                local_user=local_user,
             )
             if build_errors:
                 return _response(
@@ -18738,6 +18747,79 @@ def _apply_lifecycle_focus_reporting(
     ))
 
 
+def _bounded_lifecycle_extension_response(value: Any) -> dict[str, Any]:
+    """Detach JSON output, bounding traversal and retained serialized content."""
+    if not isinstance(value, Mapping):
+        raise ValueError("callback result must be a mapping")
+    budget = mcp_tool_extensions.LIFECYCLE_RESPONSE_MAX_NODES
+    byte_limit = mcp_tool_extensions.LIFECYCLE_RESPONSE_MAX_BYTES
+    text_chars = 0
+
+    def visit(item: Any, depth: int) -> Any:
+        nonlocal budget, text_chars
+        budget -= 1
+        if budget < 0:
+            raise ValueError("callback result has too many values")
+        if isinstance(item, Mapping):
+            if depth > mcp_tool_extensions.RESPONSE_KEY_MAX_DEPTH:
+                raise ValueError("callback result is too deep")
+            result = {}
+            for key, child in item.items():
+                if type(key) is not str or len(key) > byte_limit:
+                    raise ValueError("callback result has an invalid key")
+                text_chars += len(key)
+                if text_chars > byte_limit:
+                    raise ValueError("callback result is too large")
+                result[key] = visit(child, depth + 1)
+            return result
+        if type(item) is list:
+            if depth > mcp_tool_extensions.RESPONSE_KEY_MAX_DEPTH:
+                raise ValueError("callback result is too deep")
+            return [visit(child, depth + 1) for child in item]
+        if item is None or type(item) in (bool, int, float):
+            return item
+        if type(item) is str and len(item) <= byte_limit:
+            text_chars += len(item)
+            if text_chars > byte_limit:
+                raise ValueError("callback result is too large")
+            return item
+        raise ValueError("callback result is not JSON data")
+
+    detached = visit(value, 1)
+    size = 0
+    for chunk in json.JSONEncoder(ensure_ascii=False, allow_nan=False, separators=(",", ":")).iterencode(detached):
+        size += len(chunk.encode("utf-8"))
+        if size > byte_limit:
+            raise ValueError("callback result is too large")
+    return detached
+
+
+def _apply_lifecycle_response_callback(
+    root: Path, tool_name: str, arguments: Any, response: dict[str, Any],
+) -> None:
+    callback = _EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS.get(tool_name)
+    if callback is None:
+        return
+    import copy
+    try:
+        addition = callback(root=root, tool_name=tool_name,
+                            arguments=copy.deepcopy(arguments), response=copy.deepcopy(response))
+        if inspect.iscoroutine(addition):
+            addition.close()
+        addition = _bounded_lifecycle_extension_response(addition)
+        data = response.get("data")
+        if not isinstance(data, dict) or "extension_response" in data:
+            raise ValueError("callback namespace unavailable")
+        data["extension_response"] = addition
+    except Exception:
+        response.setdefault("diagnostics", []).append(_diagnostic(
+            "lifecycle_response_callback_failed",
+            "Lifecycle response callback failed or returned unsupported data. "
+            "The completed core outcome is unchanged; no core write was retried or rolled back.",
+            advisory=True,
+        ))
+
+
 def _lifecycle_context_result(
     handler: "ImplHandler",
     tool_name: str,
@@ -18760,6 +18842,11 @@ def _lifecycle_context_result(
     governs what happens next; the one deliberately target-engaged overlap is
     ``ready_for_council_review``, which both publishes and focuses its target.
     """
+
+    # The four declared native completion paths reach here while their
+    # mutating publication hold is still active. Inspection precedes accounting;
+    # a callback failure cannot undo or replace the completed core outcome.
+    _apply_lifecycle_response_callback(handler.root, tool_name, request_arguments, response)
 
     # 1. Canonical-target resolution. Finding `fail-closed-wrapper-telemetry`:
     # the decorated response already refused an invalid layout or a duplicated
@@ -20613,6 +20700,7 @@ _EXTENSION_REPLACED_CORE: dict[str, Any] = {}
 # pass; cleared whenever registration fails.
 _EXTENSION_LIFECYCLE_TOOLS: set[str] = set()
 _EXTENSION_ARTIFACT_PATH_FIELDS: dict[str, str] = {}
+_EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS: dict[str, Any] = {}
 
 # Wave 1zls8 (1zltz): installed override targets in _COST_EXEMPT_TOOLS, whose
 # core records its own cost. Read only by the main MIDDLEWARE pass, which
@@ -20962,6 +21050,7 @@ def _extension_declaration_provenance() -> dict[str, Any]:
         "artifact_path_fields": _sorted_fields(getattr(mcp_tool_extensions, "EXTENSION_ARTIFACT_PATH_FIELDS", {})),
         # Wave 1zls8 (1zltx): the declared helper modules, in load order.
         "helper_modules": _declared_names(getattr(mcp_tool_extensions, "EXTENSION_HELPER_MODULES", ())),
+        "lifecycle_response_callbacks": _sorted_fields(mcp_tool_extensions.EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS),
     }
 
 
@@ -21369,6 +21458,7 @@ def _install_extension_tools(mcp: Any, get_handler: Any) -> dict[str, Any]:
     _EXTENSION_OMITTED_PARAMETERS.clear()
     _EXTENSION_LIFECYCLE_TOOLS.clear()
     _EXTENSION_ARTIFACT_PATH_FIELDS.clear()
+    _EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS.clear()
     _EXTENSION_STALE_SCAN_ERRORS.clear()
     provenance = _empty_extension_provenance()
     if mcp_tool_extensions.declared():
@@ -21407,6 +21497,21 @@ def _install_declared_extension_tools(mcp: Any, get_handler: Any, provenance: di
     for module_name in mcp_tool_extensions.EXTENSION_HELPER_MODULES:
         _helper, source_path, digest = _load_extension_module(module_name)
         provenance["helper_modules"].append({"module": module_name, "path": str(source_path), "sha256": digest})
+
+    callbacks: dict[str, Any] = {}
+    for target, reference in mcp_tool_extensions.EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS.items():
+        module_name, function_name = reference.split(":")
+        callback = getattr(sys.modules[module_name], function_name, None)
+        if (not callable(callback) or inspect.iscoroutinefunction(callback)
+                or inspect.isasyncgenfunction(callback)
+                or inspect.iscoroutinefunction(getattr(callback, "__call__", None))
+                or inspect.isasyncgenfunction(getattr(callback, "__call__", None))):
+            raise ExtensionLoadError("lifecycle response callback must be a synchronous callable")
+        try:
+            inspect.signature(callback).bind(root=None, tool_name=target, arguments={}, response={})
+        except (TypeError, ValueError) as exc:
+            raise ExtensionLoadError("lifecycle response callback must accept the four keyword arguments") from exc
+        callbacks[target] = callback
 
     staging = _extension_staging_surface(table)
     staged_by: dict[str, str] = {}
@@ -21573,6 +21678,7 @@ def _install_declared_extension_tools(mcp: Any, get_handler: Any, provenance: di
     )
     _EXTENSION_LIFECYCLE_TOOLS.update(lifecycle_tools)
     _EXTENSION_ARTIFACT_PATH_FIELDS.update(artifact_fields)
+    _EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS.update(callbacks)
     provenance["aliases"] = dict(mcp_tool_extensions.EXTENSION_TOOL_ALIASES)
     provenance["hidden"] = list(mcp_tool_extensions.EXTENSION_HIDDEN_TOOLS)
     provenance["replacements"] = [
@@ -26467,6 +26573,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         _EXTENSION_OMITTED_PARAMETERS.clear()
         _EXTENSION_LIFECYCLE_TOOLS.clear()
         _EXTENSION_ARTIFACT_PATH_FIELDS.clear()
+        _EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS.clear()
         _strip_to_runner_tools(mcp)
         raise
     # Wave 1y0h1: the registry is built after the chain, so each spec holds the

@@ -2665,6 +2665,62 @@ class CheckForbiddenRootWrappersTests(unittest.TestCase):
         self.assertEqual(self._check(self._root), [])
 
 
+class StrictOrdinaryDocumentTests(unittest.TestCase):
+    copy_fixture = DocsLintFixtureTests.copy_fixture
+    run_docs_lint = DocsLintFixtureTests.run_docs_lint
+    run_docs_lint_with_args = DocsLintFixtureTests.run_docs_lint_with_args
+
+    def test_full_and_incremental_linked_doc_and_entry_are_nonclean_without_target_content(self):
+        root = self.copy_fixture(); self.addCleanup(shutil.rmtree, root)
+        outside = Path(tempfile.mkdtemp()); self.addCleanup(shutil.rmtree, outside)
+        secret = outside / "private.md"; secret.write_text("[hidden](never-disclose-this.md)")
+        for rel in ("docs/ordinary.md", "AGENTS.md"):
+            path = root / rel
+            if path.exists(): path.unlink()
+            path.symlink_to(secret)
+        result = self.run_docs_lint(root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("docs/ordinary.md: document refused", result.stderr)
+        self.assertIn("AGENTS.md: document refused", result.stderr)
+        self.assertNotIn("never-disclose", result.stderr)
+        self.assertNotIn(str(secret), result.stderr)
+        # A real changed-set invocation with only the two docs untracked.
+        subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
+        subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True)
+        subprocess.run(["git", "rm", "--cached", "docs/ordinary.md", "AGENTS.md"], cwd=root, check=True, capture_output=True)
+        incremental = self.run_docs_lint_with_args(root, "--changed")
+        self.assertNotEqual(incremental.returncode, 0)
+        self.assertIn("docs/ordinary.md: document refused", incremental.stderr)
+        self.assertIn("AGENTS.md: document refused", incremental.stderr)
+        self.assertNotIn("never-disclose", incremental.stderr)
+        from wave_lint_lib import cli, helpers
+        helpers.read_text_cache_clear()
+        with patch.object(cli, "_get_changed_files", return_value={root / "docs/ordinary.md", root / "AGENTS.md"}), patch.object(cli, "check_hardcoded_secrets", return_value=[]):
+            failures, _ = cli._run_incremental_checks(root)
+        self.assertEqual(sum("docs/ordinary.md: document refused" in item for item in failures), 1)
+        self.assertEqual(sum("AGENTS.md: document refused" in item for item in failures), 1)
+        self.assertNotIn("never-disclose", " ".join(failures))
+
+    def test_hard_cap_overrides_advisory_skip_and_policy_carriers_use_strict_reader(self):
+        from wave_lint_lib import cli, helpers, core_validators
+        root = self.copy_fixture(); self.addCleanup(shutil.rmtree, root)
+        path = root / "docs/huge.md"
+        with path.open("wb") as stream: stream.truncate(8 * 1024 * 1024 + 1)
+        helpers.read_text_cache_clear()
+        skipped, _ = cli._oversized_docs(root, [path], 1024)
+        self.assertIn(path, skipped)
+        self.assertIn("over the size cap", " ".join(cli._record_refusal_report(root)))
+        prompt = root / vocabulary_profile.prompt_doc("prepare-wave")
+        prompt.parent.mkdir(parents=True, exist_ok=True)
+        if prompt.exists(): prompt.unlink()
+        prompt.symlink_to(path)
+        with patch.object(Path, "read_text", side_effect=AssertionError("unguarded read")):
+            # Config reads are outside this carrier-only probe.
+            with patch.object(core_validators, "load_json", return_value=({}, None)):
+                core_validators.check_review_policy_carriers(root)
+        self.assertIn(prompt.relative_to(root).as_posix(), helpers._DOC_REFUSALS)
+
+
 class LinkValidatorUnitTests(unittest.TestCase):
     """Unit tests for check_markdown_links — exercises the function directly."""
 
@@ -2722,7 +2778,11 @@ class LinkValidatorUnitTests(unittest.TestCase):
         self._write("docs/other.md", "# Other\n")
         body = "\n".join(f"- [ref{i}](other.md) and [miss{i}](missing-{i}.md)" for i in range(50))
         doc = self._write("docs/source.md", body + "\n")
-        with mock.patch("pathlib.Path.resolve", side_effect=AssertionError("Path.resolve must not be called")) as m:
+        # Read authority is checked once per document; the link hot loop must
+        # not resolve each href. Strict source reads have their own tests.
+        from wave_lint_lib.helpers import read_doc_text
+        text = read_doc_text(self._tmp, doc)
+        with mock.patch("wave_lint_lib.link_validators.read_doc_text", return_value=text), mock.patch("pathlib.Path.resolve", side_effect=AssertionError("Path.resolve must not be called")) as m:
             result = self._check(self._tmp, doc)
         self.assertEqual(m.call_count, 0, "check_markdown_links must not call Path.resolve() per link")
         # Behavior intact: the 50 distinct missing targets are still flagged; the resolvable one is not.

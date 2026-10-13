@@ -35,6 +35,7 @@ from pathlib import Path
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 import review_policy  # the pure lane helper is called through the module (wave 1zlu1)
 from test_worker_guard import refuse_publication
+from operator_identity import LOCAL_USER_SOURCE, local_user_name_problem
 from typing import Any, Iterable, Mapping
 from runtime_lock import (
     RuntimeFileLock,
@@ -623,7 +624,7 @@ def _review_action_state_args(
 _VERIFICATION_CONTEXT_REQUIRED = frozenset(
     {"actor", "context_id", "fresh_context", "independent"}
 )
-_VERIFICATION_CONTEXT_OPTIONAL = frozenset({"operator", "attested_by"})
+_VERIFICATION_CONTEXT_OPTIONAL = frozenset({"operator", "attested_by", "local_user"})
 
 #: Wave 1zyc3 (1zyc1): the longest self-attested name, in code points.
 ATTESTED_BY_MAX_LENGTH = 100
@@ -694,13 +695,15 @@ def _display_attested_by(name: str) -> str:
 
 
 def _identity_context(
-    operator: Mapping[str, Any] | None, attested_by: str | None
+    operator: Mapping[str, Any] | None, attested_by: str | None,
+    local_user: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     """Optional attribution keys of a builder-written verification_context."""
 
     return {
         **({"operator": dict(operator)} if operator is not None else {}),
         **({"attested_by": attested_by} if attested_by is not None else {}),
+        **({"local_user": dict(local_user)} if local_user is not None else {}),
     }
 
 
@@ -1174,6 +1177,7 @@ def build_identified_review_event(
     *,
     operator: Mapping[str, Any] | None = None,
     attested_by: str | None = None,
+    local_user: Mapping[str, Any] | None = None,
 ) -> tuple[tuple[dict[str, Any], ...], tuple[str, ...]]:
     """Build a new bundle and put retry metadata on its leading row only.
 
@@ -1183,7 +1187,7 @@ def build_identified_review_event(
     """
 
     rows, errors = build_compact_review_event(
-        records, event, operator=operator, attested_by=attested_by
+        records, event, operator=operator, attested_by=attested_by, local_user=local_user
     )
     if errors:
         return (), errors
@@ -1213,7 +1217,14 @@ def project_state_publication_lock(repo_root: Path, *, wait: bool = True):
     fixed: ``lifecycle-mutation.lock`` → this lock; never invert it.
     """
 
-    refuse_publication(repo_root)
+    try:
+        refuse_publication(repo_root)
+    except (PermissionError, RuntimeError) as exc:
+        # Keep inherited protection fail-closed, including site-disabled
+        # descendants, while using the refusal contract callers already handle.
+        raise ProjectPublicationUnavailable(
+            str(exc), detail=f"test-worker protection refused publication ({type(exc).__name__})"
+        ) from exc
     thread_lock_acquired = _WRITE_THREAD_LOCK.acquire(blocking=wait)
     if not thread_lock_acquired:
         raise ProjectPublicationUnavailable(
@@ -1923,6 +1934,16 @@ def review_authority_projection(
                 if receipt_binding_applies or selected_phase == "readiness"
                 else f"current executed approval{attribution}, not receipt-bound, follows every affected repair"
             )
+            local_user = context.get("local_user")
+            if isinstance(local_user, Mapping) and local_user_name_problem(local_user.get("name")) is None:
+                # Character references protect Markdown/table syntax without
+                # changing the persisted OS account name.
+                name = "".join(
+                    f"&#{ord(char)};" if char in "\\`*_{}[]()#+-.!|<>&~"
+                    or unicodedata.category(char) in {"Ps", "Pe"} else char
+                    for char in local_user["name"]
+                )
+                why += f" (local account: {name})"
             next_action = "none"
         else:
             state = "pending"
@@ -2465,6 +2486,7 @@ def lane_has_signoff_in_evidence(evidence_text: str, lane: str, *, authorization
             return cells[1] == "approved"
     state_values: list[str] = []
     any_prose_signoff = False
+    lane_pattern = rf"(?<![a-z0-9-]){re.escape(lane_l)}(?![a-z0-9-])"
     for raw in evidence_text.splitlines():
         low = raw.strip().lower()
         if not low or low.startswith("#"):
@@ -2487,10 +2509,12 @@ def lane_has_signoff_in_evidence(evidence_text: str, lane: str, *, authorization
         # Prose evidence (reviewer seats only): the lane must appear as a
         # WHOLE word — "qa" never matches inside "qa-reviewer" — and
         # placeholders never count.
-        if ("<" not in low
-                and re.search(rf"(?<![a-z0-9-]){re.escape(lane_l)}(?![a-z0-9-])", low)
-                and any(tok in low for tok in SIGNOFF_TOKENS)):
-            any_prose_signoff = True
+        if "<" not in low and re.search(lane_pattern, low):
+            # A lane name is not approval evidence. Mask every occurrence with
+            # whitespace so removal cannot join fragments into a signoff token.
+            prose = re.sub(lane_pattern, " ", low)
+            if any(tok in prose for tok in SIGNOFF_TOKENS):
+                any_prose_signoff = True
     if state_values:
         current = state_values[-1]
         if not current or current.startswith("<"):
@@ -3280,6 +3304,7 @@ def build_compact_review_event(
     *,
     operator: Mapping[str, Any] | None = None,
     attested_by: str | None = None,
+    local_user: Mapping[str, Any] | None = None,
 ) -> tuple[tuple[dict[str, Any], ...], tuple[str, ...]]:
     """Expand a compact semantic event into canonical append-only protocol rows."""
 
@@ -3329,7 +3354,7 @@ def build_compact_review_event(
                     "context_id": context_id,
                     "fresh_context": bool(event.get("fresh_context")),
                     "independent": bool(event.get("independent")),
-                    **_identity_context(operator, attested_by),
+                    **_identity_context(operator, attested_by, local_user),
                 },
             },
         ), ()
@@ -3429,7 +3454,7 @@ def build_compact_review_event(
                     "context_id": context_id,
                     "fresh_context": bool(event.get("fresh_context")),
                     "independent": bool(event.get("independent")),
-                    **_identity_context(operator, attested_by),
+                    **_identity_context(operator, attested_by, local_user),
                 },
             },
         ), ()
@@ -3611,7 +3636,7 @@ def build_compact_review_event(
             "context_id": context_id,
             "fresh_context": bool(event.get("fresh_context")),
             "independent": bool(event.get("independent")),
-            **_identity_context(operator, attested_by),
+            **_identity_context(operator, attested_by, local_user),
         },
     }
     if event.get("census") is not None:
@@ -3745,7 +3770,7 @@ def build_compact_review_event(
                         "context_id": context_id,
                         "fresh_context": bool(event.get("fresh_context")),
                         "independent": bool(event.get("independent")),
-                        **_identity_context(operator, attested_by),
+                        **_identity_context(operator, attested_by, local_user),
                     },
                 }
             )
@@ -3926,6 +3951,19 @@ def _validate_operator_context(context: Mapping[str, Any], label: str) -> list[s
         problem = attested_by_problem(context["attested_by"])
         if problem is not None:
             errors.append(f"{label}.attested_by: {problem}")
+    if "local_user" in context:
+        local_user = context["local_user"]
+        local_label = f"{label}.local_user"
+        if not isinstance(local_user, dict):
+            errors.append(f"{local_label}: must be an object")
+        else:
+            errors.extend(_require_fields(local_user, frozenset({"name", "source"}), frozenset(), local_label))
+            problem = local_user_name_problem(local_user.get("name"))
+            if problem is not None:
+                errors.append(f"{local_label}.name: {problem}")
+            source_error = _enum_error(local_user, "source", (LOCAL_USER_SOURCE,), local_label)
+            if source_error:
+                errors.append(source_error)
     if "operator" not in context:
         return errors
     operator = context["operator"]

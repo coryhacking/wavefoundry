@@ -1272,6 +1272,47 @@ class RenderAgentSurfacesTests(unittest.TestCase):
             self.assertIn("guru", claude)
 
 
+class NewOnlyRoleRefusalTests(unittest.TestCase):
+    def test_unreadable_new_only_pair_does_not_abort_other_valid_moves(self):
+        import render_agent_surfaces as ras
+        from unittest import mock
+        pairs = (("docs/roles/old.md", "docs/roles/new.md"),
+                 (".codex/skills/agent-role-old/SKILL.md", ".codex/skills/agent-role-new/SKILL.md"))
+        for combined, (old, new) in ((combined, pair) for combined in (False, True) for pair in pairs):
+            for shape in ("link", "directory", "encoding", "oversized", "unreadable"):
+                with self.subTest(combined=combined, shape=shape, new=new), tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    valid_old, valid_new = "docs/roles/previous.md", "docs/roles/current.md"
+                    target = root / new; target.parent.mkdir(parents=True)
+                    (root / valid_old).parent.mkdir(parents=True, exist_ok=True)
+                    (root / valid_old).write_text("Role: previous\n")
+                    if shape == "link": target.symlink_to(root / valid_old)
+                    elif shape == "directory": target.mkdir()
+                    elif shape == "encoding": target.write_bytes(b"\xff")
+                    elif shape == "oversized":
+                        with target.open("wb") as stream: stream.truncate(8 * 1024 * 1024 + 1)
+                    else: target.write_text("Role: new\n")
+                    bad_link = "../" + old
+                    (root / "docs/guide.md").write_text(f"[bad]({bad_link}) [good](roles/previous.md)\n")
+                    real_exists = ras._migration_entry_exists
+                    def exists(repo, rel):
+                        if shape == "unreadable" and rel == new:
+                            raise RuntimeError("document migration blocked: inspection refused")
+                        return real_exists(repo, rel)
+                    run = ras.migrate_role_and_lifecycle_documents if combined else ras.migrate_council_role_renames
+                    with mock.patch.object(ras, "COUNCIL_ROLE_RENAMES", ((old, new), (valid_old, valid_new))), mock.patch.object(ras, "LIFECYCLE_DOCUMENT_RENAMES", ()), mock.patch.object(ras, "_migration_entry_exists", side_effect=exists):
+                        preview = run(root, apply=False)
+                        self.assertTrue(any(new in line and "could not be confirmed" in line for line in preview.link_report))
+                        self.assertTrue((root / valid_old).exists())
+                        self.assertFalse((root / valid_new).exists())
+                        applied = run(root)
+                        self.assertTrue(any(new in line and "could not be confirmed" in line for line in applied.link_report))
+                        self.assertTrue((root / valid_new).exists())
+                        guide = (root / "docs/guide.md").read_text()
+                        self.assertIn(bad_link, guide)
+                        self.assertIn("roles/current.md", guide)
+
+
 class ReviewPlanPromptMigrationTests(unittest.TestCase):
     _EXACT_CONTRACT = (
         ("Heading", "# Interrogate This Plan", "# Review Plan"),

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-12
+Last verified: 2026-10-13
 
 ## Test Tiers
 
@@ -11,7 +11,7 @@ Last verified: 2026-10-12
 | Framework script unit tests | `docs_lint.py`, `build_pack.py` behavior | `.wavefoundry/framework/scripts/tests/` | `python3 .wavefoundry/framework/scripts/run_tests.py` |
 | Install reliability (wave 1yp0y) | Source opt-in for nine mandatory framework-internal constant claims; consumer fixture with packaged scripts remains exempt while structural checks stay active; invalid opt-in errors. Windows tests cover bounded `python3`/`python` diagnosis, strict early stop before setup writes, completed-log independent diagnosis, and policy-blocked IT guidance. Public sync fills an empty upgrade-policy region and preserves authored prose/permission boundaries; partial row 2.9 resumes by conditional catalog plus manifest and audits before completion. Mocked Windows branches do not qualify native execution; native diagnostic branches, standard-user repair, fresh-host MCP and hook evidence remain unverified and are operator-deferred to external testing after the next release (2026-09-22); see the wave post-release-windows-validation.md protocol. | Focused validator, setup, launcher, renderer and install-audit tests; native Windows runbook in `docs/references/native-windows-support.md` | Focused tests; native execution receipt pending |
 | Dashboard reader/server unit tests | `dashboard_lib.py`, `dashboard_server.py` snapshot and HTTP-handler contract | `.wavefoundry/framework/scripts/tests/test_dashboard_server.py` | `python3 .wavefoundry/framework/scripts/run_tests.py` |
-| Bounded upgrade diagnostics (wave 20gx0) | Real children measure UTF-8 filesystem bytes at 1 MiB minus one, exactly 1 MiB and plus one, asserting exact small bytes, opening context, explicit elision and final tail. Both pipes, nonzero/check failures, timeout finalization and final-append error reporting run through the owned append handle. CRLF byte accounting is simulated; native Windows execution remains unqualified. Registered upgrade success/error and restart controls preserve raw summary/status/recovery while proving known-token/control cleaning precedes the display cap. Disposable cap-removal and cleaning-removal controls must fail the owning assertions. Parser capture and the primary upgrade log are outside the cap claim. | `test_child_tee.py`, `test_upgrade_failure_surfacing.py`, `test_server_tools.py` | canonical focused runner; final combined qualification is separate |
+| Bounded upgrade diagnostics (wave 20gx0) | Real children measure UTF-8 filesystem bytes at 1 MiB minus one, exactly 1 MiB and plus one, asserting exact small bytes, opening context, explicit elision and final tail. Both pipes, nonzero/check failures, timeout finalization and final-append error reporting run through the owned append handle. CRLF byte accounting is simulated; native Windows execution remains unqualified. Registered upgrade success/error and restart controls preserve raw summary/status/recovery while proving known-token/control cleaning precedes the display cap. Disposable cap-removal and cleaning-removal controls must fail the owning assertions. Captured parser stdout and stderr are separately capped at 1 MiB of UTF-8 text each, including elision, with an opening head and final tail; the primary upgrade log remains outside the cap claim. Truncated stderr makes pruning unproven and retains its manifest snapshot; stdout-only truncation preserves an intact stderr count. | `test_child_tee.py`, `test_upgrade_failure_surfacing.py`, `test_server_tools.py` | canonical focused runner; final combined qualification is separate |
 | Historical memory backfill | no-Git inventory, SQLite claim/replay, candidate-only writes, agent-validation gate, deferred publication | `.wavefoundry/framework/scripts/tests/test_memory_backfill.py`; setup/upgrade integration suites | canonical runner |
 | Review current-state projection | per-signoff derivation, causal withholding/reapproval, narrative preservation, malformed markers, bounded output | `test_review_evidence.py`; `test_server_tools_lifecycle.py`; upgrade suite | canonical runner |
 | CRLF review seams (wave 20b39) | Canonical CRLF fixtures pin both upgrade payloads, exact owned-region parity/newline preservation, LF byte identity, explicit LF-only ledger refusal and Prepare all-LF publication | `test_review_policy.py`, `test_review_evidence.py`, `test_render_agent_surfaces.py`, `test_docs_lint.py`, `test_server_tools_lifecycle.py` | canonical runner |
@@ -160,15 +160,18 @@ no filename exemption; update it outside the run.
 `test_worker_guard.py` installs an audit hook before test imports in ordinary
 and optional-report workers. An inherited source-only
 `test_worker_bootstrap/sitecustomize.py` shim covers ordinary Python exec
-children, preserves existing search entries and chains the next file-based
-site customization; fork inherits the hook. Main-worker installation failure
-is fatal. Protected carrier writes through audited opens, replacement,
+children, preserves ordered nonempty search entries and chains the next file-based
+site customization; empty inherited entries are dropped rather than adding the child
+working directory. The shim compiles the guard source directly, bypassing adjacent
+guard bytecode; this does not authenticate source or other imports. Fork inherits
+the hook. Guard source-load and installation failures are fatal. Protected carrier writes through audited opens, replacement,
 deletion and relevant link/directory operations are refused, including
 supported relative, symlink-alias and descriptor-relative paths. Nested
 runners retain outer protected roots; unrelated scratch fixtures stay
 writable. Canonical publication also checks the inherited marker before
 mutating a protected root, including descendants launched without site
-initialization. The helper ships as a declared dependency of `review_evidence`;
+initialization. Expected guard refusals and malformed-marker errors are translated
+to the normal publication-unavailable result before any lock or write. The helper ships as a declared dependency of `review_evidence`;
 the bootstrap directory is excluded from packs. Unmarked production imports
 install no hook and change no cache policy.
 

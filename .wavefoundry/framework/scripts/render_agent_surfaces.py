@@ -2559,8 +2559,8 @@ def _read_move_source_identity(repo_root: Path, rel: str, *, max_bytes: int = co
 def migrate_review_plan_prompt(repo_root: Path) -> list[str]:
     """Move the recognized legacy prompt without rewriting project-owned prose.
 
-    The two closed profiles above are the complete, case-sensitive legacy
-    vocabulary. Any deviation or mixed profile blocks before skills or lifecycle
+    Shipped and explicitly declared profiles are the exact case-sensitive
+    legacy vocabulary. Any deviation or mixed profile blocks before skills or lifecycle
     baselines are rendered, leaving operator-authored files untouched for a
     manual merge.
     """
@@ -3436,15 +3436,20 @@ def _council_role_link_plan(repo_root: Path, pairs, *, move_destinations=None):
 
 
 def _confirmed_council_role_pairs(repo_root: Path):
-    pairs = []
+    pairs, reports = [], []
     for old, new in COUNCIL_ROLE_RENAMES:
         if _migration_entry_exists(repo_root, old):
             pairs.append((old, new))
             continue
-        if not _migration_entry_exists(repo_root, new):
+        try:
+            if not _migration_entry_exists(repo_root, new):
+                continue
+            data, _mode = _read_move_source(repo_root, new)
+            text = data.decode("utf-8")
+        except (OSError, UnicodeDecodeError, RuntimeError) as exc:
+            reports.append(f"{_display_name(new)}: new-only role target could not be confirmed "
+                           f"({_failure_class(exc)}); preserved; restore a readable role document and retry")
             continue
-        data, _mode = _read_move_source(repo_root, new)
-        text = data.decode("utf-8")
         tokens = {Path(old).stem, Path(new).stem}
         if new.endswith("/SKILL.md"):
             tokens = {Path(old).parent.name.removeprefix("agent-role-"), Path(new).parent.name.removeprefix("agent-role-")}
@@ -3456,7 +3461,7 @@ def _confirmed_council_role_pairs(repo_root: Path):
             pairs.append((old, new))
         elif new.startswith("docs/"):
             raise RuntimeError(f"council role link repair refused: {_display_name(new)} does not confirm the renamed role identity; verify its Role metadata before retry")
-    return pairs
+    return pairs, reports
 
 
 def _migration_entry_exists(repo_root, rel):
@@ -3470,11 +3475,13 @@ def _migration_entry_exists(repo_root, rel):
     return True
 
 
-def _preflight_document_pairs(repo_root, candidates, label):
+def _preflight_document_pairs(repo_root, candidates, label, *, defer_new_only=False):
     for old, new in candidates:
-        _migration_entry_exists(repo_root, old)
-        _migration_entry_exists(repo_root, new)
+        old_exists = _migration_entry_exists(repo_root, old)
+        if old_exists or not defer_new_only:
+            _migration_entry_exists(repo_root, new)
     conflicts = [conflict for old, new in candidates
+                 if (not defer_new_only or _migration_entry_exists(repo_root, old))
                  if (conflict := _change_prompt_pair_conflict(repo_root, old, new, "file")) is not None]
     if conflicts:
         raise RuntimeError(f"{label} migration blocked: " + "; ".join(conflicts) +
@@ -3505,9 +3512,10 @@ def migrate_council_role_renames(repo_root: Path, *, apply: bool = True,
     """
 
     if _plan is None:
-        _preflight_document_pairs(repo_root, COUNCIL_ROLE_RENAMES, "council role")
-        pairs = _confirmed_council_role_pairs(repo_root)
+        _preflight_document_pairs(repo_root, COUNCIL_ROLE_RENAMES, "council role", defer_new_only=True)
+        pairs, diagnostics = _confirmed_council_role_pairs(repo_root)
         edits, reports = _council_role_link_plan(repo_root, pairs)
+        reports.extend(diagnostics)
     else:
         pairs, edits, reports = _plan
     if not apply:
@@ -3668,12 +3676,12 @@ def migrate_lifecycle_document_renames(repo_root: Path, *, apply: bool = True,
 
 def migrate_role_and_lifecycle_documents(repo_root: Path, *, apply: bool = True) -> ChangePromptMigration:
     """One bounded exact-link plan for the two existing document migrations."""
-    _preflight_document_pairs(repo_root, COUNCIL_ROLE_RENAMES, "council role")
+    _preflight_document_pairs(repo_root, COUNCIL_ROLE_RENAMES, "council role", defer_new_only=True)
     _preflight_document_pairs(repo_root, LIFECYCLE_DOCUMENT_RENAMES, "lifecycle document")
-    roles = _confirmed_council_role_pairs(repo_root)
+    roles, role_diagnostics = _confirmed_council_role_pairs(repo_root)
     lifecycle, diagnostics = _confirmed_lifecycle_document_pairs(repo_root)
     edits, reports = _council_role_link_plan(repo_root, roles + lifecycle, move_destinations=roles)
-    reports.extend(diagnostics)
+    reports.extend(role_diagnostics + diagnostics)
     if not apply:
         moves = [f"would move {old} -> {new}" for old, new in roles + lifecycle if os.path.lexists(repo_root / old)]
         return ChangePromptMigration((), tuple(moves + reports))

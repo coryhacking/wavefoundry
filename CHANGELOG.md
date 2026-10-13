@@ -10,8 +10,18 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [1.30.0]
 
+### Added
+
+- Distributions can add bounded response data at four native lifecycle completion points, before accounting and within the existing mutating publication hold. The optional declared callback preserves core outcomes and uses existing helper loading and reload behavior (wave 20k5w).
+- Review events can record the current local OS account as optional, separately labeled provenance. Replay preserves it without another identity lookup or approval gate (wave 20k5v).
+
 ### Fixed
 
+- Docs lint bounds ordinary Markdown and entry-file reads and reports refused inputs. Role migration preserves and reports unreadable new-only targets, and the standalone prompt checker accepts explicitly declared exact legacy profiles. Wave 20k56 / 20k55.
+
+- Qualification worker startup drops empty Python path entries and loads its guard from source; publication refusals use the established error contract. Child capture is bounded per stream, incomplete pruning evidence retains recovery data, and the stdlib import-fence test accepts relative imports. Wave 20k14 / 20j75.
+
+- Claude pre-edit registration now reaches unfamiliar tool names while post-edit work remains selective. Legacy reviewer prose no longer treats a lane name as its own signoff. Wave 20k0e / 20k0d.
 - Reconciliation prunes SwiftPM `.build` trees and Git-ignored ordinary content before descent while retaining required live agent/configuration carriers. Query failures and existing budget limits remain explicit incomplete results; generated artifacts are preserved. Wave 20kfr / 20kfp.
 - Upgrade preview now uses the same retained-run decision as apply, preserving checkpoints and reporting continuation or refusal before pack discovery. Explicit verified recovery packs remain selected, and preview logs remain disclosed. Wave 20kfq / 20jo4.
 - Default upgrades now report a retained pending run and its explicit continuation before selecting another pack, preserving existing recovery and publication gates. Wave 20h6q / 20h8g.

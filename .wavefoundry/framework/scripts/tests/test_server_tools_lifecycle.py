@@ -767,10 +767,10 @@ class WaveMapTests(unittest.TestCase):
             self.assertEqual(self._map_fixture("docs/excerpt.md")["status"], "error")
             path.unlink()
             path.write_text("original")
-            def replace_then_open(*args):
+            def replace_then_open(*args, **kwargs):
                 path.unlink()
                 path.symlink_to(external)
-                return original_open(*args)
+                return original_open(*args, **kwargs)
             with patch.object(self.srv.contained_files, "_open_verified", side_effect=replace_then_open) as opened:
                 result = self._map_fixture("docs/excerpt.md")
             opened.assert_called_once()
@@ -1735,6 +1735,8 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             self.assertEqual((outside / "events.jsonl").read_bytes(), before)
 
     def test_typed_review_approval_updates_machine_and_human_state(self):
+        local_user = {"name": "fixtureaccount", "source": "local_os_account"}
+        self.enterContext(patch.object(self.srv, "resolve_local_user", return_value=(local_user, "")))
         created = self.srv.wf_create_wave_response(
             self.root, "typed-review-approval", mode="create"
         )
@@ -1769,7 +1771,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         text = wave_md.read_text(encoding="utf-8")
         self.assertIn(
-            "| qa-reviewer | approved | current executed approval, not receipt-bound, follows every affected repair | none |",
+            "| qa-reviewer | approved | current executed approval, not receipt-bound, follows every affected repair (local account: fixtureaccount) | none |",
             text,
         )
         self.assertNotIn("- qa-reviewer: approved —", text)
@@ -4161,6 +4163,90 @@ class WfAuditBoundedIndexSnapshotTests(unittest.TestCase):
 # repair/reverification independence (wave 1tmb2)
 # ---------------------------------------------------------------------------
 
+
+class LocalUserReviewEventTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = _make_repo(Path(self.tmp.name))
+        created = self.srv.wf_create_wave_response(self.root, "local-account", mode="create")
+        self.assertEqual(created["status"], "ok", created)
+        self.wave_id = created["data"]["wave_id"]
+        self.wave_md = self.root / created["data"]["path"]
+        self.ledger = self.wave_md.parent / "events.jsonl"
+        self.tool = load_thin_runner().build_server(self.root)._tool_manager._tools["wf_review_event"]
+
+    def call(self, **extra):
+        args = dict(wave_id=self.wave_id, event="approval", actor="qa-reviewer",
+                    context_id="local-account-review", mode="create", signoff_key="qa-reviewer",
+                    approval_phase="delivery", fresh_context=True, independent=True,
+                    integrity_checks=integrity_checks(), attested_by="Ada",
+                    evidence={"observed": "passed", "artifact_or_test_id": "test:local-account"})
+        args.update(extra)
+        return self.tool.fn(**args)
+
+    def test_registered_preview_create_and_replay_preserve_original_account(self):
+        local = {"name": "first-account", "source": "local_os_account"}
+        operator = {"handle": "alice", "source": "explicit"}
+        before = self.ledger.read_bytes()
+        records_before = [json.loads(line) for line in before.splitlines() if line.strip()]
+        receipts_before = [r for r in records_before if r.get("record_type") == "review_policy_receipt"]
+        with patch.object(self.srv, "resolve_local_user", return_value=(local, "")) as lookup, \
+                patch.object(self.srv, "resolve_operator", return_value=(operator, "")):
+            preview = self.call(mode="dry_run")
+            self.assertEqual(preview["status"], "dry_run", preview)
+            self.assertEqual(self.ledger.read_bytes(), before)
+            actual = self.call()
+            self.assertEqual(actual["status"], "ok", actual)
+            self.assertEqual(lookup.call_count, 2)
+        self.assertEqual(preview["data"]["appended_records"], actual["data"]["appended_records"])
+        context = actual["data"]["appended_records"][0]["verification_context"]
+        self.assertEqual(context["local_user"], local)
+        self.assertEqual(context["operator"], operator)
+        self.assertEqual(context["attested_by"], "Ada")
+        self.assertIn("local account: first&#45;account", self.wave_md.read_text())
+        persisted = self.ledger.read_bytes()
+        with patch.object(self.srv, "resolve_local_user", side_effect=AssertionError("replay/list account lookup")), \
+                patch.object(self.srv, "resolve_operator", side_effect=AssertionError("replay/list contributor lookup")):
+            replay = self.call()
+            self.assertEqual(replay["status"], "ok", replay)
+            self.assertTrue(replay["data"]["replayed"])
+            self.assertEqual(replay["data"]["appended_records"], actual["data"]["appended_records"])
+            listing = self.tool.fn(wave_id=self.wave_id, event="list", actor="", context_id="")
+            self.assertEqual(listing["status"], "ok", listing)
+        self.assertEqual(self.ledger.read_bytes(), persisted)
+        records_after = [json.loads(line) for line in persisted.splitlines() if line.strip()]
+        self.assertEqual([r for r in records_after if r.get("record_type") == "review_policy_receipt"], receipts_before)
+        self.assertNotIn("local_user", self.tool.parameters["properties"])
+
+    def test_unavailable_account_is_advisory_and_absence_survives_replay(self):
+        for mode in ("dry_run", "create"):
+            with patch.object(self.srv, "resolve_local_user", return_value=(None, "local account lookup is unavailable")):
+                result = self.call(mode=mode)
+            self.assertEqual(result["status"], "dry_run" if mode == "dry_run" else "ok", result)
+            self.assertNotIn("local_user", result["data"]["appended_records"][0]["verification_context"])
+            warning, = [d for d in result["diagnostics"] if d["code"] == "local_user_unresolved"]
+            self.assertTrue(warning["advisory"])
+            self.assertLess(len(warning["message"]), 200)
+        before = self.ledger.read_bytes()
+        with patch.object(self.srv, "resolve_local_user", side_effect=AssertionError("backfill lookup")):
+            replay = self.call()
+        self.assertEqual(replay["status"], "ok", replay)
+        self.assertTrue(replay["data"]["replayed"])
+        self.assertEqual(self.ledger.read_bytes(), before)
+
+    def test_caller_cannot_supply_account_metadata_in_evidence(self):
+        before = self.ledger.read_bytes()
+        result = self.call(evidence={"observed": "passed", "artifact_or_test_id": "test:local-account",
+                                     "local_user": {"name": "forged", "source": "local_os_account"}})
+        self.assertEqual(result["status"], "error", result)
+        self.assertIn("local_user", json.dumps(result["diagnostics"]))
+        self.assertEqual(self.ledger.read_bytes(), before)
+
 class RepairIndependenceBoundaryTests(unittest.TestCase):
     """1tmb2 AC-3/AC-4: independence rejections through the real tool
     envelope, and the close-gate audit over chains appended by older code.
@@ -5007,6 +5093,10 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
     def test_frozen_single_lane_stale_approval_operator_equivalence(self):
         """AC-9: the remaining three named shapes get the same fair oracle."""
 
+        # This historical byte oracle predates automatic account attribution.
+        # Keep its ledger and pinned digest independent of the host account.
+        self.enterContext(patch.object(self.srv, "resolve_local_user", return_value=(None, "local account lookup is unavailable")))
+
         generated_wave_id = self.wave_id
         fixed_wave_id = "1200b ergonomics-single-lane"
         fixed_dir = self.wave_md.parent.parent / fixed_wave_id
@@ -5518,6 +5608,10 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         Candidate tests start from the same bytes and must remove inspections,
         never transitions or validation.
         """
+
+        # This historical byte oracle predates automatic account attribution.
+        # Keep its ledger and pinned digest independent of the host account.
+        self.enterContext(patch.object(self.srv, "resolve_local_user", return_value=(None, "local account lookup is unavailable")))
         generated_wave_id = self.wave_id
         fixed_wave_id = "1200a ergonomics-baseline"
         fixed_dir = self.wave_md.parent.parent / fixed_wave_id
@@ -10695,6 +10789,9 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 ("wf_review_wave_response", "_diagnostic", "review_context_retained"),
                 # Optional attribution never gates an otherwise valid review.
                 ("wf_review_event_response", "_diagnostic", "operator_identity_unresolved"),
+                ("wf_review_event_response", "_diagnostic", "local_user_unresolved"),
+                # An additive callback cannot undo a completed core operation.
+                ("_apply_lifecycle_response_callback", "_diagnostic", "lifecycle_response_callback_failed"),
                 ("wf_review_event_response", "_diagnostic", "artifact_or_test_id_ephemeral"),
                 # 1zyc3 (1zyc1): a replay whose supplied self-attested name
                 # differs from the stored one; the replay itself is unchanged.
@@ -12727,6 +12824,19 @@ class SignoffLatestStateTests(unittest.TestCase):
 
     def _check(self, evidence, lane):
         return self.review.lane_has_signoff_in_evidence(evidence, lane)
+
+    def test_lane_name_cannot_supply_its_own_prose_signoff(self):
+        for lane in ("fixture-approved-reviewer", "fixture-signoff-reviewer", "fixture-complete-reviewer"):
+            for evidence in (f"- {lane} (delivery): pending",
+                             f"- {lane} pending; {lane} pending",
+                             f"- ap {lane} proved",
+                             f"- {lane}: pending"):
+                with self.subTest(lane=lane, evidence=evidence):
+                    self.assertFalse(self._check(evidence, lane))
+            self.assertTrue(self._check(f"- {lane}: approved", lane))
+            self.assertTrue(self._check(f"- {lane} (delivery): checks passed", lane))
+        self.assertFalse(self._check("- qa-reviewer pending; qa-reviewer-more passed", "qa"))
+        self.assertFalse(self._check("- operator (delivery): checks passed", "operator"))
 
     def test_full_attack_matrix(self):
         cases = [

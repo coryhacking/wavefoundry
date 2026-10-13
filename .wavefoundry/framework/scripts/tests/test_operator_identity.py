@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from unittest.mock import patch
 
@@ -153,6 +154,75 @@ class OperatorIdentityTests(unittest.TestCase):
             subprocess.run(["git", "-C", str(self.root), "config", "--unset", "user.email"], check=True, capture_output=True, timeout=10)
             self.assertEqual(subject.resolve_operator(self.root), (None, "git user.email is unset"))
 
+
+
+class LocalUserIdentityTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "posix", "POSIX account API")
+    def test_effective_account_ignores_environment_and_real_uid(self):
+        import pwd
+        with patch.dict(os.environ, {"USER": "decoy", "LOGNAME": "other", "USERNAME": "wrong"}), \
+                patch.object(os, "geteuid", return_value=321) as effective, \
+                patch.object(os, "getuid", side_effect=AssertionError("real uid")), \
+                patch.object(pwd, "getpwuid", return_value=types.SimpleNamespace(pw_name="local-person")) as lookup, \
+                patch.object(subject.subprocess, "run", side_effect=AssertionError("shell identity")):
+            self.assertEqual(subject.resolve_local_user(),
+                             ({"name": "local-person", "source": "local_os_account"}, ""))
+        effective.assert_called_once_with()
+        lookup.assert_called_once_with(321)
+
+    def test_windows_native_api_has_fixed_buffer_and_no_retry(self):
+        import ctypes
+        from ctypes import wintypes
+        from unittest.mock import Mock
+
+        def native(buffer, size):
+            self.assertEqual(len(buffer), 257)
+            self.assertEqual(size._obj.value, 257)
+            buffer.value = "native-person"
+            size._obj.value = len(buffer.value) + 1
+            return 1
+
+        api = Mock(side_effect=native)
+        with patch.object(ctypes, "WinDLL", create=True, return_value=types.SimpleNamespace(GetUserNameW=api)) as dll, \
+                patch.object(os, "name", "nt"), patch.dict(os.environ, {"USERNAME": "decoy"}):
+            self.assertEqual(subject.resolve_local_user(),
+                             ({"name": "native-person", "source": "local_os_account"}, ""))
+        dll.assert_called_once_with("advapi32", use_last_error=True)
+        api.assert_called_once()
+        self.assertEqual(api.argtypes, [wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)])
+        self.assertEqual(api.restype, wintypes.BOOL)
+        for result_size, succeeded in ((9999999, 0), (9999999, 1), (0, 1), (1, 1)):
+            def failure(buffer, size):
+                size._obj.value = result_size
+                return succeeded
+            api = Mock(side_effect=failure)
+            with self.subTest(size=result_size, succeeded=succeeded), \
+                    patch.object(ctypes, "WinDLL", create=True, return_value=types.SimpleNamespace(GetUserNameW=api)), \
+                    patch.object(os, "name", "nt"):
+                self.assertEqual(subject.resolve_local_user(), (None, "local account lookup is unavailable"))
+            api.assert_called_once()
+
+    def test_unavailable_and_unsafe_accounts_return_literal_bounded_reasons(self):
+        for error in (OSError("private/path"), ValueError("private account"), ImportError("private module")):
+            with self.subTest(error=error), patch.object(os, "name", "nt"), \
+                    patch.object(subject, "_windows_local_user_name", side_effect=error):
+                self.assertEqual(subject.resolve_local_user(), (None, "local account lookup is unavailable"))
+        invalid = (None, 7, "", " ", " trailing ", "x" * 257,
+                   "a\n", "a\x00b", "a\u202eb", "a\u200bb", "a\ud800", "a\u2028b", "a\u2029b")
+        for name in invalid:
+            with self.subTest(name=name), patch.object(os, "name", "nt"), \
+                    patch.object(subject, "_windows_local_user_name", return_value=name):
+                self.assertEqual(subject.resolve_local_user(),
+                                 (None, "local account name is unsafe or exceeds the attribution limit"))
+        with patch.object(os, "name", "unsupported"):
+            self.assertEqual(subject.resolve_local_user(), (None, "local account lookup is unavailable"))
+
+    def test_exact_safe_name_is_preserved_and_bound_is_inclusive(self):
+        for name in ("x" * 256, "Jos\u0065\u0301", "a[link](x)|<b>*_&"):
+            with self.subTest(name=name), patch.object(os, "name", "nt"), \
+                    patch.object(subject, "_windows_local_user_name", return_value=name):
+                self.assertEqual(subject.resolve_local_user(),
+                                 ({"name": name, "source": "local_os_account"}, ""))
 
 if __name__ == "__main__":
     unittest.main()

@@ -245,7 +245,7 @@ def _is_runtime_lock(resolved_root: Path, resolved: Path, entry: "os.stat_result
     return False
 
 
-def open_contained_dir(root, rel) -> "int | None":
+def open_contained_dir(root, rel, *, refuse_reparse: bool = False) -> "int | None":
     """A directory descriptor on ``<resolved root>/rel``, or ``None`` on Windows.
 
     ``rel`` is relative to the resolved root (callers pass a resolved relative
@@ -282,6 +282,13 @@ def open_contained_dir(root, rel) -> "int | None":
                     if entry is not None and not stat.S_ISDIR(entry.st_mode):
                         raise ContainedFileRefused(CAUSE_NOT_DIRECTORY) from None
                     raise _path_free(exc) from None
+                if refuse_reparse:
+                    try:
+                        if getattr(os.fstat(child), "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 1024):
+                            raise ContainedFileRefused(CAUSE_LINK_COMPONENT)
+                    except BaseException:
+                        os.close(child)
+                        raise
                 os.close(fd)
                 fd = child
             return fd
@@ -297,7 +304,8 @@ def open_contained_dir(root, rel) -> "int | None":
             return None
         except OSError:
             raise ContainedFileRefused(CAUSE_UNRESOLVED) from None
-        if _is_link_entry(current, entry):
+        if (_is_link_entry(current, entry)
+                or (refuse_reparse and getattr(entry, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 1024))):
             raise ContainedFileRefused(CAUSE_LINK_COMPONENT)
         if not stat.S_ISDIR(entry.st_mode):
             raise ContainedFileRefused(CAUSE_NOT_DIRECTORY)
@@ -388,9 +396,25 @@ def ensure_contained_dir(root, rel) -> Path:
     return resolved_root.joinpath(*base, *missing)
 
 
-def _judge_existing(resolved_root: Path, parts: tuple[str, ...]) -> "tuple[Path, os.stat_result]":
+def _judge_existing(resolved_root: Path, parts: tuple[str, ...], *, follow_links: bool = True) -> "tuple[Path, os.stat_result]":
     """Resolve, contain and classify an existing target (read rule)."""
     lexical = resolved_root.joinpath(*parts)
+    if not follow_links:
+        parent_fd = open_contained_dir(resolved_root, parts[:-1], refuse_reparse=True)
+        try:
+            entry = (os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)
+                     if parent_fd is not None else os.lstat(lexical))
+            if (not stat.S_ISREG(entry.st_mode)
+                    or getattr(entry, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 1024)):
+                raise ContainedFileRefused(CAUSE_NOT_REGULAR)
+            if _is_runtime_lock(resolved_root, lexical, entry):
+                raise ContainedFileRefused(CAUSE_RUNTIME_LOCK)
+            return lexical, entry
+        except OSError as exc:
+            raise _path_free(exc) from None
+        finally:
+            if parent_fd is not None:
+                os.close(parent_fd)
     try:
         resolved = lexical.resolve(strict=True)
     except FileNotFoundError:
@@ -415,13 +439,13 @@ def _judge_existing(resolved_root: Path, parts: tuple[str, ...]) -> "tuple[Path,
     return resolved, entry
 
 
-def _open_verified(resolved_root: Path, resolved: Path, entry: os.stat_result) -> "tuple[int, os.stat_result]":
+def _open_verified(resolved_root: Path, resolved: Path, entry: os.stat_result, *, follow_links: bool = True) -> "tuple[int, os.stat_result]":
     """Open ``resolved`` for reading and check that the open descriptor is the
     regular file ``entry`` describes. Returns ``(fd, fstat)``."""
     parent = resolved.parent.relative_to(resolved_root).parts
     _checkpoint("open")
     if _dir_fd_supported():
-        dir_fd = open_contained_dir(resolved_root, parent)
+        dir_fd = open_contained_dir(resolved_root, parent, refuse_reparse=not follow_links)
         try:
             flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
             try:
@@ -435,7 +459,7 @@ def _open_verified(resolved_root: Path, resolved: Path, entry: os.stat_result) -
         finally:
             os.close(dir_fd)
     else:
-        open_contained_dir(resolved_root, parent)
+        open_contained_dir(resolved_root, parent, refuse_reparse=not follow_links)
         flags = (os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOINHERIT", 0)
                  | getattr(os, "O_NONBLOCK", 0))
         try:
@@ -470,9 +494,14 @@ def _read_capped(fd: int, limit: int) -> bytes:
     return b"".join(chunks)
 
 
-def read_contained_identity(root, path, *, max_bytes: int) -> "tuple[bytes, os.stat_result, Path]":
+def read_contained_identity(root, path, *, max_bytes: int, follow_links: bool = True, cache: dict | None = None) -> "tuple[bytes, os.stat_result, Path]":
     """Read bytes, their descriptor's identity, and the judged resolved path.
 
+    ``follow_links=False`` refuses lexical parent and final links before the
+    descriptor read; the default preserves contained internal-link behavior.
+    An optional caller-owned cache reuses bytes only after opening/verifying
+    the current descriptor and matching its full metadata identity. Clear it
+    at the operation boundary; cached paths never bypass read authority.
     The path is carried from the read judgment, never resolved again after
     publication to grant removal authority to a replacement.
     """
@@ -480,29 +509,40 @@ def read_contained_identity(root, path, *, max_bytes: int) -> "tuple[bytes, os.s
     parts = _lexical_parts(root, path)
     if not parts:
         raise ContainedFileRefused(CAUSE_NOT_REGULAR)
-    resolved, entry = _judge_existing(resolved_root, parts)
-    fd, opened = _open_verified(resolved_root, resolved, entry)
+    resolved, entry = _judge_existing(resolved_root, parts, follow_links=follow_links)
+    fd, opened = _open_verified(resolved_root, resolved, entry, follow_links=follow_links)
+    key = (resolved, max_bytes, follow_links)
+    identity = (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns, opened.st_ctime_ns)
     try:
+        if opened.st_size > max_bytes:
+            raise ContainedFileRefused(CAUSE_SIZE)
+        cached = cache.get(key) if cache is not None else None
+        if cached is not None and cached[0] == identity:
+            return cached[1], opened, resolved
         data = _read_capped(fd, int(max_bytes) + 1)
+        after = os.fstat(fd) if cache is not None else opened
     finally:
         os.close(fd)
     if len(data) > max_bytes:
         raise ContainedFileRefused(CAUSE_SIZE)
+    after_identity = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+    if cache is not None and after_identity == identity:
+        cache[key] = (identity, data)
     return data, opened, resolved
 
 
-def read_contained(root, path, *, max_bytes: int) -> "tuple[bytes, os.stat_result]":
+def read_contained(root, path, *, max_bytes: int, follow_links: bool = True, cache: dict | None = None) -> "tuple[bytes, os.stat_result]":
     """Read bytes and the ``fstat`` of the descriptor they were read from."""
-    data, opened, _resolved = read_contained_identity(root, path, max_bytes=max_bytes)
+    data, opened, _resolved = read_contained_identity(root, path, max_bytes=max_bytes, follow_links=follow_links, cache=cache)
     return data, opened
 
 
-def read_contained_bytes(root, path, *, max_bytes: int) -> bytes:
+def read_contained_bytes(root, path, *, max_bytes: int, follow_links: bool = True, cache: dict | None = None) -> bytes:
     """Read ``path`` under the contained read rule (see the module docstring).
 
     Raises :class:`ContainedFileRefused` on a refusal and ``FileNotFoundError``
     when the file is missing; neither names a path."""
-    return read_contained(root, path, max_bytes=max_bytes)[0]
+    return read_contained(root, path, max_bytes=max_bytes, follow_links=follow_links, cache=cache)[0]
 
 
 def _regular_removal_entry(path: Path, entry: os.stat_result) -> bool:

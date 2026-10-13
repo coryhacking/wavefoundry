@@ -14,7 +14,7 @@ from .constants import (
     PROMPT_SURFACE_FILES,
     WORKFLOW_REQUIRED_KEYS,
 )
-from .helpers import load_json, read_record_text, record_entry_is_regular, resolve_record_roots
+from .helpers import read_doc_text, doc_entry_is_regular, load_json, read_record_text, record_entry_is_regular, resolve_record_roots
 from record_paths import validate_record_layout
 import vocabulary_profile as _vocab  # lifecycle prompt names (wave 1zyb4)
 from review_policy import (
@@ -397,13 +397,13 @@ def check_review_policy_carriers(root: Path) -> list[str]:
 
     failures: list[str] = []
     policy_surface_active = any(
-        REVIEW_POLICY_SURFACE_MARKER_BEGIN in path.read_text(encoding="utf-8")
+        REVIEW_POLICY_SURFACE_MARKER_BEGIN in (read_doc_text(root, path) or "")
         for path in (
             root / _vocab.prompt_doc("prepare-wave"),
             root / _vocab.prompt_doc("review-wave"),
             root / _vocab.prompt_doc("close-wave"),
         )
-        if path.is_file()
+        if doc_entry_is_regular(root, path)
     )
     carriers = (
         review_policy_carriers()
@@ -413,14 +413,17 @@ def check_review_policy_carriers(root: Path) -> list[str]:
     for carrier in carriers:
         path = root / carrier.destination
         paths = (
-            sorted(item for item in path.rglob("*.md") if item.is_file())
+            sorted(item for item in path.rglob("*.md") if doc_entry_is_regular(root, item))
             if path.is_dir()
-            else [path] if path.is_file() else []
+            else [path] if doc_entry_is_regular(root, path) else []
         )
         if not paths:
             continue
         try:
-            text = "\n".join(item.read_text(encoding="utf-8") for item in paths)
+            texts = [read_doc_text(root, item) for item in paths]
+            if any(text is None for text in texts):
+                continue
+            text = "\n".join(texts)
         except (OSError, UnicodeError) as exc:
             failures.append(f"{carrier.destination}: review-policy carrier unreadable ({exc})")
             continue

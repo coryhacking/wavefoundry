@@ -2245,6 +2245,9 @@ def phase_pruning(root: Path) -> int | None:
     if result.returncode != 0:
         _log(f"  Pruning exited {result.returncode} — retaining snapshot (non-fatal).")
         return None
+    if getattr(result, "capture_truncated", {}).get("stderr", False):
+        _log("  Pruning stderr was truncated; completion is unproven, retaining MANIFEST snapshot.")
+        return None
     # Wave 1p44q — read the authoritative count from prune_framework.py's stderr
     # summary ("prune: deleted N item(s)" / "prune: would delete N item(s)").
     # The old heuristic scanned stdout for "removed"/"pruned", but the per-file

@@ -111,6 +111,50 @@ class ChildTeeTests(unittest.TestCase):
         self.assertIn("stdout reason", content)
         self.assertIn("stderr reason", content)
 
+    def test_capture_byte_boundaries_preserve_small_text_and_utf8_final_tail(self):
+        cap = 1024 * 1024
+        for size in (cap - 1, cap, cap + 1, cap * 3):
+            for chunk_size in (4093, 8192):
+                with self.subTest(size=size, chunk_size=chunk_size):
+                    count = size - len(b"HEAD\nFINAL\n")
+                    value = "HEAD\n" + "\u00e9" * (count // 2) + "x" * (count % 2) + "FINAL\n"
+                    captured = child_tee._BoundedCapture()
+                    for start in range(0, len(value), chunk_size):
+                        captured.write(value[start:start + chunk_size])
+                        self.assertLessEqual(len(captured.head) + len(captured.tail), cap)
+                    result = captured.getvalue()
+                    self.assertLessEqual(len(result.encode("utf-8")), cap)
+                    self.assertEqual(captured.truncated, size > cap)
+                    self.assertTrue(result.startswith("HEAD\n"))
+                    self.assertTrue(result.endswith("FINAL\n"))
+                    if size <= cap:
+                        self.assertEqual(result, value)
+                    else:
+                        self.assertIn("child capture output elided", result)
+
+    def test_capture_caps_each_stream_after_scrubbing_and_continues_forwarding(self):
+        token = "fixture-private-token"
+        source = ("import sys; print('HEAD-OUT'); print('HEAD-ERR',file=sys.stderr); "
+                  "exec(\"for i in range(300):\\n print('é'*4096)\\n print('🙂'*4096,file=sys.stderr)\"); "
+                  f"print('\\x1b[31m{token}\\x1b[0m'); "
+                  f"print({token!r},file=sys.stderr); "
+                  "print('FINAL-OUT'); print('FINAL-ERR',file=sys.stderr); sys.exit(7)")
+        result = self.run_child(source, capture_output=True, timeout=20,
+                                env={**os.environ, "WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN": token})
+        self.assertEqual(result.returncode, 7)
+        self.assertEqual(result.capture_truncated, {"stdout": True, "stderr": True})
+        for label, output, forwarded in (("OUT", result.stdout, self.out.getvalue()),
+                                          ("ERR", result.stderr, self.err.getvalue())):
+            self.assertLessEqual(len(output.encode("utf-8")), 1024 * 1024)
+            self.assertGreater(len(forwarded.encode("utf-8")), 1024 * 1024)
+            self.assertTrue(output.startswith("HEAD-" + label))
+            self.assertTrue(output.endswith("FINAL-" + label + "\n"))
+            self.assertIn("[REDACTED]", output)
+            self.assertNotIn(token, output + forwarded)
+            self.assertNotIn("\x1b", output + forwarded)
+        self.assertEqual(result.log_errors, [])
+        self.assertLessEqual(Path(result.log_path).stat().st_size, 1024 * 1024)
+
     def test_unflushed_output_is_live_before_exit_and_only_env_addition(self):
         seen = threading.Event()
         class Sink(io.StringIO):

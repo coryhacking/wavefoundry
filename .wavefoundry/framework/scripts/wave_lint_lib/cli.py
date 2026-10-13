@@ -32,6 +32,8 @@ from .helpers import (
     write_if_changed,
 )
 from .link_validators import check_markdown_links
+from .helpers import doc_refusal, doc_refusal_failures, doc_entry_is_regular, RECORD_CAUSE_SIZE
+from contained_files import DEFAULT_MAX_BYTES
 from .metadata_validators import check_metadata
 from .secrets_validators import _get_changed_files, _is_inside_git, check_hardcoded_secrets, fileset_refusals
 from .wave_validators import (
@@ -139,9 +141,16 @@ def _oversized_docs(root: Path, paths, cap: int) -> "tuple[set, list]":
     oversized: set = set()
     warnings: list = []
     for path in paths:
+        if not doc_entry_is_regular(root, path):
+            oversized.add(path)
+            continue
         try:
-            size = path.stat().st_size
+            size = path.lstat().st_size
         except OSError:
+            continue
+        if size > DEFAULT_MAX_BYTES:
+            oversized.add(path)
+            doc_refusal(root, path, RECORD_CAUSE_SIZE)
             continue
         if size > cap:
             oversized.add(path)
@@ -209,7 +218,7 @@ def _record_refusal_report(root: Path) -> list[str]:
     the passes, in both the full and the incremental run."""
     for rel, cause in fileset_refusals().items():
         record_refusal(root, root / rel, cause)
-    return record_refusal_failures()
+    return record_refusal_failures() + doc_refusal_failures()
 
 
 def _run_incremental_checks(root: Path, *, proven_trigger_identity: str | None = None):

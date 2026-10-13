@@ -970,7 +970,8 @@ process.stdout.write(JSON.stringify(rendered.map(text)));
         scripts = fw / "scripts"
         scripts.mkdir(parents=True)
         for name in ("review_evidence", "test_worker_guard", "review_policy", "runtime_lock",
-                     "gardener_metadata", "record_paths", "vocabulary_profile"):
+                     "gardener_metadata", "record_paths", "vocabulary_profile",
+                     "operator_identity", "subprocess_util"):
             shutil.copy2(SCRIPTS_DIR / f"{name}.py", scripts / f"{name}.py")
         shutil.copytree(SCRIPTS_DIR / "test_worker_bootstrap", scripts / "test_worker_bootstrap")
         archive_path = build_pack.build_zip(

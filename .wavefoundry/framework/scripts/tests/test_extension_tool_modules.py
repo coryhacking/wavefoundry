@@ -1548,7 +1548,7 @@ with tempfile.TemporaryDirectory() as tmp:
             "lifecycle_reserved_name": dict(EXTENSION_MODULES=("retired_name",), EXTENSION_TOOL_PREFIXES=("wf_",), EXTENSION_TOOL_TIERS={"wf_review_evidence": "write"}, EXTENSION_LIFECYCLE_TOOLS=("wf_review_evidence",), EXTENSION_ARTIFACT_PATH_FIELDS={"wf_review_evidence": "path"}),
             "lifecycle_invalid_declaration": dict(EXTENSION_MODULES=("twin_a",), EXTENSION_TOOL_PREFIXES=("acme_",), EXTENSION_TOOL_TIERS={"acme_twin": "read"}, EXTENSION_LIFECYCLE_TOOLS=("acme_twin",)),
         }
-        empty = dict(EXTENSION_MODULES=(), EXTENSION_HELPER_MODULES=(), EXTENSION_TOOL_PREFIXES=(), EXTENSION_TOOL_TIERS={}, EXTENSION_OVERRIDES={},
+        empty = dict(EXTENSION_MODULES=(), EXTENSION_HELPER_MODULES=(), EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS={}, EXTENSION_TOOL_PREFIXES=(), EXTENSION_TOOL_TIERS={}, EXTENSION_OVERRIDES={},
                      EXTENSION_TOOL_ALIASES={}, EXTENSION_TOOL_PARAMETERS={}, EXTENSION_HIDDEN_TOOLS=(),
                      EXTENSION_LIFECYCLE_TOOLS=(), EXTENSION_ARTIFACT_PATH_FIELDS={}, EXTENSION_SKILLS={},
                      EXTENSION_JOURNAL_TEMPLATES=(), EXTENSION_JOURNAL_PRE_MIGRATION_HOOK="",
@@ -1816,6 +1816,138 @@ with tempfile.TemporaryDirectory() as tmp:
                 out["late_failure"] = "raised"
         out["deltas_after_late_failure"] = sorted(impl._EXTENSION_OVERRIDE_DELTAS)
         handler.close()
+
+    elif MODE == "lifecycle_callbacks":
+        from unittest import mock
+        callback_source = """
+VERSION = "v1"
+CALLS = []
+FAIL = False
+def enrich(*, root, tool_name, arguments, response):
+    CALLS.append((tool_name, arguments, response.get("status")))
+    if FAIL:
+        raise RuntimeError("/private/callback-detail")
+    response["status"] = "tampered"
+    return {"version": VERSION, "tool": tool_name, "seen": len(CALLS)}
+async def async_enrich(**kwargs):
+    return {}
+class AsyncCallable:
+    async def __call__(self, **kwargs):
+        return {}
+async_object = AsyncCallable()
+not_callable = 1
+def wrong_signature(root):
+    return {}
+"""
+        override_source = """
+import server_impl
+DELEGATE = True
+CORE = None
+def register(mcp, get_handler):
+    global CORE
+    CORE = mcp.core_handler("wf_close_wave")
+    @mcp.tool()
+    def wf_close_wave(wave_id: str, mode: str = "dry_run", **kwargs):
+        bad = server_impl.ensure_no_extra_args("wf_close_wave", kwargs)
+        if bad is not None:
+            return bad
+        if not DELEGATE:
+            return {"status": "ok", "data": {"self_answered": True}}
+        result = CORE(wave_id=wave_id, mode=mode)
+        result["outer_added"] = "separate delta"
+        return result
+"""
+        callback_decl = """
+EXTENSION_HELPER_MODULES = ("acme_completion",)
+EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS = {
+    "wf_create_wave": "acme_completion:enrich",
+    "wf_close_wave": "acme_completion:enrich",
+}
+EXTENSION_MODULES = ("acme_completion_tools",)
+EXTENSION_OVERRIDES = {"acme_completion_tools": ("wf_close_wave",)}
+EXTENSION_TOOL_ALIASES = {"wf_callback_alias": "wf_close_wave"}
+"""
+        DECL.write_text(DECL_ORIG + callback_decl)
+        write_module("acme_completion", callback_source)
+        write_module("acme_completion_tools", override_source)
+        load_server(); runner = load_thin_runner()
+        mcp = runner.build_server(root); impl = runner.server_impl
+        helper = sys.modules["acme_completion"]
+        override = sys.modules["acme_completion_tools"]
+        handler = runner._get_handler()
+        out["provenance"] = impl.wf_server_info_response(root)["data"]["extensions"]
+        out["source_sha"] = hashlib.sha256((SCRATCH / "acme_completion.py").read_bytes()).hexdigest()
+        with mock.patch.object(impl, "_trigger_background_index_refresh_for_paths", return_value={}), \
+                mock.patch.object(impl, "_run_post_write_lint", return_value={"passed": True}):
+            created = ccall(mcp, "wf_create_wave", {"slug": "callback", "mode": "create"})
+            out["created"] = created
+            wave_id = created["data"]["wave_id"]
+            out["record_exists"] = impl._find_wave_md(root, wave_id) is not None
+            out["direct_count"] = len(helper.CALLS)
+            counts, workflow, costs = {}, [], []
+            real_workflow = handler.telemetry.record_workflow
+            with mock.patch.object(handler.telemetry, "record_workflow", side_effect=lambda *a, **k: workflow.append(a[2]) or real_workflow(*a, **k)), \
+                    mock.patch.object(handler.telemetry, "record_tool_cost", side_effect=lambda *a, **k: costs.append(k)):
+                for label, name in (("delegated", "wf_close_wave"), ("alias", "wf_callback_alias")):
+                    before = len(helper.CALLS)
+                    result = ccall(mcp, name, {"wave_id": wave_id})
+                    counts[label] = len(helper.CALLS) - before
+                    out[label] = result
+                before = len(helper.CALLS)
+                override.CORE(wave_id=wave_id)
+                counts["direct_core"] = len(helper.CALLS) - before
+                before = len(helper.CALLS); override.DELEGATE = False
+                out["nondelegated"] = ccall(mcp, "wf_close_wave", {"wave_id": wave_id})
+                counts["nondelegated"] = len(helper.CALLS) - before
+            out["counts"] = counts
+            out["workflow_count"] = len(workflow)
+            out["cost_count"] = len(costs)
+            helper.FAIL = True
+            out["failure"] = ccall(mcp, "wf_create_wave", {"slug": "completed-before-callback", "mode": "create"})
+            out["failure_record_exists"] = impl._find_wave_md(root, out["failure"]["data"]["wave_id"]) is not None
+        write_module("acme_completion", callback_source.replace('VERSION = "v1"', 'VERSION = "v2"'))
+        out["reload"] = runner.perform_mcp_reload()["status"]
+        out["reloaded"] = ccall(mcp, "wf_create_wave", {"slug": "after-reload"})
+        out["new_provenance"] = runner.server_impl.wf_server_info_response(root)["data"]["extensions"]
+        # A failure after installation must release all bindings too.
+        from mcp.server.fastmcp import FastMCP
+        impl = runner.server_impl
+        with mock.patch.object(impl, "_install_served_names", side_effect=RuntimeError("late failure")):
+            failed_mcp = FastMCP("callback failure")
+            try:
+                impl.register_mcp_surface(failed_mcp, runner._get_handler)
+            except RuntimeError:
+                pass
+        out["late_failure_bindings"] = list(impl._EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS)
+        out["late_failure_served"] = sorted(table(failed_mcp))
+        # Invalid declarations and symbols fail before serving any core tools.
+        ext = impl.mcp_tool_extensions
+        results = {}
+        for label, callbacks in (
+            ("target", {"wf_review_wave": "acme_completion:enrich"}),
+            ("module", {"wf_close_wave": "undeclared_helper:enrich"}),
+            ("missing", {"wf_close_wave": "acme_completion:missing"}),
+            ("noncallable", {"wf_close_wave": "acme_completion:not_callable"}),
+            ("async", {"wf_close_wave": "acme_completion:async_enrich"}),
+            ("async_object", {"wf_close_wave": "acme_completion:async_object"}),
+            ("signature", {"wf_close_wave": "acme_completion:wrong_signature"}),
+        ):
+            ext.EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS = callbacks
+            bad_mcp = FastMCP("callback declaration")
+            try:
+                impl.register_mcp_surface(bad_mcp, runner._get_handler)
+                raised = None
+            except Exception as exc:
+                raised = type(exc).__name__
+            results[label] = {"raised": raised, "served": sorted(table(bad_mcp)),
+                              "bindings": list(impl._EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS)}
+        out["invalid"] = results
+        DECL.write_text(DECL_ORIG)
+        out["empty_reload"] = runner.perform_mcp_reload()["status"]
+        out["empty_bindings"] = list(runner.server_impl._EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS)
+        out["empty_helper_present"] = "acme_completion" in sys.modules
+        out["empty_result"] = ccall(mcp, "wf_create_wave", {"slug": "empty-again"})
+        runner._get_handler().close()
 
     elif MODE == "helpers":
         # Wave 1zls8 (1zltx AC-2, AC-3, AC-5, AC-10, AC-11): declared helper
@@ -4263,6 +4395,7 @@ NON_BEHAVIOR_COLLECTIONS = {
     # Declaration validation only: names no override, replacement or hidden
     # name may target (wave 1zicq); it keys no served behaviour.
     ("mcp_tool_extensions.py", "EDIT_GATE_TOOLS"),
+    ("mcp_tool_extensions.py", "LIFECYCLE_RESPONSE_CALLBACK_TOOLS"),
     # Flat script module names a declared module may not take (wave 1zls8,
     # 1zltx); "memory_backfill" is also a tool name, but these are modules.
     ("mcp_tool_extensions.py", "FRAMEWORK_SCRIPT_MODULE_NAMES"),
@@ -5037,6 +5170,78 @@ class ExtensionProvenanceLabelTests(unittest.TestCase):
         blob = json.dumps(data)
         for absolute in (str(self.root), str(self.framework_dir), str(self.outside.parent)):
             self.assertNotIn(absolute, blob)
+
+
+
+
+class LifecycleCallbackServingTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.out = _run("lifecycle_callbacks")
+
+    def test_actual_write_finishes_before_callback_and_failure_preserves_it(self):
+        self.assertEqual(self.out["created"]["status"], "ok")
+        self.assertTrue(self.out["record_exists"])
+        self.assertEqual(self.out["direct_count"], 1)
+        self.assertEqual(self.out["created"]["data"]["extension_response"]["version"], "v1")
+        failure = self.out["failure"]
+        self.assertEqual(failure["status"], "ok")
+        self.assertTrue(self.out["failure_record_exists"])
+        self.assertNotIn("extension_response", failure["data"])
+        diagnostic = [d for d in failure["diagnostics"] if d["code"] == "lifecycle_response_callback_failed"]
+        self.assertEqual(len(diagnostic), 1)
+        self.assertNotIn("/private", json.dumps(diagnostic))
+
+    def test_alias_override_and_direct_core_execute_once_only_when_delegated(self):
+        self.assertEqual(self.out["counts"], {"delegated": 1, "alias": 1, "direct_core": 1, "nondelegated": 0})
+        for label in ("alias", "delegated"):
+            self.assertEqual(self.out[label]["data"]["extension_response"]["tool"], "wf_close_wave")
+        self.assertNotIn("extension_response", self.out["nondelegated"]["data"])
+        self.assertEqual(self.out["workflow_count"], 3)
+        # Two delegate deltas and one independent override cost; direct core adds none.
+        self.assertEqual(self.out["cost_count"], 3)
+
+    def test_helper_provenance_reload_and_empty_reset(self):
+        provenance = self.out["provenance"]
+        self.assertEqual(provenance["helper_modules"][0]["sha256"], self.out["source_sha"])
+        self.assertEqual(provenance["declaration"]["lifecycle_response_callbacks"]["wf_create_wave"], "acme_completion:enrich")
+        self.assertEqual(self.out["reload"], "ok")
+        self.assertEqual(self.out["reloaded"]["data"]["extension_response"]["version"], "v2")
+        self.assertNotEqual(self.out["new_provenance"]["helper_modules"][0]["sha256"], self.out["source_sha"])
+        self.assertEqual(self.out["empty_reload"], "ok")
+        self.assertEqual(self.out["empty_bindings"], [])
+        self.assertFalse(self.out["empty_helper_present"])
+        self.assertNotIn("extension_response", self.out["empty_result"]["data"])
+
+    def test_invalid_declarations_and_late_registration_failure_serve_nothing(self):
+        for label, result in self.out["invalid"].items():
+            with self.subTest(label=label):
+                self.assertIsNotNone(result["raised"])
+                self.assertEqual(result["served"], [])
+                self.assertEqual(result["bindings"], [])
+        self.assertEqual(self.out["late_failure_bindings"], [])
+        self.assertEqual(self.out["late_failure_served"], [])
+
+
+class LifecycleCallbackDeclarationTests(unittest.TestCase):
+    def test_shape_targets_and_helpers_are_validated_with_empty_default(self):
+        import mcp_tool_extensions as ext
+        from declaration_support import base_declaration
+        from unittest.mock import patch
+        supported = {"wf_create_wave", "wf_prepare_wave", "wf_implement_wave", "wf_close_wave"}
+        with base_declaration():
+            self.assertFalse(ext.declared())
+            for callbacks in ([], {"wf_pause_wave": "acme_helper:enrich"},
+                              {"wf_close_wave": "acme_helper.enrich"},
+                              {"wf_close_wave": "acme_helper:class"},
+                              {"wf_close_wave": "other:enrich"}):
+                with self.subTest(callbacks=callbacks), patch.object(ext, "EXTENSION_HELPER_MODULES", ("acme_helper",)), \
+                        patch.object(ext, "EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS", callbacks):
+                    self.assertTrue(ext.declaration_problems(core_tools=supported, runner_tools=()))
+            with patch.object(ext, "EXTENSION_HELPER_MODULES", ("acme_helper",)), \
+                    patch.object(ext, "EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS", {name: "acme_helper:enrich" for name in supported}):
+                self.assertTrue(ext.declared())
+                self.assertEqual(ext.declaration_problems(core_tools=supported, runner_tools=()), [])
 
 
 if __name__ == "__main__":

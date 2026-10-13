@@ -198,6 +198,7 @@ SHIPPED_DECLARATION: "dict[str, Any]" = {
     "EXTENSION_MODULES": (),
     # Wave 1zls8 (1zltx): declared helper modules.
     "EXTENSION_HELPER_MODULES": (),
+    "EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS": {},
     "EXTENSION_TOOL_PREFIXES": (),
     "EXTENSION_TOOL_TIERS": {},
     "EXTENSION_OVERRIDES": {},

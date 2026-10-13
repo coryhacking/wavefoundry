@@ -144,10 +144,10 @@ class WorkflowIncludePrefixReaderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as outside:
             external = Path(outside) / "config.json"
             external.write_text('{"indexing":{"project_include_prefixes":["outside"]}}')
-            def replace_then_open(*args):
+            def replace_then_open(*args, **kwargs):
                 cfg.unlink()
                 cfg.symlink_to(external)
-                return original_open(*args)
+                return original_open(*args, **kwargs)
             with patch.object(contained_files, "_open_verified", side_effect=replace_then_open) as opened:
                 self.assertEqual(wip.read_project_include_prefixes(self.root), {"docs": (), "code": ()})
             opened.assert_called_once()

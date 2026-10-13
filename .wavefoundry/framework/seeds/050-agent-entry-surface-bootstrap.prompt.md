@@ -394,7 +394,7 @@ Seed or update `.claude/settings.json` with the hooks below. **Merge with any ex
 ```json
 {
  "hooks": {
- "PreToolUse": [ { "matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [ { "type": "command", "command": "python3 \".claude/hooks/pre-edit.py\"", "statusMessage": "Checking framework edit gates..." } ] } ],
+ "PreToolUse": [ { "hooks": [ { "type": "command", "command": "python3 \".claude/hooks/pre-edit.py\"", "statusMessage": "Checking framework edit gates..." } ] } ],
  "PostToolUse": [
  { "matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [ { "type": "command", "command": "python3 \".claude/hooks/post-edit.py\"", "statusMessage": "Running docs gates..." } ] }
  ],
@@ -409,7 +409,7 @@ Seed or update `.claude/settings.json` with the hooks below. **Merge with any ex
 }
 ```
 
-The rendered commands resolve each body from `CLAUDE_PROJECT_DIR`; the JSON above shows the shape, not the exact launcher text. Claude Code matches a plain `A|B` matcher as exact alternatives, so the matcher names every built-in file-editing tool; `NotebookEdit` sends its path as `tool_input.notebook_path`. The pre-edit hook fails closed: it blocks (exit 2) when stdin is empty, is not JSON, or is not an object, and when an edit tool (or a payload naming no tool) carries no recognisable path, naming the keys it looked for. Other tool names pass.
+The rendered commands resolve each body from `CLAUDE_PROJECT_DIR`; the JSON above shows the shape, not the exact launcher text. PreToolUse omits the matcher so the pre-edit classifier receives unfamiliar tools too. PostToolUse keeps the exact `Edit|Write|MultiEdit|NotebookEdit` alternatives; `NotebookEdit` sends its path as `tool_input.notebook_path`. The pre-edit hook blocks (exit 2) empty, invalid or non-object JSON and edits or unnamed payloads without a recognisable path. Known read/shell identities retain their exemption. Unfamiliar names receive a compatibility diagnostic and every supported explicit path is checked; absent supported paths remain advisory. This does not inspect shell commands, arbitrary patch text or unknown argument schemas. Unfamiliar tools do not trigger post-edit lint/index work.
 
 Generated entrypoints (single `<name>.py` body each):
 - `.claude/hooks/pre-edit.py` — seed protection + framework plan gate

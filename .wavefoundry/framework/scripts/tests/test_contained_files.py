@@ -90,6 +90,57 @@ class _Roots(unittest.TestCase):
         return caught.exception
 
 
+class StrictCachedReadTests(_Roots):
+    def test_strict_leaf_parent_and_fifo_are_refused_without_reading(self):
+        target = self.root / "real.md"
+        target.write_bytes(b"inside")
+        (self.root / "linked.md").symlink_to(target)
+        folder = self.root / "real"; folder.mkdir()
+        (folder / "doc.md").write_bytes(b"inside")
+        (self.root / "linked").symlink_to(folder, target_is_directory=True)
+        paths = [self.root / "linked.md", self.root / "linked/doc.md"]
+        if hasattr(os, "mkfifo"):
+            fifo = self.root / "pipe.md"; os.mkfifo(fifo); paths.append(fifo)
+        with mock.patch.object(cf, "_read_capped", side_effect=AssertionError("must not read")):
+            for path in paths:
+                with self.subTest(path=path.name):
+                    self.refused(lambda: cf.read_contained_bytes(self.root, path, max_bytes=100, follow_links=False))
+        self.assertEqual(cf.read_contained_bytes(self.root, self.root / "linked.md", max_bytes=100), b"inside")
+
+    def test_cache_rechecks_leaf_and_parent_and_avoids_repeated_content_reads(self):
+        folder = self.root / "docs"; folder.mkdir()
+        path = folder / "doc.md"; path.write_bytes(b"first")
+        cache = {}
+        read = lambda: cf.read_contained_bytes(self.root, path, max_bytes=100, follow_links=False, cache=cache)
+        with mock.patch.object(cf, "_read_capped", wraps=cf._read_capped) as content:
+            self.assertEqual(read(), b"first")
+            self.assertEqual(read(), b"first")
+            self.assertEqual(content.call_count, 1)
+        before = path.stat()
+        replacement = folder / "new.md"; replacement.write_bytes(b"other")
+        os.utime(replacement, ns=(before.st_atime_ns, before.st_mtime_ns))
+        os.replace(replacement, path)
+        self.assertEqual(read(), b"other")
+        path.unlink(); path.symlink_to(self.secret)
+        self.refused(read)
+        path.unlink(); path.write_bytes(b"third")
+        self.assertEqual(read(), b"third")
+        moved = self.root / "moved"; folder.rename(moved); folder.symlink_to(moved, target_is_directory=True)
+        self.refused(read)
+        self.assert_outside_untouched()
+
+    def test_strict_open_time_parent_swap_refuses_and_cap_is_hard(self):
+        folder = self.root / "docs"; folder.mkdir()
+        path = folder / "doc.md"; path.write_bytes(b"oversized")
+        self.refused(lambda: cf.read_contained_bytes(self.root, path, max_bytes=3, follow_links=False), cf.CAUSE_SIZE)
+        def swap(stage):
+            if stage == "open":
+                folder.rename(self.root / "moved")
+                folder.symlink_to(self.root / "moved", target_is_directory=True)
+        with mock.patch.object(cf, "_checkpoint", side_effect=swap):
+            self.refused(lambda: cf.read_contained_bytes(self.root, path, max_bytes=100, follow_links=False))
+
+
 class ConstantsAndOwnershipTests(unittest.TestCase):
     def test_default_cap_equals_the_member_document_cap(self) -> None:
         import lifecycle_gate_support as lgs

@@ -130,12 +130,23 @@ merge time; the shipped declarations are empty and change nothing.
 | `EXTENSION_TOOL_PARAMETERS` | Parameter mappings for declared aliases, `{alias: {"rename": {alias_param: canonical_param}, "fixed": {canonical_param: value}, "description": text, "response_keys": {path: new_key}}}` (wave `1zim3`); `description` is optional (wave `1zime`), and so is `response_keys`, which renames keys of the canonical response `data` (wave `1zls8`). |
 | `EXTENSION_HIDDEN_TOOLS` | Canonical names that are not served; each must have an alias without fixed parameters. |
 | `EXTENSION_REPLACEMENTS` | Core names a module reuses with an incompatible handler, `{module: {core_name: {"alias_for_core": name, "tier": optional "read" or "write"}}}`. |
+| `EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS` | `{canonical_tool: "helper:function"}` for a synchronous callback in a declared helper module, empty by default. Supports four native lifecycle completion paths; additive response data is attached before accounting (see **Lifecycle response callbacks**). |
 | `EXTENSION_LIFECYCLE_TOOLS` | New write-tier extension tools that run under the lifecycle mutation lock (wave `1zimf`). |
 | `EXTENSION_ARTIFACT_PATH_FIELDS` | `{tool: data_field}`: the response `data` field holding the repository-relative paths a new write-tier extension tool wrote, credited as derived artifacts (wave `1zimf`). |
 | `EXTENSION_SKILLS` | Skills the distribution renders to every active skill host, `{name: {"title": text, "description": text, "prompt_doc": path, "summary": [line, ...]}}` (wave `1zv8c`), plus the optional `"prompt_doc_template"` (wave `1zyb3`). Read only by the agent-surface renderer and never fatal to the server (see **Declared skills**). |
 | `EXTENSION_JOURNAL_TEMPLATES` | Extra pristine journal scaffolds for the upgrade's journal migration, each using the placeholders `{{wave_id}}`, `{{title}}` and `{{date}}` (wave `1zyb3`). Read only by the upgrade, never fatal to the server (see **Declared journal migration**). |
 | `EXTENSION_JOURNAL_PRE_MIGRATION_HOOK` | `"module:function"` in a declared helper module, called at most once per upgrade invocation with the repository root at `pre_docs_gate`, under the selected trigger (waves `1zyb3`, `206is`). Public migration never calls it (see **Declared journal migration**). |
 | `EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER` | `"legacy_cutover"` (shipped and absent-constant default) or `"journals_present"` (explicit opt-in). Exactly one direct module-level literal string assignment, plain or annotated, selects the upgrade hook policy; journal declarations remain outside MCP activation (wave `206is`; see **Declared journal migration**). |
+
+**Separate prompt compatibility declaration.** `review_plan_prompt_check.py` ships
+`EXTRA_REVIEW_PLAN_LEGACY_CONTRACT_PROFILES = ()`. A distribution can edit this
+source constant in its incoming pack using `(profile_name, ((label, exact_old_line,
+(replacement_line, ...)), ...))` entries. The standalone stdlib-only checker validates
+entries and combines them with the two shipped profiles; exactly one profile must
+match, with each required old line occurring once. Invalid or empty entries, duplicate
+contracts and ambiguous matches fail closed. Migration preserves project prose and
+line endings. Installed preflight, the incoming private checker and rendering use
+this same declaration; it is not loaded from project configuration or extension modules.
 
 **Registration.** `register(mcp, get_handler)` receives a staging FastMCP surface: `@mcp.tool()`
 and `mcp.add_tool` work, and every attempted name is recorded. Handlers must be synchronous
@@ -185,6 +196,40 @@ Only after every module has staged and every check passes are the tools installe
 table. Installation happens before the prefix contract, argument-model normalization and the
 `MIDDLEWARE` chain, so extension tools receive the same wrappers as core tools. Nothing is
 discovered: a module that is not declared is never loaded.
+
+**Lifecycle response callbacks (wave `20k5w`).**
+`EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS` accepts only `wf_create_wave`,
+`wf_prepare_wave`, `wf_implement_wave` and `wf_close_wave`. Each value is
+`"helper:function"`, with the helper already in `EXTENSION_HELPER_MODULES`.
+Declared source loading, executed-byte hashes and reload ownership apply. Unsupported
+targets, undeclared helpers, missing/noncallable functions and asynchronous callbacks
+refuse installation; no callback is discovered from repository content. Empty defaults
+perform only the completion lookup. Reload clears prior bindings, including after
+registration failure, and rebinds current declared source.
+
+The callback receives keyword arguments `root`, `tool_name` (canonical), `arguments`
+and `response`. Arguments and response are detached copies. It runs once per core
+execution reaching `_lifecycle_context_result`, after construction of the core result
+and before context-efficiency/checkpoint accounting. Mutating modes retain their existing
+project publication hold through the callback. Preview does not gain that publication
+hold or permission to mutate; existing lifecycle serialization may still apply. Early
+returns outside completion invoke no callback. Other lifecycle tools, review, retrieval,
+pause and async runner tools are unsupported. A canonical alias or delegating override
+reaches the callback once per actual core execution; a nondelegating override reaches
+none. Existing override-delta accounting remains in place.
+
+The return value must be a JSON mapping with string keys and finite numbers, within
+64 KiB compact serialized UTF-8, container depth 8 (root mapping is depth 1) and
+4,096 nodes counting the root and each value, not keys. Accepted data appears only in
+`data.extension_response` and participates in the existing accounting path. It cannot
+replace status, receipt authority, diagnostics, next actions or other core response
+fields. Exceptions or invalid results add a bounded, path-free
+`lifecycle_response_callback_failed` advisory while preserving
+the core outcome and continuing accounting; completed writes are not retried or rolled
+back. A callback is trusted synchronous distribution code, with no sandbox or execution
+timeout guarantee. It must remain short and nonmutating, perform no external work, write nothing to
+MCP stdout, and never recursively publish lifecycle state. It is an enrichment hook, not a veto or
+transaction rollback mechanism.
 
 **Helper modules (wave `1zls8`).** A distribution's extension modules may share code through
 helper modules named in `EXTENSION_HELPER_MODULES`. Each is loaded in declaration order, before any
@@ -1609,7 +1654,9 @@ above: typed-exclusive on declared waves, prose only on legacy waves.
 
 `wf_review_event(wave_id, event, actor, context_id, mode="dry_run", ...)`
 
-- **Optional contributor identity:** `operator_handle` selects a handle in `docs/contributors.json`; otherwise a bounded local git-email lookup resolves it. New approval, finding and run records carry `verification_context.operator = {handle, source}` when available, including generated convergence contexts. The contributors file maps handles to `{name, emails}`; no network lookup or identity gate is added. An absent map is silent; invalid/unreadable maps, ambiguous or unmapped emails and unknown explicit handles emit one advisory `operator_identity_unresolved` while leaving the event writable. The handle is reference attribution, not proof the human personally approved an agent review. `wave.md` displays the stored handle using its existing review table. Identity is excluded from request digests; replay returns the original attribution without lookup or append. `dry_run` previews the same metadata without writing; `list` performs no identity lookup. **Self-attested name:** the optional `attested_by` input records the name the recording person states for themselves as `verification_context.attested_by`, only when supplied; nothing derives a default from `docs/contributors.json`, git or elsewhere. The name is self-attested and unverified, and once recorded it appears in the committed ledger and in `wave.md`. It is NFC-normalized and trimmed, and refused with `invalid_attested_by` before any write or replay when empty, longer than 100 characters, or containing a control or format character (including bidi and zero-width characters), a lone surrogate, a line or paragraph separator, `<`, `>`, a backtick, `|`, `[`, `]` or a backslash. `evidence` may not supply it. Like the handle it is outside the request digest: a replay keeps the stored name, and a supplied name that differs adds the advisory `attested_by_replay_mismatch`. The approval row reads `by <name> (<handle>)`, `by <name>`, or `by <handle>` as before. Ledgers without the key are unchanged.
+- **Optional contributor identity:** `operator_handle` selects a handle in `docs/contributors.json`; otherwise a bounded local git-email lookup resolves it. New approval, finding and run records carry `verification_context.operator = {handle, source}` when available, including generated convergence contexts. The contributors file maps handles to `{name, emails}`; no network lookup or identity gate is added. An absent map is silent; invalid/unreadable maps, ambiguous or unmapped emails and unknown explicit handles emit one advisory `operator_identity_unresolved` while leaving the event writable. The handle is reference attribution, not proof the human personally approved an agent review. `wave.md` displays the stored handle using its existing review table. Identity is excluded from request digests; replay returns the original attribution without lookup or append. `dry_run` previews the same metadata without writing; `list` performs no identity lookup. **Self-attested name:** the optional `attested_by` input records the name the recording person states for themselves as `verification_context.attested_by`, only when supplied; nothing derives a default from `docs/contributors.json`, git or elsewhere. The name is self-attested and unverified, and once recorded it appears in the committed ledger and in `wave.md`. It is NFC-normalized and trimmed, and refused with `invalid_attested_by` before any write or replay when empty, longer than 100 characters, or containing a control or format character (including bidi and zero-width characters), a lone surrogate, a line or paragraph separator, `<`, `>`, a backtick, `|`, `[`, `]` or a backslash. `evidence` may not supply it. Like the handle it is outside the request digest: a replay keeps the stored name, and a supplied name that differs adds the advisory `attested_by_replay_mismatch`. Self-attested names display with `(self-attested)` so they remain distinct from configured handles. Ledgers without the key are unchanged.
+
+- **Current local account:** new review-event construction also captures `verification_context.local_user = {name, source: "local_os_account"}` automatically. POSIX resolves the effective UID through the account database; Windows uses the native current-account API. No username environment value, shell command, network request or caller-supplied account is trusted. Names are bounded to 256 characters and refuse controls, format characters, surrogates, line/paragraph separators and surrounding whitespace. Unsafe/unavailable lookup omits this metadata with a bounded `local_user_unresolved` advisory; it never blocks the event. The review projection appends a Markdown-safe `local account` label separately from contributor and self-attested attribution. This is the account of the recording process, which may be shared or run an agent on behalf of a person; it does not verify a human approver, enforce owner separation or prove review independence. Account metadata is excluded from semantic event identity and review-policy receipts. Replay preserves the original value without lookup; list/historical reads do not look up or backfill accounts. Preview can show the current account without writing. New metadata needs a reader from the ordinary updated framework; no user enrollment, signature or additional evidence file is required.
 
 - `artifact_or_test_id_ephemeral` is advisory in finding/approval `dry_run` and `create`: it warns when at least one path-like citation is present and all such citations are temporary. Recognized roots include `/tmp`, `/private/tmp`, `/var/tmp`, `/var/folders`, the runtime temporary directory and `TEMP`/`TMP`; any `scratchpad` path segment also qualifies. A durable repository path suppresses the warning; a bare test ID beside a temporary path does not. Zero path tokens produce no warning. This lexical heuristic neither checks artifact existence nor refuses a valid event.
 - Typed authoring surface for external-ledger executable review evidence. `event` is `approval`, `finding`, an empty lightweight `run`, or the read-only `list`; `dry_run` previews exact derived rows and `create` atomically appends them to the fixed sibling `docs/waves/<wave>/events.jsonl`.

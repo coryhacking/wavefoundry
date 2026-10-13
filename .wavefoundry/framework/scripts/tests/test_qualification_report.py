@@ -457,10 +457,10 @@ class ReportBoundaryTests(unittest.TestCase):
         os.link(self.path, alternate / self.path.name)
         (alternate / self.path.name).chmod(0o640)
         real_open = qualification.contained_files.open_contained_dir
-        def other_parent(root, rel):
+        def other_parent(root, rel, **kwargs):
             if tuple(rel) == self.path.parent.relative_to(self.root).parts:
                 return os.open(alternate, os.O_RDONLY | os.O_DIRECTORY)
-            return real_open(root, rel)
+            return real_open(root, rel, **kwargs)
         with patch.object(qualification.contained_files, "open_contained_dir", side_effect=other_parent):
             with self.assertRaises((OSError, ValueError)):
                 self.publish(dict(self.report, observation="replacement"))

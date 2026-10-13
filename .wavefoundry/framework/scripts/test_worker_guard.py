@@ -63,7 +63,7 @@ def worker_environment(env: dict, repo_root: Path, record_dirs) -> dict:
     bootstrap = _canonical(Path(__file__).resolve().parent / "test_worker_bootstrap")
     old_path = result.get("PYTHONPATH")
     remaining = [] if old_path is None else [
-        part for part in old_path.split(os.pathsep) if _canonical(part or os.curdir) != bootstrap
+        part for part in old_path.split(os.pathsep) if part and _canonical(part) != bootstrap
     ]
     result["PYTHONPATH"] = os.pathsep.join([bootstrap, *remaining])
     return result

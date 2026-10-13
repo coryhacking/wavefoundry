@@ -94,6 +94,43 @@ REVIEW_PLAN_LEGACY_CONTRACT_PROFILES = (
     ("early-trigger-phrases-contract", REVIEW_PLAN_EARLY_CANONICAL_CONTRACT_LINES),
 )
 
+# Distribution source declaration, deliberately local to this standalone checker.
+# Shape: ((name, ((label, exact_old_line, (replacement_line, ...)), ...)), ...).
+# Incoming pack preflight loads this file privately, never an installed profile.
+EXTRA_REVIEW_PLAN_LEGACY_CONTRACT_PROFILES = ()
+
+
+def _legacy_contract_profiles():
+    extra = EXTRA_REVIEW_PLAN_LEGACY_CONTRACT_PROFILES
+    if not isinstance(extra, (tuple, list)):
+        raise ValueError("extra legacy profiles must be a sequence")
+    profiles = (*REVIEW_PLAN_LEGACY_CONTRACT_PROFILES, *extra)
+    names = set()
+    for declaration in profiles:
+        if not isinstance(declaration, (tuple, list)) or len(declaration) != 2:
+            raise ValueError("legacy profile must contain a name and contract lines")
+        name, lines = declaration
+        if not isinstance(name, str) or not name.strip() or len(name) > 128 or name in names:
+            raise ValueError("legacy profile names must be nonempty and unique")
+        names.add(name)
+        if not isinstance(lines, (tuple, list)) or not lines:
+            raise ValueError("legacy profile contract must be nonempty")
+        labels, old_lines = set(), set()
+        for row in lines:
+            if not isinstance(row, (tuple, list)) or len(row) != 3:
+                raise ValueError("legacy profile rows must contain label, old line and replacements")
+            label, old, replacements = row
+            if (not isinstance(label, str) or not label.strip() or label in labels
+                    or not isinstance(old, str) or not old.strip() or old in old_lines
+                    or "\n" in old or "\r" in old
+                    or not isinstance(replacements, (tuple, list)) or not replacements
+                    or any(not isinstance(line, str) or "\n" in line or "\r" in line for line in replacements)):
+                raise ValueError("legacy profile rows must have unique labels and exact single lines")
+            labels.add(label)
+            old_lines.add(old)
+    return profiles
+
+
 RECOVERY_POINTER = "docs/references/native-windows-support.md#review-plan-prompt-migration-recovery"
 PROMPT_MAX_BYTES = 8 * 1024 * 1024
 _DIR_FD_SUPPORTED = (
@@ -115,7 +152,14 @@ def classify_review_plan_prompt(old: dict, new: dict) -> dict:
     reason = None
     profile = None
     original = None
-    if old.get("exists") and new.get("exists"):
+    try:
+        profiles = _legacy_contract_profiles()
+    except ValueError as exc:
+        reason = f"invalid legacy profile declaration ({exc}); correct the source declaration and retry"
+        profiles = ()
+    if reason is not None:
+        pass
+    elif old.get("exists") and new.get("exists"):
         reason = f"both {REVIEW_PLAN_OLD_PROMPT} and {REVIEW_PLAN_NEW_PROMPT} exist; both were preserved"
     elif not old.get("exists"):
         return {"blocked": False, "profile": None, "original": None}
@@ -133,7 +177,7 @@ def classify_review_plan_prompt(old: dict, new: dict) -> dict:
         if reason is None:
             logical = [line_content_and_ending(line)[0] for line in original.splitlines(keepends=True)]
             checks = [(name, candidate, [label for label, line, _ in candidate if logical.count(line) != 1])
-                      for name, candidate in REVIEW_PLAN_LEGACY_CONTRACT_PROFILES]
+                      for name, candidate in profiles]
             recognized = [(name, candidate) for name, candidate, missing in checks if not missing]
             if len(recognized) == 1:
                 profile = recognized[0][1]

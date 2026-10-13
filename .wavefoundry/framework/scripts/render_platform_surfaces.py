@@ -313,8 +313,8 @@ def launcher_command(rel_base: str, project_dir_var: str | None = None, *, fail_
 #   matcher: tool matcher for the settings entry, or None for unmatched events (Stop)
 #   status_message: statusMessage shown by Claude while the hook runs
 #   timeout: optional seconds, emitted on the command object only when present
-# Wave 1z8ot (1z8op): Claude Code matches plain `A|B` matchers as exact alternatives, so every
-# built-in file-editing tool is named. Seeds 050 and 160 state this same matcher.
+# Claude's post-edit subscription names supported edits. Pre-edit receives all
+# tools so its classifier can inspect supported paths on unfamiliar names.
 CLAUDE_EDIT_TOOL_NAMES: tuple[str, ...] = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 CLAUDE_EDIT_MATCHER = "|".join(CLAUDE_EDIT_TOOL_NAMES)
 
@@ -322,7 +322,7 @@ CLAUDE_HOOKS: tuple[dict[str, object], ...] = (
     {
         "name": "pre-edit",
         "event": "PreToolUse",
-        "matcher": CLAUDE_EDIT_MATCHER,
+        "matcher": None,
         "status_message": "Checking framework edit gates...",
     },
     {

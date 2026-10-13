@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import contained_files
 from pathlib import Path
 
 # Sibling module in the parent scripts dir (stdlib-only; wave 1y0gz). docs-lint runs in hosts without
@@ -28,6 +29,8 @@ def read_text_cache_clear() -> None:
     _RECORD_ROOTS_CACHE.clear()
     _RECORD_TEXT_CACHE.clear()
     _RECORD_REFUSALS.clear()
+    _DOC_REFUSALS.clear()
+    _DOC_BYTES_CACHE.clear()
 
 
 # Wave 1y0gz: per-process cache of the resolved record roots, keyed on the root and the
@@ -98,6 +101,8 @@ RECORD_CAUSE_UNREADABLE = "could not be read"
 
 # Repository-relative path -> cause class, in first-seen order.
 _RECORD_REFUSALS: dict[str, str] = {}
+_DOC_REFUSALS: dict[str, str] = {}
+_DOC_BYTES_CACHE: dict = {}
 # Path -> (identity, text). The identity is the entry's ``lstat`` identity
 # (st_dev, st_ino, st_mtime_ns, st_size) taken before and after the read and
 # required equal; the member-doc reader requires the opened file's ``fstat``
@@ -210,12 +215,60 @@ def read_record_text(root: Path, path: Path) -> str | None:
     return text
 
 
+def doc_refusal(root: Path, path: Path, cause: str) -> None:
+    if is_record_document(root, path):
+        record_refusal(root, path, cause)
+    else:
+        _DOC_REFUSALS.setdefault(relative_to_root(root, Path(path)), cause)
+
+
+def doc_refusal_failures() -> list[str]:
+    return [f"{rel}: document refused ({cause}); it was not read. Replace it with the document itself."
+            for rel, cause in sorted(_DOC_REFUSALS.items())]
+
+
+def doc_entry_is_regular(root: Path, path: Path) -> bool:
+    try:
+        parts = Path(os.path.abspath(path)).relative_to(Path(os.path.abspath(root))).parts
+        parent_fd = contained_files.open_contained_dir(root, parts[:-1], refuse_reparse=True)
+        try:
+            entry = (os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)
+                     if parent_fd is not None else os.lstat(path))
+        finally:
+            if parent_fd is not None:
+                os.close(parent_fd)
+        if (not stat.S_ISREG(entry.st_mode)
+                or getattr(entry, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 1024)):
+            doc_refusal(root, path, RECORD_CAUSE_LINK)
+            return False
+        return True
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError):
+        doc_refusal(root, path, RECORD_CAUSE_UNREADABLE)
+        return False
+
+
 def read_doc_text(root: Path, path: Path) -> str | None:
-    """The docs-lint read: a record document through :func:`read_record_text` (``None`` when
-    refused), any other file through :func:`read_text` (its link policy is unchanged)."""
+    """Bound ordinary docs and entries without following any lexical link.
+
+    Cache bytes only after a strict descriptor open and identity check; a
+    metadata-only path check cannot establish replaced-parent read authority.
+    Record documents retain their existing reader and refusal contract.
+    """
     if is_record_document(root, path):
         return read_record_text(root, path)
-    return read_text(path)
+    try:
+        data = contained_files.read_contained_bytes(
+            root, path, max_bytes=contained_files.DEFAULT_MAX_BYTES, follow_links=False, cache=_DOC_BYTES_CACHE)
+    except contained_files.ContainedFileRefused as exc:
+        cause = RECORD_CAUSE_SIZE if exc.cause == contained_files.CAUSE_SIZE else RECORD_CAUSE_LINK
+        doc_refusal(root, path, cause)
+        return None
+    except OSError:
+        doc_refusal(root, path, RECORD_CAUSE_UNREADABLE)
+        return None
+    return data.decode("utf-8", errors="replace").removeprefix("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
 
 
 def load_json(path: Path) -> tuple[dict[str, object] | None, str | None]:
@@ -276,7 +329,15 @@ def is_under_markdown_scan_root(root: Path, path: Path) -> bool:
 def iter_markdown_docs(root: Path):
     archive = archive_root(root)
     for scan_root in markdown_scan_roots(root):
-        if not scan_root.exists():
+        try:
+            parts = Path(os.path.abspath(scan_root)).relative_to(Path(os.path.abspath(root))).parts
+            fd = contained_files.open_contained_dir(root, parts, refuse_reparse=True)
+            if fd is not None:
+                os.close(fd)
+        except FileNotFoundError:
+            continue
+        except (OSError, ValueError):
+            doc_refusal(root, scan_root, RECORD_CAUSE_UNREADABLE)
             continue
         for path in scan_root.rglob("*.md"):
             if archive is not None and _is_under(path, archive):
@@ -286,7 +347,7 @@ def iter_markdown_docs(root: Path):
                 # ``lstat`` shows a regular file; a refused one is recorded.
                 if record_entry_is_regular(root, path):
                     yield path
-            elif path.is_file():
+            elif doc_entry_is_regular(root, path):
                 yield path
 
 
@@ -302,7 +363,7 @@ def iter_linkable_docs(root: Path):
     yield from iter_markdown_docs(root)
     for name in _ENTRY_FILES:
         path = root / name
-        if path.is_file():
+        if doc_entry_is_regular(root, path):
             yield path
 
 

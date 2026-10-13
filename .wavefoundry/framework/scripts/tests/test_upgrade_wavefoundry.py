@@ -2254,6 +2254,10 @@ class UpgradeManifestRecoveryTests(unittest.TestCase):
             if failure == "prune":
                 stack.enter_context(patch("child_tee.run",
                     return_value=types.SimpleNamespace(returncode=1, stdout="", stderr="injected prune failure")))
+            if failure == "prune_stderr_truncated":
+                stack.enter_context(patch("child_tee.run", return_value=types.SimpleNamespace(
+                    returncode=0, stdout="", stderr="prune: deleted 0 item(s)\n",
+                    capture_truncated={"stdout": False, "stderr": True})))
             stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
             stack.enter_context(contextlib.redirect_stderr(io.StringIO()))
             try:
@@ -2358,6 +2362,18 @@ class UpgradeManifestRecoveryTests(unittest.TestCase):
             result, _ = self._attempt(root, pack, "prune", mod)
             self.assertEqual(result, 0)  # Existing nonfatal phase contract.
             self.assertEqual(mod._read_old_manifest_snapshot(root)["manifest"].encode(), self.OLD)
+            result, count = self._attempt(root, pack, mod=mod)
+            self.assertEqual(result, 0); self.assertEqual(count, 0)
+            self._assert_recovered(root, mod)
+
+    def test_truncated_prune_stderr_retains_snapshot_and_real_retry_recovers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "target"; pack = self._fixture(root)
+            mod = load_upgrade_module()
+            result, _ = self._attempt(root, pack, "prune_stderr_truncated", mod)
+            self.assertEqual(result, 0)  # Pruning remains a nonfatal phase.
+            self.assertEqual(mod._read_old_manifest_snapshot(root)["manifest"].encode(), self.OLD)
+            self.assertTrue((root / ".wavefoundry/framework/seeds/retired.md").exists())
             result, count = self._attempt(root, pack, mod=mod)
             self.assertEqual(result, 0); self.assertEqual(count, 0)
             self._assert_recovered(root, mod)
@@ -2591,9 +2607,11 @@ class PhasePruningCountTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _prune(self, stderr, stdout="", returncode=0):
+    def _prune(self, stderr, stdout="", returncode=0, capture_truncated=None):
         from types import SimpleNamespace
         fake = SimpleNamespace(stdout=stdout, stderr=stderr, returncode=returncode)
+        if capture_truncated is not None:
+            fake.capture_truncated = capture_truncated
         with patch("child_tee.run", return_value=fake) as child, \
              contextlib.redirect_stdout(io.StringIO()):
             result = self.mod.phase_pruning(self.root)
@@ -2618,6 +2636,18 @@ class PhasePruningCountTests(unittest.TestCase):
 
     def test_nonzero_exit_is_not_successful_zero(self):
         self.assertIsNone(self._prune("prune: deleted 5 item(s)\n", returncode=1))
+
+    def test_truncated_stderr_is_unproven_even_with_a_retained_summary(self):
+        snapshot = self.mod._old_manifest_snapshot(self.root)
+        original = snapshot.read_bytes()
+        for stderr in ("", "prune: deleted 7 item(s)\n"):
+            with self.subTest(stderr=stderr):
+                self.assertIsNone(self._prune(stderr, capture_truncated={"stderr": True, "stdout": False}))
+                self.assertEqual(snapshot.read_bytes(), original)
+
+    def test_stdout_truncation_keeps_intact_stderr_count(self):
+        self.assertEqual(self._prune("prune: deleted 7 item(s)\n", "head...tail",
+                                    capture_truncated={"stdout": True, "stderr": False}), 7)
 
 
 def _confirmed_index_guard_fixture(test):
@@ -4017,11 +4047,17 @@ assert result['exists'] and result.get('error') and 'bytes' not in result,result
     def test_checker_stdlib_only_in_restricted_import_process(self):
         code = '''import sys,builtins,runpy
 real=builtins.__import__
-def limited(name,*args,**kwargs):
- if name.split('.')[0] not in sys.stdlib_module_names: raise ImportError(name)
- return real(name,*args,**kwargs)
+def limited(name,globals=None,locals=None,fromlist=(),level=0):
+ if level == 0 and name.split('.')[0] not in sys.stdlib_module_names:
+  raise ImportError('non-stdlib absolute import: ' + name)
+ return real(name,globals,locals,fromlist,level)
 builtins.__import__=limited
 checker=runpy.run_path(sys.argv[1])
+relative=__import__('', {'__package__':'re'}, None, ('_parser',), 1)
+assert relative._parser is sys.modules['re._parser']
+try: __import__('fixture_nonstdlib_absolute')
+except ImportError as exc: assert str(exc) == 'non-stdlib absolute import: fixture_nonstdlib_absolute'
+else: raise AssertionError('absolute import fence was bypassed')
 from pathlib import Path
 import tempfile
 with tempfile.TemporaryDirectory() as tmp:
@@ -4099,6 +4135,60 @@ raise SystemExit(u.main(['--root',str(root),'--yes','--pack',str(pack)]))
         config.write_text('{}\n')
         with patch.object(u,'plan_reconciliation',return_value=()), patch.object(u,'current_policy_receipt',return_value={'evaluator_version':u.REVIEW_POLICY_EVALUATOR_VERSION}):
             self.assertEqual(len(u.plan_review_policy_upgrade(self.root).waves),1)
+
+class DeclaredLegacyReviewPlanTests(unittest.TestCase):
+    setUp = ReviewPlanPreflightTests.setUp
+    _pack = ReviewPlanPreflightTests._pack
+    _ctx = ReviewPlanPreflightTests._ctx
+    EXTRA = (("example-contract", (("Heading", "# Examine parcel", ("# Inspect parcel",)),
+                                    ("Input", "Given one parcel:", ("Given one parcel or its collection:",)))),)
+
+    def test_declared_profile_shared_by_checker_renderer_and_incoming_hook(self):
+        import review_plan_prompt_check as checker
+        import render_agent_surfaces as ras
+        original = b"# Examine parcel\r\nGiven one parcel:\r\nProject prose unchanged.\r\n"
+        self.old.write_bytes(original)
+        self.assertTrue(checker.check_review_plan_prompt(self.root)["blocked"])
+        with patch.object(checker, "EXTRA_REVIEW_PLAN_LEGACY_CONTRACT_PROFILES", self.EXTRA):
+            self.assertFalse(checker.check_review_plan_prompt(self.root)["blocked"])
+            # Installed preflight invokes the same checker, before any write.
+            self.assertIsNone(self.mod._check_installed_review_plan_prompt(self.root))
+            ras.migrate_review_plan_prompt(self.root)
+        new = self.root / checker.REVIEW_PLAN_NEW_PROMPT
+        self.assertEqual(new.read_bytes(), b"# Inspect parcel\r\nGiven one parcel or its collection:\r\nProject prose unchanged.\r\n")
+        new.unlink(); self.old.write_bytes(original)
+        source = (SCRIPTS_ROOT / "review_plan_prompt_check.py").read_text()
+        source = source.replace("EXTRA_REVIEW_PLAN_LEGACY_CONTRACT_PROFILES = ()", "EXTRA_REVIEW_PLAN_LEGACY_CONTRACT_PROFILES = " + repr(self.EXTRA))
+        with zipfile.ZipFile(self.pack) as archive:
+            members = {name: archive.read(name) for name in archive.namelist()}
+        members[".wavefoundry/framework/scripts/review_plan_prompt_check.py"] = source.encode()
+        with zipfile.ZipFile(self.pack, "w") as archive:
+            for name, data in members.items(): archive.writestr(name, data)
+        ext = self.mod._load_extension_module(self.pack)
+        with contextlib.redirect_stdout(io.StringIO()):
+            ext.post_preflight(self._ctx())
+        self.assertEqual(self.old.read_bytes(), original)
+        self.assertFalse(new.exists())
+
+    def test_malformed_duplicate_ambiguous_and_customized_contracts_refuse(self):
+        import review_plan_prompt_check as checker
+        self.old.write_text("# Examine parcel\nGiven one parcel:\n")
+        malformed = (None, (("empty", ()),), (self.EXTRA[0], self.EXTRA[0]),
+                     (("bad", (("Heading", "x\ny", ("z",)),)),),
+                     (("bad", (("Heading", "x", ()),)),))
+        for extra in malformed:
+            with self.subTest(extra=extra), patch.object(checker, "EXTRA_REVIEW_PLAN_LEGACY_CONTRACT_PROFILES", extra):
+                self.assertTrue(checker.check_review_plan_prompt(self.root)["blocked"])
+        ambiguous = self.EXTRA + (("other-name", self.EXTRA[0][1]),)
+        with patch.object(checker, "EXTRA_REVIEW_PLAN_LEGACY_CONTRACT_PROFILES", ambiguous):
+            self.assertTrue(checker.check_review_plan_prompt(self.root)["blocked"])
+        with patch.object(checker, "EXTRA_REVIEW_PLAN_LEGACY_CONTRACT_PROFILES", self.EXTRA):
+            for text in ("prefix # Examine parcel\nGiven one parcel:\n", "# Examine parcel suffix\nGiven one parcel:\n", "# Examine parcel\n# Examine parcel\nGiven one parcel:\n"):
+                self.old.write_text(text)
+                self.assertTrue(checker.check_review_plan_prompt(self.root)["blocked"])
+                self.assertEqual(self.old.read_text(), text)
+        self.assertFalse((self.root / checker.REVIEW_PLAN_NEW_PROMPT).exists())
+
 
 class ReviewPlanInstallingUpgradeTests(unittest.TestCase):
     """1w047 AC-4: Phase 1 runs the freshly extracted five-state migration."""

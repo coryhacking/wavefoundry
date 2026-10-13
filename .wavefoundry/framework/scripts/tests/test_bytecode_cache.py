@@ -999,6 +999,95 @@ class T(unittest.TestCase):
 """
 
 
+class WorkerBootstrapSourceTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+        self.scripts = self.root / "scripts"
+        self.bootstrap = self.scripts / "test_worker_bootstrap"
+        self.bootstrap.mkdir(parents=True)
+        shutil.copyfile(SCRIPTS / "test_worker_bootstrap/sitecustomize.py", self.bootstrap / "sitecustomize.py")
+        self.guard = self.scripts / "test_worker_guard.py"
+        self.guard.write_bytes((SCRIPTS / "test_worker_guard.py").read_bytes())
+        self.cwd = self.root / "working"
+        self.cwd.mkdir()
+        self.env = _child_env(PYTHONPATH=str(self.bootstrap), PYTHONDONTWRITEBYTECODE="1")
+        self.env["WAVEFOUNDRY_TEST_WORKER_PROTECTED_ROOTS"] = json.dumps([
+            {"root": str(self.root), "record_dirs": ["records"]}])
+
+    def test_source_wins_over_adjacent_unchecked_bytecode_even_under_no_write_flags(self):
+        marker = self.root / "cached-payload-ran"
+        payload = self.root / "payload.py"
+        payload.write_text(f"from pathlib import Path\nPath({str(marker)!r}).touch()\nraise RuntimeError('cached guard')\n")
+        cached = self.scripts / "__pycache__" / ("test_worker_guard." + sys.implementation.cache_tag + ".pyc")
+        cached.parent.mkdir()
+        py_compile.compile(str(payload), cfile=str(cached), doraise=True,
+                           invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH)
+        before = cached.read_bytes()
+        code = ("import sys; g=sys.modules['test_worker_guard']; "
+                "assert g._installed; assert g.__name__ == g.__spec__.name == 'test_worker_guard'; "
+                "assert g.__loader__ is g.__spec__.loader; assert g.__file__.endswith('test_worker_guard.py'); "
+                "print('source installed')")
+        for flags in ((), ("-B",)):
+            with self.subTest(flags=flags):
+                done = _run([sys.executable, *flags, "-c", code], cwd=self.cwd, env=self.env)
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertIn("source installed", done.stdout)
+                self.assertFalse(marker.exists())
+                self.assertEqual(cached.read_bytes(), before)
+        # Independent known-bad control proves the planted cache is executable
+        # by Python's ordinary file loader, even with bytecode writes disabled.
+        control = ("import importlib.util; s=importlib.util.spec_from_file_location('test_worker_guard', "
+                   + repr(str(self.guard)) + "); m=importlib.util.module_from_spec(s); s.loader.exec_module(m)")
+        done = _run([sys.executable, "-I", "-B", "-c", control], cwd=self.cwd, env=self.env)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertTrue(marker.exists())
+
+    def test_source_load_and_install_failures_stop_startup_but_unmarked_startup_does_not_load(self):
+        for source in (None, "invalid syntax !", "raise RuntimeError('source load failed')",
+                       "def install():\n raise RuntimeError('install failed')\n"):
+            with self.subTest(source=source):
+                self.guard.unlink(missing_ok=True)
+                if source is not None:
+                    self.guard.write_text(source)
+                done = _run([sys.executable, "-B", "-c", "print('main reached')"], cwd=self.cwd, env=self.env)
+                self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertNotIn("main reached", done.stdout)
+                self.assertIn("test-worker guard installation failed", done.stderr)
+        unmarked = dict(self.env)
+        unmarked.pop("WAVEFOUNDRY_TEST_WORKER_PROTECTED_ROOTS")
+        done = _run([sys.executable, "-B", "-c", "import sys; assert 'test_worker_guard' not in sys.modules; print('main reached')"],
+                    cwd=self.cwd, env=unmarked)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("main reached", done.stdout)
+
+    def test_environment_drops_empty_entries_preserves_order_and_deduplicates_bootstrap(self):
+        import test_worker_guard
+        prior, trailing = self.root / "prior", self.root / "trailing"
+        prior.mkdir(); trailing.mkdir()
+        marker = self.cwd / "implicit-customization"
+        (self.cwd / "sitecustomize.py").write_text(f"from pathlib import Path\nPath({str(marker)!r}).touch()\n")
+        (prior / "sitecustomize.py").write_text("import sys\nsys._legitimate_customization = True\n")
+        baseline = {k: v for k, v in self.env.items() if k not in ("PYTHONPATH", test_worker_guard.MARKER)}
+        for inherited in (None, "", os.pathsep, os.pathsep.join(("", str(prior), "", str(trailing), ""))):
+            with self.subTest(inherited=inherited):
+                original = dict(baseline)
+                if inherited is not None:
+                    original["PYTHONPATH"] = inherited
+                env = test_worker_guard.worker_environment(original, self.root, ["records"])
+                env = test_worker_guard.worker_environment(env, self.root, ["records"])
+                parts = env["PYTHONPATH"].split(os.pathsep)
+                self.assertNotIn("", parts)
+                expected = [str(prior), str(trailing)] if inherited and str(prior) in inherited else []
+                self.assertEqual(parts[1:], expected)
+                self.assertEqual(len(json.loads(env[test_worker_guard.MARKER])), 1)
+                code = "import sys; assert getattr(sys, '_legitimate_customization', False) == " + repr(bool(expected))
+                done = _run([sys.executable, "-B", "-c", code], cwd=self.cwd, env=env)
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertFalse(marker.exists())
+
+
 class RunnerTopLevelAndChildTests(_ScratchCase):
     def setUp(self):
         super().setUp()

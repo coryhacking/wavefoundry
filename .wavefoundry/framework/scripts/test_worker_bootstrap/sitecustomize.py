@@ -12,12 +12,15 @@ sys._wavefoundry_test_bootstrap_dirs = _visited
 if "WAVEFOUNDRY_TEST_WORKER_PROTECTED_ROOTS" in os.environ:
     _name = "test_worker_guard"
     _guard = sys.modules.get(_name)
-    if _guard is None:
-        _spec = util.spec_from_file_location(_name, _directory.parent / "test_worker_guard.py")
-        _guard = util.module_from_spec(_spec)
-        sys.modules[_name] = _guard
-        _spec.loader.exec_module(_guard)
     try:
+        if _guard is None:
+            _source = _directory.parent / "test_worker_guard.py"
+            _spec = util.spec_from_file_location(_name, _source)
+            _guard = util.module_from_spec(_spec)
+            sys.modules[_name] = _guard
+            # Preserve import metadata but execute source directly: -B alone
+            # prevents cache writes, not reads of adjacent unchecked bytecode.
+            exec(compile(_source.read_bytes(), str(_source), "exec"), _guard.__dict__)
         _guard.install()
     except Exception as _error:
         # site normally suppresses Exception. A broken guard must stop startup;

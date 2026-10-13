@@ -4,6 +4,7 @@ import contextlib
 import json
 import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -1397,8 +1398,8 @@ class RenderedEditHookPathTests(unittest.TestCase):
         with patch.object(self.mod, "write_text", side_effect=lambda path, text, **kw: settings.update(json.loads(text))):
             self.mod.render_claude_settings(self.root)
         expected = "Edit|Write|MultiEdit|NotebookEdit"
-        for event in ("PreToolUse", "PostToolUse"):
-            self.assertEqual(settings["hooks"][event][0]["matcher"], expected)
+        self.assertNotIn("matcher", settings["hooks"]["PreToolUse"][0])
+        self.assertEqual(settings["hooks"]["PostToolUse"][0]["matcher"], expected)
         seeds = PROJECT_ROOT / "framework" / "seeds"
         for name in ("050-agent-entry-surface-bootstrap.prompt.md", "160-upgrade-wavefoundry.prompt.md"):
             with self.subTest(seed=name):
@@ -1406,6 +1407,56 @@ class RenderedEditHookPathTests(unittest.TestCase):
                 self.assertIn(expected, text)
                 # No shorter Claude matcher survives anywhere in the seed.
                 self.assertEqual(text.count("Edit|Write"), text.count(expected))
+
+    def test_rendered_pre_subscription_dispatches_unknown_tools_and_preserves_project_hooks(self):
+        settings_path = self.root / ".claude/settings.json"
+        project_hook = {"type": "command", "command": "echo project-hook"}
+        old_owned = {"type": "command", "command": self.mod.launcher_command(
+            ".claude/hooks/pre-edit", "CLAUDE_PROJECT_DIR", fail_closed=True)}
+        settings_path.write_text(json.dumps({"project_setting": True, "hooks": {
+            "PreToolUse": [{"matcher": "Edit|Write|MultiEdit|NotebookEdit",
+                            "hooks": [old_owned, project_hook]}]}}), encoding="utf-8")
+        self.mod.render_claude_settings(self.root)
+        first = settings_path.read_bytes()
+        self.mod.render_claude_settings(self.root)
+        self.assertEqual(settings_path.read_bytes(), first)
+        settings = json.loads(first)
+        self.assertTrue(settings["project_setting"])
+        pre = settings["hooks"]["PreToolUse"]
+        self.assertEqual(pre[0]["hooks"], [project_hook])
+        owned = [entry for entry in pre if any(
+            ".claude/hooks/pre-edit.py" in hook["command"] for hook in entry["hooks"])]
+        self.assertEqual(len(owned), 1)
+        self.assertNotIn("matcher", owned[0])
+
+        # Model the documented host subscription, then execute its actual command.
+        # Calling the generated body directly would miss a restrictive matcher.
+        def selected(entry, name):
+            matcher = entry.get("matcher")
+            return matcher in (None, "", "*") or re.fullmatch(matcher, name) is not None
+
+        self._gates()
+        cases = [("fixture_future_edit", {"path": self._seed()}, 2),
+                 ("fixture_future_edit", {}, 0),
+                 ("Read", {"file_path": self._seed()}, 0),
+                 ("Bash", {"command": "echo ignored"}, 0),
+                 ("Edit", {"file_path": self._seed()}, 2)]
+        for name, args, expected in cases:
+            with self.subTest(tool=name, args=args):
+                commands = [h["command"] for entry in owned if selected(entry, name)
+                            for h in entry["hooks"]]
+                self.assertEqual(len(commands), 1)
+                env = dict(os.environ, CLAUDE_PROJECT_DIR=str(self.root))
+                result = subprocess.run(commands[0], shell=True, cwd=self.base, env=env,
+                                        input=json.dumps({"tool_name": name, "tool_input": args}),
+                                        text=True, capture_output=True, timeout=60)
+                self.assertEqual(result.returncode, expected, result.stderr)
+                if name == "fixture_future_edit":
+                    self.assertIn("COMPATIBILITY:", result.stderr)
+                self.assertFalse(self._pending())
+        post = settings["hooks"]["PostToolUse"]
+        self.assertFalse(any(selected(entry, "fixture_future_edit") for entry in post))
+        self.assertTrue(any(selected(entry, "Edit") for entry in post))
 
     def test_notebook_edit_of_a_seed_follows_the_seed_gate(self):
         # Claude Code's NotebookEdit tool takes `notebook_path` (its tool schema: "The absolute path

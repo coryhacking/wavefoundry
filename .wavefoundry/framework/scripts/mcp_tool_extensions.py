@@ -54,6 +54,15 @@ EXTENSION_MODULES: tuple[str, ...] = ()
 # may import only helpers declared before it.
 EXTENSION_HELPER_MODULES: tuple[str, ...] = ()
 
+# Opt-in lifecycle completion callbacks (wave 20k5w). Each value names one
+# synchronous function in a declared helper: ``{canonical_tool: "module:function"}``.
+# It receives root, tool_name, arguments and a detached response as keywords,
+# and returns JSON data placed only under data.extension_response. Trusted
+# callbacks inspect without publishing or external work; they cannot veto or
+# roll back the completed core operation. Mutating modes keep their existing
+# publication hold; previews do not acquire one for the callback.
+EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS: Mapping[str, str] = {}
+
 # Prefixes every NEW extension tool name must start with. A core prefix such
 # as "wf_" is allowed; a distribution-specific prefix is recommended, because a
 # later core release that adds the same tool name makes the server refuse to
@@ -175,6 +184,14 @@ ALIAS_DESCRIPTION_MAX_CHARS = 16_384
 RESPONSE_KEY_MAX_DEPTH = 8
 RESPONSE_KEY_MAX_ENTRIES = 64
 
+# Validation-only target set: these native handlers reach their completion
+# helper inside the existing mutation publication hold.
+LIFECYCLE_RESPONSE_CALLBACK_TOOLS = frozenset({
+    "wf_create_wave", "wf_prepare_wave", "wf_implement_wave", "wf_close_wave",
+})
+LIFECYCLE_RESPONSE_MAX_BYTES = 65_536
+LIFECYCLE_RESPONSE_MAX_NODES = 4096
+
 # A response_keys path: dot-separated keys, each optionally ending in "[]".
 _RESPONSE_KEY_PATH = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\[\])?(\.[A-Za-z_][A-Za-z0-9_]*(\[\])?)*")
 
@@ -249,7 +266,7 @@ def declared() -> bool:
     """True when any extension declaration is non-empty."""
     return bool(
         EXTENSION_MODULES or EXTENSION_HELPER_MODULES or EXTENSION_TOOL_PREFIXES or EXTENSION_TOOL_TIERS
-        or EXTENSION_OVERRIDES
+        or EXTENSION_OVERRIDES or EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS
         or EXTENSION_TOOL_ALIASES or EXTENSION_TOOL_PARAMETERS or EXTENSION_HIDDEN_TOOLS
         or EXTENSION_REPLACEMENTS or EXTENSION_LIFECYCLE_TOOLS or EXTENSION_ARTIFACT_PATH_FIELDS
     )
@@ -361,6 +378,25 @@ def declaration_problems(
             owners[name] = module_name
     problems.extend(_alias_hide_replacement_problems(core, runner, seen_modules, owners, core_tiers or {}))
     problems.extend(_lock_and_credit_problems(core, runner))
+    problems.extend(_lifecycle_response_callback_problems(core))
+    return problems
+
+
+def _lifecycle_response_callback_problems(core: set[str]) -> list[str]:
+    callbacks = EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS
+    if not isinstance(callbacks, Mapping):
+        return ["EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS must be a mapping"]
+    problems: list[str] = []
+    helpers = EXTENSION_HELPER_MODULES if isinstance(EXTENSION_HELPER_MODULES, tuple) else ()
+    for target, reference in callbacks.items():
+        if not isinstance(target, str) or target not in LIFECYCLE_RESPONSE_CALLBACK_TOOLS or target not in core:
+            problems.append("lifecycle response callback targets an unsupported core tool")
+        parts = reference.split(":") if isinstance(reference, str) else []
+        if (len(parts) != 2 or not all(part.isascii() and part.isidentifier()
+                                      and not keyword.iskeyword(part) for part in parts)):
+            problems.append("lifecycle response callback must name module:function")
+        elif parts[0] not in helpers:
+            problems.append("lifecycle response callback must use a declared helper module")
     return problems
 
 

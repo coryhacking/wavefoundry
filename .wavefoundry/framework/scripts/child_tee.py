@@ -26,6 +26,9 @@ RETAIN_RUNS = 5
 LOG_CAP_BYTES = 1024 * 1024
 LOG_TAIL_BYTES = 64 * 1024
 LOG_ELISION = "\n[... child log output elided; final tail follows ...]\n"
+CAPTURE_CAP_BYTES = 1024 * 1024
+CAPTURE_TAIL_BYTES = 64 * 1024
+CAPTURE_ELISION = "\n[... child capture output elided; final tail follows ...]\n"
 _LOG_NAME = re.compile(r"upgrade-child-(\d{20}-[0-9a-f]{32})-([a-z0-9-]+)-(\d+)\.log\Z")
 _ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))")
 _RUNS: dict[str, str] = {}
@@ -145,6 +148,34 @@ class _BoundedLog:
         self.pending = b""
 
 
+class _BoundedCapture:
+    """Retain exact small streams, otherwise a UTF-8 head and final tail."""
+    def __init__(self):
+        self.head = bytearray()
+        self.tail = bytearray()
+        self.truncated = False
+
+    def write(self, value: str) -> None:
+        encoded = value.encode("utf-8")
+        if not self.truncated:
+            self.head.extend(encoded)
+            if len(self.head) <= CAPTURE_CAP_BYTES:
+                return
+            self.truncated = True
+            self.tail = self.head[-CAPTURE_TAIL_BYTES:]
+            budget = CAPTURE_CAP_BYTES - CAPTURE_TAIL_BYTES - len(CAPTURE_ELISION.encode("utf-8"))
+            del self.head[budget:]
+        else:
+            self.tail.extend(encoded)
+            del self.tail[:-CAPTURE_TAIL_BYTES]
+
+    def getvalue(self) -> str:
+        if not self.truncated:
+            return self.head.decode("utf-8")
+        return (self.head.decode("utf-8", "ignore") + CAPTURE_ELISION
+                + self.tail.decode("utf-8", "ignore"))
+
+
 class _Lines:
     """Canonical stream assembly retains final-form token overlap before caps."""
     def __init__(self, token: str, emit):
@@ -244,8 +275,9 @@ def run(cmd, *, root: Path, phase: str, cwd=None, env=None, timeout=None,
         check: bool = False, capture_output: bool = False, text: bool = True):
     """TEE a foreground child and return CompletedProcess with bounded ``tail``.
 
-    ``capture_output`` preserves the existing pruning parser's captured stdout
-    and stderr; other consumers retain only bounded tails in memory. Every
+    ``capture_output`` retains at most 1 MiB per stream, including elision;
+    ``capture_truncated`` identifies incomplete streams. Other consumers retain
+    only bounded tails in memory. Every
     write/forward sees assembled and scrubbed fragments, never raw pipe bytes.
     """
     root = Path(root)
@@ -255,7 +287,7 @@ def run(cmd, *, root: Path, phase: str, cwd=None, env=None, timeout=None,
     handle, log_path = _open_child_log(root, phase)
     retained_log = _BoundedLog(handle)
     streams = {"stdout": deque(maxlen=TAIL_LINES), "stderr": deque(maxlen=TAIL_LINES)}
-    captured = {"stdout": [], "stderr": []}
+    captured = {label: _BoundedCapture() for label in streams}
     write_lock = threading.Lock()
     reader_errors: deque[str] = deque(maxlen=8)
     stopped = threading.Event()
@@ -274,7 +306,7 @@ def run(cmd, *, root: Path, phase: str, cwd=None, env=None, timeout=None,
                 sequence += 1
                 streams[label].append((sequence, bounded))
                 if capture_output:
-                    captured[label].append(value)
+                    captured[label].write(value)
                 # A broken presentation destination must not stop draining the
                 # pipe and deadlock its producer. Record the I/O failure.
                 try:
@@ -341,8 +373,8 @@ def run(cmd, *, root: Path, phase: str, cwd=None, env=None, timeout=None,
             finalize_log()
         result = subprocess.CompletedProcess(
             cmd, returncode,
-            "".join(captured["stdout"]) if capture_output else "\n".join(value for _, value in streams["stdout"]),
-            "".join(captured["stderr"]) if capture_output else "\n".join(value for _, value in streams["stderr"]),
+            captured["stdout"].getvalue() if capture_output else "\n".join(value for _, value in streams["stdout"]),
+            captured["stderr"].getvalue() if capture_output else "\n".join(value for _, value in streams["stderr"]),
         )
         retained = sorted((order, f"[{label}] {value}")
                           for label, lines in streams.items()
@@ -350,6 +382,7 @@ def run(cmd, *, root: Path, phase: str, cwd=None, env=None, timeout=None,
         result.tail = "\n".join(value for _, value in retained)
         result.log_path = str(log_path)
         result.log_errors = list(reader_errors)
+        result.capture_truncated = {label: capture.truncated for label, capture in captured.items()}
         if check and returncode:
             raise subprocess.CalledProcessError(returncode, cmd, result.stdout, result.stderr)
         return result

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-11
+Last verified: 2026-10-13
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -106,9 +106,9 @@ lint/index work, so a successful unfamiliar edit needs existing integrity-bounda
 validation and refresh. Recognized edits retain feedback, including refresh when
 lint fails.
 
-These are received-payload handler verdicts. Claude retains its
-`Edit|Write|MultiEdit|NotebookEdit` subscription, so future unmatched tools do not
-reach that handler; Copilot retains its all-tool subscription. Cursor/Windsurf
+Claude's pre-edit registration omits its matcher so unfamiliar tool names reach
+the classifier; its post-edit registration remains selective with
+`Edit|Write|MultiEdit|NotebookEdit`. Copilot retains its all-tool subscription. Cursor/Windsurf
 file-edit adapters have no tool-name dispatcher. Shell exemption means no shell
 interception, not that shell commands cannot write.
 

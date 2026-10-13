@@ -4652,5 +4652,154 @@ with tempfile.TemporaryDirectory() as tmp:
 
 
 
+
+
+class LifecycleResponseCallbackTests(unittest.TestCase):
+    """The registered completion boundary, including its real publication hold."""
+
+    def test_registered_completion_orders_callback_before_accounting_and_flush(self):
+        import copy
+        for name in ("wf_create_wave", "wf_prepare_wave", "wf_implement_wave", "wf_close_wave"):
+            for mode in ("dry_run", "create"):
+                with self.subTest(tool=name, mode=mode), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    _repo(root)
+                    handler = SimpleNamespace(root=root, cache={}, telemetry=ce.ProcessTelemetry(root))
+                    self.addCleanup(handler.telemetry.close)
+                    registry = RecordingFastMCP()
+                    srv.register_mcp_surface(registry, lambda: handler)
+                    events, competing, observed = [], [], []
+                    original = {"status": "ok", "data": {"wave_id": "1aaaa callback", "keep": ["core"]},
+                                "diagnostics": [], "next_tools": ["wf_current_wave"]}
+                    def core(*args, **kwargs):
+                        events.append("core")
+                        return copy.deepcopy(original)
+                    def callback(**kwargs):
+                        events.append("callback")
+                        observed.append(copy.deepcopy(kwargs["arguments"]))
+                        self.assertEqual(kwargs["tool_name"], name)
+                        self.assertEqual(kwargs["root"], root)
+                        self.assertEqual(kwargs["response"], original)
+                        def competitor():
+                            try:
+                                with review_evidence.project_state_publication_lock(root, wait=False):
+                                    competing.append("acquired")
+                            except review_evidence.ProjectPublicationUnavailable:
+                                competing.append("blocked")
+                        thread = threading.Thread(target=competitor)
+                        thread.start(); thread.join(5)
+                        self.assertFalse(thread.is_alive())
+                        kwargs["arguments"]["mode"] = "tampered"
+                        kwargs["response"]["data"]["keep"].append("tampered")
+                        kwargs["response"]["status"] = "error"
+                        return {"note": ["added"]}
+                    def record(h, tool, wave, response, **kwargs):
+                        events.append("account")
+                        self.assertEqual(response["data"]["extension_response"], {"note": ["added"]})
+                        self.assertEqual(kwargs["request_arguments"]["mode"], mode)
+                        return response
+                    def flush(*args, **kwargs):
+                        events.append("flush")
+                        return {}, None
+                    with patch.object(srv, name + "_response", side_effect=core), \
+                            patch.dict(srv._EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS, {name: callback}, clear=True), \
+                            patch.object(srv, "_record_workflow_context", side_effect=record), \
+                            patch.object(srv, "_flush_context_efficiency", side_effect=flush), \
+                            patch.object(srv, "_apply_lifecycle_focus_reporting"):
+                        args = {"slug": "callback"} if name == "wf_create_wave" else {"wave_id": "1aaaa callback"}
+                        result = registry.tools[name](mode=mode, **args)
+                    self.assertEqual(events, ["core", "callback", "account"] + (["flush"] if mode == "create" else []))
+                    self.assertEqual(competing, ["blocked" if mode == "create" else "acquired"])
+                    self.assertEqual(result["status"], "ok")
+                    self.assertEqual(result["data"]["keep"], ["core"])
+                    self.assertEqual(result["next_tools"], ["wf_current_wave"])
+                    self.assertEqual(observed[0]["mode"], mode)
+
+    def test_default_and_early_return_do_not_invoke_callback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); _repo(root)
+            handler = SimpleNamespace(root=root, cache={}, telemetry=ce.ProcessTelemetry(root))
+            self.addCleanup(handler.telemetry.close)
+            registry = RecordingFastMCP(); srv.register_mcp_surface(registry, lambda: handler)
+            from unittest.mock import Mock
+            callback = Mock(return_value={})
+            with patch.dict(srv._EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS, {"wf_create_wave": callback}, clear=True), \
+                    patch.object(srv, "wf_create_wave_response", return_value={"status": "error", "data": {}}):
+                result = registry.tools["wf_create_wave"](slug="invalid", mode="dry_run")
+                callback.assert_not_called()
+                self.assertEqual(result["status"], "error")
+            with patch.dict(srv._EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS, {}, clear=True), \
+                    patch("copy.deepcopy", side_effect=AssertionError("default must not copy")):
+                response = {"status": "ok", "data": {}}
+                srv._apply_lifecycle_response_callback(root, "wf_create_wave", {}, response)
+                self.assertEqual(response, {"status": "ok", "data": {}})
+
+    def test_failure_preserves_outcome_and_recovery_and_continues_accounting(self):
+        from unittest.mock import Mock
+        bad_values = [[], {1: "not a JSON key"}, {"nan": float("nan")}, {"object": object()},
+                      {"many": [None] * 4096}, {"large": "x" * 65536}]
+        nested = {}; nested["cycle"] = nested
+        bad_values.append(nested)
+        for value in bad_values + [RuntimeError("/private/secret\x1b[31m")]:
+            with self.subTest(value_type=type(value).__name__), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp); _repo(root)
+                handler = SimpleNamespace(root=root, cache={}, telemetry=ce.ProcessTelemetry(root))
+                self.addCleanup(handler.telemetry.close)
+                response = {"status": "ok", "data": {"written": True}, "diagnostics": [],
+                            "next_tools": ["wf_current_wave"], "usage": "keep recovery"}
+                callback = Mock(side_effect=value) if isinstance(value, Exception) else Mock(return_value=value)
+                with patch.dict(srv._EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS, {"wf_close_wave": callback}, clear=True), \
+                        patch.object(srv, "_record_workflow_context", side_effect=lambda *a, **k: a[3]) as record:
+                    result = srv._lifecycle_context_result(handler, "wf_close_wave", "missing", response)
+                callback.assert_called_once(); record.assert_called_once()
+                self.assertEqual(result["status"], "ok")
+                self.assertEqual(result["data"], {"written": True})
+                self.assertEqual(result["usage"], "keep recovery")
+                self.assertEqual(result["next_tools"], ["wf_current_wave"])
+                diag = result["diagnostics"][0]
+                self.assertEqual(diag["code"], "lifecycle_response_callback_failed")
+                self.assertNotIn("/private", json.dumps(diag))
+                self.assertLess(len(json.dumps(diag)), 500)
+
+    def test_added_content_is_charged_once_by_real_workflow_accounting(self):
+        import copy
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); _repo(root)
+            handler = SimpleNamespace(root=root, telemetry=ce.ProcessTelemetry(root))
+            self.addCleanup(handler.telemetry.close)
+            response = {"status": "ok", "data": {"keep": "core"}, "diagnostics": []}
+            expected = copy.deepcopy(response)
+            expected["data"]["extension_response"] = {"note": "added" * 200}
+            with patch.dict(srv._EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS,
+                            {"wf_close_wave": lambda **kw: {"note": "added" * 200}}, clear=True), \
+                    patch.object(handler.telemetry, "record_workflow", side_effect=lambda *a, **k: dict(a[3])) as recorder:
+                result = srv._lifecycle_context_result(handler, "wf_close_wave", "missing", response,
+                                                       request_arguments={"mode": "dry_run"})
+            recorder.assert_called_once()
+            metric = recorder.call_args.args[3]
+            self.assertEqual(metric["estimated_returned_tokens"],
+                             ce.estimate_tokens_utf8(ce.canonical_core_json(expected)))
+            self.assertEqual(result["data"]["extension_response"], expected["data"]["extension_response"])
+
+    def test_json_bounds_and_detachment_are_exact(self):
+        fn = srv._bounded_lifecycle_extension_response
+        exact = {"x": "a" * (65536 - len('{"x":""}'))}
+        self.assertEqual(fn(exact), exact)
+        with self.assertRaises(ValueError): fn({"x": exact["x"] + "a"})
+        unicode_exact = {"x": "é" * ((65536 - 8) // 2)}
+        self.assertEqual(fn(unicode_exact), unicode_exact)
+        with self.assertRaises(ValueError): fn({"x": unicode_exact["x"] + "é"})
+        with self.assertRaises(ValueError): fn({"x": "\n" * 32768})
+        depth = {}
+        for _ in range(7): depth = {"x": depth}
+        self.assertEqual(fn(depth), depth)
+        with self.assertRaises(ValueError): fn({"x": depth})
+        self.assertEqual(len(fn({"x": [None] * 4094})["x"]), 4094)
+        with self.assertRaises(ValueError): fn({"x": [None] * 4095})
+        source = {"x": [{"y": [1]}]}
+        detached = fn(source); source["x"][0]["y"].append(2)
+        self.assertEqual(detached, {"x": [{"y": [1]}]})
+
+
 if __name__ == "__main__":
     unittest.main()

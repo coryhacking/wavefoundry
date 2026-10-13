@@ -258,6 +258,24 @@ def _publication_lock_holder(root: str, ready: object, release: object) -> None:
 
 
 class WorkerPublicationRefusalTests(unittest.TestCase):
+    def test_worker_refusals_use_publication_error_before_any_lock_or_write(self):
+        import test_worker_guard
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            markers = ["malformed", json.dumps([{"root": str(root), "record_dirs": ["records"]}])]
+            for marker in markers:
+                with self.subTest(marker=marker), \
+                        patch.dict(os.environ, {test_worker_guard.MARKER: marker}), \
+                        patch.object(subject, "_WRITE_THREAD_LOCK") as lock:
+                    with self.assertRaises(subject.ProjectPublicationUnavailable) as raised:
+                        with subject.project_state_publication_lock(root):
+                            self.fail("refused publication entered its write body")
+                    lock.acquire.assert_not_called()
+                    self.assertEqual(list(root.iterdir()), [])
+                    self.assertIn("test-worker protection refused publication", raised.exception.detail)
+                    self.assertNotIn(str(root), raised.exception.detail)
+
     def test_site_disabled_child_refuses_protected_publication_but_allows_fixture(self):
         import test_worker_guard
 
@@ -278,7 +296,7 @@ root, fixture = map(Path, sys.argv[2:])
 try:
     with review_evidence.project_state_publication_lock(root):
         (root / 'published').write_text('forbidden')
-except PermissionError as error:
+except review_evidence.ProjectPublicationUnavailable as error:
     assert 'test worker cannot publish' in str(error), error
 else:
     raise AssertionError('protected publication succeeded')
@@ -5253,6 +5271,106 @@ class OperatorReviewEvidenceTests(unittest.TestCase):
         readiness = subject.review_status_rows(historical, ["wave-council-readiness"])[0]
         self.assertEqual(readiness["why"], "current executed approval by alice follows every affected repair")
 
+
+
+class LocalUserReviewEvidenceTests(unittest.TestCase):
+    event = OperatorReviewEvidenceTests.event
+    LOCAL = {"name": "local-person", "source": "local_os_account"}
+
+    def test_all_builder_contexts_carry_account_outside_semantic_identity(self):
+        for kind in ("run", "approval", "finding"):
+            event = self.event(kind)
+            plain, errors = subject.build_identified_review_event([], "20k5v fixture", event)
+            self.assertEqual(errors, ())
+            for name in ("first-account", "different-account"):
+                local = dict(self.LOCAL, name=name)
+                with self.subTest(kind=kind, name=name):
+                    rows, errors = subject.build_identified_review_event(
+                        [], "20k5v fixture", event, local_user=local,
+                        operator={"handle": "alice", "source": "explicit"}, attested_by="Ada")
+                    self.assertEqual(errors, ())
+                    self.assertFalse(subject.validate_review_evidence_records(rows))
+                    for key in (subject.REQUEST_DIGEST_FIELD, subject.EVENT_IDENTITY_FIELD):
+                        self.assertEqual(rows[0][key], plain[0][key])
+                    contexts = [r["verification_context"] for r in rows if "verification_context" in r]
+                    self.assertTrue(contexts)
+                    for context in contexts:
+                        self.assertIn("local_user", context)
+                        self.assertEqual(context["local_user"], local)
+                        self.assertIsNot(context["local_user"], local)
+                        self.assertEqual(context["operator"]["handle"], "alice")
+                        self.assertEqual(context["attested_by"], "Ada")
+            self.assertFalse(subject.validate_review_evidence_records(plain))
+            for row in plain:
+                self.assertNotIn("local_user", row.get("verification_context", {}))
+
+    def test_account_change_preserves_current_readiness_receipt_and_approval(self):
+        receipt = LapsedApprovalReasonTests._receipt("a" * 64, ["qa-reviewer"])
+        event = dict(self.event("approval"), approval_phase="readiness",
+                     policy_receipt_id=receipt["receipt_id"])
+        identities = []
+        before = json.dumps(receipt, sort_keys=True)
+        for name in ("first-account", "next-account"):
+            rows, errors = subject.build_identified_review_event(
+                [receipt], "20k5v fixture", event, local_user=dict(self.LOCAL, name=name))
+            self.assertEqual(errors, ())
+            self.assertEqual(rows[0]["policy_receipt_id"], receipt["receipt_id"])
+            self.assertFalse(subject.validate_review_evidence_records([receipt, *rows]))
+            self.assertEqual(subject.review_status_rows([receipt, *rows], ["qa-reviewer"],
+                                                        approval_phase="readiness")[0]["state"], "approved")
+            identities.append((rows[0][subject.EVENT_IDENTITY_FIELD], rows[0][subject.REQUEST_DIGEST_FIELD]))
+        self.assertEqual(identities[0], identities[1])
+        self.assertEqual(json.dumps(receipt, sort_keys=True), before)
+
+    def test_convergence_context_retains_account(self):
+        records = ()
+        base = self.event("finding")
+        sequence = [dict(base)]
+        for cycle in (1, 2):
+            sequence.extend([
+                dict(base, actor="implementer", run_kind="repair_start", cycle=cycle,
+                     context_id=f"repair-{cycle}"),
+                dict(base, run_kind="reverification", cycle=cycle,
+                     context_id=f"verify-{cycle}", blocking_required_lanes=[]),
+            ])
+        for event in sequence:
+            rows, errors = subject.build_identified_review_event(
+                records, "20k5v fixture", event, local_user=self.LOCAL)
+            self.assertEqual(errors, ())
+            records = (*records, *rows)
+        self.assertFalse(subject.validate_review_evidence_records(records))
+        checkpoint, = [r for r in records if r.get("run_kind") == "convergence_checkpoint"]
+        self.assertEqual(checkpoint["verification_context"]["local_user"], self.LOCAL)
+
+    def test_malformed_local_metadata_is_rejected_for_run_and_evidence(self):
+        invalid = (None, [], {}, {"name": "a"}, {"source": "local_os_account"},
+                   dict(self.LOCAL, source="explicit"), dict(self.LOCAL, source=[]),
+                   dict(self.LOCAL, host="private"),
+                   *(dict(self.LOCAL, name=n) for n in (None, 7, "", " a", "x" * 257, "a\n", "a\u202eb", "a\ud800")))
+        for kind in ("run", "approval"):
+            rows, errors = subject.build_compact_review_event([], self.event(kind))
+            self.assertEqual(errors, ())
+            for local in invalid:
+                with self.subTest(kind=kind, local=local):
+                    modified = copy.deepcopy(rows)
+                    modified[0]["verification_context"]["local_user"] = local
+                    self.assertIn("verification_context.local_user", "\n".join(subject.validate_review_evidence_records(modified)))
+
+    def test_account_label_escapes_markdown_and_preserves_attribution_and_authority(self):
+        name = "a[link](x)|<b>*_&（user）"
+        rows, errors = subject.build_identified_review_event(
+            [], "20k5v fixture", self.event("approval"), local_user=dict(self.LOCAL, name=name),
+            operator={"handle": "alice", "source": "explicit"}, attested_by="Ada")
+        self.assertEqual(errors, ())
+        before = json.dumps(rows, sort_keys=True)
+        row = subject.review_status_rows(rows, ["qa-reviewer"])[0]
+        self.assertEqual(row["state"], "approved")
+        self.assertIn("by Ada (self-attested) (alice)", row["why"])
+        self.assertIn("local account: a&#91;link&#93;&#40;x&#41;&#124;&#60;b&#62;&#42;&#95;&#38;&#65288;user&#65289;", row["why"])
+        self.assertEqual(json.dumps(rows, sort_keys=True), before)
+        plain = copy.deepcopy(rows)
+        del plain[0]["verification_context"]["local_user"]
+        self.assertEqual(subject.review_status_rows(plain, ["qa-reviewer"])[0]["state"], row["state"])
 
 class AttestedByReviewEvidenceTests(unittest.TestCase):
     """Wave 1zyc3 (1zyc1): self-attested names on review records."""
