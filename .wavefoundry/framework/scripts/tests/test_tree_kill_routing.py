@@ -85,6 +85,7 @@ ROUTED = {
     ("wf_server/server_impl.py", "run_validate", "_mcp_subprocess_run"): 1,
     ("wf_server/server_impl.py", "run_validate_changed", "_mcp_subprocess_run"): 1,
     ("sensor_runner.py", "run_sensor", "run_with_tree_kill"): 1,
+    ("reconcile_scan.py", "_git_run", "run_with_tree_kill"): 1,
     ("setup_index.py", "_bootstrap_uv", "_run_install_step"): 1,
     ("setup_index.py", "_bootstrap_venv", "_run_install_step"): 1,
     ("setup_index.py", "_install_deps", "_run_install_step"): 1,

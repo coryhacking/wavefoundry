@@ -171,34 +171,38 @@ class ChildTeeTests(unittest.TestCase):
     def test_large_two_pipe_logs_finalize_on_nonzero_exit_and_timeout(self):
         source = ("import sys,time; print('OPENING'); "
                   "exec(\"for i in range(160):\\n print('é'*4096)\\n print('🙂'*4096,file=sys.stderr)\"); "
+                  "print('BULK-DONE-STDOUT'); print('BULK-DONE-STDERR',file=sys.stderr); "
                   "print('FINAL-STDOUT'); print('FINAL-STDERR',file=sys.stderr); ")
-        result = self.run_child(source + "sys.exit(7)", timeout=10)
-        self.assertEqual(result.returncode, 7)
-        for value in (result.tail, Path(result.log_path).read_text()):
-            self.assertIn("FINAL-STDOUT", value)
-            self.assertIn("FINAL-STDERR", value)
-        self.assertIn("OPENING", Path(result.log_path).read_text())
-        self.assertLessEqual(Path(result.log_path).stat().st_size, child_tee.LOG_CAP_BYTES)
-        with self.assertRaises(subprocess.CalledProcessError) as failed:
-            self.run_child(source + "sys.exit(9)", check=True, timeout=10)
-        self.assertEqual(failed.exception.returncode, 9)
-        # Finalization is independent of how quickly a loaded host drains the
-        # large fixture. Observe both endings, then inject the wait timeout;
-        # the separate withheld-pipe test exercises real deadline expiry.
-        class ObservedOutput(io.StringIO):
-            def __init__(self, marker):
-                super().__init__()
-                self.marker = marker
-                self.seen = threading.Event()
 
-            def write(self, value):
-                count = super().write(value)
-                if self.marker in value:
-                    self.seen.set()
-                return count
+        def ordered_sinks(first):
+            bulk_drained = threading.Barrier(2, timeout=10)
+            first_ending = threading.Event()
 
-        self.out = ObservedOutput("FINAL-STDOUT")
-        self.err = ObservedOutput("FINAL-STDERR")
+            class ObservedOutput(io.StringIO):
+                def __init__(self, label):
+                    super().__init__()
+                    self.label = label
+                    self.marker = 'FINAL-' + label
+                    self.seen = threading.Event()
+
+                def write(self, value):
+                    count = super().write(value)
+                    if 'BULK-DONE-' + self.label in value:
+                        # The real reader logs before presenting to this sink.
+                        # Neither reader may log its ending until both bulks
+                        # have drained, so both endings belong in one suffix.
+                        bulk_drained.wait()
+                        if self.label != first and not first_ending.wait(10):
+                            raise AssertionError('first stream ending did not arrive')
+                    if self.marker in value:
+                        self.seen.set()
+                        if self.label == first:
+                            first_ending.set()
+                    return count
+
+            self.out = ObservedOutput('STDOUT')
+            self.err = ObservedOutput('STDERR')
+
         original_popen = child_tee.subprocess_util.isolated_popen
 
         def timeout_after_output(*args, **kwargs):
@@ -218,14 +222,42 @@ class ChildTeeTests(unittest.TestCase):
             process.wait = wait
             return process
 
-        with patch.object(child_tee.subprocess_util, "isolated_popen", timeout_after_output):
-            with self.assertRaises(subprocess.TimeoutExpired):
-                self.run_child(source + "time.sleep(30)", timeout=2)
-        for log in (self.root / ".wavefoundry/logs").glob("upgrade-child-*.log"):
-            raw = log.read_bytes()
-            self.assertLessEqual(len(raw), child_tee.LOG_CAP_BYTES)
-            self.assertIn(child_tee.LOG_ELISION.replace("\n", os.linesep).encode(), raw)
-            self.assertIn(b"FINAL-STDERR", raw)
+        for first in ('STDOUT', 'STDERR'):
+            with self.subTest(first=first):
+                before = set((self.root / '.wavefoundry/logs').glob('upgrade-child-*.log'))
+                ordered_sinks(first)
+                result = self.run_child(source + "sys.exit(7)", timeout=10)
+                self.assertEqual(result.returncode, 7)
+                self.assertEqual(result.log_errors, [])
+                for marker in ('FINAL-STDOUT', 'FINAL-STDERR'):
+                    self.assertIn(marker, result.tail)
+                ordered_sinks(first)
+                with self.assertRaises(subprocess.CalledProcessError) as failed:
+                    self.run_child(source + "sys.exit(9)", check=True, timeout=10)
+                self.assertEqual(failed.exception.returncode, 9)
+                # Inject only after both endings: this tests finalization, while
+                # the separate withheld-pipe control tests real deadline expiry.
+                ordered_sinks(first)
+                with patch.object(child_tee.subprocess_util, "isolated_popen", timeout_after_output):
+                    with self.assertRaises(subprocess.TimeoutExpired):
+                        self.run_child(source + "time.sleep(30)", timeout=2)
+                logs = set((self.root / '.wavefoundry/logs').glob('upgrade-child-*.log')) - before
+                self.assertEqual(len(logs), 3)
+                for log in logs:
+                    raw = log.read_bytes()
+                    raw.decode('utf-8')  # Retained cuts must not split multibyte text.
+                    self.assertLessEqual(len(raw), 1024 * 1024)
+                    self.assertIn(b'OPENING', raw)
+                    marker = child_tee.LOG_ELISION.replace('\n', os.linesep).encode()
+                    self.assertIn(marker, raw)
+                    head, tail = raw.split(marker)
+                    self.assertGreater(len(head), 900000)
+                    self.assertLessEqual(len(tail), 64 * 1024)
+                    self.assertIn(b'FINAL-STDOUT', tail)
+                    self.assertIn(b'FINAL-STDERR', tail)
+                    second = 'STDERR' if first == 'STDOUT' else 'STDOUT'
+                    self.assertLess(tail.index(('FINAL-' + first).encode()),
+                                    tail.index(('FINAL-' + second).encode()))
 
     def test_final_log_io_error_is_reported_and_both_pipes_still_drain(self):
         actual = child_tee._open_child_log
@@ -456,16 +488,34 @@ class ChildTeeTests(unittest.TestCase):
 
     def test_explicit_timeout_includes_withheld_descendant_pipes_and_closes_readers(self):
         release, finished = self.root / "release", self.root / "finished"
+        ready = self.root / "ready"
         descendant = ("import pathlib,time; "
                       f"release=pathlib.Path({str(release)!r}); "
-                      "exec('while not release.exists(): time.sleep(.02)'); "
+                      f"pathlib.Path({str(ready)!r}).write_text('ready'); "
+                      "deadline=time.monotonic()+30; "
+                      "exec('while not release.exists() and time.monotonic()<deadline: time.sleep(.02)'); "
                       f"pathlib.Path({str(finished)!r}).write_text('finished')")
         parent = f"import subprocess,sys; subprocess.Popen([sys.executable,'-c',{descendant!r}]); print('EARLY-PARENT')"
         actual = child_tee.subprocess_util.isolated_popen
         children = []
         def spawn(*args, **kwargs):
+            nonlocal start
             process = actual(*args, **kwargs)
             children.append(process)
+            # Establish the held-pipe state before run() starts its real .2s
+            # deadline. Parent startup is not the behavior this control tests.
+            setup_deadline = time.monotonic() + 10
+            try:
+                self.assertEqual(process.wait(timeout=10), 0)
+                while not ready.exists() and time.monotonic() < setup_deadline:
+                    time.sleep(.02)
+                self.assertTrue(ready.exists(), "descendant did not become ready")
+            except BaseException:
+                if process.poll() is None:
+                    process.kill()
+                process.wait()
+                raise
+            start = time.monotonic()
             return process
         before = set(threading.enumerate())
         start = time.monotonic()
@@ -482,10 +532,12 @@ class ChildTeeTests(unittest.TestCase):
             self.assertFalse(finished.exists(), "the timeout must cover still-held pipes")
         finally:
             release.write_text("release")  # Fixture-owned descendant exits naturally.
-            deadline = time.monotonic() + 3
-            while not finished.exists() and time.monotonic() < deadline:
-                time.sleep(.02)
-            self.assertEqual(finished.read_text(), "finished")
+            if ready.exists():
+                deadline = time.monotonic() + 3
+                while not finished.exists() and time.monotonic() < deadline:
+                    time.sleep(.02)
+                self.assertTrue(finished.exists(), "ready descendant did not finish after release")
+                self.assertEqual(finished.read_text(), "finished")
 
     def test_check_true_preserves_nonzero_code_and_complete_canonical_output(self):
         token = "0123456789abcdef" * 4

@@ -24,6 +24,261 @@ import review_policy_upgrade
 from server_tools_support import load_server, load_thin_runner, _make_repo
 
 
+class PendingUpgradeTests(unittest.TestCase):
+    """Public default routes must stop before discovery and retained-state writes."""
+
+    def setUp(self):
+        global migration
+        migration = importlib.import_module('sqlite_storage_migration')
+        self.tmp = tempfile.TemporaryDirectory(prefix='wf pending ')
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+        self.pack = self.root / 'wavefoundry-1.0.0.retained.zip'
+        import zipfile
+        with zipfile.ZipFile(self.pack, 'w') as archive:
+            archive.writestr('.wavefoundry/framework/VERSION', '1.0.0+retained\n')
+        self.newer = self.root / 'wavefoundry-99.0.0.newer.zip'
+        self.newer.write_bytes(self.pack.read_bytes())
+        upgrade_lib.write_upgrade_lock(self.root, '0.9.0', '1.0.0+retained', self.pack)
+        upgrade_lib.update_upgrade_lock(self.root, pid=999999999, current_phase='awaiting_memory_validation',
+            failed_phase='awaiting_memory_validation', memory_backfill_run_id='retained-run',
+            action_required={'kind': 'historical_memory', 'state': 'awaiting_memory_validation',
+                             'resume_phase': 'resume_after_memory', 'token': 'retained-token', 'run_id': 'retained-run'})
+        self.checkpoint = upgrade_lib.upgrade_lock_path(self.root)
+        self.log = self.root / '.wavefoundry/logs/upgrade.log'
+        self.log.parent.mkdir(parents=True)
+        self.log.write_bytes(b'RETAINED LOG')
+
+    def invoke(self, *args):
+        before = {p.relative_to(self.root): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+        results = []
+        for mode in ((), ('--dry-run',)):
+            out, err = io.StringIO(), io.StringIO()
+            with patch.object(upgrade, '_find_zip', side_effect=AssertionError('pack discovery reached')), \
+                    patch.object(upgrade, '_find_latest_release_zip', side_effect=AssertionError('latest discovery reached')), \
+                    patch.object(migration, 'restore_checkpoint', side_effect=AssertionError('checkpoint restoration reached')), \
+                    patch.object(upgrade, '_load_extension_module', side_effect=AssertionError('incoming hook load reached')), \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = upgrade.main(['--root', str(self.root), '--yes', *mode, *args])
+            after = {p.relative_to(self.root): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+            self.assertEqual(after, before)
+            output = out.getvalue() + err.getvalue()
+            self.assertNotIn('would be cleared', output)
+            results.append((code, output))
+        self.assertEqual(results[0][0], results[1][0], results)
+        return results[1]
+
+    def test_live_owner_and_legacy_stale_have_no_new_disposal_authority(self):
+        upgrade_lib.update_upgrade_lock(self.root, pid=os.getpid())
+        self.assertEqual(self.invoke()[0], 5)
+        self.checkpoint.write_text(json.dumps({'pid': 999999999, 'started_at': 'now',
+            'to_version': '1.0.0+retained', 'current_phase': 'unknown'}))
+        code, output = self.invoke()
+        self.assertEqual(code, 3, output)
+        self.assertIn('upgrade_checkpoint_ambiguous', output)
+
+    def test_setup_owned_checkpoint_is_refused_by_both_routes(self):
+        upgrade_lib.update_upgrade_lock(self.root, entry_path='setup')
+        code, output = self.invoke()
+        self.assertEqual(code, 3, output)
+        self.assertIn('storage_setup_resume_required', output)
+
+    def test_default_memory_pause_precedes_newer_pack_and_stale_cleanup(self):
+        for args in ((), ('--pack', str(self.newer)), ('--pack', str(self.pack))):
+            with self.subTest(args=args):
+                code, output = self.invoke(*args)
+                self.assertEqual(code, 5, output)
+                self.assertIn('--resume-after-memory', output)
+                self.assertIn('retained-run', output)
+                self.assertIn('1.0.0+retained', output)
+
+    def test_contract_state_matrix_reports_existing_phase(self):
+        for current, failed, flag in (
+                ('awaiting_memory_publication', None, '--resume-after-memory'),
+                ('memory_resume_preflight', 'index_update', '--resume-after-memory'),
+                ('docs_gate', 'docs_gate', '--resume-after-gate'),
+                ('docs_gate_complete', 'post_docs_gate', '--resume-after-gate'),
+                ('docs_gate_complete', 'awaiting_memory_validation', '--resume-after-gate'),
+                ('index_update', 'index_publication_failed', '--update-index'),
+                ('index_complete', None, '--cleanup'),
+                ('cleanup', 'dashboard_restart', '--cleanup'),
+                ('cleanup', 'retired_model_cleanup', '--cleanup')):
+            with self.subTest(current=current, failed=failed):
+                upgrade_lib.update_upgrade_lock(self.root, current_phase=current, failed_phase=failed, action_required=None)
+                code, output = self.invoke()
+                self.assertEqual(code, 5, output)
+                self.assertIn(flag, output)
+
+    def test_invalid_unknown_unreadable_and_pack_change_refuse_read_only(self):
+        valid = self.checkpoint.read_bytes()
+        for value in (b'{', b'[]', b'null', b'{}', json.dumps({'started_at': 'now', 'to_version': '1', 'current_phase': 'unknown'}).encode()):
+            with self.subTest(value=value):
+                self.checkpoint.write_bytes(value)
+                code, output = self.invoke()
+                self.assertEqual(code, 3, output)
+                self.assertIn('preserve', output.lower())
+        self.checkpoint.write_bytes(valid)
+        with patch.object(upgrade_lib, 'read_upgrade_lock', return_value={}), \
+                patch.object(upgrade_lib, 'upgrade_lock_unreadable_cause', return_value='Permission denied'):
+            code, output = self.invoke()
+        self.assertEqual(code, 3)
+        self.assertIn('Restore access', output)
+        self.pack.write_bytes(b'changed archive')
+        code, output = self.invoke()
+        self.assertEqual(code, 3, output)
+        self.assertIn('original package', output)
+
+    def test_real_cli_and_registered_mcp_default_path_report_pending(self):
+        server = load_server()
+        from mcp.server.fastmcp import FastMCP
+        from types import SimpleNamespace
+        mcp = FastMCP('pending-upgrade-fixture')
+        server.register_mcp_surface(mcp, lambda: SimpleNamespace(root=self.root))
+        registered = mcp._tool_manager._tools['wf_upgrade'].fn
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1', WAVEFOUNDRY_DISABLE_BYTECODE_CACHE='1')
+        env.pop('PYTHONPYCACHEPREFIX', None)
+        before = self.checkpoint.read_bytes()
+        def child(cmd, **kwargs):
+            if '--dry-run' in cmd:
+                self.assertIn('--confirm-hosts-stopped', cmd)
+            return subprocess.run([sys.executable, '-B', str(SCRIPTS / 'upgrade_wavefoundry.py'), *cmd[2:]],
+                                  cwd=self.root, env=env, capture_output=True, text=True, timeout=20)
+        with patch.object(server, '_mcp_subprocess_run', side_effect=child), \
+                patch.object(server, 'project_pending_context_efficiency', return_value={'ok': True}), \
+                patch('wf_server.upgrade_handlers._reload_live_runner') as reload:
+            for response in (registered(), server.wf_upgrade_response(self.root, mode='dry_run', phase='cleanup', confirm_hosts_stopped=True)):
+                self.assertEqual(response['status'], 'action_required', response)
+                self.assertEqual(response['data']['code'], 'upgrade_pending')
+                self.assertEqual(response['data']['state'], 'awaiting_memory_validation')
+                self.assertEqual(response['data']['action_required']['run_id'], 'retained-run')
+                self.assertIn('--resume-after-memory', response['next_step'])
+        self.assertEqual(self.checkpoint.read_bytes(), before)
+        self.assertEqual(self.log.read_bytes(), b'RETAINED LOG')
+        reload.assert_not_called()
+
+    def test_preview_refuses_copied_identity_without_reaching_hooks(self):
+        self.durable()
+        value = json.loads(self.checkpoint.read_bytes())
+        value['index_guard_handoff']['root_identity']['inode'] = -1
+        self.checkpoint.write_text(json.dumps(value))
+        code, output = self.invoke()
+        self.assertEqual(code, 3, output)
+        self.assertIn('index_guard', output)
+        server = load_server()
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1')
+        env.pop('PYTHONPYCACHEPREFIX', None)
+        def child(cmd, **kwargs):
+            return subprocess.run([sys.executable, '-B', str(SCRIPTS / 'upgrade_wavefoundry.py'), *cmd[2:]],
+                                  cwd=self.root, env=env, capture_output=True, text=True, timeout=20)
+        before = self.checkpoint.read_bytes()
+        with patch.object(server, '_mcp_subprocess_run', side_effect=child), \
+                patch('wf_server.upgrade_handlers._reload_live_runner') as reload:
+            for mode in ('apply', 'dry_run'):
+                response = server.wf_upgrade_response(self.root, mode=mode)
+                self.assertEqual(response['status'], 'error', response)
+                self.assertEqual(response['data']['exit_code'], 3)
+                self.assertIn('index_guard', response['data']['output'])
+                self.assertNotIn('would be cleared', response['data']['output'])
+                self.assertEqual(self.checkpoint.read_bytes(), before)
+        reload.assert_not_called()
+
+    def test_explicit_verified_manifest_retry_previews_selected_pack_only(self):
+        framework = self.root / '.wavefoundry/framework'
+        framework.mkdir(parents=True, exist_ok=True)
+        (framework / 'MANIFEST').write_text('VERSION\n')
+        upgrade._save_old_manifest_snapshot(self.root, '1.0.0+retained')
+        upgrade_lib.update_upgrade_lock(self.root, current_phase='extract', failed_phase='extract', action_required=None)
+        before = self.checkpoint.read_bytes()
+        with patch.object(upgrade, '_find_zip', side_effect=AssertionError('ambient discovery reached')), \
+                patch.object(migration, 'restore_checkpoint', side_effect=AssertionError('restore reached')), \
+                patch.object(upgrade, '_detect_dashboard', return_value=(False, None, None)), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            code = upgrade.main(['--root', str(self.root), '--dry-run', '--pack', str(self.pack), '--confirm-hosts-stopped'])
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertIn(f'Zip to apply:       {self.pack.name}', out.getvalue())
+        self.assertEqual(self.checkpoint.read_bytes(), before)
+
+    def test_dry_run_phase_flags_do_not_execute_recovery(self):
+        with patch.object(upgrade, 'phase_cleanup', side_effect=AssertionError('cleanup reached')):
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                code = upgrade.main(['--root', str(self.root), '--dry-run', '--cleanup'])
+        self.assertEqual(code, 5, out.getvalue())
+        self.assertIn('--resume-after-memory', out.getvalue())
+
+    def durable(self):
+        import upgrade_extensions as extensions
+        retained = self.root / extensions._INDEX_GUARD_PACK_REL
+        retained.parent.mkdir(parents=True)
+        retained.write_bytes(self.pack.read_bytes())
+        identity = self.root.stat()
+        digest = extensions._pack_sha256(retained)
+        record = {'version': 1, 'required': True, 'prior_runtime_present': True,
+                  'prior_capability': False, 'prior_coordinator_capable': False,
+                  'root': str(self.root), 'root_identity': {'device': identity.st_dev, 'inode': identity.st_ino},
+                  'target_version': '1.0.0+retained', 'token': 'guard-token',
+                  'pack_sha256': digest, 'pack_path': str(retained)}
+        record['durable_pack'] = {'version': 1, 'path': extensions._INDEX_GUARD_PACK_REL,
+            'root': record['root'], 'root_identity': record['root_identity'],
+            'token': record['token'], 'target_version': record['target_version'],
+            'sha256': digest, 'identity': extensions._guard_file_identity(retained.stat())}
+        upgrade_lib.update_upgrade_lock(self.root, zip_path=str(retained), index_guard_handoff=record)
+        return retained, record
+
+    def test_durable_pack_identity_digest_and_terminal_absence_are_canonical(self):
+        retained, record = self.durable()
+        self.assertEqual(self.invoke()[0], 5)
+        original = self.checkpoint.read_bytes()
+        for field, value in (('token', 'foreign'), ('target_version', '99.0.0'),
+                             ('root_identity', {'device': -1, 'inode': -1}), ('sha256', '0' * 64)):
+            with self.subTest(field=field):
+                changed = json.loads(original)
+                changed['index_guard_handoff']['durable_pack'][field] = value
+                self.checkpoint.write_text(json.dumps(changed))
+                code, output = self.invoke()
+                self.assertEqual(code, 3, output)
+                self.assertIn('index_guard', output)
+        self.checkpoint.write_bytes(original)
+        retained.write_bytes(b'changed durable archive')
+        self.assertEqual(self.invoke()[0], 3)
+        retained.unlink()
+        self.assertEqual(self.invoke()[0], 3)
+        record['hosts_stopped_confirmed'] = True
+        record['terminal_cleanup'] = {'version': 1, 'state': 'fatal_obligations_complete',
+            'proof': record['durable_pack'], 'storage_cleanup_complete': True,
+            'dashboard_restart_complete': True, 'fatal_cleanup_complete': True}
+        upgrade_lib.update_upgrade_lock(self.root, index_guard_handoff=record, current_phase='cleanup',
+            failed_phase=None, action_required=None, index_publication_failed=False,
+            dashboard_restart_pending=False, memory_backfill_state='indexed')
+        code, output = self.invoke()
+        self.assertEqual(code, 5, output)
+        self.assertIn('--cleanup', output)
+        self.assertIn('terminal_cleanup', output)
+
+    def test_memory_identity_mismatch_and_unknown_action_refuse(self):
+        action = upgrade_lib.read_upgrade_lock(self.root)['action_required']
+        for change in ({'run_id': 'foreign'}, {'token': ''}, {'resume_phase': 'cleanup'},
+                       {'state': 'unknown'}, {'kind': 'unknown'}):
+            with self.subTest(change=change):
+                upgrade_lib.update_upgrade_lock(self.root, action_required={**action, **change})
+                code, output = self.invoke()
+                self.assertEqual(code, 3, output)
+
+
+    def test_fresh_default_still_reaches_preflight_and_read_only_modes_discover(self):
+        self.checkpoint.unlink()
+        with patch.object(upgrade, 'phase_preflight', side_effect=SystemExit(77)) as preflight, \
+                patch.object(migration, 'restore_checkpoint', return_value=None), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as stopped:
+                upgrade.main(['--root', str(self.root), '--yes'])
+        self.assertEqual(stopped.exception.code, 77)
+        preflight.assert_called_once()
+        with patch.object(upgrade, '_find_latest_release_zip', return_value=self.newer) as finder, \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(upgrade.main(['--root', str(self.root), '--detect-zip']), 0)
+        finder.assert_called_once()
+
+
 class EarlyUpgradeLogTests(unittest.TestCase):
     def setUp(self):
         global migration

@@ -6,6 +6,18 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.30.0]
+
+### Fixed
+
+- Reconciliation prunes SwiftPM `.build` trees and Git-ignored ordinary content before descent while retaining required live agent/configuration carriers. Query failures and existing budget limits remain explicit incomplete results; generated artifacts are preserved. Wave 20kfr / 20kfp.
+- Upgrade preview now uses the same retained-run decision as apply, preserving checkpoints and reporting continuation or refusal before pack discovery. Explicit verified recovery packs remain selected, and preview logs remain disclosed. Wave 20kfq / 20jo4.
+- Default upgrades now report a retained pending run and its explicit continuation before selecting another pack, preserving existing recovery and publication gates. Wave 20h6q / 20h8g.
+- Completed project-owned lifecycle-guide migrations no longer emit an unconfirmed-target notice on every render. An unmanaged destination alone still grants no link-rewrite authority. Wave 20h6q / 20h6r.
+- Child-log regression tests now establish both reader orders and held-pipe readiness before their assertions, preserving the production log cap, finalization and real deadlines. Wave 20h6q / 20gz6.
+
 ## [1.29.0] - 2026-10-12
 
 **Operator-action note: graph builder version 52 -> 56.** The first graph query after upgrading runs a one-time synchronous graph rebuild; its duration depends on the repository. This invalidates graphs extracted with the old member-call binding and Rust method identities, and regenerates call-site provenance for ordinary Python AST and supported tree-sitter call expressions. Expect some call edges that previously targeted a project function to become `external::` targets carrying `unowned_member_call`, and fan-in rankings for commonly named functions to drop. Every tree-sitter language is affected where a member call has a computed receiver (a call result or subscript); Rust `.` and C/C++ `->` on non-`self` plain identifier receivers are also affected (C/C++ `.` is not). Python target resolution is unchanged. No eager repository rebuild or extra upgrade scan is added.

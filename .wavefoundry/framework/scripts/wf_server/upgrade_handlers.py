@@ -1191,7 +1191,8 @@ def wf_upgrade_response(
     mode values:
       "dry_run" — print the full upgrade plan + hook inventory (seed diffs,
           extension module source, convention hook scripts) without modifying
-          anything on disk. Use this before the real upgrade to review what
+          upgrade state. Incoming migration previews may write named preview
+          logs. Use this before the real upgrade to review what
           will change and inspect any hook code. The phase parameter is
           ignored in dry_run mode.
       "apply" (default) — execute the requested phase for real.
@@ -1263,6 +1264,8 @@ def wf_upgrade_response(
 
     if mode == "dry_run":
         cmd = [server_impl._preferred_python(), str(upgrade_script), "--root", str(root), "--dry-run"]
+        if confirm_hosts_stopped:
+            cmd.append("--confirm-hosts-stopped")
     else:
         # All apply-mode phases run non-interactively (no TTY in MCP).
         cmd = [server_impl._preferred_python(), str(upgrade_script), "--root", str(root), "--yes"]
@@ -1304,7 +1307,8 @@ def wf_upgrade_response(
 
     output = (result.stdout or "") + (result.stderr or "")
     # log_path is deterministic and always present for apply-mode phases;
-    # dry_run is read-only so it writes no log file.
+    # dry_run writes no upgrade.log; ordinary migration previews may write
+    # separately named logs disclosed by the child summary.
     log_path = (
         str(root / ".wavefoundry" / "logs" / "upgrade.log")
         if mode == "apply"
@@ -1411,6 +1415,24 @@ def wf_upgrade_response(
     # Wave 1p8eu / F2 — compute the phase-aware next step + next_tools BEFORE the returncode check so
     # both the success AND the failure response carry them.
     _next_step, _next_tools = _upgrade_next_step(phase, root)
+    # Exit 5 is a read-only retained-run report, never the historical-memory
+    # exit-4 handshake or this invocation's exit-3 restart checkpoint.
+    pending = summary.get("pending_upgrade") if isinstance(summary, dict) else None
+    if (result.returncode == 5 and (mode == "dry_run" or phase == "preflight_to_docs_gate")
+            and isinstance(pending, dict) and pending.get("code") == "upgrade_pending"
+            and isinstance(pending.get("action_required"), dict) and pending.get("guidance")):
+        bounded_pending = _bounded_upgrade_summary(pending)
+        bounded_action = _bounded_upgrade_summary(pending["action_required"])
+        response = server_impl._response(
+            "action_required",
+            {**data, "code": "upgrade_pending", "state": bounded_pending.get("state"),
+             "pending_upgrade": bounded_pending,
+             "action_required": bounded_action,
+             "failed_phase": bounded_pending.get("failed_phase")},
+            diagnostics=[], next_tools=["wf_upgrade_status", "wf_upgrade"],
+        )
+        response["next_step"] = bounded_pending.get("guidance")
+        return _bounded_upgrade_response_envelope(response)
     if result.returncode != 0 and (
         phase == "resume_after_gate" or "--resume-after-gate" in output
     ):

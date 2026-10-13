@@ -199,6 +199,52 @@ class StorageUpgradeProcessResumeTests(unittest.TestCase):
         self.assertEqual(converted["migration_id"], receipt["migration_id"])
         self.assertEqual(self.bootstrap.read_bytes(), self.original_bootstrap)
 
+    def test_default_reports_retained_storage_before_restore_and_new_pack_selection(self):
+        receipt = self.pause()
+        newer = self.root / 'wavefoundry-999.0.0.newer.zip'
+        newer.write_bytes(self.pack.read_bytes())
+        receipt_path = self.index / migration.RECEIPT
+        lock_path = upgrade_lib.upgrade_lock_path(self.root)
+        before = {path: path.read_bytes() for path in (receipt_path, lock_path, self.pack,
+                                                      self.source, self.bootstrap,
+                                                      self.root / '.wavefoundry/logs/upgrade.log')}
+        for args in ([], ['--pack', str(newer)]):
+            attempted = self.attempt([sys.executable, str(self.runner), '--root', str(self.root), '--yes', *args])
+            self.assertEqual(attempted.returncode, 5, attempted.stdout + attempted.stderr)
+            self.assertIn('storage_restart_required', attempted.stdout)
+            self.assertIn(str(self.pack), attempted.stdout)
+            self.assertEqual({path: path.read_bytes() for path in before}, before)
+            self.assertFalse((self.root / 'conversion-boundary.json').exists())
+        # The receipt remains the recovery authority if an old finalizer lost
+        # the ordinary lock. A report must not recreate it.
+        lock_path.unlink()
+        attempted = self.attempt([sys.executable, str(self.runner), '--root', str(self.root), '--yes'])
+        self.assertEqual(attempted.returncode, 5, attempted.stdout + attempted.stderr)
+        self.assertFalse(lock_path.exists())
+        self.assertEqual(receipt_path.read_bytes(), before[receipt_path])
+        resumed = self.attempt(receipt['restart_action']['command_argv'])
+        self.assertEqual(resumed.returncode, 77, resumed.stdout + resumed.stderr)
+
+    def test_original_pack_and_confirmation_do_not_bypass_later_memory_pause(self):
+        receipt = self.pause()
+        upgrade_lib.update_upgrade_lock(self.root, current_phase='awaiting_memory_validation',
+            failed_phase='awaiting_memory_validation', memory_backfill_run_id='retained-memory',
+            action_required={'kind': 'historical_memory', 'state': 'awaiting_memory_validation',
+                             'run_id': 'retained-memory', 'token': 'memory-token',
+                             'resume_phase': 'resume_after_memory'})
+        for state in ('restart_required', 'published', 'verified', 'cleanup_pending'):
+            with self.subTest(state=state):
+                receipt['state'] = state
+                migration._write(self.index, receipt)
+                protected = [upgrade_lib.upgrade_lock_path(self.root), self.index / migration.RECEIPT,
+                             self.pack, self.source, self.bootstrap, self.root / '.wavefoundry/logs/upgrade.log']
+                before = {path: path.read_bytes() for path in protected}
+                attempted = self.attempt(receipt['restart_action']['command_argv'])
+                self.assertEqual(attempted.returncode, 5, attempted.stdout + attempted.stderr)
+                self.assertIn('--resume-after-memory', attempted.stdout)
+                self.assertEqual({path: path.read_bytes() for path in protected}, before)
+                self.assertFalse((self.root / 'conversion-boundary.json').exists())
+
     def test_old_main_pause_then_fresh_installed_main_relocated_pack_and_retry(self):
         receipt = self.pause()
         # Locate the actual durable snapshot without depending on its filename.

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-12
+Last verified: 2026-10-13
 
 ## Runtime advisory boundary
 
@@ -461,6 +461,27 @@ keep the normal reload flow.
 
 ### Upgrade preflight and retained continuation
 
+The ordinary runner checks retained checkpoint/storage authority before checkpoint
+restoration, stale-state cleanup, log opening or ambient pack selection. A pending
+run returns a read-only diagnostic and its canonical explicit continuation; it does
+not resume implicitly. A verified original-pack storage restart remains an ordinary
+invocation with `--pack` and `--confirm-hosts-stopped`. Supported explicit manifest
+repair retries remain bound to the recorded target, original manifest and retained
+pack; they do not turn a default call into automatic recovery. Unknown, unreadable
+or inconsistent retained state refuses rather than selecting a newer archive. The MCP
+handler maps the pending response separately from a newly armed historical-memory
+pause and does not reload the server on this path. Existing explicit phase gates
+remain responsible for validation and publication. No new durable state is added.
+
+`phase_dry_run` and ordinary apply share `_report_pending_upgrade`, backed by
+the existing `_pending_upgrade` observer. Preview returns pending exit 5 or refusal
+exit 3 before discovery or incoming hooks, including for dead-PID and setup-owned
+checkpoints. It passes explicit pack/host-confirmation inputs through the existing
+identity checks, then uses the verified explicit pack if ordinary preview is
+permitted. No recovery phase executes under dry-run. Public MCP remains apply-only;
+the internal preview handler translates exit 5 consistently and never reloads.
+Ordinary incoming migration previews may write separately disclosed preview logs.
+
 For pack-backed upgrades, incoming `upgrade_extensions.post_preflight` checks runner protocol first, then privately loads the standard-library-only `review_plan_prompt_check`. Its single exact LF/CRLF classifier is also used by the renderer: customized, conflicting, linked/reparse, nonregular or non-UTF-8 legacy review-plan prompts are refused before checkpoint publication, review-policy planning, extraction or wave marking. Installed preflight and dry-run use the same guarded checker; a missing or unloadable incoming checker warns and fails open. Early diagnostics, runtime locks and verified temporary staging are permitted footprints. The current runner's outer transaction releases on refusal and separately proven staging is cleaned. Rerunning avoids re-Prepare only when migrated policy is byte-identical, carriers are unchanged and the evaluator is current. The executed historical fixture covers the v1.15.4 loader/hook ABI; older-runner dry runs do not call that hook, and edits between preflight and rendering remain a TOCTOU limit.
 
 Index-guard handoff consumes persisted post-docs provenance and the installed restart helper. Memory continuation accepts `awaiting_memory_validation`, `awaiting_memory_publication`, `memory_resume_preflight` and `index_complete` with a valid memory gate; absent/preflight legacy phases additionally require no runner protocol. The actual pre-docs post-extract guard excludes these shortcuts. Non-memory update continuation accepts only `docs_gate_complete` and `index_complete` with tree VERSION at the checkpoint target. Pre-docs/rebuild, unknown or synthetic `index_update`, pending storage receipts/restart actions and stale helper contracts retain the full upgrade command.
@@ -739,9 +760,19 @@ carries it, which is what keeps the sentence above true. Server-resident respons
 (`runner_stale`, diagnostics composition, the summary bounder) are still
 computed by the running server process and change only on host restart.
 
-Reconciliation prunes existing excluded components and repository-root `.local`
-and `target` before directory descent. It retains nested/near-miss names and
-required host operating files even when Git-ignored. Eligible inputs use bounded,
+Reconciliation prunes known generated components, including `.build` at any
+depth, and repository-root `.local` and `target` before directory descent.
+Whole-component matching preserves near-miss source names. Ordinary candidates
+use bounded, NUL-delimited Git ignore queries within the existing work deadline;
+index-aware decisions preserve tracked content and Git's nested/negated rules.
+Required live carriers are projected from the lifecycle, review-policy and skill
+registries, fixed host entry/configuration paths and bounded direct members of
+live prompt/role/rule directories. They are inspected directly even when ignored,
+without recursively exempting host folders or overriding static exclusions.
+Only the exact `.codex/config.toml` carrier extends eligibility to TOML.
+Proven non-Git roots retain bounded static traversal; a failed required Git query
+reports incomplete instead of falling back to a broader walk. All candidates
+share existing entry, file, byte, matching and time limits. Eligible inputs use bounded,
 contained regular-file reads with explicit link refusal. Matching and context
 are processed per file; corpus text is not retained. The structured scan carries
 the existing three finding channels plus complete/incomplete/error state,

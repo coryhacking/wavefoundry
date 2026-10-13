@@ -44,6 +44,7 @@ import json
 import re
 import os
 import stat
+import subprocess
 import time
 from bisect import bisect_right
 from contextlib import contextmanager
@@ -58,6 +59,7 @@ from typing import Iterator
 # the human-facing replacement form (``wf <subcommand>`` or the no-replacement guidance).
 import record_paths  # noqa: E402  record roots (wave 1y0gz)
 import vocabulary_profile  # noqa: E402  lifecycle prompt names (wave 1zyb4)
+import subprocess_util  # noqa: E402  isolated, deadline-bounded Git queries
 from history_paths import is_history_path  # noqa: E402  shared history components (wave 1zyb2)
 from render_platform_surfaces import (  # noqa: E402 — SCRIPTS_DIR is on sys.path
     PERMISSIONS_PROVENANCE_KEY,
@@ -497,6 +499,7 @@ _STATIC_EXCLUDED_DIRS: tuple[str, ...] = (
     ".git",
     "__pycache__",
     "node_modules",
+    ".build",                 # SwiftPM generated output at any depth
     ".wavefoundry/framework",  # the framework pack tree — its own source legitimately names them
     ".wavefoundry/index",      # generated/runtime semantic index artifacts
     ".wavefoundry/cache",      # runtime caches, including the bytecode cache (change 1zyv1)
@@ -929,7 +932,7 @@ def is_excluded(
     (not raw substring) so in-scope near-miss docs like ``docs/reports-overview.md`` and
     ``src/snapshotter.py`` are NOT dropped.
     """
-    if suffix not in SCAN_SUFFIXES:
+    if suffix not in SCAN_SUFFIXES and rel != ".codex/config.toml":
         return True
     parts = rel.split("/")
     if (
@@ -1052,6 +1055,19 @@ class _ScanWork:
             raise _ScanStop()
         self.result.candidates += 1
 
+    def entry(self):
+        self.checkpoint("entry")
+        if self.result.visited_entries >= self.limits.entries:
+            self.omit("entries")
+            raise _ScanStop()
+        self.result.visited_entries += 1
+
+    def file(self):
+        if self.result.eligible_files >= self.limits.files:
+            self.omit("files")
+            raise _ScanStop()
+        self.result.eligible_files += 1
+
     def matches(self, pattern, text):
         self.checkpoint("pattern")
         for match in pattern.finditer(text):
@@ -1168,35 +1184,223 @@ def _scan_directory(root, directory):
             yield entries
 
 
+_MANDATORY_FILES = (
+    "AGENTS.md", "CLAUDE.md", "WARP.md", ".junie/guidelines.md",
+    ".github/copilot-instructions.md", ".cursor/rules/project-context.mdc",
+    ".cursor/rules/auto-guru.mdc", ".mcp.json", ".cursor/mcp.json",
+    ".junie/mcp/mcp.json", ".agents/mcp_config.json", ".windsurf/hooks.json",
+    ".codex/config.toml",
+)
+_MANDATORY_DIRECTORIES = (
+    "docs/prompts", "docs/agents", "docs/agents/specialists", "docs/agents/personas",
+    ".claude/agents", ".cursor/rules",
+)
+_GIT_BATCH_SIZE = 256
+
+
+def _mandatory_paths(work):
+    """Project registries without renderer discovery, eligibility or target reads."""
+    from review_policy import REVIEW_POLICY_CARRIER_REGISTRY
+    from render_agent_surfaces import LIFECYCLE_PROMPT_BASELINES, SKILL_HOSTS, _all_skills
+    from mcp_tool_extensions import EXTENSION_SKILLS
+
+    for rel in (*_MANDATORY_FILES, *sorted(HOST_PERMISSION_FILES)):
+        work.entry()
+        yield rel
+    for carrier in REVIEW_POLICY_CARRIER_REGISTRY:
+        work.entry()
+        yield carrier.destination
+        path = PurePosixPath(carrier.destination)
+        if (carrier.owner == "renderer" and "executable_review" in carrier.obligations
+                and path.suffix == ".md" and path.parts[:2] == ("docs", "agents")
+                and not is_history_path(path) and not {"memory", "personas"}.intersection(path.parts)):
+            yield f".claude/agents/{path.stem}.md"
+            yield f".codex/skills/agent-role-{path.stem}/SKILL.md"
+    for rel, _template in LIFECYCLE_PROMPT_BASELINES:
+        work.entry()
+        yield rel
+    # Refuse an oversized declaration before the pure renderer adapter
+    # materializes its tuple. Presence/gate/template discovery is never called.
+    if len(EXTENSION_SKILLS) > work.limits.entries - work.result.visited_entries:
+        work.omit("entries")
+        raise _ScanStop()
+    for skill in _all_skills():
+        work.entry()
+        if skill.requires_doc:
+            yield skill.requires_doc
+        for _host, directory in SKILL_HOSTS:
+            yield f"{directory}/{skill.name}/SKILL.md"
+
+
+def _optional_path_info(root, rel, work):
+    """Inspect explicit carriers without following a lexical ancestor link."""
+    parts = PurePosixPath(rel).parts
+    if not parts or PurePosixPath(rel).is_absolute() or ".." in parts:
+        work.omit("carrier_path_refused", error=True)
+        raise _ScanStop()
+    cursor = root
+    for part in parts:
+        work.checkpoint("carrier", rel)
+        cursor = cursor / part
+        try:
+            info = cursor.lstat()
+        except FileNotFoundError:
+            return None
+        if stat.S_ISLNK(info.st_mode) or contained_files._is_windows_link(str(cursor)):
+            work.omit("link_refused")
+            return None
+    return info
+
+
+def _git_run(root, args, work, *, data=None):
+    work.checkpoint("git_query")
+    try:
+        # NUL check-ignore emits only a subset of its bounded input. Discard
+        # stderr rather than retaining an unbounded diagnostic stream.
+        result = subprocess_util.run_with_tree_kill(
+            ["git", *args], cwd=root, input=data, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, timeout=work.limits.seconds - work.result.elapsed)
+    except subprocess.TimeoutExpired:
+        work.omit("deadline")
+        raise _ScanStop()
+    except OSError:
+        work.omit("git_query_failed", error=True)
+        raise _ScanStop()
+    work.checkpoint("git_query_done")
+    return result
+
+
+def _in_git_worktree(root, work):
+    # A missing executable/corrupt marker in a Git target must never select
+    # the non-Git fallback. Git also supports a .git file in linked worktrees.
+    for directory in (root.absolute(), *root.absolute().parents):
+        work.entry()
+        try:
+            (directory / ".git").lstat()
+        except FileNotFoundError:
+            continue
+        result = _git_run(root, ["rev-parse", "--is-inside-work-tree"], work)
+        if result.returncode != 0 or result.stdout != b"true\n":
+            work.omit("git_repository_failed", error=True)
+            raise _ScanStop()
+        return True
+    return False
+
+
+def _git_ignored(root, rels, work):
+    if not rels:
+        return set()
+    data = b"".join(os.fsencode(rel) + b"\0" for rel in rels)
+    if len(data) > work.limits.file_bytes:
+        work.omit("git_query_bytes")
+        raise _ScanStop()
+    result = _git_run(root, ["check-ignore", "-z", "--stdin"], work, data=data)
+    output = result.stdout
+    if (result.returncode not in (0, 1) or len(output) > len(data)
+            or (output and not output.endswith(b"\0"))
+            or (result.returncode == 1 and output)
+            or (result.returncode == 0 and not output)):
+        work.omit("git_query_failed", error=True)
+        raise _ScanStop()
+    allowed = {os.fsencode(rel) for rel in rels}
+    ignored = set()
+    for raw in output.split(b"\0")[:-1]:
+        work.checkpoint("git_result")
+        if raw not in allowed or raw in ignored:
+            work.omit("git_query_failed", error=True)
+            raise _ScanStop()
+        ignored.add(raw)
+    return {os.fsdecode(raw) for raw in ignored}
+
+
 def _iter_scannable_files(root: Path, work=None) -> Iterator[tuple[Path, str]]:
     work = work or _ScanWork(ScanLimits())
     excluded_dirs = excluded_dirs_for(root)
+    git = _in_git_worktree(root, work)
+    seen = set()
+
+    def eligible(rel):
+        path = root / rel
+        return not (_directory_excluded(rel, excluded_dirs)
+                    or is_excluded(rel, name=path.name, suffix=path.suffix, excluded_dirs=excluded_dirs))
+
+    # Exact candidates and direct directory members bypass only Git ignores.
+    # No discovery beneath an ignored generated directory is necessary.
+    for rel in _mandatory_paths(work):
+        if rel in seen or not eligible(rel):
+            continue
+        seen.add(rel)
+        work.entry()
+        info = _optional_path_info(root, rel, work)
+        if info is None:
+            continue
+        work.file()
+        yield root / rel, rel
+    for rel in _MANDATORY_DIRECTORIES:
+        if _directory_excluded(rel, excluded_dirs, directory=True):
+            continue
+        work.entry()
+        info = _optional_path_info(root, rel, work)
+        if info is None:
+            continue
+        if not stat.S_ISDIR(info.st_mode):
+            work.omit("special_file_refused")
+            continue
+        with _scan_directory(root, root / rel) as entries:
+            for entry in entries:
+                work.entry()
+                child = f"{rel}/{entry.name}"
+                if child in seen or not eligible(child) or entry.is_dir(follow_symlinks=False):
+                    continue
+                seen.add(child)
+                work.file()
+                yield root / child, child
+
     stack = [root]
     while stack:
         directory = stack.pop()
         work.checkpoint("directory", directory.relative_to(root).as_posix())
         try:
             with _scan_directory(root, directory) as entries:
+                batch = []
+                batch_bytes = 0
+
+                def admit_batch():
+                    ignored = _git_ignored(root, [rel for _path, rel, _directory in batch], work) if git else set()
+                    for path, rel, is_directory in batch:
+                        if rel in ignored:
+                            continue
+                        if is_directory:
+                            stack.append(path)
+                        else:
+                            seen.add(rel)
+                            work.file()
+                            yield path, rel
+
                 for entry in entries:
-                    work.checkpoint("entry")
-                    if work.result.visited_entries >= work.limits.entries:
-                        work.omit("entries")
-                        raise _ScanStop()
-                    work.result.visited_entries += 1
+                    work.entry()
                     path = directory / entry.name
                     rel = path.relative_to(root).as_posix()
-                    if _directory_excluded(rel, excluded_dirs, directory=entry.is_dir(follow_symlinks=False)):
+                    is_directory = entry.is_dir(follow_symlinks=False)
+                    if _directory_excluded(rel, excluded_dirs, directory=is_directory):
                         continue
-                    if entry.is_dir(follow_symlinks=False) and not contained_files._is_windows_link(str(path)):
-                        stack.append(path)
+                    if is_directory and contained_files._is_windows_link(str(path)):
+                        work.omit("link_refused")
                         continue
-                    if is_excluded(rel, name=path.name, suffix=path.suffix, excluded_dirs=excluded_dirs):
+                    if not is_directory and (rel in seen or not eligible(rel)):
                         continue
-                    if work.result.eligible_files >= work.limits.files:
-                        work.omit("files")
-                        raise _ScanStop()
-                    work.result.eligible_files += 1
-                    yield path, rel
+                    path_bytes = len(os.fsencode(rel)) + 1
+                    if batch and batch_bytes + path_bytes > work.limits.file_bytes:
+                        yield from admit_batch()
+                        batch.clear()
+                        batch_bytes = 0
+                    batch.append((path, rel, is_directory))
+                    batch_bytes += path_bytes
+                    if len(batch) >= _GIT_BATCH_SIZE:
+                        yield from admit_batch()
+                        batch.clear()
+                        batch_bytes = 0
+                yield from admit_batch()
         except OSError as exc:
             work.omit("traversal_" + type(exc).__name__, error=True)
 

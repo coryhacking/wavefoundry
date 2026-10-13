@@ -187,6 +187,211 @@ class BoundedReconciliationTests(unittest.TestCase):
             self.assertNotIn("live.md", [ref.file for ref in result.findings])
 
 
+class GeneratedAndIgnoredScopeTests(unittest.TestCase):
+    """20kfp: pruning precedes descent; live carriers share the normal budget."""
+
+    def setUp(self):
+        self.scan = _load("reconcile_scan", RECONCILE_PATH)
+
+    def write(self, root, rel, body=".wavefoundry/bin/docs-lint\n"):
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def git(self, root, *args):
+        import subprocess
+        result = subprocess.run(["git", "-C", str(root), *args],
+                                capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_build_pruned_before_descent_and_live_byte_budget(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            for rel in (".build/output.json", "pkg/.build/output.md"):
+                self.write(root, rel, "x" * 1000)
+            live = {"build/source.md", ".builder/source.md", "pkg/build/source.md"}
+            for rel in live:
+                self.write(root, rel)
+            original = self.scan._scan_directory
+            def guarded(scan_root, directory):
+                self.assertNotIn(".build", directory.relative_to(root).parts)
+                return original(scan_root, directory)
+            with patch.object(self.scan, "_scan_directory", side_effect=guarded):
+                result = self.scan.scan_repo_result(root, limits=self.scan.ScanLimits(total_bytes=81))
+            self.assertEqual(result.state, "complete", result.reasons)
+            self.assertEqual({ref.file for ref in result.findings}, live)
+            self.assertEqual(result.read_bytes, 81)
+
+    def test_git_prunes_ordinary_trees_and_preserves_tracked_nested_negated(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.git(root, "init", "-q")
+            live = {"outer/deep/tracked.md", "custom/keep.md", "nested/open.md"}
+            for rel in live | {"outer/drop.md", "custom/drop.md", "nested/drop.md", "generated/output.md"}:
+                self.write(root, rel)
+            self.git(root, "add", "outer/deep/tracked.md")
+            self.write(root, ".gitignore", "outer/\ngenerated/\ncustom/*\n!custom/keep.md\n")
+            self.write(root, "nested/.gitignore", "drop.md\n")
+            original = self.scan._scan_directory
+            def guarded(scan_root, directory):
+                self.assertNotEqual(directory, root / "generated")
+                return original(scan_root, directory)
+            with patch.object(self.scan, "_scan_directory", side_effect=guarded):
+                result = self.scan.scan_repo_result(root)
+            self.assertEqual(result.state, "complete", result.reasons)
+            self.assertEqual({ref.file for ref in result.findings}, live)
+
+    def test_ignored_registered_carriers_and_direct_members_without_generated_descent(self):
+        from unittest.mock import patch
+        import mcp_tool_extensions
+        import render_agent_surfaces
+        from review_policy import REVIEW_POLICY_CARRIER_REGISTRY
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.git(root, "init", "-q")
+            self.write(root, ".gitignore", "docs/\n.claude/\n.codex/\n.cursor/\n.agents/\n.junie/\n.windsurf/\n.mcp.json\nAGENTS.md\n")
+            live = {"AGENTS.md", ".codex/config.toml", ".mcp.json", ".agents/mcp_config.json",
+                    ".junie/mcp/mcp.json", ".windsurf/hooks.json", ".cursor/settings.json",
+                    ".claude/settings.local.json", "docs/prompts/project-extra.prompt.md",
+                    "docs/agents/specialists/project-role.md", "docs/agents/personas/project-stance.md",
+                    ".claude/agents/project-role.md", ".cursor/rules/project-extra.mdc"}
+            for carrier in REVIEW_POLICY_CARRIER_REGISTRY:
+                path = Path(carrier.destination)
+                if (carrier.owner == "renderer" and "executable_review" in carrier.obligations
+                        and path.parts[:2] == ("docs", "agents") and path.suffix == ".md"):
+                    live.add(f".codex/skills/agent-role-{path.stem}/SKILL.md")
+            for _host, directory in render_agent_surfaces.SKILL_HOSTS:
+                live.add(f"{directory}/wf-guru/SKILL.md")
+                live.add(f"{directory}/project-check/SKILL.md")
+            live.add("docs/prompts/project-check.prompt.md")
+            for rel in live:
+                self.write(root, rel)
+            for rel in ("docs/generated/AGENTS.md", "docs/prompts/generated/notes.md",
+                        ".claude/generated/notes.md", ".codex/other.toml", "docs/prompts/CHANGELOG.md",
+                        "ordinary.toml"):
+                self.write(root, rel)
+            spec = {"description": "Check", "title": "Check", "summary": ["Check"],
+                    "prompt_doc": "docs/prompts/project-check.prompt.md"}
+            original = self.scan._scan_directory
+            def guarded(scan_root, directory):
+                self.assertNotIn(directory, (root / "docs", root / ".claude", root / ".codex"))
+                self.assertNotIn("generated", directory.relative_to(root).parts)
+                return original(scan_root, directory)
+            with patch.object(mcp_tool_extensions, "EXTENSION_SKILLS", {"project-check": spec}), \
+                    patch.object(self.scan, "_scan_directory", side_effect=guarded), \
+                    patch.object(render_agent_surfaces, "review_protocol_carriers", side_effect=AssertionError("discovery")), \
+                    patch.object(render_agent_surfaces, "_skill_output_destinations", side_effect=AssertionError("discovery")):
+                result = self.scan.scan_repo_result(root)
+            self.assertEqual(result.state, "complete", result.reasons)
+            self.assertEqual({ref.file for ref in result.findings}, live)
+            self.assertEqual({ref.file for ref in result.host_permission_flags},
+                             {".claude/settings.local.json", ".cursor/settings.json"})
+            self.assertEqual(result.read_files, len(live))
+
+    def test_required_carrier_links_and_special_files_are_not_followed(self):
+        import os
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            outside = root / "generated"
+            outside.mkdir()
+            self.write(root, "generated/guru.md")
+            (root / ".claude").mkdir()
+            (root / ".claude/agents").symlink_to(outside, target_is_directory=True)
+            if hasattr(os, "mkfifo"):
+                os.mkfifo(root / "AGENTS.md")
+            self.write(root, "live.md")
+            original = self.scan._scan_directory
+            def guarded(scan_root, directory):
+                self.assertNotEqual(directory, root / ".claude/agents")
+                return original(scan_root, directory)
+            with patch.object(self.scan, "_scan_directory", side_effect=guarded):
+                result = self.scan.scan_repo_result(root)
+            self.assertEqual(result.state, "incomplete")
+            self.assertIn("link_refused", result.reasons)
+            if hasattr(os, "mkfifo"):
+                self.assertIn("special_file_refused", result.reasons)
+            self.assertNotIn(".claude/agents/guru.md", {ref.file for ref in result.findings})
+
+    def test_git_failures_and_malformed_output_never_fall_back(self):
+        import subprocess
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.git(root, "init", "-q")
+            self.write(root, "live.md")
+            failures = [subprocess.TimeoutExpired("git", 1), FileNotFoundError("git"),
+                        subprocess.CompletedProcess([], 128, b""),
+                        subprocess.CompletedProcess([], 0, b"unknown.md\0"),
+                        subprocess.CompletedProcess([], 0, b"live.md"),
+                        subprocess.CompletedProcess([], 0, b""),
+                        subprocess.CompletedProcess([], 1, b"live.md\0")]
+            original = self.scan.subprocess_util.run_with_tree_kill
+            for failure in failures:
+                def run(cmd, **kwargs):
+                    if "rev-parse" in cmd:
+                        return original(cmd, **kwargs)
+                    if isinstance(failure, Exception):
+                        raise failure
+                    return failure
+                with self.subTest(failure=repr(failure)), patch.object(self.scan.subprocess_util, "run_with_tree_kill", side_effect=run):
+                    result = self.scan.scan_repo_result(root)
+                    self.assertIn(result.state, ("incomplete", "error"))
+                    self.assertEqual(result.read_bytes, 0)
+                    self.assertEqual(result.findings, [])
+            with patch.object(self.scan.subprocess_util, "run_with_tree_kill", side_effect=FileNotFoundError("git")):
+                result = self.scan.scan_repo_result(root)
+            self.assertEqual(result.state, "error")
+            self.assertIn("git_query_failed", result.reasons)
+
+    def test_git_batch_size_bytes_and_remaining_deadline_are_bounded(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.git(root, "init", "-q")
+            for index in range(300):
+                self.write(root, f"source-{index}.md", "x")
+            queries = []
+            original = self.scan.subprocess_util.run_with_tree_kill
+            def run(cmd, **kwargs):
+                self.assertGreater(kwargs["timeout"], 0)
+                self.assertLessEqual(kwargs["timeout"], 30)
+                if "check-ignore" in cmd:
+                    data = kwargs["input"]
+                    self.assertLessEqual(data.count(b"\0"), 256)
+                    self.assertLessEqual(len(data), file_cap)
+                    self.assertNotIn(b"/\0", data)
+                    queries.append(data)
+                return original(cmd, **kwargs)
+            for file_cap in (100, 16384):
+                queries.clear()
+                with self.subTest(file_cap=file_cap), patch.object(self.scan.subprocess_util, "run_with_tree_kill", side_effect=run):
+                    result = self.scan.scan_repo_result(root, limits=self.scan.ScanLimits(file_bytes=file_cap))
+                self.assertEqual(result.state, "complete", result.reasons)
+                self.assertEqual(result.read_files, 300)
+                self.assertLess(len(queries), 100)
+                self.assertGreater(len(queries), 1)
+                if file_cap == 16384:
+                    self.assertEqual(len(queries), 2)
+
+    def test_non_git_scope_and_carrier_budget_remain_truthful(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.write(root, "AGENTS.md")
+            with patch.object(self.scan.subprocess_util, "run_with_tree_kill", side_effect=AssertionError("non-Git")):
+                result = self.scan.scan_repo_result(root)
+            self.assertEqual(result.state, "complete", result.reasons)
+            self.assertEqual(result.read_files, 1)
+            result = self.scan.scan_repo_result(root, limits=self.scan.ScanLimits(total_bytes=8))
+            self.assertEqual(result.state, "incomplete")
+            self.assertIn("total_bytes", result.reasons)
+            self.assertEqual(result.read_bytes, 0)
+
+
 class RetiredSurfaceMapTests(unittest.TestCase):
     """AC-1: one map, co-located with `_RETIRED_BIN_WRAPPERS`, covers renames + the no-replacement case."""
 

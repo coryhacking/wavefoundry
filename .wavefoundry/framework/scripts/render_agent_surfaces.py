@@ -3580,7 +3580,8 @@ def _confirmed_lifecycle_document_pairs(repo_root):
         if (new not in REVIEW_POLICY_SURFACE_BLOCKS
                 or not any(carrier.destination == new and carrier.owner == "renderer"
                            for carrier in REVIEW_POLICY_CARRIER_REGISTRY)):
-            reports.append(f"{new}: new-only lifecycle target is unconfirmed; manually repair remaining legacy links")
+            # Project-owned prose has nothing to confirm. Its presence alone
+            # neither grants link-repair authority nor proves a pending move.
             continue
         try:
                 text = _read_move_source(repo_root, new)[0].decode("utf-8")

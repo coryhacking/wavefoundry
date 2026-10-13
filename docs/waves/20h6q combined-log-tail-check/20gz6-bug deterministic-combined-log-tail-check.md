@@ -1,10 +1,10 @@
 # Make the combined log-tail regression deterministic
 
 Change ID: `20gz6-bug deterministic-combined-log-tail-check`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
-Status: planned
-Last verified: 2026-10-12
+Status: implemented
+Last verified: 2026-10-13
 Wave: 20h6q combined-log-tail-check
 
 ## Rationale
@@ -28,16 +28,16 @@ The operator requested a separate follow-up for the declared-profile release fai
 
 ## Acceptance Criteria
 
-- [ ] AC-1: The two-pipe regression uses a bounded deterministic arrangement for any required combined-tail markers, and tolerates supported reader interleavings without assuming per-stream suffix retention; a controlled ordering variation is the oracle.
-- [ ] AC-2: Cap, truncation notice, multibyte boundaries, real nonzero/check=True behavior and timeout finalization remain checked; an intentionally broken finalization or suffix-retention control is detected by a meaningful assertion.
-- [ ] AC-3: The affected child-log tests and existing real-deadline controls pass, the change's documents validate, and production logger bytes and retention policy remain unchanged.
+- [x] AC-1: The two-pipe regression uses a bounded deterministic arrangement for any required combined-tail markers, and tolerates supported reader interleavings without assuming per-stream suffix retention; a controlled ordering variation is the oracle.
+- [x] AC-2: Cap, truncation notice, multibyte boundaries, real nonzero/check=True behavior and timeout finalization remain checked; an intentionally broken finalization or suffix-retention control is detected by a meaningful assertion.
+- [x] AC-3: The affected child-log tests and existing real-deadline controls pass, the change's documents validate, and production logger bytes and retention policy remain unchanged.
 
 ## Tasks
 
-- [ ] T-1: Prepare and independently review the scoped fixture plan before editing test source.
-- [ ] T-2: Make marker placement deterministic across the applicable nonzero, check=True and injected-timeout cases without weakening retention checks.
-- [ ] T-3: Run focused ordering and known-bad controls plus affected tests; obtain independent code and QA delivery review.
-- [ ] T-4: Record concise results and limitations in wave.md and add the implementation release note; retain no routine evidence folder.
+- [x] T-1: Prepare and independently review the scoped fixture plan before editing test source.
+- [x] T-2: Make marker placement deterministic across the applicable nonzero, check=True and injected-timeout cases without weakening retention checks.
+- [x] T-3: Run focused ordering and known-bad controls plus affected tests; obtain independent code and QA delivery review.
+- [x] T-4: Record concise results and limitations in wave.md and add the implementation release note; retain no routine evidence folder.
 
 ## Agent Execution Graph
 
@@ -72,6 +72,10 @@ N/A: fixture correction preserves the existing logging contract. If investigatio
 
 | Date | Update | Evidence |
 | --- | --- | --- |
+| 2026-10-12 | Implementation/disposition and independent delivery reviews completed. Original planning handoff below is historical; current completion and local-pack limitations are recorded in wave.md and the session handoff. | Matching green framework qualification and typed review ledger |
+| 2026-10-12 | Required AC-3 reopened after canonical qualification exposed an unchanged deadline-control setup race: parent was killed before it established the intended held-pipe state. Within Requirement 3, the fixture now establishes parent exit and descendant readiness with a bounded setup wait before starting the same real 0.2-second deadline. Separate duration/reader/pipe/cleanup assertions remain. Twenty focused tests and deliberately delayed startup pass; independent reverification and qualification remain pending. | Typed cycle-1 QA finding; named real-deadline control; production logger unchanged |
+| 2026-10-12 | All 20 child-tee tests pass, including separate real-deadline controls. The repaired large fixture explicitly forces stdout-first and stderr-first retained endings across nonzero, check=True and injected-timeout runs, with cap/elision/UTF-8/head/suffix assertions. In-memory mutant deleting _BoundedLog.finalize is rejected in both ordering cases. Production child_tee.py has no diff. Independent delivery assessment remains pending. | Named canonical tests; temporary focused outputs; broken-finalization mutation |
+| 2026-10-12 | Readback: AC-1–3 change test_child_tee.py only: coordinate reader sinks at bounded bulk-completion barriers before either final marker enters the combined suffix; exercise both final-write orders and nonzero/check=True/injected-timeout cases. Keep production child_tee.py byte-identical, cap/elision/multibyte and separate real-deadline controls; use a broken-finalization control. | Admitted plan; current-source boundary inspection; current typed readiness |
 | 2026-10-12 | Planned at operator request; no implementation or readiness approval. Declared qualification failed the unchanged first nonzero-exit leg's saved-log assertion. Both in-memory stream markers had passed. Saved log was 1,048,572 bytes with opening, truncation notice and FINAL-STDERR; FINAL-STDOUT was absent. Exact reader scheduling was not captured. | ChildTeeTests.test_large_two_pipe_logs_finalize_on_nonzero_exit_and_timeout; child_tee._BoundedLog; complete declared qualification report |
 
 ## Decision Log
@@ -87,7 +91,7 @@ N/A: fixture correction preserves the existing logging contract. If investigatio
 | --- | --- |
 | Synchronization hides a finalization defect | Keep a meaningful known-bad control and real process cleanup |
 | Marker observation is mistaken for guaranteed combined-tail retention | Establish ordering of the retained suffix explicitly |
-| Concurrent host load is treated as a product regression | No timing conclusions or unrelated performance changes in this wave |
+| Concurrent host load is treated as a product regression | No timing conclusions or unrelated performance changes in this change |
 
 ## Session Handoff
 

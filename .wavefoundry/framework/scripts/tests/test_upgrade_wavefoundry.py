@@ -916,6 +916,11 @@ class DryRunTests(unittest.TestCase):
         result = self.mod.phase_dry_run(self.root)
         self.assertEqual(result, 0)
 
+    def test_missing_explicit_pack_refuses_without_ambient_discovery(self):
+        with patch.object(self.mod, '_find_zip', side_effect=AssertionError('discovery reached')), \
+                patch.object(self.mod, '_detect_dashboard', return_value=(False, None, None)):
+            self.assertEqual(self.mod.phase_dry_run(self.root, explicit_pack=self.root / 'missing.zip'), 3)
+
     def test_no_disk_writes(self):
         """Dry-run must not create the upgrade lock or any other files."""
         ul = _load_upgrade_lib()
@@ -2357,6 +2362,88 @@ class UpgradeManifestRecoveryTests(unittest.TestCase):
             self.assertEqual(result, 0); self.assertEqual(count, 0)
             self._assert_recovered(root, mod)
 
+    def test_manifest_retry_requires_explicit_identical_pack_and_default_stays_read_only(self):
+        import upgrade_lib, sqlite_storage_migration
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)/"target"; pack = self._fixture(root)
+            mod = load_upgrade_module()
+            first, _ = self._attempt(root, pack, "surface", mod)
+            self.assertIsInstance(first, SystemExit)
+            changed = Path(directory)/"same-target-changed.zip"
+            other = Path(directory)/"different-target.zip"
+            for path, target in ((changed, self.TARGET), (other, "1.23.0+other")):
+                with zipfile.ZipFile(path, "w") as archive:
+                    archive.writestr(".wavefoundry/framework/VERSION", target)
+                    archive.writestr(".wavefoundry/framework/MANIFEST", self.NEW)
+            for args, expected in (([], 5), (["--pack", str(changed)], 3), (["--pack", str(other)], 3)):
+                with self.subTest(args=args):
+                    before = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+                    output = io.StringIO()
+                    with patch.object(mod, "_find_zip", side_effect=AssertionError("pack discovery reached")), \
+                            patch.object(sqlite_storage_migration, "restore_checkpoint", side_effect=AssertionError("checkpoint restoration reached")), \
+                            contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+                        self.assertEqual(mod.main(["--root", str(root), "--yes", *args]), expected, output.getvalue())
+                    self.assertEqual({p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}, before)
+                    if not args:
+                        self.assertIn(str(pack), output.getvalue())
+                        self.assertIn("MANIFEST", output.getvalue())
+            # Removing the ordinary lock does not turn its durable pruning
+            # obligation into permission for ambient selection.
+            upgrade_lib.upgrade_lock_path(root).unlink()
+            with patch.object(mod, "_find_zip", side_effect=AssertionError("pack discovery reached")), \
+                    patch.object(sqlite_storage_migration, "restore_checkpoint", side_effect=AssertionError("checkpoint restoration reached")), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(mod.main(["--root", str(root), "--yes"]), 3)
+            self.assertIsNotNone(mod._read_old_manifest_snapshot(root))
+
+    def test_manifest_snapshot_cannot_override_typed_memory_or_completed_pruning(self):
+        import upgrade_lib, sqlite_storage_migration
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)/"target"; pack = self._fixture(root)
+            mod = load_upgrade_module(); self._attempt(root, pack, "surface", mod)
+            upgrade_lib.update_upgrade_lock(root, current_phase="awaiting_memory_validation",
+                failed_phase="awaiting_memory_validation", memory_backfill_run_id="retained-memory",
+                memory_backfill_state="indexed", index_rebuilt_at="observed",
+                action_required={"kind": "historical_memory", "state": "awaiting_memory_validation",
+                                 "resume_phase": "resume_after_memory", "run_id": "retained-memory", "token": "memory-token"})
+            before = upgrade_lib.upgrade_lock_path(root).read_bytes()
+            output = io.StringIO()
+            with patch.object(sqlite_storage_migration, "restore_checkpoint", side_effect=AssertionError("checkpoint restoration reached")), \
+                    contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+                self.assertEqual(mod.main(["--root", str(root), "--pack", str(pack), "--yes", "--confirm-hosts-stopped"]), 5)
+            self.assertIn("--resume-after-memory", output.getvalue())
+            self.assertEqual(upgrade_lib.upgrade_lock_path(root).read_bytes(), before)
+            upgrade_lib.update_upgrade_lock(root, current_phase="index_complete", failed_phase=None,
+                                           action_required=None, pruned_count=0)
+            # An old snapshot with proven pruning cannot authorize a full retry.
+            with patch.object(sqlite_storage_migration, "restore_checkpoint", side_effect=AssertionError("checkpoint restoration reached")), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(mod.main(["--root", str(root), "--pack", str(pack), "--yes"]), 5)
+
+    def test_manifest_retry_uses_retained_guard_digest_when_private_locator_is_missing(self):
+        import upgrade_lib, upgrade_extensions
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)/"target"; pack = self._fixture(root)
+            mod = load_upgrade_module(); self._attempt(root, pack, "surface", mod)
+            identity = root.resolve().stat()
+            record = {"version": 1, "required": True, "prior_runtime_present": True,
+                "prior_capability": False, "prior_coordinator_capable": False,
+                "root": str(root.resolve()), "root_identity": {"device": identity.st_dev, "inode": identity.st_ino},
+                "target_version": self.TARGET, "token": "retained-guard",
+                "pack_sha256": upgrade_extensions._pack_sha256(pack), "pack_path": str(pack)}
+            upgrade_lib.update_upgrade_lock(root, zip_path=str(Path(directory)/"missing-private.zip"),
+                                           index_guard_handoff=record)
+            changed = Path(directory)/"changed-same-target.zip"
+            with zipfile.ZipFile(changed, "w") as archive:
+                archive.writestr(".wavefoundry/framework/VERSION", self.TARGET)
+            before = upgrade_lib.upgrade_lock_path(root).read_bytes()
+            result, count = self._attempt(root, changed, mod=mod)
+            self.assertEqual((result, count), (3, 0))
+            self.assertEqual(upgrade_lib.upgrade_lock_path(root).read_bytes(), before)
+            result, count = self._attempt(root, pack, mod=mod)
+            self.assertEqual((result, count), (0, 0))
+            self._assert_recovered(root, mod)
+
     def test_snapshot_isolation_target_refusal_and_atomic_save_failure(self):
         with tempfile.TemporaryDirectory() as directory:
             a, b = Path(directory)/"a", Path(directory)/"b"
@@ -3586,6 +3673,18 @@ class BoundedMigrationPreviewTests(unittest.TestCase):
                 extract()
         self.assertEqual(stopped.exception.code, 3); extract.assert_not_called()
         self.assertEqual((directory / 'feature-workflow.md').read_bytes(), b'legacy')
+
+    def test_incoming_preview_is_quiet_for_already_moved_unmanaged_lifecycle_target(self):
+        directory = self.root / 'docs/contributing'; directory.mkdir()
+        (directory / 'delivery-workflow.md').write_bytes(b'# Custom delivery guide\r\n')
+        (self.root / 'docs/consumer.md').write_bytes(b'[guide](contributing/delivery-workflow.md)\r\n')
+        before = {p.relative_to(self.root): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.extension._preview_council_role_links(types.SimpleNamespace(root=self.root, zip_path=None))
+        self.assertNotIn('would preserve unmanaged', output.getvalue())
+        self.assertNotIn('would migrate lifecycle', output.getvalue())
+        self.assertEqual({p.relative_to(self.root): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}, before)
 
 
 class LifecycleDocumentInstallingUpgradeTests(unittest.TestCase):
@@ -9232,6 +9331,14 @@ _DELEGATE_CHILD_MODULES = (
     "subprocess_util.py",
     "cli_stdio.py",
     "reconcile_scan.py",
+    # Wave 20kfr: the scanner projects mandatory carriers from shipped registries.
+    "review_policy.py",
+    "gardener_metadata.py",
+    "render_agent_surfaces.py",
+    "marker_namespaces.py",
+    "mcp_tool_extensions.py",
+    "review_policy_reconcile.py",
+    "review_plan_prompt_check.py",
     "history_paths.py",  # wave 1zyb2: reconcile_scan tests history through it
     "record_paths.py",  # wave 1y0gz: reconcile_scan resolves the record roots through it
     "vocabulary_profile.py",  # wave 1z8mm: record_paths imports it
@@ -9450,6 +9557,48 @@ class BoundedUpgradeReportingTests(unittest.TestCase):
             self.assertEqual(result["reconciliation_state"], "incomplete", result)
             self.assertIn("file_bytes", result["reconciliation_reason"])
             self.assertEqual([ref["file"] for ref in result["reconciliation"]], ["live.md"])
+
+    @unittest.skipUnless(shutil.which("git"), "Git is required for ignore-scope integration")
+    def test_actual_worker_shares_pruned_scope_and_all_finding_channels(self):
+        import reconcile_scan
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            subprocess.run(["git", "init", "-q", str(root)], check=True,
+                           capture_output=True, timeout=10)
+            (root / ".gitignore").write_text("generated/\n.claude/\n", encoding="utf-8")
+            (root / "docs").mkdir()
+            (root / "docs/guide.md").write_text(".wavefoundry/bin/docs-lint\n", encoding="utf-8")
+            (root / ".claude").mkdir()
+            (root / ".claude/settings.json").write_text(json.dumps({
+                "permissions": {"allow": ["mcp__wavefoundry__wave_close",
+                                            "mcp__wavefoundry__wave_prepare"]},
+                "wavefoundryManagedAllow": ["mcp__wavefoundry__wave_close"],
+            }), encoding="utf-8")
+            generated = []
+            for rel in (".build/profile.json", "component/.build/profile.json",
+                        "generated/profile.json", ".claude/cache/profile.json"):
+                path = root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with path.open("wb") as stream:
+                    stream.truncate(17 * 1024 * 1024)
+                generated.append((path, path.stat().st_size))
+
+            direct = reconcile_scan.scan_repo_result(root)
+            self.assertEqual(direct.state, "complete", direct.reasons)
+            report = self.mod._collect_reconciliation_report(root)
+            self.assertEqual(report["reconciliation_state"], "complete", report)
+            for channel in ("reconciliation", "host_permission_flags", "renderer_provenance_flags"):
+                expected = [ref.as_dict() for ref in getattr(direct, channel)]
+                self.assertTrue(expected, channel)
+                self.assertEqual(report[channel], expected, channel)
+            self.assertEqual({r["file"] for r in report["reconciliation"]}, {"docs/guide.md"})
+            self.assertEqual({r["matched"] for r in report["host_permission_flags"]},
+                             {"mcp__wavefoundry__wave_prepare"})
+            self.assertEqual({r["matched"] for r in report["renderer_provenance_flags"]},
+                             {"mcp__wavefoundry__wave_close"})
+            self.assertLess(report["reconciliation_read_bytes"], 1024)
+            for path, size in generated:
+                self.assertEqual(path.stat().st_size, size, "reporting must preserve generated artifacts")
 
     def test_contradictory_publication_and_consent_facts_degrade(self):
         with tempfile.TemporaryDirectory() as td:

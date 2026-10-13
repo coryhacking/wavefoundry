@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-08
+Last verified: 2026-10-13
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -343,6 +343,8 @@ What this prompt is not:
 
 **Reconciliation on every upgrade (the upgrade runs a scan; you act on it).** On **every upgrade** — any version delta, including a patch bump and a same-version build-successor, since a patch can change/retire a surface during testing (`is_major_or_minor` is informational, not a gate) — after the mechanical phases complete the upgrade **runs the retired-surface reconciliation scan** (`reconcile_scan.py`, shipped under `.wavefoundry/framework/scripts/`) over THIS repo and surfaces an actionable `file:line → suggested wf form` list in the operator summary (`wf_upgrade`'s `summary.reconciliation` field; the human prose lists the same). The scan flags docs/prompts/configs/scripts that named a framework surface the bump **changed or RETIRED** — e.g. the 1.9.0 cutover retired the `.wavefoundry/bin/*` wrappers in favor of the cross-OS `wf` dispatcher, so a local doc still naming `.wavefoundry/bin/<wrapper>` is now a broken instruction. The scan consumes the single retired→new map co-located with `_RETIRED_BIN_WRAPPERS` in `render_platform_surfaces.py`: renames map 1:1 to `wf <subcommand>` (e.g. `docs-lint`→`wf docs-lint`, `wave-gate`→`wf gate`, `wave-dashboard`→`wf dashboard`), and `mcp-server` has **no** `wf` form — remove/rewrite it (the MCP server launches via `python3 .wavefoundry/framework/scripts/server.py`). The scan is **report-only** (it never auto-edits repo docs): repair each live instruction, then re-run the drift detection in the Verification Checklist. When a finding is truthful historical narrative rather than a live instruction, verify its exact line and heading context, then record the printed `v2:` `disposition_key` once with status `historical-record` in `docs/reconcile-dispositions.json`; the complete audit scan still retains it while the reported reconciliation channel suppresses only that unique v2 finding. Existing 16-hex legacy entries remain byte-preserved but never suppress: zero candidates are dormant, one candidate reports `legacy-reclassification-required` with its proposed v2 key, and multiple candidates report `legacy-ambiguous`. Duplicate v2 fingerprints report `v2-ambiguous`; malformed and unknown-version keys also fail open. Never auto-rewrite the operator-owned store. A project-specific agents-layer prompt finding is never auto-renamed: follow its suggestion to merge unique project guidance into `docs/prompts/review-plan.prompt.md`, remove the obsolete agents prompt, and rerun the scan. The scan's baked-in exclusion set never flags the framework pack tree, the generated index, `docs/waves/`, `docs/reports/`, `CHANGELOG.md`, journals/snapshots, or test files.
 
+**Reconciliation scope and limits.** The scan prunes known generated/cache directories before descent, including `.build` at any depth, `.git`, `__pycache__`, `node_modules`, the framework/index/cache/history trees and repository-root `.local` and `target`. Ordinary content follows Git ignore decisions, including nested rules, exceptions and tracked-file behavior. Required live instruction, lifecycle-prompt, role, skill and host-configuration carriers remain inspected through exact registered paths and bounded direct members of their live directories, even when ignored; this does not recursively include an ignored host folder or override generated/history exclusions. TOML is included only for `.codex/config.toml`. Non-Git roots use the same static scope and limits. A required Git query failure, refused eligible read or exhausted work budget reports incomplete, never a clean empty scan. Existing time, entry, file, byte and finding limits remain in force; build artifacts are preserved, and upgrade reporting uses this same scanner.
+
 **Host permission/allow-rule files (three channels: self-healing vs operator).** The scan never folds host permission/allow-rule files (`.claude/settings.json`, `.claude/settings.local.json`, `.cursor/settings.json`, and per-host equivalents) into the editable `summary.reconciliation` list; agents cannot self-edit those files under host auto-mode guards. It still inspects them and partitions the hits by ownership: stale rules **inside** the permissions renderer's `wavefoundryManagedAllow` provenance in the committed `.claude/settings.json` are **SELF-HEALING** (`summary.renderer_provenance_flags`: the upgrade/install permissions render prunes/replaces them automatically; the upgrade renders surfaces before it scans, so these are informational), while everything else (all of `.claude/settings.local.json` and `.cursor/settings.json`, plus any non-provenance `settings.json` entry, including operator-authored rules that happen to name a wavefoundry tool) stays in the operator channel (`summary.host_permission_flags`): **flag it for the operator**, name the stale rule and the new `wf <subcommand>` form, and let the operator make the edit. The upgrade also names the rendered permissions delta (added/removed `permissions.allow` entries) as an explicit consent line in its output.
 
 **When the permissions block first appears, and who can trigger the render.** A fresh install and a protocol-bridge upgrade render the permissions block immediately. An ordinary upgrade of an existing target also renders it during that same upgrade, but only because of deliberate backstops in the upgrade's later phases: the in-process orchestrator that runs the surface-rendering phase is pre-extraction code, so on the transition upgrade that phase runs the OLD renderer, which has no permissions switch. The backstops run only from phases the upgrade executes in a SEPARATE process on the freshly extracted code, which is what closes that old-code window. The cleanup phase carries the site every upgrade path reaches (`wf upgrade --cleanup` on the CLI, `wf_upgrade(phase="cleanup")` through MCP); the index-refresh phase carries a second one for the flows that run it. Without them the block would first appear one full upgrade cycle later. Rendering is **operator-approved rather than structurally unreachable by an agent**: `wf_upgrade` is an ordinary agent-callable tool whose first phase renders, so an agent can trigger the render, but only at the **read tier**, because the write tier requires the operator-authored `wavefoundryAllowWriteTools` knob and `wf_upgrade` is itself a write-tier tool and so cannot allowlist itself. Passing the renderer's include-permissions switch through the `wf` dispatcher is an accepted residual outside the threat model, since an agent with unrestricted shell access can write `.claude/settings.json` directly. The knob's home is protected by the **host** (which prompts before an agent edits `.claude/settings.json`) plus prompt policy, not by framework-enforced isolation: the framework's own pre-edit guard on that file is the `framework_edit_allowed` gate, which an agent can open, so writing the knob takes the same capability as writing the rules by hand. If the committed `.claude/settings.json` already carried the wavefoundry allow rules by hand, the render claims nothing, `wavefoundryManagedAllow` stays empty, and those rules get no rename self-heal; the consent output reports them as already present and left unmanaged. To hand them over to the renderer, delete those allow rules and let the next upgrade or `wf setup` re-emit them.
@@ -367,7 +369,7 @@ What this prompt is not:
 
 - `wf upgrade --detect-zip` — prints the absolute path of the selected pack and exits `0`. Exits `1` with empty output when no matching zip is found.
 - `wf upgrade --list-zips` — prints every match across all five search paths, semver-sorted (highest first), with `* ` on the selected pack.
-- `wf upgrade --dry-run` — prints the selected pack on a `Zip to apply:` line in the same output that surfaces seed diffs and hook inventory, with zero mutations.
+- `wf upgrade --dry-run` — checks retained state first; when ordinary preview is permitted, prints the selected pack on a `Zip to apply:` line with seed diffs and hook inventory. Migration previews may write named preview logs; the final line discloses them.
 
 Discovery/preview is **CLI-only**: run the flag via your shell (that is the agent-safe path — not `ls`). The MCP `wf_upgrade` tool *runs* the upgrade — its default `preflight_to_docs_gate` phase adopts the highest pack — and has **no** dry-run or discovery-only phase (its only argument is `phase=`; there is no `mode=`).
 
@@ -524,14 +526,20 @@ current document, remove the superseded file, and rerun the upgrade. Successful
 moves are idempotent; if an I/O failure interrupts later work, inspect the reported
 paths and preserve both copies until the conflict is resolved.
 
-Reconcile moved guides' titles, source references and current authored links during
-the upgrade editing pass. The renderer reports Markdown links to documents it moved
-without rewriting them, including links in history. Preserve historical records and
-ledgers; report any resulting docs-gate conflict for explicit resolution rather
-than silently rewriting evidence. Reports cover Markdown link targets, not all
-plain-text mentions, and only moves performed in that render; rerun the docs gate
-after reconciliation. The new lifecycle path retains direct-document policy and
-phase obligations plus its managed policy baseline.
+Reconcile moved guides' titles and plain-text references during the upgrade editing
+pass. The renderer repairs supported exact local Markdown links in eligible current
+documents when the old source exists, or when the destination has its matching
+registered managed region. It preserves historical records and ledgers. Unsupported
+links and refused reads encountered by the bounded repair plan are reported for
+manual review; dry-run preview describes the same planned edits without writing.
+Rerun the docs gate after reconciliation.
+
+An already-moved project-owned guide without a registered managed region is quiet:
+its presence alone neither proves an incomplete migration nor authorizes link
+rewrites. Any remaining legacy links need deliberate project edits. No managed
+region or migration receipt is added to that guide. The registered lifecycle
+overview retains its direct-document policy and phase obligations; mismatched
+managed regions and conflicting old/new paths still receive diagnostics.
 
 The filename and carrier registration changes alone do not change policy receipt
 inputs or require re-Prepare. An upgrade that also changes actual policy inputs
@@ -544,6 +552,29 @@ still requires the normal re-Prepare; no historical approval or receipt is rewri
 ## Aliases
 
 - **Upgrade wave framework** / **Upgrade wave context** — legacy; identical behavior
+
+## Pending upgrade before pack selection
+
+Before selecting a new pack, an ordinary upgrade checks for a retained run without
+restoring or clearing its checkpoint. If one is pending, it reports the recorded
+target, phase and explicit continuation instead of discovering the newest pack.
+A default call does not resume work, validate memories, publish indexes or dismiss
+the pending run. Use the reported continuation after the required host shutdown;
+original-pack storage recovery still uses its verified `--pack` command with
+`--confirm-hosts-stopped`. Supported explicit pack retries after partial extraction,
+rendering or pruning keep their original-manifest and retained-pack checks; a
+default call does not perform that repair. Invalid or ambiguous state is refused with inspection
+and recovery guidance; preserve the checkpoint, receipt and retained archive.
+
+CLI `--dry-run` uses the same retained-state decision before pack discovery:
+exit 5 reports the existing continuation, and exit 3 refuses invalid, unreadable,
+ambiguous or setup-owned recovery state. A dead PID alone never authorizes
+checkpoint deletion. Neither outcome restores receipts, clears state or invokes
+incoming preview hooks. Explicit verified `--pack` retries retain their existing
+checks and preview that exact pack. Recovery phase flags do not execute a phase
+when combined with `--dry-run`. Public MCP remains apply-only; its internal
+preview handler has the same pending/refusal meaning. Ordinary previews still
+disclose any migration preview logs they write.
 
 ## Historical-Memory Gate
 

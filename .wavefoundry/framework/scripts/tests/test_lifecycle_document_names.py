@@ -163,6 +163,24 @@ class LifecycleDocumentMoveTests(unittest.TestCase):
             for rel in pair:
                 self.assertFalse((self.root / rel).exists())
 
+    def test_real_repeated_render_quiets_completed_project_guide(self):
+        self.seed()
+        original = (self.root / PAIRS[0][0]).read_bytes()
+        prompts = self.root / 'docs/prompts'
+        prompts.mkdir()
+        (prompts / 'prompt-surface-manifest.json').write_text('{}\n')
+        for attempt in range(3):
+            with self.subTest(attempt=attempt):
+                error = io.StringIO()
+                with contextlib.redirect_stderr(error):
+                    ras.render_agent_surfaces(self.root)
+                self.assertNotIn('new-only lifecycle target', error.getvalue())
+                target = self.root / PAIRS[0][1]
+                self.assertEqual(target.read_bytes(), original)
+                if os.name != 'nt':
+                    self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o640)
+                self.assertFalse((self.root / PAIRS[0][0]).exists())
+
 
 class BoundedDocumentRepairTests(unittest.TestCase):
     setUp = LifecycleDocumentMoveTests.setUp
@@ -233,9 +251,14 @@ class BoundedDocumentRepairTests(unittest.TestCase):
     def test_unmarked_delivery_target_never_authorizes_repair(self):
         (self.root / PAIRS[0][1]).write_text('# Delivery workflow\n')
         peer = self.peer(b'[old](contributing/feature-workflow.md)\n')
-        result = ras.migrate_lifecycle_document_renames(self.root)
-        self.assertIn(b'feature-workflow.md', peer.read_bytes())
-        self.assertTrue(any('unconfirmed' in item and 'manually repair' in item for item in result.link_report))
+        before = peer.read_bytes()
+        for apply in (False, True):
+            with self.subTest(apply=apply), patch.object(
+                    ras, '_migration_current_docs', side_effect=AssertionError('must not traverse')):
+                result = ras.migrate_lifecycle_document_renames(self.root, apply=apply)
+                self.assertEqual(peer.read_bytes(), before)
+                self.assertEqual(result.written, ())
+                self.assertEqual(result.link_report, ())
 
     def test_skip_unrelated_refused_undecodable_and_oversize_docs(self):
         self.seed()
@@ -384,7 +407,8 @@ class BoundedDocumentRepairTests(unittest.TestCase):
         with patch.object(ras, 'LIFECYCLE_DOCUMENT_RENAMES', ((PAIRS[1][0], unrelated),)):
             result = ras.migrate_lifecycle_document_renames(self.root)
         self.assertIn(b'feature-wave-lifecycle-overview.md', peer.read_bytes())
-        self.assertTrue(any('unconfirmed' in line for line in result.link_report))
+        self.assertEqual(result.written, ())
+        self.assertEqual(result.link_report, ())
 
 
 if __name__ == '__main__':

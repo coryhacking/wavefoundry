@@ -1420,8 +1420,9 @@ def _check_installed_review_plan_prompt(root: Path) -> None:
         raise SystemExit(3)
 
 
-def phase_dry_run(root: Path) -> int:
-    """Print the full upgrade plan and hook inventory without touching anything on disk.
+def phase_dry_run(root: Path, *, explicit_pack: Path | None = None,
+                  confirm_hosts_stopped: bool = False) -> int:
+    """Report retained state, or preview the selected pack without applying it.
 
     Intended for agent-side safety review before committing to the real upgrade:
     the agent can inspect seed diffs, the extension module source, and every
@@ -1432,29 +1433,17 @@ def phase_dry_run(root: Path) -> int:
     human-readable line and the summary's ``preview_logs`` name each one this
     run wrote, repository-relative.
 
-    Exit codes: 0, or 3 for a blocked installed review-plan prompt.
+    Exit codes: 0, 3 for refusal, or 5 for a retained continuation.
     """
     _ensure_scripts_on_path()
-    import upgrade_lib
-
     _log("\n── Dry Run ── (no changes will be made) ─────────────────────────────────")
 
-    _check_installed_review_plan_prompt(root)
+    retained = _report_pending_upgrade(root, explicit_pack=explicit_pack,
+                                       confirm_hosts_stopped=confirm_hosts_stopped)
+    if retained is not None:
+        return retained
 
-    # Advisory lock check
-    existing_lock = upgrade_lib.read_upgrade_lock(root)
-    if existing_lock is not None:
-        # Wave 1zrak: name an uninspectable lock as such, path-free, the same
-        # way the real run's preflight refuses it. getattr: an older cached
-        # upgrade_lib may lack the helper.
-        unreadable_cause = getattr(upgrade_lib, "upgrade_lock_unreadable_cause", None)
-        unreadable = unreadable_cause(root) if unreadable_cause and not existing_lock else None
-        if unreadable is not None:
-            _log(f"⚠  {upgrade_lib.upgrade_lock_unreadable_message(unreadable)}")
-        elif upgrade_lib.is_lock_stale(root):
-            _log("⚠  Stale upgrade lock detected (PID not running) — would be cleared on real run.")
-        else:
-            _log("⚠  Upgrade already in progress (lock file present and PID is running).")
+    _check_installed_review_plan_prompt(root)
 
     # Dashboard
     dash_running, dash_pid, dash_url = _detect_dashboard(root)
@@ -1463,7 +1452,10 @@ def phase_dry_run(root: Path) -> int:
 
     # Versions
     from_version = _read_installed_revision(root)
-    zip_path = _find_zip(root)
+    zip_path = explicit_pack.resolve() if explicit_pack is not None else _find_zip(root)
+    if explicit_pack is not None and not zip_path.is_file():
+        _err(f"Explicit pack does not exist: {zip_path}")
+        return 3
     if zip_path:
         to_version = _read_zip_version(zip_path) or "unknown"
     else:
@@ -5363,6 +5355,178 @@ def materialize_lifecycle_policy(root: Path) -> str:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+def _pending_upgrade(root: Path, *, explicit_pack: Path | None = None,
+                     confirm_hosts_stopped: bool = False) -> dict | None:
+    """Read retained authority before default-run discovery or checkpoint writes.
+
+    Phase choice belongs to the existing continuation contract. This probe never
+    restores a receipt, updates a checkpoint, loads archive code or checks PIDs.
+    Explicit recovery phases do not pass through it.
+    """
+    import upgrade_lib
+    import sqlite_storage_migration as migration
+
+    lock = upgrade_lib.read_upgrade_lock(root)
+    if isinstance(lock, dict) and lock.get("entry_path") == "setup":
+        raise ValueError("storage_setup_resume_required: resume the recorded wf setup continuation; preserve its checkpoint")
+    if lock is None:
+        # The canonical reader also returns JSON null as None. Only an absent
+        # path may authorize a fresh run.
+        try:
+            upgrade_lib.upgrade_lock_path(root).stat()
+        except (FileNotFoundError, NotADirectoryError):
+            pass
+        else:
+            raise ValueError("upgrade_checkpoint_invalid: null checkpoint; preserve checkpoint and inspect wf_upgrade_status")
+    if lock is not None:
+        if not isinstance(lock, dict) or not lock:
+            cause = upgrade_lib.upgrade_lock_unreadable_cause(root)
+            raise ValueError(upgrade_lib.upgrade_lock_unreadable_message(cause) if cause else
+                             "upgrade_checkpoint_invalid: preserve the checkpoint and original package; inspect wf_upgrade_status before choosing recovery")
+        if not isinstance(lock.get("to_version"), str) or not lock["to_version"] or not lock.get("started_at"):
+            raise ValueError("upgrade_checkpoint_invalid: missing retained run identity; preserve checkpoint and original package and inspect wf_upgrade_status")
+    receipt = migration.read_receipt(root / ".wavefoundry/index")
+    pending_receipt = receipt is not None and receipt["state"] != "complete"
+    ordinary_storage_continuation = False
+    if lock is None and not pending_receipt:
+        if explicit_pack is None and _read_old_manifest_snapshot(root) is not None:
+            raise ValueError("upgrade_manifest_recovery_pending: preserve the original MANIFEST snapshot and explicitly retry its original target --pack; no archive was selected")
+        return None
+
+    # read_receipt authenticates the repository identity. Bind an extant
+    # checkpoint to that same migration before considering its original pack.
+    if pending_receipt:
+        if receipt.get("entry_path") == "setup":
+            raise ValueError("storage_setup_resume_required: resume the recorded wf setup continuation; preserve its receipt")
+        if lock is not None and (lock.get("storage_migration_id") != receipt["migration_id"]
+                                 or lock.get("to_version") != receipt.get("target_version")):
+            raise ValueError("storage_checkpoint_identity_mismatch: preserve checkpoint, receipt and original package; inspect wf_upgrade_status")
+        pack = receipt.get("pack_path")
+        digest = receipt.get("pack_sha256")
+        if pack:
+            candidate = explicit_pack if explicit_pack is not None and confirm_hosts_stopped else Path(pack)
+            if not re.fullmatch(r"[0-9a-f]{64}", str(digest)) or migration._file_hash(candidate) != digest:
+                raise ValueError("storage_pack_changed: restore the recorded byte-identical archive, or explicitly continue with its relocated --pack and --confirm-hosts-stopped; preserve receipt")
+        elif digest is not None or explicit_pack is not None:
+            raise ValueError("storage_pack_changed: receipt belongs to a current-tree upgrade; preserve receipt")
+        if (explicit_pack is not None and confirm_hosts_stopped
+                and migration._checkpoint_resume_flag(lock or {}) is None
+                and receipt["state"] not in migration.READABLE_STATES):
+            # The ordinary storage continuation deliberately re-enters phases
+            # 0–3; its existing prepare_upgrade gates remain the authority.
+            ordinary_storage_continuation = True
+
+    lock = lock or {}
+    guard = lock.get("index_guard_handoff")
+    terminal = isinstance(guard, dict) and "terminal_cleanup" in guard
+    if "index_guard_handoff" in lock:
+        import upgrade_extensions as extensions
+        if terminal:
+            extensions.validate_index_guard_terminal_cleanup(root, lock)
+            extensions.validate_index_guard_durable_pack(root, lock, allow_terminal_absence=True)
+        elif pending_receipt and isinstance(guard, dict) and "durable_pack" not in guard:
+            # A restart receipt deliberately outlives the dispatcher's private
+            # archive. The canonical guard accepts its verified original (or
+            # explicitly relocated identical) package as the locator.
+            extensions._validate_index_guard_handoff(root, lock, guard,
+                package=candidate if receipt.get("pack_path") else None)
+        elif explicit_pack is not None and isinstance(guard, dict) and "durable_pack" not in guard and _read_old_manifest_snapshot(root) is not None:
+            # The original MANIFEST may outlive a private staged locator too;
+            # the existing handoff digest authenticates its explicit archive.
+            extensions._validate_index_guard_handoff(root, lock, guard, package=explicit_pack)
+        else:
+            extensions._validate_index_guard_handoff(root, lock, guard)
+    elif lock.get("zip_path"):
+        # Legacy checkpoints have no digest proof. Preserve their existing
+        # target binding; never replace an absent locator with ambient discovery.
+        retained = Path(lock["zip_path"])
+        if _read_zip_version(retained) != lock["to_version"]:
+            raise ValueError("upgrade_retained_pack_invalid: restore the original package matching the retained target; preserve checkpoint")
+
+    guidance = migration.resume_guidance(root, lock)
+    action = lock.get("action_required")
+    if action is not None and not isinstance(action, dict):
+        raise ValueError("upgrade_checkpoint_invalid: malformed action_required; preserve checkpoint and inspect wf_upgrade_status")
+    if isinstance(action, dict) and action.get("kind") not in {"historical_memory", "storage_migration", "index_guard_handoff"}:
+        raise ValueError("upgrade_checkpoint_invalid: unknown action_required; preserve checkpoint and inspect wf_upgrade_status")
+    if isinstance(action, dict) and action.get("kind") == "storage_migration" and (not pending_receipt or action != receipt.get("restart_action")):
+        raise ValueError("storage_checkpoint_identity_mismatch: retained action differs from receipt; preserve checkpoint and receipt")
+    if isinstance(action, dict) and action.get("kind") == "index_guard_handoff" and not isinstance(guard, dict):
+        raise ValueError("index_guard_checkpoint_invalid: missing retained handoff; preserve checkpoint and original package")
+    if isinstance(action, dict) and action.get("kind") == "historical_memory":
+        if (action.get("resume_phase") != "resume_after_memory"
+                or action.get("state") not in {"awaiting_memory_validation", "awaiting_memory_publication"}
+                or not action.get("token") or not action.get("run_id")
+                or action.get("run_id") != lock.get("memory_backfill_run_id")):
+            raise ValueError("upgrade_checkpoint_invalid: historical-memory action identity mismatch; preserve checkpoint and inspect wf_upgrade_status")
+    if ordinary_storage_continuation:
+        return None
+    snapshot = _read_old_manifest_snapshot(root) if lock else None
+    manifest_retry = bool(snapshot is not None and not terminal and not pending_receipt and not action
+        and snapshot["target_version"] == lock.get("to_version")
+        and ((guidance is None and lock.get("failed_phase") in {"extract", "surface_rendering", "pruning"})
+             or (not lock.get("failed_phase") and lock.get("pruned_count") is None
+                 and lock.get("memory_backfill_state") == "indexed" and lock.get("index_rebuilt_at"))))
+    if manifest_retry:
+        retained_pack = lock.get("zip_path")
+        if not retained_pack:
+            raise ValueError("upgrade_manifest_recovery_pending: original pack authority is missing; preserve checkpoint and MANIFEST snapshot")
+        if explicit_pack is not None:
+            # Snapshot authority permits the supported full repair, never a
+            # new pack or a phase-owned memory/docs/index continuation.
+            expected_digest = guard.get("pack_sha256") if isinstance(guard, dict) else migration._file_hash(Path(retained_pack))
+            if (_read_zip_version(explicit_pack) != snapshot["target_version"]
+                    or migration._file_hash(explicit_pack) != expected_digest):
+                raise ValueError("upgrade_manifest_pack_changed: explicitly retry the retained byte-identical target pack; preserve checkpoint and MANIFEST snapshot")
+            return None
+        guidance = migration.restart_command(root, retained_pack)
+        guidance["guidance"] = "Preserve the original MANIFEST snapshot and retry its retained target pack after every Wavefoundry host is stopped: " + guidance["command"]
+    if terminal:
+        guidance = migration.resume_guidance(root, resume_flag="--cleanup")
+    elif guidance is None and pending_receipt:
+        guidance = migration.restart_command(root, receipt.get("pack_path"), migration.rebuild_requested(receipt))
+        guidance["guidance"] = "Stop every Wavefoundry host, then run the exact retained-pack continuation from an external terminal: " + guidance["command"]
+    elif guidance is None and isinstance(guard, dict):
+        import upgrade_extensions as extensions
+        action = extensions.read_index_guard_action(root, 3)
+        if action is not None:
+            guidance = {**action, "guidance": extensions.INDEX_GUARD_NEXT_STEP}
+            if explicit_pack is not None and confirm_hosts_stopped:
+                if extensions._pack_sha256(explicit_pack) != guard.get("pack_sha256"):
+                    raise ValueError("index_guard_package_changed: continue with the recorded byte-identical --pack")
+                return None
+    if guidance is None:
+        raise ValueError("upgrade_checkpoint_ambiguous: retained run has no recognized continuation; preserve checkpoint and original package and inspect wf_upgrade_status before retrying")
+    state = "terminal_cleanup" if terminal else (
+        (action.get("state") if isinstance(action, dict) and action.get("kind") == "historical_memory" else None)
+        or lock.get("current_phase") or lock.get("failed_phase"))
+    return {"code": "upgrade_pending", "state": state or "storage_restart_required",
+            "from_version": lock.get("from_version"),
+            "to_version": lock.get("to_version") or receipt.get("target_version"),
+            "started_at": lock.get("started_at"), "failed_phase": lock.get("failed_phase"),
+            "resume_phase": next((flag[2:].replace("-", "_") for flag in guidance.get("command_argv", [])
+                                  if flag in migration._RESUME_FLAGS), "preflight_to_docs_gate"),
+            "action_required": {**(action or {}), **guidance},
+            "guidance": guidance["guidance"]}
+
+
+def _report_pending_upgrade(root: Path, *, explicit_pack: Path | None = None,
+                            confirm_hosts_stopped: bool = False) -> int | None:
+    """Share the read-only decision and presentation before preview/apply discovery."""
+    try:
+        pending = _pending_upgrade(root, explicit_pack=explicit_pack,
+                                   confirm_hosts_stopped=confirm_hosts_stopped)
+    except (OSError, ValueError, RuntimeError, TypeError, KeyError) as exc:
+        _err(f"Retained upgrade refused before pack discovery; nothing restored or cleared: {exc}")
+        return 3
+    if pending is not None:
+        _log(f"Pending upgrade to {pending['to_version']} ({pending['state']}); checkpoint retained. No new pack selected.")
+        _log(pending["guidance"])
+        _emit_summary_line({"pending_upgrade": pending})
+        return 5
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Automated Wavefoundry framework upgrade.",
@@ -5515,8 +5679,13 @@ def main(argv: list[str] | None = None) -> int:
     if not any((args.dry_run, args.emit_summary, args.reconciliation_report, args.detect_zip, args.list_zips)):
         import upgrade_lib
         import sqlite_storage_migration
-        checkpoint = upgrade_lib.read_upgrade_lock(root) or {}
-        receipt = sqlite_storage_migration.read_receipt(root / ".wavefoundry/index")
+        checkpoint = upgrade_lib.read_upgrade_lock(root)
+        checkpoint = checkpoint if isinstance(checkpoint, dict) else {}
+        try:
+            receipt = sqlite_storage_migration.read_receipt(root / ".wavefoundry/index")
+        except (OSError, ValueError, RuntimeError) as exc:
+            _err(f"Retained storage receipt refused before checkpoint restoration; preserve receipt and inspect wf_upgrade_status: {exc}")
+            return 3
         if (checkpoint.get("entry_path") == "setup"
                 or (receipt and receipt.get("entry_path") == "setup" and receipt["state"] != "complete")):
             _err("storage_setup_resume_required: resume the recorded wf setup continuation; upgrade has changed nothing")
@@ -5559,13 +5728,21 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── Dry-run ────────────────────────────────────────────────────────────
     if args.dry_run:
-        return phase_dry_run(root)
+        return phase_dry_run(root, explicit_pack=Path(args.pack) if args.pack else None,
+                             confirm_hosts_stopped=args.confirm_hosts_stopped)
 
     if args.rebuild_storage and any((args.update_index, args.rebuild_index,
                                     args.cleanup, args.resume_after_gate,
                                     args.resume_after_memory)):
         _err("--rebuild-storage selects recovery during ordinary upgrade resume; use the retained continuation command with its original --pack, not a standalone phase.")
         return 2
+
+    if not any((args.update_index, args.rebuild_index, args.cleanup,
+                args.resume_after_gate, args.resume_after_memory)):
+        retained = _report_pending_upgrade(root, explicit_pack=Path(args.pack) if args.pack else None,
+                                           confirm_hosts_stopped=args.confirm_hosts_stopped)
+        if retained is not None:
+            return retained
 
     # Terminal finalization precedes receipt restoration, memory backstops and
     # archive resolution. It can authorize absence only after fatal obligations.
