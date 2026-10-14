@@ -14,9 +14,13 @@ Last verified: 2026-10-13
 
 **Qualification:** 12,471 tests across 185 files passed with 12 reported skips; current green framework receipt hash 83e8456ae65b35e56e2409ee1f48216471edb27552d52272329cd7bcbfc7c520. Required specialist and council reviews passed after independent reverification of the three findings. No native Windows, live-host or new-archive claim. Both edit gates remain closed.
 
-**Next:** Current operator instruction authorizes committing and pushing the closed batch, then a new local 1.30.0 test build. Packaging profile checks and exact archive verification are pending. No public release is requested.
+**Next:** Idle; operator local testing of `1.30.0+pwg7`. The five-wave source batch is committed and pushed as `afdd8b2c`; the build stamp and this handoff accompany the verified local pack. No public release was requested.
 
 **Privacy:** Source feedback and identifying downstream details remain private and outside committed records or external messages.
+
+**Local test pack:** `/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.30.0.pwg7.zip`, 10,538,653 bytes; SHA-256 `d52ae0e9606c35046813f68238e92cd2078e532b6f4fabb70a2f3d713e146521`. ZIP CRC, unique safe paths, 249 matching source files, changelog/version, nested feature parity and bridge digest checks passed. Internal composition files were removed; only the operator-facing archive remains for this build.
+
+**Packaging qualification:** Default: 12,471 tests / 185 files / 12 skips. Renamed profile: 12,463 tests / 185 files / 28 skips, including 16 explicitly default-profile-only skips. Declared profile: 12,471 tests / 185 files / the same 12 exact skips. Both deterministic comparisons passed against source hash `83e8456ae65b35e56e2409ee1f48216471edb27552d52272329cd7bcbfc7c520`. Reports remain in the ignored qualification cache as `package-1.30.0-20k-default.json`, `package-1.30.0-20k-second-retry.json` and `package-1.30.0-20k-declared-retry.json`. Initial concurrent profile attempts failed; the child runners did not inherit the outer two-worker flag. Sequential retries with inherited `PYTHON_CPU_COUNT=2` passed with no source edits, deadline changes or waivers. This is not a timing diagnosis. uv 0.12.17 remains the newest eligible 21-day-mature cross-platform pin; all 18 wheel hashes and the three vendored npm packages verified against their registries. No undecided advisory sensors remain.
 
 ## Open questions / Deferred decisions
 
