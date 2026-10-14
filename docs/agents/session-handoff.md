@@ -14,7 +14,9 @@ Last verified: 2026-10-13
 
 **Qualification:** 12,471 tests across 185 files passed with 12 reported skips; current green framework receipt hash 83e8456ae65b35e56e2409ee1f48216471edb27552d52272329cd7bcbfc7c520. Required specialist and council reviews passed after independent reverification of the three findings. No native Windows, live-host or new-archive claim. Both edit gates remain closed.
 
-**Next:** Publish official 1.30.0 through the canonical release builder. The operator explicitly authorized publication after the verified local `1.30.0+pwg7` build. Source qualification remains current; no framework code changed.
+**Next:** Official 1.30.0 is published; await operator direction. Source qualification remains current; no framework code changed during release preparation.
+
+**Official release:** [v1.30.0](https://github.com/coryhacking/wavefoundry/releases/tag/v1.30.0), build `1.30.0+pwgi`, tagged at `624c7f62d77ae28820de009a4ad4aa0baf87184a`. GitHub confirms a published, non-prerelease release with both assets uploaded. `wavefoundry-1.30.0.pwgi.zip`: 10,538,661 bytes, SHA-256 `f60cd13394bd352b3a06433e4f20aa4aa19686d3982a0957437a38b498004f2b`. `wavefoundry-models-3.zip`: 351,495,236 bytes, SHA-256 `10727d5324507acffa2a6c4459b1bdbc01e65252581dd8000d18fca92f65f291`. GitHub asset sizes and digests match the verified local archives. Feature CRC, safe paths, source parity, nested feature/bridge integrity, and model manifests, file digests, revisions and licenses passed; docs validation passed. This verifies archive contents and publication, not a downstream installation of this exact release.
 
 **Privacy:** Source feedback and identifying downstream details remain private and outside committed records or external messages.
 
